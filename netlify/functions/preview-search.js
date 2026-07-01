@@ -1,23 +1,10 @@
-// Hostnames known to always return brand/news logos instead of content thumbnails.
-// Do NOT block entire domains that can also have valid actor/drama content.
-const LOGO_DOMAINS = new Set([
-  "sina.com",
-  "sina.com.cn",
-  "sinaimg.cn",
-  "163.com",
-  "126.com"
-]);
-
-// Patterns in thumbnail URLs that indicate a logo/favicon/brand placeholder.
-const LOGO_URL_PATTERNS = [
-  "/logo",
-  "logo.",
+// Only reject thumbnails that are definitively placeholder assets.
+// Do NOT block source domains — sina.com, 163.com, sohu.com etc. all
+// serve real actor/drama images. Block bad thumbnails, not bad websites.
+const PLACEHOLDER_THUMBNAIL_PATTERNS = [
   "favicon",
   "static/baike",
-  "baike.png",
-  "share-logo",
-  "og-image",
-  "social-media-share"
+  "baike.png"
 ];
 
 export async function handler(event) {
@@ -81,15 +68,14 @@ export async function handler(event) {
           typeof r.link === "string" &&
           r.link &&
           !r.isLogo &&
-          !isLogoDomain(r.source) &&
-          !isLogoUrl(r.thumbnail)
+          !isPlaceholderThumbnail(r.thumbnailOriginal)
       )
       .slice(0, 9);
 
     const response = {
       query: q,
       provider: "brave",
-      results: normalized.map(({ isLogo, ...r }) => r)
+      results: normalized.map(({ isLogo, thumbnailOriginal, ...r }) => r)
     };
 
     if (debug) {
@@ -111,15 +97,10 @@ export async function handler(event) {
   }
 }
 
-function isLogoDomain(source) {
-  if (!source) return false;
-  return [...LOGO_DOMAINS].some((d) => source === d || source.endsWith("." + d));
-}
-
-function isLogoUrl(url) {
-  if (!url) return false;
-  const lower = url.toLowerCase();
-  return LOGO_URL_PATTERNS.some((p) => lower.includes(p));
+function isPlaceholderThumbnail(originalUrl) {
+  if (!originalUrl) return false;
+  const lower = originalUrl.toLowerCase();
+  return PLACEHOLDER_THUMBNAIL_PATTERNS.some((p) => lower.includes(p));
 }
 
 function jsonResponse(statusCode, body) {
@@ -152,9 +133,10 @@ function normalizeWebResult(item, fallbackTitle) {
     "";
 
   const isLogo = thumbnailObj?.logo === true;
+  const thumbnailOriginal = thumbnailObj?.original || "";
 
   const link = item.url || "";
   const source = safeHostname(link) || "Web result";
 
-  return { title, thumbnail, isLogo, link, source };
+  return { title, thumbnail, isLogo, thumbnailOriginal, link, source };
 }
