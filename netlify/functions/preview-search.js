@@ -1,4 +1,5 @@
-// Hostnames known to return brand/news logos instead of content thumbnails
+// Hostnames known to always return brand/news logos instead of content thumbnails.
+// Do NOT block entire domains that can also have valid actor/drama content.
 const LOGO_DOMAINS = new Set([
   "sina.com",
   "sina.com.cn",
@@ -7,44 +8,41 @@ const LOGO_DOMAINS = new Set([
   "126.com"
 ]);
 
+// Patterns in thumbnail URLs that indicate a logo/favicon/brand placeholder.
+const LOGO_URL_PATTERNS = [
+  "/logo",
+  "logo.",
+  "favicon",
+  "static/baike",
+  "baike.png",
+  "share-logo",
+  "og-image",
+  "social-media-share"
+];
+
 export async function handler(event) {
   const q = (event.queryStringParameters?.q || "").trim();
   const provider = (event.queryStringParameters?.provider || "brave").trim();
   const debug = event.queryStringParameters?.debug === "1";
 
   if (!q) {
-    return jsonResponse(400, {
-      query: q,
-      provider,
-      results: [],
-      error: "Missing query parameter"
-    });
+    return jsonResponse(400, { query: q, provider, results: [], error: "Missing query parameter" });
   }
 
   if (provider !== "brave") {
-    return jsonResponse(400, {
-      query: q,
-      provider,
-      results: [],
-      error: "Unsupported provider (only 'brave' supported for now)"
-    });
+    return jsonResponse(400, { query: q, provider, results: [], error: "Unsupported provider (only 'brave' supported for now)" });
   }
 
   const apiKey = process.env.BRAVE_SEARCH_API_KEY;
   if (!apiKey) {
-    return jsonResponse(500, {
-      query: q,
-      provider,
-      results: [],
-      error: "Brave API key not configured"
-    });
+    return jsonResponse(500, { query: q, provider, results: [], error: "Brave API key not configured" });
   }
 
   try {
     const braveUrl =
       "https://api.search.brave.com/res/v1/web/search" +
       `?q=${encodeURIComponent(q)}` +
-      `&count=20` +
+      `&count=30` +
       `&safesearch=moderate`;
 
     const resp = await fetch(braveUrl, {
@@ -83,7 +81,8 @@ export async function handler(event) {
           typeof r.link === "string" &&
           r.link &&
           !r.isLogo &&
-          !isLogoDomain(r.source)
+          !isLogoDomain(r.source) &&
+          !isLogoUrl(r.thumbnail)
       )
       .slice(0, 9);
 
@@ -115,6 +114,12 @@ export async function handler(event) {
 function isLogoDomain(source) {
   if (!source) return false;
   return [...LOGO_DOMAINS].some((d) => source === d || source.endsWith("." + d));
+}
+
+function isLogoUrl(url) {
+  if (!url) return false;
+  const lower = url.toLowerCase();
+  return LOGO_URL_PATTERNS.some((p) => lower.includes(p));
 }
 
 function jsonResponse(statusCode, body) {
