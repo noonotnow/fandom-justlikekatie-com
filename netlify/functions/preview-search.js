@@ -72,14 +72,15 @@ export async function handler(event) {
           typeof r.thumbnail === "string" &&
           r.thumbnail &&
           typeof r.link === "string" &&
-          r.link
+          r.link &&
+          !r.isLogo
       )
       .slice(0, 9);
 
     const response = {
       query: q,
       provider: "brave",
-      results: normalized
+      results: normalized.map(({ isLogo, ...r }) => r)
     };
 
     if (debug) {
@@ -123,15 +124,17 @@ function safeHostname(url) {
 function normalizeWebResult(item, fallbackTitle) {
   const title = item.title || item.description || fallbackTitle;
 
-  let thumbnail =
-    item.thumbnail?.src ||
-    item.thumbnail?.url ||
-    item.thumbnail ||
+  const thumbnailObj = item.thumbnail;
+  const thumbnail =
+    thumbnailObj?.src ||
+    thumbnailObj?.url ||
+    (typeof thumbnailObj === "string" ? thumbnailObj : "") ||
     "";
 
-  const link = item.url || "";
+  const isLogo = thumbnailObj?.logo === true;
 
+  const link = item.url || "";
   const source = safeHostname(link) || "Web result";
 
-  return { title, thumbnail, link, source };
+  return { title, thumbnail, isLogo, link, source };
 }
