@@ -4,7 +4,8 @@
 const PLACEHOLDER_THUMBNAIL_PATTERNS = [
   "favicon",
   "static/baike",
-  "baike.png"
+  "baike.png",
+  "20x320.png"  // Sina brand logo asset (case-insensitive match below)
 ];
 
 export async function handler(event) {
