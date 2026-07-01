@@ -1,3 +1,12 @@
+// Hostnames known to return brand/news logos instead of content thumbnails
+const LOGO_DOMAINS = new Set([
+  "sina.com",
+  "sina.com.cn",
+  "sinaimg.cn",
+  "163.com",
+  "126.com"
+]);
+
 export async function handler(event) {
   const q = (event.queryStringParameters?.q || "").trim();
   const provider = (event.queryStringParameters?.provider || "brave").trim();
@@ -73,7 +82,8 @@ export async function handler(event) {
           r.thumbnail &&
           typeof r.link === "string" &&
           r.link &&
-          !r.isLogo
+          !r.isLogo &&
+          !isLogoDomain(r.source)
       )
       .slice(0, 9);
 
@@ -100,6 +110,11 @@ export async function handler(event) {
       error: err.message || "Unknown error"
     });
   }
+}
+
+function isLogoDomain(source) {
+  if (!source) return false;
+  return [...LOGO_DOMAINS].some((d) => source === d || source.endsWith("." + d));
 }
 
 function jsonResponse(statusCode, body) {
