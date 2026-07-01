@@ -32,12 +32,13 @@ export async function handler(event) {
 
   try {
     const braveUrl =
-      "https://api.search.brave.com/res/v1/images/search" +
+      "https://api.search.brave.com/res/v1/web/search" +
       `?q=${encodeURIComponent(q)}` +
-      `&count=12` +
+      `&count=20` +
       `&safesearch=moderate`;
 
     const resp = await fetch(braveUrl, {
+      method: "GET",
       headers: {
         Accept: "application/json",
         "X-Subscription-Token": apiKey
@@ -45,19 +46,21 @@ export async function handler(event) {
     });
 
     if (!resp.ok) {
+      const errorText = await resp.text();
       return jsonResponse(resp.status, {
         query: q,
         provider,
         results: [],
-        error: `Brave API error: ${resp.statusText}`
+        error: `Brave API error: ${resp.statusText}`,
+        details: errorText.substring(0, 200)
       });
     }
 
     const data = await resp.json();
-    const rawResults = Array.isArray(data.results) ? data.results : [];
+    const webResults = Array.isArray(data.web) ? data.web : [];
 
-    const normalized = rawResults
-      .map((item) => normalizeBraveResult(item, q))
+    const normalized = webResults
+      .map((item) => normalizeWebResult(item, q))
       .filter(
         (r) =>
           typeof r.thumbnail === "string" &&
@@ -101,35 +104,18 @@ function safeHostname(url) {
   }
 }
 
-function normalizeBraveResult(item, fallbackTitle) {
-  const title =
-    item.title ||
-    item.caption ||
-    item.alt ||
-    item.page_title ||
-    fallbackTitle;
+function normalizeWebResult(item, fallbackTitle) {
+  const title = item.title || item.description || fallbackTitle;
 
-  const thumbnail =
+  let thumbnail =
     item.thumbnail?.src ||
     item.thumbnail?.url ||
     item.thumbnail ||
-    item.properties?.thumbnail_url ||
-    item.properties?.url ||
     "";
 
-  const link =
-    item.url ||
-    item.page_url ||
-    item.source_url ||
-    item.image_url ||
-    "";
+  const link = item.url || "";
 
-  const source =
-    item.source ||
-    item.domain ||
-    item.site ||
-    item.host ||
-    safeHostname(link);
+  const source = safeHostname(link) || "Web result";
 
   return { title, thumbnail, link, source };
 }
