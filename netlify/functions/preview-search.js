@@ -1,6 +1,7 @@
 export async function handler(event) {
   const q = (event.queryStringParameters?.q || "").trim();
   const provider = (event.queryStringParameters?.provider || "brave").trim();
+  const debug = event.queryStringParameters?.debug === "1";
 
   if (!q) {
     return jsonResponse(400, {
@@ -57,9 +58,14 @@ export async function handler(event) {
     }
 
     const data = await resp.json();
-    const webResults = Array.isArray(data.web) ? data.web : [];
 
-    const normalized = webResults
+    // Support both Brave Image Search (data.results) and Web Search (data.web.results)
+    const rawResults =
+      Array.isArray(data.results) ? data.results :
+      Array.isArray(data.web?.results) ? data.web.results :
+      [];
+
+    const normalized = rawResults
       .map((item) => normalizeWebResult(item, q))
       .filter(
         (r) =>
@@ -70,11 +76,21 @@ export async function handler(event) {
       )
       .slice(0, 9);
 
-    return jsonResponse(200, {
+    const response = {
       query: q,
       provider: "brave",
       results: normalized
-    });
+    };
+
+    if (debug) {
+      response.rawTopLevelKeys = Object.keys(data);
+      response.rawCount = rawResults.length;
+      response.normalizedCount = normalized.length;
+      response.firstResultKeys = rawResults[0] ? Object.keys(rawResults[0]) : [];
+      response.firstResultSample = rawResults[0] ?? null;
+    }
+
+    return jsonResponse(200, response);
   } catch (err) {
     return jsonResponse(500, {
       query: q,
