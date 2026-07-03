@@ -60,7 +60,7 @@ export async function handler(event) {
       "https://api.search.brave.com/res/v1/web/search" +
       `?q=${encodeURIComponent(q)}` +
       `&count=20` +
-      `&safesafe=moderate`;
+      `&safesearch=moderate`;
 
     const braveResp = await fetch(braveUrl, {
       method: "GET",
