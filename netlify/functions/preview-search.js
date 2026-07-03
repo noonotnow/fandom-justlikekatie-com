@@ -126,6 +126,7 @@ export async function handler(event) {
       response.braveRawCount = braveRaw.length;
       response.braveNormalizedCount = braveNormalized.length;
       response.braveUsefulCount = braveUseful.length;
+      response.version = "serpapi-fallback-v1";
       response.fallbackUsed = finalProvider === "baidu";
       response.rawTopLevelKeys = Object.keys(braveData);
       response.firstResultKeys = braveRaw[0] ? Object.keys(braveRaw[0]) : [];
