@@ -5,7 +5,19 @@ const PLACEHOLDER_THUMBNAIL_PATTERNS = [
   "favicon",
   "static/baike",
   "baike.png",
-  "x320.png"    // Sina brand logo assets: 320X320.png, 20X320.png (case-insensitive match below)
+  "x320.png",   // Sina brand logo assets: 320X320.png, 20X320.png (case-insensitive match below)
+  "/logo.",     // Generic logo image files in URL paths (e.g. /logo.png, /logo.svg)
+  "_logo.",     // Underscore-delimited logo filenames (e.g. sina_logo.png)
+  "-logo.",     // Dash-delimited logo filenames (e.g. sina-logo.png)
+  "/logos/"     // Logo asset directories
+];
+
+// Title/description patterns that indicate a site-logo or placeholder result.
+// Checked case-insensitively against the result title.
+const PLACEHOLDER_TITLE_PATTERNS = [
+  "sina logo",
+  "site logo",
+  "favicon"
 ];
 
 export async function handler(event) {
@@ -69,7 +81,9 @@ export async function handler(event) {
           typeof r.link === "string" &&
           r.link &&
           !r.isLogo &&
-          !isPlaceholderThumbnail(r.thumbnailOriginal)
+          !isPlaceholderThumbnail(r.thumbnail) &&
+          !isPlaceholderThumbnail(r.thumbnailOriginal) &&
+          !isPlaceholderTitle(r.title)
       )
       .slice(0, 9);
 
@@ -102,6 +116,12 @@ function isPlaceholderThumbnail(originalUrl) {
   if (!originalUrl) return false;
   const lower = originalUrl.toLowerCase();
   return PLACEHOLDER_THUMBNAIL_PATTERNS.some((p) => lower.includes(p));
+}
+
+function isPlaceholderTitle(title) {
+  if (!title) return false;
+  const lower = title.toLowerCase();
+  return PLACEHOLDER_TITLE_PATTERNS.some((p) => lower.includes(p));
 }
 
 function jsonResponse(statusCode, body) {
