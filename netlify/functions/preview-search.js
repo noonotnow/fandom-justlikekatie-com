@@ -1,15 +1,12 @@
-// Only reject thumbnails that are definitively placeholder assets.
-// Do NOT block source domains — sina.com, 163.com, sohu.com etc. all
-// serve real actor/drama images. Block bad thumbnails, not bad websites.
 const PLACEHOLDER_THUMBNAIL_PATTERNS = [
   "favicon",
   "static/baike",
   "baike.png",
-  "x320.png",   // Sina brand logo assets: 320X320.png, 20X320.png (case-insensitive match below)
-  "/logo.",     // Generic logo image files in URL paths (e.g. /logo.png, /logo.svg)
-  "_logo.",     // Underscore-delimited logo filenames (e.g. sina_logo.png)
-  "-logo.",     // Dash-delimited logo filenames (e.g. sina-logo.png)
-  "/logos/"     // Logo asset directories
+  "x320.png",
+  "/logo.",
+  "_logo.",
+  "-logo.",
+  "/logos/"
 ];
 
 const PLACEHOLDER_TITLE_PATTERNS = [
@@ -18,8 +15,27 @@ const PLACEHOLDER_TITLE_PATTERNS = [
   "favicon"
 ];
 
-// Minimum Brave results before falling back to Baidu via SerpAPI
-const BRAVE_FALLBACK_THRESHOLD = 3;
+// Commerce/product/off-topic domains that are not useful for actor/drama preview.
+// These count as zero useful results even if they pass the thumbnail filter.
+const COMMERCE_DOMAINS = new Set([
+  "1688.com",
+  "taobao.com",
+  "tmall.com",
+  "jd.com",
+  "aliexpress.com",
+  "amazon.com",
+  "amazon.co.jp",
+  "rakuten.co.jp",
+  "ebay.com",
+  "sportsv.net",
+  "dhgate.com",
+  "pinduoduo.com",
+  "vvic.com",
+  "missevan.com"
+]);
+
+// Fewer than this many *useful* (non-commerce, non-placeholder) results triggers Baidu fallback
+const USEFUL_FALLBACK_THRESHOLD = 3;
 
 export async function handler(event) {
   const q = (event.queryStringParameters?.q || "").trim();
@@ -40,12 +56,11 @@ export async function handler(event) {
   }
 
   try {
-    // --- Brave primary ---
     const braveUrl =
       "https://api.search.brave.com/res/v1/web/search" +
       `?q=${encodeURIComponent(q)}` +
       `&count=20` +
-      `&safesearch=moderate`;
+      `&safesafe=moderate`;
 
     const braveResp = await fetch(braveUrl, {
       method: "GET",
@@ -56,6 +71,7 @@ export async function handler(event) {
     });
 
     let braveNormalized = [];
+    let braveUseful = [];
     let braveRaw = [];
     let braveData = {};
 
@@ -66,13 +82,14 @@ export async function handler(event) {
         Array.isArray(braveData.web?.results) ? braveData.web.results :
         [];
       braveNormalized = filterResults(braveRaw.map((item) => normalizeWebResult(item, q)));
+      braveUseful = braveNormalized.filter((r) => !isCommerceDomain(r.source));
     }
 
-    // --- Baidu fallback via SerpAPI ---
+    // Fall back to Baidu via SerpAPI if useful results are too few
     let finalResults = braveNormalized;
     let finalProvider = "brave";
 
-    if (braveNormalized.length < BRAVE_FALLBACK_THRESHOLD) {
+    if (braveUseful.length < USEFUL_FALLBACK_THRESHOLD) {
       const serpKey = process.env.SERPAPI_KEY;
       if (serpKey) {
         try {
@@ -86,14 +103,15 @@ export async function handler(event) {
           if (serpResp.ok) {
             const serpData = await serpResp.json();
             const serpRaw = Array.isArray(serpData.images_results) ? serpData.images_results : [];
-            const serpNormalized = filterResults(serpRaw.map((item) => normalizeSerpResult(item, q)));
+            const serpNormalized = filterResults(serpRaw.map((item) => normalizeSerpResult(item, q)))
+              .filter((r) => !isCommerceDomain(r.source));
             if (serpNormalized.length > 0) {
               finalResults = serpNormalized;
               finalProvider = "baidu";
             }
           }
         } catch (_) {
-          // SerpAPI failure is non-fatal — stick with whatever Brave returned
+          // SerpAPI failure is non-fatal
         }
       }
     }
@@ -107,12 +125,11 @@ export async function handler(event) {
     if (debug) {
       response.braveRawCount = braveRaw.length;
       response.braveNormalizedCount = braveNormalized.length;
+      response.braveUsefulCount = braveUseful.length;
       response.fallbackUsed = finalProvider === "baidu";
-      if (braveData) {
-        response.rawTopLevelKeys = Object.keys(braveData);
-        response.firstResultKeys = braveRaw[0] ? Object.keys(braveRaw[0]) : [];
-        response.firstResultSample = braveRaw[0] ?? null;
-      }
+      response.rawTopLevelKeys = Object.keys(braveData);
+      response.firstResultKeys = braveRaw[0] ? Object.keys(braveRaw[0]) : [];
+      response.firstResultSample = braveRaw[0] ?? null;
     }
 
     return jsonResponse(200, response);
@@ -138,6 +155,11 @@ function filterResults(items) {
       !isPlaceholderThumbnail(r.thumbnailOriginal) &&
       !isPlaceholderTitle(r.title)
   );
+}
+
+function isCommerceDomain(source) {
+  if (!source) return false;
+  return [...COMMERCE_DOMAINS].some((d) => source === d || source.endsWith("." + d));
 }
 
 function isPlaceholderThumbnail(url) {
@@ -187,7 +209,6 @@ function normalizeWebResult(item, fallbackTitle) {
 }
 
 function normalizeSerpResult(item, fallbackTitle) {
-  // SerpAPI baidu_images shape: { title, original, thumbnail, source, link }
   const title = item.title || fallbackTitle;
   const thumbnail = item.thumbnail || "";
   const thumbnailOriginal = item.original || "";
