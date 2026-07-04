@@ -15,6 +15,15 @@ const PLACEHOLDER_TITLE_PATTERNS = [
   "favicon"
 ];
 
+// Ad/promo junk patterns in titles — beauty/body-transformation ads, sponsored content.
+// These are not actor content and should be filtered regardless of source domain.
+const AD_TITLE_PATTERNS = [
+  "变美", "变瘦", "变卡通", "最瘦", "瘦20斤", "瘦10斤", "瘦30斤",
+  "广告", "推广", "sponsored",
+  "一键变", "ai生成", "ai换脸", "ai写真",
+  "减肥", "塑形", "瘦身"
+];
+
 // Commerce/product/off-topic domains that are not useful for actor/drama preview.
 // These count as zero useful results even if they pass the thumbnail filter.
 const COMMERCE_DOMAINS = new Set([
@@ -174,7 +183,7 @@ export async function handler(event) {
     };
 
     if (debug) {
-      response.version = "serpapi-fallback-v5-cascade";
+      response.version = "serpapi-fallback-v6-adfilter";
       response.braveRawCount = braveRaw.length;
       response.braveNormalizedCount = braveNormalized.length;
       response.braveUsefulCount = braveUseful.length;
@@ -218,8 +227,15 @@ function filterResults(items) {
       !r.isLogo &&
       !isPlaceholderThumbnail(r.thumbnail) &&
       !isPlaceholderThumbnail(r.thumbnailOriginal) &&
-      !isPlaceholderTitle(r.title)
+      !isPlaceholderTitle(r.title) &&
+      !isAdTitle(r.title)
   );
+}
+
+function isAdTitle(title) {
+  if (!title) return false;
+  const lower = title.toLowerCase();
+  return AD_TITLE_PATTERNS.some((p) => lower.includes(p.toLowerCase()));
 }
 
 function isCommerceDomain(source) {
