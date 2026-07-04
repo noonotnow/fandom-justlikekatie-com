@@ -43,8 +43,12 @@ const COMMERCE_DOMAINS = new Set([
   "missevan.com"
 ]);
 
-// Fewer than this many *useful* (non-commerce, non-placeholder) results triggers Baidu fallback
-const USEFUL_FALLBACK_THRESHOLD = 3;
+// Fewer than this many *useful* (non-commerce, non-placeholder) results triggers SerpAPI fallback.
+// The visible unit is a 3x3 (9-slot) preview grid, so Brave should only be trusted to skip
+// fallback when it can nearly fill that grid with usable candidates — a handful of thin/
+// off-topic results is not enough ("crumbs are not breakfast"). Deliberately set below 9 (not
+// requiring a full grid) so fallback isn't forced when Brave genuinely has 8 strong candidates.
+const USEFUL_FALLBACK_THRESHOLD = 8;
 
 export async function handler(event) {
   const q = (event.queryStringParameters?.q || "").trim();
@@ -115,6 +119,11 @@ export async function handler(event) {
     let serpApiEngineLog = [];
 
     const hasCommerceResults = braveNormalized.length > braveUseful.length;
+    const braveTriggerReason = hasCommerceResults
+      ? "commerce_results_present"
+      : braveUseful.length < USEFUL_FALLBACK_THRESHOLD
+        ? `useful_count_below_threshold (${braveUseful.length} < ${USEFUL_FALLBACK_THRESHOLD})`
+        : `sufficient_useful_results (${braveUseful.length} >= ${USEFUL_FALLBACK_THRESHOLD})`;
     if (hasCommerceResults || braveUseful.length < USEFUL_FALLBACK_THRESHOLD) {
       const serpKey = process.env.SERPAPI_KEY;
       serpApiConfigured = !!serpKey;
@@ -206,10 +215,11 @@ export async function handler(event) {
     };
 
     if (debug) {
-      response.version = "serpapi-fallback-v7-bingfirst";
+      response.version = "serpapi-fallback-v8-threshold8";
       response.braveRawCount = braveRaw.length;
       response.braveNormalizedCount = braveNormalized.length;
       response.braveUsefulCount = braveUseful.length;
+      response.braveTriggerReason = braveTriggerReason;
       response.serpApiConfigured = serpApiConfigured;
       response.serpApiAttempted = serpApiAttempted;
       response.serpApiUrlNoKey = serpApiUrlNoKey;
