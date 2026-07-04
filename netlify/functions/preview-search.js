@@ -191,7 +191,7 @@ export async function handler(event) {
       response.serpApiNormalizedCount = serpApiNormalizedCount;
       response.serpApiFirstResultKeys = serpApiFirstResultKeys;
       response.serpApiFirstResultSample = serpApiFirstResultSample;
-      response.fallbackUsed = finalProvider === "baidu";
+      response.fallbackUsed = finalProvider !== "brave";
       response.rawTopLevelKeys = Object.keys(braveData);
       response.firstResultKeys = braveRaw[0] ? Object.keys(braveRaw[0]) : [];
       response.firstResultSample = braveRaw[0] ?? null;
