@@ -113,7 +113,7 @@ export async function handler(event) {
         try {
           const serpUrl =
             "https://serpapi.com/search.json" +
-            `?engine=baidu_images` +
+            `?engine=google_images` +
             `&q=${encodeURIComponent(q)}` +
             `&api_key=${serpKey}`;
 
@@ -166,7 +166,7 @@ export async function handler(event) {
     };
 
     if (debug) {
-      response.version = "serpapi-fallback-v3";
+      response.version = "serpapi-fallback-v4-google-images";
       response.braveRawCount = braveRaw.length;
       response.braveNormalizedCount = braveNormalized.length;
       response.braveUsefulCount = braveUseful.length;
@@ -270,6 +270,6 @@ function normalizeSerpResult(item, fallbackTitle) {
   const thumbnail = item.thumbnail || "";
   const thumbnailOriginal = item.original || "";
   const link = item.link || item.original || "";
-  const source = safeHostname(link) || "Baidu";
+  const source = safeHostname(link) || "Image";
   return { title, thumbnail, isLogo: false, thumbnailOriginal, link, source };
 }
