@@ -112,6 +112,7 @@ export async function handler(event) {
     let serpApiFirstResultKeys = [];
     let serpApiFirstResultSample = null;
     let serpApiUrlNoKey = null;
+    let serpApiEngineLog = [];
 
     const hasCommerceResults = braveNormalized.length > braveUseful.length;
     if (hasCommerceResults || braveUseful.length < USEFUL_FALLBACK_THRESHOLD) {
@@ -120,9 +121,15 @@ export async function handler(event) {
       if (serpKey) {
         serpApiAttempted = true;
         try {
-          // Try image engines in order: baidu_image → google_images → bing_images
-          const IMAGE_ENGINES = ["baidu_image", "google_images", "bing_images"];
+          // Try image engines in order: bing_images → google_images → yandex_images.
+          // Baidu is intentionally excluded here — SerpAPI has no supported baidu images
+          // engine (baidu_image / baidu_images both 400 "Unsupported engine"). Baidu is
+          // still offered to users as a direct deep-link button (see index.html), which
+          // is unrelated to this SerpAPI cascade.
+          const IMAGE_ENGINES = ["bing_images", "google_images", "yandex_images"];
           for (const engine of IMAGE_ENGINES) {
+            const engineLog = { engine, httpStatus: null, error: null, rawCount: 0, normalizedCount: 0, usedAsFinal: false, skippedReason: null };
+
             const serpUrl =
               "https://serpapi.com/search.json" +
               `?engine=${engine}` +
@@ -133,16 +140,24 @@ export async function handler(event) {
 
             const serpResp = await fetch(serpUrl);
             serpApiHttpStatus = serpResp.status;
+            engineLog.httpStatus = serpResp.status;
             const serpData = await serpResp.json();
             serpApiResponseKeys = Object.keys(serpData);
             serpApiError = serpData.error ?? null;
+            engineLog.error = serpApiError;
             serpApiSearchMetadata = serpData.search_metadata
               ? { status: serpData.search_metadata.status, engine_url: serpData.search_metadata.engine_url }
               : null;
             serpApiSearchParameters = serpData.search_parameters ?? null;
 
-            // Skip unsupported engines and try next
-            if (!serpResp.ok || serpApiError) continue;
+            // Skip unsupported/erroring engines and try next
+            if (!serpResp.ok || serpApiError) {
+              engineLog.skippedReason = !serpResp.ok
+                ? `http_${serpResp.status}`
+                : `api_error: ${serpApiError}`;
+              serpApiEngineLog.push(engineLog);
+              continue;
+            }
 
             // Probe all candidate result array keys
             for (const key of ["images_results", "image_results", "results", "organic_results"]) {
@@ -156,6 +171,7 @@ export async function handler(event) {
               Array.isArray(serpData.image_results) ? serpData.image_results :
               [];
             serpApiRawCount = serpRaw.length;
+            engineLog.rawCount = serpRaw.length;
             serpApiFirstResultKeys = serpRaw[0] ? Object.keys(serpRaw[0]) : [];
             serpApiFirstResultSample = serpRaw[0]
               ? Object.fromEntries(Object.keys(serpRaw[0]).map(k => [k, typeof serpRaw[0][k]]))
@@ -164,14 +180,21 @@ export async function handler(event) {
             const serpNormalized = filterResults(serpRaw.map((item) => normalizeSerpResult(item, q)))
               .filter((r) => !isCommerceDomain(r.source));
             serpApiNormalizedCount = serpNormalized.length;
+            engineLog.normalizedCount = serpNormalized.length;
             if (serpNormalized.length > 0) {
               finalResults = serpNormalized;
               finalProvider = engine;
+              engineLog.usedAsFinal = true;
+              serpApiEngineLog.push(engineLog);
               break;
+            } else {
+              engineLog.skippedReason = "zero_useful_results_after_filtering";
+              serpApiEngineLog.push(engineLog);
             }
           }
         } catch (serpErr) {
           serpApiError = serpErr.message || "fetch error";
+          serpApiEngineLog.push({ engine: "unknown", httpStatus: null, error: serpApiError, rawCount: 0, normalizedCount: 0, usedAsFinal: false, skippedReason: "exception" });
         }
       }
     }
@@ -183,7 +206,7 @@ export async function handler(event) {
     };
 
     if (debug) {
-      response.version = "serpapi-fallback-v6-adfilter";
+      response.version = "serpapi-fallback-v7-bingfirst";
       response.braveRawCount = braveRaw.length;
       response.braveNormalizedCount = braveNormalized.length;
       response.braveUsefulCount = braveUseful.length;
@@ -200,6 +223,9 @@ export async function handler(event) {
       response.serpApiNormalizedCount = serpApiNormalizedCount;
       response.serpApiFirstResultKeys = serpApiFirstResultKeys;
       response.serpApiFirstResultSample = serpApiFirstResultSample;
+      // Per-engine attempt log, in cascade order: which engines were tried, skipped (and why),
+      // their HTTP status, raw/normalized candidate counts, and which one (if any) was used.
+      response.serpApiEngineLog = serpApiEngineLog;
       response.fallbackUsed = finalProvider !== "brave";
       response.rawTopLevelKeys = Object.keys(braveData);
       response.firstResultKeys = braveRaw[0] ? Object.keys(braveRaw[0]) : [];
@@ -294,6 +320,11 @@ function normalizeSerpResult(item, fallbackTitle) {
   const thumbnail = item.thumbnail || "";
   const thumbnailOriginal = item.original || "";
   const link = item.link || item.original || "";
-  const source = safeHostname(link) || "Image";
+  // Bing (and possibly other) SerpAPI engines return a viewer-redirect URL in `link`
+  // (e.g. bing.com/images/search?...) rather than the real source page, which would
+  // make safeHostname(link) resolve to the engine's own domain instead of the actual
+  // site. Prefer the engine-provided `domain` field when present, since it names the
+  // true origin site directly; fall back to the original link-based hostname otherwise.
+  const source = item.domain || safeHostname(link) || "Image";
   return { title, thumbnail, isLogo: false, thumbnailOriginal, link, source };
 }
