@@ -118,6 +118,17 @@ export async function handler(event) {
     let serpApiUrlNoKey = null;
     let serpApiEngineLog = [];
 
+    // Lightweight subject-relevance guard for person/actor queries: the primary subject is
+    // assumed to be the first whitespace-separated token in the query (e.g. "王以纶" in
+    // "王以纶 眼镜 书生"). A provider can return a large, well-formed result set that is
+    // nonetheless entirely off-topic (e.g. bing_images returning unrelated stock-photo/
+    // insect content for a narrow actor query) — "a full plate of bugs is also not
+    // breakfast." Require at least 2 candidate results to mention the subject token in
+    // their title/description before trusting that engine's results as final.
+    const SUBJECT_MIN_MENTIONS = 2;
+    const subjectToken = q.split(/\s+/)[0] || "";
+    let subjectGuardReason = "not_applicable";
+
     const hasCommerceResults = braveNormalized.length > braveUseful.length;
     const braveTriggerReason = hasCommerceResults
       ? "commerce_results_present"
@@ -137,7 +148,7 @@ export async function handler(event) {
           // is unrelated to this SerpAPI cascade.
           const IMAGE_ENGINES = ["bing_images", "google_images", "yandex_images"];
           for (const engine of IMAGE_ENGINES) {
-            const engineLog = { engine, httpStatus: null, error: null, rawCount: 0, normalizedCount: 0, usedAsFinal: false, skippedReason: null };
+            const engineLog = { engine, httpStatus: null, error: null, rawCount: 0, normalizedCount: 0, subjectHitCount: 0, subjectGuardPassed: null, usedAsFinal: false, skippedReason: null };
 
             const serpUrl =
               "https://serpapi.com/search.json" +
@@ -190,14 +201,32 @@ export async function handler(event) {
               .filter((r) => !isCommerceDomain(r.source));
             serpApiNormalizedCount = serpNormalized.length;
             engineLog.normalizedCount = serpNormalized.length;
-            if (serpNormalized.length > 0) {
+
+            // Subject-relevance guard: count how many raw candidates actually mention the
+            // subject token in title/description (not the normalized `link`, which always
+            // echoes the query string back via SerpAPI's own redirect URL and would trivially
+            // "pass" regardless of real relevance).
+            const subjectHitCount = subjectToken
+              ? serpRaw.filter((item) => `${item.title || ""} ${item.description || ""}`.includes(subjectToken)).length
+              : serpRaw.length; // no token to check against — don't block
+            const subjectGuardPassed = !subjectToken || subjectHitCount >= SUBJECT_MIN_MENTIONS;
+            engineLog.subjectHitCount = subjectHitCount;
+            engineLog.subjectGuardPassed = subjectGuardPassed;
+
+            if (serpNormalized.length > 0 && subjectGuardPassed) {
               finalResults = serpNormalized;
               finalProvider = engine;
               engineLog.usedAsFinal = true;
+              subjectGuardReason = `passed (${subjectHitCount} >= ${SUBJECT_MIN_MENTIONS} mentions of "${subjectToken}")`;
               serpApiEngineLog.push(engineLog);
               break;
             } else {
-              engineLog.skippedReason = "zero_useful_results_after_filtering";
+              engineLog.skippedReason = serpNormalized.length === 0
+                ? "zero_useful_results_after_filtering"
+                : `subject_guard_failed (${subjectHitCount} < ${SUBJECT_MIN_MENTIONS} mentions of "${subjectToken}")`;
+              if (serpNormalized.length > 0 && !subjectGuardPassed) {
+                subjectGuardReason = `failed_on_${engine} (${subjectHitCount} < ${SUBJECT_MIN_MENTIONS} mentions of "${subjectToken}")`;
+              }
               serpApiEngineLog.push(engineLog);
             }
           }
@@ -215,11 +244,13 @@ export async function handler(event) {
     };
 
     if (debug) {
-      response.version = "serpapi-fallback-v8-threshold8";
+      response.version = "serpapi-fallback-v9-subjectguard";
       response.braveRawCount = braveRaw.length;
       response.braveNormalizedCount = braveNormalized.length;
       response.braveUsefulCount = braveUseful.length;
       response.braveTriggerReason = braveTriggerReason;
+      response.subjectToken = subjectToken;
+      response.subjectGuardReason = subjectGuardReason;
       response.serpApiConfigured = serpApiConfigured;
       response.serpApiAttempted = serpApiAttempted;
       response.serpApiUrlNoKey = serpApiUrlNoKey;
