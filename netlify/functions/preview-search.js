@@ -47,8 +47,8 @@ const COMMERCE_DOMAINS = new Set([
 // The visible unit is a 3x3 (9-slot) preview grid, so Brave should only be trusted to skip
 // fallback when it can nearly fill that grid with usable candidates — a handful of thin/
 // off-topic results is not enough ("crumbs are not breakfast"). Deliberately set below 9 (not
-// requiring a full grid) so fallback isn't forced when Brave genuinely has 8 strong candidates.
-const USEFUL_FALLBACK_THRESHOLD = 8;
+// requiring a full grid) so fallback isn't forced when Brave genuinely has 7-8 strong candidates.
+const USEFUL_FALLBACK_THRESHOLD = 7;
 
 export async function handler(event) {
   const q = (event.queryStringParameters?.q || "").trim();
@@ -244,7 +244,7 @@ export async function handler(event) {
     };
 
     if (debug) {
-      response.version = "serpapi-fallback-v9-subjectguard";
+      response.version = "serpapi-fallback-v9-threshold7";
       response.braveRawCount = braveRaw.length;
       response.braveNormalizedCount = braveNormalized.length;
       response.braveUsefulCount = braveUseful.length;
