@@ -320,6 +320,11 @@ function normalizeSerpResult(item, fallbackTitle) {
   const thumbnail = item.thumbnail || "";
   const thumbnailOriginal = item.original || "";
   const link = item.link || item.original || "";
-  const source = safeHostname(link) || "Image";
+  // Bing (and possibly other) SerpAPI engines return a viewer-redirect URL in `link`
+  // (e.g. bing.com/images/search?...) rather than the real source page, which would
+  // make safeHostname(link) resolve to the engine's own domain instead of the actual
+  // site. Prefer the engine-provided `domain` field when present, since it names the
+  // true origin site directly; fall back to the original link-based hostname otherwise.
+  const source = item.domain || safeHostname(link) || "Image";
   return { title, thumbnail, isLogo: false, thumbnailOriginal, link, source };
 }
