@@ -92,9 +92,17 @@ export async function handler(event) {
 
     let serpApiConfigured = false;
     let serpApiAttempted = false;
+    let serpApiHttpStatus = null;
+    let serpApiResponseKeys = [];
+    let serpApiError = null;
+    let serpApiSearchMetadata = null;
+    let serpApiSearchParameters = null;
+    let serpApiCandidateArrays = {};
     let serpApiRawCount = 0;
     let serpApiNormalizedCount = 0;
     let serpApiFirstResultKeys = [];
+    let serpApiFirstResultSample = null;
+    let serpApiUrlNoKey = null;
 
     const hasCommerceResults = braveNormalized.length > braveUseful.length;
     if (hasCommerceResults || braveUseful.length < USEFUL_FALLBACK_THRESHOLD) {
@@ -109,22 +117,44 @@ export async function handler(event) {
             `&q=${encodeURIComponent(q)}` +
             `&api_key=${serpKey}`;
 
+          serpApiUrlNoKey = serpUrl.replace(serpKey, "[REDACTED]");
+
           const serpResp = await fetch(serpUrl);
-          if (serpResp.ok) {
-            const serpData = await serpResp.json();
-            const serpRaw = Array.isArray(serpData.images_results) ? serpData.images_results : [];
-            serpApiRawCount = serpRaw.length;
-            serpApiFirstResultKeys = serpRaw[0] ? Object.keys(serpRaw[0]) : [];
-            const serpNormalized = filterResults(serpRaw.map((item) => normalizeSerpResult(item, q)))
-              .filter((r) => !isCommerceDomain(r.source));
-            serpApiNormalizedCount = serpNormalized.length;
-            if (serpNormalized.length > 0) {
-              finalResults = serpNormalized;
-              finalProvider = "baidu";
+          serpApiHttpStatus = serpResp.status;
+          const serpData = await serpResp.json();
+          serpApiResponseKeys = Object.keys(serpData);
+          serpApiError = serpData.error ?? null;
+          serpApiSearchMetadata = serpData.search_metadata
+            ? { status: serpData.search_metadata.status, engine_url: serpData.search_metadata.engine_url }
+            : null;
+          serpApiSearchParameters = serpData.search_parameters ?? null;
+
+          // Probe all candidate result array keys
+          for (const key of ["images_results", "image_results", "results", "organic_results"]) {
+            if (Array.isArray(serpData[key])) {
+              serpApiCandidateArrays[key] = serpData[key].length;
             }
           }
-        } catch (_) {
-          // SerpAPI failure is non-fatal
+
+          const serpRaw =
+            Array.isArray(serpData.images_results) ? serpData.images_results :
+            Array.isArray(serpData.image_results) ? serpData.image_results :
+            [];
+          serpApiRawCount = serpRaw.length;
+          serpApiFirstResultKeys = serpRaw[0] ? Object.keys(serpRaw[0]) : [];
+          serpApiFirstResultSample = serpRaw[0]
+            ? Object.fromEntries(Object.keys(serpRaw[0]).map(k => [k, typeof serpRaw[0][k]]))
+            : null;
+
+          const serpNormalized = filterResults(serpRaw.map((item) => normalizeSerpResult(item, q)))
+            .filter((r) => !isCommerceDomain(r.source));
+          serpApiNormalizedCount = serpNormalized.length;
+          if (serpNormalized.length > 0) {
+            finalResults = serpNormalized;
+            finalProvider = "baidu";
+          }
+        } catch (serpErr) {
+          serpApiError = serpErr.message || "fetch error";
         }
       }
     }
@@ -136,15 +166,23 @@ export async function handler(event) {
     };
 
     if (debug) {
-      response.version = "serpapi-fallback-v2";
+      response.version = "serpapi-fallback-v3";
       response.braveRawCount = braveRaw.length;
       response.braveNormalizedCount = braveNormalized.length;
       response.braveUsefulCount = braveUseful.length;
       response.serpApiConfigured = serpApiConfigured;
       response.serpApiAttempted = serpApiAttempted;
+      response.serpApiUrlNoKey = serpApiUrlNoKey;
+      response.serpApiHttpStatus = serpApiHttpStatus;
+      response.serpApiResponseKeys = serpApiResponseKeys;
+      response.serpApiError = serpApiError;
+      response.serpApiSearchMetadata = serpApiSearchMetadata;
+      response.serpApiSearchParameters = serpApiSearchParameters;
+      response.serpApiCandidateArrays = serpApiCandidateArrays;
       response.serpApiRawCount = serpApiRawCount;
       response.serpApiNormalizedCount = serpApiNormalizedCount;
       response.serpApiFirstResultKeys = serpApiFirstResultKeys;
+      response.serpApiFirstResultSample = serpApiFirstResultSample;
       response.fallbackUsed = finalProvider === "baidu";
       response.rawTopLevelKeys = Object.keys(braveData);
       response.firstResultKeys = braveRaw[0] ? Object.keys(braveRaw[0]) : [];
