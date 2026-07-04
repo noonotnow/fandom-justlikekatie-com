@@ -85,13 +85,23 @@ export async function handler(event) {
       braveUseful = braveNormalized.filter((r) => !isCommerceDomain(r.source));
     }
 
-    // Fall back to Baidu via SerpAPI if useful results are too few
-    let finalResults = braveNormalized;
+    // Fall back to Baidu via SerpAPI if any commerce/junk results are present, or useful count is low.
+    // Use braveUseful (not braveNormalized) so commerce results are never shown as fallback.
+    let finalResults = braveUseful;
     let finalProvider = "brave";
 
-    if (braveUseful.length < USEFUL_FALLBACK_THRESHOLD) {
+    let serpApiConfigured = false;
+    let serpApiAttempted = false;
+    let serpApiRawCount = 0;
+    let serpApiNormalizedCount = 0;
+    let serpApiFirstResultKeys = [];
+
+    const hasCommerceResults = braveNormalized.length > braveUseful.length;
+    if (hasCommerceResults || braveUseful.length < USEFUL_FALLBACK_THRESHOLD) {
       const serpKey = process.env.SERPAPI_KEY;
+      serpApiConfigured = !!serpKey;
       if (serpKey) {
+        serpApiAttempted = true;
         try {
           const serpUrl =
             "https://serpapi.com/search.json" +
@@ -103,8 +113,11 @@ export async function handler(event) {
           if (serpResp.ok) {
             const serpData = await serpResp.json();
             const serpRaw = Array.isArray(serpData.images_results) ? serpData.images_results : [];
+            serpApiRawCount = serpRaw.length;
+            serpApiFirstResultKeys = serpRaw[0] ? Object.keys(serpRaw[0]) : [];
             const serpNormalized = filterResults(serpRaw.map((item) => normalizeSerpResult(item, q)))
               .filter((r) => !isCommerceDomain(r.source));
+            serpApiNormalizedCount = serpNormalized.length;
             if (serpNormalized.length > 0) {
               finalResults = serpNormalized;
               finalProvider = "baidu";
@@ -123,10 +136,15 @@ export async function handler(event) {
     };
 
     if (debug) {
+      response.version = "serpapi-fallback-v2";
       response.braveRawCount = braveRaw.length;
       response.braveNormalizedCount = braveNormalized.length;
       response.braveUsefulCount = braveUseful.length;
-      response.version = "serpapi-fallback-v1";
+      response.serpApiConfigured = serpApiConfigured;
+      response.serpApiAttempted = serpApiAttempted;
+      response.serpApiRawCount = serpApiRawCount;
+      response.serpApiNormalizedCount = serpApiNormalizedCount;
+      response.serpApiFirstResultKeys = serpApiFirstResultKeys;
       response.fallbackUsed = finalProvider === "baidu";
       response.rawTopLevelKeys = Object.keys(braveData);
       response.firstResultKeys = braveRaw[0] ? Object.keys(braveRaw[0]) : [];
