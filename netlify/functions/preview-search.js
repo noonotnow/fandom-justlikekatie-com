@@ -50,25 +50,29 @@ const COMMERCE_DOMAINS = new Set([
 // requiring a full grid) so fallback isn't forced when Brave genuinely has 7-8 strong candidates.
 const USEFUL_FALLBACK_THRESHOLD = 7;
 
-export async function handler(event) {
-  const q = (event.queryStringParameters?.q || "").trim();
-  const provider = (event.queryStringParameters?.provider || "brave").trim();
-  const debug = event.queryStringParameters?.debug === "1";
+// Runs the full Brave -> SerpAPI (bing_images -> google_images -> yandex_images)
+// fallback cascade for a single query, including the ad/commerce/placeholder
+// filters and the subject-relevance guard. Returns a plain response-shaped
+// object (not an HTTP response) so both the HTTP handler below (manual/full-page
+// searches) and other in-process callers (e.g. the star-of-day cache builder)
+// can reuse the exact same search logic without an extra HTTP round-trip.
+//
+// Throws on hard failures (missing key, network error) — callers decide how to
+// handle that (the HTTP handler below turns it into a 500; star-of-day treats a
+// thrown/empty result as "this candidate query produced nothing usable").
+export async function searchOneQuery(q, { debug = false } = {}) {
+  const provider = "brave";
 
   if (!q) {
-    return jsonResponse(400, { query: q, provider, results: [], error: "Missing query parameter" });
-  }
-
-  if (provider !== "brave") {
-    return jsonResponse(400, { query: q, provider, results: [], error: "Unsupported provider (only 'brave' supported for now)" });
+    throw new Error("Missing query parameter");
   }
 
   const braveKey = process.env.BRAVE_SEARCH_API_KEY;
   if (!braveKey) {
-    return jsonResponse(500, { query: q, provider, results: [], error: "Brave API key not configured" });
+    throw new Error("Brave API key not configured");
   }
 
-  try {
+  {
     const braveUrl =
       "https://api.search.brave.com/res/v1/web/search" +
       `?q=${encodeURIComponent(q)}` +
@@ -273,6 +277,27 @@ export async function handler(event) {
       response.firstResultSample = braveRaw[0] ?? null;
     }
 
+    return response;
+  }
+}
+
+// Thin HTTP wrapper around searchOneQuery() for manual/full-page searches — behavior
+// and response shape here are unchanged from before the refactor.
+export async function handler(event) {
+  const q = (event.queryStringParameters?.q || "").trim();
+  const provider = (event.queryStringParameters?.provider || "brave").trim();
+  const debug = event.queryStringParameters?.debug === "1";
+
+  if (!q) {
+    return jsonResponse(400, { query: q, provider, results: [], error: "Missing query parameter" });
+  }
+
+  if (provider !== "brave") {
+    return jsonResponse(400, { query: q, provider, results: [], error: "Unsupported provider (only 'brave' supported for now)" });
+  }
+
+  try {
+    const response = await searchOneQuery(q, { debug });
     return jsonResponse(200, response);
   } catch (err) {
     return jsonResponse(500, {
