@@ -66,7 +66,7 @@ const ALL_ACTOR_NAME_TOKENS = ACTOR_PACKS.flatMap((a) =>
 //     in 张凌赫's medical-vibe queries (now fixed to 爱你/何苏叶), but search engines
 //     still associate the two via "陷阱"-adjacent keywords, causing his promotional
 //     posters to appear in 张凌赫 doctor-role batches.
-const KNOWN_COSTAR_DRIFT_NAMES = ["成毅", "谢彬彬"];
+const KNOWN_COSTAR_DRIFT_NAMES = ["成毅", "谢彬彬", "张凌赫"];
 
 const ALL_KNOWN_PERSON_NAME_TOKENS = [...ALL_ACTOR_NAME_TOKENS, ...KNOWN_COSTAR_DRIFT_NAMES];
 
@@ -181,7 +181,22 @@ const COMMERCE_DOMAINS = new Set([
   "dhgate.com",
   "pinduoduo.com",
   "vvic.com",
-  "missevan.com"
+  "missevan.com",
+  // Eyewear/fashion brand product-catalog sites — their product pages surface for
+  // accessory-keyword queries (e.g. "眼镜"/glasses) with zero actor relevance.
+  "molsion.com",
+  "bolon.com",
+  "parasol.cn",
+  "lindberg.com",
+  "moscot.com",
+  "oliverpeoples.com",
+  "tomford.com",
+  "gucci.com",
+  "dior.com",
+  "chanel.com",
+  "prada.com",
+  "versace.com",
+  "armani.com"
 ]);
 
 // Luxury/fashion brand domains that host legitimate editorial and campaign content
@@ -198,19 +213,14 @@ const LUXURY_EDITORIAL_DOMAINS = new Set([
 ]);
 
 // Path patterns that indicate a product/catalog page (not editorial content).
-// Used to filter product URLs from luxury editorial domains that pass domain-level checks.
+// Used to filter product URLs from luxury editorial domains that pass domain-level checks,
+// and as a negative signal for any URL when the title doesn't mention the subject actor.
 const PRODUCT_PATH_PATTERNS = [
   "/shop/", "/shop?", "/product/", "/products/",
   "/catalog/", "/catalogue/", "/buy/", "/cart/",
   "/checkout/", "/add-to-bag", "/add-to-cart",
-  "/p/", "/item/"
+  "/p/", "/item/", "/goods/", "/mall/", "/store/", "/commodity/"
 ];
-
-function isProductUrl(url) {
-  if (!url) return false;
-  const lower = url.toLowerCase();
-  return PRODUCT_PATH_PATTERNS.some((p) => lower.includes(p));
-}
 
 // Fewer than this many *useful* (non-commerce, non-placeholder) results triggers SerpAPI fallback.
 // The visible unit is a 3x3 (9-slot) preview grid, so Brave should only be trusted to skip
@@ -245,7 +255,7 @@ export async function searchOneQuery(q, { debug = false } = {}) {
     const braveUrl =
       "https://api.search.brave.com/res/v1/web/search" +
       `?q=${encodeURIComponent(q)}` +
-      `&count=20` +
+      `&count=40` +
       `&safesearch=moderate`;
 
     const braveResp = await fetch(braveUrl, {
@@ -285,10 +295,13 @@ export async function searchOneQuery(q, { debug = false } = {}) {
         // Per-item negative filter: reject co-star/wrong-actor and non-subject-content
         // (maps, paintings, app-store tiles) items regardless of which engine/provider
         // produced them or whether the batch-level guard below passes.
-        .filter((r) => passesPerItemSubjectFilter(r, subjectToken));
+        .filter((r) => passesPerItemSubjectFilter(r, subjectToken))
+        // Product-URL filter: reject product/catalog pages that don't mention the subject
+        .filter((r) => !isProductUrl(r.link, r.title, subjectToken));
       braveNormalized = dedupeResults(braveNormalized);
+      braveNormalized = dedupeSameSource(braveNormalized);
       braveUseful = braveNormalized.filter((r) => !isCommerceDomain(r.source))
-        .filter((r) => !isProductUrl(r.link));
+        .filter((r) => !isProductUrl(r.link, r.title, subjectToken));
     }
 
     const braveSubjectHitCount = subjectToken
@@ -392,14 +405,14 @@ export async function searchOneQuery(q, { debug = false } = {}) {
               ? Object.fromEntries(Object.keys(serpRaw[0]).map(k => [k, typeof serpRaw[0][k]]))
               : null;
 
-            const serpNormalized = dedupeResults(
+            const serpNormalized = dedupeSameSource(dedupeResults(
               filterResults(serpRaw.map((item) => normalizeSerpResult(item, q)))
                 .filter((r) => !isCommerceDomain(r.source))
-                .filter((r) => !isProductUrl(r.link))
                 // Per-item negative filter: reject co-star/wrong-actor and non-subject-content
                 // items, same as the Brave path above.
                 .filter((r) => passesPerItemSubjectFilter(r, subjectToken))
-            );
+                .filter((r) => !isProductUrl(r.link, r.title, subjectToken))
+            ));
             serpApiNormalizedCount = serpNormalized.length;
             engineLog.normalizedCount = serpNormalized.length;
 
@@ -441,7 +454,7 @@ export async function searchOneQuery(q, { debug = false } = {}) {
     const response = {
       query: q,
       provider: finalProvider,
-      results: finalResults.slice(0, 9).map(({ isLogo, thumbnailOriginal, ...r }) => r)
+      results: finalResults.slice(0, 18).map(({ isLogo, thumbnailOriginal, ...r }) => r)
     };
 
     if (debug) {
@@ -538,6 +551,36 @@ function isCommerceDomain(source) {
   // are caught by the path-based isProductUrl() filter instead.
   if (isLuxuryEditorialDomain(source)) return false;
   return [...COMMERCE_DOMAINS].some((d) => source === d || source.endsWith("." + d));
+}
+
+// Detects product/catalog URLs that matched on a generic keyword (e.g. "眼镜") but
+// have nothing to do with the actor. Only rejects when subject is NOT mentioned in
+// the title — editorial pages that happen to live under /product/ paths are kept.
+function isProductUrl(link, title, subjectToken) {
+  if (!link || !subjectToken) return false;
+  if (title && title.includes(subjectToken)) return false;
+  const lower = link.toLowerCase();
+  return PRODUCT_PATH_PATTERNS.some((p) => lower.includes(p));
+}
+
+// Same-source near-dedup: collapses results from the same domain that share a very
+// similar title (likely zoomed/cropped variants of the same image or the same ad
+// shown multiple times). Keeps the first occurrence only.
+function dedupeSameSource(items) {
+  const seen = new Map(); // domain → Set of normalized title prefixes
+  return items.filter((r) => {
+    if (!r.source || !r.title) return true;
+    const key = r.source;
+    const titleNorm = r.title.replace(/\s+/g, "").slice(0, 20);
+    if (!seen.has(key)) {
+      seen.set(key, new Set([titleNorm]));
+      return true;
+    }
+    const titles = seen.get(key);
+    if (titles.has(titleNorm)) return false;
+    titles.add(titleNorm);
+    return true;
+  });
 }
 
 function isPlaceholderThumbnail(url) {

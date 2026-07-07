@@ -60,7 +60,21 @@ export const JUNK_DOMAIN_PATTERNS = [
   "rayban.com",
   "oakley.com",
   "warbyparker.com",
-  "essilor.com"
+  "essilor.com",
+  "molsion.com",
+  "bolon.com",
+  "parasol.cn",
+  "lindberg.com",
+  "moscot.com",
+  "oliverpeoples.com",
+  // Fashion/luxury brand sites: product pages surface for accessory/style queries
+  "tomford.com",
+  "gucci.com",
+  "dior.com",
+  "chanel.com",
+  "prada.com",
+  "versace.com",
+  "armani.com"
 ];
 
 // Luxury/fashion brand domains that host legitimate editorial and campaign content.
