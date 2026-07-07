@@ -17,6 +17,27 @@ const NON_SUBJECT_KEYWORDS = [
   "app store", "应用商店", "apple music", "google play", "下载量", "好评率", "应用截图", "app截图"
 ];
 
+// Reference/encyclopedia domains: structured as "one page = one subject" (a person,
+// place, dynasty, historical event). If the subject being searched doesn't appear in
+// the page's own title, the page is reliably about something/someone else entirely —
+// this catches wrong-person historical figures (e.g. an unrelated "权臣"/powerful-
+// minister search pulling up a completely different historical minister's baike
+// entry), dynasty/geography wiki pages (which often illustrate themselves with a
+// map), and similar reference-content drift that no keyword/roster list can predict
+// in advance, since these are essentially unbounded (any historical figure/place).
+const REFERENCE_DOMAINS = [
+  "baike.baidu.com",
+  "wapbaike.baidu.com",
+  "baike.sogou.com",
+  "wikipedia.org"
+];
+
+function isReferenceDomain(source) {
+  if (!source) return false;
+  const lower = source.toLowerCase();
+  return REFERENCE_DOMAINS.some((d) => lower === d || lower.endsWith("." + d));
+}
+
 function isNonSubjectContent(title) {
   if (!title) return false;
   const lower = title.toLowerCase();
@@ -52,16 +73,42 @@ function mentionsOtherActor(text, subjectToken) {
   );
 }
 
+// Surname-collision namesake guard: catches a different, unrelated real person who
+// happens to share the subject's surname (e.g. a query for "刘学义" pulling in a
+// result that's actually about "刘宇" or "刘天成" — a K-pop idol or unrelated
+// person, not a co-star, not in any roster, purely a keyword/surname collision on
+// a generic query word like "眼镜"/glasses). Confirmed live: "刘学义 西装 眼镜"
+// pulled a 刘宇(ENHYPEN) bilibili result, "刘学义 眼镜 现代" pulled a
+// 刘宝/刘天成 sohu result — neither mentions the subject at all.
+//
+// Deliberately conservative: only fires when the subject's own name is COMPLETELY
+// absent from the text (so it never rejects legitimate results that mention both
+// people, or generic captions that don't name anyone), and only flags a same-
+// surname 2-3 char token that isn't a prefix/substring relationship with the
+// subject's own name (so partial matches on the subject's own name never trip it).
+function mentionsUnrelatedNamesake(text, subjectToken) {
+  if (!text || !subjectToken || subjectToken.length < 2) return false;
+  if (text.includes(subjectToken)) return false; // subject IS named — not a collision case
+  const surname = subjectToken[0];
+  const re = new RegExp(surname + "[\\u4e00-\\u9fa5]{1,2}", "g");
+  const matches = text.match(re) || [];
+  return matches.some((m) => m !== subjectToken && !m.startsWith(subjectToken) && !subjectToken.startsWith(m));
+}
+
 // Per-item subject-relevance filter: negative-only (never requires a positive name
 // mention, since most legitimate fan-photo titles are generic and don't repeat the
 // actor's name) but rejects items that show a concrete contamination signal — the
-// title/description names a different known actor, or matches an obvious
-// non-subject-content keyword. Applied to every item in every batch, regardless of
-// which provider/engine produced it or whether the batch-level guard below passed.
+// title/description names a different known actor, a different same-surname
+// namesake, matches an obvious non-subject-content keyword, or is a reference/
+// encyclopedia page whose own title doesn't name the subject. Applied to every item
+// in every batch, regardless of which provider/engine produced it or whether the
+// batch-level guard below passed.
 function passesPerItemSubjectFilter(item, subjectToken) {
   const text = `${item.title || ""} ${item.description || ""}`;
   if (isNonSubjectContent(text)) return false;
   if (subjectToken && mentionsOtherActor(text, subjectToken)) return false;
+  if (subjectToken && mentionsUnrelatedNamesake(text, subjectToken)) return false;
+  if (subjectToken && isReferenceDomain(item.source) && !text.includes(subjectToken)) return false;
   return true;
 }
 
@@ -104,8 +151,14 @@ const PLACEHOLDER_TITLE_PATTERNS = [
 const AD_TITLE_PATTERNS = [
   "变美", "变瘦", "变卡通", "最瘦", "瘦20斤", "瘦10斤", "瘦30斤",
   "广告", "推广", "sponsored",
-  "一键变", "ai生成", "ai换脸", "ai写真",
-  "减肥", "塑形", "瘦身"
+  "一键变", "ai生成", "ai换脸", "ai写真", "一键生成",
+  "减肥", "塑形", "瘦身",
+  // Additional explicit CTA/marketing phrases — best-effort textual defense. Note:
+  // this still only catches ad text present in the page's title/description
+  // metadata. An ad graphic with marketing text baked into the image pixels itself
+  // (rather than the surrounding page's title) is NOT detectable this way — that
+  // would require real image content/OCR analysis, out of scope for this filter.
+  "点击下方链接", "点击链接", "立即体验", "扫码体验", "免费试用", "限时优惠"
 ];
 
 // Commerce/product/off-topic domains that are not useful for actor/drama preview.

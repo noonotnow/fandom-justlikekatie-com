@@ -23,7 +23,8 @@ export const RANKED_BATCH_LIMIT = 3;   // expose only the top N ranked batches �
 // Domains that regularly slip past preview-search.js's ad/commerce/placeholder filters
 // (they're not ads, not logos-by-filename, not known commerce sites) but are
 // reliably NOT actor/drama content: finance/stock chart aggregators, app-store /
-// streaming-product tiles, and portal home-page/logo tiles.
+// streaming-product tiles, portal home-page/logo tiles, and stock-photography /
+// eyewear-brand product-catalog sites.
 export const JUNK_DOMAIN_PATTERNS = [
   "apple.com",            // music.apple.com / apps.apple.com "representative work" product tiles
   "163.com",               // NetEase portal logo tile
@@ -36,7 +37,30 @@ export const JUNK_DOMAIN_PATTERNS = [
   "investing.com",
   "tradingview.com",
   "wallstreetcn.com",
-  "cls.cn"
+  "cls.cn",
+  "play.google.com",
+  // Stock-photo/generic-image-library sites: a generic-object query word (e.g. an
+  // accessory like "眼镜"/glasses) will pull literal stock photography of that
+  // object with zero connection to any actor, even though nothing about the
+  // title/text trips the ad or commerce filters. These sites are inherently never
+  // actor/drama content, so a domain-level block is safe and general.
+  "dreamstime.com",
+  "shutterstock.com",
+  "gettyimages.com",
+  "istockphoto.com",
+  "alamy.com",
+  "123rf.com",
+  "stock.adobe.com",
+  "depositphotos.com",
+  // Eyewear/optical brand and retailer sites: same failure mode as stock photos —
+  // a "眼镜"(glasses)-style query pulls literal product-catalog pages for glasses
+  // brands, not photos of the actor wearing glasses.
+  "zeiss.com",
+  "silhouette.com",
+  "rayban.com",
+  "oakley.com",
+  "warbyparker.com",
+  "essilor.com"
 ];
 
 export function isJunkSource(source) {
