@@ -145,6 +145,21 @@ export default async (req, context) => {
       try {
         const payload = await buildPayloadForDate(todayStr);
         if (payload) {
+          // First-write-wins re-check: because tryAcquireLock() is a best-effort
+          // read-then-write check (not a strict atomic compare-and-swap — see
+          // its comment above for why), two simultaneous first-of-the-day
+          // requests can both believe they hold the lock and both build a
+          // payload here. Since rankCandidates() uses Math.random() for
+          // tie-breaking, those two builds can genuinely differ. Re-fetch the
+          // real cache key one more time immediately before writing: if a
+          // racing request already wrote a result while we were building, defer
+          // to it and discard our own payload, so whichever build finished
+          // first is the one that sticks for the rest of the day.
+          const raceWinner = await store.get(todayKey, { type: "json" });
+          if (raceWinner) {
+            return jsonResponse(200, raceWinner);
+          }
+
           await store.setJSON(todayKey, payload);
           return jsonResponse(200, payload);
         }
