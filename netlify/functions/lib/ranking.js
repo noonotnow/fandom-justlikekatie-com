@@ -109,17 +109,33 @@ export async function evaluateCandidates(queries, searchOneQuery) {
   return settled;
 }
 
-// Ranked selector: drop sparse/junk-dominated batches, sort the rest by clean-result
-// count (highest first), then source diversity, then a random jitter that only ever
-// breaks a genuine remaining tie (same count, same diversity). Returns the ranked
-// list so callers can take the top few instead of just one winner.
+// Ranked selector: drop sparse/junk-dominated batches, then split into a "near-tie
+// band" and the rest. Candidates whose clean-result count is within CLOSE_COUNT_RANGE
+// of the maximum form the band — within that band, source diversity wins over raw
+// count (so 17 results from 6 sources beats 18 results all from one domain).
+// Candidates below the band sort normally by count → diversity → jitter.
 export function rankCandidates(candidates) {
   const acceptable = candidates.filter((c) => c.count >= MIN_VIABLE_RESULTS);
-  const withJitter = acceptable.map((c) => ({ ...c, _jitter: Math.random() }));
-  withJitter.sort((a, b) => {
+  if (acceptable.length === 0) return [];
+
+  const maxCount = Math.max(...acceptable.map((c) => c.count));
+
+  // Near-tie band: counts within CLOSE_COUNT_RANGE of the best are treated as equivalent.
+  const band = acceptable.filter((c) => c.count >= maxCount - CLOSE_COUNT_RANGE);
+  const rest = acceptable.filter((c) => c.count < maxCount - CLOSE_COUNT_RANGE);
+
+  const bandWithJitter = band.map((c) => ({ ...c, _jitter: Math.random() }));
+  bandWithJitter.sort((a, b) => {
+    if (b.distinctSources !== a.distinctSources) return b.distinctSources - a.distinctSources;
+    return b._jitter - a._jitter;
+  });
+
+  const restWithJitter = rest.map((c) => ({ ...c, _jitter: Math.random() }));
+  restWithJitter.sort((a, b) => {
     if (b.count !== a.count) return b.count - a.count;
     if (b.distinctSources !== a.distinctSources) return b.distinctSources - a.distinctSources;
     return b._jitter - a._jitter;
   });
-  return withJitter;
+
+  return [...bandWithJitter, ...restWithJitter];
 }
