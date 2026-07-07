@@ -62,7 +62,11 @@ const ALL_ACTOR_NAME_TOKENS = ACTOR_PACKS.flatMap((a) =>
 //     labeled featured subject of a tile in a 刘学义 "破碎感/古装" batch, a frequent
 //     costume-drama/权谋-genre co-star whose name adjacency causes drift into our
 //     roster actors' searches.
-const KNOWN_COSTAR_DRIFT_NAMES = ["成毅"];
+//   - 谢彬彬: confirmed contamination — his drama "甜甜的陷阱" was wrongly referenced
+//     in 张凌赫's medical-vibe queries (now fixed to 爱你/何苏叶), but search engines
+//     still associate the two via "陷阱"-adjacent keywords, causing his promotional
+//     posters to appear in 张凌赫 doctor-role batches.
+const KNOWN_COSTAR_DRIFT_NAMES = ["成毅", "谢彬彬"];
 
 const ALL_KNOWN_PERSON_NAME_TOKENS = [...ALL_ACTOR_NAME_TOKENS, ...KNOWN_COSTAR_DRIFT_NAMES];
 

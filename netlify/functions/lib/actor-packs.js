@@ -98,9 +98,9 @@ export const ACTOR_PACKS = [
         "subtitle": "一身白衣，像规矩本身动了情",
         "subtitle_en": "All in white, like discipline itself caught feelings",
         "queries": [
-          "刘学义 古装 白衣 仙气",
-          "刘学义 仙侠 古装",
-          "刘学义 白衣 大片"
+          "刘学义 琉璃 柏麟 白衣",
+          "刘学义 千古玦尘 景昭",
+          "刘学义 古装 白衣 仙侠 剧照"
         ],
         "shareFragment": "仙门冷玉学义，白衣一出天下寒",
         "mjPrompt": ""
@@ -236,13 +236,12 @@ export const ACTOR_PACKS = [
         "subtitle": "诊断结果是美貌，预后很差",
         "subtitle_en": "The diagnosis was beauty, and the prognosis was poor",
         "queries": [
-          "张凌赫 甜甜的陷阱",
-          "张凌赫 何苏叶",
-          "张凌赫 医生 甜甜的陷阱",
-          "张凌赫 甜甜的陷阱 剧照",
-          "张凌赫 现代 医生",
-          "张凌赫 医生 氛围",
-          "张凌赫 美图 高清"
+          "张凌赫 爱你 何苏叶",
+          "张凌赫 爱你 剧照",
+          "张凌赫 何苏叶 医生",
+          "张凌赫 爱你 医生 帅",
+          "张凌赫 爱你 中医",
+          "张凌赫 白大褂 医生"
         ],
         "shareFragment": "凌赫当医生，诊断结果：美貌加重，预后不良",
         "mjPrompt": ""
