@@ -1,3 +1,87 @@
+import { ACTOR_PACKS } from "./lib/actor-packs.js";
+
+// Non-subject content: things that regularly slip past ad/commerce/placeholder
+// filters (real photos, not logos, not known commerce domains) but are reliably
+// NOT actor/drama content for a person-name query — maps/geography, historical
+// paintings/portraits of unrelated figures, and app-store/screenshot tiles (e.g.
+// an Apple Music app icon surfacing for an "眼镜"/glasses query). Text-heuristic
+// only — this is not image content recognition, just keyword rejection.
+// Note: bare terms like "皇帝"/"帝王" are deliberately NOT included — costume-drama
+// titles legitimately describe an actor's "emperor"/"imperial" role or styling (e.g.
+// "刘学义 草原帝王造型"), so a bare keyword would false-positive on real subject
+// content. Only compound phrases that specifically indicate an actual painting/
+// portrait artifact (not a drama role) are used here.
+const NON_SUBJECT_KEYWORDS = [
+  "中国地图", "世界地图", "地形图", "省份地图", "行政区划地图", "地图查询", "地图库",
+  "皇帝画像", "帝王画像", "古代帝王画像", "历代帝王图", "历史人物画像", "肖像画", "国画欣赏", "水墨人物画",
+  "app store", "应用商店", "apple music", "google play", "下载量", "好评率", "应用截图", "app截图"
+];
+
+function isNonSubjectContent(title) {
+  if (!title) return false;
+  const lower = title.toLowerCase();
+  return NON_SUBJECT_KEYWORDS.some((k) => lower.includes(k.toLowerCase()));
+}
+
+// Closed roster of known actor names (from ACTOR_PACKS) used as a co-star/wrong-actor
+// negative filter: if a result's title/description names a DIFFERENT known actor and
+// does not also name the subject being searched, it's very likely a poster/article
+// about that other actor (or a co-star shot) riding along on a shared-vibe keyword,
+// not genuine subject content. This only catches contamination from actors already
+// in our own roster — it is not general face/identity recognition.
+const ALL_ACTOR_NAME_TOKENS = ACTOR_PACKS.flatMap((a) =>
+  [a.name, a.shortName].filter((n) => typeof n === "string" && n.length >= 2)
+);
+
+// Additional known co-stars NOT in our own tracked roster (ACTOR_PACKS is app-facing
+// data for actors we build full vibe pages for — this list is purely for the negative
+// filter above, so it doesn't belong in ACTOR_PACKS itself). Added only when there's
+// concrete, documented recurring drift, not as a speculative taxonomy:
+//   - 成毅: confirmed contamination case (QA screenshot) — appeared as the bold-text-
+//     labeled featured subject of a tile in a 刘学义 "破碎感/古装" batch, a frequent
+//     costume-drama/权谋-genre co-star whose name adjacency causes drift into our
+//     roster actors' searches.
+const KNOWN_COSTAR_DRIFT_NAMES = ["成毅"];
+
+const ALL_KNOWN_PERSON_NAME_TOKENS = [...ALL_ACTOR_NAME_TOKENS, ...KNOWN_COSTAR_DRIFT_NAMES];
+
+function mentionsOtherActor(text, subjectToken) {
+  if (!text) return false;
+  return ALL_KNOWN_PERSON_NAME_TOKENS.some(
+    (tok) => tok !== subjectToken && text.includes(tok) && !text.includes(subjectToken)
+  );
+}
+
+// Per-item subject-relevance filter: negative-only (never requires a positive name
+// mention, since most legitimate fan-photo titles are generic and don't repeat the
+// actor's name) but rejects items that show a concrete contamination signal — the
+// title/description names a different known actor, or matches an obvious
+// non-subject-content keyword. Applied to every item in every batch, regardless of
+// which provider/engine produced it or whether the batch-level guard below passed.
+function passesPerItemSubjectFilter(item, subjectToken) {
+  const text = `${item.title || ""} ${item.description || ""}`;
+  if (isNonSubjectContent(text)) return false;
+  if (subjectToken && mentionsOtherActor(text, subjectToken)) return false;
+  return true;
+}
+
+// De-duplicates a result list by exact thumbnail URL only — NOT by title, and NOT
+// by a truncated/query-stripped URL. Some providers (notably Google Images via
+// SerpAPI) encode the actual unique-image identifier *inside* the query string of
+// a shared thumbnail-proxy host (e.g. gstatic.com/images?q=tbn:<hash>), so
+// stripping query params before comparing would wrongly treat every distinct
+// image as a duplicate of the first. Title-based dedup is also intentionally
+// avoided — many distinct real photos share an identical source-article title.
+function dedupeResults(items) {
+  const seenThumbs = new Set();
+  return items.filter((r) => {
+    const thumbKey = r.thumbnail || "";
+    if (thumbKey && seenThumbs.has(thumbKey)) return false;
+    if (thumbKey) seenThumbs.add(thumbKey);
+    return true;
+  });
+}
+
 const PLACEHOLDER_THUMBNAIL_PATTERNS = [
   "favicon",
   "static/baike",
@@ -92,20 +176,50 @@ export async function searchOneQuery(q, { debug = false } = {}) {
     let braveRaw = [];
     let braveData = {};
 
+    // Lightweight subject-relevance guard for person/actor queries: the primary subject is
+    // assumed to be the first whitespace-separated token in the query (e.g. "王以纶" in
+    // "王以纶 眼镜 书生"). A provider can return a large, well-formed result set that is
+    // nonetheless entirely off-topic (e.g. bing_images returning unrelated stock-photo/
+    // insect content for a narrow actor query) — "a full plate of bugs is also not
+    // breakfast." Require at least 2 candidate results to mention the subject token in
+    // their title/description before trusting that engine's results as final. This guard
+    // now applies on BOTH the Brave path and the SerpAPI cascade below (previously it only
+    // existed inside the SerpAPI loop, so Brave — the primary, most-used path — had zero
+    // subject-relevance checking at all).
+    const SUBJECT_MIN_MENTIONS = 2;
+    const subjectToken = q.split(/\s+/)[0] || "";
+    let subjectGuardReason = "not_applicable";
+
     if (braveResp.ok) {
       braveData = await braveResp.json();
       braveRaw =
         Array.isArray(braveData.results) ? braveData.results :
         Array.isArray(braveData.web?.results) ? braveData.web.results :
         [];
-      braveNormalized = filterResults(braveRaw.map((item) => normalizeWebResult(item, q)));
+      braveNormalized = filterResults(braveRaw.map((item) => normalizeWebResult(item, q)))
+        // Per-item negative filter: reject co-star/wrong-actor and non-subject-content
+        // (maps, paintings, app-store tiles) items regardless of which engine/provider
+        // produced them or whether the batch-level guard below passes.
+        .filter((r) => passesPerItemSubjectFilter(r, subjectToken));
+      braveNormalized = dedupeResults(braveNormalized);
       braveUseful = braveNormalized.filter((r) => !isCommerceDomain(r.source));
     }
 
-    // Fall back to Baidu via SerpAPI if any commerce/junk results are present, or useful count is low.
+    const braveSubjectHitCount = subjectToken
+      ? braveRaw.filter((item) => `${item.title || ""} ${item.description || ""}`.includes(subjectToken)).length
+      : braveRaw.length;
+    const braveSubjectGuardPassed = !subjectToken || braveSubjectHitCount >= SUBJECT_MIN_MENTIONS;
+
+    // Fall back to Baidu via SerpAPI if any commerce/junk results are present, useful count
+    // is low, or the subject-relevance guard fails on Brave's own raw result set.
     // Use braveUseful (not braveNormalized) so commerce results are never shown as fallback.
-    let finalResults = braveUseful;
+    let finalResults = braveSubjectGuardPassed ? braveUseful : [];
     let finalProvider = "brave";
+    if (braveSubjectGuardPassed && braveUseful.length > 0) {
+      subjectGuardReason = `passed (${braveSubjectHitCount} >= ${SUBJECT_MIN_MENTIONS} mentions of "${subjectToken}") on brave`;
+    } else if (!braveSubjectGuardPassed) {
+      subjectGuardReason = `failed_on_brave (${braveSubjectHitCount} < ${SUBJECT_MIN_MENTIONS} mentions of "${subjectToken}")`;
+    }
 
     let serpApiConfigured = false;
     let serpApiAttempted = false;
@@ -122,24 +236,15 @@ export async function searchOneQuery(q, { debug = false } = {}) {
     let serpApiUrlNoKey = null;
     let serpApiEngineLog = [];
 
-    // Lightweight subject-relevance guard for person/actor queries: the primary subject is
-    // assumed to be the first whitespace-separated token in the query (e.g. "王以纶" in
-    // "王以纶 眼镜 书生"). A provider can return a large, well-formed result set that is
-    // nonetheless entirely off-topic (e.g. bing_images returning unrelated stock-photo/
-    // insect content for a narrow actor query) — "a full plate of bugs is also not
-    // breakfast." Require at least 2 candidate results to mention the subject token in
-    // their title/description before trusting that engine's results as final.
-    const SUBJECT_MIN_MENTIONS = 2;
-    const subjectToken = q.split(/\s+/)[0] || "";
-    let subjectGuardReason = "not_applicable";
-
     const hasCommerceResults = braveNormalized.length > braveUseful.length;
-    const braveTriggerReason = hasCommerceResults
+    const braveTriggerReason = !braveSubjectGuardPassed
+      ? `subject_guard_failed (${braveSubjectHitCount} < ${SUBJECT_MIN_MENTIONS} mentions of "${subjectToken}")`
+      : hasCommerceResults
       ? "commerce_results_present"
       : braveUseful.length < USEFUL_FALLBACK_THRESHOLD
         ? `useful_count_below_threshold (${braveUseful.length} < ${USEFUL_FALLBACK_THRESHOLD})`
         : `sufficient_useful_results (${braveUseful.length} >= ${USEFUL_FALLBACK_THRESHOLD})`;
-    if (hasCommerceResults || braveUseful.length < USEFUL_FALLBACK_THRESHOLD) {
+    if (!braveSubjectGuardPassed || hasCommerceResults || braveUseful.length < USEFUL_FALLBACK_THRESHOLD) {
       const serpKey = process.env.SERPAPI_KEY;
       serpApiConfigured = !!serpKey;
       if (serpKey) {
@@ -201,8 +306,13 @@ export async function searchOneQuery(q, { debug = false } = {}) {
               ? Object.fromEntries(Object.keys(serpRaw[0]).map(k => [k, typeof serpRaw[0][k]]))
               : null;
 
-            const serpNormalized = filterResults(serpRaw.map((item) => normalizeSerpResult(item, q)))
-              .filter((r) => !isCommerceDomain(r.source));
+            const serpNormalized = dedupeResults(
+              filterResults(serpRaw.map((item) => normalizeSerpResult(item, q)))
+                .filter((r) => !isCommerceDomain(r.source))
+                // Per-item negative filter: reject co-star/wrong-actor and non-subject-content
+                // items, same as the Brave path above.
+                .filter((r) => passesPerItemSubjectFilter(r, subjectToken))
+            );
             serpApiNormalizedCount = serpNormalized.length;
             engineLog.normalizedCount = serpNormalized.length;
 
@@ -248,7 +358,7 @@ export async function searchOneQuery(q, { debug = false } = {}) {
     };
 
     if (debug) {
-      response.version = "serpapi-fallback-v9-threshold7";
+      response.version = "serpapi-fallback-v10-subject-fidelity";
       response.braveRawCount = braveRaw.length;
       response.braveNormalizedCount = braveNormalized.length;
       response.braveUsefulCount = braveUseful.length;
