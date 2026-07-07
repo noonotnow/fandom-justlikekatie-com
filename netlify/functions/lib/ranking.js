@@ -63,9 +63,24 @@ export const JUNK_DOMAIN_PATTERNS = [
   "essilor.com"
 ];
 
+// Luxury/fashion brand domains that host legitimate editorial and campaign content.
+// These must NOT be treated as junk — actor brand campaigns (Dylan Wang × Gucci, etc.)
+// are exactly the kind of content this app surfaces.
+export const LUXURY_EDITORIAL_DOMAINS = [
+  "gucci.com",
+  "dior.com",
+  "chanel.com",
+  "prada.com",
+  "versace.com",
+  "armani.com",
+  "tomford.com"
+];
+
 export function isJunkSource(source) {
   if (!source) return false;
   const lower = source.toLowerCase();
+  // Never block luxury editorial domains at the domain level.
+  if (LUXURY_EDITORIAL_DOMAINS.some((d) => lower === d || lower.endsWith("." + d))) return false;
   return JUNK_DOMAIN_PATTERNS.some((p) => lower === p || lower.endsWith("." + p));
 }
 

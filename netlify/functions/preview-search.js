@@ -184,6 +184,34 @@ const COMMERCE_DOMAINS = new Set([
   "missevan.com"
 ]);
 
+// Luxury/fashion brand domains that host legitimate editorial and campaign content
+// (actor collaborations, lookbooks, stories). These must NOT be domain-blocked —
+// the path-based isProductUrl() filter below handles their /shop/ and /product/ pages.
+const LUXURY_EDITORIAL_DOMAINS = new Set([
+  "gucci.com",
+  "dior.com",
+  "chanel.com",
+  "prada.com",
+  "versace.com",
+  "armani.com",
+  "tomford.com"
+]);
+
+// Path patterns that indicate a product/catalog page (not editorial content).
+// Used to filter product URLs from luxury editorial domains that pass domain-level checks.
+const PRODUCT_PATH_PATTERNS = [
+  "/shop/", "/shop?", "/product/", "/products/",
+  "/catalog/", "/catalogue/", "/buy/", "/cart/",
+  "/checkout/", "/add-to-bag", "/add-to-cart",
+  "/p/", "/item/"
+];
+
+function isProductUrl(url) {
+  if (!url) return false;
+  const lower = url.toLowerCase();
+  return PRODUCT_PATH_PATTERNS.some((p) => lower.includes(p));
+}
+
 // Fewer than this many *useful* (non-commerce, non-placeholder) results triggers SerpAPI fallback.
 // The visible unit is a 3x3 (9-slot) preview grid, so Brave should only be trusted to skip
 // fallback when it can nearly fill that grid with usable candidates — a handful of thin/
@@ -259,7 +287,8 @@ export async function searchOneQuery(q, { debug = false } = {}) {
         // produced them or whether the batch-level guard below passes.
         .filter((r) => passesPerItemSubjectFilter(r, subjectToken));
       braveNormalized = dedupeResults(braveNormalized);
-      braveUseful = braveNormalized.filter((r) => !isCommerceDomain(r.source));
+      braveUseful = braveNormalized.filter((r) => !isCommerceDomain(r.source))
+        .filter((r) => !isProductUrl(r.link));
     }
 
     const braveSubjectHitCount = subjectToken
@@ -366,6 +395,7 @@ export async function searchOneQuery(q, { debug = false } = {}) {
             const serpNormalized = dedupeResults(
               filterResults(serpRaw.map((item) => normalizeSerpResult(item, q)))
                 .filter((r) => !isCommerceDomain(r.source))
+                .filter((r) => !isProductUrl(r.link))
                 // Per-item negative filter: reject co-star/wrong-actor and non-subject-content
                 // items, same as the Brave path above.
                 .filter((r) => passesPerItemSubjectFilter(r, subjectToken))
@@ -497,8 +527,16 @@ function isAdTitle(title) {
   return AD_TITLE_PATTERNS.some((p) => lower.includes(p.toLowerCase()));
 }
 
+function isLuxuryEditorialDomain(source) {
+  if (!source) return false;
+  return [...LUXURY_EDITORIAL_DOMAINS].some((d) => source === d || source.endsWith("." + d));
+}
+
 function isCommerceDomain(source) {
   if (!source) return false;
+  // Luxury editorial domains are never treated as commerce — their product pages
+  // are caught by the path-based isProductUrl() filter instead.
+  if (isLuxuryEditorialDomain(source)) return false;
   return [...COMMERCE_DOMAINS].some((d) => source === d || source.endsWith("." + d));
 }
 
