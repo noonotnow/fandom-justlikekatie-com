@@ -1,0 +1,38 @@
+.saveButton {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity 150ms ease, transform 100ms ease;
+  z-index: 10;
+  padding: 0;
+}
+
+.saveButton:hover { transform: scale(1.1); }
+.saveButton:active { transform: scale(0.95); }
+.saveButton:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.saveButton svg {
+  width: 18px;
+  height: 18px;
+  color: white;
+  transition: transform 200ms ease;
+}
+
+.saved svg {
+  fill: #c9a96e;
+  stroke: #c9a96e;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .saveButton, .saveButton svg { transition: none; }
+}

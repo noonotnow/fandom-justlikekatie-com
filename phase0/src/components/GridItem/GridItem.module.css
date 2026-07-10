@@ -1,0 +1,64 @@
+.gridItem {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  background: #1a1a22;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  outline: none;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.gridItem:hover,
+.gridItem:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.gridItem:focus-visible {
+  outline: 2px solid #c9a96e;
+  outline-offset: 2px;
+}
+
+.thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.title {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 24px 8px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f3f3f5;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.publisher {
+  position: absolute;
+  bottom: 24px;
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0 8px;
+  font-size: 11px;
+  color: #c9a96e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gridItem {
+    transition: none;
+  }
+}
