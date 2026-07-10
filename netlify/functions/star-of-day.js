@@ -21,7 +21,7 @@ import { getShanghaiDateString, getRandomForDate, shanghaiYesterday } from "./li
 // real cache key and reads whatever the winner produced. This is what stops
 // simultaneous requests right after midnight from each independently
 // re-running the whole search+rank ladder.
-const VERSION = "v1";
+const VERSION = "v2";
 const STORE_NAME = "star-of-day";
 const LOCK_TTL_MS = 25000; // a stale/abandoned lock is ignored after this long
 const POLL_INTERVAL_MS = 700;
