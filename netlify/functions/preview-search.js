@@ -233,6 +233,27 @@ const PRODUCT_PATH_PATTERNS = [
 // requiring a full grid) so fallback isn't forced when Brave genuinely has 7-8 strong candidates.
 const USEFUL_FALLBACK_THRESHOLD = 7;
 
+// Simple quality score based on source diversity — a grid with results from
+// 5+ unique domains is more trustworthy than 9 results all from one site.
+// Returns 0.0-1.0 where 1.0 = excellent diversity.
+const QUALITY_DIVERSITY_WEIGHT = 0.6;
+const QUALITY_COUNT_WEIGHT = 0.4;
+const QUALITY_FALLBACK_THRESHOLD = 0.7;
+
+function scoreResultQuality(results) {
+  if (!results || results.length === 0) return { overall: 0, diversity: 0, countScore: 0 };
+
+  const uniqueSources = new Set(results.map(r => r.source).filter(Boolean));
+  // 5+ unique sources = full diversity score
+  const diversity = Math.min(uniqueSources.size / 5, 1.0);
+  // 9+ results = full count score (grid is 3x3)
+  const countScore = Math.min(results.length / 9, 1.0);
+
+  const overall = (diversity * QUALITY_DIVERSITY_WEIGHT) + (countScore * QUALITY_COUNT_WEIGHT);
+
+  return { overall, diversity, countScore, uniqueSources: uniqueSources.size };
+}
+
 // Runs the full Brave -> SerpAPI (bing_images -> google_images -> yandex_images)
 // fallback cascade for a single query, including the ad/commerce/placeholder
 // filters and the subject-relevance guard. Returns a plain response-shaped
@@ -340,14 +361,18 @@ export async function searchOneQuery(q, { debug = false } = {}) {
     let serpApiEngineLog = [];
 
     const hasCommerceResults = braveNormalized.length > braveUseful.length;
+    const braveQuality = scoreResultQuality(braveUseful);
+    const qualityBelowThreshold = braveQuality.overall < QUALITY_FALLBACK_THRESHOLD;
     const braveTriggerReason = !braveSubjectGuardPassed
       ? `subject_guard_failed (${braveSubjectHitCount} < ${SUBJECT_MIN_MENTIONS} mentions of "${subjectToken}")`
       : hasCommerceResults
       ? "commerce_results_present"
       : braveUseful.length < USEFUL_FALLBACK_THRESHOLD
         ? `useful_count_below_threshold (${braveUseful.length} < ${USEFUL_FALLBACK_THRESHOLD})`
-        : `sufficient_useful_results (${braveUseful.length} >= ${USEFUL_FALLBACK_THRESHOLD})`;
-    if (!braveSubjectGuardPassed || hasCommerceResults || braveUseful.length < USEFUL_FALLBACK_THRESHOLD) {
+        : qualityBelowThreshold
+          ? `quality_below_threshold (${braveQuality.overall.toFixed(2)} < ${QUALITY_FALLBACK_THRESHOLD}, diversity=${braveQuality.diversity.toFixed(2)}, sources=${braveQuality.uniqueSources})`
+          : `sufficient_quality (${braveQuality.overall.toFixed(2)} >= ${QUALITY_FALLBACK_THRESHOLD}, sources=${braveQuality.uniqueSources})`;
+    if (!braveSubjectGuardPassed || hasCommerceResults || braveUseful.length < USEFUL_FALLBACK_THRESHOLD || qualityBelowThreshold) {
       const serpKey = process.env.SERPAPI_KEY;
       serpApiConfigured = !!serpKey;
       if (serpKey) {
@@ -462,11 +487,13 @@ export async function searchOneQuery(q, { debug = false } = {}) {
     };
 
     if (debug) {
-      response.version = "serpapi-fallback-v10-subject-fidelity";
+      response.version = "serpapi-fallback-v11-quality-gate";
       response.braveRawCount = braveRaw.length;
       response.braveNormalizedCount = braveNormalized.length;
       response.braveUsefulCount = braveUseful.length;
       response.braveTriggerReason = braveTriggerReason;
+      response.braveQuality = braveQuality;
+      response.qualityFallbackThreshold = QUALITY_FALLBACK_THRESHOLD;
       response.subjectToken = subjectToken;
       response.subjectGuardReason = subjectGuardReason;
       response.serpApiConfigured = serpApiConfigured;
