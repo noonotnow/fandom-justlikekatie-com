@@ -66,7 +66,11 @@ const ALL_ACTOR_NAME_TOKENS = ACTOR_PACKS.flatMap((a) =>
 //     in 张凌赫's medical-vibe queries (now fixed to 爱你/何苏叶), but search engines
 //     still associate the two via "陷阱"-adjacent keywords, causing his promotional
 //     posters to appear in 张凌赫 doctor-role batches.
-const KNOWN_COSTAR_DRIFT_NAMES = ["成毅", "谢彬彬", "张凌赫"];
+//   - 李大齐: homophone collision — 离十六 (Lí Shíliù, Liu Yuning's masked hero
+//     in 书卷一梦) vs 李大齐 (Lǐ Dàqí, unrelated character); search engines
+//     conflate these due to similar romanization, causing wrong-character results
+//     in Liu Yuning drama-role queries.
+const KNOWN_COSTAR_DRIFT_NAMES = ["成毅", "谢彬彬", "张凌赫", "李大齐"];
 
 const ALL_KNOWN_PERSON_NAME_TOKENS = [...ALL_ACTOR_NAME_TOKENS, ...KNOWN_COSTAR_DRIFT_NAMES];
 
