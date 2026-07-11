@@ -22,6 +22,9 @@ export const Lightbox: React.FC<LightboxProps> = ({
   const current = images[currentIndex];
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const previousActiveElement = useRef<HTMLElement | null>(null);
 
   const goNext = useCallback(() => {
     onNavigate((currentIndex + 1) % total);
@@ -31,7 +34,17 @@ export const Lightbox: React.FC<LightboxProps> = ({
     onNavigate((currentIndex - 1 + total) % total);
   }, [currentIndex, total, onNavigate]);
 
-  // Keyboard navigation
+  // Focus trap: collect all focusable elements inside the lightbox
+  const getFocusableElements = useCallback((): HTMLElement[] => {
+    if (!overlayRef.current) return [];
+    return Array.from(
+      overlayRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [tabindex="0"]'
+      )
+    );
+  }, []);
+
+  // Keyboard navigation + focus trap
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       switch (e.key) {
@@ -47,18 +60,47 @@ export const Lightbox: React.FC<LightboxProps> = ({
           e.preventDefault();
           onClose();
           break;
+        case 'Tab': {
+          // Focus trap: wrap around within the lightbox
+          const focusable = getFocusableElements();
+          if (focusable.length === 0) {
+            e.preventDefault();
+            break;
+          }
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+
+          if (e.shiftKey) {
+            if (document.activeElement === first) {
+              e.preventDefault();
+              last.focus();
+            }
+          } else {
+            if (document.activeElement === last) {
+              e.preventDefault();
+              first.focus();
+            }
+          }
+          break;
+        }
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [goNext, goPrev, onClose]);
+  }, [goNext, goPrev, onClose, getFocusableElements]);
 
-  // Lock body scroll while open
+  // Lock body scroll + manage focus on mount/unmount
   useEffect(() => {
+    previousActiveElement.current = document.activeElement as HTMLElement | null;
     document.body.style.overflow = 'hidden';
+    // Focus the close button on open
+    closeButtonRef.current?.focus();
+
     return () => {
       document.body.style.overflow = '';
+      // Restore focus to the element that opened the lightbox
+      previousActiveElement.current?.focus();
     };
   }, []);
 
@@ -94,6 +136,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
 
   return (
     <div
+      ref={overlayRef}
       className={styles.overlay}
       onClick={onClose}
       onTouchStart={handleTouchStart}
@@ -105,6 +148,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
       <div className={styles.content} onClick={(e) => e.stopPropagation()}>
         {/* Close button */}
         <button
+          ref={closeButtonRef}
           className={styles.closeBtn}
           onClick={onClose}
           aria-label="Close lightbox"

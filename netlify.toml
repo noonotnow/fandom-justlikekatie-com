@@ -2,4 +2,10 @@
   directory = "netlify/functions"
 
 [build]
-  publish = "."
+  command = "cd phase0 && npm install && npm run build"
+  publish = "phase0/dist"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

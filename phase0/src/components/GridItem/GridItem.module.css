@@ -9,10 +9,19 @@
   transition: transform 150ms ease, box-shadow 150ms ease;
 }
 
+:global(:not(.dark)) .gridItem {
+  background: #f0e8d8;
+}
+
 .gridItem:hover,
 .gridItem:focus-visible {
   transform: translateY(-2px);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+:global(:not(.dark)) .gridItem:hover,
+:global(:not(.dark)) .gridItem:focus-visible {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
 }
 
 .gridItem:focus-visible {

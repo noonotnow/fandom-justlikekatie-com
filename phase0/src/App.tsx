@@ -4,6 +4,8 @@ import { GridItemSkeleton } from './components/GridItem/GridItemSkeleton';
 import { InlinePreview } from './components/InlinePreview/InlinePreview';
 import { Lightbox } from './components/Lightbox/Lightbox';
 import { EditorialGroupHeader } from './components/EditorialGroup/EditorialGroup';
+import { ThemeToggle } from './components/ThemeToggle/ThemeToggle';
+import { useDarkMode } from './hooks/useDarkMode';
 import { detectEditorialSets, assembleSmartGrid } from './utils/editorialDetection';
 import type { GridItemData } from './types';
 import './App.css';
@@ -27,6 +29,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const { isDark, toggle: toggleDarkMode } = useDarkMode();
 
   // Detect editorial sets and assemble smart grid order
   const { items: taggedItems, sets: editorialSets } = useMemo(
@@ -116,14 +119,15 @@ function App() {
 
   return (
     <div className="app">
+      <ThemeToggle isDark={isDark} onToggle={toggleDarkMode} />
       <header className="text-center py-12 px-4">
         <h1 className="text-5xl md:text-6xl font-bold text-gold mb-4">
           Vibe Atlas — 氛围图鉴
         </h1>
-        <p className="text-xl md:text-2xl text-gray-400 font-light tracking-wide">
+        <p className="text-xl md:text-2xl text-gray-600 dark:text-gray-400 font-light tracking-wide">
           Too wrong to discard. Too iconic to ignore.
         </p>
-        <div className="mt-2 text-sm text-gray-500">
+        <div className="mt-2 text-sm text-gray-500 dark:text-gray-500">
           Phase 0 — Weeks 1+2 Demo
         </div>
       </header>

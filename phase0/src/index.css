@@ -1,25 +1,35 @@
 @import "tailwindcss";
 
+/* Class-based dark mode: the .dark class on <html> activates dark: utilities */
+@variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-gold: #D4AF37;
+  --color-gold-text: #c9a96e;
 }
 
 :root {
-  color-scheme: dark;
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
-  background: #0e0e12;
-  color: #f3f3f5;
 }
 
 * {
   box-sizing: border-box;
 }
 
+/* Light mode (default when .dark is NOT on <html>) */
 body {
   margin: 0;
+  background: #faf6ee;
+  color: #2b2620;
+  min-height: 100vh;
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+/* Dark mode (when .dark IS on <html>) */
+.dark body {
   background: #0e0e12;
   color: #f3f3f5;
-  min-height: 100vh;
+  color-scheme: dark;
 }
 
 #root {

@@ -1,10 +1,19 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>phase0</title>
+    <title>Vibe Atlas — 氛围图鉴</title>
+    <script>
+      // Prevent flash: apply saved theme before render
+      (function() {
+        var theme = localStorage.getItem('vibe-atlas-theme');
+        if (theme === 'light') {
+          document.documentElement.classList.remove('dark');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
