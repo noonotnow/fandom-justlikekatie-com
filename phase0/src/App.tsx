@@ -11,15 +11,15 @@ import type { GridItemData } from './types';
 import './App.css';
 
 const MOCK_DATA: GridItemData[] = [
-  { id: 'item-1', title: "Doctor's Trap", thumbnail: 'https://via.placeholder.com/400x400/1a1a22/c9a96e?text=1', publisher: 'Zhang Linghe Vibe Atlas', url: 'https://example.com/1', tags: ['drama', 'costume', 'studio'] },
-  { id: 'item-2', title: 'Four Seas Revived', thumbnail: 'https://via.placeholder.com/400x400/1a1a22/c9a96e?text=2', publisher: 'Zhang Linghe Vibe Atlas', url: 'https://example.com/2', tags: ['drama', 'wuxia', 'studio'] },
-  { id: 'item-3', title: 'Detective Out of Control', thumbnail: 'https://via.placeholder.com/400x400/1a1a22/c9a96e?text=3', publisher: 'Zhang Linghe Vibe Atlas', url: 'https://example.com/3', tags: ['drama', 'modern', 'outdoor'] },
-  { id: 'item-4', title: 'Jade-colored Calamity', thumbnail: 'https://via.placeholder.com/400x400/1a1a22/c9a96e?text=4', publisher: 'Zhang Linghe Vibe Atlas', url: 'https://example.com/4', tags: ['drama', 'costume', 'studio'] },
-  { id: 'item-5', title: 'Moonlight Aura Farmer', thumbnail: 'https://via.placeholder.com/400x400/1a1a22/c9a96e?text=5', publisher: 'Liu Yuning Vibe Atlas', url: 'https://example.com/5', tags: ['editorial', 'nature', 'outdoor'] },
-  { id: 'item-6', title: 'Beauty Mark Close-Up', thumbnail: 'https://via.placeholder.com/400x400/1a1a22/c9a96e?text=6', publisher: 'Liu Yuning Vibe Atlas', url: 'https://example.com/6', tags: ['editorial', 'portrait', 'studio'] },
-  { id: 'item-7', title: 'Cold Jade Immortal', thumbnail: 'https://via.placeholder.com/400x400/1a1a22/c9a96e?text=7', publisher: 'Liu Xueyi Vibe Atlas', url: 'https://example.com/7', tags: ['drama', 'costume'] },
-  { id: 'item-8', title: 'Boyfriend Lighting', thumbnail: 'https://via.placeholder.com/400x400/1a1a22/c9a96e?text=8', publisher: 'Liu Yuning Vibe Atlas', url: 'https://example.com/8', tags: ['editorial', 'portrait', 'studio'] },
-  { id: 'item-9', title: 'Skyscraper Energy', thumbnail: 'https://via.placeholder.com/400x400/1a1a22/c9a96e?text=9', publisher: 'Liu Yuning Vibe Atlas', url: 'https://example.com/9', tags: ['editorial', 'urban', 'outdoor'] },
+  { id: 'item-1', title: "Doctor's Trap", thumbnail: 'https://picsum.photos/seed/doctors-trap/400/400', publisher: 'Zhang Linghe Vibe Atlas', url: 'https://example.com/1', tags: ['drama', 'costume', 'studio'] },
+  { id: 'item-2', title: 'Four Seas Revived', thumbnail: 'https://picsum.photos/seed/four-seas/400/400', publisher: 'Zhang Linghe Vibe Atlas', url: 'https://example.com/2', tags: ['drama', 'wuxia', 'studio'] },
+  { id: 'item-3', title: 'Detective Out of Control', thumbnail: 'https://picsum.photos/seed/detective/400/400', publisher: 'Zhang Linghe Vibe Atlas', url: 'https://example.com/3', tags: ['drama', 'modern', 'outdoor'] },
+  { id: 'item-4', title: 'Jade-colored Calamity', thumbnail: 'https://picsum.photos/seed/jade-calamity/400/400', publisher: 'Zhang Linghe Vibe Atlas', url: 'https://example.com/4', tags: ['drama', 'costume', 'studio'] },
+  { id: 'item-5', title: 'Moonlight Aura Farmer', thumbnail: 'https://picsum.photos/seed/moonlight/400/400', publisher: 'Liu Yuning Vibe Atlas', url: 'https://example.com/5', tags: ['editorial', 'nature', 'outdoor'] },
+  { id: 'item-6', title: 'Beauty Mark Close-Up', thumbnail: 'https://picsum.photos/seed/beauty-mark/400/400', publisher: 'Liu Yuning Vibe Atlas', url: 'https://example.com/6', tags: ['editorial', 'portrait', 'studio'] },
+  { id: 'item-7', title: 'Cold Jade Immortal', thumbnail: 'https://picsum.photos/seed/cold-jade/400/400', publisher: 'Liu Xueyi Vibe Atlas', url: 'https://example.com/7', tags: ['drama', 'costume'] },
+  { id: 'item-8', title: 'Boyfriend Lighting', thumbnail: 'https://picsum.photos/seed/boyfriend/400/400', publisher: 'Liu Yuning Vibe Atlas', url: 'https://example.com/8', tags: ['editorial', 'portrait', 'studio'] },
+  { id: 'item-9', title: 'Skyscraper Energy', thumbnail: 'https://picsum.photos/seed/skyscraper/400/400', publisher: 'Liu Yuning Vibe Atlas', url: 'https://example.com/9', tags: ['editorial', 'urban', 'outdoor'] },
 ];
 
 /** Number of columns in the grid — used to calculate preview row insertion */
@@ -138,10 +138,6 @@ function App() {
           : renderGridItems()
         }
       </div>
-
-      <button onClick={() => setLoading(true)}>
-        Replay Skeleton Loading
-      </button>
 
       {lightboxIndex !== null && (
         <Lightbox
