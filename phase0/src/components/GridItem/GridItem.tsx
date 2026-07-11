@@ -8,14 +8,15 @@ interface GridItemProps {
   thumbnail: string;
   publisher?: string;
   url: string;
+  onImageClick?: () => void;
 }
 
-export const GridItem: React.FC<GridItemProps> = ({ id, title, thumbnail, publisher, url }) => {
+export const GridItem: React.FC<GridItemProps> = ({ id, title, thumbnail, publisher, onImageClick }) => {
   const handleClick = () => {
-    window.open(url, '_blank', 'noopener,noreferrer');
+    onImageClick?.();
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       handleClick();
@@ -26,10 +27,10 @@ export const GridItem: React.FC<GridItemProps> = ({ id, title, thumbnail, publis
     <div
       className={styles.gridItem}
       onClick={handleClick}
-      onKeyPress={handleKeyPress}
+      onKeyDown={handleKeyDown}
       tabIndex={0}
-      role="link"
-      aria-label={`${title}${publisher ? ` by ${publisher}` : ''}`}
+      role="button"
+      aria-label={`View ${title}${publisher ? ` by ${publisher}` : ''}`}
     >
       <img src={thumbnail} alt={title} className={styles.thumbnail} loading="lazy" />
       <SaveButton itemId={id} />

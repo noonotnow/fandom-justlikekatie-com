@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { GridItem } from './components/GridItem/GridItem';
 import { GridItemSkeleton } from './components/GridItem/GridItemSkeleton';
+import { Lightbox } from './components/Lightbox/Lightbox';
+import type { GridItemData } from './types';
 import './App.css';
 
-const MOCK_DATA = [
+const MOCK_DATA: GridItemData[] = [
   { id: 'item-1', title: "Doctor's Trap", thumbnail: 'https://via.placeholder.com/400x400/1a1a22/c9a96e?text=1', publisher: 'Zhang Linghe Vibe Atlas', url: 'https://example.com/1' },
   { id: 'item-2', title: 'Four Seas Revived', thumbnail: 'https://via.placeholder.com/400x400/1a1a22/c9a96e?text=2', publisher: 'Zhang Linghe Vibe Atlas', url: 'https://example.com/2' },
   { id: 'item-3', title: 'Detective Out of Control', thumbnail: 'https://via.placeholder.com/400x400/1a1a22/c9a96e?text=3', publisher: 'Zhang Linghe Vibe Atlas', url: 'https://example.com/3' },
@@ -17,6 +19,10 @@ const MOCK_DATA = [
 
 function App() {
   const [loading, setLoading] = useState(true);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  // The grid images — this is the ONLY array passed to Lightbox
+  const gridImages = MOCK_DATA;
 
   useEffect(() => {
     const timer = setTimeout(() => setLoading(false), 2500);
@@ -33,13 +39,28 @@ function App() {
       <div className="grid">
         {loading
           ? Array.from({ length: 9 }).map((_, i) => <GridItemSkeleton key={i} />)
-          : MOCK_DATA.map((item) => <GridItem key={item.id} {...item} />)
+          : gridImages.map((item, index) => (
+              <GridItem
+                key={item.id}
+                {...item}
+                onImageClick={() => setLightboxIndex(index)}
+              />
+            ))
         }
       </div>
 
       <button onClick={() => setLoading(true)}>
         Replay Skeleton Loading
       </button>
+
+      {lightboxIndex !== null && (
+        <Lightbox
+          images={gridImages}
+          currentIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          onNavigate={setLightboxIndex}
+        />
+      )}
     </div>
   );
 }

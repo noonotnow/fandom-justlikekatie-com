@@ -1,0 +1,163 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 200ms ease;
+}
+
+.content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 90vw;
+  max-height: 90vh;
+  gap: 12px;
+}
+
+.closeBtn {
+  position: absolute;
+  top: -40px;
+  right: -8px;
+  background: none;
+  border: none;
+  color: #f3f3f5;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: opacity 150ms;
+}
+
+.closeBtn:hover {
+  opacity: 0.7;
+}
+
+.navBtn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(26, 26, 34, 0.8);
+  border: 1px solid rgba(201, 169, 110, 0.3);
+  color: #f3f3f5;
+  font-size: 32px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 150ms, border-color 150ms;
+  z-index: 10;
+}
+
+.navBtn:hover {
+  background: rgba(201, 169, 110, 0.2);
+  border-color: #c9a96e;
+}
+
+.navPrev {
+  left: -60px;
+}
+
+.navNext {
+  right: -60px;
+}
+
+.mainImage {
+  max-width: 70vw;
+  max-height: 60vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.counter {
+  font-size: 13px;
+  color: #a3a3ad;
+  font-variant-numeric: tabular-nums;
+}
+
+.info {
+  text-align: center;
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #f3f3f5;
+}
+
+.publisher {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #c9a96e;
+}
+
+.thumbStrip {
+  display: flex;
+  gap: 6px;
+  padding: 8px 0;
+  overflow-x: auto;
+  max-width: 80vw;
+}
+
+.thumb {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 2px solid transparent;
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  opacity: 0.5;
+  transition: opacity 150ms, border-color 150ms;
+}
+
+.thumb:hover {
+  opacity: 0.8;
+}
+
+.thumbActive {
+  opacity: 1;
+  border-color: #c9a96e;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 768px) {
+  .navPrev {
+    left: 8px;
+  }
+  .navNext {
+    right: 8px;
+  }
+  .mainImage {
+    max-width: 85vw;
+    max-height: 50vh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay {
+    animation: none;
+  }
+}
