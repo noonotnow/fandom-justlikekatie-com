@@ -1,50 +1,21 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState } from 'react';
 import { GridItem } from './components/GridItem/GridItem';
 import { GridItemSkeleton } from './components/GridItem/GridItemSkeleton';
 import { InlinePreview } from './components/InlinePreview/InlinePreview';
 import { Lightbox } from './components/Lightbox/Lightbox';
-import { EditorialGroupHeader } from './components/EditorialGroup/EditorialGroup';
 import { ThemeToggle } from './components/ThemeToggle/ThemeToggle';
 import { useDarkMode } from './hooks/useDarkMode';
-import { detectEditorialSets, assembleSmartGrid } from './utils/editorialDetection';
-import type { GridItemData } from './types';
+import { useStarOfDay } from './hooks/useStarOfDay';
 import './App.css';
-
-const MOCK_DATA: GridItemData[] = [
-  { id: 'item-1', title: "Doctor's Trap", thumbnail: 'https://picsum.photos/seed/doctors-trap/400/400', publisher: 'Zhang Linghe Vibe Atlas', url: 'https://example.com/1', tags: ['drama', 'costume', 'studio'] },
-  { id: 'item-2', title: 'Four Seas Revived', thumbnail: 'https://picsum.photos/seed/four-seas/400/400', publisher: 'Zhang Linghe Vibe Atlas', url: 'https://example.com/2', tags: ['drama', 'wuxia', 'studio'] },
-  { id: 'item-3', title: 'Detective Out of Control', thumbnail: 'https://picsum.photos/seed/detective/400/400', publisher: 'Zhang Linghe Vibe Atlas', url: 'https://example.com/3', tags: ['drama', 'modern', 'outdoor'] },
-  { id: 'item-4', title: 'Jade-colored Calamity', thumbnail: 'https://picsum.photos/seed/jade-calamity/400/400', publisher: 'Zhang Linghe Vibe Atlas', url: 'https://example.com/4', tags: ['drama', 'costume', 'studio'] },
-  { id: 'item-5', title: 'Moonlight Aura Farmer', thumbnail: 'https://picsum.photos/seed/moonlight/400/400', publisher: 'Liu Yuning Vibe Atlas', url: 'https://example.com/5', tags: ['editorial', 'nature', 'outdoor'] },
-  { id: 'item-6', title: 'Beauty Mark Close-Up', thumbnail: 'https://picsum.photos/seed/beauty-mark/400/400', publisher: 'Liu Yuning Vibe Atlas', url: 'https://example.com/6', tags: ['editorial', 'portrait', 'studio'] },
-  { id: 'item-7', title: 'Cold Jade Immortal', thumbnail: 'https://picsum.photos/seed/cold-jade/400/400', publisher: 'Liu Xueyi Vibe Atlas', url: 'https://example.com/7', tags: ['drama', 'costume'] },
-  { id: 'item-8', title: 'Boyfriend Lighting', thumbnail: 'https://picsum.photos/seed/boyfriend/400/400', publisher: 'Liu Yuning Vibe Atlas', url: 'https://example.com/8', tags: ['editorial', 'portrait', 'studio'] },
-  { id: 'item-9', title: 'Skyscraper Energy', thumbnail: 'https://picsum.photos/seed/skyscraper/400/400', publisher: 'Liu Yuning Vibe Atlas', url: 'https://example.com/9', tags: ['editorial', 'urban', 'outdoor'] },
-];
 
 /** Number of columns in the grid — used to calculate preview row insertion */
 const GRID_COLS = 3;
 
 function App() {
-  const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
-
-  // Detect editorial sets and assemble smart grid order
-  const { items: taggedItems, sets: editorialSets } = useMemo(
-    () => detectEditorialSets(MOCK_DATA),
-    [],
-  );
-  const gridImages = useMemo(
-    () => assembleSmartGrid(taggedItems, editorialSets),
-    [taggedItems, editorialSets],
-  );
-
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 2500);
-    return () => clearTimeout(timer);
-  }, []);
+  const { items: gridImages, meta, loading, error } = useStarOfDay();
 
   const handleItemClick = (itemId: string) => {
     setExpandedId((prev) => (prev === itemId ? null : itemId));
@@ -56,27 +27,14 @@ function App() {
   };
 
   /**
-   * Render grid items with:
-   * 1. Editorial group headers inserted before each set
-   * 2. Inline preview rows inserted after the row containing the expanded item
+   * Render grid items with inline preview rows inserted after the row
+   * containing the expanded item.
    */
   const renderGridItems = () => {
     const elements: React.ReactNode[] = [];
-    let lastSetId: string | undefined;
 
     for (let i = 0; i < gridImages.length; i++) {
       const item = gridImages[i];
-
-      // Insert editorial group header when set changes
-      if (item.editorialSetId && item.editorialSetId !== lastSetId) {
-        const set = editorialSets.find((s) => s.id === item.editorialSetId);
-        if (set) {
-          elements.push(
-            <EditorialGroupHeader key={`header-${set.id}`} set={set} />,
-          );
-        }
-      }
-      lastSetId = item.editorialSetId;
 
       // Grid item
       elements.push(
@@ -88,7 +46,6 @@ function App() {
       );
 
       // Insert inline preview after the end of the current row
-      const isExpanded = expandedId === item.id;
       const isEndOfRow = (i + 1) % GRID_COLS === 0 || i === gridImages.length - 1;
       const rowStart = Math.floor(i / GRID_COLS) * GRID_COLS;
       const rowEnd = Math.min(rowStart + GRID_COLS - 1, gridImages.length - 1);
@@ -109,8 +66,6 @@ function App() {
             }}
           />,
         );
-      } else if (isExpanded && !isEndOfRow) {
-        // The preview will be rendered at end-of-row above
       }
     }
 
@@ -127,15 +82,29 @@ function App() {
         <p className="text-xl md:text-2xl text-gray-600 dark:text-gray-400 font-light tracking-wide">
           Too wrong to discard. Too iconic to ignore.
         </p>
-        <div className="mt-2 text-sm text-gray-500 dark:text-gray-500">
-          Phase 0 — Weeks 1+2 Demo
-        </div>
+        {meta && (
+          <div className="mt-4">
+            <div className="text-2xl font-semibold text-gold-text">
+              {meta.vibeEmoji} {meta.actorName} · {meta.vibeLabel}
+            </div>
+            <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              {meta.vibeLabelEn} — {meta.vibeSubtitleEn}
+            </div>
+            {meta.stale && (
+              <div className="text-xs text-amber-500 mt-1">
+                ⏳ Showing yesterday's picks while today's grid builds
+              </div>
+            )}
+          </div>
+        )}
       </header>
 
       <div className="grid">
         {loading
           ? Array.from({ length: 9 }).map((_, i) => <GridItemSkeleton key={i} />)
-          : renderGridItems()
+          : error
+            ? <div className="col-span-3 text-center py-8 text-gray-500">{error}</div>
+            : renderGridItems()
         }
       </div>
 
