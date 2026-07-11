@@ -1,6 +1,8 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import type { GridItemData } from '../../types';
 import styles from './Lightbox.module.css';
+
+const SWIPE_THRESHOLD = 50;
 
 interface LightboxProps {
   /** Only the current grid's images — NOT all search results */
@@ -18,6 +20,8 @@ export const Lightbox: React.FC<LightboxProps> = ({
 }) => {
   const total = images.length;
   const current = images[currentIndex];
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
 
   const goNext = useCallback(() => {
     onNavigate((currentIndex + 1) % total);
@@ -27,6 +31,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
     onNavigate((currentIndex - 1 + total) % total);
   }, [currentIndex, total, onNavigate]);
 
+  // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       switch (e.key) {
@@ -57,12 +62,42 @@ export const Lightbox: React.FC<LightboxProps> = ({
     };
   }, []);
 
+  // Touch/swipe handlers for mobile navigation
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  }, []);
+
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      if (touchStartX.current === null || touchStartY.current === null) return;
+
+      const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+      const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+
+      // Only trigger if horizontal swipe is dominant
+      if (Math.abs(deltaX) > SWIPE_THRESHOLD && Math.abs(deltaX) > Math.abs(deltaY)) {
+        if (deltaX < 0) {
+          goNext();
+        } else {
+          goPrev();
+        }
+      }
+
+      touchStartX.current = null;
+      touchStartY.current = null;
+    },
+    [goNext, goPrev],
+  );
+
   if (!current) return null;
 
   return (
     <div
       className={styles.overlay}
       onClick={onClose}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
       role="dialog"
       aria-modal="true"
       aria-label={`Image viewer: ${current.title}`}
