@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+@theme {
+  --color-gold: #D4AF37;
+}
+
 :root {
   color-scheme: dark;
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;

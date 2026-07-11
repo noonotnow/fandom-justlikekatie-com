@@ -116,11 +116,17 @@ function App() {
 
   return (
     <div className="app">
-      <h1>Vibe Atlas Phase 0</h1>
-      <p className="description">
-        Week 2: Inline preview, lightbox carousel with swipe, editorial set detection.
-        Click items to expand. Click "View Full Screen" or image in lightbox to browse.
-      </p>
+      <header className="text-center py-12 px-4">
+        <h1 className="text-5xl md:text-6xl font-bold text-gold mb-4">
+          Vibe Atlas — 氛围图鉴
+        </h1>
+        <p className="text-xl md:text-2xl text-gray-400 font-light tracking-wide">
+          Too wrong to discard. Too iconic to ignore.
+        </p>
+        <div className="mt-2 text-sm text-gray-500">
+          Phase 0 — Weeks 1+2 Demo
+        </div>
+      </header>
 
       <div className="grid">
         {loading
