@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import type { GridItemData } from '../types';
 
-interface StarOfDayResult {
+export interface StarOfDayResult {
   title: string;
   thumbnail: string;
   link: string;
   source: string;
 }
 
-interface RankedBatch {
+export interface RankedBatch {
   query: string;
   results: StarOfDayResult[];
   count: number;
@@ -75,6 +75,8 @@ export interface UseStarOfDayReturn {
     date: string;
     stale: boolean;
   } | null;
+  /** Raw API response — used by the export-card renderer */
+  rawData: StarOfDayData | null;
   loading: boolean;
   error: string | null;
 }
@@ -82,6 +84,7 @@ export interface UseStarOfDayReturn {
 export const useStarOfDay = (): UseStarOfDayReturn => {
   const [items, setItems] = useState<GridItemData[]>([]);
   const [meta, setMeta] = useState<UseStarOfDayReturn['meta']>(null);
+  const [rawData, setRawData] = useState<StarOfDayData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -111,6 +114,7 @@ export const useStarOfDay = (): UseStarOfDayReturn => {
 
         const gridItems = mapToGridItems(data);
         setItems(gridItems);
+        setRawData(data);
         setMeta({
           actorName: data.actorName,
           actorNameEn: data.actorShortNameEn,
@@ -134,5 +138,5 @@ export const useStarOfDay = (): UseStarOfDayReturn => {
     return () => { cancelled = true; };
   }, []);
 
-  return { items, meta, loading, error };
+  return { items, meta, rawData, loading, error };
 };

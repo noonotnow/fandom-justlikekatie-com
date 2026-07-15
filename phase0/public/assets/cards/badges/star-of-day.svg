@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <!-- Star of the Day badge: gold crystal ball with radiating star -->
+  <circle cx="24" cy="24" r="22" fill="#1a1520" stroke="#c9a96e" stroke-width="2"/>
+  <circle cx="24" cy="26" r="12" fill="none" stroke="#c9a96e" stroke-width="1.5" opacity="0.6"/>
+  <circle cx="24" cy="26" r="8" fill="#c9a96e" fill-opacity="0.15"/>
+  <!-- Four-point star sparkle -->
+  <path d="M24 8 L25.5 14 L28 12 L25.5 14 L32 14 L26 16 L28 20 L24 16 L20 20 L22 16 L16 14 L22.5 14 L20 12 L22.5 14 Z" fill="#c9a96e" opacity="0.9"/>
+  <!-- Simplified star burst -->
+  <path d="M24 6 L25 10 L24 8 Z M24 6 L23 10 L24 8 Z" fill="#c9a96e" opacity="0.5"/>
+  <circle cx="24" cy="26" r="4" fill="#c9a96e" fill-opacity="0.3"/>
+  <!-- Glow dot -->
+  <circle cx="21" cy="24" r="1.5" fill="#fff" fill-opacity="0.6"/>
+</svg>

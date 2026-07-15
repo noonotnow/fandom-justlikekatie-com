@@ -4,6 +4,7 @@ import { GridItemSkeleton } from './components/GridItem/GridItemSkeleton';
 import { InlinePreview } from './components/InlinePreview/InlinePreview';
 import { Lightbox } from './components/Lightbox/Lightbox';
 import { ThemeToggle } from './components/ThemeToggle/ThemeToggle';
+import { ExportButton } from './components/ExportButton/ExportButton';
 import { useDarkMode } from './hooks/useDarkMode';
 import { useStarOfDay } from './hooks/useStarOfDay';
 import './App.css';
@@ -15,7 +16,7 @@ function App() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
-  const { items: gridImages, meta, loading, error } = useStarOfDay();
+  const { items: gridImages, meta, rawData, loading, error } = useStarOfDay();
 
   const handleItemClick = (itemId: string) => {
     setExpandedId((prev) => (prev === itemId ? null : itemId));
@@ -93,6 +94,11 @@ function App() {
             {meta.stale && (
               <div className="text-xs text-amber-500 mt-1">
                 ⏳ Showing yesterday's picks while today's grid builds
+              </div>
+            )}
+            {rawData && (
+              <div className="mt-4">
+                <ExportButton rawData={rawData} />
               </div>
             )}
           </div>
