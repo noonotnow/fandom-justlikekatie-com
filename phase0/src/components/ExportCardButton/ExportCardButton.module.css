@@ -1,0 +1,46 @@
+.exportCardBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(201, 169, 110, 0.15);
+  border: 1px solid rgba(201, 169, 110, 0.4);
+  color: #c9a96e;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 150ms, border-color 150ms, opacity 150ms;
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.exportCardBtn:hover {
+  background: rgba(201, 169, 110, 0.25);
+  border-color: #c9a96e;
+}
+
+.exportCardBtn:active {
+  transform: scale(0.97);
+}
+
+.exportCardBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.label {
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .exportCardBtn {
+    transition: none;
+  }
+}
