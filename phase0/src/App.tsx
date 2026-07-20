@@ -120,6 +120,13 @@ function App() {
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={setLightboxIndex}
+          cardMetadata={meta ? {
+            actorName: meta.actorName,
+            vibeEmoji: meta.vibeEmoji,
+            vibeLabel: meta.vibeLabel,
+            vibeLabelEn: meta.vibeLabelEn,
+            date: meta.date,
+          } : undefined}
         />
       )}
     </div>

@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef } from 'react';
 import type { GridItemData } from '../../types';
+import { ExportCardButton, type ExportCardMetadata } from '../ExportCardButton/ExportCardButton';
 import styles from './Lightbox.module.css';
 
 const SWIPE_THRESHOLD = 50;
@@ -10,6 +11,8 @@ interface LightboxProps {
   currentIndex: number;
   onClose: () => void;
   onNavigate: (index: number) => void;
+  /** Metadata for individual card export */
+  cardMetadata?: ExportCardMetadata;
 }
 
 export const Lightbox: React.FC<LightboxProps> = ({
@@ -17,6 +20,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
   currentIndex,
   onClose,
   onNavigate,
+  cardMetadata,
 }) => {
   const total = images.length;
   const current = images[currentIndex];
@@ -191,6 +195,13 @@ export const Lightbox: React.FC<LightboxProps> = ({
             <p className={styles.publisher}>{current.publisher}</p>
           )}
         </div>
+
+        {/* Export card action */}
+        {cardMetadata && (
+          <div className={styles.actions}>
+            <ExportCardButton image={current} metadata={cardMetadata} />
+          </div>
+        )}
 
         {/* Thumbnail strip */}
         <div className={styles.thumbStrip} role="list" aria-label="Image thumbnails">

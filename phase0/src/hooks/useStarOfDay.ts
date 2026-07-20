@@ -48,7 +48,7 @@ function mapToGridItems(data: StarOfDayData): GridItemData[] {
       seen.add(result.thumbnail);
 
       items.push({
-        id: `star-${items.length}`,
+        id: result.thumbnail,
         title: result.title || data.vibeLabelEn,
         thumbnail: proxyUrl(result.thumbnail),
         publisher: `${data.actorShortNameEn} · ${result.source}`,

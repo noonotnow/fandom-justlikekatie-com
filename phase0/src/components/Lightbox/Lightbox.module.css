@@ -87,6 +87,13 @@
   text-align: center;
 }
 
+.actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
 .title {
   margin: 0;
   font-size: 16px;
