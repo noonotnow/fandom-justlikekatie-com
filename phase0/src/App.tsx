@@ -5,6 +5,7 @@ import { InlinePreview } from './components/InlinePreview/InlinePreview';
 import { Lightbox } from './components/Lightbox/Lightbox';
 import { ThemeToggle } from './components/ThemeToggle/ThemeToggle';
 import { ExportButton } from './components/ExportButton/ExportButton';
+import { SendToPlanButton } from './components/SendToPlanButton/SendToPlanButton';
 import { useDarkMode } from './hooks/useDarkMode';
 import { useStarOfDay } from './hooks/useStarOfDay';
 import './App.css';
@@ -97,9 +98,10 @@ function App() {
               </div>
             )}
             {rawData && (
-              <div className="mt-4">
-                <ExportButton rawData={rawData} />
-              </div>
+            <div className="mt-4" style={{ display: "flex", gap: "8px" }}>
+  <ExportButton rawData={rawData} />
+  <SendToPlanButton rawData={rawData} />
+</div>
             )}
           </div>
         )}
