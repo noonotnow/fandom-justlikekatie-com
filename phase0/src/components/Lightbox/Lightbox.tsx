@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { GridItemData } from '../../types';
 import { ExportCardButton, type ExportCardMetadata } from '../ExportCardButton/ExportCardButton';
 import { dbSaveCard, dbRemoveCard, dbIsCardSaved } from '../../utils/collectionDB';
+import { storage } from '../../utils/storage';
 import styles from './Lightbox.module.css';
 
 const SWIPE_THRESHOLD = 50;
@@ -138,36 +139,56 @@ export const Lightbox: React.FC<LightboxProps> = ({
   );
 
   const [isSaved, setIsSaved] = useState(false);
+  const [isLegacySaved, setIsLegacySaved] = useState(false);
 
-  useEffect(() => {
+      useEffect(() => {
     if (!current) return;
     let cancelled = false;
-    dbIsCardSaved(current.thumbnail).then((saved) => {
-      if (!cancelled) setIsSaved(saved);
+    dbIsCardSaved(current.thumbnail).then((inDB) => {
+      if (cancelled) return;
+      if (inDB) {
+        setIsSaved(true);
+        setIsLegacySaved(false);
+      } else {
+        const inLegacy = storage.isItemSaved(current.thumbnail);
+        setIsSaved(false);
+        setIsLegacySaved(inLegacy);
+      }
     });
     return () => { cancelled = true; };
   }, [current?.thumbnail]);
 
-  async function handleSave() {
+
+    async function handleSave() {
     if (!current) return;
-    if (isSaved) {
+
+    const cardPayload = {
+      imageUrl: current.thumbnail,
+      thumbnailUrl: current.thumbnail,
+      actor: cardMetadata?.actorName ?? 'Unknown',
+      actorEn: cardMetadata?.actorName ?? 'Unknown',
+      vibe: cardMetadata?.vibeLabel ?? 'Unknown',
+      vibeEn: cardMetadata?.vibeLabelEn ?? 'Unknown',
+      vibeEmoji: cardMetadata?.vibeEmoji ?? '✨',
+      capturedDate: cardMetadata?.date ?? new Date().toISOString().split('T')[0],
+      gridContext: {
+        batchKey: current.batchKey,
+        position: current.gridPosition ?? currentIndex,
+      },
+    };
+
+    if (isLegacySaved) {
+      // Migrate: promote localStorage bookmark → IndexedDB with full metadata
+      await dbSaveCard(cardPayload);
+      storage.removeItem(current.thumbnail);
+      setIsLegacySaved(false);
+      setIsSaved(true);
+      if (navigator.vibrate) navigator.vibrate(50);
+    } else if (isSaved) {
       await dbRemoveCard(current.thumbnail);
       setIsSaved(false);
     } else {
-      await dbSaveCard({
-        imageUrl: current.thumbnail,
-        thumbnailUrl: current.thumbnail,
-        actor: cardMetadata?.actorName ?? 'Unknown',
-        actorEn: cardMetadata?.actorName ?? 'Unknown',
-        vibe: cardMetadata?.vibeLabel ?? 'Unknown',
-        vibeEn: cardMetadata?.vibeLabelEn ?? 'Unknown',
-        vibeEmoji: cardMetadata?.vibeEmoji ?? '✨',
-        capturedDate: cardMetadata?.date ?? new Date().toISOString().split('T')[0],
-        gridContext: {
-          batchKey: current.batchKey,
-          position: current.gridPosition ?? currentIndex,
-        },
-      });
+      await dbSaveCard(cardPayload);
       setIsSaved(true);
       if (navigator.vibrate) navigator.vibrate(50);
     }
@@ -237,23 +258,30 @@ export const Lightbox: React.FC<LightboxProps> = ({
         {cardMetadata && (
           <div className={styles.actions} style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem', marginTop: '0.5rem' }}>
             <ExportCardButton image={current} metadata={cardMetadata} />
-            <button
-              onClick={handleSave}
-              title={isSaved ? 'Remove from collection' : 'Save to collection'}
-              aria-label={isSaved ? 'Unsave' : 'Save to collection'}
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: '1.4rem',
-                lineHeight: 1,
-                color: isSaved ? '#c9a96e' : 'currentColor',
-                opacity: isSaved ? 1 : 0.6,
-                transition: 'color 0.15s, opacity 0.15s',
-              }}
-            >
-              {isSaved ? '★' : '☆'}
-            </button>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+              <button
+                onClick={handleSave}
+                title={isLegacySaved ? 'Add to Collection' : isSaved ? 'Remove from collection' : 'Save to collection'}
+                aria-label={isLegacySaved ? 'Add to Collection' : isSaved ? 'Unsave' : 'Save to collection'}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '1.4rem',
+                  lineHeight: 1,
+                  color: isSaved ? '#c9a96e' : isLegacySaved ? '#888888' : 'currentColor',
+                  opacity: (isSaved || isLegacySaved) ? 1 : 0.6,
+                  transition: 'color 0.15s, opacity 0.15s',
+                }}
+              >
+                {isSaved || isLegacySaved ? '★' : '☆'}
+              </button>
+              {isLegacySaved && (
+                <span style={{ fontSize: '0.6rem', color: '#888888', whiteSpace: 'nowrap' }}>
+                  之前已收藏 · 点击加入收藏
+                </span>
+              )}
+            </div>
           </div>
         )}
 
