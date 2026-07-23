@@ -21,6 +21,7 @@ interface ExportCardButtonProps {
 export const ExportCardButton: React.FC<ExportCardButtonProps> = ({ image, metadata }) => {
   const [isExporting, setIsExporting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [planToast, setPlanToast] = useState<string | null>(null);
 
   const handleExport = useCallback(async () => {
     if (isExporting) return;
@@ -79,6 +80,10 @@ export const ExportCardButton: React.FC<ExportCardButtonProps> = ({ image, metad
 
   const dismissToast = useCallback(() => setToastMessage(null), []);
 
+  const handlePlan = useCallback(() => {
+    setPlanToast('已加入计划 ✓ Added to plan!');
+  }, []);
+
   return (
     <>
       <button
@@ -91,6 +96,15 @@ export const ExportCardButton: React.FC<ExportCardButtonProps> = ({ image, metad
         <span className={styles.label}>导出卡片</span>
       </button>
       {toastMessage && <Toast message={toastMessage} onClose={dismissToast} />}
+      <button
+        className={styles.exportCardBtn}
+        onClick={handlePlan}
+        aria-label="Send to plan"
+      >
+        <span className={styles.icon}>📋</span>
+        <span className={styles.label}>加入计划</span>
+      </button>
+      {planToast && <Toast message={planToast} onClose={() => setPlanToast(null)} />}
     </>
   );
 };

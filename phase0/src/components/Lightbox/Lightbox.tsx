@@ -137,27 +137,26 @@ export const Lightbox: React.FC<LightboxProps> = ({
     [goNext, goPrev],
   );
 
-  if (!current) return null;
-
-  const currentImage = images[currentIndex];
   const [isSaved, setIsSaved] = useState(false);
 
   useEffect(() => {
+    if (!current) return;
     let cancelled = false;
-    dbIsCardSaved(currentImage.thumbnail).then((saved) => {
+    dbIsCardSaved(current.thumbnail).then((saved) => {
       if (!cancelled) setIsSaved(saved);
     });
     return () => { cancelled = true; };
-  }, [currentImage.thumbnail]);
+  }, [current?.thumbnail]);
 
   async function handleSave() {
+    if (!current) return;
     if (isSaved) {
-      await dbRemoveCard(currentImage.thumbnail);
+      await dbRemoveCard(current.thumbnail);
       setIsSaved(false);
     } else {
       await dbSaveCard({
-        imageUrl: currentImage.thumbnail,
-        thumbnailUrl: currentImage.thumbnail,
+        imageUrl: current.thumbnail,
+        thumbnailUrl: current.thumbnail,
         actor: cardMetadata?.actorName ?? 'Unknown',
         actorEn: cardMetadata?.actorName ?? 'Unknown',
         vibe: cardMetadata?.vibeLabel ?? 'Unknown',
@@ -165,14 +164,16 @@ export const Lightbox: React.FC<LightboxProps> = ({
         vibeEmoji: cardMetadata?.vibeEmoji ?? '✨',
         capturedDate: cardMetadata?.date ?? new Date().toISOString().split('T')[0],
         gridContext: {
-          batchKey: currentImage.batchKey,
-          position: currentImage.gridPosition ?? currentIndex,
+          batchKey: current.batchKey,
+          position: current.gridPosition ?? currentIndex,
         },
       });
       setIsSaved(true);
       if (navigator.vibrate) navigator.vibrate(50);
     }
   }
+
+  if (!current) return null;
 
   return (
     <div
@@ -234,7 +235,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
 
         {/* Export card action */}
         {cardMetadata && (
-          <div className={styles.actions}>
+          <div className={styles.actions} style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem', marginTop: '0.5rem' }}>
             <ExportCardButton image={current} metadata={cardMetadata} />
             <button
               onClick={handleSave}
