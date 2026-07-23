@@ -54,6 +54,8 @@ function mapToGridItems(data: StarOfDayData): GridItemData[] {
         publisher: `${data.actorShortNameEn} · ${result.source}`,
         url: result.link || '#',
         tags: [data.vibeLabel, data.vibeLabelEn],
+        batchKey: batch.query,
+        gridPosition: items.length,
       });
     }
   }

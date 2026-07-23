@@ -9,6 +9,8 @@ export interface GridItemData {
   tags?: string[];
   /** Editorial set ID assigned by detection algorithm */
   editorialSetId?: string;
+  batchKey?: string;
+  gridPosition?: number;
 }
 
 export interface SaveState {

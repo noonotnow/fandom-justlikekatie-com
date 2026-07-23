@@ -1,6 +1,7 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { GridItemData } from '../../types';
 import { ExportCardButton, type ExportCardMetadata } from '../ExportCardButton/ExportCardButton';
+import { dbSaveCard, dbRemoveCard, dbIsCardSaved } from '../../utils/collectionDB';
 import styles from './Lightbox.module.css';
 
 const SWIPE_THRESHOLD = 50;
@@ -138,6 +139,41 @@ export const Lightbox: React.FC<LightboxProps> = ({
 
   if (!current) return null;
 
+  const currentImage = images[currentIndex];
+  const [isSaved, setIsSaved] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    dbIsCardSaved(currentImage.thumbnail).then((saved) => {
+      if (!cancelled) setIsSaved(saved);
+    });
+    return () => { cancelled = true; };
+  }, [currentImage.thumbnail]);
+
+  async function handleSave() {
+    if (isSaved) {
+      await dbRemoveCard(currentImage.thumbnail);
+      setIsSaved(false);
+    } else {
+      await dbSaveCard({
+        imageUrl: currentImage.thumbnail,
+        thumbnailUrl: currentImage.thumbnail,
+        actor: cardMetadata?.actorName ?? 'Unknown',
+        actorEn: cardMetadata?.actorName ?? 'Unknown',
+        vibe: cardMetadata?.vibeLabel ?? 'Unknown',
+        vibeEn: cardMetadata?.vibeLabelEn ?? 'Unknown',
+        vibeEmoji: cardMetadata?.vibeEmoji ?? '✨',
+        capturedDate: cardMetadata?.date ?? new Date().toISOString().split('T')[0],
+        gridContext: {
+          batchKey: currentImage.batchKey,
+          position: currentImage.gridPosition ?? currentIndex,
+        },
+      });
+      setIsSaved(true);
+      if (navigator.vibrate) navigator.vibrate(50);
+    }
+  }
+
   return (
     <div
       ref={overlayRef}
@@ -200,6 +236,23 @@ export const Lightbox: React.FC<LightboxProps> = ({
         {cardMetadata && (
           <div className={styles.actions}>
             <ExportCardButton image={current} metadata={cardMetadata} />
+            <button
+              onClick={handleSave}
+              title={isSaved ? 'Remove from collection' : 'Save to collection'}
+              aria-label={isSaved ? 'Unsave' : 'Save to collection'}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '1.4rem',
+                lineHeight: 1,
+                color: isSaved ? '#c9a96e' : 'currentColor',
+                opacity: isSaved ? 1 : 0.6,
+                transition: 'color 0.15s, opacity 0.15s',
+              }}
+            >
+              {isSaved ? '★' : '☆'}
+            </button>
           </div>
         )}
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { GridItem } from './components/GridItem/GridItem';
 import { GridItemSkeleton } from './components/GridItem/GridItemSkeleton';
 import { InlinePreview } from './components/InlinePreview/InlinePreview';
@@ -6,6 +6,8 @@ import { Lightbox } from './components/Lightbox/Lightbox';
 import { ThemeToggle } from './components/ThemeToggle/ThemeToggle';
 import { ExportButton } from './components/ExportButton/ExportButton';
 import { SendToPlanButton } from './components/SendToPlanButton/SendToPlanButton';
+import { Collection } from './components/Collection/Collection';
+import { migrateBookmarks } from './utils/migrateBookmarks';
 import { useDarkMode } from './hooks/useDarkMode';
 import { useStarOfDay } from './hooks/useStarOfDay';
 import './App.css';
@@ -16,8 +18,11 @@ const GRID_COLS = 3;
 function App() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [view, setView] = useState<'daily' | 'collection'>('daily');
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const { items: gridImages, meta, rawData, loading, error } = useStarOfDay();
+
+  useEffect(() => { migrateBookmarks(); }, []);
 
   const handleItemClick = (itemId: string) => {
     setExpandedId((prev) => (prev === itemId ? null : itemId));
@@ -77,6 +82,33 @@ function App() {
   return (
     <div className="app">
       <ThemeToggle isDark={isDark} onToggle={toggleDarkMode} />
+
+      {/* Navigation bar */}
+      <nav className="flex justify-center gap-6 pt-4 pb-2 border-b border-gray-200 dark:border-gray-700">
+        <button
+          onClick={() => setView('daily')}
+          className={`pb-2 text-sm tracking-wide transition-colors ${
+            view === 'daily'
+              ? 'border-b-2 border-gold text-gold font-semibold'
+              : 'text-gray-500'
+          }`}
+        >
+          今日之星 · Daily
+        </button>
+        <button
+          onClick={() => setView('collection')}
+          className={`pb-2 text-sm tracking-wide transition-colors ${
+            view === 'collection'
+              ? 'border-b-2 border-gold text-gold font-semibold'
+              : 'text-gray-500'
+          }`}
+        >
+          我的收藏 · Collection
+        </button>
+      </nav>
+
+      {view === 'daily' ? (
+        <>
       <header className="text-center py-12 px-4">
         <h1 className="text-5xl md:text-6xl font-bold text-gold mb-4">
           Vibe Atlas — 氛围图鉴
@@ -130,6 +162,10 @@ function App() {
             date: meta.date,
           } : undefined}
         />
+      )}
+        </>
+      ) : (
+        <Collection />
       )}
     </div>
   );
