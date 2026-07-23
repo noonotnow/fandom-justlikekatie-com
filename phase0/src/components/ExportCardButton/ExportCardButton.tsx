@@ -3,6 +3,7 @@ import type { GridItemData } from '../../types';
 import { renderCard, type CardMetadata } from '../../utils/cardRenderer';
 import { Toast } from '../Toast/Toast';
 import styles from './ExportCardButton.module.css';
+import { dbAddToPlan, dbRemoveFromPlan, dbIsInPlan } from '../../utils/planDB';
 
 export interface ExportCardMetadata {
   actorName: string;
@@ -32,7 +33,16 @@ export const ExportCardButton: React.FC<ExportCardButtonProps> = ({ image, metad
   const [isExporting, setIsExporting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [planToast, setPlanToast] = useState<string | null>(null);
-  const isAdmin = useIsAdmin();
+   const isAdmin = useIsAdmin();
+  const [isInPlan, setIsInPlan] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    dbIsInPlan(image.thumbnail).then((inPlan) => {
+      if (!cancelled) setIsInPlan(inPlan);
+    });
+    return () => { cancelled = true; };
+  }, [image.thumbnail]);
 
   const handleExport = useCallback(async () => {
     if (isExporting) return;
@@ -91,9 +101,30 @@ export const ExportCardButton: React.FC<ExportCardButtonProps> = ({ image, metad
 
   const dismissToast = useCallback(() => setToastMessage(null), []);
 
-  const handlePlan = useCallback(() => {
-    setPlanToast('已加入计划 ✓ Added to plan!');
-  }, []);
+  const handlePlan = useCallback(async () => {
+    if (isInPlan) {
+      await dbRemoveFromPlan(image.thumbnail);
+      setIsInPlan(false);
+      setPlanToast('已移出计划 · Removed from plan');
+    } else {
+      await dbAddToPlan({
+        imageUrl: image.thumbnail,
+        thumbnailUrl: image.thumbnail,
+        actor: metadata.actorName,
+        actorEn: metadata.actorName,
+        vibe: metadata.vibeLabel,
+        vibeEn: metadata.vibeLabelEn ?? metadata.vibeLabel,
+        vibeEmoji: metadata.vibeEmoji,
+        capturedDate: metadata.date,
+        gridContext: {
+          batchKey: image.batchKey,
+          position: image.gridPosition ?? 0,
+        },
+      });
+      setIsInPlan(true);
+      setPlanToast('已加入计划 ✓ Added to plan!');
+    }
+  }, [image, metadata, isInPlan]);
 
   return (
     <>
@@ -104,7 +135,7 @@ export const ExportCardButton: React.FC<ExportCardButtonProps> = ({ image, metad
         aria-label="Export individual card"
       >
         <span className={styles.icon}>📥</span>
-        <span className={styles.label}>导出卡片</span>
+                 <span className={styles.label}>{isInPlan ? '✓ 已计划' : '加入计划'}</span>
       </button>
       {toastMessage && <Toast message={toastMessage} onClose={dismissToast} />}
       {isAdmin && (

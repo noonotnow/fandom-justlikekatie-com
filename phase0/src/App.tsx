@@ -7,6 +7,7 @@ import { ThemeToggle } from './components/ThemeToggle/ThemeToggle';
 import { ExportButton } from './components/ExportButton/ExportButton';
 import { SendToPlanButton } from './components/SendToPlanButton/SendToPlanButton';
 import { Collection } from './components/Collection/Collection';
+import { Plan } from './components/Plan/Plan';
 import { migrateBookmarks } from './utils/migrateBookmarks';
 import { useDarkMode } from './hooks/useDarkMode';
 import { useStarOfDay } from './hooks/useStarOfDay';
@@ -18,7 +19,9 @@ const GRID_COLS = 3;
 function App() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  const [view, setView] = useState<'daily' | 'collection'>('daily');
+  const [view, setView] = useState<'daily' | 'collection' | 'plan'>('daily');
+  const isAdmin = new URLSearchParams(window.location.search).get('admin') === 'true'
+    || sessionStorage.getItem('fandom_admin') === 'true';
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const { items: gridImages, meta, rawData, loading, error } = useStarOfDay();
 
@@ -105,6 +108,18 @@ function App() {
         >
           我的收藏 · Collection
         </button>
+        {isAdmin && (
+          <button
+            onClick={() => setView('plan')}
+            className={`pb-2 text-sm tracking-wide transition-colors ${
+              view === 'plan'
+                ? 'border-b-2 border-gold text-gold font-semibold'
+                : 'text-gray-500'
+            }`}
+          >
+            我的计划 · Plan
+          </button>
+        )}
       </nav>
 
       {view === 'daily' ? (
@@ -164,8 +179,10 @@ function App() {
         />
       )}
         </>
-      ) : (
+            ) : view === 'collection' ? (
         <Collection />
+      ) : (
+        <Plan />
       )}
     </div>
   );

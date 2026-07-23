@@ -1,10 +1,10 @@
-/** IndexedDB persistence for saved cards */
+/** IndexedDB persistence for the content plan queue */
 
-const DB_NAME = 'vibe-atlas-collection';
+const DB_NAME = 'vibe-atlas-plan';
 const DB_VERSION = 1;
-const STORE_NAME = 'cards';
+const STORE_NAME = 'plan';
 
-export interface CardRecord {
+export interface PlanRecord {
   imageUrl: string;
   thumbnailUrl: string;
   actor: string;
@@ -13,7 +13,8 @@ export interface CardRecord {
   vibeEn: string;
   vibeEmoji: string;
   capturedDate: string;
-  savedAt?: string;
+  addedAt: string;
+  order: number;
   gridContext?: {
     batchKey?: string;
     position: number;
@@ -34,9 +35,32 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
-export async function dbSaveCard(card: CardRecord): Promise<void> {
+export async function dbGetAllPlanItems(): Promise<PlanRecord[]> {
   const db = await openDB();
-  const record = { ...card, savedAt: new Date().toISOString() };
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const req = tx.objectStore(STORE_NAME).getAll();
+    req.onsuccess = () => {
+      const all = req.result as PlanRecord[];
+      all.sort((a, b) => a.order - b.order);
+      resolve(all);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function dbAddToPlan(
+  card: Omit<PlanRecord, 'addedAt' | 'order'>
+): Promise<void> {
+  const existing = await dbGetAllPlanItems();
+  if (existing.find((r) => r.imageUrl === card.imageUrl)) return; // dedupe
+  const maxOrder = existing.length > 0 ? Math.max(...existing.map((r) => r.order)) : -1;
+  const record: PlanRecord = {
+    ...card,
+    addedAt: new Date().toISOString(),
+    order: maxOrder + 1,
+  };
+  const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     tx.objectStore(STORE_NAME).put(record);
@@ -45,7 +69,7 @@ export async function dbSaveCard(card: CardRecord): Promise<void> {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          event: 'collection_save',
+          event: 'plan_add',
           actor: card.actor,
           vibe: card.vibe,
           imageUrl: card.imageUrl,
@@ -60,7 +84,7 @@ export async function dbSaveCard(card: CardRecord): Promise<void> {
   });
 }
 
-export async function dbRemoveCard(imageUrl: string): Promise<void> {
+export async function dbRemoveFromPlan(imageUrl: string): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -70,22 +94,12 @@ export async function dbRemoveCard(imageUrl: string): Promise<void> {
   });
 }
 
-export async function dbIsCardSaved(imageUrl: string): Promise<boolean> {
+export async function dbIsInPlan(imageUrl: string): Promise<boolean> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const req = tx.objectStore(STORE_NAME).get(imageUrl);
     req.onsuccess = () => resolve(req.result !== undefined);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-export async function dbGetAllCards(): Promise<CardRecord[]> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readonly');
-    const req = tx.objectStore(STORE_NAME).getAll();
-    req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
 }
