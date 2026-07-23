@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { GridItemData } from '../../types';
 import { ExportCardButton, type ExportCardMetadata } from '../ExportCardButton/ExportCardButton';
 import { dbSaveCard, dbRemoveCard, dbIsCardSaved } from '../../utils/collectionDB';
@@ -150,7 +150,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
         setIsSaved(true);
         setIsLegacySaved(false);
       } else {
-        const inLegacy = storage.isItemSaved(current.thumbnail);
+        const inLegacy = storage.isItemSaved(current.id);
         setIsSaved(false);
         setIsLegacySaved(inLegacy);
       }
@@ -180,7 +180,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
     if (isLegacySaved) {
       // Migrate: promote localStorage bookmark → IndexedDB with full metadata
       await dbSaveCard(cardPayload);
-      storage.removeItem(current.thumbnail);
+      storage.removeItem(current.id);
       setIsLegacySaved(false);
       setIsSaved(true);
       if (navigator.vibrate) navigator.vibrate(50);
