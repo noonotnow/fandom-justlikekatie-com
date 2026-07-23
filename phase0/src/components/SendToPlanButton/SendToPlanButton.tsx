@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { dbAddToPlan } from '../../utils/planDB';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -19,6 +20,7 @@ interface StarOfDayData {
 
 interface Props {
   rawData: StarOfDayData;
+  imageUrl?: string;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -44,7 +46,7 @@ function useIsAdmin(): boolean {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function SendToPlanButton({ rawData }: Props) {
+export function SendToPlanButton({ rawData, imageUrl }: Props) {
   const isAdmin = useIsAdmin();
 
   const [open,    setOpen]    = useState(false);
@@ -100,6 +102,18 @@ export function SendToPlanButton({ rawData }: Props) {
       }
 
       setSuccess(true);
+      const key = imageUrl ?? `star-of-day-${rawData.actorId}-${rawData.date}`;
+      dbAddToPlan({
+        imageUrl: key,
+        thumbnailUrl: key,
+        actor: rawData.actorName,
+        actorEn: rawData.actorShortNameEn,
+        vibe: rawData.vibeLabel,
+        vibeEn: rawData.vibeLabelEn,
+        vibeEmoji: rawData.vibeEmoji,
+        capturedDate: rawData.date,
+        gridContext: { position: 0 },
+      }).catch(() => {});
       // Auto-close after 2 s
       setTimeout(() => { setSuccess(false); setOpen(false); }, 2000);
     } catch (err) {

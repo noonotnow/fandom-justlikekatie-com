@@ -147,7 +147,7 @@ function App() {
             {rawData && (
             <div className="mt-4" style={{ display: "flex", justifyContent: "center", gap: "8px" }}>
   <ExportButton rawData={rawData} />
-  <SendToPlanButton rawData={rawData} />
+  <SendToPlanButton rawData={rawData} imageUrl={gridImages[0]?.thumbnail} />
 </div>
             )}
           </div>
