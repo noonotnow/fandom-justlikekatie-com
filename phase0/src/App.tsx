@@ -130,7 +130,7 @@ function App() {
               </div>
             )}
             {rawData && (
-            <div className="mt-4" style={{ display: "flex", gap: "8px" }}>
+            <div className="mt-4" style={{ display: "flex", justifyContent: "center", gap: "8px" }}>
   <ExportButton rawData={rawData} />
   <SendToPlanButton rawData={rawData} />
 </div>

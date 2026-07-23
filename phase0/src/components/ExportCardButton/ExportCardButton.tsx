@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { GridItemData } from '../../types';
 import { renderCard, type CardMetadata } from '../../utils/cardRenderer';
 import { Toast } from '../Toast/Toast';
@@ -13,6 +13,16 @@ export interface ExportCardMetadata {
   accentColor?: string;
 }
 
+function useIsAdmin(): boolean {
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get("admin") === "true";
+    if (fromUrl) sessionStorage.setItem("fandom_admin", "true");
+    setIsAdmin(fromUrl || sessionStorage.getItem("fandom_admin") === "true");
+  }, []);
+  return isAdmin;
+}
+
 interface ExportCardButtonProps {
   image: GridItemData;
   metadata: ExportCardMetadata;
@@ -22,6 +32,7 @@ export const ExportCardButton: React.FC<ExportCardButtonProps> = ({ image, metad
   const [isExporting, setIsExporting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [planToast, setPlanToast] = useState<string | null>(null);
+  const isAdmin = useIsAdmin();
 
   const handleExport = useCallback(async () => {
     if (isExporting) return;
@@ -96,14 +107,16 @@ export const ExportCardButton: React.FC<ExportCardButtonProps> = ({ image, metad
         <span className={styles.label}>导出卡片</span>
       </button>
       {toastMessage && <Toast message={toastMessage} onClose={dismissToast} />}
-      <button
-        className={styles.exportCardBtn}
-        onClick={handlePlan}
-        aria-label="Send to plan"
-      >
-        <span className={styles.icon}>📋</span>
-        <span className={styles.label}>加入计划</span>
-      </button>
+      {isAdmin && (
+        <button
+          className={styles.exportCardBtn}
+          onClick={handlePlan}
+          aria-label="Send to plan"
+        >
+          <span className={styles.icon}>📋</span>
+          <span className={styles.label}>加入计划</span>
+        </button>
+      )}
       {planToast && <Toast message={planToast} onClose={() => setPlanToast(null)} />}
     </>
   );
