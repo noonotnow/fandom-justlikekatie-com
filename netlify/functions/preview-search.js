@@ -307,6 +307,7 @@ export async function searchOneQuery(q, { debug = false } = {}) {
     // existed inside the SerpAPI loop, so Brave — the primary, most-used path — had zero
     // subject-relevance checking at all).
     const SUBJECT_MIN_MENTIONS = 2;
+    const SUBJECT_MIN_BRAVE_RATIO = 0.25;
     const subjectToken = q.split(/\s+/)[0] || "";
     let subjectGuardReason = "not_applicable";
 
@@ -332,17 +333,24 @@ export async function searchOneQuery(q, { debug = false } = {}) {
     const braveSubjectHitCount = subjectToken
       ? braveRaw.filter((item) => `${item.title || ""} ${item.description || ""}`.includes(subjectToken)).length
       : braveRaw.length;
-    const braveSubjectGuardPassed = !subjectToken || braveSubjectHitCount >= SUBJECT_MIN_MENTIONS;
+    const braveSubjectHitRatio = braveRaw.length > 0
+      ? braveSubjectHitCount / braveRaw.length
+      : 0;
+    const braveSubjectGuardPassed = !subjectToken || (
+      braveSubjectHitCount >= SUBJECT_MIN_MENTIONS &&
+      braveSubjectHitRatio >= SUBJECT_MIN_BRAVE_RATIO
+    );
 
-    // Fall back to Baidu via SerpAPI if any commerce/junk results are present, useful count
-    // is low, or the subject-relevance guard fails on Brave's own raw result set.
     // Use braveUseful (not braveNormalized) so commerce results are never shown as fallback.
+    // For actor/person searches, still try the stronger Google Images provider even when
+    // Brave has enough nominal volume: titles that mention the actor can accompany an
+    // ensemble or co-star image, which text-only Brave quality checks cannot detect.
     let finalResults = braveSubjectGuardPassed ? braveUseful : [];
     let finalProvider = "brave";
     if (braveSubjectGuardPassed && braveUseful.length > 0) {
-      subjectGuardReason = `passed (${braveSubjectHitCount} >= ${SUBJECT_MIN_MENTIONS} mentions of "${subjectToken}") on brave`;
+      subjectGuardReason = `passed (${braveSubjectHitCount}/${braveRaw.length} mention "${subjectToken}") on brave`;
     } else if (!braveSubjectGuardPassed) {
-      subjectGuardReason = `failed_on_brave (${braveSubjectHitCount} < ${SUBJECT_MIN_MENTIONS} mentions of "${subjectToken}")`;
+      subjectGuardReason = `failed_on_brave (${braveSubjectHitCount}/${braveRaw.length} mention "${subjectToken}", minimum ratio ${SUBJECT_MIN_BRAVE_RATIO})`;
     }
 
     let serpApiConfigured = false;
@@ -363,8 +371,11 @@ export async function searchOneQuery(q, { debug = false } = {}) {
     const hasCommerceResults = braveNormalized.length > braveUseful.length;
     const braveQuality = scoreResultQuality(braveUseful);
     const qualityBelowThreshold = braveQuality.overall < QUALITY_FALLBACK_THRESHOLD;
+    const preferActorIdentityProvider = !!subjectToken;
     const braveTriggerReason = !braveSubjectGuardPassed
-      ? `subject_guard_failed (${braveSubjectHitCount} < ${SUBJECT_MIN_MENTIONS} mentions of "${subjectToken}")`
+      ? `subject_guard_failed (${braveSubjectHitCount}/${braveRaw.length} mention "${subjectToken}", ratio=${braveSubjectHitRatio.toFixed(2)})`
+      : preferActorIdentityProvider
+      ? "actor_identity_provider_preference"
       : hasCommerceResults
       ? "commerce_results_present"
       : braveUseful.length < USEFUL_FALLBACK_THRESHOLD
@@ -372,18 +383,20 @@ export async function searchOneQuery(q, { debug = false } = {}) {
         : qualityBelowThreshold
           ? `quality_below_threshold (${braveQuality.overall.toFixed(2)} < ${QUALITY_FALLBACK_THRESHOLD}, diversity=${braveQuality.diversity.toFixed(2)}, sources=${braveQuality.uniqueSources})`
           : `sufficient_quality (${braveQuality.overall.toFixed(2)} >= ${QUALITY_FALLBACK_THRESHOLD}, sources=${braveQuality.uniqueSources})`;
-    if (!braveSubjectGuardPassed || hasCommerceResults || braveUseful.length < USEFUL_FALLBACK_THRESHOLD || qualityBelowThreshold) {
+    if (preferActorIdentityProvider || !braveSubjectGuardPassed || hasCommerceResults || braveUseful.length < USEFUL_FALLBACK_THRESHOLD || qualityBelowThreshold) {
       const serpKey = process.env.SERPAPI_KEY;
       serpApiConfigured = !!serpKey;
       if (serpKey) {
         serpApiAttempted = true;
         try {
-          // Try image engines in order: bing_images → google_images → yandex_images.
+          // Google is the strongest available actor-identity provider. Prefer it over
+          // Bing when Brave's actor precision is weak, then retain the remaining
+          // engines as progressively looser fallbacks.
           // Baidu is intentionally excluded here — SerpAPI has no supported baidu images
           // engine (baidu_image / baidu_images both 400 "Unsupported engine"). Baidu is
           // still offered to users as a direct deep-link button (see index.html), which
           // is unrelated to this SerpAPI cascade.
-          const IMAGE_ENGINES = ["bing_images", "google_images", "yandex_images"];
+          const IMAGE_ENGINES = ["google_images", "bing_images", "yandex_images"];
           for (const engine of IMAGE_ENGINES) {
             const engineLog = { engine, httpStatus: null, error: null, rawCount: 0, normalizedCount: 0, subjectHitCount: 0, subjectGuardPassed: null, usedAsFinal: false, skippedReason: null };
 
@@ -493,6 +506,8 @@ export async function searchOneQuery(q, { debug = false } = {}) {
       response.braveUsefulCount = braveUseful.length;
       response.braveTriggerReason = braveTriggerReason;
       response.braveQuality = braveQuality;
+      response.braveSubjectHitRatio = braveSubjectHitRatio;
+      response.braveSubjectMinimumRatio = SUBJECT_MIN_BRAVE_RATIO;
       response.qualityFallbackThreshold = QUALITY_FALLBACK_THRESHOLD;
       response.subjectToken = subjectToken;
       response.subjectGuardReason = subjectGuardReason;

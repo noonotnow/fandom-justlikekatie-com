@@ -403,7 +403,7 @@ function buildExportPayload(data: StarOfDayData): ExportPayload {
     date: data.date || new Date().toISOString().slice(0, 10),
     rankIndex: 0,
     totalBatches: data.rankedBatches.length,
-    badgeTier: tier !== 'standard' ? 'star-of-day_' + tier : 'star-of-day',
+    badgeTier: tier !== 'standard' ? tier : 'star-of-day',
   };
 }
 

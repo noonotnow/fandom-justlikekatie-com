@@ -18,7 +18,7 @@ import { searchOneQuery } from "./preview-search.js";
 import { evaluateCandidates, rankCandidates, RANKED_BATCH_LIMIT } from "./lib/ranking.js";
 import { getShanghaiDateString, getRandomForDate } from "./lib/date-seed.js";
 
-const VERSION = "v1";
+const VERSION = "v3";
 const STORE_NAME = "star-of-day";
 
 function cacheKeyFor(dateString) {

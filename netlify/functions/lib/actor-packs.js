@@ -98,9 +98,9 @@ export const ACTOR_PACKS = [
         "subtitle": "一身白衣，像规矩本身动了情",
         "subtitle_en": "All in white, like discipline itself caught feelings",
         "queries": [
-          "刘学义 琉璃 柏麟 白衣",
-          "刘学义 千古玦尘 景昭",
-          "刘学义 古装 白衣 仙侠 剧照"
+          "刘学义 念无双 源仲 白衣",
+          "刘学义 落花时节又逢君 段飞 白衣",
+          "刘学义 天乩 斩荒 白衣"
         ],
         "shareFragment": "仙门冷玉学义，白衣一出天下寒",
         "mjPrompt": ""

@@ -14,6 +14,8 @@ export interface RankedBatch {
   count: number;
   distinctSources: number;
   provider: string | null;
+  misprint?: boolean;
+  legendary?: boolean;
 }
 
 export interface StarOfDayData {
