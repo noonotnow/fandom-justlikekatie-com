@@ -4,6 +4,7 @@
  */
 
 import { loadExportCardFonts, readExportCardColors } from './exportCanvas';
+import type { ImageTier } from '../types';
 
 // ── Card dimensions ────────────────────────────────────────────────
 const CARD_W = 800;
@@ -22,6 +23,7 @@ export interface CardMetadata {
   date: string;
   imageUrl: string;
   accentColor?: string;
+  tier?: ImageTier;
 }
 
 // ── Image loading ──────────────────────────────────────────────────
@@ -76,6 +78,20 @@ export async function renderCard(metadata: CardMetadata): Promise<Blob> {
   ctx.roundRect(1, 1, CARD_W - 2, CARD_H - 2, borderRadius);
   ctx.stroke();
   ctx.restore();
+
+  if (metadata.tier) {
+    const badgeText = metadata.tier === 'legendary' ? '🔥 LEGENDARY · 传说' : '🫠 MISPRINT · 错版';
+    ctx.font = 'bold 18px "Inter", "Noto Sans SC", sans-serif';
+    const badgeWidth = ctx.measureText(badgeText).width + 28;
+    const badgeX = CARD_W - PAD - badgeWidth;
+    ctx.fillStyle = metadata.tier === 'legendary' ? '#92400ecc' : '#4c1d95cc';
+    ctx.beginPath();
+    ctx.roundRect(badgeX, PAD + 14, badgeWidth, 38, 19);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.fillText(badgeText, badgeX + badgeWidth / 2, PAD + 40);
+  }
 
   // ── Main image ───────────────────────────────────────────────────
   const img = await loadImage(metadata.imageUrl);

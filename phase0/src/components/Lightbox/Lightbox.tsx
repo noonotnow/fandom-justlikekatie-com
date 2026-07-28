@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import type { GridItemData } from '../../types';
+import type { GridItemData, ImageTier } from '../../types';
 import { ExportCardButton, type ExportCardMetadata } from '../ExportCardButton/ExportCardButton';
 import { dbSaveCard, dbRemoveCard, dbIsCardSaved } from '../../utils/collectionDB';
 import { storage } from '../../utils/storage';
@@ -15,6 +15,8 @@ interface LightboxProps {
   onNavigate: (index: number) => void;
   /** Metadata for individual card export */
   cardMetadata?: ExportCardMetadata;
+  tier: ImageTier;
+  onTierChange: (tier: ImageTier) => void;
 }
 
 export const Lightbox: React.FC<LightboxProps> = ({
@@ -23,6 +25,8 @@ export const Lightbox: React.FC<LightboxProps> = ({
   onClose,
   onNavigate,
   cardMetadata,
+  tier,
+  onTierChange,
 }) => {
   const total = images.length;
   const current = images[currentIndex];
@@ -156,7 +160,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
       }
     });
     return () => { cancelled = true; };
-  }, [current?.thumbnail]);
+  }, [current]);
 
 
     async function handleSave() {
@@ -256,33 +260,53 @@ export const Lightbox: React.FC<LightboxProps> = ({
 
         {/* Export card action */}
         {cardMetadata && (
-          <div className={styles.actions} style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem', marginTop: '0.5rem' }}>
-            <ExportCardButton image={current} metadata={cardMetadata} />
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+          <>
+            <div className={styles.tierControls} aria-label="Image card edition">
               <button
-                onClick={handleSave}
-                title={isLegacySaved ? 'Add to Collection' : isSaved ? 'Remove from collection' : 'Save to collection'}
-                aria-label={isLegacySaved ? 'Add to Collection' : isSaved ? 'Unsave' : 'Save to collection'}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: '1.4rem',
-                  lineHeight: 1,
-                  color: isSaved ? '#c9a96e' : isLegacySaved ? '#888888' : 'currentColor',
-                  opacity: (isSaved || isLegacySaved) ? 1 : 0.6,
-                  transition: 'color 0.15s, opacity 0.15s',
-                }}
+                type="button"
+                className={`${styles.tierButton} ${styles.misprint} ${tier === 'misprint' ? styles.tierActive : ''}`}
+                aria-pressed={tier === 'misprint'}
+                onClick={() => onTierChange(tier === 'misprint' ? null : 'misprint')}
               >
-                {isSaved || isLegacySaved ? '★' : '☆'}
+                🫠 错版 <span>Misprint</span>
               </button>
-              {isLegacySaved && (
-                <span style={{ fontSize: '0.6rem', color: '#888888', whiteSpace: 'nowrap' }}>
-                  之前已收藏 · 点击加入收藏
-                </span>
-              )}
+              <button
+                type="button"
+                className={`${styles.tierButton} ${styles.legendary} ${tier === 'legendary' ? styles.tierActive : ''}`}
+                aria-pressed={tier === 'legendary'}
+                onClick={() => onTierChange(tier === 'legendary' ? null : 'legendary')}
+              >
+                🔥 传说 <span>Legendary</span>
+              </button>
             </div>
-          </div>
+            <div className={styles.actions}>
+              <ExportCardButton image={current} metadata={{ ...cardMetadata, tier }} />
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                <button
+                  onClick={handleSave}
+                  title={isLegacySaved ? 'Add to Collection' : isSaved ? 'Remove from collection' : 'Save to collection'}
+                  aria-label={isLegacySaved ? 'Add to Collection' : isSaved ? 'Unsave' : 'Save to collection'}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '1.4rem',
+                    lineHeight: 1,
+                    color: isSaved ? '#c9a96e' : isLegacySaved ? '#888888' : 'currentColor',
+                    opacity: (isSaved || isLegacySaved) ? 1 : 0.6,
+                    transition: 'color 0.15s, opacity 0.15s',
+                  }}
+                >
+                  {isSaved || isLegacySaved ? '★' : '☆'}
+                </button>
+                {isLegacySaved && (
+                  <span style={{ fontSize: '0.6rem', color: '#888888', whiteSpace: 'nowrap' }}>
+                    之前已收藏 · 点击加入收藏
+                  </span>
+                )}
+              </div>
+            </div>
+          </>
         )}
 
         {/* Thumbnail strip */}

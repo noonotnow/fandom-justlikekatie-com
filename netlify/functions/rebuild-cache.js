@@ -17,8 +17,9 @@ import { ACTOR_PACKS as actorPacks } from "./lib/actor-packs.js";
 import { searchOneQuery } from "./preview-search.js";
 import { evaluateCandidates, rankCandidates, RANKED_BATCH_LIMIT } from "./lib/ranking.js";
 import { getShanghaiDateString, getRandomForDate } from "./lib/date-seed.js";
+import { selectDisplayResults } from "./lib/image-dedup.js";
 
-const VERSION = "v3";
+const VERSION = "v4";
 const STORE_NAME = "star-of-day";
 
 function cacheKeyFor(dateString) {
@@ -45,6 +46,8 @@ async function buildPayloadForDate(dateString) {
     return null;
   }
 
+  const displayResults = await selectDisplayResults(ranked);
+
   return {
     version: VERSION,
     date: dateString,
@@ -60,6 +63,7 @@ async function buildPayloadForDate(dateString) {
     vibeSubtitle: vibe.subtitle,
     vibeSubtitleEn: vibe.subtitle_en,
     rankedBatches: ranked,
+    displayResults,
     generatedAt: new Date().toISOString()
   };
 }

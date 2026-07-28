@@ -28,8 +28,7 @@ h1 {
 }
 
 .daily-actions,
-.daily-actions__primary,
-.tier-controls {
+.daily-actions__primary {
   display: flex;
   justify-content: center;
   gap: 8px;
@@ -41,40 +40,8 @@ h1 {
   align-items: center;
 }
 
-.tier-button {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 132px;
-  padding: 0.55rem 1rem;
-  color: #a3a3ad;
-  background: transparent;
-  border: 1px solid #44444f;
-  opacity: 0.72;
-}
-
-.tier-button span {
-  font-size: 0.7rem;
-  font-weight: 400;
-}
-
-.tier-button--misprint.tier-button--active {
-  color: #c4b5fd;
-  border-color: #8b5cf6;
-  box-shadow: 0 0 18px rgb(139 92 246 / 20%);
-  opacity: 1;
-}
-
-.tier-button--legendary.tier-button--active {
-  color: #fbbf24;
-  border-color: #f59e0b;
-  box-shadow: 0 0 20px rgb(245 158 11 / 22%);
-  opacity: 1;
-}
-
 @media (max-width: 520px) {
-  .daily-actions__primary,
-  .tier-controls {
+  .daily-actions__primary {
     flex-wrap: wrap;
   }
 }

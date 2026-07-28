@@ -1,5 +1,6 @@
 [functions]
   directory = "netlify/functions"
+  external_node_modules = ["sharp"]
 
 [build]
   command = "cd phase0 && npm install && npm run build"

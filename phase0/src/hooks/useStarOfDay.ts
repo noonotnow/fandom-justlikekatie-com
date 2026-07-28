@@ -29,6 +29,7 @@ export interface StarOfDayData {
   vibeSubtitle: string;
   vibeSubtitleEn: string;
   rankedBatches: RankedBatch[];
+  displayResults?: StarOfDayResult[];
   date: string;
   stale?: boolean;
   building?: boolean;
@@ -44,7 +45,11 @@ function mapToGridItems(data: StarOfDayData): GridItemData[] {
   const items: GridItemData[] = [];
   const seen = new Set<string>();
 
-  for (const batch of data.rankedBatches) {
+  const displayBatches = data.displayResults?.length
+    ? [{ query: data.rankedBatches[0]?.query ?? 'daily-grid', results: data.displayResults }]
+    : data.rankedBatches;
+
+  for (const batch of displayBatches) {
     for (const result of batch.results) {
       if (!result.thumbnail || seen.has(result.thumbnail)) continue;
       seen.add(result.thumbnail);
@@ -56,7 +61,9 @@ function mapToGridItems(data: StarOfDayData): GridItemData[] {
         publisher: `${data.actorShortNameEn} · ${result.source}`,
         url: result.link || '#',
         tags: [data.vibeLabel, data.vibeLabelEn],
-        batchKey: batch.query,
+        batchKey: 'batchKey' in result && typeof result.batchKey === 'string'
+          ? result.batchKey
+          : batch.query,
         gridPosition: items.length,
       });
     }

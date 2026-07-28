@@ -94,6 +94,45 @@
   padding: 4px 0;
 }
 
+.tierControls {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.tierButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 10px;
+  border: 1px solid #52525b;
+  border-radius: 999px;
+  background: rgb(24 24 27 / 85%);
+  color: #d4d4d8;
+  cursor: pointer;
+  opacity: 0.72;
+}
+
+.tierButton span {
+  font-size: 11px;
+}
+
+.tierButton.tierActive {
+  opacity: 1;
+}
+
+.misprint.tierActive {
+  color: #ddd6fe;
+  border-color: #8b5cf6;
+  box-shadow: 0 0 18px rgb(139 92 246 / 28%);
+}
+
+.legendary.tierActive {
+  color: #fde68a;
+  border-color: #f59e0b;
+  box-shadow: 0 0 18px rgb(245 158 11 / 28%);
+}
+
 .title {
   margin: 0;
   font-size: 16px;

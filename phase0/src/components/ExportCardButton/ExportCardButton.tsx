@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import type { GridItemData } from '../../types';
+import type { GridItemData, ImageTier } from '../../types';
 import { renderCard, type CardMetadata } from '../../utils/cardRenderer';
 import { Toast } from '../Toast/Toast';
 import styles from './ExportCardButton.module.css';
@@ -12,6 +12,7 @@ export interface ExportCardMetadata {
   vibeLabelEn: string;
   date: string;
   accentColor?: string;
+  tier?: ImageTier;
 }
 
 function useIsAdmin(): boolean {
@@ -58,6 +59,7 @@ export const ExportCardButton: React.FC<ExportCardButtonProps> = ({ image, metad
         date: metadata.date,
         imageUrl: image.thumbnail,
         accentColor: metadata.accentColor,
+        tier: metadata.tier,
       };
 
       const blob = await renderCard(cardMeta);

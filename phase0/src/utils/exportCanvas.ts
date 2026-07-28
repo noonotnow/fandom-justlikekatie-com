@@ -390,7 +390,9 @@ interface ExportPayload {
 }
 
 function buildExportPayload(data: StarOfDayData): ExportPayload {
-  const chosen = data.rankedBatches[0];
+  const chosen = data.displayResults?.length
+    ? { ...data.rankedBatches[0], results: data.displayResults }
+    : data.rankedBatches[0];
   const tier = classifyEditionTier(chosen);
   return {
     actorName: data.actorName,

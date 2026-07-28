@@ -3,6 +3,7 @@ import { ACTOR_PACKS as actorPacks } from "./lib/actor-packs.js";
 import { searchOneQuery } from "./preview-search.js";
 import { evaluateCandidates, rankCandidates, RANKED_BATCH_LIMIT } from "./lib/ranking.js";
 import { getShanghaiDateString, getRandomForDate, shanghaiYesterday } from "./lib/date-seed.js";
+import { selectDisplayResults } from "./lib/image-dedup.js";
 
 // Server-side daily cache for "Star of the Day".
 //
@@ -21,7 +22,7 @@ import { getShanghaiDateString, getRandomForDate, shanghaiYesterday } from "./li
 // real cache key and reads whatever the winner produced. This is what stops
 // simultaneous requests right after midnight from each independently
 // re-running the whole search+rank ladder.
-const VERSION = "v3";
+const VERSION = "v4";
 const STORE_NAME = "star-of-day";
 const LOCK_TTL_MS = 25000; // a stale/abandoned lock is ignored after this long
 const POLL_INTERVAL_MS = 700;
@@ -63,6 +64,8 @@ async function buildPayloadForDate(dateString) {
     return null;
   }
 
+  const displayResults = await selectDisplayResults(ranked);
+
   return {
     version: VERSION,
     date: dateString,
@@ -78,6 +81,7 @@ async function buildPayloadForDate(dateString) {
     vibeSubtitle: vibe.subtitle,
     vibeSubtitleEn: vibe.subtitle_en,
     rankedBatches: ranked,
+    displayResults,
     generatedAt: new Date().toISOString()
   };
 }

@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
+import type { ImageTier } from './types';
 import { GridItem } from './components/GridItem/GridItem';
 import { GridItemSkeleton } from './components/GridItem/GridItemSkeleton';
 import { InlinePreview } from './components/InlinePreview/InlinePreview';
@@ -24,20 +25,7 @@ function App() {
     || sessionStorage.getItem('fandom_admin') === 'true';
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const { items: gridImages, meta, rawData, loading, error } = useStarOfDay();
-  const [editionTier, setEditionTier] = useState<'misprint' | 'legendary' | null>(null);
-
-  const taggedRawData = useMemo(() => {
-    if (!rawData || !editionTier || !rawData.rankedBatches[0]) return rawData;
-    const chosen = {
-      ...rawData.rankedBatches[0],
-      misprint: editionTier === 'misprint',
-      legendary: editionTier === 'legendary',
-    };
-    return {
-      ...rawData,
-      rankedBatches: [chosen, ...rawData.rankedBatches.slice(1)],
-    };
-  }, [rawData, editionTier]);
+  const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
 
   useEffect(() => { migrateBookmarks(); }, []);
 
@@ -65,6 +53,7 @@ function App() {
         <GridItem
           key={item.id}
           {...item}
+          tier={imageTiers[item.id] ?? null}
           onImageClick={() => handleItemClick(item.id)}
         />,
       );
@@ -158,31 +147,11 @@ function App() {
                 ⏳ Showing yesterday's picks while today's grid builds
               </div>
             )}
-            {taggedRawData && (
+            {rawData && (
             <div className="daily-actions">
               <div className="daily-actions__primary">
-                <ExportButton rawData={taggedRawData} />
-                <SendToPlanButton rawData={taggedRawData} imageUrl={gridImages[0]?.thumbnail} />
-              </div>
-              <div className="tier-controls" aria-label="Card edition">
-                <button
-                  type="button"
-                  className={`tier-button tier-button--misprint ${editionTier === 'misprint' ? 'tier-button--active' : ''}`}
-                  aria-pressed={editionTier === 'misprint'}
-                  onClick={() => setEditionTier((current) => current === 'misprint' ? null : 'misprint')}
-                >
-                  🫠 错版
-                  <span>Mark Misprint</span>
-                </button>
-                <button
-                  type="button"
-                  className={`tier-button tier-button--legendary ${editionTier === 'legendary' ? 'tier-button--active' : ''}`}
-                  aria-pressed={editionTier === 'legendary'}
-                  onClick={() => setEditionTier((current) => current === 'legendary' ? null : 'legendary')}
-                >
-                  🔥 传说
-                  <span>Mark Legendary</span>
-                </button>
+                <ExportButton rawData={rawData} />
+                <SendToPlanButton rawData={rawData} imageUrl={gridImages[0]?.thumbnail} />
               </div>
             </div>
             )}
@@ -205,6 +174,11 @@ function App() {
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={setLightboxIndex}
+          tier={imageTiers[gridImages[lightboxIndex]?.id] ?? null}
+          onTierChange={(tier) => {
+            const imageId = gridImages[lightboxIndex]?.id;
+            if (imageId) setImageTiers((current) => ({ ...current, [imageId]: tier }));
+          }}
           cardMetadata={meta ? {
             actorName: meta.actorName,
             vibeEmoji: meta.vibeEmoji,

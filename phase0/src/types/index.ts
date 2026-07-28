@@ -1,3 +1,5 @@
+export type ImageTier = 'misprint' | 'legendary' | null;
+
 export interface GridItemData {
   id: string;
   title: string;
@@ -11,6 +13,7 @@ export interface GridItemData {
   editorialSetId?: string;
   batchKey?: string;
   gridPosition?: number;
+  tier?: ImageTier;
 }
 
 export interface SaveState {
