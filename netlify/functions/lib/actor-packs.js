@@ -140,9 +140,13 @@ export const ACTOR_PACKS = [
         "subtitle": "明明没说话，像已经疼了三生三世",
         "subtitle_en": "Said nothing — but clearly hurting for three lifetimes",
         "queries": [
-          "刘学义 破碎感 古装",
-          "刘学义 落寞 古装",
-          "刘学义 悲剧感 古装"
+          "刘学义 念无双 源仲 破碎感",
+          "刘学义 千古玦尘 天启 悲伤",
+          "刘学义 千古玦尘 天气 悲伤",
+          "刘学义 天乩之白蛇传说 斩荒 破碎",
+          "刘学义 秋蝉 林小庄 落寞",
+          "刘学义 落花时节又逢君 锦绣 悲剧",
+          "刘学义 春花焰 慕容璟和 破碎"
         ],
         "shareFragment": "破碎感美人学义，三生三世都是他",
         "mjPrompt": ""
