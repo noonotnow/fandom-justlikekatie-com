@@ -4,6 +4,7 @@ import type { StarOfDayData } from '../src/hooks/useStarOfDay';
 import {
   buildPlanDraftPayload,
   sendPlanDraft,
+  uploadGridCard,
   uploadSelectedCard,
   uploadShareCard,
 } from '../src/utils/planHandoff.ts';
@@ -28,13 +29,16 @@ const data: StarOfDayData = {
 test('builds an enriched media-ready PLAN payload with established defaults', () => {
   const payload = buildPlanDraftPayload({
     data,
-    image: {
-      id: 'https://source.example/selected.jpg',
-      title: 'Selected',
-      thumbnail: '/.netlify/functions/image-proxy?url=selected',
-      url: 'https://source.example/page',
-      gridPosition: 4,
-      batchKey: 'selected-query',
+    selection: {
+      kind: 'individual',
+      image: {
+        id: 'https://source.example/selected.jpg',
+        title: 'Selected',
+        thumbnail: '/.netlify/functions/image-proxy?url=selected',
+        url: 'https://source.example/page',
+        gridPosition: 4,
+        batchKey: 'selected-query',
+      },
     },
     form: {
       headline: '  Shattered Beauty — Liu Xueyi ',
@@ -73,11 +77,14 @@ test('builds an enriched media-ready PLAN payload with established defaults', ()
 test('marks the draft as needing media when share-card upload fails', () => {
   const payload = buildPlanDraftPayload({
     data,
-    image: {
-      id: 'selected',
-      title: 'Selected',
-      thumbnail: '/selected',
-      url: 'https://source.example/selected',
+    selection: {
+      kind: 'individual',
+      image: {
+        id: 'selected',
+        title: 'Selected',
+        thumbnail: '/selected',
+        url: 'https://source.example/selected',
+      },
     },
     form: { headline: 'Headline', caption: '', platform: 'Rednote', series: 'A·Vibe' },
     sourceUrl: 'https://fandom.justlikekatie.com/',
@@ -147,7 +154,7 @@ test('renders and uploads the exact selected non-first individual card', async (
 
   const payload = buildPlanDraftPayload({
     data,
-    image: images[1],
+    selection: { kind: 'individual', image: images[1] },
     form: { headline: 'Selected card', caption: '', platform: 'Rednote', series: 'A·Vibe' },
     sourceUrl: 'https://fandom.justlikekatie.com/',
     generatedAt: '2026-07-31T14:00:00.000Z',
@@ -168,6 +175,51 @@ test('renders and uploads the exact selected non-first individual card', async (
   assert.notEqual(payload.provenance.itemId, images[0].id);
   assert.equal(payload.mediaUrl, 'https://cdn.example/selected-card.png');
   assert.deepEqual(sentPayload, payload);
+});
+
+test('renders and uploads the full 3x3 grid card for the grid-level action', async () => {
+  let renderedData: StarOfDayData | undefined;
+  let renderedVariant = '';
+  let uploadedBlobText = '';
+  const fakeCanvas = {
+    toBlob(callback: BlobCallback) {
+      callback(new Blob(['full-3x3-grid-card'], { type: 'image/png' }));
+    },
+  } as HTMLCanvasElement;
+
+  const result = await uploadGridCard(
+    data,
+    async (receivedData, variant) => {
+      renderedData = receivedData;
+      renderedVariant = variant;
+      return fakeCanvas;
+    },
+    'secret',
+    'https://media.example/upload',
+    async (blob) => {
+      uploadedBlobText = await blob.text();
+      return { url: 'https://cdn.example/full-grid-card.png' };
+    },
+  );
+
+  assert.equal(renderedData, data);
+  assert.equal(renderedVariant, 'full');
+  assert.equal(uploadedBlobText, 'full-3x3-grid-card');
+
+  const payload = buildPlanDraftPayload({
+    data,
+    selection: { kind: 'grid' },
+    form: { headline: 'Full grid', caption: '', platform: 'Rednote', series: 'A·Vibe' },
+    sourceUrl: 'https://fandom.justlikekatie.com/',
+    generatedAt: '2026-07-31T14:00:00.000Z',
+    mediaUrl: result.url,
+  });
+
+  assert.equal(payload.mediaUrl, 'https://cdn.example/full-grid-card.png');
+  assert.equal(payload.provenance.itemId, 'vibe-atlas-2026-07-31-liu-xueyi');
+  assert.equal(payload.provenance.cardId, 'vibe-atlas-2026-07-31-liu-xueyi-grid');
+  assert.equal(payload.provenance.gridPosition, undefined);
+  assert.equal(payload.provenance.sourceImageUrl, undefined);
 });
 
 test('surfaces upload failures and never accepts blob URLs', async () => {
@@ -206,11 +258,14 @@ test('surfaces upload failures and never accepts blob URLs', async () => {
 test('sends the exact enriched JSON payload to PLAN', async () => {
   const payload = buildPlanDraftPayload({
     data,
-    image: {
-      id: 'selected',
-      title: 'Selected',
-      thumbnail: '/selected',
-      url: 'https://source.example/selected',
+    selection: {
+      kind: 'individual',
+      image: {
+        id: 'selected',
+        title: 'Selected',
+        thumbnail: '/selected',
+        url: 'https://source.example/selected',
+      },
     },
     form: { headline: 'Headline', caption: 'Caption', platform: 'Rednote', series: 'A·Vibe' },
     sourceUrl: 'https://fandom.justlikekatie.com/',

@@ -3,21 +3,34 @@ import { dbAddToPlan } from '../../utils/planDB';
 import type { StarOfDayData } from '../../hooks/useStarOfDay';
 import type { GridItemData, ImageTier } from '../../types';
 import { renderCard } from '../../utils/cardRenderer';
+import { renderExportCanvas } from '../../utils/exportCanvas';
 import {
   buildPlanDraftPayload,
   DEFAULT_MEDIA_UPLOAD_URL,
   DEFAULT_PLAN_URL,
   sendPlanDraft,
+  uploadGridCard,
   uploadSelectedCard,
 } from '../../utils/planHandoff';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface Props {
+interface GridProps {
   rawData: StarOfDayData;
+  asset: 'grid';
+}
+
+interface IndividualProps {
+  rawData: StarOfDayData;
+  asset: 'individual';
   image: GridItemData;
   tier: ImageTier;
 }
+
+type Props = GridProps | IndividualProps;
+type FrozenSelection =
+  | { kind: 'grid' }
+  | { kind: 'individual'; image: GridItemData; tier: ImageTier };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -43,7 +56,8 @@ function useIsAdmin(): boolean {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function SendToPlanButton({ rawData, image, tier }: Props) {
+export function SendToPlanButton(props: Props) {
+  const { rawData } = props;
   const isAdmin = useIsAdmin();
 
   const [open,    setOpen]    = useState(false);
@@ -51,7 +65,7 @@ export function SendToPlanButton({ rawData, image, tier }: Props) {
   const [success, setSuccess] = useState(false);
   const [error,   setError]   = useState("");
   const [warning, setWarning] = useState("");
-  const [selection, setSelection] = useState<{ image: GridItemData; tier: ImageTier } | null>(null);
+  const [selection, setSelection] = useState<FrozenSelection | null>(null);
 
   // Form fields — pre-filled from the card data
   const defaultHeadline = `${rawData.vibeEmoji} ${rawData.vibeLabelEn} — ${rawData.actorShortNameEn}`;
@@ -73,7 +87,11 @@ export function SendToPlanButton({ rawData, image, tier }: Props) {
     setError("");
     setWarning("");
     setSuccess(false);
-    setSelection({ image, tier });
+    setSelection(
+      props.asset === 'individual'
+        ? { kind: 'individual', image: props.image, tier: props.tier }
+        : { kind: 'grid' },
+    );
     setOpen(true);
   }
 
@@ -87,14 +105,23 @@ export function SendToPlanButton({ rawData, image, tier }: Props) {
       let mediaUrl: string | undefined;
       let uploadError: string | undefined;
       try {
-        mediaUrl = (await uploadSelectedCard(
-          selection.image,
-          rawData,
-          selection.tier,
-          renderCard,
-          TOKEN,
-          MEDIA_UPLOAD_URL,
-        )).url;
+        mediaUrl = (
+          selection.kind === 'individual'
+            ? await uploadSelectedCard(
+                selection.image,
+                rawData,
+                selection.tier,
+                renderCard,
+                TOKEN,
+                MEDIA_UPLOAD_URL,
+              )
+            : await uploadGridCard(
+                rawData,
+                renderExportCanvas,
+                TOKEN,
+                MEDIA_UPLOAD_URL,
+              )
+        ).url;
       } catch (err) {
         uploadError = err instanceof Error ? err.message : "Unknown share-card upload failure";
         console.error("[SendToPlan] Share-card upload failed:", err);
@@ -102,7 +129,9 @@ export function SendToPlanButton({ rawData, image, tier }: Props) {
 
       const payload = buildPlanDraftPayload({
         data: rawData,
-        image: selection.image,
+        selection: selection.kind === 'individual'
+          ? { kind: 'individual', image: selection.image }
+          : { kind: 'grid' },
         form: {
           headline,
           caption,
@@ -131,8 +160,12 @@ export function SendToPlanButton({ rawData, image, tier }: Props) {
             vibeEmoji: rawData.vibeEmoji,
             capturedDate: rawData.date,
             gridContext: {
-              batchKey: selection.image.batchKey,
-              position: selection.image.gridPosition ?? 0,
+              batchKey: selection.kind === 'individual'
+                ? selection.image.batchKey
+                : `vibe-atlas-${rawData.date}-${rawData.actorId}`,
+              position: selection.kind === 'individual'
+                ? selection.image.gridPosition ?? 0
+                : -1,
             },
           });
         } catch (err) {
@@ -161,7 +194,11 @@ export function SendToPlanButton({ rawData, image, tier }: Props) {
       {/* ── Trigger button ──────────────────────────────────────────────── */}
       <button
         onClick={openModal}
-        title={`Send selected card ${image.title} to plan.justlikekatie.com as a draft`}
+        title={
+          props.asset === 'individual'
+            ? `Send selected card ${props.image.title} to plan.justlikekatie.com as a draft`
+            : 'Send the full 3x3 grid card to plan.justlikekatie.com as a draft'
+        }
         style={{
           display:        "inline-flex",
           alignItems:     "center",

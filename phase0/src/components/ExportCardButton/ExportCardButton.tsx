@@ -110,6 +110,7 @@ export const ExportCardButton: React.FC<ExportCardButtonProps> = ({ image, metad
       {isAdmin && planData && (
         <SendToPlanButton
           rawData={planData}
+          asset="individual"
           image={image}
           tier={metadata.tier ?? null}
         />

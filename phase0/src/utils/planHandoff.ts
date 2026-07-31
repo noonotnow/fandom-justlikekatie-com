@@ -14,6 +14,10 @@ export interface PlanFormValues {
   scheduledDate?: string;
 }
 
+export type PlanAssetSelection =
+  | { kind: 'individual'; image: GridItemData }
+  | { kind: 'grid' };
+
 export interface PlanDraftPayload {
   headline: string;
   caption: string;
@@ -42,7 +46,7 @@ export interface PlanDraftPayload {
     batchKey?: string;
     cardId: string;
     gridId: string;
-    gridPosition: number;
+    gridPosition?: number;
     actorId: string;
     actorName: string;
     generatedAt: string;
@@ -52,9 +56,21 @@ export interface PlanDraftPayload {
   requirements: string;
 }
 
+export async function uploadGridCard(
+  data: StarOfDayData,
+  render: GridRenderer,
+  token: string,
+  uploadUrl = DEFAULT_MEDIA_UPLOAD_URL,
+  upload: MediaUploader = uploadShareCard,
+): Promise<UploadResult> {
+  const canvas = await render(data, 'full');
+  const blob = await canvasToPngBlob(canvas);
+  return upload(blob, token, uploadUrl);
+}
+
 interface BuildPayloadOptions {
   data: StarOfDayData;
-  image: GridItemData;
+  selection: PlanAssetSelection;
   form: PlanFormValues;
   sourceUrl: string;
   generatedAt: string;
@@ -73,6 +89,10 @@ export interface DraftResult {
 
 type Fetch = typeof fetch;
 type CardRenderer = (metadata: CardMetadata) => Promise<Blob>;
+type GridRenderer = (
+  data: StarOfDayData,
+  variant: 'full',
+) => Promise<HTMLCanvasElement>;
 type MediaUploader = (
   blob: Blob,
   token: string,
@@ -96,7 +116,7 @@ export function isDurablePublicUrl(value: string): boolean {
 
 export function buildPlanDraftPayload({
   data,
-  image,
+  selection,
   form,
   sourceUrl,
   generatedAt,
@@ -108,8 +128,11 @@ export function buildPlanDraftPayload({
   }
 
   const gridId = `vibe-atlas-${data.date}-${data.actorId}`;
-  const gridPosition = image.gridPosition ?? 0;
-  const cardId = `${gridId}-card-${gridPosition}-${stableId(image.id)}`;
+  const image = selection.kind === 'individual' ? selection.image : undefined;
+  const gridPosition = image?.gridPosition ?? 0;
+  const cardId = image
+    ? `${gridId}-card-${gridPosition}-${stableId(image.id)}`
+    : `${gridId}-grid`;
   const captionSeed = data.vibeSubtitle.trim() || undefined;
   const ctaSeed = data.ctaSeed?.trim() || undefined;
   const generationPrompt = data.generationPrompt?.trim() || undefined;
@@ -143,13 +166,13 @@ export function buildPlanDraftPayload({
     ...(uploadError ? { mediaError: uploadError } : {}),
     provenance: {
       sourceUrl,
-      ...(isDurablePublicUrl(image.id) ? { sourceImageUrl: image.id } : {}),
-      ...(isDurablePublicUrl(image.url) ? { sourceContentUrl: image.url } : {}),
-      itemId: image.id,
-      ...(image.batchKey ? { batchKey: image.batchKey } : {}),
+      ...(image && isDurablePublicUrl(image.id) ? { sourceImageUrl: image.id } : {}),
+      ...(image && isDurablePublicUrl(image.url) ? { sourceContentUrl: image.url } : {}),
+      itemId: image?.id ?? gridId,
+      ...(image?.batchKey ? { batchKey: image.batchKey } : {}),
       cardId,
       gridId,
-      gridPosition,
+      ...(image ? { gridPosition } : {}),
       actorId: data.actorId,
       actorName: data.actorName,
       generatedAt: data.generatedAt || generatedAt,
