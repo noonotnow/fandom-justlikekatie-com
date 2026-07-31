@@ -6,7 +6,6 @@ import { InlinePreview } from './components/InlinePreview/InlinePreview';
 import { Lightbox } from './components/Lightbox/Lightbox';
 import { ThemeToggle } from './components/ThemeToggle/ThemeToggle';
 import { ExportButton } from './components/ExportButton/ExportButton';
-import { SendToPlanButton } from './components/SendToPlanButton/SendToPlanButton';
 import { Collection } from './components/Collection/Collection';
 import { Plan } from './components/Plan/Plan';
 import { migrateBookmarks } from './utils/migrateBookmarks';
@@ -151,7 +150,6 @@ function App() {
             <div className="daily-actions">
               <div className="daily-actions__primary">
                 <ExportButton rawData={rawData} />
-                <SendToPlanButton rawData={rawData} imageUrl={gridImages[0]?.thumbnail} />
               </div>
             </div>
             )}
@@ -174,6 +172,7 @@ function App() {
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={setLightboxIndex}
+          planData={rawData ?? undefined}
           tier={imageTiers[gridImages[lightboxIndex]?.id] ?? null}
           onTierChange={(tier) => {
             const imageId = gridImages[lightboxIndex]?.id;

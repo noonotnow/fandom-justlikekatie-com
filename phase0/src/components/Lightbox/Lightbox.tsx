@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { GridItemData, ImageTier } from '../../types';
+import type { StarOfDayData } from '../../hooks/useStarOfDay';
 import { ExportCardButton, type ExportCardMetadata } from '../ExportCardButton/ExportCardButton';
 import { dbSaveCard, dbRemoveCard, dbIsCardSaved } from '../../utils/collectionDB';
 import { storage } from '../../utils/storage';
@@ -15,6 +16,7 @@ interface LightboxProps {
   onNavigate: (index: number) => void;
   /** Metadata for individual card export */
   cardMetadata?: ExportCardMetadata;
+  planData?: StarOfDayData;
   tier: ImageTier;
   onTierChange: (tier: ImageTier) => void;
 }
@@ -25,6 +27,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
   onClose,
   onNavigate,
   cardMetadata,
+  planData,
   tier,
   onTierChange,
 }) => {
@@ -280,7 +283,11 @@ export const Lightbox: React.FC<LightboxProps> = ({
               </button>
             </div>
             <div className={styles.actions}>
-              <ExportCardButton image={current} metadata={{ ...cardMetadata, tier }} />
+              <ExportCardButton
+                image={current}
+                metadata={{ ...cardMetadata, tier }}
+                planData={planData}
+              />
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
                 <button
                   onClick={handleSave}

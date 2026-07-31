@@ -19,7 +19,7 @@ import { evaluateCandidates, rankCandidates, RANKED_BATCH_LIMIT } from "./lib/ra
 import { getShanghaiDateString, getRandomForDate } from "./lib/date-seed.js";
 import { selectDisplayResults } from "./lib/image-dedup.js";
 
-const VERSION = "v4";
+const VERSION = "v5";
 const STORE_NAME = "star-of-day";
 
 function cacheKeyFor(dateString) {
@@ -62,6 +62,8 @@ async function buildPayloadForDate(dateString) {
     vibeLabelEn: vibe.label_en,
     vibeSubtitle: vibe.subtitle,
     vibeSubtitleEn: vibe.subtitle_en,
+    generationPrompt: vibe.mjPrompt,
+    generationQuery: ranked[0]?.query,
     rankedBatches: ranked,
     displayResults,
     generatedAt: new Date().toISOString()

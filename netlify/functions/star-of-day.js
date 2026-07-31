@@ -22,7 +22,7 @@ import { selectDisplayResults } from "./lib/image-dedup.js";
 // real cache key and reads whatever the winner produced. This is what stops
 // simultaneous requests right after midnight from each independently
 // re-running the whole search+rank ladder.
-const VERSION = "v4";
+const VERSION = "v5";
 const STORE_NAME = "star-of-day";
 const LOCK_TTL_MS = 25000; // a stale/abandoned lock is ignored after this long
 const POLL_INTERVAL_MS = 700;
@@ -80,6 +80,8 @@ async function buildPayloadForDate(dateString) {
     vibeLabelEn: vibe.label_en,
     vibeSubtitle: vibe.subtitle,
     vibeSubtitleEn: vibe.subtitle_en,
+    generationPrompt: vibe.mjPrompt,
+    generationQuery: ranked[0]?.query,
     rankedBatches: ranked,
     displayResults,
     generatedAt: new Date().toISOString()

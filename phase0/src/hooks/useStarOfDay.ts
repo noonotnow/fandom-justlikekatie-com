@@ -31,6 +31,10 @@ export interface StarOfDayData {
   rankedBatches: RankedBatch[];
   displayResults?: StarOfDayResult[];
   date: string;
+  generatedAt?: string;
+  generationPrompt?: string;
+  generationQuery?: string;
+  ctaSeed?: string;
   stale?: boolean;
   building?: boolean;
   error?: string;

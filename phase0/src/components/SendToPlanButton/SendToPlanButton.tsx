@@ -1,31 +1,28 @@
 import { useState, useEffect } from "react";
 import { dbAddToPlan } from '../../utils/planDB';
+import type { StarOfDayData } from '../../hooks/useStarOfDay';
+import type { GridItemData, ImageTier } from '../../types';
+import { renderCard } from '../../utils/cardRenderer';
+import {
+  buildPlanDraftPayload,
+  DEFAULT_MEDIA_UPLOAD_URL,
+  DEFAULT_PLAN_URL,
+  sendPlanDraft,
+  uploadSelectedCard,
+} from '../../utils/planHandoff';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface StarOfDayData {
-  actorId: string;
-  actorName: string;
-  actorShortNameEn: string;
-  actorAccentColor: string;
-  vibeEmoji: string;
-  vibeLabel: string;
-  vibeLabelEn: string;
-  vibeSubtitle: string;
-  vibeSubtitleEn: string;
-  date: string;
-  stale?: boolean;
-  building?: boolean;
-}
-
 interface Props {
   rawData: StarOfDayData;
-  imageUrl?: string;
+  image: GridItemData;
+  tier: ImageTier;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const PLAN_URL = "https://plan.justlikekatie.com/api/drafts";
+const PLAN_URL = import.meta.env.VITE_PLAN_URL ?? DEFAULT_PLAN_URL;
+const MEDIA_UPLOAD_URL = import.meta.env.VITE_MEDIA_UPLOAD_URL ?? DEFAULT_MEDIA_UPLOAD_URL;
 const TOKEN    = import.meta.env.VITE_PLAN_SECRET ?? "";
 
 const SERIES_OPTIONS  = ["A·Vibe", "B·Style", "C·Event", "D·BTS", "E·Fashion", "F·Interview", "G·Fan", "H·Cdrama"];
@@ -46,13 +43,15 @@ function useIsAdmin(): boolean {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function SendToPlanButton({ rawData, imageUrl }: Props) {
+export function SendToPlanButton({ rawData, image, tier }: Props) {
   const isAdmin = useIsAdmin();
 
   const [open,    setOpen]    = useState(false);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error,   setError]   = useState("");
+  const [warning, setWarning] = useState("");
+  const [selection, setSelection] = useState<{ image: GridItemData; tier: ImageTier } | null>(null);
 
   // Form fields — pre-filled from the card data
   const defaultHeadline = `${rawData.vibeEmoji} ${rawData.vibeLabelEn} — ${rawData.actorShortNameEn}`;
@@ -60,7 +59,7 @@ export function SendToPlanButton({ rawData, imageUrl }: Props) {
 
   const [headline,      setHeadline]      = useState(defaultHeadline);
   const [caption,       setCaption]       = useState(defaultCaption);
-  const [platform,      setPlatform]      = useState("Weibo");
+  const [platform,      setPlatform]      = useState("Rednote");
   const [series,        setSeries]        = useState("A·Vibe");
   const [scheduledDate, setScheduledDate] = useState("");
 
@@ -68,54 +67,85 @@ export function SendToPlanButton({ rawData, imageUrl }: Props) {
   function openModal() {
     setHeadline(defaultHeadline);
     setCaption(defaultCaption);
-    setPlatform("Weibo");
+    setPlatform("Rednote");
     setSeries("A·Vibe");
     setScheduledDate("");
     setError("");
+    setWarning("");
     setSuccess(false);
+    setSelection({ image, tier });
     setOpen(true);
   }
 
   async function handleSend() {
     if (!headline.trim()) { setError("Headline is required."); return; }
+    if (!selection) { setError("The selected card is no longer available."); return; }
     setLoading(true);
     setError("");
+    setWarning("");
     try {
-      const res = await fetch(PLAN_URL, {
-        method:  "POST",
-        headers: {
-          "Content-Type":  "application/json",
-          "Authorization": `Bearer ${TOKEN}`,
-        },
-        body: JSON.stringify({
-          headline:      headline.trim(),
-          caption:       caption.trim(),
+      let mediaUrl: string | undefined;
+      let uploadError: string | undefined;
+      try {
+        mediaUrl = (await uploadSelectedCard(
+          selection.image,
+          rawData,
+          selection.tier,
+          renderCard,
+          TOKEN,
+          MEDIA_UPLOAD_URL,
+        )).url;
+      } catch (err) {
+        uploadError = err instanceof Error ? err.message : "Unknown share-card upload failure";
+        console.error("[SendToPlan] Share-card upload failed:", err);
+      }
+
+      const payload = buildPlanDraftPayload({
+        data: rawData,
+        image: selection.image,
+        form: {
+          headline,
+          caption,
           platform,
           series,
           scheduledDate: scheduledDate || undefined,
-        }),
+        },
+        sourceUrl: window.location.href,
+        generatedAt: new Date().toISOString(),
+        mediaUrl,
+        uploadError,
       });
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `HTTP ${res.status}`);
+      await sendPlanDraft(payload, TOKEN, PLAN_URL);
+      setSuccess(true);
+
+      if (mediaUrl) {
+        try {
+          await dbAddToPlan({
+            imageUrl: mediaUrl,
+            thumbnailUrl: mediaUrl,
+            actor: rawData.actorName,
+            actorEn: rawData.actorShortNameEn,
+            vibe: rawData.vibeLabel,
+            vibeEn: rawData.vibeLabelEn,
+            vibeEmoji: rawData.vibeEmoji,
+            capturedDate: rawData.date,
+            gridContext: {
+              batchKey: selection.image.batchKey,
+              position: selection.image.gridPosition ?? 0,
+            },
+          });
+        } catch (err) {
+          console.error("[SendToPlan] Draft created, but local plan sync failed:", err);
+          setWarning("Draft created with media, but the local Plan view could not be updated.");
+        }
+      } else {
+        setWarning(`Draft created, but media is marked missing: ${uploadError}`);
       }
 
-      setSuccess(true);
-      const key = imageUrl ?? `star-of-day-${rawData.actorId}-${rawData.date}`;
-      dbAddToPlan({
-        imageUrl: key,
-        thumbnailUrl: key,
-        actor: rawData.actorName,
-        actorEn: rawData.actorShortNameEn,
-        vibe: rawData.vibeLabel,
-        vibeEn: rawData.vibeLabelEn,
-        vibeEmoji: rawData.vibeEmoji,
-        capturedDate: rawData.date,
-        gridContext: { position: 0 },
-      }).catch(() => {});
-      // Auto-close after 2 s
-      setTimeout(() => { setSuccess(false); setOpen(false); }, 2000);
+      if (mediaUrl) {
+        setTimeout(() => { setSuccess(false); setOpen(false); }, 2000);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong — try again?");
     } finally {
@@ -131,7 +161,7 @@ export function SendToPlanButton({ rawData, imageUrl }: Props) {
       {/* ── Trigger button ──────────────────────────────────────────────── */}
       <button
         onClick={openModal}
-        title="Send this card to plan.justlikekatie.com as a draft"
+        title={`Send selected card ${image.title} to plan.justlikekatie.com as a draft`}
         style={{
           display:        "inline-flex",
           alignItems:     "center",
@@ -243,6 +273,7 @@ export function SendToPlanButton({ rawData, imageUrl }: Props) {
 
             {/* Error / success */}
             {error   && <p style={{ color: "#f87171", fontSize: "13px", margin: 0 }}>⚠ {error}</p>}
+            {warning && <p style={{ color: "#fbbf24", fontSize: "13px", margin: 0 }}>⚠ {warning}</p>}
             {success && <p style={{ color: "#4ade80", fontSize: "13px", fontWeight: 600, margin: 0 }}>✓ Added to Notion!</p>}
 
             {/* Buttons */}
