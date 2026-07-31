@@ -2,8 +2,7 @@ import type { StarOfDayData } from '../hooks/useStarOfDay';
 import type { GridItemData, ImageTier } from '../types';
 import type { CardMetadata } from './cardRenderer';
 
-export const DEFAULT_PLAN_URL = 'https://plan.justlikekatie.com/api/drafts';
-export const DEFAULT_MEDIA_UPLOAD_URL = 'https://xhs.justlikekatie.com/api/integrations/media';
+export const DEFAULT_PLAN_HANDOFF_URL = '/api/plan-handoff';
 export const VIBE_ATLAS_CAMPAIGN = 'Vibe Atlas Rednote Launch';
 
 export interface PlanFormValues {
@@ -56,16 +55,12 @@ export interface PlanDraftPayload {
   requirements: string;
 }
 
-export async function uploadGridCard(
+export async function renderGridCardPng(
   data: StarOfDayData,
   render: GridRenderer,
-  token: string,
-  uploadUrl = DEFAULT_MEDIA_UPLOAD_URL,
-  upload: MediaUploader = uploadShareCard,
-): Promise<UploadResult> {
+): Promise<Blob> {
   const canvas = await render(data, 'full');
-  const blob = await canvasToPngBlob(canvas);
-  return upload(blob, token, uploadUrl);
+  return canvasToPngBlob(canvas);
 }
 
 interface BuildPayloadOptions {
@@ -78,13 +73,12 @@ interface BuildPayloadOptions {
   uploadError?: string;
 }
 
-export interface UploadResult {
-  url: string;
-}
-
-export interface DraftResult {
+export interface HandoffResult {
   ok: boolean;
   id: string;
+  mediaUploadStatus: 'attached' | 'upload_failed';
+  mediaUrl?: string;
+  mediaError?: string;
 }
 
 type Fetch = typeof fetch;
@@ -93,13 +87,6 @@ type GridRenderer = (
   data: StarOfDayData,
   variant: 'full',
 ) => Promise<HTMLCanvasElement>;
-type MediaUploader = (
-  blob: Blob,
-  token: string,
-  uploadUrl?: string,
-  fetchImpl?: Fetch,
-) => Promise<UploadResult>;
-
 export function isDurablePublicUrl(value: string): boolean {
   try {
     const url = new URL(value);
@@ -183,16 +170,13 @@ export function buildPlanDraftPayload({
   };
 }
 
-export async function uploadSelectedCard(
+export async function renderSelectedCardPng(
   image: GridItemData,
   data: StarOfDayData,
   tier: ImageTier,
   render: CardRenderer,
-  token: string,
-  uploadUrl = DEFAULT_MEDIA_UPLOAD_URL,
-  upload: MediaUploader = uploadShareCard,
-): Promise<UploadResult> {
-  const blob = await render({
+): Promise<Blob> {
+  return render({
     actorName: data.actorName,
     vibeEmoji: data.vibeEmoji,
     vibeLabel: data.vibeLabel,
@@ -202,59 +186,44 @@ export async function uploadSelectedCard(
     accentColor: data.actorAccentColor,
     tier,
   });
-  return upload(blob, token, uploadUrl);
 }
 
-export async function uploadShareCard(
+export async function sendPlanHandoff(
   blob: Blob,
-  token: string,
-  uploadUrl = DEFAULT_MEDIA_UPLOAD_URL,
+  payload: PlanDraftPayload,
+  handoffUrl = DEFAULT_PLAN_HANDOFF_URL,
   fetchImpl: Fetch = fetch,
-): Promise<UploadResult> {
+): Promise<HandoffResult> {
   const formData = new FormData();
   formData.append('file', new File([blob], 'vibe-atlas-share-card.png', { type: 'image/png' }));
+  formData.append('draft', JSON.stringify(payload));
 
-  const response = await fetchImpl(uploadUrl, {
+  const response = await fetchImpl(handoffUrl, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
     body: formData,
   });
   const body = await readJson(response);
 
   if (!response.ok) {
-    throw new Error(stringField(body, 'error') || `Share-card upload failed (HTTP ${response.status})`);
-  }
-
-  const url = stringField(body, 'url');
-  if (!url || !isDurablePublicUrl(url)) {
-    throw new Error('Share-card upload did not return a durable public URL');
-  }
-  return { url };
-}
-
-export async function sendPlanDraft(
-  payload: PlanDraftPayload,
-  token: string,
-  planUrl = DEFAULT_PLAN_URL,
-  fetchImpl: Fetch = fetch,
-): Promise<DraftResult> {
-  const response = await fetchImpl(planUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
-  });
-  const body = await readJson(response);
-
-  if (!response.ok) {
-    throw new Error(stringField(body, 'error') || `PLAN draft creation failed (HTTP ${response.status})`);
+    throw new Error(stringField(body, 'error') || `PLAN handoff failed (HTTP ${response.status})`);
   }
 
   const id = stringField(body, 'id');
-  if (!id) throw new Error('PLAN created a draft without returning its ID');
-  return { ok: true, id };
+  const mediaUploadStatus = stringField(body, 'mediaUploadStatus');
+  if (!id || (mediaUploadStatus !== 'attached' && mediaUploadStatus !== 'upload_failed')) {
+    throw new Error('PLAN handoff returned an invalid response');
+  }
+  const mediaUrl = stringField(body, 'mediaUrl') || undefined;
+  if (mediaUrl && !isDurablePublicUrl(mediaUrl)) {
+    throw new Error('PLAN handoff returned a temporary or invalid media URL');
+  }
+  return {
+    ok: true,
+    id,
+    mediaUploadStatus,
+    ...(mediaUrl ? { mediaUrl } : {}),
+    ...(stringField(body, 'mediaError') ? { mediaError: stringField(body, 'mediaError') } : {}),
+  };
 }
 
 export function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {

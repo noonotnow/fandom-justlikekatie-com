@@ -6,11 +6,9 @@ import { renderCard } from '../../utils/cardRenderer';
 import { renderExportCanvas } from '../../utils/exportCanvas';
 import {
   buildPlanDraftPayload,
-  DEFAULT_MEDIA_UPLOAD_URL,
-  DEFAULT_PLAN_URL,
-  sendPlanDraft,
-  uploadGridCard,
-  uploadSelectedCard,
+  renderGridCardPng,
+  renderSelectedCardPng,
+  sendPlanHandoff,
 } from '../../utils/planHandoff';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -33,10 +31,6 @@ type FrozenSelection =
   | { kind: 'individual'; image: GridItemData; tier: ImageTier };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-
-const PLAN_URL = import.meta.env.VITE_PLAN_URL ?? DEFAULT_PLAN_URL;
-const MEDIA_UPLOAD_URL = import.meta.env.VITE_MEDIA_UPLOAD_URL ?? DEFAULT_MEDIA_UPLOAD_URL;
-const TOKEN    = import.meta.env.VITE_PLAN_SECRET ?? "";
 
 const SERIES_OPTIONS  = ["A·Vibe", "B·Style", "C·Event", "D·BTS", "E·Fashion", "F·Interview", "G·Fan", "H·Cdrama"];
 const PLATFORM_OPTIONS = ["Weibo", "Rednote", "WeChat", "Douyin"];
@@ -102,30 +96,14 @@ export function SendToPlanButton(props: Props) {
     setError("");
     setWarning("");
     try {
-      let mediaUrl: string | undefined;
-      let uploadError: string | undefined;
-      try {
-        mediaUrl = (
-          selection.kind === 'individual'
-            ? await uploadSelectedCard(
-                selection.image,
-                rawData,
-                selection.tier,
-                renderCard,
-                TOKEN,
-                MEDIA_UPLOAD_URL,
-              )
-            : await uploadGridCard(
-                rawData,
-                renderExportCanvas,
-                TOKEN,
-                MEDIA_UPLOAD_URL,
-              )
-        ).url;
-      } catch (err) {
-        uploadError = err instanceof Error ? err.message : "Unknown share-card upload failure";
-        console.error("[SendToPlan] Share-card upload failed:", err);
-      }
+      const png = selection.kind === 'individual'
+        ? await renderSelectedCardPng(
+            selection.image,
+            rawData,
+            selection.tier,
+            renderCard,
+          )
+        : await renderGridCardPng(rawData, renderExportCanvas);
 
       const payload = buildPlanDraftPayload({
         data: rawData,
@@ -141,18 +119,16 @@ export function SendToPlanButton(props: Props) {
         },
         sourceUrl: window.location.href,
         generatedAt: new Date().toISOString(),
-        mediaUrl,
-        uploadError,
       });
 
-      await sendPlanDraft(payload, TOKEN, PLAN_URL);
+      const result = await sendPlanHandoff(png, payload);
       setSuccess(true);
 
-      if (mediaUrl) {
+      if (result.mediaUrl) {
         try {
           await dbAddToPlan({
-            imageUrl: mediaUrl,
-            thumbnailUrl: mediaUrl,
+            imageUrl: result.mediaUrl,
+            thumbnailUrl: result.mediaUrl,
             actor: rawData.actorName,
             actorEn: rawData.actorShortNameEn,
             vibe: rawData.vibeLabel,
@@ -173,10 +149,10 @@ export function SendToPlanButton(props: Props) {
           setWarning("Draft created with media, but the local Plan view could not be updated.");
         }
       } else {
-        setWarning(`Draft created, but media is marked missing: ${uploadError}`);
+        setWarning(`Draft created, but media is marked missing: ${result.mediaError}`);
       }
 
-      if (mediaUrl) {
+      if (result.mediaUrl) {
         setTimeout(() => { setSuccess(false); setOpen(false); }, 2000);
       }
     } catch (err) {

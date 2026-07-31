@@ -7,6 +7,11 @@
   publish = "phase0/dist"
 
 [[redirects]]
+  from = "/api/plan-handoff"
+  to = "/.netlify/functions/plan-handoff"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

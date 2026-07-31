@@ -3,10 +3,9 @@ import test from 'node:test';
 import type { StarOfDayData } from '../src/hooks/useStarOfDay';
 import {
   buildPlanDraftPayload,
-  sendPlanDraft,
-  uploadGridCard,
-  uploadSelectedCard,
-  uploadShareCard,
+  renderGridCardPng,
+  renderSelectedCardPng,
+  sendPlanHandoff,
 } from '../src/utils/planHandoff.ts';
 
 const data: StarOfDayData = {
@@ -98,17 +97,35 @@ test('marks the draft as needing media when share-card upload fails', () => {
   assert.match(payload.requirements, /Needs media: share-card upload failed — R2 unavailable/);
 });
 
-test('uploads the generated PNG and accepts only a durable public URL', async () => {
+test('posts the generated PNG and exact draft to the same-origin handoff', async () => {
+  const payload = buildPlanDraftPayload({
+    data,
+    selection: { kind: 'grid' },
+    form: { headline: 'Grid', caption: '', platform: 'Rednote', series: 'A·Vibe' },
+    sourceUrl: 'https://fandom.justlikekatie.com/',
+    generatedAt: '2026-07-31T14:00:00.000Z',
+  });
   const fetchImpl: typeof fetch = async (_input, init) => {
     assert.ok(init);
     assert.equal(init.method, 'POST');
-    assert.equal((init.headers as Record<string, string>).Authorization, 'Bearer secret');
     assert.ok(init.body instanceof FormData);
-    return new Response(JSON.stringify({ url: 'https://cdn.example/card.png' }), { status: 201 });
+    assert.equal(await (init.body.get('file') as File).text(), 'png');
+    assert.deepEqual(JSON.parse(String(init.body.get('draft'))), payload);
+    return new Response(JSON.stringify({
+      ok: true,
+      id: 'draft-id',
+      mediaUploadStatus: 'attached',
+      mediaUrl: 'https://cdn.example/card.png',
+    }), { status: 201 });
   };
 
-  const result = await uploadShareCard(new Blob(['png'], { type: 'image/png' }), 'secret', 'https://media.example/upload', fetchImpl);
-  assert.equal(result.url, 'https://cdn.example/card.png');
+  const result = await sendPlanHandoff(
+    new Blob(['png'], { type: 'image/png' }),
+    payload,
+    '/api/plan-handoff',
+    fetchImpl,
+  );
+  assert.equal(result.mediaUrl, 'https://cdn.example/card.png');
 });
 
 test('renders and uploads the exact selected non-first individual card', async () => {
@@ -129,9 +146,8 @@ test('renders and uploads the exact selected non-first individual card', async (
     },
   ];
   let renderedImageUrl = '';
-  let uploadedBlobText = '';
 
-  const result = await uploadSelectedCard(
+  const blob = await renderSelectedCardPng(
     images[1],
     data,
     null,
@@ -139,18 +155,11 @@ test('renders and uploads the exact selected non-first individual card', async (
       renderedImageUrl = metadata.imageUrl;
       return new Blob(['selected-individual-card'], { type: 'image/png' });
     },
-    'secret',
-    'https://media.example/upload',
-    async (blob) => {
-      uploadedBlobText = await blob.text();
-      return { url: 'https://cdn.example/selected-card.png' };
-    },
   );
 
   assert.equal(renderedImageUrl, images[1].thumbnail);
   assert.notEqual(renderedImageUrl, images[0].thumbnail);
-  assert.equal(uploadedBlobText, 'selected-individual-card');
-  assert.equal(result.url, 'https://cdn.example/selected-card.png');
+  assert.equal(await blob.text(), 'selected-individual-card');
 
   const payload = buildPlanDraftPayload({
     data,
@@ -158,53 +167,33 @@ test('renders and uploads the exact selected non-first individual card', async (
     form: { headline: 'Selected card', caption: '', platform: 'Rednote', series: 'A·Vibe' },
     sourceUrl: 'https://fandom.justlikekatie.com/',
     generatedAt: '2026-07-31T14:00:00.000Z',
-    mediaUrl: result.url,
   });
-  let sentPayload: unknown;
-  await sendPlanDraft(
-    payload,
-    'secret',
-    'https://plan.example/api/drafts',
-    async (_input, init) => {
-      sentPayload = JSON.parse(String(init?.body));
-      return new Response(JSON.stringify({ ok: true, id: 'selected-page' }), { status: 200 });
-    },
-  );
 
   assert.equal(payload.provenance.itemId, images[1].id);
   assert.notEqual(payload.provenance.itemId, images[0].id);
-  assert.equal(payload.mediaUrl, 'https://cdn.example/selected-card.png');
-  assert.deepEqual(sentPayload, payload);
 });
 
 test('renders and uploads the full 3x3 grid card for the grid-level action', async () => {
   let renderedData: StarOfDayData | undefined;
   let renderedVariant = '';
-  let uploadedBlobText = '';
   const fakeCanvas = {
     toBlob(callback: BlobCallback) {
       callback(new Blob(['full-3x3-grid-card'], { type: 'image/png' }));
     },
   } as HTMLCanvasElement;
 
-  const result = await uploadGridCard(
+  const blob = await renderGridCardPng(
     data,
     async (receivedData, variant) => {
       renderedData = receivedData;
       renderedVariant = variant;
       return fakeCanvas;
     },
-    'secret',
-    'https://media.example/upload',
-    async (blob) => {
-      uploadedBlobText = await blob.text();
-      return { url: 'https://cdn.example/full-grid-card.png' };
-    },
   );
 
   assert.equal(renderedData, data);
   assert.equal(renderedVariant, 'full');
-  assert.equal(uploadedBlobText, 'full-3x3-grid-card');
+  assert.equal(await blob.text(), 'full-3x3-grid-card');
 
   const payload = buildPlanDraftPayload({
     data,
@@ -212,74 +201,70 @@ test('renders and uploads the full 3x3 grid card for the grid-level action', asy
     form: { headline: 'Full grid', caption: '', platform: 'Rednote', series: 'A·Vibe' },
     sourceUrl: 'https://fandom.justlikekatie.com/',
     generatedAt: '2026-07-31T14:00:00.000Z',
-    mediaUrl: result.url,
   });
 
-  assert.equal(payload.mediaUrl, 'https://cdn.example/full-grid-card.png');
   assert.equal(payload.provenance.itemId, 'vibe-atlas-2026-07-31-liu-xueyi');
   assert.equal(payload.provenance.cardId, 'vibe-atlas-2026-07-31-liu-xueyi-grid');
   assert.equal(payload.provenance.gridPosition, undefined);
   assert.equal(payload.provenance.sourceImageUrl, undefined);
 });
 
-test('surfaces upload failures and never accepts blob URLs', async () => {
+test('surfaces handoff failures and never accepts blob media URLs', async () => {
+  const payload = buildPlanDraftPayload({
+    data,
+    selection: { kind: 'grid' },
+    form: { headline: 'Grid', caption: '', platform: 'Rednote', series: 'A·Vibe' },
+    sourceUrl: 'https://fandom.justlikekatie.com/',
+    generatedAt: '2026-07-31T14:00:00.000Z',
+  });
   const failedFetch: typeof fetch = async () => (
-    new Response(JSON.stringify({ error: 'R2 write failed' }), { status: 503 })
+    new Response(JSON.stringify({ error: 'PLAN unavailable' }), { status: 502 })
   );
   await assert.rejects(
-    uploadShareCard(new Blob(['png']), 'secret', 'https://media.example/upload', failedFetch),
-    /R2 write failed/,
+    sendPlanHandoff(new Blob(['png']), payload, '/api/plan-handoff', failedFetch),
+    /PLAN unavailable/,
   );
 
   const temporaryFetch: typeof fetch = async () => (
-    new Response(JSON.stringify({ url: 'blob:https://fandom.example/temporary' }), { status: 201 })
+    new Response(JSON.stringify({
+      ok: true,
+      id: 'draft',
+      mediaUploadStatus: 'attached',
+      mediaUrl: 'blob:https://fandom.example/temporary',
+    }), { status: 201 })
   );
   await assert.rejects(
-    uploadShareCard(new Blob(['png']), 'secret', 'https://media.example/upload', temporaryFetch),
-    /durable public URL/,
+    sendPlanHandoff(new Blob(['png']), payload, '/api/plan-handoff', temporaryFetch),
+    /temporary or invalid media URL/,
   );
-
-  for (const url of [
-    'http://cdn.example/card.png',
-    'https://localhost/card.png',
-    'https://127.0.0.1/card.png',
-    'https://192.168.1.2/card.png',
-  ]) {
-    const privateFetch: typeof fetch = async () => (
-      new Response(JSON.stringify({ url }), { status: 201 })
-    );
-    await assert.rejects(
-      uploadShareCard(new Blob(['png']), 'secret', 'https://media.example/upload', privateFetch),
-      /durable public URL/,
-    );
-  }
 });
 
-test('sends the exact enriched JSON payload to PLAN', async () => {
+test('returns media-blocked handoff results without treating them as failures', async () => {
   const payload = buildPlanDraftPayload({
     data,
-    selection: {
-      kind: 'individual',
-      image: {
-        id: 'selected',
-        title: 'Selected',
-        thumbnail: '/selected',
-        url: 'https://source.example/selected',
-      },
-    },
+    selection: { kind: 'grid' },
     form: { headline: 'Headline', caption: 'Caption', platform: 'Rednote', series: 'A·Vibe' },
     sourceUrl: 'https://fandom.justlikekatie.com/',
     generatedAt: '2026-07-31T14:00:00.000Z',
-    mediaUrl: 'https://cdn.example/card.png',
   });
-  const fetchImpl: typeof fetch = async (_input, init) => {
-    assert.ok(init);
-    assert.deepEqual(JSON.parse(String(init.body)), payload);
-    return new Response(JSON.stringify({ ok: true, id: 'notion-page-id' }), { status: 200 });
-  };
 
   assert.deepEqual(
-    await sendPlanDraft(payload, 'secret', 'https://plan.example/api/drafts', fetchImpl),
-    { ok: true, id: 'notion-page-id' },
+    await sendPlanHandoff(
+      new Blob(['png']),
+      payload,
+      '/api/plan-handoff',
+      async () => new Response(JSON.stringify({
+        ok: true,
+        id: 'notion-page-id',
+        mediaUploadStatus: 'upload_failed',
+        mediaError: 'R2 unavailable',
+      }), { status: 201 }),
+    ),
+    {
+      ok: true,
+      id: 'notion-page-id',
+      mediaUploadStatus: 'upload_failed',
+      mediaError: 'R2 unavailable',
+    },
   );
 });

@@ -30,3 +30,17 @@ If you are developing a production application, we recommend enabling type-aware
 ```
 
 See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+
+## Send to PLAN deployment
+
+The browser posts generated PNGs and draft metadata to the same-origin
+`/api/plan-handoff` Netlify Function. Configure these server-only environment
+variables in Netlify:
+
+- `MEDIA_UPLOAD_TOKEN` — credential for the media upload service
+- `PLAN_REGISTRATION_TOKEN` — credential for PLAN draft registration
+- `MEDIA_UPLOAD_URL` — optional; defaults to the current media integration URL
+- `PLAN_DRAFT_URL` — optional; defaults to the current PLAN drafts URL
+
+Remove the former `VITE_PLAN_SECRET`, `VITE_MEDIA_UPLOAD_URL`, and
+`VITE_PLAN_URL` values. No `VITE_` credential is used by the handoff flow.
