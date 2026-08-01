@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { createPlanHandoffHandler } from "./plan-handoff.js";
+import { createPlanHandoffHandler, deriveNextAction } from "./plan-handoff.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const SITE_ORIGIN = "https://fandom.justlikekatie.com";
@@ -42,12 +42,14 @@ test("uploads media and registers the enriched draft with separate credentials",
     ok: true,
     id: "plan-draft-id",
     mediaUploadStatus: "attached",
+    nextAction: "Review packet",
     mediaUrl: "https://cdn.example/card.png",
   });
   assert.equal(calls.length, 2);
   const registered = JSON.parse(calls[1].init.body);
   assert.equal(registered.mediaUrl, "https://cdn.example/card.png");
   assert.equal(registered.mediaUploadStatus, "attached");
+  assert.equal(registered.nextAction, "Review packet");
   assert.match(registered.requirements, /Media attached/);
 });
 
@@ -70,11 +72,36 @@ test("registers a media-blocked draft when upload fails", async () => {
   assert.equal(response.status, 201);
   assert.equal(body.id, "blocked-draft-id");
   assert.equal(body.mediaUploadStatus, "upload_failed");
+  assert.equal(body.nextAction, "Attach media");
   assert.equal(body.mediaError, "R2 unavailable");
   assert.equal(registered.mediaUrl, undefined);
   assert.equal(registered.mediaUploadStatus, "upload_failed");
+  assert.equal(registered.nextAction, "Attach media");
   assert.equal(registered.mediaError, "R2 unavailable");
   assert.match(registered.requirements, /Needs media/);
+});
+
+test("registers a successful media handoff with a caption blocker", async () => {
+  let registered;
+  const handler = createPlanHandoffHandler({
+    env,
+    fetchImpl: async (url, init) => {
+      if (url === MEDIA_URL) {
+        return Response.json({ url: "https://cdn.example/card.png" }, { status: 201 });
+      }
+      registered = JSON.parse(init.body);
+      return Response.json({ ok: true, id: "caption-blocked-draft" });
+    },
+  });
+  const draft = validDraft();
+  draft.caption = "";
+
+  const response = await handler(handoffRequest(draft));
+  const body = await response.json();
+
+  assert.equal(response.status, 201);
+  assert.equal(body.nextAction, "Write caption");
+  assert.equal(registered.nextAction, "Write caption");
 });
 
 test("bounds media upload time and still registers a media-blocked draft", async () => {
@@ -98,8 +125,62 @@ test("bounds media upload time and still registers a media-blocked draft", async
 
   assert.equal(response.status, 201);
   assert.equal(body.mediaUploadStatus, "upload_failed");
+  assert.equal(body.nextAction, "Attach media");
   assert.match(body.mediaError, /Share-card upload timed out/);
   assert.match(registered.mediaError, /Share-card upload timed out/);
+});
+
+test("derives the first actionable blocker from the final draft state", () => {
+  assert.equal(
+    deriveNextAction({
+      mediaUploadStatus: "attached",
+      caption: "Ready caption",
+    }),
+    "Attach media",
+  );
+  assert.equal(
+    deriveNextAction({
+      mediaUploadStatus: "upload_failed",
+      caption: "",
+    }),
+    "Attach media",
+  );
+  assert.equal(
+    deriveNextAction({
+      mediaUploadStatus: "attached",
+      mediaUrl: "https://cdn.example/card.png",
+      caption: "   ",
+    }),
+    "Write caption",
+  );
+  assert.equal(
+    deriveNextAction({
+      mediaUploadStatus: "attached",
+      mediaUrl: "https://cdn.example/card.png",
+      caption: "Ready caption",
+    }),
+    "Review packet",
+  );
+  assert.equal(
+    deriveNextAction({
+      mediaUploadStatus: "attached",
+      mediaUrl: "https://cdn.example/card.png",
+      caption: "Ready caption",
+      packetReady: true,
+    }),
+    "Paste to XHS admin",
+  );
+});
+
+test("preserves explicit later-stage actions during recovery", () => {
+  assert.equal(
+    deriveNextAction({
+      mediaUploadStatus: "upload_failed",
+      caption: "",
+      nextAction: "Published",
+    }),
+    "Published",
+  );
 });
 
 test("validates same-origin requests and draft fields before calling upstreams", async () => {
@@ -124,6 +205,7 @@ test("validates same-origin requests and draft fields before calling upstreams",
 });
 
 test("keeps the PLAN timeout active while reading the response body", async () => {
+  let registered;
   const handler = createPlanHandoffHandler({
     env,
     planTimeoutMs: 5,
@@ -131,6 +213,7 @@ test("keeps the PLAN timeout active while reading the response body", async () =
       if (url === MEDIA_URL) {
         return Response.json({ url: "https://cdn.example/card.png" }, { status: 201 });
       }
+      registered = JSON.parse(init.body);
       return new Response(new ReadableStream({
         start(controller) {
           init.signal.addEventListener(
@@ -149,6 +232,7 @@ test("keeps the PLAN timeout active while reading the response body", async () =
   const response = await handler(handoffRequest(validDraft()));
   assert.equal(response.status, 504);
   assert.match((await response.json()).error, /PLAN draft registration timed out/);
+  assert.equal(registered.nextAction, "Review packet");
 });
 
 test("keeps privileged handoff credentials out of browser source", () => {

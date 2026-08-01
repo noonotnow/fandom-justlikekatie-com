@@ -44,3 +44,8 @@ variables in Netlify:
 
 Remove the former `VITE_PLAN_SECRET`, `VITE_MEDIA_UPLOAD_URL`, and
 `VITE_PLAN_URL` values. No `VITE_` credential is used by the handoff flow.
+
+The handoff function derives `nextAction` only after the media upload outcome is
+known. Missing media takes precedence over required copy, followed by packet
+review and the current manual XHS-admin paste step. Series labels are display
+only; the existing series values sent to PLAN remain unchanged.

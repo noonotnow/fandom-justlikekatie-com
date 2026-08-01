@@ -13,6 +13,7 @@ export interface PlanRecord {
   vibeEn: string;
   vibeEmoji: string;
   capturedDate: string;
+  series?: string;
   addedAt: string;
   order: number;
   gridContext?: {

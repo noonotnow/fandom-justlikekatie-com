@@ -10,6 +10,7 @@ import {
   renderSelectedCardPng,
   sendPlanHandoff,
 } from '../../utils/planHandoff';
+import { SERIES_OPTIONS } from '../../utils/series';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -32,7 +33,6 @@ type FrozenSelection =
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const SERIES_OPTIONS  = ["A·Vibe", "B·Style", "C·Event", "D·BTS", "E·Fashion", "F·Interview", "G·Fan", "H·Cdrama"];
 const PLATFORM_OPTIONS = ["Weibo", "Rednote", "WeChat", "Douyin"];
 
 // ── Helper: check admin access ────────────────────────────────────────────────
@@ -135,6 +135,7 @@ export function SendToPlanButton(props: Props) {
             vibeEn: rawData.vibeLabelEn,
             vibeEmoji: rawData.vibeEmoji,
             capturedDate: rawData.date,
+            series,
             gridContext: {
               batchKey: selection.kind === 'individual'
                 ? selection.image.batchKey
@@ -269,7 +270,9 @@ export function SendToPlanButton(props: Props) {
                   onChange={e => setSeries(e.target.value)}
                   style={inputStyle}
                 >
-                  {SERIES_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                  {SERIES_OPTIONS.map(({ value, label }) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
                 </select>
               </Field>
             </div>

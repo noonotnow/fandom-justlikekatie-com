@@ -77,6 +77,7 @@ export interface HandoffResult {
   ok: boolean;
   id: string;
   mediaUploadStatus: 'attached' | 'upload_failed';
+  nextAction: 'Attach media' | 'Write caption' | 'Review packet' | 'Paste to XHS admin';
   mediaUrl?: string;
   mediaError?: string;
 }
@@ -210,7 +211,12 @@ export async function sendPlanHandoff(
 
   const id = stringField(body, 'id');
   const mediaUploadStatus = stringField(body, 'mediaUploadStatus');
-  if (!id || (mediaUploadStatus !== 'attached' && mediaUploadStatus !== 'upload_failed')) {
+  const nextAction = stringField(body, 'nextAction');
+  if (
+    !id
+    || (mediaUploadStatus !== 'attached' && mediaUploadStatus !== 'upload_failed')
+    || !isNextAction(nextAction)
+  ) {
     throw new Error('PLAN handoff returned an invalid response');
   }
   const mediaUrl = stringField(body, 'mediaUrl') || undefined;
@@ -221,9 +227,19 @@ export async function sendPlanHandoff(
     ok: true,
     id,
     mediaUploadStatus,
+    nextAction,
     ...(mediaUrl ? { mediaUrl } : {}),
     ...(stringField(body, 'mediaError') ? { mediaError: stringField(body, 'mediaError') } : {}),
   };
+}
+
+function isNextAction(value: string): value is HandoffResult['nextAction'] {
+  return [
+    'Attach media',
+    'Write caption',
+    'Review packet',
+    'Paste to XHS admin',
+  ].includes(value);
 }
 
 export function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {

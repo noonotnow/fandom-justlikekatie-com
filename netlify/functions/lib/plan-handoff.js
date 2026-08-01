@@ -7,6 +7,12 @@ const MAX_PNG_BYTES = 8 * 1024 * 1024;
 const MAX_DRAFT_BYTES = 64 * 1024;
 const MAX_UPSTREAM_RESPONSE_BYTES = 64 * 1024;
 const MAX_ERROR_LENGTH = 500;
+const MANAGED_NEXT_ACTIONS = new Set([
+  "Attach media",
+  "Write caption",
+  "Review packet",
+  "Paste to XHS admin",
+]);
 
 const PLATFORMS = new Set(["Weibo", "Rednote", "WeChat", "Douyin"]);
 const SERIES = new Set([
@@ -104,7 +110,7 @@ export function createPlanHandoffHandler({
         };
       }
 
-      const registeredDraft = applyMediaResult(draft, mediaResult);
+      const registeredDraft = finalizeDraft(applyMediaResult(draft, mediaResult));
       const result = await registerPlanDraft(registeredDraft, {
         fetchImpl,
         env,
@@ -115,6 +121,7 @@ export function createPlanHandoffHandler({
         ok: true,
         id: result.id,
         mediaUploadStatus: registeredDraft.mediaUploadStatus,
+        nextAction: registeredDraft.nextAction,
         ...(registeredDraft.mediaUrl ? { mediaUrl: registeredDraft.mediaUrl } : {}),
         ...(registeredDraft.mediaError ? { mediaError: registeredDraft.mediaError } : {}),
       });
@@ -329,6 +336,27 @@ function applyMediaResult(draft, mediaResult) {
     mediaError,
     requirements: `Needs media: share-card upload failed — ${mediaError}`,
   };
+}
+
+function finalizeDraft(draft) {
+  return {
+    ...draft,
+    nextAction: deriveNextAction(draft),
+  };
+}
+
+export function deriveNextAction({
+  mediaUrl,
+  mediaUploadStatus,
+  caption,
+  packetReady = false,
+  nextAction,
+}) {
+  const existing = typeof nextAction === "string" ? nextAction.trim() : "";
+  if (existing && !MANAGED_NEXT_ACTIONS.has(existing)) return existing;
+  if (mediaUploadStatus !== "attached" || !mediaUrl) return "Attach media";
+  if (typeof caption !== "string" || !caption.trim()) return "Write caption";
+  return packetReady ? "Paste to XHS admin" : "Review packet";
 }
 
 async function timedJsonFetch(fetchImpl, url, init, timeoutMs, label) {

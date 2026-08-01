@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { dbGetAllPlanItems, dbRemoveFromPlan, type PlanRecord } from '../../utils/planDB';
+import { getSeriesLabel } from '../../utils/series';
 
 export const Plan: React.FC = () => {
   const [items, setItems] = useState<PlanRecord[]>([]);
@@ -38,38 +39,42 @@ export const Plan: React.FC = () => {
         className="grid"
         style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '12px' }}
       >
-        {items.map((item, idx) => (
-          <div
-            key={item.imageUrl}
-            className="relative rounded-lg overflow-hidden shadow-md bg-white dark:bg-gray-800"
-          >
-            <img
-              src={item.thumbnailUrl}
-              alt={`${item.actor} · ${item.vibe}`}
-              className="w-full aspect-square object-cover"
-            />
+        {items.map((item, idx) => {
+          const seriesLabel = getSeriesLabel(item.series);
+          return (
             <div
-              className="absolute top-1 left-1 text-white text-xs px-1.5 py-0.5 rounded"
-              style={{ background: 'rgba(0,0,0,0.55)', fontVariantNumeric: 'tabular-nums' }}
+              key={item.imageUrl}
+              className="relative rounded-lg overflow-hidden shadow-md bg-white dark:bg-gray-800"
             >
-              {idx + 1}
+              <img
+                src={item.thumbnailUrl}
+                alt={[item.actor, item.vibe, seriesLabel].filter(Boolean).join(' · ')}
+                className="w-full aspect-square object-cover"
+              />
+              <div
+                className="absolute top-1 left-1 text-white text-xs px-1.5 py-0.5 rounded"
+                style={{ background: 'rgba(0,0,0,0.55)', fontVariantNumeric: 'tabular-nums' }}
+              >
+                {idx + 1}
+              </div>
+              <div className="p-2 text-xs">
+                <div className="font-semibold truncate">{item.vibeEmoji} {item.actor}</div>
+                <div className="text-gray-500 truncate">{item.vibe}</div>
+                {seriesLabel && <div className="text-gray-500 truncate">{seriesLabel}</div>}
+                <div className="text-gray-400">{item.capturedDate}</div>
+              </div>
+              <button
+                onClick={() => handleRemove(item.imageUrl)}
+                title="Remove from plan"
+                aria-label="Remove from plan"
+                className="absolute top-1 right-1 text-gold text-lg leading-none"
+                style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
             </div>
-            <div className="p-2 text-xs">
-              <div className="font-semibold truncate">{item.vibeEmoji} {item.actor}</div>
-              <div className="text-gray-500 truncate">{item.vibe}</div>
-              <div className="text-gray-400">{item.capturedDate}</div>
-            </div>
-            <button
-              onClick={() => handleRemove(item.imageUrl)}
-              title="Remove from plan"
-              aria-label="Remove from plan"
-              className="absolute top-1 right-1 text-gold text-lg leading-none"
-              style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-            >
-              ✕
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

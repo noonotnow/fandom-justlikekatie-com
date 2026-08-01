@@ -115,6 +115,7 @@ test('posts the generated PNG and exact draft to the same-origin handoff', async
       ok: true,
       id: 'draft-id',
       mediaUploadStatus: 'attached',
+      nextAction: 'Review packet',
       mediaUrl: 'https://cdn.example/card.png',
     }), { status: 201 });
   };
@@ -126,6 +127,7 @@ test('posts the generated PNG and exact draft to the same-origin handoff', async
     fetchImpl,
   );
   assert.equal(result.mediaUrl, 'https://cdn.example/card.png');
+  assert.equal(result.nextAction, 'Review packet');
 });
 
 test('renders and uploads the exact selected non-first individual card', async () => {
@@ -230,6 +232,7 @@ test('surfaces handoff failures and never accepts blob media URLs', async () => 
       ok: true,
       id: 'draft',
       mediaUploadStatus: 'attached',
+      nextAction: 'Review packet',
       mediaUrl: 'blob:https://fandom.example/temporary',
     }), { status: 201 })
   );
@@ -257,6 +260,7 @@ test('returns media-blocked handoff results without treating them as failures', 
         ok: true,
         id: 'notion-page-id',
         mediaUploadStatus: 'upload_failed',
+        nextAction: 'Attach media',
         mediaError: 'R2 unavailable',
       }), { status: 201 }),
     ),
@@ -264,6 +268,7 @@ test('returns media-blocked handoff results without treating them as failures', 
       ok: true,
       id: 'notion-page-id',
       mediaUploadStatus: 'upload_failed',
+      nextAction: 'Attach media',
       mediaError: 'R2 unavailable',
     },
   );
