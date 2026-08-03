@@ -236,7 +236,7 @@ test("keeps the PLAN timeout active while reading the response body", async () =
 });
 
 test("keeps privileged handoff credentials out of browser source", () => {
-  const browserSource = sourceFiles(join(REPO_ROOT, "phase0", "src"))
+  const browserSource = sourceFiles(join(REPO_ROOT, "src"))
     .map((path) => readFileSync(path, "utf8"))
     .join("\n");
 
