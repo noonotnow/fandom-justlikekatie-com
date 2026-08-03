@@ -9,9 +9,12 @@ import { ExportButton } from './components/ExportButton/ExportButton';
 import { SendToPlanButton } from './components/SendToPlanButton/SendToPlanButton';
 import { Collection } from './components/Collection/Collection';
 import { Plan } from './components/Plan/Plan';
+import { WholeCardTierControls, WholeCardTierBadge } from './components/WholeCardTierControls/WholeCardTierControls';
 import { migrateBookmarks } from './utils/migrateBookmarks';
+import { applyWholeCardTierOverride, boardIdentity } from './utils/wholeCardTier';
 import { useDarkMode } from './hooks/useDarkMode';
 import { useStarOfDay } from './hooks/useStarOfDay';
+import { useWholeCardTier } from './hooks/useWholeCardTier';
 import './App.css';
 
 /** Number of columns in the grid — used to calculate preview row insertion */
@@ -26,6 +29,13 @@ function App() {
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const { items: gridImages, meta, rawData, loading, error } = useStarOfDay();
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
+
+  // Whole-board (share-card) manual tier override — distinct from per-image
+  // `imageTiers` above. Resets automatically whenever a new board (new
+  // date/actor) is generated; see useWholeCardTier for reset semantics.
+  const boardKey = rawData ? boardIdentity(rawData) : null;
+  const { tier: wholeCardTier, setTier: setWholeCardTier } = useWholeCardTier(boardKey);
+  const exportData = rawData ? applyWholeCardTierOverride(rawData, wholeCardTier) : null;
 
   useEffect(() => { migrateBookmarks(); }, []);
 
@@ -147,11 +157,13 @@ function App() {
                 ⏳ Showing yesterday's picks while today's grid builds
               </div>
             )}
-            {rawData && (
+            {rawData && exportData && (
             <div className="daily-actions">
+              <WholeCardTierControls tier={wholeCardTier} onTierChange={setWholeCardTier} />
+              <WholeCardTierBadge tier={wholeCardTier} />
               <div className="daily-actions__primary">
-                <ExportButton rawData={rawData} />
-                <SendToPlanButton rawData={rawData} asset="grid" />
+                <ExportButton rawData={exportData} />
+                <SendToPlanButton rawData={exportData} asset="grid" />
               </div>
             </div>
             )}

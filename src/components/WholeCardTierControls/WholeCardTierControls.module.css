@@ -1,0 +1,148 @@
+.tierControls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #a3a3ad;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.labelEn {
+  font-weight: 400;
+  color: #71717a;
+}
+
+:global(:not(.dark)) .label {
+  color: #575757;
+}
+
+:global(:not(.dark)) .labelEn {
+  color: #8a8a8a;
+}
+
+.buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.tierButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 10px;
+  border: 1px solid #52525b;
+  border-radius: 999px;
+  background: rgb(24 24 27 / 85%);
+  color: #d4d4d8;
+  cursor: pointer;
+  opacity: 0.72;
+  font-size: 13px;
+  transition: opacity 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+}
+
+.tierButton span {
+  font-size: 11px;
+}
+
+.tierButton:hover {
+  opacity: 0.9;
+}
+
+.tierButton:focus-visible {
+  outline: 2px solid #c9a96e;
+  outline-offset: 2px;
+}
+
+.tierButton.tierActive {
+  opacity: 1;
+}
+
+.misprint.tierActive {
+  color: #ddd6fe;
+  border-color: #8b5cf6;
+  box-shadow: 0 0 18px rgb(139 92 246 / 28%);
+}
+
+.legendary.tierActive {
+  color: #fde68a;
+  border-color: #f59e0b;
+  box-shadow: 0 0 18px rgb(245 158 11 / 28%);
+}
+
+:global(:not(.dark)) .tierButton {
+  background: rgb(255 255 255 / 85%);
+  border-color: #d4d4d8;
+  color: #3f3f46;
+}
+
+/* Live preview chip: sits in normal flow above the grid (not absolutely
+   overlaid on it), so it can never collide with any image's own top-right
+   Save button. Confirms which whole-board tier will be composited into the
+   exported card's corner badge. */
+.previewBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 4px 12px 4px 4px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  animation: badgeIn 200ms ease;
+}
+
+.previewBadge img {
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+
+.previewBadge.misprint {
+  background: rgb(139 92 246 / 16%);
+  color: #5b21b6;
+  box-shadow: 0 0 0 1px rgb(139 92 246 / 50%) inset;
+}
+
+.previewBadge.legendary {
+  background: rgb(245 158 11 / 16%);
+  color: #92660f;
+  box-shadow: 0 0 0 1px rgb(245 158 11 / 55%) inset;
+}
+
+:global(.dark) .previewBadge.misprint {
+  color: #ddd6fe;
+}
+
+:global(.dark) .previewBadge.legendary {
+  color: #fde68a;
+}
+
+@keyframes badgeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .previewBadge {
+    animation: none;
+  }
+
+  .tierButton {
+    transition: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .tierControls {
+    flex-direction: column;
+    gap: 6px;
+  }
+}
