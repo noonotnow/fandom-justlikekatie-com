@@ -389,7 +389,7 @@ interface ExportPayload {
   badgeTier: string;
 }
 
-function buildExportPayload(data: StarOfDayData): ExportPayload {
+export function buildExportPayload(data: StarOfDayData): ExportPayload {
   const chosen = data.displayResults?.length
     ? { ...data.rankedBatches[0], results: data.displayResults }
     : data.rankedBatches[0];

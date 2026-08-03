@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { RankedBatch, StarOfDayData } from '../src/hooks/useStarOfDay.ts';
-import { classifyEditionTier } from '../src/utils/exportCanvas.ts';
+import { buildExportPayload, classifyEditionTier } from '../src/utils/exportCanvas.ts';
 import { renderGridCardPng } from '../src/utils/planHandoff.ts';
 import {
   applyWholeCardTierOverride,
@@ -148,4 +148,39 @@ test('the whole-board override flows through the exact Send-to-PLAN grid-card re
 
   assert.equal(receivedData, overridden);
   assert.equal(classifyEditionTier(receivedData!.rankedBatches[0]), 'legendary');
+});
+
+// saveShareCard (the "Save full share card" action wired to ExportButton /
+// useExportCard) itself draws to an actual <canvas> and loads fonts/images
+// over the network, so it isn't unit-testable end-to-end in this plain-Node
+// test runner (no jsdom/canvas here) — same constraint that made the
+// Send-to-PLAN test above inject a fake renderer rather than calling the
+// real one. buildExportPayload is the pure, DOM-free seam saveShareCard and
+// renderExportCanvas both call *before* touching the canvas: it is where
+// `payload.chosen` and `payload.badgeTier` — the values that drive both the
+// composited corner badge and the toast/filename edition tag — are derived
+// from `classifyEditionTier`. Proving the override survives into this
+// payload proves it reaches saveShareCard's real tier-resolution path.
+test('the whole-board override flows into the exact Save-full-share-card payload (buildExportPayload)', () => {
+  const misprintOverride = applyWholeCardTierOverride(baseData, 'misprint');
+  const misprintPayload = buildExportPayload(misprintOverride);
+  assert.equal(classifyEditionTier(misprintPayload.chosen), 'misprint');
+  assert.equal(misprintPayload.badgeTier, 'misprint');
+
+  const legendaryOverride = applyWholeCardTierOverride(baseData, 'legendary');
+  const legendaryPayload = buildExportPayload(legendaryOverride);
+  assert.equal(classifyEditionTier(legendaryPayload.chosen), 'legendary');
+  assert.equal(legendaryPayload.badgeTier, 'legendary');
+
+  // Clearing the override (tier: null) must not force 'standard' — automatic
+  // classification should still drive the share-card badge.
+  const dataWithAutoLegendaryChosen: StarOfDayData = {
+    ...baseData,
+    rankedBatches: [autoLegendaryBatch, standardBatch],
+  };
+  const clearedPayload = buildExportPayload(
+    applyWholeCardTierOverride(dataWithAutoLegendaryChosen, null),
+  );
+  assert.equal(classifyEditionTier(clearedPayload.chosen), 'legendary');
+  assert.equal(clearedPayload.badgeTier, 'legendary');
 });
