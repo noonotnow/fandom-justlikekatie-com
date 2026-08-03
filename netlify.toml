@@ -3,8 +3,8 @@
   external_node_modules = ["sharp"]
 
 [build]
-  command = "cd phase0 && npm install && npm run build"
-  publish = "phase0/dist"
+  command = "npm install && npm run build"
+  publish = "dist"
 
 [[redirects]]
   from = "/api/plan-handoff"
