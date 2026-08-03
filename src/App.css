@@ -31,11 +31,22 @@ h1 {
 .daily-actions__primary {
   display: flex;
   justify-content: center;
+}
+
+.daily-actions__primary {
   gap: 8px;
 }
 
 .daily-actions {
-  margin-top: 1rem;
+  /* More breathing room than the default 8px rhythm: this stack groups
+     three visually distinct things (whole-board edition controls, its
+     preview badge, and the Save/Send actions) that each need clear
+     separation, not the tight spacing appropriate for two buttons in
+     the same row. Values match the app's existing 1rem/1.5rem scale
+     (see nav's gap-6 and the button's 1.5rem padding) rather than
+     introducing new arbitrary spacing. */
+  margin-top: 1.5rem;
+  gap: 1rem;
   flex-direction: column;
   align-items: center;
 }
