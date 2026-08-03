@@ -4,6 +4,7 @@ import type { CardMetadata } from './cardRenderer';
 
 export const DEFAULT_PLAN_HANDOFF_URL = '/api/plan-handoff';
 export const VIBE_ATLAS_CAMPAIGN = 'Vibe Atlas Rednote Launch';
+export const VIBE_ATLAS_POST_TYPE = 'Static';
 
 export interface PlanFormValues {
   headline: string;
@@ -24,6 +25,7 @@ export interface PlanDraftPayload {
   ctaSeed?: string;
   platform: string;
   series: string;
+  type: typeof VIBE_ATLAS_POST_TYPE;
   scheduledDate?: string;
   status: 'Draft';
   origin: 'Automated';
@@ -139,6 +141,7 @@ export function buildPlanDraftPayload({
     ...(ctaSeed ? { ctaSeed } : {}),
     platform: form.platform,
     series: form.series,
+    type: VIBE_ATLAS_POST_TYPE,
     ...(form.scheduledDate ? { scheduledDate: form.scheduledDate } : {}),
     status: 'Draft',
     origin: 'Automated',

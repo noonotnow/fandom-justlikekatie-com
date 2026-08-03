@@ -54,6 +54,8 @@ test('builds an enriched media-ready PLAN payload with established defaults', ()
   assert.equal(payload.origin, 'Automated');
   assert.equal(payload.platform, 'Rednote');
   assert.equal(payload.series, 'A·Vibe');
+  assert.equal(payload.type, 'Static');
+  assert.notEqual(payload.type, 'Video');
   assert.equal(payload.campaign, 'Vibe Atlas Rednote Launch');
   assert.equal(payload.event, 'Vibe Atlas Rednote Launch');
   assert.equal(payload.mediaUrl, 'https://cdn.justlikekatie.com/uploads/card.png');

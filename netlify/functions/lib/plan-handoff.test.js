@@ -49,6 +49,8 @@ test("uploads media and registers the enriched draft with separate credentials",
   const registered = JSON.parse(calls[1].init.body);
   assert.equal(registered.mediaUrl, "https://cdn.example/card.png");
   assert.equal(registered.mediaUploadStatus, "attached");
+  assert.equal(registered.type, "Static");
+  assert.notEqual(registered.type, "Video");
   assert.equal(registered.nextAction, "Review packet");
   assert.match(registered.requirements, /Media attached/);
 });
@@ -204,6 +206,48 @@ test("validates same-origin requests and draft fields before calling upstreams",
   assert.equal(calls, 0);
 });
 
+test("rejects non-static Vibe handoffs before calling upstreams", async () => {
+  let calls = 0;
+  const handler = createPlanHandoffHandler({
+    env,
+    fetchImpl: async () => {
+      calls += 1;
+      throw new Error("must not be called");
+    },
+  });
+  const draft = validDraft();
+  draft.type = "Video";
+
+  const response = await handler(handoffRequest(draft));
+
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /type must be Static/);
+  assert.equal(calls, 0);
+});
+
+test("surfaces Posts Type schema diagnostics from PLAN registration", async () => {
+  const handler = createPlanHandoffHandler({
+    env,
+    fetchImpl: async (url) => {
+      if (url === MEDIA_URL) {
+        return Response.json({ url: "https://cdn.example/card.png" }, { status: 201 });
+      }
+      return Response.json(
+        { error: "Posts DB is missing Type with type select or multi_select" },
+        { status: 503 },
+      );
+    },
+  });
+
+  const response = await handler(handoffRequest(validDraft()));
+
+  assert.equal(response.status, 502);
+  assert.equal(
+    (await response.json()).error,
+    "Posts DB is missing Type with type select or multi_select",
+  );
+});
+
 test("keeps the PLAN timeout active while reading the response body", async () => {
   let registered;
   const handler = createPlanHandoffHandler({
@@ -265,6 +309,7 @@ function validDraft() {
     captionSeed: "漂亮得不太稳定",
     platform: "Rednote",
     series: "A·Vibe",
+    type: "Static",
     status: "Draft",
     origin: "Automated",
     campaign: "Vibe Atlas Rednote Launch",
