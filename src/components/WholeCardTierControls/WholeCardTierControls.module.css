@@ -1,9 +1,8 @@
 .tierControls {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: center;
+  gap: 6px;
 }
 
 .label {
@@ -12,6 +11,7 @@
   color: #a3a3ad;
   letter-spacing: 0.02em;
   white-space: nowrap;
+  text-align: center;
 }
 
 .labelEn {
@@ -30,6 +30,8 @@
 .buttons {
   display: flex;
   gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
 }
 
 .tierButton {
@@ -140,9 +142,13 @@
   }
 }
 
-@media (max-width: 520px) {
-  .tierControls {
+@media (max-width: 340px) {
+  .buttons {
     flex-direction: column;
-    gap: 6px;
+    align-items: stretch;
+  }
+
+  .tierButton {
+    justify-content: center;
   }
 }
