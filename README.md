@@ -71,6 +71,26 @@ the last Notion edit timestamp and reject stale updates with a conflict
 rather than overwriting a concurrent edit. Only `ScheduledDate` and the
 selected canonical status are included in Notion update payloads.
 
+## Fandom Admin and Idea Packets
+
+The existing admin entry point (`?admin=true`, persisted for the browser session)
+is labeled **Fandom Admin**. Its default workspace is the media-first Idea Packet
+workflow; the existing PLAN schedule remains available as a secondary admin tab.
+Deep links and the existing admin query parameter remain compatible.
+
+Idea Packets are stored durably in the `idea-packets` Netlify Blobs store through
+same-origin `/api/idea-packets` requests. Reads and mutations require the existing
+`PLAN_OPERATOR_TOKEN`; no additional client-side secret or database migration is
+needed. Packets retain their grid anchor, source route and result identifiers,
+actor/vibe metadata, ordered media, working context, and reversible
+`collecting`/`media_compiled` state.
+
+The first release intentionally downloads a versioned
+`fandom.idea-packet.handoff.v1` JSON artifact after media compilation. CREATE/PLAN
+does not yet expose a packet-level destination, so this workflow does **not**
+create a Posts DB row or claim an external handoff occurred. A later importer can
+consume the artifact without changing the packet model.
+
 ## Other functions
 
 `netlify/functions/` also includes image-search/ranking helpers

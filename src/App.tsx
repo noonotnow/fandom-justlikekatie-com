@@ -8,13 +8,22 @@ import { ThemeToggle } from './components/ThemeToggle/ThemeToggle';
 import { ExportButton } from './components/ExportButton/ExportButton';
 import { SendToPlanButton } from './components/SendToPlanButton/SendToPlanButton';
 import { Collection } from './components/Collection/Collection';
-import { Plan } from './components/Plan/Plan';
+import { FandomAdmin } from './components/FandomAdmin/FandomAdmin';
 import { WholeCardTierControls, WholeCardTierBadge } from './components/WholeCardTierControls/WholeCardTierControls';
 import { migrateBookmarks } from './utils/migrateBookmarks';
 import { applyWholeCardTierOverride, boardIdentity } from './utils/wholeCardTier';
 import { useDarkMode } from './hooks/useDarkMode';
 import { useStarOfDay } from './hooks/useStarOfDay';
 import { useWholeCardTier } from './hooks/useWholeCardTier';
+import {
+  createIdeaPacket,
+  fetchIdeaPackets,
+  mediaFromResult,
+  mutateIdeaPacket,
+  packetFromGrid,
+  type IdeaPacket,
+  IdeaPacketError,
+} from './utils/ideaPackets';
 import './App.css';
 
 /** Number of columns in the grid — used to calculate preview row insertion */
@@ -29,6 +38,10 @@ function App() {
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const { items: gridImages, meta, rawData, loading, error } = useStarOfDay();
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
+  const [packets, setPackets] = useState<IdeaPacket[]>([]);
+  const [packetsLoading, setPacketsLoading] = useState(false);
+  const [packetsError, setPacketsError] = useState('');
+  const [packetsUnauthorized, setPacketsUnauthorized] = useState(false);
 
   // Whole-board (share-card) manual tier override — distinct from per-image
   // `imageTiers` above. Resets automatically whenever a new board (new
@@ -38,6 +51,28 @@ function App() {
   const exportData = rawData ? applyWholeCardTierOverride(rawData, wholeCardTier) : null;
 
   useEffect(() => { migrateBookmarks(); }, []);
+
+  const loadPackets = async () => {
+    setPacketsLoading(true);
+    setPacketsError('');
+    try {
+      setPackets(await fetchIdeaPackets());
+      setPacketsUnauthorized(false);
+    } catch (caught) {
+      setPacketsUnauthorized(caught instanceof IdeaPacketError && caught.status === 401);
+      setPacketsError(caught instanceof Error ? caught.message : 'Idea Packets could not be loaded.');
+    } finally {
+      setPacketsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAdmin) void loadPackets();
+  }, [isAdmin]);
+
+  const replacePacket = (packet: IdeaPacket) => {
+    setPackets(current => [packet, ...current.filter(candidate => candidate.id !== packet.id)]);
+  };
 
   const handleItemClick = (itemId: string) => {
     setExpandedId((prev) => (prev === itemId ? null : itemId));
@@ -130,7 +165,7 @@ function App() {
                 : 'text-gray-500'
             }`}
           >
-            我的计划 · Plan
+            Fandom Admin
           </button>
         )}
       </nav>
@@ -164,6 +199,31 @@ function App() {
               <div className="daily-actions__primary">
                 <ExportButton rawData={exportData} />
                 <SendToPlanButton rawData={exportData} asset="grid" />
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (packetsUnauthorized) {
+                        setView('plan');
+                        return;
+                      }
+                      try {
+                        const packet = await createIdeaPacket(packetFromGrid(rawData, gridImages));
+                        replacePacket(packet);
+                        setView('plan');
+                      } catch (caught) {
+                        if (caught instanceof IdeaPacketError && caught.status === 401) {
+                          setPacketsUnauthorized(true);
+                          setView('plan');
+                        } else {
+                          setPacketsError(caught instanceof Error ? caught.message : 'Idea Packet could not be started.');
+                        }
+                      }
+                    }}
+                  >
+                    Start Idea Packet
+                  </button>
+                )}
               </div>
             </div>
             )}
@@ -199,13 +259,24 @@ function App() {
             vibeLabelEn: meta.vibeLabelEn,
             date: meta.date,
           } : undefined}
+          packets={packets}
+          onAddToPacket={async (packet, image) => {
+            replacePacket(await mutateIdeaPacket(packet, { type: 'add_media', media: mediaFromResult(image) }));
+          }}
         />
       )}
         </>
             ) : view === 'collection' ? (
         <Collection />
       ) : (
-        <Plan />
+        <FandomAdmin
+          packets={packets}
+          loading={packetsLoading}
+          error={packetsError}
+          unauthorized={packetsUnauthorized}
+          onRefresh={loadPackets}
+          onPacketChange={replacePacket}
+        />
       )}
     </div>
   );

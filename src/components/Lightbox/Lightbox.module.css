@@ -154,6 +154,44 @@
   max-width: 80vw;
 }
 
+.packetAction {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  gap: 8px;
+  width: min(620px, calc(100vw - 40px));
+  margin: 10px auto 0;
+}
+
+.packetAction label {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+}
+
+.packetAction label span,
+.packetAction p {
+  color: #a3a3ad;
+  font-size: 11px;
+  margin: 0;
+}
+
+.packetAction select {
+  min-height: 42px;
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 8px;
+  background: #18181d;
+  color: #fff;
+  padding: 7px 9px;
+}
+
+.packetAction p {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 560px) {
+  .packetAction { grid-template-columns: 1fr; }
+}
+
 .thumb {
   flex-shrink: 0;
   width: 48px;
