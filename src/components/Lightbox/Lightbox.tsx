@@ -4,6 +4,7 @@ import type { StarOfDayData } from '../../hooks/useStarOfDay';
 import { ExportCardButton, type ExportCardMetadata } from '../ExportCardButton/ExportCardButton';
 import { dbSaveCard, dbRemoveCard, dbIsCardSaved } from '../../utils/collectionDB';
 import { storage } from '../../utils/storage';
+import type { IdeaPacket } from '../../utils/ideaPackets';
 import styles from './Lightbox.module.css';
 
 const SWIPE_THRESHOLD = 50;
@@ -19,6 +20,8 @@ interface LightboxProps {
   planData?: StarOfDayData;
   tier: ImageTier;
   onTierChange: (tier: ImageTier) => void;
+  packets?: IdeaPacket[];
+  onAddToPacket?: (packet: IdeaPacket, image: GridItemData) => Promise<void>;
 }
 
 export const Lightbox: React.FC<LightboxProps> = ({
@@ -30,6 +33,8 @@ export const Lightbox: React.FC<LightboxProps> = ({
   planData,
   tier,
   onTierChange,
+  packets = [],
+  onAddToPacket,
 }) => {
   const total = images.length;
   const current = images[currentIndex];
@@ -147,6 +152,8 @@ export const Lightbox: React.FC<LightboxProps> = ({
 
   const [isSaved, setIsSaved] = useState(false);
   const [isLegacySaved, setIsLegacySaved] = useState(false);
+  const [packetId, setPacketId] = useState('');
+  const [packetNotice, setPacketNotice] = useState('');
 
       useEffect(() => {
     if (!current) return;
@@ -312,6 +319,37 @@ export const Lightbox: React.FC<LightboxProps> = ({
                   </span>
                 )}
               </div>
+              {onAddToPacket && packets.length > 0 && (
+                <div className={styles.packetAction}>
+                  <label>
+                    <span>Idea Packet</span>
+                    <select value={packetId} onChange={event => setPacketId(event.target.value)}>
+                      <option value="">Select a collecting packet…</option>
+                      {packets.filter(packet => packet.state === 'collecting').map(packet => (
+                        <option key={packet.id} value={packet.id}>{packet.actor.name} · {packet.vibe.labelEn}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    disabled={!packetId}
+                    onClick={async () => {
+                      const packet = packets.find(candidate => candidate.id === packetId);
+                      if (!packet) return;
+                      setPacketNotice('');
+                      try {
+                        await onAddToPacket(packet, current);
+                        setPacketNotice('Added to Idea Packet.');
+                      } catch (caught) {
+                        setPacketNotice(caught instanceof Error ? caught.message : 'Could not add this media.');
+                      }
+                    }}
+                  >
+                    Add to Idea Packet
+                  </button>
+                  {packetNotice && <p role="status">{packetNotice}</p>}
+                </div>
+              )}
             </div>
           </>
         )}
