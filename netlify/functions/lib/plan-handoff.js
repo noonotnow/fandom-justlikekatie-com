@@ -32,6 +32,7 @@ const TOP_LEVEL_FIELDS = new Set([
   "ctaSeed",
   "platform",
   "series",
+  "type",
   "scheduledDate",
   "status",
   "origin",
@@ -214,6 +215,7 @@ function parseAndValidateDraft(value) {
   optionalString(draft, "ctaSeed", 2_000);
   requireEnum(draft, "platform", PLATFORMS);
   requireEnum(draft, "series", SERIES);
+  requireExact(draft, "type", "Static");
   optionalDate(draft, "scheduledDate");
   requireExact(draft, "status", "Draft");
   requireExact(draft, "origin", "Automated");

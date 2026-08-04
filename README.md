@@ -54,6 +54,8 @@ No `VITE_`-prefixed client-side secret is used anywhere in this flow.
 The handoff function derives `nextAction` only after the media upload
 outcome is known. Missing media takes precedence over required copy,
 followed by packet review and the current manual XHS-admin paste step.
+Every Vibe Atlas handoff explicitly sends the canonical Posts DB
+`Type` value `Static`; these generated share cards never register as video.
 Series labels are display only; the existing series values sent to PLAN
 remain unchanged.
 
