@@ -11,6 +11,7 @@ import { Collection } from './components/Collection/Collection';
 import { FandomAdmin } from './components/FandomAdmin/FandomAdmin';
 import { WholeCardTierControls, WholeCardTierBadge } from './components/WholeCardTierControls/WholeCardTierControls';
 import { migrateBookmarks } from './utils/migrateBookmarks';
+import { migrateLegacyGridHistory } from './utils/collectionHistory';
 import { applyWholeCardTierOverride, boardIdentity } from './utils/wholeCardTier';
 import { useDarkMode } from './hooks/useDarkMode';
 import { useStarOfDay } from './hooks/useStarOfDay';
@@ -23,7 +24,10 @@ import {
   packetFromGrid,
   type IdeaPacket,
   IdeaPacketError,
+  mediaFromCollectionCard,
+  packetFromCollectionGrid,
 } from './utils/ideaPackets';
+import type { CardRecord, GridRecord } from './utils/collectionDB';
 import './App.css';
 
 /** Number of columns in the grid — used to calculate preview row insertion */
@@ -50,7 +54,9 @@ function App() {
   const { tier: wholeCardTier, setTier: setWholeCardTier } = useWholeCardTier(boardKey);
   const exportData = rawData ? applyWholeCardTierOverride(rawData, wholeCardTier) : null;
 
-  useEffect(() => { migrateBookmarks(); }, []);
+  useEffect(() => {
+    void Promise.all([migrateBookmarks(), migrateLegacyGridHistory()]);
+  }, []);
 
   const loadPackets = async () => {
     setPacketsLoading(true);
@@ -276,6 +282,16 @@ function App() {
           unauthorized={packetsUnauthorized}
           onRefresh={loadPackets}
           onPacketChange={replacePacket}
+          onCreateFromGrid={async (grid: GridRecord) => {
+            const packet = await createIdeaPacket(packetFromCollectionGrid(grid));
+            replacePacket(packet);
+            return packet;
+          }}
+          onAddSavedCard={async (packet: IdeaPacket, card: CardRecord) => {
+            const updated = await mutateIdeaPacket(packet, { type: 'add_media', media: mediaFromCollectionCard(card) });
+            replacePacket(updated);
+            return updated;
+          }}
         />
       )}
     </div>

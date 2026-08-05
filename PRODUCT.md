@@ -38,7 +38,7 @@ Preserve the incumbent Vibe Atlas identity and its bilingual, gold-accented visu
 
 ## Evidence on Hand
 
-The app contains generated daily-grid data, source result identifiers and URLs, actor and vibe metadata, an existing admin token flow, Netlify Blobs storage, and CREATE/PLAN links and handoff code.
+The app contains generated daily-grid data, source result identifiers and URLs, actor and vibe metadata, an existing IndexedDB saved-card collection and legacy PLAN grid records, an admin token flow, Netlify Blobs storage, and CREATE/PLAN links and handoff code.
 
 ## Product Principles
 

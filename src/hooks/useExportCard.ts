@@ -1,6 +1,8 @@
 import { useState, useCallback } from 'react';
 import type { StarOfDayData } from './useStarOfDay';
 import { saveShareCard, type ExportVariant } from '../utils/exportCanvas';
+import { dbSaveGrid } from '../utils/collectionDB';
+import { collectionGridFromStar } from '../utils/collectionHistory';
 
 export interface UseExportCardReturn {
   exportCard: (data: StarOfDayData, variant?: ExportVariant) => Promise<void>;
@@ -25,6 +27,7 @@ export function useExportCard(): UseExportCardReturn {
 
     try {
       const msg = await saveShareCard(data, variant);
+      await dbSaveGrid(collectionGridFromStar(data));
       setToastMessage(msg);
     } catch (err) {
       const msg = err instanceof Error ? err.message : '分享卡生成失败，再试一次？';

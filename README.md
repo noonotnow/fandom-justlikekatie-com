@@ -93,6 +93,27 @@ does not yet expose a packet-level destination, so this workflow does **not**
 create a Posts DB row or claim an external handoff occurred. A later importer can
 consume the artifact without changing the packet model.
 
+### Saved collection and history adapter
+
+The existing `vibe-atlas-collection` IndexedDB database remains the canonical
+browser collection. Schema version 2 preserves the existing `cards` store and
+adds a `grids` store. Exporting a full Vibe Atlas grid now snapshots its stable
+grid identity, actor/vibe/date provenance, source result IDs and links, and the
+ordered 3×3 media set before the browser share/download completes. Lightbox
+bookmarks continue to write to `cards`, now retaining the original result ID and
+source URL when available.
+
+Fandom Admin’s **Saved collection** view reads both stores. Exported grids can
+anchor a new packet and saved individual results can be added to any collecting
+packet. Packet creation copies the identifying metadata and media references, so
+later collection edits do not erase packet context.
+
+On startup, an idempotent adapter scans the existing `vibe-atlas-plan` store for
+legacy whole-grid records (`gridContext.position === -1`) and exposes them in
+the new grid history without deleting or rewriting the old records. No manual
+migration is required. Historical PNG downloads that never produced any
+browser record cannot be reconstructed; all newly exported grids are recorded.
+
 ## Other functions
 
 `netlify/functions/` also includes image-search/ranking helpers
