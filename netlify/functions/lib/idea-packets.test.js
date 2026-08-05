@@ -16,7 +16,25 @@ function packet(overrides = {}) {
     vibe: { label: "氛围", labelEn: "Vibe", emoji: "✨" },
     provenance: { sourceRoute: "/?admin=true", gridId: "grid-1", generatedAt: "2026-08-04T15:00:00Z", resultIds: [], batchKeys: [] },
     anchor: { imageUrls: ["https://example.com/anchor.jpg"], label: "Star · Vibe" },
+    sourceCards: [{
+      id: "card-1",
+      order: 0,
+      imageUrl: "https://example.com/anchor.jpg",
+      sourceUrl: "https://example.com/source/card-1",
+      title: "Anchor",
+      capturedAt: "2026-08-04T15:00:00Z",
+      resultId: "result-anchor",
+      provenance: "{}",
+    }],
     media: [],
+    outputs: [{
+      id: "grid-output",
+      kind: "grid",
+      sourceId: "grid-1",
+      label: "Rendered grid PNG",
+      included: true,
+      addedAt: "2026-08-04T16:00:00.000Z",
+    }],
     notes: "",
     workingAngle: "",
     captionSeeds: "",
@@ -60,7 +78,13 @@ function request(method, body, token = TOKEN) {
 
 test("validates required provenance and compilation invariants", () => {
   assert.throws(() => validatePacket(packet({ provenance: {} })), /provenance/);
-  assert.throws(() => validatePacket(packet({ state: "media_compiled" })), /at least one media/);
+  assert.throws(
+    () => validatePacket(packet({
+      state: "media_compiled",
+      outputs: [{ ...packet().outputs[0], included: false }],
+    })),
+    /at least one output/,
+  );
   assert.equal(validatePacket(packet()).id, "packet-1");
 });
 
@@ -110,6 +134,24 @@ test("persists, lists, reorders, removes, and rejects stale writes", async () =>
 
   const listed = await handler(request("GET"));
   assert.equal((await listed.json()).packets.length, 1);
+});
+
+test("upgrades legacy curated media into matching source-card provenance", async () => {
+  const store = memoryStore();
+  const legacy = packet({ media: [media("legacy-result")] });
+  delete legacy.sourceCards;
+  delete legacy.outputs;
+  await store.setJSON(legacy.id, legacy);
+  const handler = createIdeaPacketsHandler({
+    env: { PLAN_OPERATOR_TOKEN: TOKEN },
+    getStore: () => store,
+  });
+  const response = await handler(request("GET"));
+  const upgraded = (await response.json()).packets[0];
+  const output = upgraded.outputs.find(candidate => candidate.kind === "individual");
+  const sourceCard = upgraded.sourceCards.find(card => card.id === output.sourceId);
+  assert.equal(sourceCard.sourceUrl, "https://example.com/source/legacy-result");
+  assert.equal(sourceCard.resultId, "legacy-result");
 });
 
 test("requires same-origin operator authorization", async () => {

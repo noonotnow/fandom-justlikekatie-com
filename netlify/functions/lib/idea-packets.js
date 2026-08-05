@@ -23,7 +23,7 @@ export function createIdeaPacketsHandler({ env = process.env, getStore }) {
       if (req.method === "POST") {
         const body = await readBody(req);
         const packet = validatePacket(body.packet);
-        return await withPacketLock(packet.id, async () => {
+        return await withIdeaPacketLock(packet.id, async () => {
           if (await store.get(packet.id, { type: "json" })) throw new RequestError("Idea Packet already exists.", 409);
           await store.setJSON(packet.id, packet);
           return jsonResponse(201, { packet });
@@ -32,8 +32,8 @@ export function createIdeaPacketsHandler({ env = process.env, getStore }) {
       if (req.method === "PATCH") {
         const body = await readBody(req);
         const id = requireString(body.id, "A packet id is required.");
-        return await withPacketLock(id, async () => {
-          const current = await store.get(id, { type: "json" });
+        return await withIdeaPacketLock(id, async () => {
+          const current = upgradeLegacyPacket(await store.get(id, { type: "json" }));
           if (!current) throw new RequestError("Idea Packet was deleted or is no longer available.", 404);
           if (body.expectedVersion !== current.version) throw new RequestError("This packet changed. Refresh before applying your edit.", 409);
           const packet = applyAction(current, body.action);
@@ -66,17 +66,40 @@ export function validatePacket(input) {
     throw new RequestError("Packet anchor media is required.");
   }
   if (!Array.isArray(packet.media)) throw new RequestError("Packet media must be a list.");
+  if (!Array.isArray(packet.sourceCards) || packet.sourceCards.length === 0) {
+    throw new RequestError("Packet source cards are required.");
+  }
+  if (!Array.isArray(packet.outputs) || packet.outputs.length === 0) {
+    throw new RequestError("Packet outputs are required.");
+  }
   const ids = new Set();
   for (const media of packet.media) {
     if (!isRecord(media) || !media.id || !media.imageUrl || !media.resultId) throw new RequestError("Packet media is invalid.");
     if (ids.has(media.resultId)) throw new RequestError("That exact media is already in this packet.", 409);
     ids.add(media.resultId);
   }
+  const outputIds = new Set();
+  for (const output of packet.outputs) {
+    if (
+      !isRecord(output)
+      || !output.id
+      || !["grid", "individual"].includes(output.kind)
+      || !output.sourceId
+      || typeof output.included !== "boolean"
+    ) {
+      throw new RequestError("Packet output is invalid.");
+    }
+    if (outputIds.has(output.id)) throw new RequestError("Packet outputs must be unique.");
+    if (output.kind === "individual" && !packet.media.some(media => media.id === output.sourceId)) {
+      throw new RequestError("Packet output references missing curated media.");
+    }
+    outputIds.add(output.id);
+  }
   for (const field of ["notes", "workingAngle", "captionSeeds", "outputAngles"]) {
     if (typeof packet[field] !== "string" || packet[field].length > 8000) throw new RequestError(`${field} is invalid.`);
   }
-  if (packet.state === "media_compiled" && packet.media.length === 0) {
-    throw new RequestError("Add at least one media item before marking media compiled.");
+  if (packet.state === "media_compiled" && !packet.outputs.some(output => output.included)) {
+    throw new RequestError("Include at least one output before marking media compiled.");
   }
   return packet;
 }
@@ -90,9 +113,35 @@ export function applyAction(current, action) {
       throw new RequestError("That exact media is already in this packet.", 409);
     }
     next.media.push(action.media);
+    if (!next.sourceCards.some(card => card.id === action.media.id)) {
+      next.sourceCards.push({
+        id: action.media.id,
+        order: next.sourceCards.length,
+        imageUrl: action.media.imageUrl,
+        sourceUrl: action.media.sourceUrl,
+        title: action.media.title,
+        ...(action.media.publisher ? { creator: action.media.publisher } : {}),
+        capturedAt: action.media.addedAt,
+        resultId: action.media.resultId,
+        provenance: JSON.stringify({
+          collection: "curated-media",
+          batchKey: action.media.batchKey,
+          gridPosition: action.media.gridPosition,
+        }),
+      });
+    }
+    next.outputs.push({
+      id: `individual-${action.media.id}`,
+      kind: "individual",
+      sourceId: action.media.id,
+      label: action.media.title,
+      included: true,
+      addedAt: new Date().toISOString(),
+    });
     next.state = "collecting";
   } else if (action.type === "remove_media") {
     next.media = next.media.filter(item => item.id !== action.mediaId);
+    next.outputs = next.outputs.filter(output => output.sourceId !== action.mediaId);
     next.state = "collecting";
   } else if (action.type === "move_media") {
     const index = next.media.findIndex(item => item.id === action.mediaId);
@@ -101,6 +150,19 @@ export function applyAction(current, action) {
       throw new RequestError("Media cannot move in that direction.");
     }
     [next.media[index], next.media[target]] = [next.media[target], next.media[index]];
+    next.state = "collecting";
+  } else if (action.type === "toggle_output") {
+    const output = next.outputs.find(item => item.id === action.outputId);
+    if (!output) throw new RequestError("Packet output was not found.");
+    output.included = Boolean(action.included);
+    next.state = "collecting";
+  } else if (action.type === "move_output") {
+    const index = next.outputs.findIndex(item => item.id === action.outputId);
+    const target = index + Number(action.direction);
+    if (index < 0 || ![-1, 1].includes(Number(action.direction)) || target < 0 || target >= next.outputs.length) {
+      throw new RequestError("Output cannot move in that direction.");
+    }
+    [next.outputs[index], next.outputs[target]] = [next.outputs[target], next.outputs[index]];
     next.state = "collecting";
   } else if (action.type === "update_context") {
     for (const field of ["notes", "workingAngle", "captionSeeds", "outputAngles"]) {
@@ -119,7 +181,66 @@ export function applyAction(current, action) {
 async function listPackets(store) {
   const result = await store.list();
   const packets = await Promise.all((result.blobs || []).map(blob => store.get(blob.key, { type: "json" })));
-  return packets.filter(Boolean).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return packets.filter(Boolean).map(upgradeLegacyPacket).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export function upgradeLegacyPacket(packet) {
+  if (!packet) return packet;
+  const next = structuredClone(packet);
+  next.sourceCards ||= (next.anchor?.imageUrls || []).map((imageUrl, order) => {
+    const resultId = next.provenance?.resultIds?.[order] || `${next.provenance?.gridId || next.id}:${order}`;
+    return {
+      id: stableId(resultId),
+      order,
+      imageUrl,
+      sourceUrl: imageUrl,
+      title: `Grid result ${order + 1}`,
+      capturedAt: next.provenance?.generatedAt || next.createdAt,
+      resultId,
+      provenance: JSON.stringify({ collection: "legacy-idea-packet", gridPosition: order }),
+    };
+  });
+  for (const media of next.media || []) {
+    if (next.sourceCards.some(card => card.id === media.id)) continue;
+    next.sourceCards.push({
+      id: media.id,
+      order: next.sourceCards.length,
+      imageUrl: media.imageUrl,
+      sourceUrl: media.sourceUrl,
+      title: media.title,
+      capturedAt: media.addedAt || next.provenance?.generatedAt || next.createdAt,
+      resultId: media.resultId,
+      provenance: JSON.stringify({ collection: "legacy-idea-packet", curatedMediaId: media.id }),
+    });
+  }
+  next.outputs ||= [
+    {
+      id: `grid-${stableId(next.provenance?.gridId || next.id)}`,
+      kind: "grid",
+      sourceId: next.provenance?.gridId || next.id,
+      label: "Rendered grid PNG",
+      included: true,
+      addedAt: next.createdAt,
+    },
+    ...(next.media || []).map(media => ({
+      id: `individual-${media.id}`,
+      kind: "individual",
+      sourceId: media.id,
+      label: media.title,
+      included: true,
+      addedAt: media.addedAt,
+    })),
+  ];
+  return next;
+}
+
+function stableId(value) {
+  let hash = 2166136261;
+  for (let index = 0; index < String(value).length; index += 1) {
+    hash ^= String(value).charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 async function readBody(req) {
@@ -154,7 +275,7 @@ function isRecord(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-async function withPacketLock(id, work) {
+export async function withIdeaPacketLock(id, work) {
   const previous = mutationLocks.get(id) || Promise.resolve();
   let release;
   const current = new Promise(resolve => { release = resolve; });

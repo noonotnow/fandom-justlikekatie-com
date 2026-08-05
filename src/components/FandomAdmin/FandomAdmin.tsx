@@ -2,9 +2,13 @@ import { useEffect, useState } from 'react';
 import { Plan } from '../Plan/Plan';
 import {
   downloadPacketHandoff,
+  includedPacketOutputs,
   mutateIdeaPacket,
+  type CreateReceipt,
   type IdeaPacket,
 } from '../../utils/ideaPackets';
+import { renderPacketOutputs } from '../../utils/createHandoff';
+import { completeIdeaPacketHandoff } from '../../utils/createHandoffClient';
 import { setPlanOperatorToken } from '../../utils/planPosts';
 import { dbGetAllCards, dbGetAllGrids, type CardRecord, type GridRecord } from '../../utils/collectionDB';
 import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
@@ -28,7 +32,7 @@ export const FandomAdmin: React.FC<Props> = props => {
     <section className={styles.admin}>
       {/* THESIS: Fandom Admin is a collection workbench, not a second PLAN.
           OWN-WORLD: incumbent charcoal/Canvas surfaces, gold state and action accents, compact native controls.
-          STORY: collect visual signals, shape packet context, compile media, then carry a truthful artifact forward.
+          STORY: collect visual signals, shape packet context, compile media, then create one canonical Draft.
           FIRST VIEWPORT: packet list and active workspace share one scan line; primary work stays visible without a modal.
           FORM: established Operate surface extended as a master-detail workbench. */}
       <header className={styles.header}>
@@ -82,11 +86,16 @@ function PacketWorkspace({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const [createReceipt, setCreateReceipt] = useState<CreateReceipt | null>(null);
   const selected = packets.find(packet => packet.id === selectedId) ?? packets[0] ?? null;
 
   useEffect(() => {
     if (selected && selected.id !== selectedId) setSelectedId(selected.id);
   }, [selected, selectedId]);
+
+  useEffect(() => {
+    setCreateReceipt(selected?.handoff?.receipt ?? null);
+  }, [selected?.id, selected?.handoff?.receipt]);
 
   async function mutate(action: Record<string, unknown>, success?: string) {
     if (!selected || busy) return;
@@ -97,6 +106,26 @@ function PacketWorkspace({
       if (success) setNotice(success);
     } catch (caught) {
       setNotice(caught instanceof Error ? caught.message : 'That packet edit could not be saved.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendToCreate() {
+    if (!selected || busy) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      const receipt = await completeIdeaPacketHandoff(selected, renderPacketOutputs);
+      setCreateReceipt(receipt);
+      setNotice(
+        receipt.disposition === 'replayed'
+          ? 'CREATE confirmed the existing Draft. No duplicate was created.'
+          : 'Idea Packet sent to CREATE as one canonical Draft.',
+      );
+      await onRefresh();
+    } catch (caught) {
+      setNotice(caught instanceof Error ? caught.message : 'The Idea Packet could not be sent to CREATE.');
     } finally {
       setBusy(false);
     }
@@ -316,13 +345,13 @@ function PacketWorkspace({
 
           <section className={styles.mediaSection}>
             <div className={styles.sectionHeading}>
-              <div><h4>Curated media</h4><p>{selected.media.length} selected · order is preserved in handoff</p></div>
+              <div><h4>Curated media</h4><p>{selected.media.length} individual {selected.media.length === 1 ? 'image' : 'images'} available to the packet</p></div>
               {selected.state === 'media_compiled' ? (
                 <button type="button" onClick={() => mutate({ type: 'set_state', state: 'collecting' }, 'Collection resumed.')} disabled={busy}>
                   Resume collection
                 </button>
               ) : (
-                <button type="button" onClick={() => mutate({ type: 'set_state', state: 'media_compiled' }, 'Media compiled. Nothing was published.')} disabled={busy || selected.media.length === 0}>
+                <button type="button" onClick={() => mutate({ type: 'set_state', state: 'media_compiled' }, 'Media compiled. Nothing was scheduled or published.')} disabled={busy || includedPacketOutputs(selected).length === 0}>
                   Mark media compiled
                 </button>
               )}
@@ -346,16 +375,76 @@ function PacketWorkspace({
             )}
           </section>
 
+          <section className={styles.outputSection} aria-labelledby="packet-output-title">
+            <div className={styles.sectionHeading}>
+              <div>
+                <h4 id="packet-output-title">Selected output tray</h4>
+                <p>Included outputs send in this order. The first included output is CREATE’s primary preview.</p>
+              </div>
+              <span>{includedPacketOutputs(selected).length} included</span>
+            </div>
+            <ol className={styles.outputTray}>
+              {selected.outputs.map((output, index) => {
+                const media = output.kind === 'individual'
+                  ? selected.media.find(item => item.id === output.sourceId)
+                  : null;
+                const primary = output.included
+                  && includedPacketOutputs(selected)[0]?.id === output.id;
+                return (
+                  <li key={output.id} data-included={output.included}>
+                    <div className={styles.outputPreview} data-kind={output.kind}>
+                      {output.kind === 'grid'
+                        ? selected.anchor.imageUrls.slice(0, 9).map((url, imageIndex) => <img key={`${url}-${imageIndex}`} src={url} alt="" />)
+                        : <img src={media?.imageUrl} alt="" />}
+                    </div>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={output.included}
+                        disabled={busy || selected.state === 'media_compiled'}
+                        onChange={event => mutate({ type: 'toggle_output', outputId: output.id, included: event.target.checked })}
+                      />
+                      <span>
+                        <strong>{output.label}</strong>
+                        <small>{output.kind === 'grid' ? 'Full rendered grid PNG' : 'Selected lightbox image PNG'}</small>
+                      </span>
+                    </label>
+                    {primary && <span className={styles.primaryLabel}>Primary preview</span>}
+                    <div className={styles.outputActions}>
+                      <button type="button" aria-label={`Move ${output.label} earlier`} disabled={busy || selected.state === 'media_compiled' || index === 0} onClick={() => mutate({ type: 'move_output', outputId: output.id, direction: -1 })}>↑</button>
+                      <button type="button" aria-label={`Move ${output.label} later`} disabled={busy || selected.state === 'media_compiled' || index === selected.outputs.length - 1} onClick={() => mutate({ type: 'move_output', outputId: output.id, direction: 1 })}>↓</button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          </section>
+
           <PacketContext key={selected.id} packet={selected} busy={busy} onSave={values => mutate({ type: 'update_context', ...values }, 'Packet context saved.')} />
 
           <footer className={styles.handoff}>
             <div>
-              <strong>Structured handoff</strong>
-              <span>Downloads a complete packet artifact. CREATE/PLAN import is deliberately deferred; this does not create a Post or claim it was sent.</span>
+              <strong>Canonical CREATE handoff</strong>
+              <span>Registers the exact selected PNGs in MEDIA, then creates or safely recovers one CREATE Draft. No schedule or publish action is sent.</span>
+              {createReceipt && (
+                <span className={styles.receipt}>
+                  Draft {createReceipt.disposition} · source v{createReceipt.sourceVersion} · {createReceipt.mediaSyncState}
+                </span>
+              )}
             </div>
-            <button type="button" disabled={selected.state !== 'media_compiled'} onClick={() => downloadPacketHandoff(selected)}>
-              Download handoff JSON
-            </button>
+            <div className={styles.handoffActions}>
+              <button type="button" className={styles.fallback} onClick={() => downloadPacketHandoff(selected)}>
+                Download JSON fallback
+              </button>
+              {createReceipt && (
+                <a href={createReceipt.createUrl} target="_blank" rel="noreferrer">
+                  Open in CREATE
+                </a>
+              )}
+              <button type="button" disabled={busy || selected.state !== 'media_compiled'} onClick={sendToCreate}>
+                {busy ? 'Sending…' : 'Send to CREATE'}
+              </button>
+            </div>
           </footer>
         </main>
       </div>
