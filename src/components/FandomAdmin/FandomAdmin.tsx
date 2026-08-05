@@ -6,6 +6,8 @@ import {
   type IdeaPacket,
 } from '../../utils/ideaPackets';
 import { setPlanOperatorToken } from '../../utils/planPosts';
+import { dbGetAllCards, dbGetAllGrids, type CardRecord, type GridRecord } from '../../utils/collectionDB';
+import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
 import styles from './FandomAdmin.module.css';
 
 interface Props {
@@ -15,10 +17,12 @@ interface Props {
   unauthorized: boolean;
   onRefresh: () => Promise<void>;
   onPacketChange: (packet: IdeaPacket) => void;
+  onCreateFromGrid: (grid: GridRecord) => Promise<IdeaPacket>;
+  onAddSavedCard: (packet: IdeaPacket, card: CardRecord) => Promise<IdeaPacket>;
 }
 
 export const FandomAdmin: React.FC<Props> = props => {
-  const [view, setView] = useState<'packets' | 'plan'>('packets');
+  const [view, setView] = useState<'packets' | 'library' | 'plan'>('packets');
 
   return (
     <section className={styles.admin}>
@@ -36,6 +40,9 @@ export const FandomAdmin: React.FC<Props> = props => {
           <button type="button" role="tab" aria-selected={view === 'packets'} onClick={() => setView('packets')}>
             Idea Packets
           </button>
+          <button type="button" role="tab" aria-selected={view === 'library'} onClick={() => setView('library')}>
+            Saved collection
+          </button>
           <button type="button" role="tab" aria-selected={view === 'plan'} onClick={() => setView('plan')}>
             PLAN schedule
           </button>
@@ -48,7 +55,11 @@ export const FandomAdmin: React.FC<Props> = props => {
           await props.onRefresh();
         }} />
       ) : (
-        <PacketWorkspace {...props} />
+        <PacketWorkspace
+          {...props}
+          showLibrary={view === 'library'}
+          onLibraryPacketCreated={() => setView('packets')}
+        />
       )}
     </section>
   );
@@ -60,7 +71,14 @@ function PacketWorkspace({
   error,
   onRefresh,
   onPacketChange,
-}: Omit<Props, 'unauthorized'>) {
+  onCreateFromGrid,
+  onAddSavedCard,
+  showLibrary,
+  onLibraryPacketCreated,
+}: Omit<Props, 'unauthorized'> & {
+  showLibrary: boolean;
+  onLibraryPacketCreated: () => void;
+}) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
@@ -82,6 +100,165 @@ function PacketWorkspace({
     } finally {
       setBusy(false);
     }
+  }
+
+  if (showLibrary) {
+    return (
+      <SavedCollection
+        packets={packets}
+        onCreateFromGrid={async grid => {
+          await onCreateFromGrid(grid);
+          onLibraryPacketCreated();
+        }}
+        onAddSavedCard={onAddSavedCard}
+      />
+    );
+  }
+
+  function SavedCollection({
+    packets,
+    onCreateFromGrid,
+    onAddSavedCard,
+  }: {
+    packets: IdeaPacket[];
+    onCreateFromGrid: (grid: GridRecord) => Promise<void>;
+    onAddSavedCard: (packet: IdeaPacket, card: CardRecord) => Promise<IdeaPacket>;
+  }) {
+    const [grids, setGrids] = useState<GridRecord[]>([]);
+    const [cards, setCards] = useState<CardRecord[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [notice, setNotice] = useState('');
+    const [busyKey, setBusyKey] = useState('');
+    const [packetSelections, setPacketSelections] = useState<Record<string, string>>({});
+    const collecting = packets.filter(packet => packet.state === 'collecting');
+
+    useEffect(() => {
+      let cancelled = false;
+      async function load() {
+        setLoading(true);
+        try {
+          await migrateLegacyGridHistory();
+          const [savedGrids, savedCards] = await Promise.all([dbGetAllGrids(), dbGetAllCards()]);
+          if (cancelled) return;
+          setGrids(savedGrids.sort((a, b) => b.savedAt.localeCompare(a.savedAt)));
+          setCards(savedCards.sort((a, b) => (b.savedAt || '').localeCompare(a.savedAt || '')));
+        } catch (caught) {
+          if (!cancelled) setNotice(caught instanceof Error ? caught.message : 'Saved collection could not be loaded.');
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      }
+      void load();
+      return () => { cancelled = true; };
+    }, []);
+
+    if (loading) return <div className={styles.libraryLoading} aria-label="Loading saved collection"><span /><span /><span /></div>;
+
+    return (
+      <section className={styles.library}>
+        {notice && <div className={styles.notice} role="status">{notice}</div>}
+        <header className={styles.libraryHeader}>
+          <div>
+            <h3>Saved collection</h3>
+            <p>Return to exported grids and saved results without rebuilding today’s session.</p>
+          </div>
+          <span>
+            {grids.length} {grids.length === 1 ? 'grid' : 'grids'} · {cards.length} {cards.length === 1 ? 'item' : 'items'}
+          </span>
+        </header>
+
+        <section className={styles.librarySection} aria-labelledby="saved-grids-title">
+          <div className={styles.sectionHeading}>
+            <div><h4 id="saved-grids-title">Exported grids</h4><p>Each grid can anchor a new Idea Packet.</p></div>
+          </div>
+          {grids.length === 0 ? (
+            <div className={styles.mediaEmpty}>Export a Vibe Atlas grid to preserve it here for later packet work.</div>
+          ) : (
+            <div className={styles.gridHistory}>
+              {grids.map(grid => (
+                <article key={grid.id}>
+                  <div className={styles.historyGrid}>
+                    {grid.images.slice(0, 9).map(image => <img key={image.resultId} src={image.imageUrl} alt="" />)}
+                  </div>
+                  <div>
+                    <strong>{grid.vibeEmoji} {grid.actor}</strong>
+                    <span>{grid.vibeEn || grid.vibe} · {formatDate(grid.capturedDate)}</span>
+                    <small>{grid.legacyCompositeUrl ? 'Grid · recovered legacy export' : `Grid · ${grid.images.length} source results`}</small>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={Boolean(busyKey)}
+                    onClick={async () => {
+                      setBusyKey(grid.id);
+                      setNotice('');
+                      try { await onCreateFromGrid(grid); } catch (caught) {
+                        setNotice(caught instanceof Error ? caught.message : 'Idea Packet could not be started.');
+                      } finally { setBusyKey(''); }
+                    }}
+                  >
+                    {busyKey === grid.id ? 'Starting…' : 'Start Idea Packet'}
+                  </button>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className={styles.librarySection} aria-labelledby="saved-items-title">
+          <div className={styles.sectionHeading}>
+            <div><h4 id="saved-items-title">Saved results</h4><p>Saved lightbox results remain independent from packets.</p></div>
+          </div>
+          {cards.length === 0 ? (
+            <div className={styles.mediaEmpty}>Save a lightbox result with ☆ to collect it for later.</div>
+          ) : (
+            <div className={styles.savedItems}>
+              {cards.map(card => (
+                <article key={card.imageUrl}>
+                  <img src={card.thumbnailUrl} alt="" />
+                  <div>
+                    <strong>{card.vibeEmoji} {card.actor}</strong>
+                    <span>{card.vibeEn || card.vibe} · {formatDate(card.capturedDate)}</span>
+                    <small>Saved item{card.gridContext ? ` · grid position ${card.gridContext.position + 1}` : ''}</small>
+                  </div>
+                  {collecting.length === 0 ? (
+                    <span className={styles.noPacket}>Start a packet first</span>
+                  ) : (
+                    <div className={styles.addSaved}>
+                      <select
+                        aria-label={`Idea Packet for ${card.actor} ${card.vibe}`}
+                        value={packetSelections[card.imageUrl] || ''}
+                        onChange={event => setPacketSelections(current => ({ ...current, [card.imageUrl]: event.target.value }))}
+                      >
+                        <option value="">Choose packet…</option>
+                        {collecting.map(packet => <option key={packet.id} value={packet.id}>{packet.actor.name} · {packet.vibe.labelEn}</option>)}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={Boolean(busyKey) || !packetSelections[card.imageUrl]}
+                        onClick={async () => {
+                          const packet = collecting.find(item => item.id === packetSelections[card.imageUrl]);
+                          if (!packet) return;
+                          setBusyKey(card.imageUrl);
+                          setNotice('');
+                          try {
+                            await onAddSavedCard(packet, card);
+                            setNotice('Saved result added to the Idea Packet.');
+                          } catch (caught) {
+                            setNotice(caught instanceof Error ? caught.message : 'Saved result could not be added.');
+                          } finally { setBusyKey(''); }
+                        }}
+                      >
+                        {busyKey === card.imageUrl ? 'Adding…' : 'Add to Idea Packet'}
+                      </button>
+                    </div>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      </section>
+    );
   }
 
   if (loading) return <div className={styles.loading} aria-label="Loading Idea Packets"><span /><span /></div>;
@@ -230,5 +407,9 @@ function StateLabel({ state }: { state: IdeaPacket['state'] }) {
 }
 
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value));
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const date = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : new Date(value);
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
 }

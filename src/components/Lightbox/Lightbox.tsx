@@ -179,6 +179,8 @@ export const Lightbox: React.FC<LightboxProps> = ({
     const cardPayload = {
       imageUrl: current.thumbnail,
       thumbnailUrl: current.thumbnail,
+      resultId: current.id,
+      sourceUrl: current.url,
       actor: cardMetadata?.actorName ?? 'Unknown',
       actorEn: cardMetadata?.actorName ?? 'Unknown',
       vibe: cardMetadata?.vibeLabel ?? 'Unknown',

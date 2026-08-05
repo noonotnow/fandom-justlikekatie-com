@@ -85,6 +85,47 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .access h3, .access p { margin: 0; }
 .access input { min-height: 44px; }
 
+.libraryHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: end;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--admin-border);
+}
+.libraryHeader h3, .librarySection h4 { margin: 0; }
+.libraryHeader p, .librarySection p { margin: 4px 0 0; color: var(--admin-muted); font-size: 13px; }
+.libraryHeader > span { color: var(--admin-muted); font-size: 12px; white-space: nowrap; }
+.librarySection { padding: 18px 0; border-bottom: 1px solid var(--admin-border); }
+.gridHistory, .savedItems { display: grid; gap: 8px; }
+.gridHistory article, .savedItems article {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border-top: 1px solid var(--admin-border);
+  padding-top: 8px;
+}
+.historyGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; width: 88px; aspect-ratio: 1; overflow: hidden; border-radius: 7px; background: var(--admin-panel); }
+.historyGrid img { width: 100%; height: 100%; object-fit: cover; min-height: 0; }
+.gridHistory article > div:nth-child(2), .savedItems article > div:nth-child(2) { min-width: 0; }
+.gridHistory strong, .gridHistory span, .gridHistory small, .savedItems strong, .savedItems span, .savedItems small { display: block; }
+.gridHistory span, .savedItems span { margin-top: 3px; color: var(--admin-muted); font-size: 12px; }
+.gridHistory small, .savedItems small { margin-top: 3px; color: var(--admin-muted); font-size: 11px; }
+.gridHistory button, .savedItems button {
+  min-height: 40px; border: 1px solid var(--admin-border); background: transparent; color: inherit; font-size: 13px;
+}
+.savedItems article { grid-template-columns: 64px minmax(0, 1fr) auto; }
+.savedItems > article > img { width: 64px; height: 56px; border-radius: 6px; object-fit: cover; background: var(--admin-panel); }
+.addSaved { display: flex; gap: 6px; }
+.addSaved select {
+  min-height: 40px; max-width: 190px; border: 1px solid var(--admin-border); border-radius: 8px;
+  background: color-mix(in srgb, Canvas 94%, currentColor 6%); color: inherit; padding: 6px 8px;
+}
+.noPacket { font-size: 12px; }
+.libraryLoading { display: grid; gap: 8px; }
+.libraryLoading span { height: 104px; border-radius: 10px; background: var(--admin-panel); animation: pulse 1.5s ease-in-out infinite; }
+
 @keyframes pulse { 50% { opacity: .45; } }
 
 @media (max-width: 760px) {
@@ -102,6 +143,13 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
   .mediaList img { width: 58px; }
   .mediaList div { grid-column: 1 / -1; justify-content: flex-end; }
   .handoff button { width: 100%; }
+  .libraryHeader { align-items: start; flex-direction: column; }
+  .gridHistory article, .savedItems article { grid-template-columns: 72px minmax(0, 1fr); }
+  .historyGrid { width: 72px; }
+  .gridHistory article > button, .addSaved, .noPacket { grid-column: 1 / -1; }
+  .gridHistory article > button { width: 100%; }
+  .addSaved { display: grid; grid-template-columns: 1fr 1fr; }
+  .addSaved select { max-width: none; width: 100%; }
 }
 
 @media (max-width: 480px) {

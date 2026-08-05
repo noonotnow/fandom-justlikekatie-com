@@ -1,5 +1,6 @@
 import type { GridItemData } from '../types';
 import type { StarOfDayData } from '../hooks/useStarOfDay';
+import type { CardRecord, GridRecord } from './collectionDB';
 
 export type IdeaPacketState = 'collecting' | 'media_compiled';
 
@@ -89,6 +90,64 @@ export function mediaFromResult(image: GridItemData): PacketMedia {
     ...(image.gridPosition !== undefined ? { gridPosition: image.gridPosition } : {}),
     addedAt: new Date().toISOString(),
   };
+}
+
+export function packetFromCollectionGrid(grid: GridRecord): IdeaPacket {
+  const createdAt = new Date().toISOString();
+  return {
+    id: crypto.randomUUID(),
+    version: createdAt,
+    state: 'collecting',
+    createdAt,
+    updatedAt: createdAt,
+    actor: { id: grid.actorId, name: grid.actor, nameEn: grid.actorEn },
+    vibe: { label: grid.vibe, labelEn: grid.vibeEn, emoji: grid.vibeEmoji },
+    provenance: {
+      sourceRoute: grid.sourceRoute,
+      gridId: grid.id,
+      generatedAt: grid.generatedAt,
+      resultIds: grid.images.map(image => image.resultId),
+      batchKeys: [...new Set(grid.images.flatMap(image => image.batchKey ? [image.batchKey] : []))],
+    },
+    anchor: {
+      imageUrls: grid.images.map(image => image.imageUrl),
+      label: `${grid.actor} · ${grid.vibe}`,
+    },
+    media: [],
+    notes: grid.legacyCompositeUrl ? 'Recovered from a legacy exported-grid record.' : '',
+    workingAngle: '',
+    captionSeeds: '',
+    outputAngles: '',
+  };
+}
+
+export function mediaFromCollectionCard(card: CardRecord): PacketMedia {
+  const resultId = collectionCardResultId(card);
+  return {
+    id: stableMediaId(resultId),
+    imageUrl: card.thumbnailUrl,
+    sourceUrl: card.sourceUrl || card.imageUrl,
+    title: `${card.actor} · ${card.vibe}`,
+    publisher: card.actorEn,
+    resultId,
+    ...(card.gridContext?.batchKey ? { batchKey: card.gridContext.batchKey } : {}),
+    ...(card.gridContext ? { gridPosition: card.gridContext.position } : {}),
+    addedAt: new Date().toISOString(),
+  };
+}
+
+function collectionCardResultId(card: CardRecord): string {
+  if (card.resultId) return card.resultId;
+  if (card.gridContext) {
+    return [
+      'legacy-card',
+      card.capturedDate,
+      stableMediaId(card.actorEn || card.actor),
+      card.gridContext.batchKey || 'unknown-batch',
+      card.gridContext.position,
+    ].join(':');
+  }
+  return `legacy-card:${card.capturedDate}:${stableMediaId(card.actorEn || card.actor)}:${stableMediaId(card.imageUrl)}`;
 }
 
 export async function fetchIdeaPackets(): Promise<IdeaPacket[]> {
