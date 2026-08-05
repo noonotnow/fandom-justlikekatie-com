@@ -18,7 +18,7 @@
 .header p, .detail p, .handoff span, .mediaList small { margin: 4px 0 0; color: var(--admin-muted); font-size: 13px; }
 
 .tabs { display: inline-flex; padding: 3px; border: 1px solid var(--admin-border); border-radius: 10px; background: var(--admin-panel); }
-.tabs button, .listHeader button, .sectionHeading button, .mediaList button, .handoff button, .context button, .access button, .error button {
+.tabs button, .listHeader button, .sectionHeading button, .mediaList button, .outputTray button, .handoff button, .handoff a, .context button, .access button, .error button {
   min-height: 40px; border: 1px solid var(--admin-border); background: transparent; color: inherit; font-size: 13px;
 }
 .tabs button { border: 0; padding: 7px 12px; }
@@ -69,6 +69,31 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .mediaList div { display: flex; gap: 4px; }
 .mediaList button { min-width: 36px; padding: 6px 9px; }
 
+.outputSection { padding: 18px 0; border-bottom: 1px solid var(--admin-border); }
+.sectionHeading > span { color: var(--admin-muted); font-size: 12px; }
+.outputTray { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.outputTray li {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--admin-border);
+  border-radius: 9px;
+  padding: 8px;
+}
+.outputTray li[data-included="false"] { opacity: .58; }
+.outputPreview { width: 72px; height: 58px; overflow: hidden; border-radius: 6px; background: var(--admin-panel); }
+.outputPreview[data-kind="grid"] { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; }
+.outputPreview img { width: 100%; height: 100%; min-height: 0; object-fit: cover; }
+.outputTray label { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.outputTray input { width: 18px; height: 18px; accent-color: #c9a96e; }
+.outputTray label span, .outputTray strong, .outputTray small { display: block; min-width: 0; }
+.outputTray strong, .outputTray small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outputTray small { margin-top: 3px; color: var(--admin-muted); font-size: 11px; }
+.primaryLabel { border: 1px solid color-mix(in srgb, #c9a96e 55%, transparent); border-radius: 999px; padding: 4px 7px; color: #a57d37; font-size: 10px; white-space: nowrap; }
+.outputActions { display: flex; gap: 4px; }
+.outputTray button { min-width: 36px; padding: 6px 9px; }
+
 .context { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 18px 0; }
 .context label, .access label { display: grid; gap: 5px; }
 .context label span, .access label span { color: var(--admin-muted); font-size: 12px; }
@@ -77,6 +102,11 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .handoff { border-top: 1px solid var(--admin-border); padding-top: 16px; }
 .handoff div { display: grid; max-width: 68ch; }
 .handoff button:disabled { opacity: .45; cursor: not-allowed; }
+.handoffActions { display: flex !important; grid-auto-flow: column; align-items: center; gap: 8px; max-width: none !important; }
+.handoff a { display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; padding: 8px 12px; text-decoration: none; }
+.handoffActions > button:last-child, .handoff a { border-color: #c9a96e; background: #c9a96e; color: #15120e; }
+.handoff .fallback { background: transparent; color: inherit; }
+.receipt { color: #15803d !important; font-weight: 600; }
 
 .notice { margin-bottom: 12px; border: 1px solid color-mix(in srgb, #c9a96e 45%, transparent); border-radius: 9px; background: color-mix(in srgb, #c9a96e 10%, transparent); padding: 10px 12px; font-size: 13px; }
 .loading { display: grid; grid-template-columns: 280px 1fr; gap: 12px; }
@@ -142,7 +172,13 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
   .mediaList li { grid-template-columns: 58px minmax(0, 1fr); }
   .mediaList img { width: 58px; }
   .mediaList div { grid-column: 1 / -1; justify-content: flex-end; }
+  .outputTray li { grid-template-columns: 58px minmax(0, 1fr) auto; }
+  .outputPreview { width: 58px; height: 52px; }
+  .outputActions { grid-column: 1 / -1; justify-content: flex-end; }
+  .primaryLabel { justify-self: end; }
   .handoff button { width: 100%; }
+  .handoffActions { display: grid !important; grid-auto-flow: row; width: 100%; }
+  .handoff a { width: 100%; }
   .libraryHeader { align-items: start; flex-direction: column; }
   .gridHistory article, .savedItems article { grid-template-columns: 72px minmax(0, 1fr); }
   .historyGrid { width: 72px; }

@@ -1,9 +1,8 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import type { GridItemData, ImageTier } from '../../types';
 import type { StarOfDayData } from '../../hooks/useStarOfDay';
 import { renderCard, type CardMetadata } from '../../utils/cardRenderer';
 import { Toast } from '../Toast/Toast';
-import { SendToPlanButton } from '../SendToPlanButton/SendToPlanButton';
 import styles from './ExportCardButton.module.css';
 
 export interface ExportCardMetadata {
@@ -16,26 +15,15 @@ export interface ExportCardMetadata {
   tier?: ImageTier;
 }
 
-function useIsAdmin(): boolean {
-  const [isAdmin, setIsAdmin] = useState(false);
-  useEffect(() => {
-    const fromUrl = new URLSearchParams(window.location.search).get("admin") === "true";
-    if (fromUrl) sessionStorage.setItem("fandom_admin", "true");
-    setIsAdmin(fromUrl || sessionStorage.getItem("fandom_admin") === "true");
-  }, []);
-  return isAdmin;
-}
-
 interface ExportCardButtonProps {
   image: GridItemData;
   metadata: ExportCardMetadata;
   planData?: StarOfDayData;
 }
 
-export const ExportCardButton: React.FC<ExportCardButtonProps> = ({ image, metadata, planData }) => {
+export const ExportCardButton: React.FC<ExportCardButtonProps> = ({ image, metadata }) => {
   const [isExporting, setIsExporting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const isAdmin = useIsAdmin();
 
   const handleExport = useCallback(async () => {
     if (isExporting) return;
@@ -107,14 +95,6 @@ export const ExportCardButton: React.FC<ExportCardButtonProps> = ({ image, metad
         <span className={styles.label}>导出卡片</span>
       </button>
       {toastMessage && <Toast message={toastMessage} onClose={dismissToast} />}
-      {isAdmin && planData && (
-        <SendToPlanButton
-          rawData={planData}
-          asset="individual"
-          image={image}
-          tier={metadata.tier ?? null}
-        />
-      )}
     </>
   );
 };

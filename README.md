@@ -12,11 +12,9 @@ paths, what was and wasn't carried over).
 ## What this is
 
 A React + TypeScript + Vite "Vibe Atlas" front end, plus its Netlify
-Functions backend (`netlify/functions/`) — including the Fandom-side
-producer for the Send-to-PLAN flow and image-search/ranking helpers. PLAN
-itself (the editorial scheduling app) is a separate repository
-(`noonotnow/weibo-scheduler`); only Fandom's *client and producer* code for
-that integration lives here.
+Functions backend (`netlify/functions/`) — including the canonical Fandom
+Idea Packet handoff to MEDIA and CREATE, the legacy Send-to-PLAN adapter, and
+image-search/ranking helpers. CREATE and PLAN remain separate repositories.
 
 ## Build & run
 
@@ -35,21 +33,44 @@ Netlify build config (`netlify.toml`): `command = "npm install && npm run
 build"`, `publish = "dist"`, functions directory `netlify/functions`. No
 `cd` into a subdirectory is required — repo root is the deploy root.
 
-## Send to PLAN deployment
+## Idea Packet → CREATE deployment
 
-The browser posts generated PNGs and draft metadata to the same-origin
-`/api/plan-handoff` Netlify Function. Configure these server-only
-environment variables in Netlify (values are never stored in this repo):
+The primary Idea Packet completion action posts exact rendered PNGs to the
+same-origin `/api/create-handoff` Netlify Function. The function registers
+each selected output through canonical MEDIA and signs the existing
+`fandom.static-deliverable.v1` CREATE intake envelope. Configure these
+server-only environment variables in Netlify:
 
-- `MEDIA_UPLOAD_TOKEN` — credential for the media upload service
-- `PLAN_REGISTRATION_TOKEN` — credential for PLAN draft registration
-- `MEDIA_UPLOAD_URL` — optional; defaults to the current media integration URL
-- `PLAN_DRAFT_URL` — optional; defaults to the current PLAN drafts URL
+- `MEDIA_ASSETS_URL` — canonical MEDIA `POST /v1/assets/images` endpoint
+- `MEDIA_ASSETS_TOKEN` — scoped MEDIA bearer credential with `assets:write`
+- `CREATE_FANDOM_INTAKE_URL` — authenticated CREATE Fandom deliverable intake
+- `CREATE_FANDOM_HMAC_KEY_ID` — active Fandom signing key ID
+- `CREATE_FANDOM_HMAC_SECRET` — matching server-only HMAC secret
+- `CREATE_APP_URL` — optional; defaults to `https://create.justlikekatie.com`
+- `PLAN_OPERATOR_TOKEN` — existing operator-entered bearer key for Fandom admin requests
+
+The browser never receives MEDIA or CREATE credentials. Do not add them as
+`VITE_` variables. Deployment must preserve the same-origin redirect for
+`/api/create-handoff`.
+
+The handoff registers the ordered selected-output tray, uses the first item as
+the CREATE cover, and creates or idempotently recovers exactly one canonical
+Posts DB Draft. It sends no schedule or publish action. CREATE owns source
+version CAS, exact replay, Draft-only recovery, and later-lifecycle fail-closed
+behavior. A successful receipt stores the exact Posts ID/URL and exposes an
+`Open in CREATE` deep link.
+
+### Legacy Send to PLAN deployment
+
+The historical `/api/plan-handoff` adapter remains for compatibility but is
+not the primary Idea Packet action. Its existing server-only variables are:
+
+- `MEDIA_UPLOAD_TOKEN` — credential for the legacy media upload service
+- `PLAN_REGISTRATION_TOKEN` — credential for legacy PLAN draft registration
+- `MEDIA_UPLOAD_URL` — optional legacy media endpoint override
+- `PLAN_DRAFT_URL` — optional legacy PLAN endpoint override
 - `NOTION_API_KEY` — server-only integration token with access to the Posts DB
 - `NOTION_POSTS_DB_ID` — Notion Posts database used by the embedded PLAN view
-- `PLAN_OPERATOR_TOKEN` — operator-entered bearer key required for Posts reads and writes
-
-No `VITE_`-prefixed client-side secret is used anywhere in this flow.
 
 The handoff function derives `nextAction` only after the media upload
 outcome is known. Missing media takes precedence over required copy,
@@ -83,15 +104,14 @@ Deep links and the existing admin query parameter remain compatible.
 Idea Packets are stored durably in the `idea-packets` Netlify Blobs store through
 same-origin `/api/idea-packets` requests. Reads and mutations require the existing
 `PLAN_OPERATOR_TOKEN`; no additional client-side secret or database migration is
-needed. Packets retain their grid anchor, source route and result identifiers,
-actor/vibe metadata, ordered media, working context, and reversible
+needed. Packets retain their exact source-card provenance, grid anchor, source
+route and result identifiers, actor/vibe metadata, ordered curated media, ordered
+selected outputs, working context, stored CREATE receipt, and reversible
 `collecting`/`media_compiled` state.
 
-The first release intentionally downloads a versioned
-`fandom.idea-packet.handoff.v1` JSON artifact after media compilation. CREATE/PLAN
-does not yet expose a packet-level destination, so this workflow does **not**
-create a Posts DB row or claim an external handoff occurred. A later importer can
-consume the artifact without changing the packet model.
+The primary action is **Send to CREATE**. An explicit versioned
+`fandom.idea-packet.handoff.v1` JSON download remains available as a fallback;
+it is not a success receipt and does not write PLAN.
 
 ### Saved collection and history adapter
 

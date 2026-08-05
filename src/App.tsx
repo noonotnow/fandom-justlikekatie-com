@@ -6,7 +6,6 @@ import { InlinePreview } from './components/InlinePreview/InlinePreview';
 import { Lightbox } from './components/Lightbox/Lightbox';
 import { ThemeToggle } from './components/ThemeToggle/ThemeToggle';
 import { ExportButton } from './components/ExportButton/ExportButton';
-import { SendToPlanButton } from './components/SendToPlanButton/SendToPlanButton';
 import { Collection } from './components/Collection/Collection';
 import { FandomAdmin } from './components/FandomAdmin/FandomAdmin';
 import { WholeCardTierControls, WholeCardTierBadge } from './components/WholeCardTierControls/WholeCardTierControls';
@@ -204,7 +203,6 @@ function App() {
               <WholeCardTierBadge tier={wholeCardTier} />
               <div className="daily-actions__primary">
                 <ExportButton rawData={exportData} />
-                <SendToPlanButton rawData={exportData} asset="grid" />
                 {isAdmin && (
                   <button
                     type="button"

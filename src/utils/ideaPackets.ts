@@ -3,6 +3,7 @@ import type { StarOfDayData } from '../hooks/useStarOfDay';
 import type { CardRecord, GridRecord } from './collectionDB';
 
 export type IdeaPacketState = 'collecting' | 'media_compiled';
+export type PacketOutputKind = 'grid' | 'individual';
 
 export interface PacketMedia {
   id: string;
@@ -14,6 +15,51 @@ export interface PacketMedia {
   batchKey?: string;
   gridPosition?: number;
   addedAt: string;
+}
+
+export interface PacketSourceCard {
+  id: string;
+  order: number;
+  imageUrl: string;
+  sourceUrl: string;
+  title: string;
+  creator?: string;
+  capturedAt: string;
+  resultId: string;
+  provenance: string;
+}
+
+export interface PacketOutput {
+  id: string;
+  kind: PacketOutputKind;
+  sourceId: string;
+  label: string;
+  included: boolean;
+  addedAt: string;
+}
+
+export interface CreateReceipt {
+  deliverableId: string;
+  postId: string;
+  postUrl: string;
+  createUrl: string;
+  status: 'Draft';
+  sourceVersion: number;
+  workflow: 'packet';
+  disposition: 'created' | 'replayed' | 'updated';
+  packetReceipt: { packetId: string; deliverableId: string; accepted: true };
+  mediaSyncState: 'synced' | 'operator-diverged';
+  warnings: Array<{ code: string; retryable: boolean; assetId?: string }>;
+}
+
+export interface PacketHandoff {
+  sourceVersion: number;
+  expectedSourceVersion: number | null;
+  packetVersion: string;
+  fingerprint: string;
+  generatedAt: string;
+  completedAt: string;
+  receipt: CreateReceipt;
 }
 
 export interface IdeaPacket {
@@ -32,11 +78,14 @@ export interface IdeaPacket {
     batchKeys: string[];
   };
   anchor: { imageUrls: string[]; label: string };
+  sourceCards: PacketSourceCard[];
   media: PacketMedia[];
+  outputs: PacketOutput[];
   notes: string;
   workingAngle: string;
   captionSeeds: string;
   outputAngles: string;
+  handoff?: PacketHandoff;
 }
 
 export class IdeaPacketError extends Error {
@@ -70,7 +119,9 @@ export function packetFromGrid(data: StarOfDayData, images: GridItemData[]): Ide
       imageUrls: images.map(image => image.thumbnail),
       label: `${data.actorName} · ${data.vibeLabel}`,
     },
+    sourceCards: images.map((image, order) => sourceCardFromResult(image, order, createdAt)),
     media: [],
+    outputs: [gridOutput(gridId, createdAt)],
     notes: '',
     workingAngle: '',
     captionSeeds: data.vibeSubtitle.trim(),
@@ -113,7 +164,24 @@ export function packetFromCollectionGrid(grid: GridRecord): IdeaPacket {
       imageUrls: grid.images.map(image => image.imageUrl),
       label: `${grid.actor} · ${grid.vibe}`,
     },
+    sourceCards: grid.images.map((image, order) => ({
+      id: stableMediaId(image.resultId),
+      order,
+      imageUrl: image.imageUrl,
+      sourceUrl: image.sourceUrl,
+      title: image.title,
+      ...(image.publisher ? { creator: image.publisher } : {}),
+      capturedAt: grid.generatedAt,
+      resultId: image.resultId,
+      provenance: JSON.stringify({
+        collection: 'saved-grid-history',
+        gridId: grid.id,
+        batchKey: image.batchKey,
+        gridPosition: image.gridPosition,
+      }),
+    })),
     media: [],
+    outputs: [gridOutput(grid.id, createdAt)],
     notes: grid.legacyCompositeUrl ? 'Recovered from a legacy exported-grid record.' : '',
     workingAngle: '',
     captionSeeds: '',
@@ -174,7 +242,7 @@ export function downloadPacketHandoff(packet: IdeaPacket): void {
   const artifact = {
     schema: 'fandom.idea-packet.handoff.v1',
     exportedAt: new Date().toISOString(),
-    destination: 'CREATE/PLAN (manual import pending)',
+    destination: 'CREATE (manual fallback)',
     packet,
   };
   const url = URL.createObjectURL(new Blob([JSON.stringify(artifact, null, 2)], { type: 'application/json' }));
@@ -183,6 +251,39 @@ export function downloadPacketHandoff(packet: IdeaPacket): void {
   link.download = `idea-packet-${packet.id}.json`;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+export function includedPacketOutputs(packet: IdeaPacket): PacketOutput[] {
+  return packet.outputs.filter(output => output.included);
+}
+
+function sourceCardFromResult(image: GridItemData, order: number, capturedAt: string): PacketSourceCard {
+  return {
+    id: stableMediaId(image.id),
+    order,
+    imageUrl: image.thumbnail,
+    sourceUrl: image.url,
+    title: image.title,
+    ...(image.publisher ? { creator: image.publisher } : {}),
+    capturedAt,
+    resultId: image.id,
+    provenance: JSON.stringify({
+      collection: 'star-of-the-day',
+      batchKey: image.batchKey,
+      gridPosition: image.gridPosition ?? order,
+    }),
+  };
+}
+
+function gridOutput(gridId: string, addedAt: string): PacketOutput {
+  return {
+    id: `grid-${stableMediaId(gridId)}`,
+    kind: 'grid',
+    sourceId: gridId,
+    label: 'Rendered grid PNG',
+    included: true,
+    addedAt,
+  };
 }
 
 async function packetRequest(method: 'POST' | 'PATCH', body: unknown): Promise<IdeaPacket> {
