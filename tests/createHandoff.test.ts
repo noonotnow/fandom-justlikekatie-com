@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  completeIdeaPacketHandoff,
+  loadRequiredGridImages,
   packetIndividualRenderInput,
   sendIdeaPacketToCreate,
   type RenderedPacketOutput,
@@ -94,14 +96,28 @@ test('sends single grid, single image, and mixed outputs in primary tray order',
     }));
     let observed: Record<string, unknown> | undefined;
     const result = await sendIdeaPacketToCreate(current, rendered, async (_url, init) => {
-      assert.ok(init?.body instanceof FormData);
-      observed = JSON.parse(String(init.body.get('manifest')));
+      assert.equal(new Headers(init?.headers).get('Content-Type'), 'application/json');
+      observed = JSON.parse(String(init?.body));
       return new Response(JSON.stringify({ receipt: receipt() }), { status: 201 });
     });
 
     assert.deepEqual(
       (observed!.outputs as Array<{ outputId: string }>).map(output => output.outputId),
       included,
+    );
+    assert.deepEqual(
+      (observed!.outputs as Array<Record<string, unknown>>).map(output => ({
+        renderContract: output.renderContract,
+        renderVersion: output.renderVersion,
+        width: output.width,
+        height: output.height,
+      })),
+      included.map(() => ({
+        renderContract: 'fandom.idea-packet-output.v1',
+        renderVersion: 1,
+        width: 1080,
+        height: 1350,
+      })),
     );
     assert.equal(result.createUrl, receipt().createUrl);
   }
@@ -114,9 +130,39 @@ test('selects the exact individual media for rendering', () => {
     id: 'different-media',
     imageUrl: 'https://images.example/different.jpg',
   });
+
   const input = packetIndividualRenderInput(current, current.media[1]);
   assert.equal(input.imageUrl, 'https://images.example/one.jpg');
   assert.equal(input.date, '2026-08-05');
+});
+
+test('rejects the whole grid when any persisted source image fails to load', async () => {
+  const current = packet();
+  current.sourceCards.push({
+    ...current.sourceCards[0],
+    id: 'media-2',
+    title: 'Broken source',
+    imageUrl: 'https://images.example/broken.jpg',
+  });
+  let handoffCalls = 0;
+  await assert.rejects(
+    completeIdeaPacketHandoff(
+      current,
+      async () => {
+        await loadRequiredGridImages(current, async (_url, label) => {
+          if (label === 'Broken source') throw new Error('Could not load "Broken source" for the rendered grid.');
+          return { loaded: true };
+        });
+        return [];
+      },
+      async () => {
+        handoffCalls += 1;
+        return receipt();
+      },
+    ),
+    /Broken source/,
+  );
+  assert.equal(handoffCalls, 0);
 });
 
 test('surfaces partial handoff failures and rejects untrusted CREATE deep links', async () => {

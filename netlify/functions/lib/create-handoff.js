@@ -1,4 +1,11 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import {
+  RENDER_CONTRACT,
+  RENDER_HEIGHT,
+  RENDER_VERSION,
+  RENDER_WIDTH,
+  renderCanonicalOutput,
+} from "./canonical-render.js";
 import { upgradeLegacyPacket, withIdeaPacketLock } from "./idea-packets.js";
 
 const PACKET_STORE = "idea-packets";
@@ -29,6 +36,7 @@ export function createCreateHandoffHandler({
   fetchImpl = fetch,
   getStore,
   now = () => new Date(),
+  renderOutputImpl = renderCanonicalOutput,
 } = {}) {
   return async function createHandoff(req, context) {
     if (req.method !== "POST") {
@@ -38,13 +46,15 @@ export function createCreateHandoffHandler({
       validateSameOrigin(req);
       validateAuthorization(req, env.PLAN_OPERATOR_TOKEN);
       requireConfiguration(env);
-      const form = await readForm(req);
-      const manifest = parseManifest(form.get("manifest"));
+      const manifest = await readManifest(req);
       const store = getStore(PACKET_STORE, context);
       const result = await withIdeaPacketLock(manifest.packetId, async () => {
         const packet = upgradeLegacyPacket(await store.get(manifest.packetId, { type: "json" }));
         validatePacketForHandoff(packet, manifest);
-        const files = await validateFiles(form, manifest.outputs);
+        const files = await renderFiles(packet, manifest.outputs, {
+          renderOutputImpl,
+          requestUrl: req.url,
+        });
         const fingerprint = handoffFingerprint(packet, files);
         const replayRecord = packet.handoff?.fingerprint === fingerprint
           ? packet.handoff
@@ -127,7 +137,7 @@ export function createCreateHandoffHandler({
         } catch (error) {
           throw new UpstreamError(
             publicError(error, "CREATE accepted a response that Fandom could not validate."),
-            502,
+            error instanceof RequestError ? error.status : 502,
             "create",
             { registered, receipt },
           );
@@ -206,21 +216,28 @@ function validatePacketForHandoff(packet, manifest) {
   }
 }
 
-async function validateFiles(form, outputs) {
+async function renderFiles(packet, outputs, { renderOutputImpl, requestUrl }) {
   const files = [];
   for (const output of outputs) {
-    const file = form.get(output.fileField);
-    if (!(file instanceof File)) throw new RequestError(`Missing PNG for ${output.outputId}.`);
-    if (file.type !== "image/png" || file.size < 8 || file.size > MAX_PNG_BYTES) {
-      throw new RequestError(`Output ${output.outputId} must be a valid PNG under ${MAX_PNG_BYTES} bytes.`, 413);
+    const selected = packet.outputs.find(candidate => candidate.id === output.outputId);
+    let bytes;
+    try {
+      bytes = new Uint8Array(await renderOutputImpl(packet, selected, { requestUrl }));
+    } catch (error) {
+      throw new RequestError(
+        `Canonical render failed for ${selected.label}: ${publicError(error, "source image could not be rendered")}`,
+        422,
+        "render",
+      );
     }
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    if (!isPng(bytes)) throw new RequestError(`Output ${output.outputId} does not contain PNG bytes.`);
+    if (bytes.byteLength < 8 || bytes.byteLength > MAX_PNG_BYTES || !isPng(bytes)) {
+      throw new RequestError(`Canonical render for ${output.outputId} did not produce a valid PNG.`, 502, "render");
+    }
     files.push({
       bytes,
       checksum: sha256(bytes),
       sizeBytes: bytes.byteLength,
-      filename: output.filename,
+      filename: `idea-packet-${safeFilenameSegment(packet.id)}-${safeFilenameSegment(output.outputId)}.png`,
     });
   }
   return files;
@@ -420,6 +437,13 @@ async function sendToCreate(envelope, { env, fetchImpl, timestampDate }) {
 }
 
 function validateReceipt(receipt, packetId, sourceVersion) {
+  if (receipt?.mediaSyncState === "operator-diverged") {
+    throw new UpstreamError(
+      "CREATE reported operator-diverged media. Resolve the operator-owned Draft conflict in CREATE before retrying.",
+      409,
+      "create",
+    );
+  }
   if (
     !isRecord(receipt)
     || typeof receipt.postId !== "string"
@@ -433,7 +457,7 @@ function validateReceipt(receipt, packetId, sourceVersion) {
     || receipt.packetReceipt?.packetId !== packetId
     || receipt.packetReceipt?.deliverableId !== "idea-packet-main"
     || receipt.packetReceipt?.accepted !== true
-    || !["synced", "operator-diverged"].includes(receipt.mediaSyncState)
+    || receipt.mediaSyncState !== "synced"
     || !Array.isArray(receipt.warnings)
   ) {
     throw new UpstreamError("CREATE returned an invalid Draft receipt.", 502, "create");
@@ -464,42 +488,56 @@ function validateMediaDescriptor(payload, file) {
 }
 
 function parseManifest(value) {
-  if (typeof value !== "string") throw new RequestError("A handoff manifest is required.");
-  let manifest;
-  try { manifest = JSON.parse(value); } catch { throw new RequestError("Handoff manifest must be valid JSON."); }
+  const manifest = value;
   if (
     !isRecord(manifest)
     || typeof manifest.packetId !== "string"
+    || !manifest.packetId
     || typeof manifest.expectedVersion !== "string"
     || !Array.isArray(manifest.outputs)
     || manifest.outputs.length < 1
     || manifest.outputs.length > MAX_OUTPUTS
+    || Object.keys(manifest).some(key => !["packetId", "expectedVersion", "outputs"].includes(key))
   ) {
     throw new RequestError("Handoff manifest is invalid.");
   }
-  const fields = new Set();
   for (const output of manifest.outputs) {
     if (
       !isRecord(output)
       || typeof output.outputId !== "string"
+      || !output.outputId
       || !["grid", "individual"].includes(output.kind)
       || typeof output.sourceId !== "string"
-      || typeof output.filename !== "string"
-      || !output.filename.endsWith(".png")
-      || !/^output-\d+$/.test(output.fileField)
-      || fields.has(output.fileField)
+      || !output.sourceId
+      || output.renderContract !== RENDER_CONTRACT
+      || output.renderVersion !== RENDER_VERSION
+      || output.width !== RENDER_WIDTH
+      || output.height !== RENDER_HEIGHT
+      || Object.keys(output).some(key => ![
+        "outputId",
+        "kind",
+        "sourceId",
+        "renderContract",
+        "renderVersion",
+        "width",
+        "height",
+      ].includes(key))
     ) throw new RequestError("Handoff output manifest is invalid.");
-    fields.add(output.fileField);
   }
   return manifest;
 }
 
-async function readForm(req) {
+async function readManifest(req) {
   const contentType = req.headers.get("content-type") || "";
-  if (!contentType.toLowerCase().startsWith("multipart/form-data;")) {
-    throw new RequestError("Content-Type must be multipart/form-data.");
+  if (!contentType.toLowerCase().startsWith("application/json")) {
+    throw new RequestError("Content-Type must be application/json.");
   }
-  try { return await req.formData(); } catch { throw new RequestError("Handoff request is malformed."); }
+  const text = await req.text();
+  if (Buffer.byteLength(text) > MAX_RESPONSE_BYTES) throw new RequestError("Handoff request is too large.", 413);
+  try { return parseManifest(JSON.parse(text)); } catch (error) {
+    if (error instanceof RequestError) throw error;
+    throw new RequestError("Handoff manifest must be valid JSON.");
+  }
 }
 
 async function readJson(response, label) {
@@ -598,6 +636,10 @@ function splitLines(value) {
 
 function stableSegment(value) {
   return String(value).trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "vibe";
+}
+
+function safeFilenameSegment(value) {
+  return String(value).replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "output";
 }
 
 function isPng(bytes) {

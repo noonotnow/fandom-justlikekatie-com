@@ -5,7 +5,11 @@ import {
   type PacketMedia,
   type PacketOutput,
 } from './ideaPackets';
-import { packetIndividualRenderInput, type RenderedPacketOutput } from './createHandoffClient';
+import {
+  loadRequiredGridImages,
+  packetIndividualRenderInput,
+  type RenderedPacketOutput,
+} from './createHandoffClient';
 
 export {
   CREATE_HANDOFF_URL,
@@ -36,7 +40,11 @@ export async function renderPacketIndividualPng(
   return render(packetIndividualRenderInput(packet, media));
 }
 
-export async function renderPacketGridPng(packet: IdeaPacket): Promise<Blob> {
+export async function renderPacketGridPng(
+  packet: IdeaPacket,
+  imageLoader: (url: string, label: string) => Promise<HTMLImageElement> = loadRequiredImage,
+): Promise<Blob> {
+  const images = await loadRequiredGridImages(packet, imageLoader);
   const canvas = document.createElement('canvas');
   canvas.width = 1080;
   canvas.height = 1350;
@@ -53,7 +61,6 @@ export async function renderPacketGridPng(packet: IdeaPacket): Promise<Blob> {
   context.font = '700 44px "Noto Sans SC", "Inter", sans-serif';
   context.fillText(`${packet.vibe.emoji} ${packet.actor.name} · ${packet.vibe.label}`, canvas.width / 2, 132);
 
-  const images = await Promise.all(packet.sourceCards.slice(0, 9).map(card => loadImage(card.imageUrl)));
   const gap = 8;
   const left = 56;
   const top = 190;
@@ -63,7 +70,7 @@ export async function renderPacketGridPng(packet: IdeaPacket): Promise<Blob> {
     const y = top + Math.floor(index / 3) * (tile + gap);
     context.fillStyle = '#1a1a22';
     context.fillRect(x, y, tile, tile);
-    if (image) drawCover(context, image, x, y, tile, tile);
+    drawCover(context, image, x, y, tile, tile);
   });
 
   context.fillStyle = '#a3a3ad';
@@ -90,12 +97,12 @@ function shanghaiDay(value: string): string {
   }).format(new Date(value));
 }
 
-function loadImage(url: string): Promise<HTMLImageElement | null> {
-  return new Promise(resolve => {
+function loadRequiredImage(url: string, label: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
     const image = new Image();
     image.crossOrigin = 'anonymous';
     image.onload = () => resolve(image);
-    image.onerror = () => resolve(null);
+    image.onerror = () => reject(new Error(`Could not load "${label}" for the rendered grid. Refresh the source image and try again.`));
     image.src = url;
   });
 }

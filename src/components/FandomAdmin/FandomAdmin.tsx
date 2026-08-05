@@ -7,7 +7,8 @@ import {
   type CreateReceipt,
   type IdeaPacket,
 } from '../../utils/ideaPackets';
-import { renderPacketOutputs, sendIdeaPacketToCreate } from '../../utils/createHandoff';
+import { renderPacketOutputs } from '../../utils/createHandoff';
+import { completeIdeaPacketHandoff } from '../../utils/createHandoffClient';
 import { setPlanOperatorToken } from '../../utils/planPosts';
 import { dbGetAllCards, dbGetAllGrids, type CardRecord, type GridRecord } from '../../utils/collectionDB';
 import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
@@ -115,8 +116,7 @@ function PacketWorkspace({
     setBusy(true);
     setNotice('');
     try {
-      const rendered = await renderPacketOutputs(selected);
-      const receipt = await sendIdeaPacketToCreate(selected, rendered);
+      const receipt = await completeIdeaPacketHandoff(selected, renderPacketOutputs);
       setCreateReceipt(receipt);
       setNotice(
         receipt.disposition === 'replayed'

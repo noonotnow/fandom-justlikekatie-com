@@ -16,6 +16,13 @@ const ENV = {
   CREATE_APP_URL: "https://create.justlikekatie.com",
 };
 
+function testHandler(options) {
+  return createCreateHandoffHandler({
+    renderOutputImpl: async () => PNG,
+    ...options,
+  });
+}
+
 function packet() {
   return {
     id: "packet-1",
@@ -32,11 +39,11 @@ function packet() {
       resultIds: ["result-1"],
       batchKeys: ["batch-1"],
     },
-    anchor: { imageUrls: ["https://images.example/one.jpg"], label: "Star · Vibe" },
+    anchor: { imageUrls: ["/.netlify/functions/image-proxy?url=https%3A%2F%2Fimages.example%2Fone.jpg"], label: "Star · Vibe" },
     sourceCards: [{
       id: "media-1",
       order: 0,
-      imageUrl: "https://images.example/one.jpg",
+      imageUrl: "/.netlify/functions/image-proxy?url=https%3A%2F%2Fimages.example%2Fone.jpg",
       sourceUrl: "https://publisher.example/one",
       title: "One",
       capturedAt: "2026-08-05T12:00:00.000Z",
@@ -45,7 +52,7 @@ function packet() {
     }],
     media: [{
       id: "media-1",
-      imageUrl: "https://images.example/one.jpg",
+      imageUrl: "/.netlify/functions/image-proxy?url=https%3A%2F%2Fimages.example%2Fone.jpg",
       sourceUrl: "https://publisher.example/one",
       title: "One",
       resultId: "result-1",
@@ -86,28 +93,27 @@ function memoryStore(initial = packet()) {
 }
 
 function request(current, outputIds = ["grid-output", "individual-output"]) {
-  const form = new FormData();
-  const outputs = outputIds.map((id, index) => {
+  const outputs = outputIds.map(id => {
     const output = current.outputs.find(candidate => candidate.id === id);
-    const fileField = `output-${index}`;
-    form.append(fileField, new File([PNG], `${id}.png`, { type: "image/png" }));
     return {
       outputId: output.id,
       kind: output.kind,
       sourceId: output.sourceId,
-      filename: `${id}.png`,
-      fileField,
+      renderContract: "fandom.idea-packet-output.v1",
+      renderVersion: 1,
+      width: 1080,
+      height: 1350,
     };
   });
-  form.append("manifest", JSON.stringify({
+  const manifest = {
     packetId: current.id,
     expectedVersion: current.version,
     outputs,
-  }));
+  };
   return new Request(`${ORIGIN}/api/create-handoff`, {
     method: "POST",
     headers: { Origin: ORIGIN, Authorization: "Bearer operator-token" },
-    body: form,
+    body: new Blob([JSON.stringify(manifest)], { type: "application/json" }),
   });
 }
 
@@ -145,7 +151,7 @@ test("registers exact mixed PNGs in MEDIA and signs one canonical CREATE Draft",
   const store = memoryStore();
   const mediaCalls = [];
   let createCall;
-  const handler = createCreateHandoffHandler({
+  const handler = testHandler({
     env: ENV,
     getStore: () => store,
     now: () => new Date("2026-08-05T18:00:00.000Z"),
@@ -207,7 +213,7 @@ test("replays the same source version and relies on MEDIA checksum dedupe", asyn
   singleOutputPacket.outputs[1].included = false;
   const store = memoryStore(singleOutputPacket);
   const envelopes = [];
-  const handler = createCreateHandoffHandler({
+  const handler = testHandler({
     env: ENV,
     getStore: () => store,
     now: () => new Date("2026-08-05T18:00:00.000Z"),
@@ -238,7 +244,7 @@ test("replays the same source version and relies on MEDIA checksum dedupe", asyn
 test("increments source version with prior-version CAS after packet content changes", async () => {
   const store = memoryStore();
   const envelopes = [];
-  const handler = createCreateHandoffHandler({
+  const handler = testHandler({
     env: ENV,
     getStore: () => store,
     now: () => new Date("2026-08-05T18:00:00.000Z"),
@@ -269,7 +275,7 @@ test("surfaces partial MEDIA and CREATE failures without success-shaped receipts
   for (const failureStage of ["media", "create"]) {
     const store = memoryStore();
     let mediaCount = 0;
-    const handler = createCreateHandoffHandler({
+    const handler = testHandler({
       env: ENV,
       getStore: () => store,
       now: () => new Date("2026-08-05T18:00:00.000Z"),
@@ -295,6 +301,95 @@ test("surfaces partial MEDIA and CREATE failures without success-shaped receipts
   }
 });
 
+test("rejects operator-diverged receipts as conflicts without storing or exposing success", async () => {
+  const store = memoryStore();
+  let createCalls = 0;
+  const handler = testHandler({
+    env: ENV,
+    getStore: () => store,
+    now: () => new Date("2026-08-05T18:00:00.000Z"),
+    fetchImpl: async (url) => {
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        return Response.json({ data: mediaDescriptor(1), meta: { deduplicated: true } });
+      }
+      createCalls += 1;
+      return Response.json({ ...createReceipt(), mediaSyncState: "operator-diverged" }, { status: 200 });
+    },
+  });
+  const response = await handler(request(packet()));
+  const body = await response.json();
+  assert.equal(response.status, 409);
+  assert.equal(body.stage, "create");
+  assert.match(body.error, /operator-diverged/);
+  assert.equal("receipt" in body, false);
+  assert.equal("createUrl" in body.details.receipt, false);
+  assert.equal(store.records.get("packet-1").handoff, undefined);
+  assert.equal(createCalls, 1);
+});
+
+test("rejects render descriptor mismatches and arbitrary browser PNGs before MEDIA", async () => {
+  let upstreamCalls = 0;
+  let renderCalls = 0;
+  const handler = createCreateHandoffHandler({
+    env: ENV,
+    getStore: () => memoryStore(),
+    renderOutputImpl: async () => {
+      renderCalls += 1;
+      return PNG;
+    },
+    fetchImpl: async () => {
+      upstreamCalls += 1;
+      throw new Error("must not call upstream");
+    },
+  });
+
+  const valid = request(packet());
+  const mismatched = await valid.clone().json();
+  mismatched.outputs[0].width = 999;
+  const mismatchResponse = await handler(new Request(valid.url, {
+    method: "POST",
+    headers: valid.headers,
+    body: JSON.stringify(mismatched),
+  }));
+  assert.equal(mismatchResponse.status, 400);
+
+  const form = new FormData();
+  form.append("manifest", JSON.stringify(mismatched));
+  form.append("output-0", new File([PNG], "arbitrary.png", { type: "image/png" }));
+  const arbitraryResponse = await handler(new Request(valid.url, {
+    method: "POST",
+    headers: {
+      Origin: ORIGIN,
+      Authorization: `Bearer ${ENV.PLAN_OPERATOR_TOKEN}`,
+    },
+    body: form,
+  }));
+  assert.equal(arbitraryResponse.status, 400);
+  assert.equal(renderCalls, 0);
+  assert.equal(upstreamCalls, 0);
+});
+
+test("rejects persisted non-proxy source URLs before MEDIA registration", async () => {
+  let upstreamCalls = 0;
+  const handler = createCreateHandoffHandler({
+    env: ENV,
+    getStore: () => memoryStore({
+      ...packet(),
+      sourceCards: packet().sourceCards.map(card => ({ ...card, imageUrl: "https://attacker.example/arbitrary.png" })),
+    }),
+    fetchImpl: async () => {
+      upstreamCalls += 1;
+      throw new Error("must not call MEDIA or CREATE");
+    },
+  });
+  const response = await handler(request(packet()));
+  const body = await response.json();
+  assert.equal(response.status, 422);
+  assert.equal(body.stage, "render");
+  assert.match(body.error, /same-origin image proxy/);
+  assert.equal(upstreamCalls, 0);
+});
+
 test("recovers with the exact signed envelope when receipt persistence fails after CREATE", async () => {
   const singleOutputPacket = packet();
   singleOutputPacket.outputs[1].included = false;
@@ -309,7 +404,7 @@ test("recovers with the exact signed envelope when receipt persistence fails aft
     },
   };
   const envelopes = [];
-  const handler = createCreateHandoffHandler({
+  const handler = testHandler({
     env: ENV,
     getStore: () => store,
     now: () => new Date("2026-08-05T18:00:00.000Z"),
@@ -339,7 +434,7 @@ test("recovers with the exact signed envelope when receipt persistence fails aft
 
 test("does not overwrite a concurrent packet edit after CREATE accepts the Draft", async () => {
   const store = memoryStore();
-  const handler = createCreateHandoffHandler({
+  const handler = testHandler({
     env: ENV,
     getStore: () => store,
     now: () => new Date("2026-08-05T18:00:00.000Z"),
@@ -366,7 +461,7 @@ test("does not overwrite a concurrent packet edit after CREATE accepts the Draft
 
 test("fails closed on stale packet versions before calling MEDIA or CREATE", async () => {
   let calls = 0;
-  const handler = createCreateHandoffHandler({
+  const handler = testHandler({
     env: ENV,
     getStore: () => memoryStore(),
     fetchImpl: async () => {
@@ -390,7 +485,7 @@ test("hands off upgraded saved-history packets with curated-media provenance int
   const upgraded = upgradeLegacyPacket(legacy);
   let envelope;
   let individualMetadata;
-  const handler = createCreateHandoffHandler({
+  const handler = testHandler({
     env: ENV,
     getStore: () => store,
     now: () => new Date("2026-08-05T18:00:00.000Z"),

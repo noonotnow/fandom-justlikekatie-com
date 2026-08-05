@@ -1,6 +1,10 @@
 import type { CreateReceipt, IdeaPacket, PacketMedia, PacketOutput } from './ideaPackets.ts';
 
 export const CREATE_HANDOFF_URL = '/api/create-handoff';
+export const CREATE_RENDER_CONTRACT = 'fandom.idea-packet-output.v1';
+export const CREATE_RENDER_VERSION = 1;
+export const CREATE_RENDER_WIDTH = 1080;
+export const CREATE_RENDER_HEIGHT = 1350;
 
 type Fetch = typeof fetch;
 
@@ -26,6 +30,25 @@ export function packetIndividualRenderInput(packet: IdeaPacket, media: PacketMed
   };
 }
 
+export async function loadRequiredGridImages<T>(
+  packet: IdeaPacket,
+  loader: (url: string, label: string) => Promise<T>,
+): Promise<T[]> {
+  return Promise.all(packet.sourceCards.slice(0, 9).map(card => loader(card.imageUrl, card.title)));
+}
+
+export async function completeIdeaPacketHandoff(
+  packet: IdeaPacket,
+  render: (packet: IdeaPacket) => Promise<RenderedPacketOutput[]>,
+  send: (
+    packet: IdeaPacket,
+    rendered: RenderedPacketOutput[],
+  ) => Promise<CreateReceipt> = sendIdeaPacketToCreate,
+): Promise<CreateReceipt> {
+  const rendered = await render(packet);
+  return send(packet, rendered);
+}
+
 export async function sendIdeaPacketToCreate(
   packet: IdeaPacket,
   rendered: RenderedPacketOutput[],
@@ -36,26 +59,24 @@ export async function sendIdeaPacketToCreate(
     throw new Error('Rendered output order no longer matches this Idea Packet. Refresh and try again.');
   }
 
-  const form = new FormData();
-  form.append('manifest', JSON.stringify({
+  const manifest = {
     packetId: packet.id,
     expectedVersion: packet.version,
-    outputs: rendered.map((item, index) => ({
+    outputs: rendered.map(item => ({
       outputId: item.output.id,
       kind: item.output.kind,
       sourceId: item.output.sourceId,
-      filename: item.filename,
-      fileField: `output-${index}`,
+      renderContract: CREATE_RENDER_CONTRACT,
+      renderVersion: CREATE_RENDER_VERSION,
+      width: CREATE_RENDER_WIDTH,
+      height: CREATE_RENDER_HEIGHT,
     })),
-  }));
-  rendered.forEach((item, index) => {
-    form.append(`output-${index}`, new File([item.blob], item.filename, { type: 'image/png' }));
-  });
+  };
 
   const response = await fetchImpl(CREATE_HANDOFF_URL, {
     method: 'POST',
-    headers: operatorHeaders(),
-    body: form,
+    headers: { ...operatorHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(manifest),
   });
   const body = await readJson(response);
   if (!response.ok) {

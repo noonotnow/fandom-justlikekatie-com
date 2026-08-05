@@ -35,11 +35,13 @@ build"`, `publish = "dist"`, functions directory `netlify/functions`. No
 
 ## Idea Packet → CREATE deployment
 
-The primary Idea Packet completion action posts exact rendered PNGs to the
-same-origin `/api/create-handoff` Netlify Function. The function registers
-each selected output through canonical MEDIA and signs the existing
-`fandom.static-deliverable.v1` CREATE intake envelope. Configure these
-server-only environment variables in Netlify:
+The primary Idea Packet completion action posts only the authenticated packet
+ID, version, selected output IDs, and the fixed render contract to the
+same-origin `/api/create-handoff` Netlify Function. Browser PNG bytes, URLs,
+filenames, and provenance labels are never accepted. The function renders each
+PNG deterministically from the persisted packet selection, registers it through
+canonical MEDIA, and signs the existing `fandom.static-deliverable.v1` CREATE
+intake envelope. Configure these server-only environment variables in Netlify:
 
 - `MEDIA_ASSETS_URL` — canonical MEDIA `POST /v1/assets/images` endpoint
 - `MEDIA_ASSETS_TOKEN` — scoped MEDIA bearer credential with `assets:write`
@@ -53,12 +55,15 @@ The browser never receives MEDIA or CREATE credentials. Do not add them as
 `VITE_` variables. Deployment must preserve the same-origin redirect for
 `/api/create-handoff`.
 
-The handoff registers the ordered selected-output tray, uses the first item as
-the CREATE cover, and creates or idempotently recovers exactly one canonical
+The server accepts source images only through persisted same-origin proxy
+descriptors whose target is a public HTTPS hostname. DNS is pinned to a
+validated public address, redirects are revalidated, and private/link-local/IP
+literal targets fail before MEDIA. The ordered tray uses the first output as
+the CREATE cover and creates or idempotently recovers exactly one canonical
 Posts DB Draft. It sends no schedule or publish action. CREATE owns source
 version CAS, exact replay, Draft-only recovery, and later-lifecycle fail-closed
-behavior. A successful receipt stores the exact Posts ID/URL and exposes an
-`Open in CREATE` deep link.
+behavior. Only `mediaSyncState=synced` is successful; operator divergence stays
+a visible conflict and never stores or presents an Open-in-CREATE success link.
 
 ### Legacy Send to PLAN deployment
 
