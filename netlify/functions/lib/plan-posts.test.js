@@ -46,6 +46,7 @@ test("updates only ScheduledDate and returns the exact persisted instant", async
   const body = await response.json();
   assert.equal(response.status, 200);
   assert.equal(body.post.scheduledDate, "2026-08-01T22:30:00.000Z");
+  assert.equal(body.post.execution.state, "not_recorded");
   assert.equal(calls.length, 3);
 });
 
@@ -131,6 +132,48 @@ test("requires operator authorization and rejects pages outside the configured d
   }));
   assert.equal(wrongParent.status, 403);
   assert.match((await wrongParent.json()).error, /configured Posts DB/);
+});
+
+test("locks Status and ScheduledDate after operator scheduling is recorded", async () => {
+  let notionPatchCalled = false;
+  const scheduledAt = "2026-08-08T18:30:00-04:00";
+  const handler = createPlanPostsHandler({
+    env: { ...env, PLAN_INTEGRATION_TOKEN: "integration-token" },
+    fetchImpl: async (url, init = {}) => {
+      if (url.endsWith("/databases/database-id")) return Response.json(schema());
+      if (url.includes("/api/integrations/plan/operator-scheduled")) {
+        return Response.json({
+          execution: {
+            id: "execution-id",
+            notionPageId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            state: "operator_scheduled_receipt_pending",
+            scheduledAt,
+            notionVersion: "2026-08-01T10:00:00.000Z",
+            recordedBy: "operator",
+            recordedAt: "2026-08-01T10:05:00.000Z",
+          },
+        });
+      }
+      if (init.method === "PATCH") notionPatchCalled = true;
+      return Response.json({
+        ...page(scheduledAt),
+        properties: {
+          ...page(scheduledAt).properties,
+          Platform: { select: { name: "Rednote" } },
+          Status: { status: { name: "Approved" } },
+        },
+      });
+    },
+  });
+
+  const response = await handler(mutation({
+    id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    expectedVersion: "2026-08-01T10:00:00.000Z",
+    status: "Published",
+  }));
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).error, /already recorded/);
+  assert.equal(notionPatchCalled, false);
 });
 
 function mutation(body) {

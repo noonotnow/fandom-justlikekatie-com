@@ -17,6 +17,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/plan-operator-scheduled"
+  to = "/.netlify/functions/plan-operator-scheduled"
+  status = 200
+
+[[redirects]]
   from = "/api/idea-packets"
   to = "/.netlify/functions/idea-packets"
   status = 200
