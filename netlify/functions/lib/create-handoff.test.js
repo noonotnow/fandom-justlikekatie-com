@@ -865,7 +865,9 @@ test("hands off upgraded saved-history packets with curated-media provenance int
 test("migrates an unchanged pre-PR8 legacy handoffAttempt pointer with one render and one MEDIA registration", async () => {
   const current = incidentPacket();
   current.handoffAttempt = legacyPointer();
-  const store = memoryStore(current);
+  // A real packet-entry ETag is required so the pointer swap below is a genuine CAS, not
+  // an unconditional overwrite -- exercising the exact guarantee the incident fix requires.
+  const store = conditionalMemoryStore(current);
   let renderCalls = 0;
   let mediaCalls = 0;
   let envelope;
@@ -911,7 +913,7 @@ test("migrates an unchanged pre-PR8 legacy handoffAttempt pointer with one rende
 test("coalesces concurrent legacy-pointer migrations onto one durable render and MEDIA registration", async () => {
   const current = incidentPacket();
   current.handoffAttempt = legacyPointer();
-  const store = memoryStore(current);
+  const store = conditionalMemoryStore(current);
   let renderCalls = 0;
   let mediaCalls = 0;
   let createCalls = 0;
@@ -964,7 +966,7 @@ test("fails closed on malformed or CAS-mismatched current-version legacy pointer
   for (const { name, overrides } of cases) {
     const current = incidentPacket();
     current.handoffAttempt = legacyPointer(overrides);
-    const store = memoryStore(current);
+    const store = conditionalMemoryStore(current);
     let renderCalls = 0;
     let upstreamCalls = 0;
     const handler = createCreateHandoffHandler({
@@ -992,7 +994,7 @@ test("keeps a migrated legacy attempt exactly replayable after MEDIA success and
   for (const createStatus of [503, 409]) {
     const current = incidentPacket();
     current.handoffAttempt = legacyPointer();
-    const store = memoryStore(current);
+    const store = conditionalMemoryStore(current);
     let renderCalls = 0;
     let mediaCalls = 0;
     let createCalls = 0;
@@ -1050,7 +1052,7 @@ test("keeps a migrated legacy attempt exactly replayable after MEDIA success and
 test("safely supersedes a legacy pointer whose packetVersion no longer matches the current packet", async () => {
   const current = incidentPacket();
   current.handoffAttempt = legacyPointer({ packetVersion: "packet-version-0" });
-  const store = memoryStore(current);
+  const store = conditionalMemoryStore(current);
   let renderCalls = 0;
   let mediaCalls = 0;
   let envelope;
@@ -1084,4 +1086,36 @@ test("safely supersedes a legacy pointer whose packetVersion no longer matches t
   const saved = store.records.get(current.id);
   assert.equal(saved.handoffAttempt, undefined);
   assert.notEqual(saved.handoff.fingerprint, legacyPointer().fingerprint);
+});
+
+test("fails closed on a current-version legacy pointer when the packet entry has no ETag to CAS against", async () => {
+  const current = incidentPacket();
+  current.handoffAttempt = legacyPointer();
+  // A plain store with no getWithMetadata support never yields an ETag, so the pointer
+  // swap could only ever be an unconditional overwrite -- never a real CAS. Migration
+  // must refuse before rendering rather than silently downgrading that guarantee.
+  const store = memoryStore(current);
+  let renderCalls = 0;
+  let upstreamCalls = 0;
+  const handler = createCreateHandoffHandler({
+    env: ENV,
+    getStore: () => store,
+    renderOutputImpl: async () => {
+      renderCalls += 1;
+      return PNG;
+    },
+    fetchImpl: async () => {
+      upstreamCalls += 1;
+      throw new Error("must not call upstream");
+    },
+  });
+
+  const response = await handler(request(current, ["grid-output"]));
+  const body = await response.json();
+  assert.equal(response.status, 502);
+  assert.equal(body.stage, "storage");
+  assert.equal(renderCalls, 0);
+  assert.equal(upstreamCalls, 0);
+  // The unmigrated legacy pointer is left exactly as-is; nothing was written.
+  assert.deepEqual(store.records.get(current.id).handoffAttempt, legacyPointer());
 });

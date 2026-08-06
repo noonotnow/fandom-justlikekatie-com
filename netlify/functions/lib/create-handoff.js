@@ -69,7 +69,20 @@ export function createCreateHandoffHandler({
           validatePacketForHandoff(packet, manifest);
           let attempt = await loadReplayAttempt(packet, manifest, attemptStore, req.url);
           const legacyMigration = attempt?.legacyMigration ?? null;
-          if (legacyMigration) attempt = null;
+          if (legacyMigration) {
+            attempt = null;
+            // The migration's pointer swap must be an atomic CAS against the packet
+            // entry's ETag (never a silent unconditional overwrite). If the store can't
+            // supply one, fail closed before spending a render on a migration we can't
+            // safely commit.
+            if (!packetEntry?.etag) {
+              throw new UpstreamError(
+                "Fandom could not safely migrate the legacy CREATE retry record. Nothing was sent.",
+                502,
+                "storage",
+              );
+            }
+          }
         if (!attempt) {
           const files = await renderFiles(packet, manifest.outputs, {
             renderOutputImpl,
