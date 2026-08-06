@@ -159,18 +159,7 @@ function requestPinned(url) {
         Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
         "User-Agent": "FandomCanonicalRenderer/1.0",
       },
-      lookup: async (hostname, _options, callback) => {
-        try {
-          const addresses = await lookup(hostname, { all: true, verbatim: true });
-          if (addresses.length === 0 || addresses.some(entry => !isPublicAddress(entry.address))) {
-            callback(new Error("Source hostname resolves to a private or invalid address."));
-            return;
-          }
-          callback(null, addresses[0].address, addresses[0].family);
-        } catch (error) {
-          callback(error);
-        }
-      },
+      lookup: createPublicLookup(),
     }, response => {
       const chunks = [];
       let size = 0;
@@ -194,6 +183,35 @@ function requestPinned(url) {
   });
 }
 
+export function createPublicLookup(lookupImpl = lookup) {
+  return async function publicLookup(hostname, options, callback) {
+    try {
+      const addresses = await lookupImpl(hostname, { all: true, verbatim: true });
+      if (
+        !Array.isArray(addresses)
+        || addresses.length === 0
+        || addresses.some(entry => (
+          !entry
+          || typeof entry.address !== "string"
+          || ![4, 6].includes(entry.family)
+          || isIP(entry.address) !== entry.family
+          || !isPublicAddress(entry.address)
+        ))
+      ) {
+        callback(new Error("Source hostname resolves to a private or invalid address."));
+        return;
+      }
+      if (options?.all) {
+        callback(null, addresses);
+        return;
+      }
+      callback(null, addresses[0].address, addresses[0].family);
+    } catch (error) {
+      callback(error);
+    }
+  };
+}
+
 function validatePublicHttpsUrl(value) {
   const url = new URL(value);
   if (
@@ -210,9 +228,22 @@ function validatePublicHttpsUrl(value) {
 }
 
 function isPublicAddress(address) {
-  if (address.includes(":")) {
-    const normalized = address.toLowerCase();
-    if (normalized.startsWith("::ffff:")) return isPublicAddress(normalized.slice(7));
+  const family = isIP(address);
+  if (family === 0) return false;
+  if (family === 6) {
+    const normalized = new URL(`http://[${address}]`).hostname.slice(1, -1);
+    if (normalized.startsWith("::ffff:")) {
+      const mapped = normalized.slice(7).split(":");
+      if (mapped.length !== 2) return false;
+      const high = Number.parseInt(mapped[0], 16);
+      const low = Number.parseInt(mapped[1], 16);
+      return isPublicAddress([
+        high >>> 8,
+        high & 0xff,
+        low >>> 8,
+        low & 0xff,
+      ].join("."));
+    }
     return !(
       normalized === "::"
       || normalized === "::1"

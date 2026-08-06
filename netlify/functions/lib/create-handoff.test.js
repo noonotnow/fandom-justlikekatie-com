@@ -390,6 +390,64 @@ test("rejects persisted non-proxy source URLs before MEDIA registration", async 
   assert.equal(upstreamCalls, 0);
 });
 
+test("keeps an incident-shaped render failure retryable and aborts before MEDIA or CREATE", async () => {
+  const incident = packet();
+  incident.id = "94a5581e-e2e4-4c14-b904-48e77ce1e5f0";
+  incident.actor = { id: "liu-yuning", name: "刘宇宁", nameEn: "Liu Yuning" };
+  incident.vibe = { label: "摩天能量", labelEn: "Skyscraper Energy", emoji: "⚡" };
+  incident.sourceCards = Array.from({ length: 4 }, (_, index) => ({
+    ...packet().sourceCards[0],
+    id: `media-${index + 1}`,
+    order: index,
+    resultId: `result-${index + 1}`,
+    title: index === 0
+      ? "风掠过塞纳河，攀上埃菲尔铁塔。驻足塔边，赴一场与@摩登兄弟刘宇宁 的巴黎之约。#地球超新鲜, Cr.刘宇宁LYN工作室"
+      : `Source ${index + 1}`,
+    imageUrl: `/.netlify/functions/image-proxy?url=${encodeURIComponent(`https://images.example/${index + 1}.jpg`)}`,
+  }));
+  incident.outputs = [
+    incident.outputs[0],
+    ...incident.sourceCards.map((card, index) => ({
+      id: `individual-output-${index + 1}`,
+      kind: "individual",
+      sourceId: card.id,
+      label: card.title,
+      included: true,
+      addedAt: "2026-08-05T12:00:00.000Z",
+    })),
+  ];
+  const store = memoryStore(incident);
+  let renderCalls = 0;
+  let upstreamCalls = 0;
+  const handler = createCreateHandoffHandler({
+    env: ENV,
+    getStore: () => store,
+    renderOutputImpl: async () => {
+      renderCalls += 1;
+      if (renderCalls === 1) throw new Error("getaddrinfo ENOTFOUND images.example");
+      return PNG;
+    },
+    fetchImpl: async () => {
+      upstreamCalls += 1;
+      throw new Error("must not call MEDIA or CREATE");
+    },
+  });
+  const outputIds = incident.outputs.map(output => output.id);
+
+  const failed = await handler(request(incident, outputIds));
+  assert.equal(failed.status, 422);
+  assert.equal((await failed.json()).stage, "render");
+  assert.equal(upstreamCalls, 0);
+  assert.equal(store.records.get(incident.id).handoffAttempt, undefined);
+
+  renderCalls = 1;
+  const retry = await handler(request(incident, outputIds));
+  assert.equal((await retry.json()).stage, "media");
+  assert.equal(renderCalls, 6);
+  assert.equal(upstreamCalls, 1);
+  assert.equal(store.records.get(incident.id).handoffAttempt.sourceVersion, 1);
+});
+
 test("recovers with the exact signed envelope when receipt persistence fails after CREATE", async () => {
   const singleOutputPacket = packet();
   singleOutputPacket.outputs[1].included = false;
