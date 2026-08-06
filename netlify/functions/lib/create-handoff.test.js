@@ -89,6 +89,38 @@ function memoryStore(initial = packet()) {
     records,
     async get(key) { return structuredClone(records.get(key) ?? null); },
     async setJSON(key, value) { records.set(key, structuredClone(value)); },
+    async delete(key) { records.delete(key); },
+  };
+}
+
+function conditionalMemoryStore(initial) {
+  const records = new Map(initial ? [[initial.id, structuredClone(initial)]] : []);
+  const etags = new Map(initial ? [[initial.id, "etag-1"]] : []);
+  let revision = 1;
+  return {
+    records,
+    async get(key) { return structuredClone(records.get(key) ?? null); },
+    async getWithMetadata(key) {
+      if (!records.has(key)) return null;
+      return {
+        data: structuredClone(records.get(key)),
+        etag: etags.get(key),
+      };
+    },
+    async setJSON(key, value, options = {}) {
+      const currentEtag = etags.get(key);
+      if (options.onlyIfNew && records.has(key)) return { modified: false };
+      if (options.onlyIfMatch && options.onlyIfMatch !== currentEtag) return { modified: false };
+      revision += 1;
+      const etag = `etag-${revision}`;
+      records.set(key, structuredClone(value));
+      etags.set(key, etag);
+      return { modified: true, etag };
+    },
+    async delete(key) {
+      records.delete(key);
+      etags.delete(key);
+    },
   };
 }
 
@@ -117,7 +149,7 @@ function request(current, outputIds = ["grid-output", "individual-output"]) {
   });
 }
 
-function mediaDescriptor(index) {
+function mediaDescriptor(index, bytes = PNG) {
   return {
     version: 1,
     assetId: `asset-${index}`,
@@ -126,9 +158,9 @@ function mediaDescriptor(index) {
     thumbnailUrl: `https://media.example/assets/${index}.png`,
     mediaType: "image",
     mimeType: "image/png",
-    sizeBytes: PNG.byteLength,
+    sizeBytes: bytes.byteLength,
     dimensions: { width: 1080, height: 1350 },
-    checksum: createHash("sha256").update(PNG).digest("hex"),
+    checksum: createHash("sha256").update(bytes).digest("hex"),
   };
 }
 
@@ -213,10 +245,18 @@ test("replays the same source version and relies on MEDIA checksum dedupe", asyn
   singleOutputPacket.outputs[1].included = false;
   const store = memoryStore(singleOutputPacket);
   const envelopes = [];
+  const times = [
+    "2026-08-05T18:00:00.000Z",
+    "2026-08-05T18:00:01.000Z",
+    "2026-08-05T18:00:02.000Z",
+    "2026-08-05T19:00:00.000Z",
+    "2026-08-05T19:00:01.000Z",
+    "2026-08-05T19:00:02.000Z",
+  ];
   const handler = testHandler({
     env: ENV,
     getStore: () => store,
-    now: () => new Date("2026-08-05T18:00:00.000Z"),
+    now: () => new Date(times.shift()),
     fetchImpl: async (url, init) => {
       if (url === ENV.MEDIA_ASSETS_URL) {
         return Response.json({ data: mediaDescriptor(1), meta: { deduplicated: true } });
@@ -239,6 +279,7 @@ test("replays the same source version and relies on MEDIA checksum dedupe", asyn
   assert.equal(envelopes[0].expectedSourceVersion, null);
   assert.equal(envelopes[1].expectedSourceVersion, null);
   assert.deepEqual(envelopes[0], envelopes[1]);
+  assert.equal(envelopes[1].generatedAt, "2026-08-05T18:00:00.000Z");
 });
 
 test("increments source version with prior-version CAS after packet content changes", async () => {
@@ -299,6 +340,204 @@ test("surfaces partial MEDIA and CREATE failures without success-shaped receipts
     assert.equal(store.records.get("packet-1").handoff, undefined);
     assert.equal(store.records.get("packet-1").handoffAttempt.sourceVersion, 1);
   }
+});
+
+test("retries CREATE 503 and 409 with exact attempt bytes and prior MEDIA registrations", async () => {
+  for (const createStatus of [503, 409]) {
+    const singleOutputPacket = packet();
+    singleOutputPacket.outputs[1].included = false;
+    const store = memoryStore(singleOutputPacket);
+    let renderCalls = 0;
+    let mediaCalls = 0;
+    let createCalls = 0;
+    const envelopes = [];
+    const generatedTimes = [
+      "2026-08-06T11:22:17.014Z",
+      "2026-08-06T11:22:18.000Z",
+      "2026-08-06T11:23:00.000Z",
+      "2026-08-06T11:23:01.000Z",
+    ];
+    const handler = createCreateHandoffHandler({
+      env: ENV,
+      getStore: () => store,
+      now: () => new Date(generatedTimes.shift()),
+      renderOutputImpl: async () => {
+        renderCalls += 1;
+        return renderCalls === 1 ? PNG : new Uint8Array([...PNG, 99]);
+      },
+      fetchImpl: async (url, init) => {
+        if (url === ENV.MEDIA_ASSETS_URL) {
+          mediaCalls += 1;
+          return Response.json({ data: mediaDescriptor(1), meta: { deduplicated: false } }, { status: 201 });
+        }
+        createCalls += 1;
+        envelopes.push(JSON.parse(init.body));
+        if (createCalls === 1) {
+          return Response.json({ error: "CREATE unavailable" }, { status: createStatus });
+        }
+        return Response.json(createReceipt("replayed"), { status: 200 });
+      },
+    });
+
+    const first = await handler(request(singleOutputPacket, ["grid-output"]));
+    assert.equal(first.status, createStatus === 409 ? 409 : 502);
+    const pointer = store.records.get(singleOutputPacket.id).handoffAttempt;
+    const artifact = store.records.get(pointer.artifactKey);
+    assert.equal(artifact.files[0].checksum, mediaDescriptor(1).checksum);
+    assert.equal(artifact.registered[0].descriptor.assetId, "asset-1");
+
+    const second = await handler(request(store.records.get(singleOutputPacket.id), ["grid-output"]));
+    assert.equal(second.status, 200);
+    assert.equal(renderCalls, 1);
+    assert.equal(mediaCalls, 1);
+    assert.equal(createCalls, 2);
+    assert.deepEqual(envelopes[1], envelopes[0]);
+    assert.equal(envelopes[1].generatedAt, "2026-08-06T11:22:17.014Z");
+    assert.equal(store.records.get(singleOutputPacket.id).handoffAttempt, undefined);
+  }
+});
+
+test("coalesces concurrent retries onto one durable render and MEDIA registration", async () => {
+  const singleOutputPacket = packet();
+  singleOutputPacket.outputs[1].included = false;
+  const store = memoryStore(singleOutputPacket);
+  let renderCalls = 0;
+  let mediaCalls = 0;
+  let createCalls = 0;
+  const handler = createCreateHandoffHandler({
+    env: ENV,
+    getStore: () => store,
+    now: () => new Date("2026-08-06T11:22:17.014Z"),
+    renderOutputImpl: async () => {
+      renderCalls += 1;
+      return PNG;
+    },
+    fetchImpl: async (url) => {
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        mediaCalls += 1;
+        await new Promise(resolve => setTimeout(resolve, 5));
+        return Response.json({ data: mediaDescriptor(1), meta: { deduplicated: false } }, { status: 201 });
+      }
+      createCalls += 1;
+      if (createCalls === 1) {
+        return Response.json({ error: "CREATE unavailable" }, { status: 503 });
+      }
+      return Response.json(createReceipt("replayed"), { status: 200 });
+    },
+  });
+
+  const [first, second] = await Promise.all([
+    handler(request(singleOutputPacket, ["grid-output"])),
+    handler(request(singleOutputPacket, ["grid-output"])),
+  ]);
+  assert.equal(first.status, 502);
+  assert.equal(second.status, 200);
+  assert.equal(renderCalls, 1);
+  assert.equal(mediaCalls, 1);
+  assert.equal(createCalls, 2);
+});
+
+test("supersedes a failed attempt after an explicit packet version change", async () => {
+  const singleOutputPacket = packet();
+  singleOutputPacket.outputs[1].included = false;
+  const store = memoryStore(singleOutputPacket);
+  const secondPng = new Uint8Array([...PNG, 99]);
+  let renderCalls = 0;
+  let mediaCalls = 0;
+  const envelopes = [];
+  const handler = createCreateHandoffHandler({
+    env: ENV,
+    getStore: () => store,
+    now: () => new Date(renderCalls === 0 ? "2026-08-06T11:22:17.014Z" : "2026-08-06T11:23:17.014Z"),
+    renderOutputImpl: async () => {
+      renderCalls += 1;
+      return renderCalls === 1 ? PNG : secondPng;
+    },
+    fetchImpl: async (url, init) => {
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        mediaCalls += 1;
+        const bytes = new Uint8Array(await init.body.get("file").arrayBuffer());
+        return Response.json({ data: mediaDescriptor(mediaCalls, bytes), meta: { deduplicated: false } }, { status: 201 });
+      }
+      const envelope = JSON.parse(init.body);
+      envelopes.push(envelope);
+      if (envelopes.length === 1) return Response.json({ error: "CREATE unavailable" }, { status: 503 });
+      return Response.json(createReceipt("created"), { status: 201 });
+    },
+  });
+
+  const first = await handler(request(singleOutputPacket, ["grid-output"]));
+  assert.equal(first.status, 502);
+  const firstFingerprint = store.records.get(singleOutputPacket.id).handoffAttempt.fingerprint;
+  const changed = store.records.get(singleOutputPacket.id);
+  changed.captionSeeds = "Changed after failed attempt";
+  changed.version = "packet-version-2";
+  store.records.set(changed.id, changed);
+
+  const second = await handler(request(changed, ["grid-output"]));
+  assert.equal(second.status, 201);
+  assert.equal(renderCalls, 2);
+  assert.equal(mediaCalls, 2);
+  assert.notEqual(store.records.get(changed.id).handoff.fingerprint, firstFingerprint);
+  assert.equal(envelopes[1].packetVersion, "packet-version-2");
+  assert.equal(envelopes[1].draft.caption, "Changed after failed attempt");
+  assert.equal(envelopes[1].sourceVersion, 1);
+  assert.equal(envelopes[1].expectedSourceVersion, null);
+});
+
+test("fails closed when the current packet retry pointer is malformed", async () => {
+  const current = packet();
+  current.handoffAttempt = {
+    schemaVersion: 1,
+    packetVersion: current.version,
+    sourceVersion: 1,
+  };
+  const store = memoryStore(current);
+  let upstreamCalls = 0;
+  let renderCalls = 0;
+  const handler = createCreateHandoffHandler({
+    env: ENV,
+    getStore: () => store,
+    renderOutputImpl: async () => {
+      renderCalls += 1;
+      return PNG;
+    },
+    fetchImpl: async () => {
+      upstreamCalls += 1;
+      throw new Error("must not call upstream");
+    },
+  });
+  const response = await handler(request(current));
+  const body = await response.json();
+  assert.equal(response.status, 409);
+  assert.equal(body.stage, "storage");
+  assert.equal(renderCalls, 0);
+  assert.equal(upstreamCalls, 0);
+});
+
+test("rejects a cross-instance retry while a durable handoff lease is active", async () => {
+  const store = memoryStore();
+  store.records.set("locks/packet-1", {
+    owner: "other-instance",
+    acquiredAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+    state: "active",
+  });
+  let calls = 0;
+  const handler = testHandler({
+    env: ENV,
+    getStore: () => store,
+    fetchImpl: async () => {
+      calls += 1;
+      throw new Error("must not call upstream");
+    },
+  });
+  const response = await handler(request(packet()));
+  const body = await response.json();
+  assert.equal(response.status, 409);
+  assert.equal(body.stage, "storage");
+  assert.match(body.error, /already in progress/);
+  assert.equal(calls, 0);
 });
 
 test("rejects operator-diverged receipts as conflicts without storing or exposing success", async () => {
@@ -452,12 +691,14 @@ test("recovers with the exact signed envelope when receipt persistence fails aft
   const singleOutputPacket = packet();
   singleOutputPacket.outputs[1].included = false;
   const base = memoryStore(singleOutputPacket);
-  let writes = 0;
+  let failReceiptWrite = true;
   const store = {
     ...base,
     async setJSON(key, value) {
-      writes += 1;
-      if (writes === 2) throw new Error("temporary blob failure");
+      if (value.handoff && failReceiptWrite) {
+        failReceiptWrite = false;
+        throw new Error("temporary blob failure");
+      }
       await base.setJSON(key, value);
     },
   };
@@ -482,25 +723,28 @@ test("recovers with the exact signed envelope when receipt persistence fails aft
   assert.equal(failed.stage, "storage");
   assert.equal(failed.details.receipt.postId, createReceipt().postId);
   assert.equal(base.records.get("packet-1").handoffAttempt.fingerprint.length, 64);
+  const artifactKey = base.records.get("packet-1").handoffAttempt.artifactKey;
 
   const second = await handler(request(base.records.get("packet-1"), ["grid-output"]));
   assert.equal(second.status, 200);
   assert.deepEqual(envelopes[0], envelopes[1]);
   assert.equal(base.records.get("packet-1").handoff.receipt.disposition, "replayed");
   assert.equal(base.records.get("packet-1").handoffAttempt, undefined);
+  assert.equal(base.records.has(artifactKey), false);
 });
 
 test("does not overwrite a concurrent packet edit after CREATE accepts the Draft", async () => {
-  const store = memoryStore();
+  const store = conditionalMemoryStore(packet());
+  const attemptStore = conditionalMemoryStore();
   const handler = testHandler({
     env: ENV,
-    getStore: () => store,
+    getStore: name => name === "idea-packets" ? store : attemptStore,
     now: () => new Date("2026-08-05T18:00:00.000Z"),
     fetchImpl: async (url) => {
       if (url === ENV.MEDIA_ASSETS_URL) {
         return Response.json({ data: mediaDescriptor(1), meta: { deduplicated: true } });
       }
-      store.records.set("packet-1", {
+      await store.setJSON("packet-1", {
         ...store.records.get("packet-1"),
         notes: "Concurrent edit survives",
         version: "concurrent-version",
@@ -515,6 +759,35 @@ test("does not overwrite a concurrent packet edit after CREATE accepts the Draft
   assert.equal(body.details.receipt.postId, createReceipt().postId);
   assert.equal(store.records.get("packet-1").notes, "Concurrent edit survives");
   assert.equal(store.records.get("packet-1").handoff, undefined);
+});
+
+test("does not attach an attempt pointer over a cross-instance packet edit", async () => {
+  const store = conditionalMemoryStore(packet());
+  const attemptStore = conditionalMemoryStore();
+  let upstreamCalls = 0;
+  const handler = createCreateHandoffHandler({
+    env: ENV,
+    getStore: name => name === "idea-packets" ? store : attemptStore,
+    renderOutputImpl: async () => {
+      await store.setJSON("packet-1", {
+        ...store.records.get("packet-1"),
+        notes: "Edit during render",
+        version: "concurrent-version",
+      });
+      return PNG;
+    },
+    fetchImpl: async () => {
+      upstreamCalls += 1;
+      throw new Error("must not call upstream");
+    },
+  });
+  const response = await handler(request(packet()));
+  const body = await response.json();
+  assert.equal(response.status, 409);
+  assert.equal(body.stage, "packet");
+  assert.equal(store.records.get("packet-1").notes, "Edit during render");
+  assert.equal(store.records.get("packet-1").handoffAttempt, undefined);
+  assert.equal(upstreamCalls, 0);
 });
 
 test("fails closed on stale packet versions before calling MEDIA or CREATE", async () => {

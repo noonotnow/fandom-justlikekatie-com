@@ -1,4 +1,5 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
+import { HANDOFF_ATTEMPT_STORE, withHandoffLease } from "./handoff-lease.js";
 
 const STORE_NAME = "idea-packets";
 const MAX_BODY_BYTES = 256 * 1024;
@@ -33,12 +34,20 @@ export function createIdeaPacketsHandler({ env = process.env, getStore }) {
         const body = await readBody(req);
         const id = requireString(body.id, "A packet id is required.");
         return await withIdeaPacketLock(id, async () => {
-          const current = upgradeLegacyPacket(await store.get(id, { type: "json" }));
-          if (!current) throw new RequestError("Idea Packet was deleted or is no longer available.", 404);
-          if (body.expectedVersion !== current.version) throw new RequestError("This packet changed. Refresh before applying your edit.", 409);
-          const packet = applyAction(current, body.action);
-          await store.setJSON(packet.id, packet);
-          return jsonResponse(200, { packet });
+          const leaseStore = getStore(HANDOFF_ATTEMPT_STORE, context);
+          return withHandoffLease(leaseStore, id, async () => {
+            const entry = await getPacketWithMetadata(store, id);
+            const current = upgradeLegacyPacket(entry?.data);
+            if (!current) throw new RequestError("Idea Packet was deleted or is no longer available.", 404);
+            if (body.expectedVersion !== current.version) throw new RequestError("This packet changed. Refresh before applying your edit.", 409);
+            const packet = applyAction(current, body.action);
+            if (!await setPacketIfMatch(store, packet.id, packet, entry?.etag)) {
+              throw new RequestError("This packet changed. Refresh before applying your edit.", 409);
+            }
+            return jsonResponse(200, { packet });
+          }, {
+            conflict: message => new RequestError(message, 409),
+          });
         });
       }
       return jsonResponse(405, { error: "Method not allowed" }, { Allow: "GET, POST, PATCH" });
@@ -288,6 +297,26 @@ export async function withIdeaPacketLock(id, work) {
     release();
     if (mutationLocks.get(id) === queued) mutationLocks.delete(id);
   }
+}
+
+async function getPacketWithMetadata(store, id) {
+  if (typeof store.getWithMetadata === "function") {
+    return store.getWithMetadata(id, { type: "json", consistency: "strong" });
+  }
+  const data = await store.get(id, { type: "json", consistency: "strong" });
+  return data ? { data } : null;
+}
+
+async function setPacketIfMatch(store, id, packet, etag) {
+  if (!etag) {
+    await store.setJSON(id, packet);
+    return true;
+  }
+  const result = await store.setJSON(id, packet, { onlyIfMatch: etag });
+  if (result?.modified === false) return false;
+  if (result?.modified === true) return true;
+  const stored = await getPacketWithMetadata(store, id);
+  return JSON.stringify(stored?.data) === JSON.stringify(packet);
 }
 
 function jsonResponse(status, body, headers = {}) {
