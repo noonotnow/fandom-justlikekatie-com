@@ -18,6 +18,16 @@ const MAX_RESPONSE_BYTES = 256 * 1024;
 const DEFAULT_MEDIA_URL = "https://media.justlikekatie.com/v1/assets/images";
 const DEFAULT_CREATE_URL = "https://create.justlikekatie.com/api/integrations/fandom/projects";
 const DEFAULT_CREATE_APP_URL = "https://create.justlikekatie.com";
+// Pre-PR8 handoffAttempt pointers were exactly this shape: no schemaVersion/artifactKey,
+// because the checkpointed-artifact retry pipeline (PR8) did not exist yet.
+const LEGACY_ATTEMPT_POINTER_KEYS = new Set([
+  "sourceVersion",
+  "expectedSourceVersion",
+  "packetVersion",
+  "fingerprint",
+  "generatedAt",
+]);
+const HEX64_PATTERN = /^[0-9a-f]{64}$/;
 
 class RequestError extends Error {
   constructor(message, status = 400, stage = "request", details) {
@@ -58,6 +68,8 @@ export function createCreateHandoffHandler({
           const packet = upgradeLegacyPacket(packetEntry?.data);
           validatePacketForHandoff(packet, manifest);
           let attempt = await loadReplayAttempt(packet, manifest, attemptStore, req.url);
+          const legacyMigration = attempt?.legacyMigration ?? null;
+          if (legacyMigration) attempt = null;
         if (!attempt) {
           const files = await renderFiles(packet, manifest.outputs, {
             renderOutputImpl,
@@ -66,7 +78,15 @@ export function createCreateHandoffHandler({
           });
         await renew();
           attempt = createAttemptSnapshot(packet, manifest, files, now().toISOString());
-          if (isCompletedReplay(packet, attempt.fingerprint)) {
+          if (legacyMigration) {
+            // Pre-PR8 pointers carry no bytes/checksums/manifest to replay, so we render
+            // fresh and mint a normal PR8 artifact — but the source CAS chain (sourceVersion/
+            // expectedSourceVersion) and generatedAt must come from the legacy pointer itself,
+            // not be recomputed, since CREATE may already have seen that exact source version.
+            attempt.sourceVersion = legacyMigration.sourceVersion;
+            attempt.expectedSourceVersion = legacyMigration.expectedSourceVersion;
+            attempt.generatedAt = legacyMigration.generatedAt;
+          } else if (isCompletedReplay(packet, attempt.fingerprint)) {
             attempt.sourceVersion = packet.handoff.sourceVersion;
             attempt.expectedSourceVersion = packet.handoff.expectedSourceVersion;
             attempt.sourcePacketVersion = packet.handoff.packetVersion;
@@ -313,6 +333,13 @@ async function loadReplayAttempt(packet, manifest, attemptStore, requestUrl) {
   const pointer = packet.handoffAttempt;
   if (pointer === undefined) return null;
   if (!isRecord(pointer)) throw invalidAttemptState();
+  if (isLegacyAttemptPointerShape(pointer)) {
+    const legacyState = validateLegacyAttemptPointer(pointer, packet);
+    // A legacy pointer whose packetVersion no longer matches the current packet is stale:
+    // safely supersede it exactly like an absent pointer, so a normal fresh attempt is made.
+    if (legacyState === "stale") return null;
+    return { legacyMigration: pointer };
+  }
   if (
     pointer.schemaVersion !== ATTEMPT_SCHEMA_VERSION
     || typeof pointer.artifactKey !== "string"
@@ -457,6 +484,53 @@ function invalidAttemptState() {
   );
 }
 
+// A pre-PR8 pointer is recognizable only by its exact legacy shape: precisely the five
+// fields below, with no schemaVersion/artifactKey (those did not exist before PR8). Anything
+// else — extra fields, missing fields, or a schemaVersion/artifactKey present but invalid —
+// is NOT treated as a recognizable legacy pointer and falls through to fail closed instead.
+function isLegacyAttemptPointerShape(pointer) {
+  const keys = Object.keys(pointer);
+  return !("schemaVersion" in pointer)
+    && !("artifactKey" in pointer)
+    && keys.length === LEGACY_ATTEMPT_POINTER_KEYS.size
+    && keys.every(key => LEGACY_ATTEMPT_POINTER_KEYS.has(key));
+}
+
+// Validates a recognized legacy pointer strictly, then classifies it as either "stale"
+// (packetVersion no longer matches the current packet, so it can be safely superseded by a
+// normal fresh attempt) or "current" (matches the current packet and chains correctly from
+// the persisted completed handoff, so it is safe to migrate in place). Anything else —
+// malformed fields or a current-version pointer whose source CAS chain does not match the
+// persisted packet.handoff — fails closed before any render or upstream call.
+function validateLegacyAttemptPointer(pointer, packet) {
+  if (
+    !Number.isInteger(pointer.sourceVersion)
+    || pointer.sourceVersion < 1
+    || (
+      pointer.expectedSourceVersion !== null
+      && (!Number.isInteger(pointer.expectedSourceVersion) || pointer.expectedSourceVersion < 1)
+    )
+    || typeof pointer.packetVersion !== "string"
+    || !pointer.packetVersion
+    || typeof pointer.fingerprint !== "string"
+    || !HEX64_PATTERN.test(pointer.fingerprint)
+    || typeof pointer.generatedAt !== "string"
+    || !Number.isFinite(Date.parse(pointer.generatedAt))
+  ) {
+    throw invalidAttemptState();
+  }
+  if (pointer.packetVersion !== packet.version) return "stale";
+  const expectedSourceVersion = (packet.handoff?.sourceVersion || 0) + 1;
+  const expectedPriorSourceVersion = packet.handoff?.sourceVersion ?? null;
+  if (
+    pointer.sourceVersion !== expectedSourceVersion
+    || pointer.expectedSourceVersion !== expectedPriorSourceVersion
+  ) {
+    throw invalidAttemptState();
+  }
+  return "current";
+}
+
 async function renderFiles(packet, outputs, { renderOutputImpl, requestUrl, renew }) {
   const files = [];
   for (const output of outputs) {
@@ -486,6 +560,15 @@ async function renderFiles(packet, outputs, { renderOutputImpl, requestUrl, rene
   return files;
 }
 
+// Legacy pre-PR8 state (including the migration path above) never carries a MEDIA
+// descriptor, checksum, or asset id to reuse — only identifiers/provenance (packet id,
+// output id, source card ids, actor/vibe labels) that describe *intent*, not *bytes*.
+// Identifiers/provenance alone are never sufficient to safely reuse a MEDIA descriptor:
+// they don't prove the asset behind them still exists, wasn't replaced, or matches the
+// bytes we would render today. So registerMedia always POSTs the freshly rendered bytes;
+// MEDIA itself deduplicates by checksum server-side and returns the canonical descriptor
+// for identical bytes. If bytes differ (e.g. re-rendered from changed source content),
+// MEDIA mints one new canonical asset — never a second parallel "migrated" asset set.
 async function registerMedia(file, packet, output, { env, fetchImpl, requestUrl }) {
   const sourceCards = output.kind === "grid"
     ? packet.sourceCards

@@ -164,7 +164,7 @@ function mediaDescriptor(index, bytes = PNG) {
   };
 }
 
-function createReceipt(disposition = "created", sourceVersion = 1) {
+function createReceipt(disposition = "created", sourceVersion = 1, packetId = "packet-1") {
   return {
     deliverableId: "idea-packet-main",
     postId: "12345678-1234-1234-1234-123456789012",
@@ -173,10 +173,33 @@ function createReceipt(disposition = "created", sourceVersion = 1) {
     sourceVersion,
     workflow: "packet",
     disposition,
-    packetReceipt: { packetId: "packet-1", deliverableId: "idea-packet-main", accepted: true },
+    packetReceipt: { packetId, deliverableId: "idea-packet-main", accepted: true },
     mediaSyncState: "synced",
     warnings: [],
   };
+}
+
+const INCIDENT_PACKET_ID = "94a5581e-e2e4-4c14-b904-48e77ce1e5f0";
+
+// Pre-PR8 `handoffAttempt` pointers were exactly this shape: no schemaVersion/artifactKey,
+// no bytes/checksums/manifest/MEDIA descriptors — only the source CAS chain and a bare
+// fingerprint that cannot be reused (there is nothing behind it to trust).
+function legacyPointer(overrides = {}) {
+  return {
+    sourceVersion: 1,
+    expectedSourceVersion: null,
+    packetVersion: "packet-version-1",
+    fingerprint: createHash("sha256").update("pre-pr8-legacy-state").digest("hex"),
+    generatedAt: "2026-07-01T09:30:00.000Z",
+    ...overrides,
+  };
+}
+
+function incidentPacket() {
+  const current = packet();
+  current.id = INCIDENT_PACKET_ID;
+  current.outputs[1].included = false;
+  return current;
 }
 
 test("registers exact mixed PNGs in MEDIA and signs one canonical CREATE Draft", async () => {
@@ -837,4 +860,228 @@ test("hands off upgraded saved-history packets with curated-media provenance int
   assert.ok(envelope.sourceCards.some(card => card.id === "media-1"));
   assert.ok(envelope.mediaAttachments[1].sourceCardIds.includes("media-1"));
   assert.equal(individualMetadata.sourceUrl, "https://publisher.example/one");
+});
+
+test("migrates an unchanged pre-PR8 legacy handoffAttempt pointer with one render and one MEDIA registration", async () => {
+  const current = incidentPacket();
+  current.handoffAttempt = legacyPointer();
+  const store = memoryStore(current);
+  let renderCalls = 0;
+  let mediaCalls = 0;
+  let envelope;
+  const handler = createCreateHandoffHandler({
+    env: ENV,
+    getStore: () => store,
+    now: () => new Date("2026-08-06T12:00:00.000Z"),
+    renderOutputImpl: async () => {
+      renderCalls += 1;
+      return PNG;
+    },
+    fetchImpl: async (url, init) => {
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        mediaCalls += 1;
+        return Response.json({ data: mediaDescriptor(1), meta: { deduplicated: false } }, { status: 201 });
+      }
+      envelope = JSON.parse(init.body);
+      return Response.json(createReceipt("created", 1, current.id), { status: 201 });
+    },
+  });
+
+  const response = await handler(request(current, ["grid-output"]));
+  const body = await response.json();
+  assert.equal(response.status, 201);
+  assert.equal(renderCalls, 1);
+  assert.equal(mediaCalls, 1);
+  assert.equal(body.receipt.postId, createReceipt().postId);
+  // The legacy pointer's source CAS chain and generatedAt are preserved exactly, not
+  // recomputed, because CREATE may already have observed that exact source version.
+  assert.equal(envelope.sourceVersion, 1);
+  assert.equal(envelope.expectedSourceVersion, null);
+  assert.equal(envelope.generatedAt, "2026-07-01T09:30:00.000Z");
+  const saved = store.records.get(current.id);
+  assert.equal(saved.handoffAttempt, undefined);
+  assert.equal(saved.handoff.sourceVersion, 1);
+  assert.equal(saved.handoff.expectedSourceVersion, null);
+  assert.equal(saved.handoff.generatedAt, "2026-07-01T09:30:00.000Z");
+  // Fingerprint is never trusted from legacy state — it is recomputed from the actual
+  // re-rendered bytes because legacy pointers carry no checksums to validate against.
+  assert.notEqual(saved.handoff.fingerprint, legacyPointer().fingerprint);
+});
+
+test("coalesces concurrent legacy-pointer migrations onto one durable render and MEDIA registration", async () => {
+  const current = incidentPacket();
+  current.handoffAttempt = legacyPointer();
+  const store = memoryStore(current);
+  let renderCalls = 0;
+  let mediaCalls = 0;
+  let createCalls = 0;
+  const handler = createCreateHandoffHandler({
+    env: ENV,
+    getStore: () => store,
+    now: () => new Date("2026-08-06T12:00:00.000Z"),
+    renderOutputImpl: async () => {
+      renderCalls += 1;
+      return PNG;
+    },
+    fetchImpl: async (url) => {
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        mediaCalls += 1;
+        await new Promise(resolve => setTimeout(resolve, 5));
+        return Response.json({ data: mediaDescriptor(1), meta: { deduplicated: false } }, { status: 201 });
+      }
+      createCalls += 1;
+      if (createCalls === 1) return Response.json({ error: "CREATE unavailable" }, { status: 503 });
+      return Response.json(createReceipt("replayed", 1, current.id), { status: 200 });
+    },
+  });
+
+  const [first, second] = await Promise.all([
+    handler(request(current, ["grid-output"])),
+    handler(request(current, ["grid-output"])),
+  ]);
+  assert.equal(first.status, 502);
+  assert.equal(second.status, 200);
+  assert.equal(renderCalls, 1);
+  assert.equal(mediaCalls, 1);
+  assert.equal(createCalls, 2);
+  assert.equal(store.records.get(current.id).handoffAttempt, undefined);
+});
+
+test("fails closed on malformed or CAS-mismatched current-version legacy pointers before render or upstream calls", async () => {
+  const cases = [
+    { name: "non-hex fingerprint", overrides: { fingerprint: "not-a-valid-fingerprint" } },
+    { name: "fingerprint wrong length", overrides: { fingerprint: "abc123" } },
+    { name: "non-integer sourceVersion", overrides: { sourceVersion: 1.5 } },
+    { name: "sourceVersion below 1", overrides: { sourceVersion: 0 } },
+    { name: "expectedSourceVersion wrong type", overrides: { expectedSourceVersion: "0" } },
+    // Source CAS chain mismatch: no prior packet.handoff, so sourceVersion must be 1 and
+    // expectedSourceVersion must be null — this pointer claims a chain that never happened.
+    { name: "sourceVersion CAS mismatch", overrides: { sourceVersion: 2 } },
+    { name: "expectedSourceVersion CAS mismatch", overrides: { expectedSourceVersion: 5 } },
+    { name: "invalid generatedAt", overrides: { generatedAt: "not-a-date" } },
+    { name: "empty packetVersion", overrides: { packetVersion: "" } },
+  ];
+  for (const { name, overrides } of cases) {
+    const current = incidentPacket();
+    current.handoffAttempt = legacyPointer(overrides);
+    const store = memoryStore(current);
+    let renderCalls = 0;
+    let upstreamCalls = 0;
+    const handler = createCreateHandoffHandler({
+      env: ENV,
+      getStore: () => store,
+      renderOutputImpl: async () => {
+        renderCalls += 1;
+        return PNG;
+      },
+      fetchImpl: async () => {
+        upstreamCalls += 1;
+        throw new Error("must not call upstream");
+      },
+    });
+    const response = await handler(request(current, ["grid-output"]));
+    const body = await response.json();
+    assert.equal(response.status, 409, name);
+    assert.equal(body.stage, "storage", name);
+    assert.equal(renderCalls, 0, name);
+    assert.equal(upstreamCalls, 0, name);
+  }
+});
+
+test("keeps a migrated legacy attempt exactly replayable after MEDIA success and CREATE 503/409", async () => {
+  for (const createStatus of [503, 409]) {
+    const current = incidentPacket();
+    current.handoffAttempt = legacyPointer();
+    const store = memoryStore(current);
+    let renderCalls = 0;
+    let mediaCalls = 0;
+    let createCalls = 0;
+    const envelopes = [];
+    const generatedTimes = [
+      "2026-08-06T12:00:00.000Z",
+      "2026-08-06T12:00:01.000Z",
+      "2026-08-06T13:00:00.000Z",
+      "2026-08-06T13:00:01.000Z",
+    ];
+    const handler = createCreateHandoffHandler({
+      env: ENV,
+      getStore: () => store,
+      now: () => new Date(generatedTimes.shift()),
+      renderOutputImpl: async () => {
+        renderCalls += 1;
+        return renderCalls === 1 ? PNG : new Uint8Array([...PNG, 42]);
+      },
+      fetchImpl: async (url, init) => {
+        if (url === ENV.MEDIA_ASSETS_URL) {
+          mediaCalls += 1;
+          return Response.json({ data: mediaDescriptor(1), meta: { deduplicated: false } }, { status: 201 });
+        }
+        createCalls += 1;
+        envelopes.push(JSON.parse(init.body));
+        if (createCalls === 1) return Response.json({ error: "CREATE unavailable" }, { status: createStatus });
+        return Response.json(createReceipt("replayed", 1, current.id), { status: 200 });
+      },
+    });
+
+    const first = await handler(request(current, ["grid-output"]));
+    assert.equal(first.status, createStatus === 409 ? 409 : 502);
+    const migrated = store.records.get(current.id).handoffAttempt;
+    // The legacy pointer is now a normal PR8 attempt pointer with checkpointed bytes.
+    assert.equal(migrated.schemaVersion, 1);
+    assert.equal(typeof migrated.artifactKey, "string");
+    assert.equal(migrated.sourceVersion, 1);
+    assert.equal(migrated.expectedSourceVersion, null);
+    assert.equal(migrated.generatedAt, "2026-07-01T09:30:00.000Z");
+    const artifact = store.records.get(migrated.artifactKey);
+    assert.equal(artifact.files[0].checksum, mediaDescriptor(1).checksum);
+    assert.equal(artifact.registered[0].descriptor.assetId, "asset-1");
+
+    const second = await handler(request(store.records.get(current.id), ["grid-output"]));
+    assert.equal(second.status, 200);
+    assert.equal(renderCalls, 1);
+    assert.equal(mediaCalls, 1);
+    assert.equal(createCalls, 2);
+    assert.deepEqual(envelopes[1], envelopes[0]);
+    assert.equal(envelopes[1].generatedAt, "2026-07-01T09:30:00.000Z");
+    assert.equal(store.records.get(current.id).handoffAttempt, undefined);
+  }
+});
+
+test("safely supersedes a legacy pointer whose packetVersion no longer matches the current packet", async () => {
+  const current = incidentPacket();
+  current.handoffAttempt = legacyPointer({ packetVersion: "packet-version-0" });
+  const store = memoryStore(current);
+  let renderCalls = 0;
+  let mediaCalls = 0;
+  let envelope;
+  const handler = createCreateHandoffHandler({
+    env: ENV,
+    getStore: () => store,
+    now: () => new Date("2026-08-06T14:00:00.000Z"),
+    renderOutputImpl: async () => {
+      renderCalls += 1;
+      return PNG;
+    },
+    fetchImpl: async (url, init) => {
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        mediaCalls += 1;
+        return Response.json({ data: mediaDescriptor(1), meta: { deduplicated: false } }, { status: 201 });
+      }
+      envelope = JSON.parse(init.body);
+      return Response.json(createReceipt("created", 1, current.id), { status: 201 });
+    },
+  });
+
+  const response = await handler(request(current, ["grid-output"]));
+  assert.equal(response.status, 201);
+  assert.equal(renderCalls, 1);
+  assert.equal(mediaCalls, 1);
+  // A stale legacy pointer is disregarded entirely, not migrated: the new attempt is a
+  // normal fresh attempt with a freshly computed generatedAt, not the stale pointer's value.
+  assert.equal(envelope.generatedAt, "2026-08-06T14:00:00.000Z");
+  assert.equal(envelope.sourceVersion, 1);
+  assert.equal(envelope.expectedSourceVersion, null);
+  const saved = store.records.get(current.id);
+  assert.equal(saved.handoffAttempt, undefined);
+  assert.notEqual(saved.handoff.fingerprint, legacyPointer().fingerprint);
 });
