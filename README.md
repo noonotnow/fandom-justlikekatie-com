@@ -41,7 +41,13 @@ same-origin `/api/create-handoff` Netlify Function. Browser PNG bytes, URLs,
 filenames, and provenance labels are never accepted. The function renders each
 PNG deterministically from the persisted packet selection, registers it through
 canonical MEDIA, and signs the existing `fandom.static-deliverable.v1` CREATE
-intake envelope. Configure these server-only environment variables in Netlify:
+intake envelope. Before any upstream call it checkpoints an immutable attempt in
+the `idea-packet-handoff-attempts` Blob store; retries reuse its exact render
+bytes, checksums, MEDIA descriptors, generated time, and source CAS until a
+receipt succeeds or a packet mutation supersedes it. Persisted MEDIA URLs must
+be stable HTTPS URLs without query strings or fragments, so signed URLs are
+never written into retry state. Configure these server-only environment
+variables in Netlify:
 
 - `MEDIA_ASSETS_URL` — canonical MEDIA `POST /v1/assets/images` endpoint
 - `MEDIA_ASSETS_TOKEN` — scoped MEDIA bearer credential with `assets:write`

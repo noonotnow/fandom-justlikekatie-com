@@ -64,6 +64,11 @@ function memoryStore() {
   };
 }
 
+function storeRouter(packetStore) {
+  const leaseStore = memoryStore();
+  return name => name === "idea-packets" ? packetStore : leaseStore;
+}
+
 function request(method, body, token = TOKEN) {
   return new Request(`${ORIGIN}/api/idea-packets`, {
     method,
@@ -97,11 +102,28 @@ test("prevents exact duplicate media and supports reversible compilation", () =>
   assert.equal(resumed.state, "collecting");
 });
 
+test("retains a failed handoff pointer as stale history across packet mutation", () => {
+  const current = packet({
+    handoffAttempt: {
+      schemaVersion: 1,
+      packetVersion: "packet-version-1",
+      artifactKey: "packet-1/artifact",
+    },
+  });
+  const changed = applyAction(current, {
+    type: "update_context",
+    captionSeeds: "Superseding content",
+  });
+  assert.deepEqual(changed.handoffAttempt, current.handoffAttempt);
+  assert.equal(changed.captionSeeds, "Superseding content");
+  assert.notEqual(changed.version, current.version);
+});
+
 test("persists, lists, reorders, removes, and rejects stale writes", async () => {
   const store = memoryStore();
   const handler = createIdeaPacketsHandler({
     env: { PLAN_OPERATOR_TOKEN: TOKEN },
-    getStore: () => store,
+    getStore: storeRouter(store),
   });
 
   const created = await handler(request("POST", { packet: packet() }));
@@ -144,7 +166,7 @@ test("upgrades legacy curated media into matching source-card provenance", async
   await store.setJSON(legacy.id, legacy);
   const handler = createIdeaPacketsHandler({
     env: { PLAN_OPERATOR_TOKEN: TOKEN },
-    getStore: () => store,
+    getStore: storeRouter(store),
   });
   const response = await handler(request("GET"));
   const upgraded = (await response.json()).packets[0];
@@ -157,7 +179,7 @@ test("upgrades legacy curated media into matching source-card provenance", async
 test("requires same-origin operator authorization", async () => {
   const handler = createIdeaPacketsHandler({
     env: { PLAN_OPERATOR_TOKEN: TOKEN },
-    getStore: () => memoryStore(),
+    getStore: storeRouter(memoryStore()),
   });
   assert.equal((await handler(request("GET", undefined, ""))).status, 401);
   const crossOrigin = new Request(`${ORIGIN}/api/idea-packets`, {
@@ -173,7 +195,7 @@ test("serializes concurrent edits and rejects the stale writer", async () => {
   await store.setJSON("packet-1", packet());
   const handler = createIdeaPacketsHandler({
     env: { PLAN_OPERATOR_TOKEN: TOKEN },
-    getStore: () => store,
+    getStore: storeRouter(store),
   });
   const edit = notes => handler(request("PATCH", {
     id: "packet-1",
@@ -183,4 +205,56 @@ test("serializes concurrent edits and rejects the stale writer", async () => {
 
   const responses = await Promise.all([edit("first"), edit("second")]);
   assert.deepEqual(responses.map(response => response.status).sort(), [200, 409]);
+});
+
+test("uses Blob ETag CAS so a cross-instance edit cannot be overwritten", async () => {
+  const records = new Map([["packet-1", packet()]]);
+  const store = {
+    records,
+    async getWithMetadata(key) {
+      return { data: structuredClone(records.get(key)), etag: "etag-before-edit" };
+    },
+    async setJSON(key, _value, options) {
+      assert.equal(options.onlyIfMatch, "etag-before-edit");
+      records.set(key, packet({
+        notes: "Concurrent instance edit",
+        version: "concurrent-version",
+      }));
+      return { modified: false };
+    },
+  };
+  const handler = createIdeaPacketsHandler({
+    env: { PLAN_OPERATOR_TOKEN: TOKEN },
+    getStore: storeRouter(store),
+  });
+  const response = await handler(request("PATCH", {
+    id: "packet-1",
+    expectedVersion: packet().version,
+    action: { type: "update_context", notes: "Stale edit" },
+  }));
+  assert.equal(response.status, 409);
+  assert.equal(store.records.get("packet-1").notes, "Concurrent instance edit");
+});
+
+test("rejects packet mutation while a handoff owns the durable lease", async () => {
+  const store = memoryStore();
+  const leaseStore = memoryStore();
+  await store.setJSON("packet-1", packet());
+  await leaseStore.setJSON("locks/packet-1", {
+    owner: "handoff-instance",
+    acquiredAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+    state: "active",
+  });
+  const handler = createIdeaPacketsHandler({
+    env: { PLAN_OPERATOR_TOKEN: TOKEN },
+    getStore: name => name === "idea-packets" ? store : leaseStore,
+  });
+  const response = await handler(request("PATCH", {
+    id: "packet-1",
+    expectedVersion: packet().version,
+    action: { type: "update_context", notes: "Must not apply" },
+  }));
+  assert.equal(response.status, 409);
+  assert.equal(store.records.get("packet-1").notes, "");
 });

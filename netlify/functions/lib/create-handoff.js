@@ -6,9 +6,12 @@ import {
   RENDER_WIDTH,
   renderCanonicalOutput,
 } from "./canonical-render.js";
+import { HANDOFF_ATTEMPT_STORE, withHandoffLease } from "./handoff-lease.js";
 import { upgradeLegacyPacket, withIdeaPacketLock } from "./idea-packets.js";
 
 const PACKET_STORE = "idea-packets";
+const ATTEMPT_SCHEMA_VERSION = 1;
+const UPSTREAM_TIMEOUT_MS = 30_000;
 const MAX_OUTPUTS = 10;
 const MAX_PNG_BYTES = 8 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 256 * 1024;
@@ -48,39 +51,34 @@ export function createCreateHandoffHandler({
       requireConfiguration(env);
       const manifest = await readManifest(req);
       const store = getStore(PACKET_STORE, context);
+      const attemptStore = getStore(HANDOFF_ATTEMPT_STORE, context);
       const result = await withIdeaPacketLock(manifest.packetId, async () => {
-        const packet = upgradeLegacyPacket(await store.get(manifest.packetId, { type: "json" }));
-        validatePacketForHandoff(packet, manifest);
-        const files = await renderFiles(packet, manifest.outputs, {
-          renderOutputImpl,
-          requestUrl: req.url,
-        });
-        const fingerprint = handoffFingerprint(packet, files);
-        const replayRecord = packet.handoff?.fingerprint === fingerprint
-          ? packet.handoff
-          : packet.handoffAttempt?.fingerprint === fingerprint
-            ? packet.handoffAttempt
-            : null;
-        const replay = Boolean(replayRecord);
-        const sourceVersion = replay ? replayRecord.sourceVersion : (packet.handoff?.sourceVersion || 0) + 1;
-        const expectedSourceVersion = replay
-          ? replayRecord.expectedSourceVersion
-          : packet.handoff?.sourceVersion ?? null;
-        const packetVersion = replay ? replayRecord.packetVersion : packet.version;
-        const generatedAt = replay ? replayRecord.generatedAt : now().toISOString();
-        const attempt = {
-          sourceVersion,
-          expectedSourceVersion,
-          packetVersion,
-          fingerprint,
-          generatedAt,
-        };
-        if (
-          packet.handoff?.fingerprint !== fingerprint
-          && packet.handoffAttempt?.fingerprint !== fingerprint
-        ) {
+        return withHandoffLease(attemptStore, manifest.packetId, async ({ renew }) => {
+          const packetEntry = await getBlobWithMetadata(store, manifest.packetId);
+          const packet = upgradeLegacyPacket(packetEntry?.data);
+          validatePacketForHandoff(packet, manifest);
+          let attempt = await loadReplayAttempt(packet, manifest, attemptStore, req.url);
+        if (!attempt) {
+          const files = await renderFiles(packet, manifest.outputs, {
+            renderOutputImpl,
+            requestUrl: req.url,
+            renew,
+          });
+        await renew();
+          attempt = createAttemptSnapshot(packet, manifest, files, now().toISOString());
+          if (isCompletedReplay(packet, attempt.fingerprint)) {
+            attempt.sourceVersion = packet.handoff.sourceVersion;
+            attempt.expectedSourceVersion = packet.handoff.expectedSourceVersion;
+            attempt.sourcePacketVersion = packet.handoff.packetVersion;
+            attempt.generatedAt = packet.handoff.generatedAt;
+          }
+          let pointerSaved;
           try {
-            await store.setJSON(packet.id, { ...packet, handoffAttempt: attempt });
+            await attemptStore.setJSON(attempt.artifactKey, serializeAttempt(attempt));
+            pointerSaved = await setJSONIfMatch(store, packet.id, {
+              ...packet,
+              handoffAttempt: attemptPointer(attempt),
+            }, packetEntry?.etag);
           } catch {
             throw new UpstreamError(
               "Fandom could not persist the CREATE retry record. Nothing was sent.",
@@ -88,37 +86,64 @@ export function createCreateHandoffHandler({
               "storage",
             );
           }
+          if (!pointerSaved) {
+            await removeCompletedAttempt(attemptStore, attempt.artifactKey);
+            throw new RequestError(
+              "This Idea Packet changed. Refresh before sending to CREATE.",
+              409,
+              "packet",
+            );
+          }
         }
 
-        const registered = [];
-        for (let index = 0; index < files.length; index += 1) {
+        for (let index = attempt.registered.length; index < attempt.files.length; index += 1) {
+          await renew();
+          let registration;
           try {
-            registered.push(await registerMedia(files[index], packet, manifest.outputs[index], {
-              env,
-              fetchImpl,
-              requestUrl: req.url,
-            }));
+            registration = await registerMedia(
+              attempt.files[index],
+              attempt.packet,
+              attempt.outputs[index],
+              {
+                env,
+                fetchImpl,
+                requestUrl: req.url,
+              },
+            );
           } catch (error) {
             throw new UpstreamError(
               publicError(error, `MEDIA registration failed for output ${index + 1}`),
+              error instanceof RequestError ? error.status : 502,
+              error instanceof RequestError ? error.stage : "media",
+              { registered: attempt.registered },
+            );
+          }
+          await renew();
+          attempt.registered.push(registration);
+          try {
+            await attemptStore.setJSON(attempt.artifactKey, serializeAttempt(attempt));
+          } catch {
+            throw new UpstreamError(
+              "MEDIA accepted an asset, but Fandom could not checkpoint its retry descriptor.",
               502,
-              "media",
-              { registered },
+              "storage",
+              { registered: attempt.registered },
             );
           }
         }
 
         const envelope = buildCreateEnvelope({
-          packet,
-          outputs: manifest.outputs,
-          files,
-          registered,
-          sourceVersion,
-          expectedSourceVersion,
-          packetVersion,
-          generatedAt,
+          packet: attempt.packet,
+          outputs: attempt.outputs,
+          files: attempt.files,
+          registered: attempt.registered,
+          sourceVersion: attempt.sourceVersion,
+          expectedSourceVersion: attempt.expectedSourceVersion,
+          packetVersion: attempt.sourcePacketVersion,
+          generatedAt: attempt.generatedAt,
           requestUrl: req.url,
         });
+        await renew();
         let receipt;
         try {
           receipt = await sendToCreate(envelope, { env, fetchImpl, timestampDate: now() });
@@ -127,57 +152,72 @@ export function createCreateHandoffHandler({
             publicError(error, "CREATE intake failed"),
             error instanceof RequestError ? error.status : 502,
             "create",
-            { registered },
+            { registered: attempt.registered },
           );
         }
+        await renew();
         let exactReceipt;
         try {
           const createUrl = buildCreateDeepLink(receipt.postId, env.CREATE_APP_URL || DEFAULT_CREATE_APP_URL);
-          exactReceipt = validateReceipt({ ...receipt, createUrl }, packet.id, sourceVersion);
+          exactReceipt = validateReceipt({ ...receipt, createUrl }, packet.id, attempt.sourceVersion);
         } catch (error) {
           throw new UpstreamError(
             publicError(error, "CREATE accepted a response that Fandom could not validate."),
             error instanceof RequestError ? error.status : 502,
             "create",
-            { registered, receipt },
+            { registered: attempt.registered, receipt },
           );
         }
         const completedAt = now().toISOString();
-        const current = await store.get(packet.id, { type: "json" });
+        const currentEntry = await getBlobWithMetadata(store, packet.id);
+        const current = currentEntry?.data;
         if (!isRecord(current) || current.version !== packet.version) {
           throw new RequestError(
             "CREATE accepted the Draft, but this Idea Packet changed before its receipt could be stored. Refresh before retrying.",
             409,
             "packet",
-            { registered, receipt: exactReceipt },
+            { registered: attempt.registered, receipt: exactReceipt },
           );
         }
         const { handoffAttempt: _attempt, ...currentPacket } = current;
         const saved = {
           ...currentPacket,
           handoff: {
-            sourceVersion,
-            expectedSourceVersion,
-            packetVersion,
-            fingerprint,
-            generatedAt,
+            sourceVersion: attempt.sourceVersion,
+            expectedSourceVersion: attempt.expectedSourceVersion,
+            packetVersion: attempt.sourcePacketVersion,
+            fingerprint: attempt.fingerprint,
+            generatedAt: attempt.generatedAt,
             completedAt,
             receipt: exactReceipt,
           },
           updatedAt: completedAt,
-          version: `${completedAt}-${createHash("sha256").update(fingerprint).digest("hex").slice(0, 12)}`,
+          version: `${completedAt}-${createHash("sha256").update(attempt.fingerprint).digest("hex").slice(0, 12)}`,
         };
+        let receiptSaved;
         try {
-          await store.setJSON(packet.id, saved);
+          receiptSaved = await setJSONIfMatch(store, packet.id, saved, currentEntry?.etag);
         } catch {
           throw new UpstreamError(
             "CREATE accepted the Draft, but Fandom could not persist its receipt. Retry safely to recover it.",
             502,
             "storage",
-            { registered, receipt: exactReceipt },
+            { registered: attempt.registered, receipt: exactReceipt },
           );
         }
-        return { packet: saved, receipt: exactReceipt, media: registered };
+        if (!receiptSaved) {
+          throw new RequestError(
+            "CREATE accepted the Draft, but this Idea Packet changed before its receipt could be stored. Refresh before retrying.",
+            409,
+            "packet",
+            { registered: attempt.registered, receipt: exactReceipt },
+          );
+        }
+        await removeCompletedAttempt(attemptStore, attempt.artifactKey);
+          return { packet: saved, receipt: exactReceipt, media: attempt.registered };
+        }, {
+          conflict: message => new RequestError(message, 409, "storage"),
+        });
       });
       return jsonResponse(result.receipt.disposition === "created" ? 201 : 200, result);
     } catch (error) {
@@ -216,9 +256,211 @@ function validatePacketForHandoff(packet, manifest) {
   }
 }
 
-async function renderFiles(packet, outputs, { renderOutputImpl, requestUrl }) {
+async function getBlobWithMetadata(store, key) {
+  if (typeof store.getWithMetadata === "function") {
+    return store.getWithMetadata(key, { type: "json", consistency: "strong" });
+  }
+  const data = await store.get(key, { type: "json", consistency: "strong" });
+  return data ? { data } : null;
+}
+
+async function setJSONIfMatch(store, key, value, etag) {
+  if (!etag) {
+    await store.setJSON(key, value);
+    return true;
+  }
+  const result = await store.setJSON(key, value, { onlyIfMatch: etag });
+  if (result?.modified === false) return false;
+  if (result?.modified === true) return true;
+  const stored = await getBlobWithMetadata(store, key);
+  return JSON.stringify(stored?.data) === JSON.stringify(value);
+}
+
+async function removeCompletedAttempt(store, artifactKey) {
+  if (typeof store.delete !== "function") return;
+  try {
+    await store.delete(artifactKey);
+  } catch (error) {
+    console.error("[create-handoff] could not remove completed attempt artifact", error);
+  }
+}
+
+function createAttemptSnapshot(packet, manifest, files, generatedAt) {
+  const snapshot = structuredClone(packet);
+  delete snapshot.handoff;
+  delete snapshot.handoffAttempt;
+  const outputs = structuredClone(manifest.outputs);
+  const inputFingerprint = handoffInputFingerprint(snapshot, outputs);
+  const fingerprint = handoffFingerprint(inputFingerprint, files);
+  return {
+    schemaVersion: ATTEMPT_SCHEMA_VERSION,
+    artifactKey: `${safeFilenameSegment(packet.id)}/${sha256(`${packet.version}\n${inputFingerprint}`)}`,
+    packet: snapshot,
+    outputs,
+    files,
+    registered: [],
+    sourceVersion: (packet.handoff?.sourceVersion || 0) + 1,
+    expectedSourceVersion: packet.handoff?.sourceVersion ?? null,
+    packetVersion: packet.version,
+    sourcePacketVersion: packet.version,
+    inputFingerprint,
+    fingerprint,
+    generatedAt,
+  };
+}
+
+async function loadReplayAttempt(packet, manifest, attemptStore, requestUrl) {
+  const pointer = packet.handoffAttempt;
+  if (pointer === undefined) return null;
+  if (!isRecord(pointer)) throw invalidAttemptState();
+  if (
+    pointer.schemaVersion !== ATTEMPT_SCHEMA_VERSION
+    || typeof pointer.artifactKey !== "string"
+    || typeof pointer.inputFingerprint !== "string"
+    || typeof pointer.packetVersion !== "string"
+    || pointer.artifactKey !== `${safeFilenameSegment(packet.id)}/${sha256(`${pointer.packetVersion}\n${pointer.inputFingerprint}`)}`
+    || typeof pointer.fingerprint !== "string"
+    || typeof pointer.generatedAt !== "string"
+    || !Number.isFinite(Date.parse(pointer.generatedAt))
+    || typeof pointer.sourcePacketVersion !== "string"
+    || !Number.isInteger(pointer.sourceVersion)
+    || pointer.sourceVersion < 1
+    || (
+      pointer.expectedSourceVersion !== null
+      && (!Number.isInteger(pointer.expectedSourceVersion) || pointer.expectedSourceVersion < 1)
+    )
+  ) {
+    throw invalidAttemptState();
+  }
+  if (pointer.packetVersion !== packet.version) return null;
+  let storedAttempt;
+  try {
+    storedAttempt = (await getBlobWithMetadata(attemptStore, pointer.artifactKey))?.data;
+  } catch {
+    throw new UpstreamError(
+      "Fandom could not read the persisted CREATE retry state.",
+      502,
+      "storage",
+    );
+  }
+  const attempt = deserializeAttempt(storedAttempt);
+  if (
+    attempt.artifactKey !== pointer.artifactKey
+    || attempt.packetVersion !== pointer.packetVersion
+    || attempt.sourcePacketVersion !== pointer.sourcePacketVersion
+    || attempt.inputFingerprint !== pointer.inputFingerprint
+    || attempt.fingerprint !== pointer.fingerprint
+    || attempt.generatedAt !== pointer.generatedAt
+    || attempt.sourceVersion !== pointer.sourceVersion
+    || attempt.expectedSourceVersion !== pointer.expectedSourceVersion
+    || attempt.packet.id !== packet.id
+    || JSON.stringify(attempt.outputs) !== JSON.stringify(manifest.outputs)
+    || handoffInputFingerprint(packet, manifest.outputs) !== attempt.inputFingerprint
+    || handoffInputFingerprint(attempt.packet, attempt.outputs) !== attempt.inputFingerprint
+    || handoffFingerprint(attempt.inputFingerprint, attempt.files) !== attempt.fingerprint
+  ) {
+    throw invalidAttemptState();
+  }
+  for (let index = 0; index < attempt.registered.length; index += 1) {
+    const registration = attempt.registered[index];
+    if (!isRecord(registration)) throw invalidAttemptState();
+    try {
+      validateMediaDescriptor({ data: registration.descriptor }, attempt.files[index]);
+    } catch {
+      throw invalidAttemptState();
+    }
+    if (
+      typeof registration.deduplicated !== "boolean"
+      || JSON.stringify(registration.metadata)
+        !== JSON.stringify(buildMediaMetadata(attempt.packet, attempt.outputs[index], requestUrl))
+    ) {
+      throw invalidAttemptState();
+    }
+  }
+  return attempt;
+}
+
+function attemptPointer(attempt) {
+  return {
+    schemaVersion: attempt.schemaVersion,
+    artifactKey: attempt.artifactKey,
+    sourceVersion: attempt.sourceVersion,
+    expectedSourceVersion: attempt.expectedSourceVersion,
+    packetVersion: attempt.packetVersion,
+    sourcePacketVersion: attempt.sourcePacketVersion,
+    inputFingerprint: attempt.inputFingerprint,
+    fingerprint: attempt.fingerprint,
+    generatedAt: attempt.generatedAt,
+  };
+}
+
+function serializeAttempt(attempt) {
+  return {
+    ...attempt,
+    files: attempt.files.map(file => ({
+      checksum: file.checksum,
+      sizeBytes: file.sizeBytes,
+      filename: file.filename,
+      bytesBase64: Buffer.from(file.bytes).toString("base64"),
+    })),
+  };
+}
+
+function deserializeAttempt(value) {
+  if (
+    !isRecord(value)
+    || value.schemaVersion !== ATTEMPT_SCHEMA_VERSION
+    || !isRecord(value.packet)
+    || !Array.isArray(value.outputs)
+    || !Array.isArray(value.files)
+    || !Array.isArray(value.registered)
+    || value.registered.length > value.files.length
+  ) {
+    throw invalidAttemptState();
+  }
+  const files = value.files.map(file => {
+    if (
+      !isRecord(file)
+      || typeof file.bytesBase64 !== "string"
+      || typeof file.checksum !== "string"
+      || typeof file.filename !== "string"
+      || !Number.isInteger(file.sizeBytes)
+    ) {
+      throw invalidAttemptState();
+    }
+    const bytes = new Uint8Array(Buffer.from(file.bytesBase64, "base64"));
+    if (
+      Buffer.from(bytes).toString("base64") !== file.bytesBase64
+      || bytes.byteLength !== file.sizeBytes
+      || sha256(bytes) !== file.checksum
+      || bytes.byteLength < 8
+      || bytes.byteLength > MAX_PNG_BYTES
+      || !isPng(bytes)
+    ) {
+      throw invalidAttemptState();
+    }
+    return {
+      bytes,
+      checksum: file.checksum,
+      sizeBytes: file.sizeBytes,
+      filename: file.filename,
+    };
+  });
+  return { ...structuredClone(value), files };
+}
+
+function invalidAttemptState() {
+  return new RequestError(
+    "The persisted CREATE retry state is invalid. Change the packet to supersede it before retrying.",
+    409,
+    "storage",
+  );
+}
+
+async function renderFiles(packet, outputs, { renderOutputImpl, requestUrl, renew }) {
   const files = [];
   for (const output of outputs) {
+    await renew?.();
     const selected = packet.outputs.find(candidate => candidate.id === output.outputId);
     let bytes;
     try {
@@ -239,6 +481,7 @@ async function renderFiles(packet, outputs, { renderOutputImpl, requestUrl }) {
       sizeBytes: bytes.byteLength,
       filename: `idea-packet-${safeFilenameSegment(packet.id)}-${safeFilenameSegment(output.outputId)}.png`,
     });
+    await renew?.();
   }
   return files;
 }
@@ -288,6 +531,7 @@ async function registerMedia(file, packet, output, { env, fetchImpl, requestUrl 
   body.append("metadata", JSON.stringify(metadata));
   const response = await fetchImpl(env.MEDIA_ASSETS_URL || DEFAULT_MEDIA_URL, {
     method: "POST",
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     headers: { Authorization: `Bearer ${env.MEDIA_ASSETS_TOKEN}` },
     body,
   });
@@ -298,6 +542,47 @@ async function registerMedia(file, packet, output, { env, fetchImpl, requestUrl 
     descriptor,
     deduplicated: payload.meta?.deduplicated === true,
     metadata,
+  };
+}
+
+function buildMediaMetadata(packet, output, requestUrl) {
+  const sourceCards = output.kind === "grid"
+    ? packet.sourceCards
+    : packet.sourceCards.filter(card => card.id === output.sourceId);
+  return {
+    sourceType: "fandom-idea-packet-output",
+    sourceUrl: absoluteHttpsUrl(
+      sourceCards[0]?.sourceUrl || packet.provenance.sourceRoute,
+      requestUrl,
+    ),
+    origin: "fandom-vibes",
+    rightsStatus: "unknown",
+    rightsNotes: JSON.stringify({
+      schema: "fandom.media-provenance.v1",
+      source: "Fandom",
+      resultIds: sourceCards.map(card => card.resultId),
+      starDateShanghai: shanghaiDay(packet.provenance.generatedAt),
+      collection: {
+        route: packet.provenance.sourceRoute,
+        gridId: packet.provenance.gridId,
+        generatedAt: packet.provenance.generatedAt,
+      },
+      packet: { id: packet.id, version: packet.version, status: packet.state },
+      output: { id: output.outputId, kind: output.kind, sourceId: output.sourceId },
+    }),
+    actor: [packet.actor.name, packet.actor.nameEn].filter(Boolean),
+    seriesTags: [
+      "Fandom",
+      "Idea Packet",
+      `packet:${packet.id}`,
+      `output:${output.outputId}`,
+      `star-day:${shanghaiDay(packet.provenance.generatedAt)}`,
+    ],
+    linkedPostIdentifiers: [
+      `fandom/project/${packet.id}`,
+      `fandom/deliverable/${packet.id}/idea-packet-main`,
+      ...sourceCards.map(card => `fandom/source-card/${card.id}`),
+    ],
   };
 }
 
@@ -420,6 +705,7 @@ async function sendToCreate(envelope, { env, fetchImpl, timestampDate }) {
     .digest("hex");
   const response = await fetchImpl(env.CREATE_FANDOM_INTAKE_URL || DEFAULT_CREATE_URL, {
     method: "POST",
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     headers: {
       "Content-Type": "application/json",
       "X-Fandom-Key-Id": env.CREATE_FANDOM_HMAC_KEY_ID,
@@ -476,15 +762,28 @@ function validateMediaDescriptor(payload, file) {
     || descriptor.mimeType !== "image/png"
     || descriptor.sizeBytes !== file.sizeBytes
     || descriptor.checksum !== file.checksum
-    || !isHttpsUrl(descriptor.fileUrl)
-    || !isHttpsUrl(descriptor.deliveryUrl)
-    || !isHttpsUrl(descriptor.thumbnailUrl)
+    || !isPersistableMediaUrl(descriptor.fileUrl)
+    || !isPersistableMediaUrl(descriptor.deliveryUrl)
+    || !isPersistableMediaUrl(descriptor.thumbnailUrl)
     || !Number.isInteger(descriptor.dimensions?.width)
     || !Number.isInteger(descriptor.dimensions?.height)
   ) {
     throw new UpstreamError("MEDIA returned an invalid or mismatched image descriptor.", 502, "media");
   }
   return descriptor;
+}
+
+function isPersistableMediaUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:"
+      && !url.username
+      && !url.password
+      && !url.search
+      && !url.hash;
+  } catch {
+    return false;
+  }
 }
 
 function parseManifest(value) {
@@ -573,7 +872,7 @@ function validateAuthorization(req, expectedToken) {
   }
 }
 
-function handoffFingerprint(packet, files) {
+function handoffInputFingerprint(packet, outputs) {
   return sha256(JSON.stringify({
     packet: {
       id: packet.id,
@@ -590,6 +889,20 @@ function handoffFingerprint(packet, files) {
       captionSeeds: packet.captionSeeds,
       outputAngles: packet.outputAngles,
     },
+    outputs,
+  }));
+}
+
+function isCompletedReplay(packet, fingerprint) {
+  const handoff = packet.handoff;
+  return isRecord(handoff)
+    && handoff.fingerprint === fingerprint
+    && packet.version === `${handoff.completedAt}-${sha256(fingerprint).slice(0, 12)}`;
+}
+
+function handoffFingerprint(inputFingerprint, files) {
+  return sha256(JSON.stringify({
+    inputFingerprint,
     files: files.map(file => ({ checksum: file.checksum, sizeBytes: file.sizeBytes })),
   }));
 }
