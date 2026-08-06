@@ -58,11 +58,15 @@ PR8 attempt artifact, and only then swapped in via an atomic CAS against the
 packet entry's ETag; a stale pointer (packet version has since changed) is
 simply superseded by a fresh attempt, and any pointer that is malformed or
 whose source CAS no longer matches is rejected before any render or upstream
-call. Because legacy pointers never persisted per-output MEDIA descriptors,
-migration always re-registers with MEDIA, which deduplicates by checksum and
-returns the canonical descriptor for identical bytes — never inferring or
-reusing a historical descriptor, and never producing more than one final
-canonical asset set even if re-rendered bytes differ.
+call. Because legacy pointers never persisted per-output bytes, checksums, or
+MEDIA descriptors, migration never infers or reuses a historical descriptor —
+identifiers and provenance alone are not sufficient, since they cannot verify
+that an asset's bytes are still intact upstream. Migration always re-registers
+with MEDIA, which deduplicates by checksum and returns the canonical
+descriptor for identical bytes, producing at most one final canonical asset
+set even if re-rendered bytes differ. As with every other retry record, no
+signed URLs are ever persisted for a migrated attempt, only stable canonical
+HTTPS descriptor URLs.
 
 - `MEDIA_ASSETS_URL` — canonical MEDIA `POST /v1/assets/images` endpoint
 - `MEDIA_ASSETS_TOKEN` — scoped MEDIA bearer credential with `assets:write`
