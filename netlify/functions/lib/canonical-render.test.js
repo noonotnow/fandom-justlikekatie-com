@@ -47,6 +47,7 @@ test("renders canonical PNG bytes only from the persisted source selection", asy
 
 test("renders the incident-shaped grid deterministically from canonical persisted image URLs", async () => {
   const incidentTitle = "风掠过塞纳河，攀上埃菲尔铁塔。驻足塔边，赴一场与@摩登兄弟刘宇宁 的巴黎之约。#地球超新鲜, Cr.刘宇宁LYN工作室, 微博：摩登兄弟刘宇宁 , http://t.cn/A6KkynyZ, #摩登兄弟刘宇宁 , #刘宇宁LYN工作室, #刘宇宁铁证, #刘宇宁高原, 摩登兄弟劉宇寧台灣應援站";
+  const productionTarget = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSkyscraperEnergy&usqp=CAU";
   const incident = packet();
   incident.id = "94a5581e-e2e4-4c14-b904-48e77ce1e5f0";
   incident.actor = { name: "刘宇宁" };
@@ -54,7 +55,9 @@ test("renders the incident-shaped grid deterministically from canonical persiste
   incident.sourceCards = Array.from({ length: 4 }, (_, index) => ({
     id: `card-${index + 1}`,
     title: index === 0 ? incidentTitle : `Persisted source ${index + 1}`,
-    imageUrl: `/.netlify/functions/image-proxy?url=${encodeURIComponent(`https://images.example/${index + 1}.jpg`)}`,
+    imageUrl: `/.netlify/functions/image-proxy?url=${encodeURIComponent(
+      index === 0 ? productionTarget : `https://images.example/${index + 1}.jpg`,
+    )}`,
   }));
   const source = await sharp({
     create: { width: 400, height: 500, channels: 3, background: "#9b4f6f" },
@@ -76,7 +79,7 @@ test("renders the incident-shaped grid deterministically from canonical persiste
   const second = await render();
   assert.deepEqual(first, second);
   assert.deepEqual(targets.slice(0, 4), [
-    "https://images.example/1.jpg",
+    productionTarget,
     "https://images.example/2.jpg",
     "https://images.example/3.jpg",
     "https://images.example/4.jpg",
