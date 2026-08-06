@@ -2,7 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   PLAN_STATUSES,
   PlanPostsError,
+  createIdempotencyKey,
+  effectiveNextAction,
+  executionLabel,
   fetchPlanPosts,
+  isNeedsPlatformScheduling,
+  markOperatorScheduled,
+  operatorScheduleEligibility,
+  operatorScheduleFingerprint,
   optimisticPost,
   replacePlanPost,
   setPlanOperatorToken,
@@ -36,8 +43,12 @@ const STAGES: ProductionStage[] = [
   'Needs Caption',
   'Review Packet',
   'Ready for XHS Admin',
+  'Receipt Pending',
+  'State Unavailable',
   'Published',
 ];
+
+const XHS_ADMIN_URL = 'https://xhs.justlikekatie.com';
 
 export const Plan: React.FC = () => {
   const [posts, setPosts] = useState<PlanPost[]>([]);
@@ -52,6 +63,7 @@ export const Plan: React.FC = () => {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [accessRequired, setAccessRequired] = useState(false);
   const pendingRef = useRef(new Set<string>());
+  const actionKeysRef = useRef(new Map<string, { fingerprint: string; key: string }>());
   const dataVersionRef = useRef(0);
 
   const loadPosts = useCallback(async () => {
@@ -60,13 +72,63 @@ export const Plan: React.FC = () => {
     setWarning('');
     try {
       const loaded = await fetchPlanPosts();
-      if (startedAtVersion === dataVersionRef.current) setPosts(loaded);
+      if (startedAtVersion === dataVersionRef.current) {
+        setPosts(loaded);
+        const unavailable = loaded.filter(post => post.execution.state === 'unavailable').length;
+        if (unavailable > 0) {
+          setWarning(
+            `XHS execution state could not be verified for ${unavailable} Rednote ${unavailable === 1 ? 'post' : 'posts'}. `
+            + 'Those posts are blocked from platform scheduling until a refresh succeeds.',
+          );
+        }
+      }
       setAccessRequired(false);
     } catch (error) {
       setAccessRequired(error instanceof PlanPostsError && error.status === 401);
       setWarning(errorMessage(error, 'PLAN posts could not be loaded. Check the Notion connection.'));
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const recordOperatorScheduled = useCallback(async (post: PlanPost) => {
+    if (pendingRef.current.has(post.id)) return false;
+    const fingerprint = operatorScheduleFingerprint(post);
+    const storedAction = actionKeysRef.current.get(post.id);
+    const actionKey = storedAction?.fingerprint === fingerprint
+      ? storedAction.key
+      : createIdempotencyKey();
+    actionKeysRef.current.set(post.id, { fingerprint, key: actionKey });
+    pendingRef.current.add(post.id);
+    dataVersionRef.current += 1;
+    setWarning('');
+    setBusyIds(current => new Set(current).add(post.id));
+    try {
+      const updated = await markOperatorScheduled(post, actionKey);
+      setPosts(current => replacePlanPost(current, updated));
+      if (actionKeysRef.current.get(post.id)?.fingerprint === fingerprint) {
+        actionKeysRef.current.delete(post.id);
+      }
+      setWarning('Operator scheduling recorded. Public URL and metrics remain ready for backfill.');
+      return true;
+    } catch (error) {
+      if (error instanceof PlanPostsError && error.status === 409) {
+        if (actionKeysRef.current.get(post.id)?.fingerprint === fingerprint) {
+          actionKeysRef.current.delete(post.id);
+        }
+      }
+      setWarning(errorMessage(
+        error,
+        'Operator scheduling could not be recorded. Nothing was changed.',
+      ));
+      return false;
+    } finally {
+      pendingRef.current.delete(post.id);
+      setBusyIds(current => {
+        const next = new Set(current);
+        next.delete(post.id);
+        return next;
+      });
     }
   }, []);
 
@@ -127,9 +189,12 @@ export const Plan: React.FC = () => {
   const visiblePosts = useMemo(
     () => energyMode === 'low-energy'
       ? platformPosts.filter(post => (
-          post.productionStage === 'Ready for XHS Admin'
-          || (!post.mediaBlocked && post.captionBlocked)
-          || post.series.startsWith('A')
+          post.execution.state === 'not_recorded'
+          && (
+            isNeedsPlatformScheduling(post)
+            || (!post.mediaBlocked && post.captionBlocked)
+            || post.series.startsWith('A')
+          )
         ))
       : platformPosts,
     [energyMode, platformPosts],
@@ -241,6 +306,7 @@ export const Plan: React.FC = () => {
           scheduledDate === null ? 'Schedule cleared.' : 'Editorial time saved.',
         )}
         onStatus={(post, status) => mutatePost(post, { status }, `Status changed to ${status}.`)}
+        onMarkOperatorScheduled={recordOperatorScheduled}
       />
     </section>
   );
@@ -436,10 +502,11 @@ function PlanCard({
   onStatus: (post: PlanPost, status: PlanStatus) => Promise<boolean>;
 }) {
   const parsed = parseScheduledValue(post.scheduledDate);
+  const scheduleLocked = post.execution.state !== 'not_recorded';
   return (
     <article
       className={`${styles.card} ${compact ? styles.cardCompact : ''}`}
-      draggable={canDrag && !busy}
+      draggable={canDrag && !busy && !scheduleLocked}
       onDragStart={event => {
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('text/plain', post.id);
@@ -456,6 +523,9 @@ function PlanCard({
         <div className={styles.chips}>
           {getSeriesLabel(post.series) && <span>{getSeriesLabel(post.series)}</span>}
           <span data-stage={post.productionStage}>{post.productionStage}</span>
+          {/^(rednote|both)$/i.test(post.platform) && (
+            <span data-execution={post.execution.state}>{executionLabel(post)}</span>
+          )}
         </div>
         {parsed.kind === 'instant' && (
           <p className={styles.cardTime}>
@@ -470,14 +540,14 @@ function PlanCard({
             onClick={() => onOpen(post)}
             disabled={busy}
           >
-            Schedule
+            {scheduleLocked ? 'Details' : 'Schedule'}
           </button>
           <label>
             <span className={styles.srOnly}>Status for {post.headline}</span>
             <select
               value={PLAN_STATUSES.includes(post.status as PlanStatus) ? post.status : ''}
               onChange={event => void onStatus(post, event.target.value as PlanStatus)}
-              disabled={busy}
+              disabled={busy || scheduleLocked}
             >
               {!PLAN_STATUSES.includes(post.status as PlanStatus) && (
                 <option value="">{post.status || 'Unspecified'}</option>
@@ -540,12 +610,14 @@ function PostDrawer({
   onClose,
   onSchedule,
   onStatus,
+  onMarkOperatorScheduled,
 }: {
   post: PlanPost | null;
   busy: boolean;
   onClose: () => void;
   onSchedule: (post: PlanPost, scheduledDate: string | null) => Promise<boolean>;
   onStatus: (post: PlanPost, status: PlanStatus) => Promise<boolean>;
+  onMarkOperatorScheduled: (post: PlanPost) => Promise<boolean>;
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const parsed = parseScheduledValue(post?.scheduledDate);
@@ -604,6 +676,8 @@ function PostDrawer({
   if (!post) return null;
   const instant = zonedDateTimeToIso(date, time);
   const quickTimes = ['18:00', '18:30', '20:00', '20:30'];
+  const eligibility = operatorScheduleEligibility(post);
+  const scheduleLocked = post.execution.state !== 'not_recorded';
 
   async function saveSchedule() {
     if (!instant) {
@@ -636,6 +710,43 @@ function PostDrawer({
         <div className={styles.drawerContent}>
           {post.imageUrl && <img className={styles.drawerImage} src={post.imageUrl} alt={`${post.headline} preview`} />}
 
+          {/^(rednote|both)$/i.test(post.platform) && (
+            <section className={styles.lifecycle} aria-labelledby="publication-lifecycle-title">
+              <div className={styles.lifecycleHeading}>
+                <h3 id="publication-lifecycle-title">Publication lifecycle</h3>
+                <strong data-execution={post.execution.state}>{executionLabel(post)}</strong>
+              </div>
+              {post.execution.warning && (
+                <p className={styles.lifecycleWarning} role="alert">{post.execution.warning}</p>
+              )}
+              {eligibility.eligible && (
+                <>
+                  <p>
+                    Use this only after you have scheduled this exact post in Rednote Creator.
+                  </p>
+                  <button
+                    type="button"
+                    className={styles.operatorAction}
+                    disabled={busy || scheduleLocked}
+                    onClick={() => {
+                      const confirmed = window.confirm(
+                        'Confirm that you have already scheduled this exact post in Creator. '
+                        + 'PLAN will keep Status Approved and the current ScheduledDate, remove it from platform scheduling, '
+                        + 'block automatic dispatch, and leave the public URL and metrics for later.',
+                      );
+                      if (confirmed) void onMarkOperatorScheduled(post);
+                    }}
+                  >
+                    {busy ? 'Recording…' : 'Mark operator scheduled'}
+                  </button>
+                </>
+              )}
+              {!eligibility.eligible && post.execution.state === 'not_recorded' && (
+                <p>{eligibility.reason}</p>
+              )}
+            </section>
+          )}
+
           <section className={styles.editor}>
             <h3>Editorial publish time</h3>
             {parsed.kind === 'date-only' && (
@@ -643,50 +754,60 @@ function PostDrawer({
                 Legacy date-only value: {parsed.date}. It stays unchanged until you save a time.
               </p>
             )}
-            <div className={styles.editorFields}>
-              <label>
-                <span>Date · ET</span>
-                <input type="date" value={date} onChange={event => setDate(event.target.value)} />
-              </label>
-              <label>
-                <span>Time · ET</span>
-                <select value={time} onChange={event => setTime(event.target.value)}>
-                  {buildEveningSlots(date || todayInEt()).map(slot => (
-                    <option key={slot.etTime} value={slot.etTime}>
-                      {formatEtTime(slot.instant)}
-                    </option>
+            {scheduleLocked ? (
+              <p className={styles.lockedNote}>
+                {post.execution.state === 'unavailable'
+                  ? 'Execution state could not be verified. Refresh before editing Status or ScheduledDate.'
+                  : 'The recorded operator action is tied to this exact ScheduledDate. Backfill the public URL and metrics next.'}
+              </p>
+            ) : (
+              <>
+                <div className={styles.editorFields}>
+                  <label>
+                    <span>Date · ET</span>
+                    <input type="date" value={date} onChange={event => setDate(event.target.value)} />
+                  </label>
+                  <label>
+                    <span>Time · ET</span>
+                    <select value={time} onChange={event => setTime(event.target.value)}>
+                      {buildEveningSlots(date || todayInEt()).map(slot => (
+                        <option key={slot.etTime} value={slot.etTime}>
+                          {formatEtTime(slot.instant)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className={styles.quickTimes} aria-label="Quick schedule times">
+                  {quickTimes.map(value => (
+                    <button key={value} type="button" onClick={() => setTime(value)}>
+                      {formatEtTime(zonedDateTimeToIso(date, value) ?? '')}
+                    </button>
                   ))}
-                </select>
-              </label>
-            </div>
-            <div className={styles.quickTimes} aria-label="Quick schedule times">
-              {quickTimes.map(value => (
-                <button key={value} type="button" onClick={() => setTime(value)}>
-                  {formatEtTime(zonedDateTimeToIso(date, value) ?? '')}
-                </button>
-              ))}
-            </div>
-            <p className={styles.chinaPreview}>
-              China: <strong>{instant ? formatChinaPreview(instant) : 'Choose a valid ET date and time'}</strong>
-            </p>
-            {formError && <p className={styles.formError} role="alert">{formError}</p>}
-            <div className={styles.editorActions}>
-              <button type="button" onClick={saveSchedule} disabled={busy || !instant}>
-                {busy ? 'Saving…' : 'Save intended time'}
-              </button>
-              {post.scheduledDate && (
-                <button
-                  type="button"
-                  className={styles.secondary}
-                  onClick={async () => {
-                    if (await onSchedule(post, null)) onClose();
-                  }}
-                  disabled={busy}
-                >
-                  Clear schedule
-                </button>
-              )}
-            </div>
+                </div>
+                <p className={styles.chinaPreview}>
+                  China: <strong>{instant ? formatChinaPreview(instant) : 'Choose a valid ET date and time'}</strong>
+                </p>
+                {formError && <p className={styles.formError} role="alert">{formError}</p>}
+                <div className={styles.editorActions}>
+                  <button type="button" onClick={saveSchedule} disabled={busy || !instant}>
+                    {busy ? 'Saving…' : 'Save intended time'}
+                  </button>
+                  {post.scheduledDate && (
+                    <button
+                      type="button"
+                      className={styles.secondary}
+                      onClick={async () => {
+                        if (await onSchedule(post, null)) onClose();
+                      }}
+                      disabled={busy || scheduleLocked}
+                    >
+                      Clear schedule
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </section>
 
           <section className={styles.statusEditor}>
@@ -697,7 +818,7 @@ function PostDrawer({
                   key={status}
                   type="button"
                   aria-pressed={post.status === status}
-                  disabled={busy}
+                  disabled={busy || scheduleLocked}
                   onClick={() => void onStatus(post, status)}
                 >
                   {status}
@@ -718,16 +839,19 @@ function PostDrawer({
           <section className={styles.notes}>
             <h3>Production notes</h3>
             <dl>
-              <div><dt>Next action</dt><dd>{post.nextAction || 'Not recorded'}</dd></div>
+              <div><dt>Next action</dt><dd>{effectiveNextAction(post)}</dd></div>
               <div><dt>Requirements</dt><dd>{post.requirements || 'Not recorded'}</dd></div>
               <div><dt>Campaign notes</dt><dd>{post.campaignNotes || 'Not recorded'}</dd></div>
             </dl>
           </section>
         </div>
-        {(post.notionUrl || post.createUrl) && (
+        {(post.notionUrl || post.createUrl || post.execution.state === 'operator_scheduled_receipt_pending') && (
           <footer>
             {post.notionUrl && <a href={post.notionUrl} target="_blank" rel="noreferrer">Open in Notion ↗</a>}
             {post.createUrl && <a href={post.createUrl} target="_blank" rel="noreferrer">Open in CREATE ↗</a>}
+            {post.execution.state === 'operator_scheduled_receipt_pending' && (
+              <a href={XHS_ADMIN_URL} target="_blank" rel="noreferrer">Add public URL in XHS Admin ↗</a>
+            )}
           </footer>
         )}
       </aside>

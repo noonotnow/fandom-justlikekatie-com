@@ -1,3 +1,5 @@
+import { enrichPostsWithExecution } from "./plan-execution.js";
+
 const NOTION_API_URL = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -52,12 +54,22 @@ export function createPlanPostsHandler({
       const config = getConfig(env);
       validateAuthorization(req, config.operatorToken);
       if (req.method === "GET") {
-        return jsonResponse(200, await listPosts(fetchImpl, config));
+        const id = new URL(req.url).searchParams.get("id");
+        if (id) {
+          validatePageId(id);
+          return jsonResponse(200, {
+            post: await getPost(fetchImpl, config, id, env),
+          });
+        }
+        return jsonResponse(200, await listPosts(fetchImpl, config, env));
       }
       if (req.method === "PATCH") {
         const input = await readMutation(req);
         return jsonResponse(200, {
-          post: await withPostLock(input.id, () => updatePost(fetchImpl, config, input)),
+          post: await withPostLock(
+            input.id,
+            () => updatePost(fetchImpl, config, input, env),
+          ),
         });
       }
       return jsonResponse(405, { error: "Method not allowed" }, { Allow: "GET, PATCH" });
@@ -110,7 +122,7 @@ function validateAuthorization(req, expectedToken) {
   }
 }
 
-async function listPosts(fetchImpl, config) {
+async function listPosts(fetchImpl, config, env) {
   const pages = [];
   let cursor;
   do {
@@ -135,13 +147,29 @@ async function listPosts(fetchImpl, config) {
       : undefined;
   } while (cursor);
 
+  const posts = pages.filter(isRecord).map(notionPageToPost);
   return {
-    posts: pages.filter(isRecord).map(notionPageToPost),
+    posts: await enrichPostsWithExecution(posts, { fetchImpl, env }),
     source: "notion",
   };
 }
 
-async function updatePost(fetchImpl, config, input) {
+async function getPost(fetchImpl, config, id, env) {
+  const current = await notionJson(
+    fetchImpl,
+    `${NOTION_API_URL}/pages/${id}`,
+    config.token,
+  );
+  if (!isRecord(current)) throw new UpstreamError("Notion returned an invalid post");
+  validatePostParent(current, config.databaseId);
+  const [post] = await enrichPostsWithExecution(
+    [notionPageToPost(current)],
+    { fetchImpl, env },
+  );
+  return post;
+}
+
+async function updatePost(fetchImpl, config, input, env) {
   const schema = await notionJson(
     fetchImpl,
     `${NOTION_API_URL}/databases/${config.databaseId}`,
@@ -153,15 +181,26 @@ async function updatePost(fetchImpl, config, input) {
     config.token,
   );
   if (!isRecord(current)) throw new UpstreamError("Notion returned an invalid post");
-  const parentDatabaseId = current.parent?.type === "database_id"
-    ? current.parent.database_id
-    : "";
-  if (normalizeId(parentDatabaseId) !== normalizeId(config.databaseId)) {
-    throw new RequestError("The selected post does not belong to the configured Posts DB", 403);
-  }
+  validatePostParent(current, config.databaseId);
   if (input.expectedVersion && current.last_edited_time !== input.expectedVersion) {
     throw new RequestError(
       "This post changed in Notion. Refresh before applying your edit.",
+      409,
+    );
+  }
+  const [currentPost] = await enrichPostsWithExecution(
+    [notionPageToPost(current)],
+    { fetchImpl, env },
+  );
+  if (currentPost.execution.state === "unavailable") {
+    throw new RequestError(
+      "XHS execution state is unavailable. Refresh before editing this Rednote post.",
+      503,
+    );
+  }
+  if (currentPost.execution.state !== "not_recorded") {
+    throw new RequestError(
+      "Operator scheduling is already recorded. ScheduledDate and Status are locked.",
       409,
     );
   }
@@ -190,7 +229,11 @@ async function updatePost(fetchImpl, config, input) {
       body: JSON.stringify({ properties }),
     },
   );
-  return notionPageToPost(updated);
+  const [post] = await enrichPostsWithExecution(
+    [notionPageToPost(updated)],
+    { fetchImpl, env },
+  );
+  return post;
 }
 
 async function withPostLock(id, operation) {
@@ -212,6 +255,24 @@ async function withPostLock(id, operation) {
 
 function normalizeId(value) {
   return typeof value === "string" ? value.replaceAll("-", "").toLowerCase() : "";
+}
+
+function validatePageId(value) {
+  if (
+    typeof value !== "string"
+    || !/^[0-9a-f-]{32,36}$/i.test(value)
+  ) {
+    throw new RequestError("A valid Notion page id is required");
+  }
+}
+
+function validatePostParent(page, databaseId) {
+  const parentDatabaseId = page.parent?.type === "database_id"
+    ? page.parent.database_id
+    : "";
+  if (normalizeId(parentDatabaseId) !== normalizeId(databaseId)) {
+    throw new RequestError("The selected post does not belong to the configured Posts DB", 403);
+  }
 }
 
 async function readMutation(req) {

@@ -124,6 +124,31 @@ the last Notion edit timestamp and reject stale updates with a conflict
 rather than overwriting a concurrent edit. Only `ScheduledDate` and the
 selected canonical status are included in Notion update payloads.
 
+PLAN also owns the manual Rednote operator lifecycle. The browser sends an
+operator-authenticated request to the same-origin
+`/api/plan-operator-scheduled` Netlify Function after the operator has
+scheduled the exact Approved post in Rednote Creator. The function forwards
+the Notion page ID, current Notion edit timestamp, exact timezone-bearing
+`ScheduledDate`, and an idempotency UUID to XHS. It never changes Status to
+Published and never invents a public URL, note ID, publication time, or
+metrics. After success, PLAN refreshes the exact Notion page and shows the post
+in **Receipt Pending** until XHS reconciliation is complete.
+
+Configure these server-only Netlify variables:
+
+- `PLAN_INTEGRATION_TOKEN` — bearer credential accepted by the XHS PLAN integration
+- `PLAN_XHS_BASE_URL` — optional XHS origin override; defaults to `https://xhs.justlikekatie.com`
+- `PLAN_XHS_TIMEOUT_MS` — optional upstream timeout in milliseconds; defaults to `5000` and must be `500`–`15000`
+
+`PLAN_OPERATOR_TOKEN` remains the browser-entered operator credential for the
+same-origin PLAN request. `PLAN_INTEGRATION_TOKEN` must never be exposed as a
+`VITE_` variable or sent to the browser. XHS migration 015 and the deployment
+containing the operator-scheduled integration endpoint are prerequisites.
+When the token or upstream endpoint is unavailable, Rednote execution state is
+shown as unavailable and ready posts are removed from the dispatchable lane.
+The public URL follow-up links to the XHS Admin root because no exact supported
+reconciliation deep link exists.
+
 ## Fandom Admin and Idea Packets
 
 The existing admin entry point (`?admin=true`, persisted for the browser session)
