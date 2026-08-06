@@ -49,6 +49,25 @@ be stable HTTPS URLs without query strings or fragments, so signed URLs are
 never written into retry state. Configure these server-only environment
 variables in Netlify:
 
+Pre-PR8 retry pointers (recorded before the attempt-artifact schema existed)
+are migrated only when their packet version and source CAS chain still match
+the persisted packet exactly — never by trusting identifiers or provenance
+alone, since those don't prove an asset's bytes are still intact upstream. A
+matching legacy pointer is rendered exactly once, checkpointed as a normal
+PR8 attempt artifact, and only then swapped in via an atomic CAS against the
+packet entry's ETag; a stale pointer (packet version has since changed) is
+simply superseded by a fresh attempt, and any pointer that is malformed or
+whose source CAS no longer matches is rejected before any render or upstream
+call. Because legacy pointers never persisted per-output bytes, checksums, or
+MEDIA descriptors, migration never infers or reuses a historical descriptor —
+identifiers and provenance alone are not sufficient, since they cannot verify
+that an asset's bytes are still intact upstream. Migration always re-registers
+with MEDIA, which deduplicates by checksum and returns the canonical
+descriptor for identical bytes, producing at most one final canonical asset
+set even if re-rendered bytes differ. As with every other retry record, no
+signed URLs are ever persisted for a migrated attempt, only stable canonical
+HTTPS descriptor URLs.
+
 - `MEDIA_ASSETS_URL` — canonical MEDIA `POST /v1/assets/images` endpoint
 - `MEDIA_ASSETS_TOKEN` — scoped MEDIA bearer credential with `assets:write`
 - `CREATE_FANDOM_INTAKE_URL` — authenticated CREATE Fandom deliverable intake
