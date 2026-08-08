@@ -1026,6 +1026,7 @@ function isValidCreateUrl(value, postId) {
 
 function absoluteHttpsUrl(value, requestUrl) {
   const url = new URL(value, requestUrl);
+  if (url.protocol === "http:") url.protocol = "https:";
   if (url.protocol !== "https:") throw new RequestError("Fandom source URLs must resolve to HTTPS.", 400, "packet");
   return url.toString();
 }
