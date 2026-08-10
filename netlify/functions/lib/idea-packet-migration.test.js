@@ -270,6 +270,14 @@ test("exports exact packets, receipt identity, provenance, checksums, and byte-f
   assert.equal(body.snapshot.mediaCount, 2);
   assert.equal(body.snapshot.selectedOutputCount, 2);
   assert.equal(response.headers.get("etag"), `"${body.snapshot.checksum}"`);
+  assert.equal(
+    response.headers.get("x-fandom-snapshot-checksum"),
+    body.snapshot.checksum,
+  );
+  assert.match(
+    response.headers.get("x-fandom-snapshot-checksum"),
+    /^[a-f0-9]{64}$/,
+  );
   assert.deepEqual(body.packets.map(item => item.packetId), ["packet-completed", "packet-current"]);
 
   const exportedCompleted = body.packets[0];
