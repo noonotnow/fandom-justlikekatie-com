@@ -32,6 +32,36 @@
   status = 200
 
 [[redirects]]
+  from = "/api/auth/magic-link"
+  to = "/.netlify/functions/auth-magic-link"
+  status = 200
+
+[[redirects]]
+  from = "/api/auth/verify"
+  to = "/.netlify/functions/auth-verify"
+  status = 200
+
+[[redirects]]
+  from = "/api/auth/session"
+  to = "/.netlify/functions/auth-session"
+  status = 200
+
+[[redirects]]
+  from = "/api/auth/logout"
+  to = "/.netlify/functions/auth-logout"
+  status = 200
+
+[[redirects]]
+  from = "/api/collection/sync"
+  to = "/.netlify/functions/collection-sync"
+  status = 200
+
+[[redirects]]
+  from = "/api/create/collection"
+  to = "/.netlify/functions/create-collection"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

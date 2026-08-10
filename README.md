@@ -170,9 +170,9 @@ it is not a success receipt and does not write PLAN.
 
 ### Saved collection and history adapter
 
-The existing `vibe-atlas-collection` IndexedDB database remains the canonical
-browser collection. Schema version 2 preserves the existing `cards` store and
-adds a `grids` store. Exporting a full Vibe Atlas grid now snapshots its stable
+The existing `vibe-atlas-collection` IndexedDB database remains the anonymous
+and offline-first browser collection. Schema version 3 preserves the existing
+`cards` and `grids` stores and adds additive sync metadata. Exporting a full Vibe Atlas grid snapshots its stable
 grid identity, actor/vibe/date provenance, source result IDs and links, and the
 ordered 3×3 media set before the browser share/download completes. Lightbox
 bookmarks continue to write to `cards`, now retaining the original result ID and
@@ -196,3 +196,36 @@ browser record cannot be reconstructed; all newly exported grids are recorded.
 `star-of-day.js`, `rebuild-cache.js`, `log-engagement.js`,
 `batch-metrics.js`, `image-proxy.js`). See `docs/release-notes.md` for their
 change history and `QA_ISSUES.md` for known/tracked issues.
+
+## Public Saved Collection identity and sync
+
+Fandom canonically owns Saved Collection. Anonymous saves remain local; signing
+in with the same email on multiple browser profiles, computers, or phones can
+merge each device into one account collection. Every browser profile requires
+explicit first-merge consent. Local save/remove continues when signed out or
+offline.
+
+Passwordless sign-in is delivered through Resend from the dedicated
+`auth.justlikekatie.com` sender domain. Google Workspace remains the apex
+domain's human-mail provider. Configure the exact SPF/DKIM records supplied by
+Resend and DMARC for the auth subdomain, then set these server-only Netlify
+variables:
+
+- `RESEND_API_KEY`
+- `FANDOM_AUTH_FROM_EMAIL` (`Fandom <login@auth.justlikekatie.com>`)
+- `FANDOM_PUBLIC_ORIGIN` (`https://fandom.justlikekatie.com`)
+- `FANDOM_AUTH_ID_SECRET` (durable random secret; rotation requires migration)
+- `CREATE_FANDOM_COLLECTION_READ_KEY_ID`
+- `CREATE_FANDOM_COLLECTION_READ_SECRET`
+
+Never expose these as `VITE_` variables. The browser receives only an HttpOnly,
+Secure, SameSite session cookie. Auth records use the
+`fandom-auth-users`, `fandom-auth-magic-links`, `fandom-auth-sessions`, and
+`fandom-auth-rate-limits` Blob stores. Versioned per-user collections live in
+`fandom-user-collections` with stable UUIDs, revisions, cursors, idempotent
+mutations, and tombstones.
+
+Public endpoints are `/api/auth/magic-link`, `/api/auth/verify`,
+`/api/auth/session`, `/api/auth/logout`, and `/api/collection/sync`.
+`GET /api/create/collection` is separately HMAC-authenticated and read-only.
+CREATE has no collection write endpoint and must never own or mutate this data.
