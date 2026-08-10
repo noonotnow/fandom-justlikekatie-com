@@ -110,23 +110,43 @@ export async function dbRemoveCard(imageUrl: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction([CARD_STORE, SYNC_STORE], 'readwrite');
     tx.objectStore(CARD_STORE).delete(imageUrl);
-    if (existing?.serverId) {
-      const serverId = existing.serverId;
+    if (existing?.localId) {
       const syncStore = tx.objectStore(SYNC_STORE);
       const req = syncStore.get('state');
       req.onsuccess = () => {
         const state = normalizeSyncState(req.result);
-        state.pendingDeletes.push({
+        const accountId = resolveDeleteAccount(existing, state);
+        const serverId = accountId ? state.mappingsByAccount[accountId]?.[existing.localId!] : undefined;
+        if (!accountId || !serverId) return;
+        const pending = state.pendingDeletesByAccount[accountId] || [];
+        pending.push({
           mutationId: crypto.randomUUID(),
-          localId: existing.localId || crypto.randomUUID(),
+          localId: existing.localId!,
           serverId,
         });
+        state.pendingDeletesByAccount[accountId] = pending;
         syncStore.put(state);
       };
     }
+
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
+}
+
+export function resolveDeleteAccount(
+  card: CardRecord,
+  state: CollectionSyncState,
+): string | undefined {
+  if (!card.localId) return undefined;
+  if (card.ownerAccountId && state.mappingsByAccount[card.ownerAccountId]?.[card.localId]) {
+    return card.ownerAccountId;
+  }
+  const candidates = Object.entries(state.mappingsByAccount)
+    .filter(([, mappings]) => Boolean(mappings[card.localId!]))
+    .map(([accountId]) => accountId);
+  if (state.activeAccountId && candidates.includes(state.activeAccountId)) return state.activeAccountId;
+  return candidates.length === 1 ? candidates[0] : undefined;
 }
 
 export async function dbIsCardSaved(imageUrl: string): Promise<boolean> {
@@ -157,15 +177,18 @@ export async function dbGetVisibleCards(accountId?: string): Promise<CardRecord[
 export interface CollectionSyncState {
   key: 'state';
   clientId: string;
+  activeAccountId?: string;
   cursors: Record<string, number>;
   mergeDecisions: Record<string, boolean>;
-  mappings: Record<string, string>;
-  pendingDeletes: Array<{ mutationId: string; localId: string; serverId: string }>;
+  mappingsByAccount: Record<string, Record<string, string>>;
+  pendingDeletesByAccount: Record<string, Array<{ mutationId: string; localId: string; serverId: string }>>;
+  acknowledgedUpsertsByAccount: Record<string, Record<string, string>>;
 }
 
 export interface CollectionSyncRequest {
   schemaVersion: 1;
   clientId: string;
+  expectedAccountId: string;
   cursor: number;
   operations: Array<Record<string, unknown>>;
 }
@@ -185,44 +208,62 @@ export async function dbSetMergeDecision(accountId: string, merge: boolean): Pro
   await dbPutSyncState(state);
 }
 
+export async function dbSetActiveAccount(accountId?: string): Promise<void> {
+  const state = await dbGetSyncState();
+  state.activeAccountId = accountId;
+  await dbPutSyncState(state);
+}
+
 export async function dbBuildSyncRequest(accountId: string): Promise<CollectionSyncRequest> {
   const [loadedCards, state] = await Promise.all([dbGetAllCards(), dbGetSyncState()]);
   const cards = await ensureLocalIds(loadedCards);
-  const merge = state.mergeDecisions[accountId] === true;
-  const upserts = merge
-    ? cards
-      .filter(card => !card.ownerAccountId || card.ownerAccountId === accountId)
-      .map(card => {
-        const localId = card.localId || crypto.randomUUID();
-        return {
-          type: 'upsert',
-          mutationId: `upsert:${state.clientId}:${localId}:${card.savedAt || card.capturedDate}`,
-          localId,
-          item: {
-            imageUrl: card.imageUrl,
-            thumbnailUrl: card.thumbnailUrl,
-            resultId: card.resultId,
-            sourceUrl: card.sourceUrl,
-            actor: card.actor,
-            actorEn: card.actorEn,
-            vibe: card.vibe,
-            vibeEn: card.vibeEn,
-            vibeEmoji: card.vibeEmoji,
-            capturedDate: card.capturedDate,
-            savedAt: card.savedAt,
-            gridContext: card.gridContext,
-          },
-        };
-      })
-    : [];
   return {
     schemaVersion: 1,
     clientId: state.clientId,
+    expectedAccountId: accountId,
     cursor: state.cursors[accountId] || 0,
-    operations: [...state.pendingDeletes, ...upserts].slice(0, 100).map(operation => (
-      'type' in operation ? operation : { ...operation, type: 'delete' }
-    )),
+    operations: buildSyncOperations(cards, state, accountId).slice(0, 100),
   };
+}
+
+export function buildSyncOperations(
+  cards: CardRecord[],
+  state: CollectionSyncState,
+  accountId: string,
+): Array<Record<string, unknown>> {
+  const deletes = (state.pendingDeletesByAccount[accountId] || []).map(operation => ({
+    ...operation,
+    type: 'delete',
+  }));
+  if (state.mergeDecisions[accountId] !== true) return deletes;
+  const acknowledged = state.acknowledgedUpsertsByAccount[accountId] || {};
+  const upserts = cards
+    .filter(card => !card.ownerAccountId || card.ownerAccountId === accountId)
+    .map(card => {
+      const localId = card.localId!;
+      const mutationId = `upsert:${state.clientId}:${localId}:${card.savedAt || card.capturedDate}`;
+      return {
+        type: 'upsert',
+        mutationId,
+        localId,
+        item: {
+          imageUrl: card.imageUrl,
+          thumbnailUrl: card.thumbnailUrl,
+          resultId: card.resultId,
+          sourceUrl: card.sourceUrl,
+          actor: card.actor,
+          actorEn: card.actorEn,
+          vibe: card.vibe,
+          vibeEn: card.vibeEn,
+          vibeEmoji: card.vibeEmoji,
+          capturedDate: card.capturedDate,
+          savedAt: card.savedAt,
+          gridContext: card.gridContext,
+        },
+      };
+    })
+    .filter(operation => acknowledged[operation.localId] !== operation.mutationId);
+  return [...deletes, ...upserts];
 }
 
 export async function dbApplySyncResponse(
@@ -234,6 +275,7 @@ export async function dbApplySyncResponse(
     mappings: Record<string, string>;
     acknowledgedMutationIds: string[];
   },
+  submittedOperations: Array<Record<string, unknown>>,
 ): Promise<void> {
   const db = await openDB();
   const cards = await dbGetAllCards();
@@ -242,11 +284,24 @@ export async function dbApplySyncResponse(
   const tx = db.transaction([CARD_STORE, SYNC_STORE], 'readwrite');
   const cardStore = tx.objectStore(CARD_STORE);
   const state = normalizeSyncState(await requestResult(tx.objectStore(SYNC_STORE).get('state')));
-  Object.assign(state.mappings, response.mappings);
+  const mappings = state.mappingsByAccount[accountId] || {};
+  Object.assign(mappings, response.mappings);
+  state.mappingsByAccount[accountId] = mappings;
   state.cursors[accountId] = response.cursor;
-  state.pendingDeletes = state.pendingDeletes.filter(
+  const acknowledged = new Set(response.acknowledgedMutationIds);
+  state.pendingDeletesByAccount[accountId] = (state.pendingDeletesByAccount[accountId] || []).filter(
     item => !response.acknowledgedMutationIds.includes(item.mutationId),
   );
+  const acknowledgedUpserts = state.acknowledgedUpsertsByAccount[accountId] || {};
+  for (const operation of submittedOperations) {
+    if (
+      operation.type === 'upsert'
+      && typeof operation.localId === 'string'
+      && typeof operation.mutationId === 'string'
+      && acknowledged.has(operation.mutationId)
+    ) acknowledgedUpserts[operation.localId] = operation.mutationId;
+  }
+  state.acknowledgedUpsertsByAccount[accountId] = acknowledgedUpserts;
   for (const item of response.items) {
     const serverId = String(item.id);
     const localId = String(item.localId || '');
@@ -263,7 +318,8 @@ export async function dbApplySyncResponse(
     cardStore.put({ ...existing, ...record });
   }
   for (const tombstone of response.tombstones) {
-    const existing = byServerId.get(tombstone.id);
+    const mappedLocalId = Object.entries(mappings).find(([, serverId]) => serverId === tombstone.id)?.[0];
+    const existing = byServerId.get(tombstone.id) || byLocalId.get(mappedLocalId);
     if (existing) cardStore.delete(existing.imageUrl);
   }
   tx.objectStore(SYNC_STORE).put(state);
@@ -334,13 +390,24 @@ async function ensureLocalIds(cards: CardRecord[]): Promise<CardRecord[]> {
 }
 
 function normalizeSyncState(value: Partial<CollectionSyncState> | undefined): CollectionSyncState {
+  const legacy = value as Partial<CollectionSyncState> & {
+    mappings?: Record<string, string>;
+    pendingDeletes?: Array<{ mutationId: string; localId: string; serverId: string }>;
+  };
+  const activeAccountId = value?.activeAccountId;
   return {
     key: 'state',
     clientId: value?.clientId || crypto.randomUUID(),
+    activeAccountId,
     cursors: value?.cursors || {},
     mergeDecisions: value?.mergeDecisions || {},
-    mappings: value?.mappings || {},
-    pendingDeletes: value?.pendingDeletes || [],
+    mappingsByAccount: value?.mappingsByAccount || (
+      activeAccountId && legacy.mappings ? { [activeAccountId]: legacy.mappings } : {}
+    ),
+    pendingDeletesByAccount: value?.pendingDeletesByAccount || (
+      activeAccountId && legacy.pendingDeletes ? { [activeAccountId]: legacy.pendingDeletes } : {}
+    ),
+    acknowledgedUpsertsByAccount: value?.acknowledgedUpsertsByAccount || {},
   };
 }
 

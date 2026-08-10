@@ -3,6 +3,7 @@ import {
   dbBuildSyncRequest,
   dbGetSyncState,
   dbRemoveAccountCache,
+  dbSetActiveAccount,
   dbSetMergeDecision,
 } from './collectionDB';
 
@@ -13,8 +14,13 @@ export interface PublicUser {
 
 export async function getPublicSession(): Promise<PublicUser | null> {
   const response = await fetch('/api/auth/session', { credentials: 'same-origin' });
-  if (!response.ok) return null;
-  return (await response.json()).user;
+  if (!response.ok) {
+    await dbSetActiveAccount();
+    return null;
+  }
+  const user = (await response.json()).user as PublicUser | null;
+  await dbSetActiveAccount(user?.accountId);
+  return user;
 }
 
 export async function requestMagicLink(email: string): Promise<string> {
@@ -31,6 +37,7 @@ export async function consumeMagicLinkFromLocation(): Promise<boolean> {
   if (!token) return false;
   const response = await postJson('/api/auth/verify', { token });
   if (!response.ok) throw new Error((await response.json()).error || 'The sign-in link could not be used.');
+  notifyCollection('session-changed');
   return true;
 }
 
@@ -38,6 +45,7 @@ export async function logoutPublicAccount(user: PublicUser): Promise<void> {
   const response = await postJson('/api/auth/logout', {});
   if (!response.ok) throw new Error('Could not sign out.');
   await dbRemoveAccountCache(user.accountId);
+  await dbSetActiveAccount();
   notifyCollection('session-changed');
 }
 
@@ -52,11 +60,17 @@ export async function setDeviceMerge(accountId: string, merge: boolean): Promise
 
 export async function syncPublicCollection(user: PublicUser): Promise<void> {
   const run = async () => {
-    const payload = await dbBuildSyncRequest(user.accountId);
-    const response = await postJson('/api/collection/sync', payload);
-    const body = await response.json();
-    if (!response.ok) throw new Error(body.error || 'Collection sync failed.');
-    await dbApplySyncResponse(user.accountId, body);
+    const session = await getPublicSession();
+    if (session?.accountId !== user.accountId) throw new Error('The active account changed. Refresh before syncing.');
+    for (let batch = 0; batch < 100; batch += 1) {
+      const payload = await dbBuildSyncRequest(user.accountId);
+      const response = await postJson('/api/collection/sync', payload);
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Collection sync failed.');
+      await dbApplySyncResponse(user.accountId, body, payload.operations);
+      if (payload.operations.length < 100) break;
+      if (batch === 99) throw new Error('Collection sync exceeded the safe batch limit.');
+    }
     notifyCollection('synced');
   };
   if (navigator.locks) {
@@ -64,6 +78,34 @@ export async function syncPublicCollection(user: PublicUser): Promise<void> {
   } else {
     await run();
   }
+}
+
+let retryOnReconnect = false;
+
+export function schedulePublicCollectionSync(): void {
+  notifyCollection('local-change');
+  void getPublicSession()
+    .then(async user => {
+      if (!user || !await hasMergeDecision(user.accountId)) return;
+      await syncPublicCollection(user);
+      retryOnReconnect = false;
+    })
+    .catch(error => {
+      if (!navigator.onLine || error instanceof TypeError) {
+        if (retryOnReconnect) return;
+        retryOnReconnect = true;
+        window.addEventListener('online', () => {
+          retryOnReconnect = false;
+          schedulePublicCollectionSync();
+        }, { once: true });
+        return;
+      }
+      sessionStorage.setItem(
+        'fandom_auth_notice',
+        error instanceof Error ? error.message : 'Collection sync failed.',
+      );
+      notifyCollection('session-changed');
+    });
 }
 
 function notifyCollection(type: string) {

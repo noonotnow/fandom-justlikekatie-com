@@ -198,3 +198,24 @@ test("CREATE collection reads require the dedicated GET-only HMAC scope", async 
   const mutation = await handlers.createRead(request(path, { body: {} }));
   assert.equal(mutation.status, 405);
 });
+
+test("collection sync rejects a stale tab when its expected account differs from the cookie session", async () => {
+  const store = memoryStore();
+  const handlers = createCollectionHandlers({
+    auth: {
+      authenticate: async () => ({ user: { accountId: "usr_account_b" } }),
+    },
+    getStore: () => store,
+  });
+  const response = await handlers.sync(request("/api/collection/sync", {
+    body: {
+      schemaVersion: 1,
+      clientId: "stale-tab",
+      expectedAccountId: "usr_account_a",
+      cursor: 0,
+      operations: [],
+    },
+  }));
+  assert.equal(response.status, 409);
+  assert.equal(store.records.size, 0);
+});

@@ -4,6 +4,7 @@ import type { StarOfDayData } from '../../hooks/useStarOfDay';
 import { ExportCardButton, type ExportCardMetadata } from '../ExportCardButton/ExportCardButton';
 import { dbSaveCard, dbRemoveCard, dbIsCardSaved } from '../../utils/collectionDB';
 import { storage } from '../../utils/storage';
+import { schedulePublicCollectionSync } from '../../utils/publicAccount';
 import type { IdeaPacket } from '../../utils/ideaPackets';
 import styles from './Lightbox.module.css';
 
@@ -208,6 +209,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
       setIsSaved(true);
       if (navigator.vibrate) navigator.vibrate(50);
     }
+    schedulePublicCollectionSync();
   }
 
   if (!current) return null;

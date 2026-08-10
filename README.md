@@ -223,7 +223,10 @@ Secure, SameSite session cookie. Auth records use the
 `fandom-auth-users`, `fandom-auth-magic-links`, `fandom-auth-sessions`, and
 `fandom-auth-rate-limits` Blob stores. Versioned per-user collections live in
 `fandom-user-collections` with stable UUIDs, revisions, cursors, idempotent
-mutations, and tombstones.
+mutations, account-scoped pending queues, bounded draining batches, and
+tombstones. Every browser sync sends its expected account ID in addition to the
+HttpOnly cookie; the server rejects the request if another tab has replaced the
+shared session cookie.
 
 Public endpoints are `/api/auth/magic-link`, `/api/auth/verify`,
 `/api/auth/session`, `/api/auth/logout`, and `/api/collection/sync`.
