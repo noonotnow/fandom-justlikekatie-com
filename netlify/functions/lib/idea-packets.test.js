@@ -259,6 +259,25 @@ test("rejects packet mutation while a handoff owns the durable lease", async () 
   assert.equal(store.records.get("packet-1").notes, "");
 });
 
+test("coordinates packet creation through the durable handoff lease", async () => {
+  const store = memoryStore();
+  const leaseStore = memoryStore();
+  await leaseStore.setJSON("locks/packet-2", {
+    owner: "handoff-instance",
+    acquiredAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+    state: "active",
+  });
+  const handler = createIdeaPacketsHandler({
+    env: { PLAN_OPERATOR_TOKEN: TOKEN },
+    getStore: name => name === "idea-packets" ? store : leaseStore,
+  });
+
+  const response = await handler(request("POST", { packet: packet({ id: "packet-2" }) }));
+  assert.equal(response.status, 409);
+  assert.equal(store.records.has("packet-2"), false);
+});
+
 test("keeps reads available but freezes mutations with deprecation metadata", async () => {
   const store = memoryStore();
   await store.setJSON("packet-1", packet());
@@ -290,16 +309,18 @@ test("keeps reads available but freezes mutations with deprecation metadata", as
 });
 
 test("fails packet mutations closed when cutover mode is invalid", async () => {
-  const store = memoryStore();
-  const handler = createIdeaPacketsHandler({
-    env: {
-      PLAN_OPERATOR_TOKEN: TOKEN,
-      FANDOM_IDEA_PACKETS_MODE: "invalid",
-    },
-    getStore: storeRouter(store),
-  });
-  const response = await handler(request("POST", { packet: packet() }));
-  assert.equal(response.status, 503);
-  assert.equal((await response.json()).code, "FANDOM_IDEA_PACKETS_MODE_INVALID");
-  assert.equal(store.records.size, 0);
+  for (const value of ["", "  ", "invalid"]) {
+    const store = memoryStore();
+    const handler = createIdeaPacketsHandler({
+      env: {
+        PLAN_OPERATOR_TOKEN: TOKEN,
+        FANDOM_IDEA_PACKETS_MODE: value,
+      },
+      getStore: storeRouter(store),
+    });
+    const response = await handler(request("POST", { packet: packet() }));
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, "FANDOM_IDEA_PACKETS_MODE_INVALID");
+    assert.equal(store.records.size, 0);
+  }
 });

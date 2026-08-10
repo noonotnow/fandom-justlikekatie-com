@@ -10,7 +10,9 @@ export class IdeaPacketModeError extends Error {
 }
 
 export function getIdeaPacketMode(env = process.env) {
-  const value = env.FANDOM_IDEA_PACKETS_MODE || ACTIVE_MODE;
+  const value = Object.prototype.hasOwnProperty.call(env, "FANDOM_IDEA_PACKETS_MODE")
+    ? env.FANDOM_IDEA_PACKETS_MODE
+    : ACTIVE_MODE;
   if (value !== ACTIVE_MODE && value !== READ_ONLY_MODE) {
     throw new IdeaPacketModeError(value);
   }

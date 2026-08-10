@@ -42,9 +42,14 @@ export function createIdeaPacketsHandler({ env = process.env, getStore }) {
         const body = await readBody(req);
         const packet = validatePacket(body.packet);
         return await withIdeaPacketLock(packet.id, async () => {
-          if (await store.get(packet.id, { type: "json" })) throw new RequestError("Idea Packet already exists.", 409);
-          await store.setJSON(packet.id, packet);
-          return jsonResponse(201, { packet });
+          const leaseStore = getStore(HANDOFF_ATTEMPT_STORE, context);
+          return withHandoffLease(leaseStore, packet.id, async () => {
+            if (await store.get(packet.id, { type: "json" })) throw new RequestError("Idea Packet already exists.", 409);
+            await store.setJSON(packet.id, packet);
+            return jsonResponse(201, { packet });
+          }, {
+            conflict: message => new RequestError(message, 409),
+          });
         });
       }
       if (req.method === "PATCH") {

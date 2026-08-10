@@ -209,18 +209,20 @@ test("freezes CREATE handoff before stores, rendering, MEDIA, or CREATE are touc
 });
 
 test("fails CREATE handoff closed before side effects when cutover mode is invalid", async () => {
-  let storeCalls = 0;
-  const handler = createCreateHandoffHandler({
-    env: { ...ENV, FANDOM_IDEA_PACKETS_MODE: "invalid" },
-    getStore: () => {
-      storeCalls += 1;
-      throw new Error("store must not be opened");
-    },
-  });
-  const response = await handler(request(packet()));
-  assert.equal(response.status, 503);
-  assert.equal((await response.json()).code, "FANDOM_IDEA_PACKETS_MODE_INVALID");
-  assert.equal(storeCalls, 0);
+  for (const value of ["", "  ", "invalid"]) {
+    let storeCalls = 0;
+    const handler = createCreateHandoffHandler({
+      env: { ...ENV, FANDOM_IDEA_PACKETS_MODE: value },
+      getStore: () => {
+        storeCalls += 1;
+        throw new Error("store must not be opened");
+      },
+    });
+    const response = await handler(request(packet()));
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, "FANDOM_IDEA_PACKETS_MODE_INVALID");
+    assert.equal(storeCalls, 0);
+  }
 });
 
 // Pre-PR8 `handoffAttempt` pointers were exactly this shape: no schemaVersion/artifactKey,

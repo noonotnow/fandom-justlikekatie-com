@@ -108,23 +108,28 @@ never calls MEDIA or CREATE.
 
 The `fandom.idea-packet-migration.v1` response contains exact stored packets,
 legacy-normalized packets, ordered selected media/output IDs, completed CREATE
-receipts and source-version CAS identity, the stable
+receipts and validated source-version CAS identity, the stable
 `fandom/deliverable/<packetId>/idea-packet-main` idempotency key, deterministic
 per-record and top-level SHA-256 checksums, and inventory counts. Incomplete,
 stale, legacy, malformed, missing, and orphan handoff attempts are exported
 only as `replayAllowed: false` quarantine records. Retry `bytesBase64` is never
 exported; file checksums, sizes, MEDIA descriptors, and provenance remain for
 audit. The migration function opens both Blob stores with strong consistency,
-including paginated key listing. Any active durable handoff lease blocks the
-whole export, and any Blob read/list failure returns an error rather than a
+including paginated key listing. It brackets packet inventory with lease-store
+snapshots, requires packet ETags, then revalidates both stores before responding.
+Any active lease or packet/lease change rejects the snapshot for retry. A
+malformed persisted completion is quarantined as `invalid-handoff` and is not
+exported as completed. Any Blob read/list failure returns an error rather than a
 partial snapshot.
 
-`FANDOM_IDEA_PACKETS_MODE` defaults to `active`, so deploying migration support
-does not freeze the site. In `read-only`, authenticated `GET /api/idea-packets`
-continues to work with deprecation headers, while packet `POST`/`PATCH` and
-`POST /api/create-handoff` return `423 FANDOM_IDEA_PACKETS_READ_ONLY` before
-Blob writes, rendering, MEDIA registration, or CREATE intake. An invalid mode
-fails those mutation paths closed with `503`.
+When `FANDOM_IDEA_PACKETS_MODE` is absent it defaults to `active`, so deploying
+migration support does not freeze the site. An explicitly configured empty,
+whitespace, or unknown value is invalid. In `read-only`, authenticated
+`GET /api/idea-packets` continues to work with deprecation headers, while packet
+`POST`/`PATCH` and `POST /api/create-handoff` return
+`423 FANDOM_IDEA_PACKETS_READ_ONLY` before Blob writes, rendering, MEDIA
+registration, or CREATE intake. An invalid mode fails those mutation paths
+closed with `503`.
 
 Cutover runbook:
 

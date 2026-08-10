@@ -91,14 +91,26 @@ export function createIdeaPacketMigrationHandler({
 }
 
 export async function buildMigrationExport(packetStore, attemptStore, generatedAt = new Date()) {
-  const [packetBlobs, attemptBlobs] = await Promise.all([
-    listAllBlobs(packetStore),
-    listAllBlobs(attemptStore),
-  ]);
-  const [packetEntries, attemptEntries] = await Promise.all([
-    readAllEntries(packetStore, packetBlobs),
-    readAllEntries(attemptStore, attemptBlobs),
-  ]);
+  const beforeAttemptEntries = await readStoreSnapshot(attemptStore);
+  assertNoActiveLeases(beforeAttemptEntries, generatedAt);
+
+  const packetEntries = await readStoreSnapshot(packetStore);
+  const attemptEntries = await readStoreSnapshot(attemptStore);
+  assertNoActiveLeases(attemptEntries, generatedAt);
+  assertSnapshotUnchanged(beforeAttemptEntries, attemptEntries, "handoff");
+
+  const exportData = compileMigrationExport(packetEntries, attemptEntries, generatedAt);
+
+  const verifiedPacketEntries = await readStoreSnapshot(packetStore);
+  assertSnapshotUnchanged(packetEntries, verifiedPacketEntries, "packet");
+  const verifiedAttemptEntries = await readStoreSnapshot(attemptStore);
+  assertNoActiveLeases(verifiedAttemptEntries, generatedAt);
+  assertSnapshotUnchanged(attemptEntries, verifiedAttemptEntries, "handoff");
+
+  return exportData;
+}
+
+function compileMigrationExport(packetEntries, attemptEntries, generatedAt) {
   const attemptByKey = new Map(attemptEntries.map(entry => [entry.key, entry.data]));
   const referencedArtifactKeys = new Set();
   const packets = [];
@@ -140,7 +152,8 @@ export async function buildMigrationExport(packetStore, attemptStore, generatedA
       referencedArtifactKeys,
     });
     if (attempt.quarantine) quarantine.push(attempt.quarantine);
-    const handoff = isRecord(storedPacket.handoff) ? structuredClone(storedPacket.handoff) : null;
+    const handoff = classifyCompletedHandoff(storedPacket, packetId);
+    if (handoff.quarantine) quarantine.push(handoff.quarantine);
     packets.push({
       packetId,
       version: stringValue(storedPacket.version),
@@ -160,17 +173,7 @@ export async function buildMigrationExport(packetStore, attemptStore, generatedA
       createIdentity: {
         idempotencyKey: `fandom/deliverable/${packetId}/idea-packet-main`,
         deliverableId: "idea-packet-main",
-        completedHandoff: handoff
-          ? {
-              sourceVersion: handoff.sourceVersion ?? null,
-              expectedSourceVersion: handoff.expectedSourceVersion ?? null,
-              packetVersion: handoff.packetVersion ?? null,
-              fingerprint: handoff.fingerprint ?? null,
-              generatedAt: handoff.generatedAt ?? null,
-              completedAt: handoff.completedAt ?? null,
-              receipt: handoff.receipt ?? null,
-            }
-          : null,
+        completedHandoff: handoff.completed,
       },
       attemptDisposition: attempt.quarantine?.quarantineId ?? null,
     });
@@ -192,15 +195,6 @@ export async function buildMigrationExport(packetStore, attemptStore, generatedA
     }
   }
 
-  const activeLeases = quarantine.filter(item => item.kind === "active-lease");
-  if (activeLeases.length > 0) {
-    throw new MigrationError(
-      `Migration export is blocked by ${activeLeases.length} active handoff lease${activeLeases.length === 1 ? "" : "s"}.`,
-      409,
-      "PACKET_MIGRATION_HANDOFF_ACTIVE",
-    );
-  }
-
   packets.sort((left, right) => left.packetId.localeCompare(right.packetId));
   quarantine.sort((left, right) => left.quarantineId.localeCompare(right.quarantineId));
   const completedHandoffCount = packets.filter(packet => packet.createIdentity.completedHandoff).length;
@@ -210,6 +204,7 @@ export async function buildMigrationExport(packetStore, attemptStore, generatedA
     "legacy-attempt",
     "invalid-attempt",
     "missing-artifact",
+    "invalid-handoff",
   ].includes(item.kind)).length;
   const stateCounts = {
     collecting: packets.filter(packet => packet.state === "collecting").length,
@@ -243,6 +238,62 @@ export async function buildMigrationExport(packetStore, attemptStore, generatedA
     packets,
     quarantine,
   };
+}
+
+function classifyCompletedHandoff(packet, packetId) {
+  if (packet.handoff === undefined) {
+    return { completed: null, quarantine: null };
+  }
+  if (isValidCompletedHandoff(packet.handoff, packet, packetId)) {
+    return { completed: structuredClone(packet.handoff), quarantine: null };
+  }
+  return {
+    completed: null,
+    quarantine: quarantineRecord({
+      kind: "invalid-handoff",
+      packetId,
+      reason: "The persisted completed handoff does not satisfy the receipt, source CAS, idempotency, or packet-version contract.",
+      handoff: stripAttemptBytes(packet.handoff),
+    }),
+  };
+}
+
+function isValidCompletedHandoff(handoff, packet, packetId) {
+  if (!isRecord(handoff)) return false;
+  const expectedSourceVersion = handoff.expectedSourceVersion;
+  const receipt = handoff.receipt;
+  return Number.isInteger(handoff.sourceVersion)
+    && handoff.sourceVersion >= 1
+    && (
+      expectedSourceVersion === null
+      || (Number.isInteger(expectedSourceVersion) && expectedSourceVersion >= 1)
+    )
+    && handoff.sourceVersion === (expectedSourceVersion ?? 0) + 1
+    && typeof handoff.packetVersion === "string"
+    && Boolean(handoff.packetVersion)
+    && handoff.packetVersion !== packet.version
+    && typeof handoff.fingerprint === "string"
+    && /^[a-f0-9]{64}$/.test(handoff.fingerprint)
+    && isIsoTimestamp(handoff.generatedAt)
+    && isIsoTimestamp(handoff.completedAt)
+    && Date.parse(handoff.completedAt) >= Date.parse(handoff.generatedAt)
+    && packet.updatedAt === handoff.completedAt
+    && packet.version === `${handoff.completedAt}-${createHash("sha256").update(handoff.fingerprint).digest("hex").slice(0, 12)}`
+    && isRecord(receipt)
+    && receipt.deliverableId === "idea-packet-main"
+    && typeof receipt.postId === "string"
+    && Boolean(receipt.postId)
+    && isHttpsUrl(receipt.postUrl)
+    && isValidCreateUrl(receipt.createUrl, receipt.postId)
+    && receipt.status === "Draft"
+    && receipt.sourceVersion === handoff.sourceVersion
+    && receipt.workflow === "packet"
+    && ["created", "replayed", "updated"].includes(receipt.disposition)
+    && receipt.packetReceipt?.packetId === packetId
+    && receipt.packetReceipt?.deliverableId === "idea-packet-main"
+    && receipt.packetReceipt?.accepted === true
+    && receipt.mediaSyncState === "synced"
+    && Array.isArray(receipt.warnings);
 }
 
 function classifyPacketAttempt({ packetId, packet, attemptByKey, referencedArtifactKeys }) {
@@ -408,22 +459,63 @@ function deduplicateBlobs(blobs) {
     .sort((left, right) => left.key.localeCompare(right.key));
 }
 
+async function readStoreSnapshot(store) {
+  const blobs = await listAllBlobs(store);
+  return readAllEntries(store, blobs);
+}
+
 async function readAllEntries(store, blobs) {
   return Promise.all(blobs.map(async blob => {
-    let data;
-    if (typeof store.getWithMetadata === "function") {
-      data = (await store.getWithMetadata(blob.key, {
-        type: "json",
-        consistency: "strong",
-      }))?.data;
-    } else {
-      data = await store.get(blob.key, { type: "json", consistency: "strong" });
+    if (typeof store.getWithMetadata !== "function") {
+      throw new Error("Blob metadata reads are required for a stable migration snapshot.");
     }
-    if (data === undefined || data === null) {
-      throw new Error(`Blob ${blob.key} disappeared during migration inventory.`);
+    if (typeof blob.etag !== "string" || !blob.etag) {
+      throw new Error(`Blob ${blob.key} listing has no ETag for migration snapshot validation.`);
     }
-    return { key: blob.key, data };
+    const entry = await store.getWithMetadata(blob.key, {
+      type: "json",
+      consistency: "strong",
+    });
+    if (entry?.data === undefined || entry?.data === null) {
+      throw snapshotChanged(`Blob ${blob.key} disappeared during migration inventory.`);
+    }
+    if (typeof entry.etag !== "string" || !entry.etag) {
+      throw new Error(`Blob ${blob.key} has no ETag for migration snapshot validation.`);
+    }
+    if (entry.etag !== blob.etag) {
+      throw snapshotChanged(`Blob ${blob.key} changed between migration listing and read.`);
+    }
+    return { key: blob.key, etag: entry.etag, data: entry.data };
   }));
+}
+
+function assertNoActiveLeases(entries, current) {
+  const activeLeases = entries
+    .filter(entry => entry.key.startsWith("locks/"))
+    .map(entry => classifyLease(entry.key, entry.data, current))
+    .filter(item => item.kind === "active-lease");
+  if (activeLeases.length > 0) {
+    throw new MigrationError(
+      `Migration export is blocked by ${activeLeases.length} active handoff lease${activeLeases.length === 1 ? "" : "s"}.`,
+      409,
+      "PACKET_MIGRATION_HANDOFF_ACTIVE",
+    );
+  }
+}
+
+function assertSnapshotUnchanged(before, after, label) {
+  const identity = entries => entries.map(entry => ({
+    key: entry.key,
+    etag: entry.etag,
+    checksum: canonicalChecksum(entry.data),
+  }));
+  if (canonicalChecksum(identity(before)) !== canonicalChecksum(identity(after))) {
+    throw snapshotChanged(`The ${label} Blob inventory changed during migration export. Retry the snapshot.`);
+  }
+}
+
+function snapshotChanged(message) {
+  return new MigrationError(message, 409, "PACKET_MIGRATION_SNAPSHOT_CHANGED");
 }
 
 function validateMigrationSignature(req, env, current) {
@@ -517,6 +609,32 @@ function isValidStoredAttemptArtifact(artifact, pointer, packetId) {
       && bytes.byteLength === file.sizeBytes
       && createHash("sha256").update(bytes).digest("hex") === file.checksum;
   });
+}
+
+function isIsoTimestamp(value) {
+  return typeof value === "string"
+    && Number.isFinite(Date.parse(value))
+    && new Date(value).toISOString() === value;
+}
+
+function isHttpsUrl(value) {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isValidCreateUrl(value, postId) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:"
+      && url.hostname === "create.justlikekatie.com"
+      && url.pathname === "/compose"
+      && url.searchParams.get("postId") === postId;
+  } catch {
+    return false;
+  }
 }
 
 export function canonicalChecksum(value) {

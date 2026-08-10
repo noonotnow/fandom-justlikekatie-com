@@ -133,12 +133,31 @@ function completedHandoff(packetId) {
   };
 }
 
+function packetWithCompletedHandoff(packetId, handoff = completedHandoff(packetId)) {
+  const versionSuffix = createHash("sha256").update(handoff.fingerprint).digest("hex").slice(0, 12);
+  return packet(packetId, {
+    state: "media_compiled",
+    version: `${handoff.completedAt}-${versionSuffix}`,
+    updatedAt: handoff.completedAt,
+    handoff,
+  });
+}
+
 function paginatedStore(entries = [], pageSize = 2) {
   const records = new Map(entries);
-  return {
+  const etags = new Map([...records.keys()].map(key => [key, `etag-${key}-1`]));
+  let revision = 1;
+  let listCalls = 0;
+  let getCalls = 0;
+  const store = {
     records,
+    etags,
+    onList: null,
+    onGet: null,
     list() {
-      const blobs = [...records.keys()].map(key => ({ key, etag: `etag-${key}` }));
+      listCalls += 1;
+      store.onList?.({ call: listCalls, store });
+      const blobs = [...records.keys()].map(key => ({ key, etag: etags.get(key) }));
       return {
         async *[Symbol.asyncIterator]() {
           for (let index = 0; index < blobs.length; index += pageSize) {
@@ -148,10 +167,22 @@ function paginatedStore(entries = [], pageSize = 2) {
       };
     },
     async getWithMetadata(key) {
+      getCalls += 1;
+      await store.onGet?.({ call: getCalls, key, store });
       if (!records.has(key)) return null;
-      return { data: structuredClone(records.get(key)), etag: `etag-${key}`, metadata: {} };
+      return { data: structuredClone(records.get(key)), etag: etags.get(key), metadata: {} };
+    },
+    set(key, value) {
+      revision += 1;
+      records.set(key, structuredClone(value));
+      etags.set(key, `etag-${key}-${revision}`);
+    },
+    delete(key) {
+      records.delete(key);
+      etags.delete(key);
     },
   };
+  return store;
 }
 
 function signedRequest({
@@ -187,10 +218,7 @@ function handlerFor(packetStore, attemptStore, env = ENV) {
 }
 
 test("exports exact packets, receipt identity, provenance, checksums, and byte-free quarantine", async () => {
-  const completed = packet("packet-completed", {
-    state: "media_compiled",
-    handoff: completedHandoff("packet-completed"),
-  });
+  const completed = packetWithCompletedHandoff("packet-completed");
   const currentPointer = modernPointer("packet-current");
   const current = packet("packet-current", { handoffAttempt: currentPointer });
   const artifact = attemptArtifact("packet-current", currentPointer);
@@ -347,6 +375,47 @@ test("classifies stale, legacy, malformed, missing, orphan, and expired records 
   assert.equal(result.snapshot.unresolvedAttemptCount, 4);
 });
 
+test("quarantines malformed completed handoffs without suppressing future CREATE work", async () => {
+  const valid = packetWithCompletedHandoff("valid");
+  const empty = packet("empty", { handoff: {} });
+  const badCasHandoff = completedHandoff("bad-cas");
+  badCasHandoff.sourceVersion = 3;
+  badCasHandoff.receipt.sourceVersion = 3;
+  const badCas = packet("bad-cas", { handoff: badCasHandoff });
+  const badReceiptHandoff = completedHandoff("bad-receipt");
+  badReceiptHandoff.receipt.deliverableId = "wrong-deliverable";
+  const badReceipt = packet("bad-receipt", { handoff: badReceiptHandoff });
+  const impossibleVersion = packetWithCompletedHandoff("impossible-version");
+  impossibleVersion.handoff.packetVersion = impossibleVersion.version;
+
+  const result = await buildMigrationExport(
+    paginatedStore([
+      [valid.id, valid],
+      [empty.id, empty],
+      [badCas.id, badCas],
+      [badReceipt.id, badReceipt],
+      [impossibleVersion.id, impossibleVersion],
+    ]),
+    paginatedStore(),
+    NOW,
+  );
+
+  assert.equal(result.snapshot.completedHandoffCount, 1);
+  assert.equal(result.snapshot.unresolvedAttemptCount, 4);
+  assert.equal(result.quarantine.filter(item => item.kind === "invalid-handoff").length, 4);
+  assert.equal(
+    result.packets
+      .filter(item => item.packetId !== "valid")
+      .every(item => item.createIdentity.completedHandoff === null),
+    true,
+  );
+  assert.deepEqual(
+    result.packets.find(item => item.packetId === "valid").createIdentity.completedHandoff,
+    valid.handoff,
+  );
+  assert.equal(result.quarantine.every(item => item.replayAllowed === false), true);
+});
+
 test("blocks export while an unexpired durable handoff lease is active", async () => {
   const response = await handlerFor(
     paginatedStore([["packet-1", packet("packet-1")]]),
@@ -359,6 +428,76 @@ test("blocks export while an unexpired durable handoff lease is active", async (
   )(signedRequest());
   assert.equal(response.status, 409);
   assert.equal((await response.json()).code, "PACKET_MIGRATION_HANDOFF_ACTIVE");
+});
+
+test("rejects a packet receipt race that changes an ETag during inventory", async () => {
+  const packetStore = paginatedStore([["packet-1", packet("packet-1")]]);
+  const attemptStore = paginatedStore();
+  attemptStore.onList = ({ call }) => {
+    if (call === 2) packetStore.set("packet-1", packetWithCompletedHandoff("packet-1"));
+  };
+
+  const response = await handlerFor(packetStore, attemptStore)(signedRequest());
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).code, "PACKET_MIGRATION_SNAPSHOT_CHANGED");
+});
+
+test("rejects a packet change between its inventory listing and metadata read", async () => {
+  const packetStore = paginatedStore([["packet-1", packet("packet-1")]]);
+  packetStore.onGet = ({ call }) => {
+    if (call === 1) packetStore.set("packet-1", packetWithCompletedHandoff("packet-1"));
+  };
+
+  const response = await handlerFor(packetStore, paginatedStore())(signedRequest());
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).code, "PACKET_MIGRATION_SNAPSHOT_CHANGED");
+});
+
+test("rejects a lease that is created and released during packet inventory", async () => {
+  const packetStore = paginatedStore([["packet-1", packet("packet-1")]]);
+  const attemptStore = paginatedStore();
+  packetStore.onGet = ({ call }) => {
+    if (call !== 1) return;
+    attemptStore.set("locks/packet-1", {
+      owner: "racing-handoff",
+      state: "active",
+      acquiredAt: NOW.getTime(),
+      expiresAt: NOW.getTime() + 60_000,
+    });
+    attemptStore.set("locks/packet-1", {
+      owner: "racing-handoff",
+      state: "released",
+      acquiredAt: NOW.getTime(),
+      expiresAt: NOW.getTime() + 60_000,
+      releasedAt: NOW.getTime(),
+    });
+  };
+
+  const response = await handlerFor(packetStore, attemptStore)(signedRequest());
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).code, "PACKET_MIGRATION_SNAPSHOT_CHANGED");
+});
+
+test("rejects a lease rewrite between its inventory listing and metadata read", async () => {
+  const key = "locks/packet-1";
+  const released = {
+    owner: "racing-handoff",
+    state: "released",
+    acquiredAt: NOW.getTime() - 1_000,
+    expiresAt: NOW.getTime() + 60_000,
+    releasedAt: NOW.getTime(),
+  };
+  const attemptStore = paginatedStore([[key, released]]);
+  attemptStore.onGet = ({ call }) => {
+    if (call === 1) attemptStore.set(key, { ...released, releasedAt: NOW.getTime() + 1 });
+  };
+
+  const response = await handlerFor(
+    paginatedStore([["packet-1", packet("packet-1")]]),
+    attemptStore,
+  )(signedRequest());
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).code, "PACKET_MIGRATION_SNAPSHOT_CHANGED");
 });
 
 test("requires the dedicated GET-only HMAC scope and read-only mode", async () => {
@@ -378,10 +517,12 @@ test("requires the dedicated GET-only HMAC scope and read-only mode", async () =
     ...ENV,
     FANDOM_IDEA_PACKETS_MODE: "active",
   })(signedRequest())).status, 409);
-  assert.equal((await handlerFor(packetStore, attemptStore, {
-    ...ENV,
-    FANDOM_IDEA_PACKETS_MODE: "broken",
-  })(signedRequest())).status, 503);
+  for (const value of ["", "  ", "broken"]) {
+    assert.equal((await handlerFor(packetStore, attemptStore, {
+      ...ENV,
+      FANDOM_IDEA_PACKETS_MODE: value,
+    })(signedRequest())).status, 503);
+  }
 
   const bearerOnly = signedRequest({
     keyId: "",
