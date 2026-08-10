@@ -106,32 +106,16 @@ export async function dbSaveCard(card: CardRecord): Promise<void> {
 
 export async function dbRemoveCard(imageUrl: string): Promise<void> {
   const db = await openDB();
-  const existing = await dbGetCard(imageUrl);
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction([CARD_STORE, SYNC_STORE], 'readwrite');
-    tx.objectStore(CARD_STORE).delete(imageUrl);
-    if (existing?.localId) {
-      const syncStore = tx.objectStore(SYNC_STORE);
-      const req = syncStore.get('state');
-      req.onsuccess = () => {
-        const state = normalizeSyncState(req.result);
-        const accountId = resolveDeleteAccount(existing, state);
-        const serverId = accountId ? state.mappingsByAccount[accountId]?.[existing.localId!] : undefined;
-        if (!accountId || !serverId) return;
-        const pending = state.pendingDeletesByAccount[accountId] || [];
-        pending.push({
-          mutationId: crypto.randomUUID(),
-          localId: existing.localId!,
-          serverId,
-        });
-        state.pendingDeletesByAccount[accountId] = pending;
-        syncStore.put(state);
-      };
-    }
-
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+  const tx = db.transaction([CARD_STORE, SYNC_STORE], 'readwrite');
+  const cardStore = tx.objectStore(CARD_STORE);
+  const syncStore = tx.objectStore(SYNC_STORE);
+  const existing = await requestResult<CardRecord | undefined>(cardStore.get(imageUrl));
+  cardStore.delete(imageUrl);
+  if (existing?.localId) {
+    const state = normalizeSyncState(await requestResult(syncStore.get('state')));
+    if (queueCardDelete(state, existing, crypto.randomUUID())) syncStore.put(state);
+  }
+  await transactionDone(tx);
 }
 
 export function resolveDeleteAccount(
@@ -147,6 +131,31 @@ export function resolveDeleteAccount(
     .map(([accountId]) => accountId);
   if (state.activeAccountId && candidates.includes(state.activeAccountId)) return state.activeAccountId;
   return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+export function queueCardDelete(
+  state: CollectionSyncState,
+  card: CardRecord,
+  mutationId: string,
+): boolean {
+  if (!card.localId) return false;
+  const accountId = resolveDeleteAccount(card, state);
+  const serverId = accountId
+    ? state.mappingsByAccount[accountId]?.[card.localId]
+    : state.legacyUnscoped?.mappings?.[card.localId];
+  if (!serverId) return false;
+  const pending = accountId
+    ? (state.pendingDeletesByAccount[accountId] || [])
+    : (state.legacyUnscoped?.pendingDeletes || []);
+  if (!pending.some(item => item.localId === card.localId && item.serverId === serverId)) {
+    pending.push({ mutationId, localId: card.localId, serverId });
+  }
+  if (accountId) {
+    state.pendingDeletesByAccount[accountId] = pending;
+  } else {
+    state.legacyUnscoped = { ...state.legacyUnscoped, pendingDeletes: pending };
+  }
+  return true;
 }
 
 export async function dbIsCardSaved(imageUrl: string): Promise<boolean> {

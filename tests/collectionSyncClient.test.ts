@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import {
   activateSyncState,
   buildSyncOperations,
+  queueCardDelete,
   resolveDeleteAccount,
   type CardRecord,
   type CollectionSyncState,
@@ -157,6 +158,33 @@ test('clearing a session binds quarantined legacy mutations to the prior account
   assert.equal(switched.mappingsByAccount['account-a']['legacy-local'], 'legacy-server');
   assert.equal(switched.pendingDeletesByAccount['account-a'][0].mutationId, 'legacy-delete');
   assert.equal(switched.mappingsByAccount['account-b'], undefined);
+});
+
+test('removing a card with a quarantined legacy mapping queues one delete for later account activation', async () => {
+  const syncState = activateSyncState({
+    key: 'state',
+    clientId: 'device-1',
+    mappings: { 'local-1': 'server-1' },
+  });
+
+  assert.equal(queueCardDelete(syncState, card(1), 'delete-1'), true);
+  assert.equal(queueCardDelete(syncState, card(1), 'delete-duplicate'), true);
+  assert.deepEqual(syncState.legacyUnscoped?.pendingDeletes, [{
+    mutationId: 'delete-1',
+    localId: 'local-1',
+    serverId: 'server-1',
+  }]);
+
+  const activated = activateSyncState(syncState, 'account-a');
+  assert.equal(buildSyncOperations([], activated, 'account-a')[0].mutationId, 'delete-1');
+
+  const source = await readFile(new URL('../src/utils/collectionDB.ts', import.meta.url), 'utf8');
+  const body = source.match(
+    /export async function dbRemoveCard[\s\S]*?\n}\n\nexport function resolveDeleteAccount/,
+  )?.[0] || '';
+  assert.match(body, /db\.transaction\(\[CARD_STORE, SYNC_STORE\], 'readwrite'\)/);
+  assert.match(body, /requestResult<CardRecord \| undefined>\(cardStore\.get\(imageUrl\)\)/);
+  assert.doesNotMatch(body, /dbGetCard/);
 });
 
 test('active-account probes use one read-write transaction instead of stale read and write snapshots', async () => {
