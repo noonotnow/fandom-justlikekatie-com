@@ -119,8 +119,10 @@ including paginated key listing. It brackets packet inventory with lease-store
 snapshots, requires packet ETags, then revalidates both stores before responding.
 Any active lease or packet/lease change rejects the snapshot for retry. A
 malformed persisted completion is quarantined as `invalid-handoff` and is not
-exported as completed. Any Blob read/list failure returns an error rather than a
-partial snapshot.
+exported as completed. A valid prior completion remains completed after later
+packet edits: its receipt/source CAS is historical identity while the export
+still carries the packet's current version and state. Any Blob read/list failure
+returns an error rather than a partial snapshot.
 
 When `FANDOM_IDEA_PACKETS_MODE` is absent it defaults to `active`, so deploying
 migration support does not freeze the site. An explicitly configured empty,

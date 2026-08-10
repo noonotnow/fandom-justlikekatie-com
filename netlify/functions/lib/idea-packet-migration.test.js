@@ -6,6 +6,7 @@ import {
   canonicalChecksum,
   createIdeaPacketMigrationHandler,
 } from "./idea-packet-migration.js";
+import { applyAction } from "./idea-packets.js";
 
 const ORIGIN = "https://fandom.justlikekatie.com";
 const PATH = "/api/internal/idea-packet-migration";
@@ -387,6 +388,9 @@ test("quarantines malformed completed handoffs without suppressing future CREATE
   const badReceipt = packet("bad-receipt", { handoff: badReceiptHandoff });
   const impossibleVersion = packetWithCompletedHandoff("impossible-version");
   impossibleVersion.handoff.packetVersion = impossibleVersion.version;
+  const malformedEditVersion = packetWithCompletedHandoff("malformed-edit-version");
+  malformedEditVersion.updatedAt = "2026-08-05T17:01:00.000Z";
+  malformedEditVersion.version = `${malformedEditVersion.updatedAt}-garbage`;
 
   const result = await buildMigrationExport(
     paginatedStore([
@@ -395,14 +399,15 @@ test("quarantines malformed completed handoffs without suppressing future CREATE
       [badCas.id, badCas],
       [badReceipt.id, badReceipt],
       [impossibleVersion.id, impossibleVersion],
+      [malformedEditVersion.id, malformedEditVersion],
     ]),
     paginatedStore(),
     NOW,
   );
 
   assert.equal(result.snapshot.completedHandoffCount, 1);
-  assert.equal(result.snapshot.unresolvedAttemptCount, 4);
-  assert.equal(result.quarantine.filter(item => item.kind === "invalid-handoff").length, 4);
+  assert.equal(result.snapshot.unresolvedAttemptCount, 5);
+  assert.equal(result.quarantine.filter(item => item.kind === "invalid-handoff").length, 5);
   assert.equal(
     result.packets
       .filter(item => item.packetId !== "valid")
@@ -414,6 +419,51 @@ test("quarantines malformed completed handoffs without suppressing future CREATE
     valid.handoff,
   );
   assert.equal(result.quarantine.every(item => item.replayAllowed === false), true);
+});
+
+test("preserves valid completed identity after one or multiple normal packet edits", async () => {
+  const completed = packetWithCompletedHandoff("completed");
+  const editedOnce = applyAction(
+    packetWithCompletedHandoff("edited-once"),
+    { type: "update_context", notes: "First edit after handoff" },
+  );
+  const editedTwice = applyAction(
+    applyAction(
+      packetWithCompletedHandoff("edited-twice"),
+      { type: "update_context", notes: "First edit after handoff" },
+    ),
+    { type: "update_context", notes: "Second edit after handoff" },
+  );
+  const sameTimestampEdit = packetWithCompletedHandoff("same-timestamp-edit");
+  sameTimestampEdit.version = `${sameTimestampEdit.updatedAt}-123e4567-e89b-42d3-a456-426614174000`;
+  sameTimestampEdit.notes = "An edit committed in the completion millisecond";
+
+  const result = await buildMigrationExport(
+    paginatedStore([
+      [completed.id, completed],
+      [editedOnce.id, editedOnce],
+      [editedTwice.id, editedTwice],
+      [sameTimestampEdit.id, sameTimestampEdit],
+    ]),
+    paginatedStore(),
+    NOW,
+  );
+
+  assert.equal(result.snapshot.completedHandoffCount, 4);
+  assert.equal(result.quarantine.some(item => item.kind === "invalid-handoff"), false);
+  for (const source of [completed, editedOnce, editedTwice, sameTimestampEdit]) {
+    const exported = result.packets.find(item => item.packetId === source.id);
+    assert.deepEqual(exported.storedPacket, source);
+    assert.deepEqual(exported.createIdentity.completedHandoff, source.handoff);
+    assert.equal(exported.createIdentity.completedHandoff.sourceVersion, 1);
+    assert.equal(exported.createIdentity.completedHandoff.expectedSourceVersion, null);
+    assert.equal(
+      exported.createIdentity.idempotencyKey,
+      `fandom/deliverable/${source.id}/idea-packet-main`,
+    );
+  }
+  assert.notEqual(editedOnce.version, completedHandoff("edited-once").packetVersion);
+  assert.notEqual(editedTwice.version, completedHandoff("edited-twice").packetVersion);
 });
 
 test("blocks export while an unexpired durable handoff lease is active", async () => {

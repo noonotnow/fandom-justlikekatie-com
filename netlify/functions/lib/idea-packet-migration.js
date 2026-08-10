@@ -262,6 +262,21 @@ function isValidCompletedHandoff(handoff, packet, packetId) {
   if (!isRecord(handoff)) return false;
   const expectedSourceVersion = handoff.expectedSourceVersion;
   const receipt = handoff.receipt;
+  const generatedAt = Date.parse(handoff.generatedAt);
+  const completedAt = Date.parse(handoff.completedAt);
+  const packetCreatedAt = Date.parse(packet.createdAt);
+  const packetUpdatedAt = Date.parse(packet.updatedAt);
+  const completedPacketVersion = typeof handoff.fingerprint === "string"
+    ? `${handoff.completedAt}-${createHash("sha256").update(handoff.fingerprint).digest("hex").slice(0, 12)}`
+    : null;
+  const currentPacketFollowsCompletion = (
+    packet.updatedAt === handoff.completedAt
+    && packet.version === completedPacketVersion
+  ) || (
+    packetUpdatedAt >= completedAt
+    && isEditedPacketVersion(packet.version, packet.updatedAt)
+    && packet.version !== completedPacketVersion
+  );
   return Number.isInteger(handoff.sourceVersion)
     && handoff.sourceVersion >= 1
     && (
@@ -276,9 +291,11 @@ function isValidCompletedHandoff(handoff, packet, packetId) {
     && /^[a-f0-9]{64}$/.test(handoff.fingerprint)
     && isIsoTimestamp(handoff.generatedAt)
     && isIsoTimestamp(handoff.completedAt)
-    && Date.parse(handoff.completedAt) >= Date.parse(handoff.generatedAt)
-    && packet.updatedAt === handoff.completedAt
-    && packet.version === `${handoff.completedAt}-${createHash("sha256").update(handoff.fingerprint).digest("hex").slice(0, 12)}`
+    && isIsoTimestamp(packet.createdAt)
+    && isIsoTimestamp(packet.updatedAt)
+    && generatedAt >= packetCreatedAt
+    && completedAt >= generatedAt
+    && currentPacketFollowsCompletion
     && isRecord(receipt)
     && receipt.deliverableId === "idea-packet-main"
     && typeof receipt.postId === "string"
@@ -615,6 +632,14 @@ function isIsoTimestamp(value) {
   return typeof value === "string"
     && Number.isFinite(Date.parse(value))
     && new Date(value).toISOString() === value;
+}
+
+function isEditedPacketVersion(value, updatedAt) {
+  if (typeof value !== "string" || typeof updatedAt !== "string") return false;
+  const prefix = `${updatedAt}-`;
+  if (!value.startsWith(prefix)) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    .test(value.slice(prefix.length));
 }
 
 function isHttpsUrl(value) {
