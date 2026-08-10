@@ -95,6 +95,7 @@ export function createIdeaPacketMigrationHandler({
       });
       return jsonTextResponse(200, serialized, {
         ETag: `"${exportData.snapshot.checksum}"`,
+        "X-Fandom-Snapshot-Checksum": exportData.snapshot.checksum,
         "Server-Timing": serverTimingHeader(phaseMetrics, totalDurationMs),
       });
     } catch (error) {

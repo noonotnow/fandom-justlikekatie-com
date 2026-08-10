@@ -121,8 +121,11 @@ revalidates both stores in one parallel key/ETag inventory wave. A successful
 response therefore pins both body snapshots across the same interval without
 serializing repeated full-store scans. The response includes `Server-Timing`
 phase durations, and the function logs phase durations, Blob counts, and final
-response size without logging packet data or credentials. Any active lease or
-packet/lease change rejects the snapshot for retry. A
+response size without logging packet data or credentials. Successful exports
+send the raw snapshot checksum in `X-Fandom-Snapshot-Checksum` as the stable
+server-to-server transport integrity header while retaining the quoted `ETag`
+for backward compatibility. Any active lease or packet/lease change rejects the
+snapshot for retry. A
 malformed persisted completion is quarantined as `invalid-handoff` and is not
 exported as completed. A valid prior completion remains completed after later
 packet edits: its receipt/source CAS is historical identity while the export
