@@ -116,8 +116,11 @@ only as `replayAllowed: false` quarantine records. Retry `bytesBase64` is never
 exported; file checksums, sizes, MEDIA descriptors, and provenance remain for
 audit. The migration function opens both Blob stores with strong consistency,
 including paginated key listing. It brackets packet inventory with lease-store
-snapshots, requires packet ETags, then revalidates both stores before responding.
-Any active lease or packet/lease change rejects the snapshot for retry. A
+ETag inventories, requires Blob ETags, and revalidates both stores before
+responding without downloading every Blob body again. Each packet and handoff
+Blob body is read exactly once; verification passes compare the strongly
+consistent key/ETag inventories. Any active lease or packet/lease change rejects
+the snapshot for retry. A
 malformed persisted completion is quarantined as `invalid-handoff` and is not
 exported as completed. A valid prior completion remains completed after later
 packet edits: its receipt/source CAS is historical identity while the export

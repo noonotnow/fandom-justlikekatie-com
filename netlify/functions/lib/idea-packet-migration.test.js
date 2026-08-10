@@ -148,16 +148,16 @@ function paginatedStore(entries = [], pageSize = 2) {
   const records = new Map(entries);
   const etags = new Map([...records.keys()].map(key => [key, `etag-${key}-1`]));
   let revision = 1;
-  let listCalls = 0;
-  let getCalls = 0;
+  const calls = { list: 0, getWithMetadata: 0 };
   const store = {
     records,
     etags,
+    calls,
     onList: null,
     onGet: null,
     list() {
-      listCalls += 1;
-      store.onList?.({ call: listCalls, store });
+      calls.list += 1;
+      store.onList?.({ call: calls.list, store });
       const blobs = [...records.keys()].map(key => ({ key, etag: etags.get(key) }));
       return {
         async *[Symbol.asyncIterator]() {
@@ -168,8 +168,8 @@ function paginatedStore(entries = [], pageSize = 2) {
       };
     },
     async getWithMetadata(key) {
-      getCalls += 1;
-      await store.onGet?.({ call: getCalls, key, store });
+      calls.getWithMetadata += 1;
+      await store.onGet?.({ call: calls.getWithMetadata, key, store });
       if (!records.has(key)) return null;
       return { data: structuredClone(records.get(key)), etag: etags.get(key), metadata: {} };
     },
@@ -306,6 +306,22 @@ test("normalizes legacy packets without changing their exact stored representati
   assert.equal(result.packets[0].normalizedPacket.sourceCards.length, 2);
   assert.equal(result.packets[0].normalizedPacket.outputs.length, 2);
   assert.notEqual(result.packets[0].storedChecksum, result.packets[0].normalizedChecksum);
+});
+
+test("reads each Blob body once and uses ETag inventories for snapshot verification", async () => {
+  const packetStore = paginatedStore([
+    ["packet-1", packet("packet-1")],
+    ["packet-2", packet("packet-2")],
+  ]);
+  const attemptStore = paginatedStore([
+    ["orphan-1", attemptArtifact("orphan-1")],
+    ["orphan-2", attemptArtifact("orphan-2")],
+  ]);
+
+  await buildMigrationExport(packetStore, attemptStore, NOW);
+
+  assert.deepEqual(packetStore.calls, { list: 2, getWithMetadata: 2 });
+  assert.deepEqual(attemptStore.calls, { list: 3, getWithMetadata: 2 });
 });
 
 test("quarantines malformed packets and keeps every checksum reproducible after JSON serialization", async () => {
