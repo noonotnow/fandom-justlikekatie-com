@@ -27,6 +27,7 @@ import {
   packetFromCollectionGrid,
 } from './utils/ideaPackets';
 import type { CardRecord, GridRecord } from './utils/collectionDB';
+import { consumeMagicLinkFromLocation } from './utils/publicAccount';
 import './App.css';
 
 /** Number of columns in the grid — used to calculate preview row insertion */
@@ -55,6 +56,17 @@ function App() {
 
   useEffect(() => {
     void Promise.all([migrateBookmarks(), migrateLegacyGridHistory()]);
+    void consumeMagicLinkFromLocation()
+      .then(consumed => {
+        if (consumed) setView('collection');
+      })
+      .catch(error => {
+        sessionStorage.setItem(
+          'fandom_auth_notice',
+          error instanceof Error ? error.message : 'The sign-in link could not be used.',
+        );
+        setView('collection');
+      });
   }, []);
 
   const loadPackets = async () => {

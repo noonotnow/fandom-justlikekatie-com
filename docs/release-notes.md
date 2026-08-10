@@ -1,5 +1,17 @@
 # Release Notes
 
+## Durable Saved Collection foundation
+
+- Added Resend-backed public magic links, hashed single-use tokens, revocable
+  secure sessions, and non-enumerating link requests.
+- Added Fandom-owned multi-device collection sync with stable server IDs,
+  revisions, cursors, tombstones, idempotent mutations, and explicit per-device
+  merge consent.
+- Preserved anonymous IndexedDB/localStorage behavior, offline writes, and
+  cross-tab convergence.
+- Added a dedicated HMAC-authenticated read-only CREATE collection boundary;
+  CREATE cannot mutate or own Saved Collection.
+
 ## baidu-images-v1
 
 Shipped:
