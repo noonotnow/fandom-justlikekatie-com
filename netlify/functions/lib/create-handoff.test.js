@@ -181,6 +181,48 @@ function createReceipt(disposition = "created", sourceVersion = 1, packetId = "p
 
 const INCIDENT_PACKET_ID = "94a5581e-e2e4-4c14-b904-48e77ce1e5f0";
 
+test("freezes CREATE handoff before stores, rendering, MEDIA, or CREATE are touched", async () => {
+  let storeCalls = 0;
+  let renderCalls = 0;
+  let fetchCalls = 0;
+  const handler = createCreateHandoffHandler({
+    env: { ...ENV, FANDOM_IDEA_PACKETS_MODE: "read-only" },
+    getStore: () => {
+      storeCalls += 1;
+      throw new Error("store must not be opened");
+    },
+    renderOutputImpl: async () => {
+      renderCalls += 1;
+      return PNG;
+    },
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      throw new Error("upstream must not be called");
+    },
+  });
+  const response = await handler(request(packet()));
+  assert.equal(response.status, 423);
+  assert.equal((await response.json()).code, "FANDOM_IDEA_PACKETS_READ_ONLY");
+  assert.equal(storeCalls, 0);
+  assert.equal(renderCalls, 0);
+  assert.equal(fetchCalls, 0);
+});
+
+test("fails CREATE handoff closed before side effects when cutover mode is invalid", async () => {
+  let storeCalls = 0;
+  const handler = createCreateHandoffHandler({
+    env: { ...ENV, FANDOM_IDEA_PACKETS_MODE: "invalid" },
+    getStore: () => {
+      storeCalls += 1;
+      throw new Error("store must not be opened");
+    },
+  });
+  const response = await handler(request(packet()));
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, "FANDOM_IDEA_PACKETS_MODE_INVALID");
+  assert.equal(storeCalls, 0);
+});
+
 // Pre-PR8 `handoffAttempt` pointers were exactly this shape: no schemaVersion/artifactKey,
 // no bytes/checksums/manifest/MEDIA descriptors — only the source CAS chain and a bare
 // fingerprint that cannot be reused (there is nothing behind it to trust).

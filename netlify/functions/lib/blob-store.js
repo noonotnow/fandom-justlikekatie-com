@@ -14,9 +14,10 @@ import { getStore } from "@netlify/blobs";
 // and this helper prefers `context.blobs.getStore(name)` when available,
 // falling back to the zero-config `getStore(name)` (which reads
 // `NETLIFY_BLOBS_CONTEXT` if some future runtime provides it) otherwise.
-export function getBlobStore(name, context) {
+export function getBlobStore(name, context, options = {}) {
+  const input = Object.keys(options).length > 0 ? { name, ...options } : name;
   if (context && context.blobs && typeof context.blobs.getStore === "function") {
-    return context.blobs.getStore(name);
+    return context.blobs.getStore(input);
   }
-  return getStore(name);
+  return getStore(input);
 }

@@ -258,3 +258,48 @@ test("rejects packet mutation while a handoff owns the durable lease", async () 
   assert.equal(response.status, 409);
   assert.equal(store.records.get("packet-1").notes, "");
 });
+
+test("keeps reads available but freezes mutations with deprecation metadata", async () => {
+  const store = memoryStore();
+  await store.setJSON("packet-1", packet());
+  const handler = createIdeaPacketsHandler({
+    env: {
+      PLAN_OPERATOR_TOKEN: TOKEN,
+      FANDOM_IDEA_PACKETS_MODE: "read-only",
+    },
+    getStore: storeRouter(store),
+  });
+
+  const listed = await handler(request("GET"));
+  assert.equal(listed.status, 200);
+  assert.equal(listed.headers.get("deprecation"), "true");
+  assert.match(listed.headers.get("link"), /create\.justlikekatie\.com/);
+
+  const created = await handler(request("POST", { packet: packet({ id: "packet-2" }) }));
+  assert.equal(created.status, 423);
+  assert.equal((await created.json()).code, "FANDOM_IDEA_PACKETS_READ_ONLY");
+  assert.equal(store.records.has("packet-2"), false);
+
+  const mutated = await handler(request("PATCH", {
+    id: "packet-1",
+    expectedVersion: packet().version,
+    action: { type: "update_context", notes: "Must not apply" },
+  }));
+  assert.equal(mutated.status, 423);
+  assert.equal(store.records.get("packet-1").notes, "");
+});
+
+test("fails packet mutations closed when cutover mode is invalid", async () => {
+  const store = memoryStore();
+  const handler = createIdeaPacketsHandler({
+    env: {
+      PLAN_OPERATOR_TOKEN: TOKEN,
+      FANDOM_IDEA_PACKETS_MODE: "invalid",
+    },
+    getStore: storeRouter(store),
+  });
+  const response = await handler(request("POST", { packet: packet() }));
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, "FANDOM_IDEA_PACKETS_MODE_INVALID");
+  assert.equal(store.records.size, 0);
+});

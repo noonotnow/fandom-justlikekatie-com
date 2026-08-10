@@ -32,6 +32,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/internal/idea-packet-migration"
+  to = "/.netlify/functions/idea-packet-migration"
+  status = 200
+
+[[redirects]]
   from = "/api/auth/magic-link"
   to = "/.netlify/functions/auth-magic-link"
   status = 200
