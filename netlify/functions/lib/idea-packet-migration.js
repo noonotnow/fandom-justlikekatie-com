@@ -8,6 +8,7 @@ const PACKET_STORE = "idea-packets";
 const SCHEMA_VERSION = "fandom.idea-packet-migration.v1";
 const CHECKSUM_ALGORITHM = "sha256-canonical-json-v1";
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
+const MAX_CONCURRENT_BLOB_READS = 12;
 const EMPTY_BODY_DIGEST = createHash("sha256").update("").digest("hex");
 const MIGRATION_PATH = "/api/internal/idea-packet-migration";
 const LEGACY_ATTEMPT_KEYS = new Set([
@@ -29,6 +30,7 @@ class MigrationError extends Error {
 export function createIdeaPacketMigrationHandler({
   env = process.env,
   getStore,
+  logger = console,
   now = () => new Date(),
 } = {}) {
   return async function ideaPacketMigration(req, context) {
@@ -73,15 +75,33 @@ export function createIdeaPacketMigrationHandler({
 
       const packetStore = getStore(PACKET_STORE, context);
       const attemptStore = getStore(HANDOFF_ATTEMPT_STORE, context);
-      const exportData = await buildMigrationExport(packetStore, attemptStore, now());
-      return jsonResponse(200, exportData, {
+      const phaseMetrics = [];
+      const { exportData, totalDurationMs } = await buildMigrationExportResult(
+        packetStore,
+        attemptStore,
+        now(),
+        metric => {
+          phaseMetrics.push(metric);
+          logger.info("[idea-packet-migration] phase complete", metric);
+        },
+      );
+      const serialized = JSON.stringify(exportData);
+      const responseBytes = Buffer.byteLength(serialized);
+      logger.info("[idea-packet-migration] export complete", {
+        totalDurationMs,
+        responseBytes,
+        packetCount: exportData.snapshot.packetCount,
+        quarantineCount: exportData.quarantine.length,
+      });
+      return jsonTextResponse(200, serialized, {
         ETag: `"${exportData.snapshot.checksum}"`,
+        "Server-Timing": serverTimingHeader(phaseMetrics, totalDurationMs),
       });
     } catch (error) {
       if (error instanceof MigrationError) {
         return jsonResponse(error.status, { code: error.code, error: error.message });
       }
-      console.error("[idea-packet-migration] export failed", error);
+      logger.error("[idea-packet-migration] export failed", error);
       return jsonResponse(503, {
         code: "PACKET_MIGRATION_EXPORT_UNAVAILABLE",
         error: "Idea Packet migration export is unavailable.",
@@ -91,21 +111,57 @@ export function createIdeaPacketMigrationHandler({
 }
 
 export async function buildMigrationExport(packetStore, attemptStore, generatedAt = new Date()) {
-  const beforeAttemptEntries = await readStoreSnapshot(attemptStore);
-  assertNoActiveLeases(beforeAttemptEntries, generatedAt);
+  return (await buildMigrationExportResult(packetStore, attemptStore, generatedAt)).exportData;
+}
 
-  const packetEntries = await readStoreSnapshot(packetStore);
-  const afterPacketAttemptBlobs = await listAllBlobs(attemptStore);
-  assertSnapshotUnchanged(beforeAttemptEntries, afterPacketAttemptBlobs, "handoff");
+async function buildMigrationExportResult(
+  packetStore,
+  attemptStore,
+  generatedAt,
+  onPhase = () => {},
+) {
+  const startedAt = performance.now();
+  const [packetBlobs, attemptBlobs] = await measurePhase(
+    "initial-inventory",
+    onPhase,
+    () => Promise.all([
+      listAllBlobs(packetStore),
+      listAllBlobs(attemptStore),
+    ]),
+  );
+  const [packetEntries, attemptEntries] = await measurePhase(
+    "body-read",
+    onPhase,
+    () => readSnapshotEntries(packetStore, packetBlobs, attemptStore, attemptBlobs),
+    {
+      packetBlobCount: packetBlobs.length,
+      attemptBlobCount: attemptBlobs.length,
+      maxConcurrency: MAX_CONCURRENT_BLOB_READS,
+    },
+  );
+  assertNoActiveLeases(attemptEntries, generatedAt);
 
-  const exportData = compileMigrationExport(packetEntries, beforeAttemptEntries, generatedAt);
+  const exportData = await measurePhase(
+    "compile",
+    onPhase,
+    () => compileMigrationExport(packetEntries, attemptEntries, generatedAt),
+  );
 
-  const verifiedPacketBlobs = await listAllBlobs(packetStore);
+  const [verifiedPacketBlobs, verifiedAttemptBlobs] = await measurePhase(
+    "final-inventory",
+    onPhase,
+    () => Promise.all([
+      listAllBlobs(packetStore),
+      listAllBlobs(attemptStore),
+    ]),
+  );
   assertSnapshotUnchanged(packetEntries, verifiedPacketBlobs, "packet");
-  const verifiedAttemptBlobs = await listAllBlobs(attemptStore);
-  assertSnapshotUnchanged(beforeAttemptEntries, verifiedAttemptBlobs, "handoff");
+  assertSnapshotUnchanged(attemptEntries, verifiedAttemptBlobs, "handoff");
 
-  return exportData;
+  return {
+    exportData,
+    totalDurationMs: roundedDuration(performance.now() - startedAt),
+  };
 }
 
 function compileMigrationExport(packetEntries, attemptEntries, generatedAt) {
@@ -474,34 +530,59 @@ function deduplicateBlobs(blobs) {
     .sort((left, right) => left.key.localeCompare(right.key));
 }
 
-async function readStoreSnapshot(store) {
-  const blobs = await listAllBlobs(store);
-  return readAllEntries(store, blobs);
+async function readSnapshotEntries(packetStore, packetBlobs, attemptStore, attemptBlobs) {
+  const requests = [
+    ...packetBlobs.map(blob => ({ store: packetStore, blob })),
+    ...attemptBlobs.map(blob => ({ store: attemptStore, blob })),
+  ];
+  const entries = await mapWithConcurrency(
+    requests,
+    MAX_CONCURRENT_BLOB_READS,
+    ({ store, blob }) => readEntry(store, blob),
+  );
+  return [
+    entries.slice(0, packetBlobs.length),
+    entries.slice(packetBlobs.length),
+  ];
 }
 
-async function readAllEntries(store, blobs) {
-  return Promise.all(blobs.map(async blob => {
-    if (typeof store.getWithMetadata !== "function") {
-      throw new Error("Blob metadata reads are required for a stable migration snapshot.");
+async function readEntry(store, blob) {
+  if (typeof store.getWithMetadata !== "function") {
+    throw new Error("Blob metadata reads are required for a stable migration snapshot.");
+  }
+  if (typeof blob.etag !== "string" || !blob.etag) {
+    throw new Error(`Blob ${blob.key} listing has no ETag for migration snapshot validation.`);
+  }
+  const entry = await store.getWithMetadata(blob.key, {
+    type: "json",
+    consistency: "strong",
+  });
+  if (entry?.data === undefined || entry?.data === null) {
+    throw snapshotChanged(`Blob ${blob.key} disappeared during migration inventory.`);
+  }
+  if (typeof entry.etag !== "string" || !entry.etag) {
+    throw new Error(`Blob ${blob.key} has no ETag for migration snapshot validation.`);
+  }
+  if (entry.etag !== blob.etag) {
+    throw snapshotChanged(`Blob ${blob.key} changed between migration listing and read.`);
+  }
+  return { key: blob.key, etag: entry.etag, data: entry.data };
+}
+
+async function mapWithConcurrency(values, limit, work) {
+  const results = new Array(values.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < values.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await work(values[index], index);
     }
-    if (typeof blob.etag !== "string" || !blob.etag) {
-      throw new Error(`Blob ${blob.key} listing has no ETag for migration snapshot validation.`);
-    }
-    const entry = await store.getWithMetadata(blob.key, {
-      type: "json",
-      consistency: "strong",
-    });
-    if (entry?.data === undefined || entry?.data === null) {
-      throw snapshotChanged(`Blob ${blob.key} disappeared during migration inventory.`);
-    }
-    if (typeof entry.etag !== "string" || !entry.etag) {
-      throw new Error(`Blob ${blob.key} has no ETag for migration snapshot validation.`);
-    }
-    if (entry.etag !== blob.etag) {
-      throw snapshotChanged(`Blob ${blob.key} changed between migration listing and read.`);
-    }
-    return { key: blob.key, etag: entry.etag, data: entry.data };
-  }));
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(limit, values.length) }, () => worker()),
+  );
+  return results;
 }
 
 function assertNoActiveLeases(entries, current) {
@@ -533,6 +614,28 @@ function assertSnapshotUnchanged(entries, blobs, label) {
 
 function snapshotChanged(message) {
   return new MigrationError(message, 409, "PACKET_MIGRATION_SNAPSHOT_CHANGED");
+}
+
+async function measurePhase(name, onPhase, work, details = {}) {
+  const startedAt = performance.now();
+  const result = await work();
+  onPhase({
+    phase: name,
+    durationMs: roundedDuration(performance.now() - startedAt),
+    ...details,
+  });
+  return result;
+}
+
+function roundedDuration(value) {
+  return Math.round(value * 10) / 10;
+}
+
+function serverTimingHeader(metrics, totalDurationMs) {
+  return [
+    ...metrics.map(metric => `${metric.phase};dur=${metric.durationMs}`),
+    `total;dur=${totalDurationMs}`,
+  ].join(", ");
 }
 
 function validateMigrationSignature(req, env, current) {
@@ -685,7 +788,11 @@ function isRecord(value) {
 }
 
 function jsonResponse(status, body, headers = {}) {
-  return new Response(JSON.stringify(body), {
+  return jsonTextResponse(status, JSON.stringify(body), headers);
+}
+
+function jsonTextResponse(status, body, headers = {}) {
+  return new Response(body, {
     status,
     headers: {
       "Content-Type": "application/json",

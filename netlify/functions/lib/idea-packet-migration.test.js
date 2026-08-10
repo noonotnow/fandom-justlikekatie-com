@@ -144,7 +144,7 @@ function packetWithCompletedHandoff(packetId, handoff = completedHandoff(packetI
   });
 }
 
-function paginatedStore(entries = [], pageSize = 2) {
+function paginatedStore(entries = [], pageSize = 2, activity = null) {
   const records = new Map(entries);
   const etags = new Map([...records.keys()].map(key => [key, `etag-${key}-1`]));
   let revision = 1;
@@ -157,10 +157,12 @@ function paginatedStore(entries = [], pageSize = 2) {
     onGet: null,
     list() {
       calls.list += 1;
-      store.onList?.({ call: calls.list, store });
-      const blobs = [...records.keys()].map(key => ({ key, etag: etags.get(key) }));
+      const call = calls.list;
       return {
         async *[Symbol.asyncIterator]() {
+          await trackActivity(activity, "list");
+          await store.onList?.({ call, store });
+          const blobs = [...records.keys()].map(key => ({ key, etag: etags.get(key) }));
           for (let index = 0; index < blobs.length; index += pageSize) {
             yield { blobs: blobs.slice(index, index + pageSize), directories: [] };
           }
@@ -169,7 +171,9 @@ function paginatedStore(entries = [], pageSize = 2) {
     },
     async getWithMetadata(key) {
       calls.getWithMetadata += 1;
-      await store.onGet?.({ call: calls.getWithMetadata, key, store });
+      const call = calls.getWithMetadata;
+      await trackActivity(activity, "getWithMetadata");
+      await store.onGet?.({ call, key, store });
       if (!records.has(key)) return null;
       return { data: structuredClone(records.get(key)), etag: etags.get(key), metadata: {} };
     },
@@ -184,6 +188,14 @@ function paginatedStore(entries = [], pageSize = 2) {
     },
   };
   return store;
+}
+
+async function trackActivity(activity, kind) {
+  if (!activity) return;
+  activity.current[kind] += 1;
+  activity.max[kind] = Math.max(activity.max[kind], activity.current[kind]);
+  await new Promise(resolve => setTimeout(resolve, 5));
+  activity.current[kind] -= 1;
 }
 
 function signedRequest({
@@ -213,6 +225,7 @@ function signedRequest({
 function handlerFor(packetStore, attemptStore, env = ENV) {
   return createIdeaPacketMigrationHandler({
     env,
+    logger: { info() {}, error() {} },
     now: () => NOW,
     getStore: name => name === "idea-packets" ? packetStore : attemptStore,
   });
@@ -243,6 +256,10 @@ test("exports exact packets, receipt identity, provenance, checksums, and byte-f
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.schemaVersion, "fandom.idea-packet-migration.v1");
+  assert.match(
+    response.headers.get("server-timing"),
+    /^initial-inventory;dur=.+, body-read;dur=.+, compile;dur=.+, final-inventory;dur=.+, total;dur=.+$/,
+  );
   assert.equal(body.snapshot.packetCount, 2);
   assert.equal(body.snapshot.completedHandoffCount, 1);
   assert.equal(body.snapshot.unresolvedAttemptCount, 1);
@@ -308,20 +325,28 @@ test("normalizes legacy packets without changing their exact stored representati
   assert.notEqual(result.packets[0].storedChecksum, result.packets[0].normalizedChecksum);
 });
 
-test("reads each Blob body once and uses ETag inventories for snapshot verification", async () => {
-  const packetStore = paginatedStore([
-    ["packet-1", packet("packet-1")],
-    ["packet-2", packet("packet-2")],
-  ]);
-  const attemptStore = paginatedStore([
-    ["orphan-1", attemptArtifact("orphan-1")],
-    ["orphan-2", attemptArtifact("orphan-2")],
-  ]);
+test("uses two parallel inventory waves and one bounded body-read wave", async () => {
+  const activity = {
+    current: { list: 0, getWithMetadata: 0 },
+    max: { list: 0, getWithMetadata: 0 },
+  };
+  const packetEntries = Array.from(
+    { length: 8 },
+    (_, index) => [`packet-${index}`, packet(`packet-${index}`)],
+  );
+  const attemptEntries = Array.from(
+    { length: 8 },
+    (_, index) => [`orphan-${index}`, attemptArtifact(`orphan-${index}`)],
+  );
+  const packetStore = paginatedStore(packetEntries, 2, activity);
+  const attemptStore = paginatedStore(attemptEntries, 2, activity);
 
   await buildMigrationExport(packetStore, attemptStore, NOW);
 
-  assert.deepEqual(packetStore.calls, { list: 2, getWithMetadata: 2 });
-  assert.deepEqual(attemptStore.calls, { list: 3, getWithMetadata: 2 });
+  assert.deepEqual(packetStore.calls, { list: 2, getWithMetadata: 8 });
+  assert.deepEqual(attemptStore.calls, { list: 2, getWithMetadata: 8 });
+  assert.equal(activity.max.list, 2);
+  assert.equal(activity.max.getWithMetadata, 12);
 });
 
 test("quarantines malformed packets and keeps every checksum reproducible after JSON serialization", async () => {
