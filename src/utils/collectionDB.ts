@@ -183,6 +183,10 @@ export interface CollectionSyncState {
   mappingsByAccount: Record<string, Record<string, string>>;
   pendingDeletesByAccount: Record<string, Array<{ mutationId: string; localId: string; serverId: string }>>;
   acknowledgedUpsertsByAccount: Record<string, Record<string, string>>;
+  legacyUnscoped?: {
+    mappings?: Record<string, string>;
+    pendingDeletes?: Array<{ mutationId: string; localId: string; serverId: string }>;
+  };
 }
 
 export interface CollectionSyncRequest {
@@ -209,9 +213,12 @@ export async function dbSetMergeDecision(accountId: string, merge: boolean): Pro
 }
 
 export async function dbSetActiveAccount(accountId?: string): Promise<void> {
-  const state = await dbGetSyncState();
-  state.activeAccountId = accountId;
-  await dbPutSyncState(state);
+  const db = await openDB();
+  const tx = db.transaction(SYNC_STORE, 'readwrite');
+  const store = tx.objectStore(SYNC_STORE);
+  const value = await requestResult(store.get('state'));
+  store.put(activateSyncState(value, accountId));
+  await transactionDone(tx);
 }
 
 export async function dbBuildSyncRequest(accountId: string): Promise<CollectionSyncRequest> {
@@ -389,25 +396,58 @@ async function ensureLocalIds(cards: CardRecord[]): Promise<CardRecord[]> {
   return cards.map(card => ({ ...card, localId: card.localId || assigned.get(card.imageUrl) }));
 }
 
-function normalizeSyncState(value: Partial<CollectionSyncState> | undefined): CollectionSyncState {
-  const legacy = value as Partial<CollectionSyncState> & {
-    mappings?: Record<string, string>;
-    pendingDeletes?: Array<{ mutationId: string; localId: string; serverId: string }>;
+type LegacyCollectionSyncState = Partial<CollectionSyncState> & {
+  mappings?: Record<string, string>;
+  pendingDeletes?: Array<{ mutationId: string; localId: string; serverId: string }>;
+};
+
+export function activateSyncState(
+  value: LegacyCollectionSyncState | undefined,
+  accountId?: string,
+): CollectionSyncState {
+  const state = normalizeSyncState(value);
+  const legacy = state.legacyUnscoped;
+  const migrationAccountId = value?.activeAccountId || accountId;
+  if (migrationAccountId && legacy) {
+    state.mappingsByAccount[migrationAccountId] = {
+      ...legacy.mappings,
+      ...state.mappingsByAccount[migrationAccountId],
+    };
+    const pending = [
+      ...(legacy.pendingDeletes || []),
+      ...(state.pendingDeletesByAccount[migrationAccountId] || []),
+    ];
+    state.pendingDeletesByAccount[migrationAccountId] = Array.from(
+      new Map(pending.map(item => [item.mutationId, item])).values(),
+    );
+    delete state.legacyUnscoped;
+  }
+  state.activeAccountId = accountId;
+  return state;
+}
+
+function normalizeSyncState(value: LegacyCollectionSyncState | undefined): CollectionSyncState {
+  const legacyMappings = {
+    ...value?.mappings,
+    ...value?.legacyUnscoped?.mappings,
   };
-  const activeAccountId = value?.activeAccountId;
+  const legacyDeletes = Array.from(new Map([
+    ...(value?.pendingDeletes || []),
+    ...(value?.legacyUnscoped?.pendingDeletes || []),
+  ].map(item => [item.mutationId, item])).values());
+  const legacyUnscoped = Object.keys(legacyMappings).length > 0 || legacyDeletes.length > 0
+    ? { mappings: legacyMappings, pendingDeletes: legacyDeletes }
+    : undefined;
   return {
     key: 'state',
     clientId: value?.clientId || crypto.randomUUID(),
-    activeAccountId,
+    activeAccountId: value?.activeAccountId,
     cursors: value?.cursors || {},
     mergeDecisions: value?.mergeDecisions || {},
-    mappingsByAccount: value?.mappingsByAccount || (
-      activeAccountId && legacy.mappings ? { [activeAccountId]: legacy.mappings } : {}
-    ),
-    pendingDeletesByAccount: value?.pendingDeletesByAccount || (
-      activeAccountId && legacy.pendingDeletes ? { [activeAccountId]: legacy.pendingDeletes } : {}
-    ),
+    mappingsByAccount: value?.mappingsByAccount || {},
+    pendingDeletesByAccount: value?.pendingDeletesByAccount || {},
     acknowledgedUpsertsByAccount: value?.acknowledgedUpsertsByAccount || {},
+    legacyUnscoped,
   };
 }
 

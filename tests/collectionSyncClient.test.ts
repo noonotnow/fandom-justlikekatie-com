@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
+  activateSyncState,
   buildSyncOperations,
   resolveDeleteAccount,
   type CardRecord,
@@ -74,4 +75,97 @@ test('delete routing uses card ownership or its unique account mapping, never an
   };
   assert.equal(resolveDeleteAccount({ ...card(1), ownerAccountId: 'account-a' }, syncState), 'account-a');
   assert.equal(resolveDeleteAccount(card(1), syncState), 'account-a');
+});
+
+test('legacy PR #14 sync state migrates to the authenticated account without losing scoped state', () => {
+  const activated = activateSyncState({
+    key: 'state',
+    clientId: 'device-1',
+    cursors: { 'account-a': 7 },
+    mergeDecisions: { 'account-a': true },
+    mappings: { 'legacy-local': 'legacy-server' },
+    pendingDeletes: [{
+      mutationId: 'legacy-delete',
+      localId: 'legacy-local',
+      serverId: 'legacy-server',
+    }],
+    mappingsByAccount: { 'account-a': { 'current-local': 'current-server' } },
+    pendingDeletesByAccount: {
+      'account-a': [{
+        mutationId: 'current-delete',
+        localId: 'current-local',
+        serverId: 'current-server',
+      }],
+    },
+    acknowledgedUpsertsByAccount: { 'account-a': { 'acked-local': 'acked-mutation' } },
+  }, 'account-a');
+
+  assert.deepEqual(activated.mappingsByAccount['account-a'], {
+    'legacy-local': 'legacy-server',
+    'current-local': 'current-server',
+  });
+  assert.deepEqual(
+    activated.pendingDeletesByAccount['account-a'].map(item => item.mutationId),
+    ['legacy-delete', 'current-delete'],
+  );
+  assert.equal(activated.cursors['account-a'], 7);
+  assert.equal(activated.acknowledgedUpsertsByAccount['account-a']['acked-local'], 'acked-mutation');
+  assert.equal(activated.legacyUnscoped, undefined);
+});
+
+test('ambiguous legacy state is quarantined until an authenticated account can claim it safely', () => {
+  const quarantined = activateSyncState({
+    key: 'state',
+    clientId: 'device-1',
+    mappings: { 'legacy-local': 'legacy-server' },
+    pendingDeletes: [{
+      mutationId: 'legacy-delete',
+      localId: 'legacy-local',
+      serverId: 'legacy-server',
+    }],
+  });
+  assert.deepEqual(quarantined.legacyUnscoped?.mappings, { 'legacy-local': 'legacy-server' });
+  assert.equal(quarantined.legacyUnscoped?.pendingDeletes?.[0].mutationId, 'legacy-delete');
+
+  const activated = activateSyncState(quarantined, 'account-a');
+  assert.equal(activated.mappingsByAccount['account-a']['legacy-local'], 'legacy-server');
+  assert.equal(activated.pendingDeletesByAccount['account-a'][0].mutationId, 'legacy-delete');
+  assert.equal(activated.legacyUnscoped, undefined);
+});
+
+test('clearing a session binds quarantined legacy mutations to the prior account before switching users', () => {
+  const cleared = activateSyncState({
+    key: 'state',
+    clientId: 'device-1',
+    activeAccountId: 'account-a',
+    cursors: {},
+    mergeDecisions: {},
+    mappingsByAccount: {},
+    pendingDeletesByAccount: {},
+    acknowledgedUpsertsByAccount: {},
+    legacyUnscoped: {
+      mappings: { 'legacy-local': 'legacy-server' },
+      pendingDeletes: [{
+        mutationId: 'legacy-delete',
+        localId: 'legacy-local',
+        serverId: 'legacy-server',
+      }],
+    },
+  });
+  const switched = activateSyncState(cleared, 'account-b');
+
+  assert.equal(switched.mappingsByAccount['account-a']['legacy-local'], 'legacy-server');
+  assert.equal(switched.pendingDeletesByAccount['account-a'][0].mutationId, 'legacy-delete');
+  assert.equal(switched.mappingsByAccount['account-b'], undefined);
+});
+
+test('active-account probes use one read-write transaction instead of stale read and write snapshots', async () => {
+  const source = await readFile(new URL('../src/utils/collectionDB.ts', import.meta.url), 'utf8');
+  const body = source.match(
+    /export async function dbSetActiveAccount[\s\S]*?\n}\n\nexport async function dbBuildSyncRequest/,
+  )?.[0] || '';
+  assert.match(body, /db\.transaction\(SYNC_STORE, 'readwrite'\)/);
+  assert.match(body, /requestResult\(store\.get\('state'\)\)/);
+  assert.match(body, /store\.put\(activateSyncState\(value, accountId\)\)/);
+  assert.doesNotMatch(body, /dbGetSyncState|dbPutSyncState/);
 });
