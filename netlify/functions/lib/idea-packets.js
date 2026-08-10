@@ -1,5 +1,12 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { HANDOFF_ATTEMPT_STORE, withHandoffLease } from "./handoff-lease.js";
+import {
+  IdeaPacketModeError,
+  ideaPacketDeprecationHeaders,
+  ideaPacketInvalidModeResponse,
+  ideaPacketReadOnlyResponse,
+  isIdeaPacketReadOnly,
+} from "./idea-packet-cutover.js";
 
 const STORE_NAME = "idea-packets";
 const MAX_BODY_BYTES = 256 * 1024;
@@ -20,14 +27,29 @@ export function createIdeaPacketsHandler({ env = process.env, getStore }) {
       validateAuthorization(req, env.PLAN_OPERATOR_TOKEN);
       if (!env.PLAN_OPERATOR_TOKEN) throw new RequestError("Idea Packets is not configured. Add PLAN_OPERATOR_TOKEN.", 503);
       const store = getStore(STORE_NAME, context);
-      if (req.method === "GET") return jsonResponse(200, { packets: await listPackets(store) });
+      if (req.method === "GET") {
+        return jsonResponse(200, { packets: await listPackets(store) }, ideaPacketDeprecationHeaders());
+      }
+      if (req.method === "POST" || req.method === "PATCH") {
+        try {
+          if (isIdeaPacketReadOnly(env)) return ideaPacketReadOnlyResponse();
+        } catch (error) {
+          if (error instanceof IdeaPacketModeError) return ideaPacketInvalidModeResponse();
+          throw error;
+        }
+      }
       if (req.method === "POST") {
         const body = await readBody(req);
         const packet = validatePacket(body.packet);
         return await withIdeaPacketLock(packet.id, async () => {
-          if (await store.get(packet.id, { type: "json" })) throw new RequestError("Idea Packet already exists.", 409);
-          await store.setJSON(packet.id, packet);
-          return jsonResponse(201, { packet });
+          const leaseStore = getStore(HANDOFF_ATTEMPT_STORE, context);
+          return withHandoffLease(leaseStore, packet.id, async () => {
+            if (await store.get(packet.id, { type: "json" })) throw new RequestError("Idea Packet already exists.", 409);
+            await store.setJSON(packet.id, packet);
+            return jsonResponse(201, { packet });
+          }, {
+            conflict: message => new RequestError(message, 409),
+          });
         });
       }
       if (req.method === "PATCH") {

@@ -80,6 +80,90 @@ The browser never receives MEDIA or CREATE credentials. Do not add them as
 `VITE_` variables. Deployment must preserve the same-origin redirect for
 `/api/create-handoff`.
 
+### One-time Idea Packet migration to CREATE
+
+The temporary `GET /api/internal/idea-packet-migration` endpoint supports the
+one-time move of private Idea Packets into CREATE. It is not a public or
+browser-authenticated API. The endpoint is available only after Fandom is
+frozen with:
+
+- `FANDOM_IDEA_PACKETS_MODE=read-only`
+- `CREATE_FANDOM_PACKET_MIGRATION_KEY_ID` — a migration-only key ID
+- `CREATE_FANDOM_PACKET_MIGRATION_SECRET` — its migration-only HMAC secret
+
+Do not reuse `PLAN_OPERATOR_TOKEN`, the public collection read key, or the
+CREATE intake signing key. CREATE signs the empty-body GET with:
+
+```text
+<X-Fandom-Timestamp>
+GET
+/api/internal/idea-packet-migration
+<sha256 of empty body>
+```
+
+and sends the result as `X-Fandom-Signature: v1=<hex hmac-sha256>`, along with
+`X-Fandom-Key-Id`. Timestamps have a five-minute validity window. The endpoint
+accepts no query parameters, returns `Cache-Control: private, no-store`, and
+never calls MEDIA or CREATE.
+
+The `fandom.idea-packet-migration.v1` response contains exact stored packets,
+legacy-normalized packets, ordered selected media/output IDs, completed CREATE
+receipts and validated source-version CAS identity, the stable
+`fandom/deliverable/<packetId>/idea-packet-main` idempotency key, deterministic
+per-record and top-level SHA-256 checksums, and inventory counts. Incomplete,
+stale, legacy, malformed, missing, and orphan handoff attempts are exported
+only as `replayAllowed: false` quarantine records. Retry `bytesBase64` is never
+exported; file checksums, sizes, MEDIA descriptors, and provenance remain for
+audit. The migration function opens both Blob stores with strong consistency,
+including paginated key listing. It brackets packet inventory with lease-store
+snapshots, requires packet ETags, then revalidates both stores before responding.
+Any active lease or packet/lease change rejects the snapshot for retry. A
+malformed persisted completion is quarantined as `invalid-handoff` and is not
+exported as completed. A valid prior completion remains completed after later
+packet edits: its receipt/source CAS is historical identity while the export
+still carries the packet's current version and state. Any Blob read/list failure
+returns an error rather than a partial snapshot.
+
+When `FANDOM_IDEA_PACKETS_MODE` is absent it defaults to `active`, so deploying
+migration support does not freeze the site. An explicitly configured empty,
+whitespace, or unknown value is invalid. In `read-only`, authenticated
+`GET /api/idea-packets` continues to work with deprecation headers, while packet
+`POST`/`PATCH` and `POST /api/create-handoff` return
+`423 FANDOM_IDEA_PACKETS_READ_ONLY` before Blob writes, rendering, MEDIA
+registration, or CREATE intake. An invalid mode fails those mutation paths
+closed with `503`.
+
+Cutover runbook:
+
+1. Deploy the Fandom migration-support release while mode remains `active`.
+2. Deploy CREATE's packet persistence/worktable and server-only importer.
+3. Provision the same dedicated migration HMAC pair in Fandom and CREATE.
+4. Have Katie stop packet edits and sends, set mode to `read-only`, and deploy
+   the configuration.
+5. Wait at least five minutes for existing handoff leases plus deployment drain.
+   If export reports an active lease, wait and retry; never delete the lease.
+6. CREATE fetches the snapshot, verifies every count/checksum, and imports
+   packets plus completed receipt/idempotency identity in one all-or-nothing
+   operation. Quarantine records stay non-executable and must not enter CREATE's
+   handoff/retry path.
+7. Compare the Fandom export checksum/counts with CREATE's import receipt. Katie
+   spot-checks collecting and compiled packets, selected media/order,
+   provenance, timestamps/versions, and completed CREATE receipts.
+8. Enable CREATE as packet source of truth. Keep Fandom read-only and retain
+   both Netlify Blob stores and migration credentials for 14 days.
+
+Before CREATE packet writes are enabled, rollback by disabling the CREATE
+importer/UI and redeploying Fandom with mode `active`; the Blob data remains
+untouched. After CREATE writes begin, do not reactivate Fandom blindly because
+the stores have diverged. Pause CREATE writes and reconcile from the captured
+import/export checksums instead. A checksum mismatch or failed import leaves
+Fandom read-only and can be retried idempotently.
+
+Admin, embedded PLAN, operator-token routes, and Blob data are deliberately not
+removed by the migration-support release. A separate destructive PR after the
+14-day window removes those private surfaces, the temporary endpoint/keys, and
+only then schedules Blob deletion under a separately reviewed retention step.
+
 The server accepts source images only through persisted same-origin proxy
 descriptors whose target is a public HTTPS hostname. DNS is pinned to a
 validated public address, redirects are revalidated, and private/link-local/IP

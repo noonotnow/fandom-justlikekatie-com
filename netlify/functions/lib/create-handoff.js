@@ -8,6 +8,12 @@ import {
 } from "./canonical-render.js";
 import { HANDOFF_ATTEMPT_STORE, withHandoffLease } from "./handoff-lease.js";
 import { upgradeLegacyPacket, withIdeaPacketLock } from "./idea-packets.js";
+import {
+  IdeaPacketModeError,
+  ideaPacketInvalidModeResponse,
+  ideaPacketReadOnlyResponse,
+  isIdeaPacketReadOnly,
+} from "./idea-packet-cutover.js";
 
 const PACKET_STORE = "idea-packets";
 const ATTEMPT_SCHEMA_VERSION = 1;
@@ -58,6 +64,12 @@ export function createCreateHandoffHandler({
     try {
       validateSameOrigin(req);
       validateAuthorization(req, env.PLAN_OPERATOR_TOKEN);
+      try {
+        if (isIdeaPacketReadOnly(env)) return ideaPacketReadOnlyResponse();
+      } catch (error) {
+        if (error instanceof IdeaPacketModeError) return ideaPacketInvalidModeResponse();
+        throw error;
+      }
       requireConfiguration(env);
       const manifest = await readManifest(req);
       const store = getStore(PACKET_STORE, context);
