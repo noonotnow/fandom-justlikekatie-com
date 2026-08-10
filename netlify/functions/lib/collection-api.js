@@ -10,6 +10,11 @@ export function createCollectionHandlers({ auth, getStore, env = process.env, no
         validateSameOrigin(req);
         const session = await auth.authenticate(req, context);
         const input = await readJson(req);
+        if (input.expectedAccountId !== session.user.accountId) {
+          const error = new Error("The active account changed. Refresh before syncing.");
+          error.status = 409;
+          throw error;
+        }
         const result = await syncCollection(
           getStore("fandom-user-collections", context),
           session.user.accountId,
