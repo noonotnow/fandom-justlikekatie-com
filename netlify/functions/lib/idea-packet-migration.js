@@ -95,17 +95,15 @@ export async function buildMigrationExport(packetStore, attemptStore, generatedA
   assertNoActiveLeases(beforeAttemptEntries, generatedAt);
 
   const packetEntries = await readStoreSnapshot(packetStore);
-  const attemptEntries = await readStoreSnapshot(attemptStore);
-  assertNoActiveLeases(attemptEntries, generatedAt);
-  assertSnapshotUnchanged(beforeAttemptEntries, attemptEntries, "handoff");
+  const afterPacketAttemptBlobs = await listAllBlobs(attemptStore);
+  assertSnapshotUnchanged(beforeAttemptEntries, afterPacketAttemptBlobs, "handoff");
 
-  const exportData = compileMigrationExport(packetEntries, attemptEntries, generatedAt);
+  const exportData = compileMigrationExport(packetEntries, beforeAttemptEntries, generatedAt);
 
-  const verifiedPacketEntries = await readStoreSnapshot(packetStore);
-  assertSnapshotUnchanged(packetEntries, verifiedPacketEntries, "packet");
-  const verifiedAttemptEntries = await readStoreSnapshot(attemptStore);
-  assertNoActiveLeases(verifiedAttemptEntries, generatedAt);
-  assertSnapshotUnchanged(attemptEntries, verifiedAttemptEntries, "handoff");
+  const verifiedPacketBlobs = await listAllBlobs(packetStore);
+  assertSnapshotUnchanged(packetEntries, verifiedPacketBlobs, "packet");
+  const verifiedAttemptBlobs = await listAllBlobs(attemptStore);
+  assertSnapshotUnchanged(beforeAttemptEntries, verifiedAttemptBlobs, "handoff");
 
   return exportData;
 }
@@ -520,13 +518,15 @@ function assertNoActiveLeases(entries, current) {
   }
 }
 
-function assertSnapshotUnchanged(before, after, label) {
-  const identity = entries => entries.map(entry => ({
-    key: entry.key,
-    etag: entry.etag,
-    checksum: canonicalChecksum(entry.data),
-  }));
-  if (canonicalChecksum(identity(before)) !== canonicalChecksum(identity(after))) {
+function assertSnapshotUnchanged(entries, blobs, label) {
+  const before = entries.map(entry => ({ key: entry.key, etag: entry.etag }));
+  const after = blobs.map(blob => {
+    if (typeof blob.etag !== "string" || !blob.etag) {
+      throw new Error(`Blob ${blob.key} listing has no ETag for migration snapshot validation.`);
+    }
+    return { key: blob.key, etag: blob.etag };
+  });
+  if (canonicalChecksum(before) !== canonicalChecksum(after)) {
     throw snapshotChanged(`The ${label} Blob inventory changed during migration export. Retry the snapshot.`);
   }
 }
