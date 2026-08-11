@@ -44,13 +44,16 @@ function applyOperation(collection, operation, mappings, current) {
   collection.revision += 1;
   const revision = collection.revision;
   if (operation.type === "upsert") {
-    const sourceKey = operation.item.resultId
-      ? `result:${operation.item.resultId}`
-      : `local:${operation.localId}`;
+    const sourceKey = operation.item.kind === "grid"
+      ? `grid:${operation.item.id}`
+      : operation.item.resultId
+        ? `result:${operation.item.resultId}`
+        : `local:${operation.localId}`;
     const existing = Object.values(collection.items).find(item => item.sourceKey === sourceKey);
     const serverId = existing?.id || randomUUID();
     collection.items[serverId] = {
       ...operation.item,
+      ...(operation.item.kind === "grid" ? { artifactId: operation.item.id } : {}),
       id: serverId,
       localId: operation.localId,
       sourceKey,
@@ -122,6 +125,25 @@ function validateSync(input) {
 }
 
 function validateItem(item) {
+  if (item?.kind === "grid") {
+    if (
+      typeof item.id !== "string"
+      || item.id.length > 512
+      || item.schemaVersion !== 1
+      || item.rendererVersion !== "vibe-atlas-v1"
+      || !Array.isArray(item.images)
+      || item.images.length < 1
+      || item.images.length > 9
+      || item.images.some(image => (
+        !image
+        || typeof image.resultId !== "string"
+        || typeof image.imageUrl !== "string"
+        || image.resultId.length > 4096
+        || image.imageUrl.length > 4096
+      ))
+    ) throw new TypeError("Collection grid is invalid.");
+    return;
+  }
   if (
     !item
     || typeof item.imageUrl !== "string"

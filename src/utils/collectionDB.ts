@@ -27,6 +27,12 @@ export interface CardRecord {
   };
 }
 
+type SyncableCollectionRecord = {
+  localId?: string;
+  serverId?: string;
+  ownerAccountId?: string;
+};
+
 export interface GridMediaSnapshot {
   resultId: string;
   imageUrl: string;
@@ -38,13 +44,30 @@ export interface GridMediaSnapshot {
 }
 
 export interface GridRecord {
+  localId?: string;
+  serverId?: string;
+  ownerAccountId?: string;
+  kind: 'grid';
+  schemaVersion: 1;
+  rendererVersion: 'vibe-atlas-v1';
   id: string;
   actorId: string;
   actor: string;
   actorEn: string;
+  actorAccentColor: string;
   vibe: string;
   vibeEn: string;
   vibeEmoji: string;
+  vibeSubtitle: string;
+  vibeSubtitleEn: string;
+  searchSpell: string;
+  generationPrompt?: string;
+  ctaSeed?: string;
+  edition: {
+    provider: string | null;
+    misprint: boolean;
+    legendary: boolean;
+  };
   capturedDate: string;
   generatedAt: string;
   savedAt: string;
@@ -119,7 +142,7 @@ export async function dbRemoveCard(imageUrl: string): Promise<void> {
 }
 
 export function resolveDeleteAccount(
-  card: CardRecord,
+  card: SyncableCollectionRecord,
   state: CollectionSyncState,
 ): string | undefined {
   if (!card.localId) return undefined;
@@ -135,7 +158,7 @@ export function resolveDeleteAccount(
 
 export function queueCardDelete(
   state: CollectionSyncState,
-  card: CardRecord,
+  card: SyncableCollectionRecord,
   mutationId: string,
 ): boolean {
   if (!card.localId) return false;
@@ -231,14 +254,19 @@ export async function dbSetActiveAccount(accountId?: string): Promise<void> {
 }
 
 export async function dbBuildSyncRequest(accountId: string): Promise<CollectionSyncRequest> {
-  const [loadedCards, state] = await Promise.all([dbGetAllCards(), dbGetSyncState()]);
+  const [loadedCards, loadedGrids, state] = await Promise.all([
+    dbGetAllCards(),
+    dbGetAllGrids(),
+    dbGetSyncState(),
+  ]);
   const cards = await ensureLocalIds(loadedCards);
+  const grids = await ensureGridLocalIds(loadedGrids);
   return {
     schemaVersion: 1,
     clientId: state.clientId,
     expectedAccountId: accountId,
     cursor: state.cursors[accountId] || 0,
-    operations: buildSyncOperations(cards, state, accountId).slice(0, 100),
+    operations: buildSyncOperations(cards, state, accountId, grids).slice(0, 100),
   };
 }
 
@@ -246,6 +274,7 @@ export function buildSyncOperations(
   cards: CardRecord[],
   state: CollectionSyncState,
   accountId: string,
+  grids: GridRecord[] = [],
 ): Array<Record<string, unknown>> {
   const deletes = (state.pendingDeletesByAccount[accountId] || []).map(operation => ({
     ...operation,
@@ -263,6 +292,7 @@ export function buildSyncOperations(
         mutationId,
         localId,
         item: {
+          kind: 'card',
           imageUrl: card.imageUrl,
           thumbnailUrl: card.thumbnailUrl,
           resultId: card.resultId,
@@ -279,7 +309,20 @@ export function buildSyncOperations(
       };
     })
     .filter(operation => acknowledged[operation.localId] !== operation.mutationId);
-  return [...deletes, ...upserts];
+  const gridUpserts = grids
+    .filter(grid => !grid.ownerAccountId || grid.ownerAccountId === accountId)
+    .map(grid => {
+      const localId = grid.localId!;
+      const mutationId = `upsert:${state.clientId}:${localId}:${grid.savedAt}`;
+      return {
+        type: 'upsert',
+        mutationId,
+        localId,
+        item: collectionGridSyncItem(grid),
+      };
+    })
+    .filter(operation => acknowledged[operation.localId] !== operation.mutationId);
+  return [...deletes, ...upserts, ...gridUpserts];
 }
 
 export async function dbApplySyncResponse(
@@ -295,10 +338,14 @@ export async function dbApplySyncResponse(
 ): Promise<void> {
   const db = await openDB();
   const cards = await dbGetAllCards();
+  const grids = await dbGetAllGrids();
   const byLocalId = new Map(cards.map(card => [card.localId, card]));
   const byServerId = new Map(cards.map(card => [card.serverId, card]));
-  const tx = db.transaction([CARD_STORE, SYNC_STORE], 'readwrite');
+  const gridsByLocalId = new Map(grids.map(grid => [grid.localId, grid]));
+  const gridsByServerId = new Map(grids.map(grid => [grid.serverId, grid]));
+  const tx = db.transaction([CARD_STORE, GRID_STORE, SYNC_STORE], 'readwrite');
   const cardStore = tx.objectStore(CARD_STORE);
+  const gridStore = tx.objectStore(GRID_STORE);
   const state = normalizeSyncState(await requestResult(tx.objectStore(SYNC_STORE).get('state')));
   const mappings = state.mappingsByAccount[accountId] || {};
   Object.assign(mappings, response.mappings);
@@ -321,6 +368,19 @@ export async function dbApplySyncResponse(
   for (const item of response.items) {
     const serverId = String(item.id);
     const localId = String(item.localId || '');
+    if (item.kind === 'grid') {
+      const existing = gridsByServerId.get(serverId) || gridsByLocalId.get(localId);
+      const record = {
+        ...(item as unknown as GridRecord),
+        id: typeof item.artifactId === 'string' ? item.artifactId : existing?.id || serverId,
+        localId: existing?.localId || localId || crypto.randomUUID(),
+        serverId,
+        ownerAccountId: existing?.ownerAccountId || (existing ? undefined : accountId),
+      };
+      if (existing && existing.id !== record.id) gridStore.delete(existing.id);
+      gridStore.put({ ...existing, ...record });
+      continue;
+    }
     const existing = byServerId.get(serverId) || byLocalId.get(localId);
     const record = {
       ...(item as unknown as CardRecord),
@@ -337,27 +397,39 @@ export async function dbApplySyncResponse(
     const mappedLocalId = Object.entries(mappings).find(([, serverId]) => serverId === tombstone.id)?.[0];
     const existing = byServerId.get(tombstone.id) || byLocalId.get(mappedLocalId);
     if (existing) cardStore.delete(existing.imageUrl);
+    const existingGrid = gridsByServerId.get(tombstone.id) || gridsByLocalId.get(mappedLocalId);
+    if (existingGrid) gridStore.delete(existingGrid.id);
   }
   tx.objectStore(SYNC_STORE).put(state);
   await transactionDone(tx);
 }
 
 export async function dbRemoveAccountCache(accountId: string): Promise<void> {
-  const cards = await dbGetAllCards();
+  const [cards, grids] = await Promise.all([dbGetAllCards(), dbGetAllGrids()]);
   const db = await openDB();
-  const tx = db.transaction(CARD_STORE, 'readwrite');
+  const tx = db.transaction([CARD_STORE, GRID_STORE], 'readwrite');
   const store = tx.objectStore(CARD_STORE);
+  const gridStore = tx.objectStore(GRID_STORE);
   for (const card of cards) {
     if (card.ownerAccountId === accountId) store.delete(card.imageUrl);
+  }
+  for (const grid of grids) {
+    if (grid.ownerAccountId === accountId) gridStore.delete(grid.id);
   }
   await transactionDone(tx);
 }
 
 export async function dbSaveGrid(grid: GridRecord): Promise<void> {
   const db = await openDB();
+  const existing = await dbGetGrid(grid.id);
+  const record = {
+    ...grid,
+    localId: grid.localId || existing?.localId || crypto.randomUUID(),
+    savedAt: grid.savedAt || new Date().toISOString(),
+  };
   return new Promise((resolve, reject) => {
     const tx = db.transaction(GRID_STORE, 'readwrite');
-    tx.objectStore(GRID_STORE).put(grid);
+    tx.objectStore(GRID_STORE).put(record);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -368,9 +440,64 @@ export async function dbGetAllGrids(): Promise<GridRecord[]> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(GRID_STORE, 'readonly');
     const req = tx.objectStore(GRID_STORE).getAll();
-    req.onsuccess = () => resolve(req.result as GridRecord[]);
+    req.onsuccess = () => resolve((req.result as Partial<GridRecord>[]).map(normalizeGridRecord));
     req.onerror = () => reject(req.error);
   });
+}
+
+export function normalizeGridRecord(grid: Partial<GridRecord>): GridRecord {
+  const images = Array.isArray(grid.images) ? grid.images : [];
+  return {
+    kind: 'grid',
+    schemaVersion: 1,
+    rendererVersion: 'vibe-atlas-v1',
+    id: grid.id || crypto.randomUUID(),
+    actorId: grid.actorId || 'legacy-actor',
+    actor: grid.actor || 'Unknown actor',
+    actorEn: grid.actorEn || grid.actor || 'Unknown actor',
+    actorAccentColor: grid.actorAccentColor || '#c9a96e',
+    vibe: grid.vibe || 'Saved vibe',
+    vibeEn: grid.vibeEn || grid.vibe || 'Saved vibe',
+    vibeEmoji: grid.vibeEmoji || '✨',
+    vibeSubtitle: grid.vibeSubtitle || '',
+    vibeSubtitleEn: grid.vibeSubtitleEn || '',
+    searchSpell: grid.searchSpell || images[0]?.batchKey || '',
+    edition: {
+      provider: grid.edition?.provider ?? null,
+      misprint: grid.edition?.misprint === true,
+      legendary: grid.edition?.legendary === true,
+    },
+    capturedDate: grid.capturedDate || new Date().toISOString().slice(0, 10),
+    generatedAt: grid.generatedAt || grid.savedAt || new Date().toISOString(),
+    savedAt: grid.savedAt || grid.generatedAt || new Date().toISOString(),
+    sourceRoute: grid.sourceRoute || '/',
+    images,
+    ...(grid.localId ? { localId: grid.localId } : {}),
+    ...(grid.serverId ? { serverId: grid.serverId } : {}),
+    ...(grid.ownerAccountId ? { ownerAccountId: grid.ownerAccountId } : {}),
+    ...(grid.generationPrompt ? { generationPrompt: grid.generationPrompt } : {}),
+    ...(grid.ctaSeed ? { ctaSeed: grid.ctaSeed } : {}),
+    ...(grid.legacyCompositeUrl ? { legacyCompositeUrl: grid.legacyCompositeUrl } : {}),
+  };
+}
+
+export async function dbGetVisibleGrids(accountId?: string): Promise<GridRecord[]> {
+  const grids = await dbGetAllGrids();
+  return grids.filter(grid => !grid.ownerAccountId || grid.ownerAccountId === accountId);
+}
+
+export async function dbRemoveGrid(id: string): Promise<void> {
+  const db = await openDB();
+  const tx = db.transaction([GRID_STORE, SYNC_STORE], 'readwrite');
+  const gridStore = tx.objectStore(GRID_STORE);
+  const syncStore = tx.objectStore(SYNC_STORE);
+  const existing = await requestResult<GridRecord | undefined>(gridStore.get(id));
+  gridStore.delete(id);
+  if (existing?.localId) {
+    const state = normalizeSyncState(await requestResult(syncStore.get('state')));
+    if (queueCardDelete(state, existing, crypto.randomUUID())) syncStore.put(state);
+  }
+  await transactionDone(tx);
 }
 
 async function dbGetCard(imageUrl: string): Promise<CardRecord | undefined> {
@@ -380,6 +507,11 @@ async function dbGetCard(imageUrl: string): Promise<CardRecord | undefined> {
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
+
+async function dbGetGrid(id: string): Promise<GridRecord | undefined> {
+  const db = await openDB();
+  return requestResult(db.transaction(GRID_STORE, 'readonly').objectStore(GRID_STORE).get(id));
 }
 
 async function dbPutSyncState(state: CollectionSyncState): Promise<void> {
@@ -403,6 +535,30 @@ async function ensureLocalIds(cards: CardRecord[]): Promise<CardRecord[]> {
   }
   await transactionDone(tx);
   return cards.map(card => ({ ...card, localId: card.localId || assigned.get(card.imageUrl) }));
+}
+
+async function ensureGridLocalIds(grids: GridRecord[]): Promise<GridRecord[]> {
+  const missing = grids.filter(grid => !grid.localId);
+  if (missing.length === 0) return grids;
+  const db = await openDB();
+  const tx = db.transaction(GRID_STORE, 'readwrite');
+  const store = tx.objectStore(GRID_STORE);
+  const assigned = new Map<string, string>();
+  for (const grid of missing) {
+    const localId = crypto.randomUUID();
+    assigned.set(grid.id, localId);
+    store.put({ ...grid, localId });
+  }
+  await transactionDone(tx);
+  return grids.map(grid => ({ ...grid, localId: grid.localId || assigned.get(grid.id) }));
+}
+
+function collectionGridSyncItem(grid: GridRecord): Record<string, unknown> {
+  const item = { ...grid } as Record<string, unknown>;
+  delete item.localId;
+  delete item.serverId;
+  delete item.ownerAccountId;
+  return item;
 }
 
 type LegacyCollectionSyncState = Partial<CollectionSyncState> & {

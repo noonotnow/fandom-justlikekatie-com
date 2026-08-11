@@ -17,8 +17,11 @@ export async function renderCanonicalOutput(
   output,
   { requestUrl, fetchSourceImpl = fetchSafeImage } = {},
 ) {
+  const grid = output.kind === "grid"
+    ? packet.grids?.find(candidate => candidate.id === output.sourceId)
+    : null;
   const cards = output.kind === "grid"
-    ? packet.sourceCards.slice(0, 9)
+    ? grid?.images?.slice(0, 9) || packet.sourceCards.slice(0, 9)
     : packet.sourceCards.filter(card => card.id === output.sourceId);
   if (cards.length === 0) throw new Error(`Output ${output.id} has no persisted source selection.`);
 
@@ -33,7 +36,7 @@ export async function renderCanonicalOutput(
   }
 
   const bytes = output.kind === "grid"
-    ? await renderGrid(packet, sourceBuffers)
+    ? await renderGrid(packet, grid, sourceBuffers)
     : await renderIndividual(packet, sourceBuffers[0]);
   const metadata = await sharp(bytes).metadata();
   if (
@@ -60,25 +63,30 @@ export function validatedProxyTarget(value, requestUrl) {
   return validatePublicHttpsUrl(targetValue);
 }
 
-async function renderGrid(packet, sources) {
-  const gap = 8;
-  const left = 56;
-  const top = 190;
-  const tile = Math.floor((RENDER_WIDTH - left * 2 - gap * 2) / 3);
+async function renderGrid(packet, grid, sources) {
+  const gap = 12;
+  const top = 394;
+  const tile = 252;
+  const gridWidth = tile * 3 + gap * 2;
+  const left = Math.round((RENDER_WIDTH - gridWidth) / 2);
   const composites = [];
-  for (let index = 0; index < sources.length; index += 1) {
-    composites.push({
-      input: await sharp(sources[index], { failOn: "error" })
+  for (let index = 0; index < 9; index += 1) {
+    const source = sources[index];
+    const input = source
+      ? await sharp(source, { failOn: "error" })
         .rotate()
         .resize(tile, tile, { fit: "cover" })
         .png()
-        .toBuffer(),
+        .toBuffer()
+      : Buffer.from(placeholderTile(tile));
+    composites.push({
+      input,
       left: left + (index % 3) * (tile + gap),
       top: top + Math.floor(index / 3) * (tile + gap),
     });
   }
   composites.push({
-    input: Buffer.from(gridOverlay(packet)),
+    input: Buffer.from(gridOverlay(packet, grid)),
     left: 0,
     top: 0,
   });
@@ -90,6 +98,13 @@ async function renderGrid(packet, sources) {
       background: "#0e0e12",
     },
   }).composite(composites).png().toBuffer();
+}
+
+function placeholderTile(size) {
+  return `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${size}" height="${size}" rx="14" fill="#18181f"/>
+    <path d="M${size / 2 - 18} ${size / 2}h36M${size / 2} ${size / 2 - 18}v36" stroke="#4c4c58" stroke-width="3" stroke-linecap="round"/>
+  </svg>`;
 }
 
 async function renderIndividual(packet, source) {
@@ -111,18 +126,63 @@ async function renderIndividual(packet, source) {
   ]).png().toBuffer();
 }
 
-function gridOverlay(packet) {
+function gridOverlay(packet, savedGrid) {
+  const grid = savedGrid || {
+    id: packet.provenance.gridId,
+    actor: packet.actor.name,
+    actorEn: packet.actor.nameEn,
+    actorAccentColor: "#c9a96e",
+    vibe: packet.vibe.label,
+    vibeEn: packet.vibe.labelEn,
+    vibeEmoji: packet.vibe.emoji,
+    vibeSubtitle: packet.captionSeeds || "",
+    searchSpell: packet.provenance.batchKeys?.[0] || "",
+    capturedDate: shanghaiDay(packet.provenance.generatedAt),
+    edition: {},
+    images: packet.sourceCards,
+  };
+  const accent = safeHex(grid.actorAccentColor, "#c9a96e");
+  const sources = Array.from(new Set(
+    (grid.images || []).map(image => image.publisher).filter(Boolean),
+  )).slice(0, 4).join(" · ");
+  const spell = truncate(grid.searchSpell || "", 76);
+  const subtitle = truncate(grid.vibeSubtitle || "", 88);
+  const edition = grid.edition?.legendary ? "LEGENDARY" : grid.edition?.misprint ? "MISPRINT" : "STAR OF DAY";
   return `<svg width="${RENDER_WIDTH}" height="${RENDER_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <radialGradient id="glow" cx="50%" cy="18%" r="58%">
+        <stop offset="0%" stop-color="${accent}" stop-opacity=".18"/>
+        <stop offset="100%" stop-color="${accent}" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
     <style>
       .gold { fill: #c9a96e; font-family: sans-serif; font-weight: 600; text-anchor: middle; }
       .light { fill: #f0ede8; font-family: sans-serif; font-weight: 700; text-anchor: middle; }
       .muted { fill: #a3a3ad; font-family: sans-serif; text-anchor: middle; }
+      .dim { fill: #777782; font-family: sans-serif; text-anchor: middle; }
     </style>
-    <text class="gold" x="540" y="72" font-size="28">IDEA PACKET</text>
-    <text class="light" x="540" y="132" font-size="44">${escapeXml(`${packet.actor.name} · ${packet.vibe.label}`)}</text>
-    <text class="muted" x="540" y="1268" font-size="22">${escapeXml(`${packet.vibe.labelEn} · ${shanghaiDay(packet.provenance.generatedAt)}`)}</text>
-    <text class="gold" x="540" y="1310" font-size="18">FANDOM / ${escapeXml(packet.provenance.gridId)}</text>
+    <rect width="1080" height="1350" fill="url(#glow)"/>
+    <text class="gold" x="540" y="64" font-size="24">今日氛围图鉴</text>
+    <text class="gold" x="540" y="94" font-size="15" letter-spacing="3">${escapeXml(`${grid.capturedDate} · ${edition}`)}</text>
+    <text class="light" x="540" y="154" font-size="44">🔮 今日之星 · 氛围格子</text>
+    <text x="540" y="214" fill="${accent}" font-family="sans-serif" font-size="40" font-weight="700" text-anchor="middle">${escapeXml(grid.actor)}</text>
+    <text class="light" x="540" y="260" font-size="30">${escapeXml(`${grid.vibeEmoji || ""} ${grid.vibe}`.trim())}</text>
+    ${spell ? `<text class="muted" x="540" y="306" font-size="22">⌕ ${escapeXml(spell)}</text>` : ""}
+    ${subtitle ? `<text class="dim" x="540" y="346" font-size="20">${escapeXml(subtitle)}</text>` : ""}
+    ${sources ? `<text class="dim" x="540" y="1232" font-size="17">来源：${escapeXml(sources)}</text>` : ""}
+    <text class="gold" x="540" y="1280" font-size="20">🔮 Vibe Guide · 氛围图鉴 · fandom.justlikekatie.com</text>
+    <text class="muted" x="540" y="1314" font-size="16">${escapeXml(`${grid.vibeEn || grid.vibe} · ${grid.capturedDate}`)}</text>
+    <text class="dim" x="540" y="1338" font-size="13">FANDOM / ${escapeXml(grid.id)}</text>
   </svg>`;
+}
+
+function safeHex(value, fallback) {
+  return /^#[0-9a-f]{6}$/i.test(value || "") ? value : fallback;
+}
+
+function truncate(value, max) {
+  const normalized = String(value).replace(/\s+/g, " ").trim();
+  return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
 }
 
 function individualOverlay(packet) {

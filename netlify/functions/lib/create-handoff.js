@@ -717,8 +717,16 @@ function buildCreateEnvelope({
   }));
   const attachments = outputs.map((output, position) => {
     const registration = registered[position];
+    const selectedGrid = output.kind === "grid"
+      ? packet.grids?.find(grid => grid.id === output.sourceId)
+      : null;
+    const selectedResultIds = new Set((selectedGrid?.images || []).map(image => image.resultId));
     const sourceCardIds = output.kind === "grid"
-      ? sourceCards.map(card => card.id)
+      ? selectedGrid
+        ? packet.sourceCards
+          .filter(card => selectedResultIds.has(card.resultId))
+          .map(card => card.id)
+        : sourceCards.map(card => card.id)
       : [output.sourceId];
     return {
       assetId: registration.descriptor.assetId,

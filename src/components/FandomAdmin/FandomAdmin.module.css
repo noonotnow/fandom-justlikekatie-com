@@ -136,6 +136,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
   border-top: 1px solid var(--admin-border);
   padding-top: 8px;
 }
+.gridHistory article { grid-template-columns: 88px minmax(0, 1fr) auto; }
+.gridHistory .addSaved { grid-column: 2 / -1; justify-self: end; }
 .historyGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; width: 88px; aspect-ratio: 1; overflow: hidden; border-radius: 7px; background: var(--admin-panel); }
 .historyGrid img { width: 100%; height: 100%; object-fit: cover; min-height: 0; }
 .gridHistory article > div:nth-child(2), .savedItems article > div:nth-child(2) { min-width: 0; }

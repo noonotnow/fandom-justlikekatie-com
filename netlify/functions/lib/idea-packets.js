@@ -96,9 +96,28 @@ export function validatePacket(input) {
   if (!isRecord(packet.anchor) || !Array.isArray(packet.anchor.imageUrls) || packet.anchor.imageUrls.length === 0) {
     throw new RequestError("Packet anchor media is required.");
   }
+  packet.grids ||= [legacyGridForPacket(packet)];
   if (!Array.isArray(packet.media)) throw new RequestError("Packet media must be a list.");
   if (!Array.isArray(packet.sourceCards) || packet.sourceCards.length === 0) {
     throw new RequestError("Packet source cards are required.");
+  }
+  if (!Array.isArray(packet.grids) || packet.grids.length === 0) {
+    throw new RequestError("Packet grids are required.");
+  }
+  const gridIds = new Set();
+  for (const grid of packet.grids) {
+    if (
+      !isRecord(grid)
+      || !grid.id
+      || grid.kind !== "grid"
+      || grid.schemaVersion !== 1
+      || grid.rendererVersion !== "vibe-atlas-v1"
+      || !Array.isArray(grid.images)
+      || grid.images.length === 0
+      || grid.images.length > 9
+    ) throw new RequestError("Packet grid is invalid.");
+    if (gridIds.has(grid.id)) throw new RequestError("That grid is already in this packet.", 409);
+    gridIds.add(grid.id);
   }
   if (!Array.isArray(packet.outputs) || packet.outputs.length === 0) {
     throw new RequestError("Packet outputs are required.");
@@ -124,6 +143,9 @@ export function validatePacket(input) {
     if (output.kind === "individual" && !packet.media.some(media => media.id === output.sourceId)) {
       throw new RequestError("Packet output references missing curated media.");
     }
+    if (output.kind === "grid" && !packet.grids.some(grid => grid.id === output.sourceId)) {
+      throw new RequestError("Packet output references a missing grid.");
+    }
     outputIds.add(output.id);
   }
   for (const field of ["notes", "workingAngle", "captionSeeds", "outputAngles"]) {
@@ -137,7 +159,7 @@ export function validatePacket(input) {
 
 export function applyAction(current, action) {
   if (!isRecord(action)) throw new RequestError("A packet action is required.");
-  const next = structuredClone(current);
+  const next = structuredClone(upgradeLegacyPacket(current));
   if (action.type === "add_media") {
     if (!isRecord(action.media)) throw new RequestError("Media is required.");
     if (next.media.some(item => item.resultId === action.media.resultId)) {
@@ -166,6 +188,40 @@ export function applyAction(current, action) {
       kind: "individual",
       sourceId: action.media.id,
       label: action.media.title,
+      included: true,
+      addedAt: new Date().toISOString(),
+    });
+    next.state = "collecting";
+  } else if (action.type === "add_grid") {
+    if (!isRecord(action.grid)) throw new RequestError("Grid is required.");
+    if (next.grids.some(grid => grid.id === action.grid.id)) {
+      throw new RequestError("That grid is already in this packet.", 409);
+    }
+    next.grids.push(action.grid);
+    for (const image of action.grid.images) {
+      if (next.sourceCards.some(card => card.resultId === image.resultId)) continue;
+      next.sourceCards.push({
+        id: stableId(image.resultId),
+        order: next.sourceCards.length,
+        imageUrl: image.imageUrl,
+        sourceUrl: image.sourceUrl,
+        title: image.title,
+        ...(image.publisher ? { creator: image.publisher } : {}),
+        capturedAt: action.grid.generatedAt,
+        resultId: image.resultId,
+        provenance: JSON.stringify({
+          collection: "saved-grid",
+          gridId: action.grid.id,
+          batchKey: image.batchKey,
+          gridPosition: image.gridPosition,
+        }),
+      });
+    }
+    next.outputs.push({
+      id: `grid-${stableId(action.grid.id)}`,
+      kind: "grid",
+      sourceId: action.grid.id,
+      label: `${action.grid.vibeEmoji} ${action.grid.actor} · ${action.grid.vibe} grid`,
       included: true,
       addedAt: new Date().toISOString(),
     });
@@ -218,6 +274,7 @@ async function listPackets(store) {
 export function upgradeLegacyPacket(packet) {
   if (!packet) return packet;
   const next = structuredClone(packet);
+  next.grids ||= [legacyGridForPacket(next)];
   next.sourceCards ||= (next.anchor?.imageUrls || []).map((imageUrl, order) => {
     const resultId = next.provenance?.resultIds?.[order] || `${next.provenance?.gridId || next.id}:${order}`;
     return {
@@ -263,6 +320,48 @@ export function upgradeLegacyPacket(packet) {
     })),
   ];
   return next;
+}
+
+function legacyGridForPacket(packet) {
+  const sourceCards = Array.isArray(packet.sourceCards) && packet.sourceCards.length > 0
+    ? packet.sourceCards
+    : (packet.anchor?.imageUrls || []).map((imageUrl, gridPosition) => ({
+      resultId: packet.provenance?.resultIds?.[gridPosition] || `${packet.id}:${gridPosition}`,
+      imageUrl,
+      sourceUrl: imageUrl,
+      title: `Grid result ${gridPosition + 1}`,
+      gridPosition,
+    }));
+  return {
+    kind: "grid",
+    schemaVersion: 1,
+    rendererVersion: "vibe-atlas-v1",
+    id: packet.provenance?.gridId || packet.id,
+    actorId: packet.actor?.id || "legacy-actor",
+    actor: packet.actor?.name || "Unknown actor",
+    actorEn: packet.actor?.nameEn || packet.actor?.name || "Unknown actor",
+    actorAccentColor: "#c9a96e",
+    vibe: packet.vibe?.label || "Saved vibe",
+    vibeEn: packet.vibe?.labelEn || packet.vibe?.label || "Saved vibe",
+    vibeEmoji: packet.vibe?.emoji || "✨",
+    vibeSubtitle: packet.captionSeeds || "",
+    vibeSubtitleEn: "",
+    searchSpell: packet.provenance?.batchKeys?.[0] || "",
+    edition: { provider: null, misprint: false, legendary: false },
+    capturedDate: String(packet.provenance?.generatedAt || packet.createdAt).slice(0, 10),
+    generatedAt: packet.provenance?.generatedAt || packet.createdAt,
+    savedAt: packet.createdAt,
+    sourceRoute: packet.provenance?.sourceRoute || "/",
+    images: sourceCards.slice(0, 9).map((card, gridPosition) => ({
+      resultId: card.resultId || packet.provenance?.resultIds?.[gridPosition] || `${packet.id}:${gridPosition}`,
+      imageUrl: card.imageUrl,
+      sourceUrl: card.sourceUrl || card.imageUrl,
+      title: card.title || `Grid result ${gridPosition + 1}`,
+      ...(card.creator ? { publisher: card.creator } : {}),
+      batchKey: packet.provenance?.batchKeys?.[0],
+      gridPosition,
+    })),
+  };
 }
 
 function stableId(value) {

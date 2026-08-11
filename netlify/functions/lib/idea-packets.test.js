@@ -54,6 +54,37 @@ function media(id = "result-1") {
   };
 }
 
+function grid(id = "grid-2") {
+  return {
+    kind: "grid",
+    schemaVersion: 1,
+    rendererVersion: "vibe-atlas-v1",
+    id,
+    actorId: "actor-2",
+    actor: "Second Star",
+    actorEn: "Second Star",
+    actorAccentColor: "#c9a96e",
+    vibe: "第二氛围",
+    vibeEn: "Second Vibe",
+    vibeEmoji: "🌙",
+    vibeSubtitle: "A complete saved aesthetic.",
+    vibeSubtitleEn: "A complete saved aesthetic.",
+    searchSpell: "second star editorial search",
+    edition: { provider: "brave", misprint: false, legendary: true },
+    capturedDate: "2026-08-05",
+    generatedAt: "2026-08-05T15:00:00Z",
+    savedAt: "2026-08-05T16:00:00Z",
+    sourceRoute: "/collection",
+    images: [{
+      resultId: "grid-result-2",
+      imageUrl: "/.netlify/functions/image-proxy?url=https%3A%2F%2Fimages.example%2Fgrid-2.jpg",
+      sourceUrl: "https://publisher.example/grid-2",
+      title: "Second grid result",
+      gridPosition: 0,
+    }],
+  };
+}
+
 function memoryStore() {
   const records = new Map();
   return {
@@ -100,6 +131,16 @@ test("prevents exact duplicate media and supports reversible compilation", () =>
   assert.equal(compiled.state, "media_compiled");
   const resumed = applyAction(compiled, { type: "set_state", state: "collecting" });
   assert.equal(resumed.state, "collecting");
+});
+
+test("adds a complete saved grid as one packet output without flattening it into curated media", () => {
+  const updated = applyAction(packet(), { type: "add_grid", grid: grid() });
+  assert.equal(updated.grids.length, 2);
+  assert.equal(updated.media.length, 0);
+  assert.equal(updated.outputs.at(-1).sourceId, "grid-2");
+  assert.equal(updated.outputs.at(-1).kind, "grid");
+  assert.equal(updated.grids.at(-1).searchSpell, "second star editorial search");
+  assert.throws(() => applyAction(updated, { type: "add_grid", grid: grid() }), /already/);
 });
 
 test("retains a failed handoff pointer as stale history across packet mutation", () => {

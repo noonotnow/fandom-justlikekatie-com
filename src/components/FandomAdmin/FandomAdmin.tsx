@@ -23,6 +23,7 @@ interface Props {
   onPacketChange: (packet: IdeaPacket) => void;
   onCreateFromGrid: (grid: GridRecord) => Promise<IdeaPacket>;
   onAddSavedCard: (packet: IdeaPacket, card: CardRecord) => Promise<IdeaPacket>;
+  onAddSavedGrid: (packet: IdeaPacket, grid: GridRecord) => Promise<IdeaPacket>;
 }
 
 export const FandomAdmin: React.FC<Props> = props => {
@@ -77,6 +78,7 @@ function PacketWorkspace({
   onPacketChange,
   onCreateFromGrid,
   onAddSavedCard,
+  onAddSavedGrid,
   showLibrary,
   onLibraryPacketCreated,
 }: Omit<Props, 'unauthorized'> & {
@@ -140,6 +142,7 @@ function PacketWorkspace({
           onLibraryPacketCreated();
         }}
         onAddSavedCard={onAddSavedCard}
+        onAddSavedGrid={onAddSavedGrid}
       />
     );
   }
@@ -148,10 +151,12 @@ function PacketWorkspace({
     packets,
     onCreateFromGrid,
     onAddSavedCard,
+    onAddSavedGrid,
   }: {
     packets: IdeaPacket[];
     onCreateFromGrid: (grid: GridRecord) => Promise<void>;
     onAddSavedCard: (packet: IdeaPacket, card: CardRecord) => Promise<IdeaPacket>;
+    onAddSavedGrid: (packet: IdeaPacket, grid: GridRecord) => Promise<IdeaPacket>;
   }) {
     const [grids, setGrids] = useState<GridRecord[]>([]);
     const [cards, setCards] = useState<CardRecord[]>([]);
@@ -227,6 +232,38 @@ function PacketWorkspace({
                   >
                     {busyKey === grid.id ? 'Starting…' : 'Start Idea Packet'}
                   </button>
+                  {collecting.length === 0 ? (
+                    <span className={styles.noPacket}>Start a packet first</span>
+                  ) : (
+                    <div className={styles.addSaved}>
+                      <select
+                        aria-label={`Idea Packet for ${grid.actor} ${grid.vibe} grid`}
+                        value={packetSelections[grid.id] || ''}
+                        onChange={event => setPacketSelections(current => ({ ...current, [grid.id]: event.target.value }))}
+                      >
+                        <option value="">Choose packet…</option>
+                        {collecting.map(packet => <option key={packet.id} value={packet.id}>{packet.actor.name} · {packet.vibe.labelEn}</option>)}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={Boolean(busyKey) || !packetSelections[grid.id]}
+                        onClick={async () => {
+                          const packet = collecting.find(item => item.id === packetSelections[grid.id]);
+                          if (!packet) return;
+                          setBusyKey(`grid:${grid.id}`);
+                          setNotice('');
+                          try {
+                            await onAddSavedGrid(packet, grid);
+                            setNotice('Complete grid added to the Idea Packet.');
+                          } catch (caught) {
+                            setNotice(caught instanceof Error ? caught.message : 'Saved grid could not be added.');
+                          } finally { setBusyKey(''); }
+                        }}
+                      >
+                        {busyKey === `grid:${grid.id}` ? 'Adding…' : 'Add grid to packet'}
+                      </button>
+                    </div>
+                  )}
                 </article>
               ))}
             </div>
@@ -388,13 +425,18 @@ function PacketWorkspace({
                 const media = output.kind === 'individual'
                   ? selected.media.find(item => item.id === output.sourceId)
                   : null;
+                const grid = output.kind === 'grid'
+                  ? selected.grids.find(item => item.id === output.sourceId)
+                  : null;
                 const primary = output.included
                   && includedPacketOutputs(selected)[0]?.id === output.id;
                 return (
                   <li key={output.id} data-included={output.included}>
                     <div className={styles.outputPreview} data-kind={output.kind}>
                       {output.kind === 'grid'
-                        ? selected.anchor.imageUrls.slice(0, 9).map((url, imageIndex) => <img key={`${url}-${imageIndex}`} src={url} alt="" />)
+                        ? (grid?.images.map(image => image.imageUrl) || selected.anchor.imageUrls)
+                          .slice(0, 9)
+                          .map((url, imageIndex) => <img key={`${url}-${imageIndex}`} src={url} alt="" />)
                         : <img src={media?.imageUrl} alt="" />}
                     </div>
                     <label>

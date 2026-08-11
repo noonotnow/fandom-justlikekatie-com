@@ -8,6 +8,7 @@ import {
   resolveDeleteAccount,
   type CardRecord,
   type CollectionSyncState,
+  type GridRecord,
 } from '../src/utils/collectionDB.ts';
 
 function card(index: number): CardRecord {
@@ -23,6 +24,38 @@ function card(index: number): CardRecord {
     vibeEmoji: '✨',
     capturedDate: '2026-08-10',
     savedAt: '2026-08-10T01:00:00Z',
+  };
+}
+
+function grid(): GridRecord {
+  return {
+    localId: 'grid-local-1',
+    kind: 'grid',
+    schemaVersion: 1,
+    rendererVersion: 'vibe-atlas-v1',
+    id: 'grid-1',
+    actorId: 'actor-1',
+    actor: 'Actor',
+    actorEn: 'Actor',
+    actorAccentColor: '#c9a96e',
+    vibe: 'Vibe',
+    vibeEn: 'Vibe',
+    vibeEmoji: '✨',
+    vibeSubtitle: 'Aesthetic description',
+    vibeSubtitleEn: 'Aesthetic description',
+    searchSpell: 'editorial search spell',
+    edition: { provider: 'brave', misprint: false, legendary: false },
+    capturedDate: '2026-08-10',
+    generatedAt: '2026-08-10T00:00:00Z',
+    savedAt: '2026-08-10T01:00:00Z',
+    sourceRoute: '/',
+    images: [{
+      resultId: 'grid-result-1',
+      imageUrl: '/api/image-proxy?url=https%3A%2F%2Fimages.example%2Fgrid.jpg',
+      sourceUrl: 'https://publisher.example/grid',
+      title: 'Grid result',
+      gridPosition: 0,
+    }],
   };
 }
 
@@ -59,6 +92,16 @@ test('large collections advance beyond the first 100 acknowledged upserts', () =
   const second = buildSyncOperations(cards, syncState, 'account-a');
   assert.equal(second.length, 51);
   assert.equal(second[0].localId, 'local-99');
+});
+
+test('saved grids sync as first-class artifacts without flattening their source results', () => {
+  const operations = buildSyncOperations([card(1)], state(), 'account-a', [grid()]);
+  const gridOperation = operations.find(operation => operation.localId === 'grid-local-1');
+  assert.equal(gridOperation?.type, 'upsert');
+  assert.equal(Reflect.get(gridOperation?.item || {}, 'kind'), 'grid');
+  assert.equal(Reflect.get(gridOperation?.item || {}, 'searchSpell'), 'editorial search spell');
+  assert.equal(Reflect.get(gridOperation?.item || {}, 'images').length, 1);
+  assert.equal(operations.filter(operation => operation.type === 'upsert').length, 2);
 });
 
 test('Lightbox save and remove schedule account-aware synchronization', async () => {

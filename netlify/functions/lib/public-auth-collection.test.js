@@ -167,6 +167,49 @@ test("collection sync is idempotent, URL-independent, cursor-based, and tombston
   assert.equal(removed.tombstones[0].id, id);
 });
 
+test("grid sync preserves artifact identity across devices", async () => {
+  const store = memoryStore();
+  const item = {
+    kind: "grid",
+    id: "grid-artifact-1",
+    schemaVersion: 1,
+    rendererVersion: "vibe-atlas-v1",
+    images: [{
+      resultId: "result-1",
+      imageUrl: "/api/image-proxy?url=https%3A%2F%2Fimages.example%2Fone.jpg",
+    }],
+  };
+  const first = await syncCollection(store, "usr_test", {
+    schemaVersion: 1,
+    clientId: "device-a",
+    cursor: 0,
+    operations: [{
+      type: "upsert",
+      mutationId: "grid-mutation-a",
+      localId: "grid-local-a",
+      item,
+    }],
+  });
+  const serverId = first.mappings["grid-local-a"];
+  assert.equal(first.items[0].artifactId, item.id);
+  assert.equal(first.items[0].id, serverId);
+
+  const second = await syncCollection(store, "usr_test", {
+    schemaVersion: 1,
+    clientId: "device-b",
+    cursor: 0,
+    operations: [{
+      type: "upsert",
+      mutationId: "grid-mutation-b",
+      localId: "grid-local-b",
+      item,
+    }],
+  });
+  assert.equal(second.mappings["grid-local-b"], serverId);
+  assert.equal(second.items.length, 1);
+  assert.equal(second.items[0].artifactId, item.id);
+});
+
 test("CREATE collection reads require the dedicated GET-only HMAC scope", async () => {
   const store = memoryStore();
   const env = {
