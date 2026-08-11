@@ -23,12 +23,18 @@ import {
 } from '../../utils/publicAccount';
 import styles from './Collection.module.css';
 
+const UNDO_WINDOW_MS = 8_000;
+
 interface Props {
   isAdmin?: boolean;
   packets?: IdeaPacket[];
   onCreateFromGrid?: (grid: GridRecord) => Promise<IdeaPacket>;
   onAddGridToPacket?: (packet: IdeaPacket, grid: GridRecord) => Promise<IdeaPacket>;
 }
+
+type PendingRemoval =
+  | { token: string; kind: 'grid'; record: GridRecord; timeoutId: number }
+  | { token: string; kind: 'card'; record: CardRecord; timeoutId: number };
 
 export const Collection: React.FC<Props> = ({
   isAdmin = false,
@@ -51,7 +57,11 @@ export const Collection: React.FC<Props> = ({
   const [needsMergeChoice, setNeedsMergeChoice] = useState(false);
   const [busyKey, setBusyKey] = useState('');
   const [packetSelections, setPacketSelections] = useState<Record<string, string>>({});
+  const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
+  const [expandedGrid, setExpandedGrid] = useState<GridRecord | null>(null);
   const accountIdRef = useRef<string | undefined>(undefined);
+  const pendingRemovalRef = useRef<PendingRemoval | null>(null);
+  const lightboxCloseRef = useRef<HTMLButtonElement>(null);
   const collectingPackets = packets.filter(packet => packet.state === 'collecting');
 
   async function loadCollection(accountId = accountIdRef.current) {
@@ -95,23 +105,77 @@ export const Collection: React.FC<Props> = ({
     };
   }, []);
 
-  async function handleRemoveCard(imageUrl: string) {
+  useEffect(() => {
+    if (!expandedGrid) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setExpandedGrid(null);
+      if (event.key === 'Tab') {
+        event.preventDefault();
+        lightboxCloseRef.current?.focus();
+      }
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+    requestAnimationFrame(() => lightboxCloseRef.current?.focus());
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+      previousFocus?.focus();
+    };
+  }, [expandedGrid]);
+
+  useEffect(() => () => {
+    const pending = pendingRemovalRef.current;
+    if (!pending) return;
+    window.clearTimeout(pending.timeoutId);
+    void persistRemoval(pending).catch(error => {
+      sessionStorage.setItem('fandom_auth_notice', messageFrom(error, 'The item could not be removed.'));
+    });
+  }, []);
+
+  async function finalizeRemoval(token: string) {
+    const pending = pendingRemovalRef.current;
+    if (!pending || pending.token !== token) return;
+    pendingRemovalRef.current = null;
+    setPendingRemoval(null);
     try {
-      await dbRemoveCard(imageUrl);
-      setCards(current => current.filter(card => card.imageUrl !== imageUrl));
-      schedulePublicCollectionSync();
+      await persistRemoval(pending);
     } catch (error) {
-      setAccountNotice(messageFrom(error, 'The saved result could not be removed.'));
+      if (pending.kind === 'grid') {
+        setGrids(current => sortGrids([...current, pending.record]));
+      } else {
+        setCards(current => sortCards([...current, pending.record]));
+      }
+      setAccountNotice(messageFrom(error, 'The item could not be removed.'));
     }
   }
 
-  async function handleRemoveGrid(id: string) {
-    try {
-      await dbRemoveGrid(id);
-      setGrids(current => current.filter(grid => grid.id !== id));
-      schedulePublicCollectionSync();
-    } catch (error) {
-      setAccountNotice(messageFrom(error, 'The saved grid could not be removed.'));
+  function queueRemoval(removal: Omit<PendingRemoval, 'token' | 'timeoutId'>) {
+    if (pendingRemovalRef.current) return;
+    const token = crypto.randomUUID();
+    const timeoutId = window.setTimeout(() => void finalizeRemoval(token), UNDO_WINDOW_MS);
+    const pending = { ...removal, token, timeoutId } as PendingRemoval;
+    pendingRemovalRef.current = pending;
+    setPendingRemoval(pending);
+    if (pending.kind === 'grid') {
+      setGrids(current => current.filter(grid => grid.id !== pending.record.id));
+    } else {
+      setCards(current => current.filter(card => card.imageUrl !== pending.record.imageUrl));
+    }
+  }
+
+  function undoRemoval() {
+    const pending = pendingRemovalRef.current;
+    if (!pending) return;
+    window.clearTimeout(pending.timeoutId);
+    pendingRemovalRef.current = null;
+    setPendingRemoval(null);
+    if (pending.kind === 'grid') {
+      setGrids(current => sortGrids([...current, pending.record]));
+    } else {
+      setCards(current => sortCards([...current, pending.record]));
     }
   }
 
@@ -237,11 +301,15 @@ export const Collection: React.FC<Props> = ({
           <section className={styles.gridArtifacts} aria-label="Saved grids">
             {displayedGrids.map(grid => (
               <article className={styles.gridArtifact} key={grid.id}>
-                <div className={styles.gridPreview} aria-label={`${grid.actor} ${grid.vibe} grid preview`}>
-                  {grid.images.slice(0, 9).map(image => (
-                    <img key={image.resultId} src={image.imageUrl} alt="" />
-                  ))}
-                </div>
+                <button
+                  type="button"
+                  className={styles.gridPreviewButton}
+                  aria-label={`View ${grid.actor} ${grid.vibe} grid larger`}
+                  onClick={() => setExpandedGrid(grid)}
+                >
+                  <GridVisual grid={grid} />
+                  <span>View larger</span>
+                </button>
                 <div className={styles.gridStory}>
                   <div className={styles.gridTitle}>
                     <div>
@@ -293,7 +361,12 @@ export const Collection: React.FC<Props> = ({
                       {busyKey === `create:${grid.id}` ? 'Starting…' : 'Start packet'}
                     </button>
                   )}
-                  <button type="button" className={styles.remove} onClick={() => void handleRemoveGrid(grid.id)}>
+                  <button
+                    type="button"
+                    className={styles.remove}
+                    disabled={Boolean(pendingRemoval)}
+                    onClick={() => queueRemoval({ kind: 'grid', record: grid })}
+                  >
                     Remove
                   </button>
                 </div>
@@ -361,14 +434,102 @@ export const Collection: React.FC<Props> = ({
                 <span>{card.vibe}</span>
                 <small>{card.capturedDate}</small>
               </div>
-              <button type="button" onClick={() => void handleRemoveCard(card.imageUrl)}>Remove</button>
+              <button
+                type="button"
+                disabled={Boolean(pendingRemoval)}
+                onClick={() => queueRemoval({ kind: 'card', record: card })}
+              >
+                Remove
+              </button>
             </article>
           ))}
         </section>
       )}
+      {pendingRemoval && (
+        <div className={styles.undoToast} role="status" aria-live="polite">
+          <span>{pendingRemoval.kind === 'grid' ? 'Grid removed.' : 'Saved result removed.'}</span>
+          <button type="button" onClick={undoRemoval}>Undo</button>
+        </div>
+      )}
+      {expandedGrid && (
+        <div
+          className={styles.lightboxBackdrop}
+          onMouseDown={event => {
+            if (event.currentTarget === event.target) setExpandedGrid(null);
+          }}
+        >
+          <section
+            className={styles.gridLightbox}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="collection-grid-lightbox-title"
+          >
+            <header>
+              <div>
+                <h3 id="collection-grid-lightbox-title">
+                  {expandedGrid.vibeEmoji} {expandedGrid.actor}
+                </h3>
+                <p>{expandedGrid.vibe} · {expandedGrid.vibeEn}</p>
+              </div>
+              <button
+                ref={lightboxCloseRef}
+                type="button"
+                aria-label="Close enlarged grid"
+                onClick={() => setExpandedGrid(null)}
+              >
+                ×
+              </button>
+            </header>
+            <GridVisual grid={expandedGrid} expanded />
+            <footer>
+              {expandedGrid.legacyCompositeUrl
+                ? 'Legacy saved share card'
+                : `${expandedGrid.images.length} source results · ${expandedGrid.rendererVersion}`}
+            </footer>
+          </section>
+        </div>
+      )}
     </main>
   );
 };
+
+function GridVisual({ grid, expanded = false }: { grid: GridRecord; expanded?: boolean }) {
+  const isLegacy = Boolean(grid.legacyCompositeUrl);
+  const compositionClass = grid.images.length === 4
+    ? styles.gridTwoByTwo
+    : grid.images.length === 6
+      ? styles.gridTwoByThree
+      : styles.gridThreeByThree;
+  return (
+    <span
+      className={[
+        styles.gridPreview,
+        compositionClass,
+        isLegacy ? styles.legacyPreview : '',
+        expanded ? styles.expandedPreview : '',
+      ].filter(Boolean).join(' ')}
+      aria-hidden="true"
+    >
+      {grid.images.slice(0, 9).map(image => (
+        <img key={image.resultId} src={image.imageUrl} alt="" />
+      ))}
+    </span>
+  );
+}
+
+async function persistRemoval(pending: PendingRemoval): Promise<void> {
+  if (pending.kind === 'grid') await dbRemoveGrid(pending.record.id);
+  else await dbRemoveCard(pending.record.imageUrl);
+  schedulePublicCollectionSync();
+}
+
+function sortGrids(grids: GridRecord[]): GridRecord[] {
+  return grids.sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+}
+
+function sortCards(cards: CardRecord[]): CardRecord[] {
+  return cards.sort((a, b) => (b.savedAt ?? '').localeCompare(a.savedAt ?? ''));
+}
 
 function EmptyState({ symbol, title, body }: { symbol: string; title: string; body: string }) {
   return (
