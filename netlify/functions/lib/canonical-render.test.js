@@ -87,6 +87,43 @@ test("renders the incident-shaped grid deterministically from canonical persiste
   assert.equal(targets.includes(incidentTitle), false);
 });
 
+test("renders the exact saved grid selected by a multi-grid packet output", async () => {
+  const current = packet();
+  current.grids = [{
+    id: "grid-2",
+    actor: "Second Star",
+    actorAccentColor: "#4f7ea8",
+    vibe: "Second Vibe",
+    vibeEn: "Second Vibe",
+    vibeEmoji: "🌙",
+    vibeSubtitle: "A complete saved aesthetic.",
+    searchSpell: "second star editorial search",
+    capturedDate: "2026-08-05",
+    edition: { legendary: true },
+    images: [{
+      resultId: "grid-result-2",
+      title: "Second grid result",
+      imageUrl: "/.netlify/functions/image-proxy?url=https%3A%2F%2Fimages.example%2Fselected-grid.jpg",
+    }],
+  }];
+  const source = await sharp({
+    create: { width: 400, height: 500, channels: 3, background: "#4f7ea8" },
+  }).jpeg().toBuffer();
+  const targets = [];
+  await renderCanonicalOutput(
+    current,
+    { id: "grid-output-2", kind: "grid", sourceId: "grid-2" },
+    {
+      requestUrl: "https://fandom.justlikekatie.com/api/create-handoff",
+      fetchSourceImpl: async target => {
+        targets.push(target);
+        return source;
+      },
+    },
+  );
+  assert.deepEqual(targets, ["https://images.example/selected-grid.jpg"]);
+});
+
 test("rejects direct, cross-origin, private, and mismatched proxy source descriptors", () => {
   const requestUrl = "https://fandom.justlikekatie.com/api/create-handoff";
   assert.throws(

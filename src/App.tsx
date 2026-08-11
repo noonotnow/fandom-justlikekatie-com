@@ -24,6 +24,7 @@ import {
   type IdeaPacket,
   IdeaPacketError,
   mediaFromCollectionCard,
+  packetGridFromCollectionGrid,
   packetFromCollectionGrid,
 } from './utils/ideaPackets';
 import type { CardRecord, GridRecord } from './utils/collectionDB';
@@ -283,7 +284,23 @@ function App() {
       )}
         </>
             ) : view === 'collection' ? (
-        <Collection />
+        <Collection
+          isAdmin={isAdmin}
+          packets={packets}
+          onCreateFromGrid={async (grid: GridRecord) => {
+            const packet = await createIdeaPacket(packetFromCollectionGrid(grid));
+            replacePacket(packet);
+            return packet;
+          }}
+          onAddGridToPacket={async (packet: IdeaPacket, grid: GridRecord) => {
+            const updated = await mutateIdeaPacket(packet, {
+              type: 'add_grid',
+              grid: packetGridFromCollectionGrid(grid),
+            });
+            replacePacket(updated);
+            return updated;
+          }}
+        />
       ) : (
         <FandomAdmin
           packets={packets}
@@ -299,6 +316,14 @@ function App() {
           }}
           onAddSavedCard={async (packet: IdeaPacket, card: CardRecord) => {
             const updated = await mutateIdeaPacket(packet, { type: 'add_media', media: mediaFromCollectionCard(card) });
+            replacePacket(updated);
+            return updated;
+          }}
+          onAddSavedGrid={async (packet: IdeaPacket, grid: GridRecord) => {
+            const updated = await mutateIdeaPacket(packet, {
+              type: 'add_grid',
+              grid: packetGridFromCollectionGrid(grid),
+            });
             replacePacket(updated);
             return updated;
           }}

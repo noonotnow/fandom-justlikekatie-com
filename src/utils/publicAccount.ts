@@ -54,6 +54,11 @@ export async function hasMergeDecision(accountId: string): Promise<boolean> {
   return Object.hasOwn(state.mergeDecisions, accountId);
 }
 
+export async function shouldSyncCollection(accountId: string): Promise<boolean> {
+  const state = await dbGetSyncState();
+  return state.mergeDecisions[accountId] === true;
+}
+
 export async function setDeviceMerge(accountId: string, merge: boolean): Promise<void> {
   await dbSetMergeDecision(accountId, merge);
 }
@@ -86,7 +91,7 @@ export function schedulePublicCollectionSync(): void {
   notifyCollection('local-change');
   void getPublicSession()
     .then(async user => {
-      if (!user || !await hasMergeDecision(user.accountId)) return;
+      if (!user || !await shouldSyncCollection(user.accountId)) return;
       await syncPublicCollection(user);
       retryOnReconnect = false;
     })

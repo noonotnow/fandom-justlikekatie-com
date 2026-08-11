@@ -38,6 +38,11 @@ export interface PacketOutput {
   addedAt: string;
 }
 
+export type PacketGrid = Omit<
+  GridRecord,
+  'localId' | 'serverId' | 'ownerAccountId' | 'savedAt'
+> & { savedAt: string };
+
 export interface CreateReceipt {
   deliverableId: string;
   postId: string;
@@ -78,6 +83,7 @@ export interface IdeaPacket {
     batchKeys: string[];
   };
   anchor: { imageUrls: string[]; label: string };
+  grids: PacketGrid[];
   sourceCards: PacketSourceCard[];
   media: PacketMedia[];
   outputs: PacketOutput[];
@@ -99,7 +105,8 @@ export class IdeaPacketError extends Error {
 
 export function packetFromGrid(data: StarOfDayData, images: GridItemData[]): IdeaPacket {
   const createdAt = new Date().toISOString();
-  const gridId = `vibe-atlas-${data.date}-${data.actorId}`;
+  const grid = packetGridFromStar(data, images, createdAt);
+  const gridId = grid.id;
   return {
     id: crypto.randomUUID(),
     version: createdAt,
@@ -119,13 +126,58 @@ export function packetFromGrid(data: StarOfDayData, images: GridItemData[]): Ide
       imageUrls: images.map(image => image.thumbnail),
       label: `${data.actorName} · ${data.vibeLabel}`,
     },
+    grids: [grid],
     sourceCards: images.map((image, order) => sourceCardFromResult(image, order, createdAt)),
     media: [],
-    outputs: [gridOutput(gridId, createdAt)],
+    outputs: [gridOutput(grid, createdAt)],
     notes: '',
     workingAngle: '',
     captionSeeds: data.vibeSubtitle.trim(),
     outputAngles: '',
+  };
+}
+
+function packetGridFromStar(
+  data: StarOfDayData,
+  images: GridItemData[],
+  savedAt: string,
+): PacketGrid {
+  const chosen = data.rankedBatches[0];
+  return {
+    kind: 'grid',
+    schemaVersion: 1,
+    rendererVersion: 'vibe-atlas-v1',
+    id: `vibe-atlas-${data.date}-${data.actorId}`,
+    actorId: data.actorId,
+    actor: data.actorName,
+    actorEn: data.actorShortNameEn,
+    actorAccentColor: data.actorAccentColor,
+    vibe: data.vibeLabel,
+    vibeEn: data.vibeLabelEn,
+    vibeEmoji: data.vibeEmoji,
+    vibeSubtitle: data.vibeSubtitle,
+    vibeSubtitleEn: data.vibeSubtitleEn,
+    searchSpell: data.generationQuery?.trim() || chosen?.query || '',
+    ...(data.generationPrompt ? { generationPrompt: data.generationPrompt } : {}),
+    ...(data.ctaSeed ? { ctaSeed: data.ctaSeed } : {}),
+    edition: {
+      provider: chosen?.provider ?? null,
+      misprint: chosen?.misprint === true,
+      legendary: chosen?.legendary === true,
+    },
+    capturedDate: data.date,
+    generatedAt: data.generatedAt || savedAt,
+    savedAt,
+    sourceRoute: `${window.location.pathname}${window.location.search}`,
+    images: images.map((image, gridPosition) => ({
+      resultId: image.id,
+      imageUrl: image.thumbnail,
+      sourceUrl: image.url,
+      title: image.title,
+      ...(image.publisher ? { publisher: image.publisher } : {}),
+      ...(image.batchKey ? { batchKey: image.batchKey } : {}),
+      gridPosition,
+    })),
   };
 }
 
@@ -145,6 +197,7 @@ export function mediaFromResult(image: GridItemData): PacketMedia {
 
 export function packetFromCollectionGrid(grid: GridRecord): IdeaPacket {
   const createdAt = new Date().toISOString();
+  const packetGrid = packetGridFromCollectionGrid(grid);
   return {
     id: crypto.randomUUID(),
     version: createdAt,
@@ -164,6 +217,7 @@ export function packetFromCollectionGrid(grid: GridRecord): IdeaPacket {
       imageUrls: grid.images.map(image => image.imageUrl),
       label: `${grid.actor} · ${grid.vibe}`,
     },
+    grids: [packetGrid],
     sourceCards: grid.images.map((image, order) => ({
       id: stableMediaId(image.resultId),
       order,
@@ -181,12 +235,22 @@ export function packetFromCollectionGrid(grid: GridRecord): IdeaPacket {
       }),
     })),
     media: [],
-    outputs: [gridOutput(grid.id, createdAt)],
+    outputs: [gridOutput(packetGrid, createdAt)],
     notes: grid.legacyCompositeUrl ? 'Recovered from a legacy exported-grid record.' : '',
     workingAngle: '',
-    captionSeeds: '',
+    captionSeeds: grid.vibeSubtitle,
     outputAngles: '',
   };
+}
+
+export function packetGridFromCollectionGrid(grid: GridRecord): PacketGrid {
+  const {
+    localId: _localId,
+    serverId: _serverId,
+    ownerAccountId: _ownerAccountId,
+    ...packetGrid
+  } = grid;
+  return packetGrid;
 }
 
 export function mediaFromCollectionCard(card: CardRecord): PacketMedia {
@@ -275,12 +339,12 @@ function sourceCardFromResult(image: GridItemData, order: number, capturedAt: st
   };
 }
 
-function gridOutput(gridId: string, addedAt: string): PacketOutput {
+export function gridOutput(grid: PacketGrid, addedAt = new Date().toISOString()): PacketOutput {
   return {
-    id: `grid-${stableMediaId(gridId)}`,
+    id: `grid-${stableMediaId(grid.id)}`,
     kind: 'grid',
-    sourceId: gridId,
-    label: 'Rendered grid PNG',
+    sourceId: grid.id,
+    label: `${grid.vibeEmoji} ${grid.actor} · ${grid.vibe} grid`,
     included: true,
     addedAt,
   };

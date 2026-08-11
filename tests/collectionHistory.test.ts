@@ -4,6 +4,7 @@ import {
   cardStableResultId,
   collectionGridFromStar,
   legacyGridFromPlan,
+  starDataFromCollectionGrid,
 } from '../src/utils/collectionHistoryModel.ts';
 import {
   mediaFromCollectionCard,
@@ -40,9 +41,15 @@ test('captures exported grids as reusable collection snapshots', () => {
   assert.equal(grid.id, 'vibe-atlas-2026-08-04-actor-1');
   assert.equal(grid.images[0].resultId, 'https://images.example/result.jpg');
   assert.equal(grid.images[0].sourceUrl, 'https://publisher.example/story');
+  assert.equal(grid.searchSpell, 'editorial query');
+  assert.equal(grid.actorAccentColor, '#fff');
+  assert.equal(grid.vibeSubtitle, 'Seed');
+  assert.equal(grid.rendererVersion, 'vibe-atlas-v1');
+  assert.equal(starDataFromCollectionGrid(grid).rankedBatches[0].query, 'editorial query');
   const packet = packetFromCollectionGrid(grid);
   assert.equal(packet.provenance.gridId, grid.id);
   assert.deepEqual(packet.anchor.imageUrls, grid.images.map(image => image.imageUrl));
+  assert.equal(packet.grids[0].searchSpell, 'editorial query');
 });
 
 test('adapts legacy grid exports from the existing plan store', () => {
