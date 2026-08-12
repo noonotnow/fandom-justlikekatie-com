@@ -10,6 +10,7 @@ import {
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
 import { saveShareCard } from '../../utils/exportCanvas';
 import type { IdeaPacket } from '../../utils/ideaPackets';
+import { ArtifactZoomDialog } from '../ArtifactZoomDialog/ArtifactZoomDialog';
 import {
   getPublicSession,
   hasMergeDecision,
@@ -36,6 +37,10 @@ type PendingRemoval =
   | { token: string; kind: 'grid'; record: GridRecord; timeoutId: number }
   | { token: string; kind: 'card'; record: CardRecord; timeoutId: number };
 
+type ExpandedArtifact =
+  | { kind: 'grid'; record: GridRecord }
+  | { kind: 'card'; record: CardRecord };
+
 export const Collection: React.FC<Props> = ({
   isAdmin = false,
   packets = [],
@@ -58,10 +63,9 @@ export const Collection: React.FC<Props> = ({
   const [busyKey, setBusyKey] = useState('');
   const [packetSelections, setPacketSelections] = useState<Record<string, string>>({});
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
-  const [expandedGrid, setExpandedGrid] = useState<GridRecord | null>(null);
+  const [expandedArtifact, setExpandedArtifact] = useState<ExpandedArtifact | null>(null);
   const accountIdRef = useRef<string | undefined>(undefined);
   const pendingRemovalRef = useRef<PendingRemoval | null>(null);
-  const lightboxCloseRef = useRef<HTMLButtonElement>(null);
   const collectingPackets = packets.filter(packet => packet.state === 'collecting');
 
   async function loadCollection(accountId = accountIdRef.current) {
@@ -104,27 +108,6 @@ export const Collection: React.FC<Props> = ({
       window.removeEventListener('storage', handleStorage);
     };
   }, []);
-
-  useEffect(() => {
-    if (!expandedGrid) return;
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const previousOverflow = document.body.style.overflow;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setExpandedGrid(null);
-      if (event.key === 'Tab') {
-        event.preventDefault();
-        lightboxCloseRef.current?.focus();
-      }
-    };
-    document.body.style.overflow = 'hidden';
-    window.addEventListener('keydown', handleKeyDown);
-    requestAnimationFrame(() => lightboxCloseRef.current?.focus());
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', handleKeyDown);
-      previousFocus?.focus();
-    };
-  }, [expandedGrid]);
 
   useEffect(() => () => {
     const pending = pendingRemovalRef.current;
@@ -305,7 +288,7 @@ export const Collection: React.FC<Props> = ({
                   type="button"
                   className={styles.gridPreviewButton}
                   aria-label={`View ${grid.actor} ${grid.vibe} grid larger`}
-                  onClick={() => setExpandedGrid(grid)}
+                  onClick={() => setExpandedArtifact({ kind: 'grid', record: grid })}
                 >
                   <GridVisual grid={grid} />
                   <span>View larger</span>
@@ -428,7 +411,15 @@ export const Collection: React.FC<Props> = ({
         <section className={styles.savedResults} aria-label="Saved results">
           {displayedCards.map(card => (
             <article key={card.imageUrl}>
-              <img src={card.thumbnailUrl} alt={`${card.actor} · ${card.vibe}`} />
+              <button
+                type="button"
+                className={styles.resultPreviewButton}
+                aria-label={`View ${card.actor} ${card.vibe} result larger`}
+                onClick={() => setExpandedArtifact({ kind: 'card', record: card })}
+              >
+                <img src={card.thumbnailUrl} alt="" />
+                <span>View larger</span>
+              </button>
               <div>
                 <strong>{card.vibeEmoji} {card.actor}</strong>
                 <span>{card.vibe}</span>
@@ -451,49 +442,36 @@ export const Collection: React.FC<Props> = ({
           <button type="button" onClick={undoRemoval}>Undo</button>
         </div>
       )}
-      {expandedGrid && (
-        <div
-          className={styles.lightboxBackdrop}
-          onMouseDown={event => {
-            if (event.currentTarget === event.target) setExpandedGrid(null);
-          }}
-        >
-          <section
-            className={styles.gridLightbox}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="collection-grid-lightbox-title"
-          >
-            <header>
-              <div>
-                <h3 id="collection-grid-lightbox-title">
-                  {expandedGrid.vibeEmoji} {expandedGrid.actor}
-                </h3>
-                <p>{expandedGrid.vibe} · {expandedGrid.vibeEn}</p>
-              </div>
-              <button
-                ref={lightboxCloseRef}
-                type="button"
-                aria-label="Close enlarged grid"
-                onClick={() => setExpandedGrid(null)}
-              >
-                ×
-              </button>
-            </header>
-            <GridVisual grid={expandedGrid} expanded />
-            <footer>
-              {expandedGrid.legacyCompositeUrl
-                ? 'Legacy saved share card'
-                : `${expandedGrid.images.length} source results · ${expandedGrid.rendererVersion}`}
-            </footer>
-          </section>
-        </div>
+      {expandedArtifact?.kind === 'grid' && (
+        <ArtifactZoomDialog
+          title={`${expandedArtifact.record.vibeEmoji} ${expandedArtifact.record.actor}`}
+          subtitle={`${expandedArtifact.record.vibe} · ${expandedArtifact.record.vibeEn}`}
+          images={expandedArtifact.record.images.map(image => ({ src: image.imageUrl, alt: image.title }))}
+          singleImage={Boolean(expandedArtifact.record.legacyCompositeUrl)}
+          footer={expandedArtifact.record.legacyCompositeUrl
+            ? 'Legacy saved share card'
+            : `${expandedArtifact.record.images.length} source results · ${expandedArtifact.record.rendererVersion}`}
+          onClose={() => setExpandedArtifact(null)}
+        />
+      )}
+      {expandedArtifact?.kind === 'card' && (
+        <ArtifactZoomDialog
+          title={`${expandedArtifact.record.vibeEmoji} ${expandedArtifact.record.actor}`}
+          subtitle={`${expandedArtifact.record.vibe} · ${expandedArtifact.record.vibeEn}`}
+          images={[{
+            src: expandedArtifact.record.imageUrl || expandedArtifact.record.thumbnailUrl,
+            alt: `${expandedArtifact.record.actor} · ${expandedArtifact.record.vibe}`,
+          }]}
+          singleImage
+          footer={formatDate(expandedArtifact.record.capturedDate)}
+          onClose={() => setExpandedArtifact(null)}
+        />
       )}
     </main>
   );
 };
 
-function GridVisual({ grid, expanded = false }: { grid: GridRecord; expanded?: boolean }) {
+function GridVisual({ grid }: { grid: GridRecord }) {
   const isLegacy = Boolean(grid.legacyCompositeUrl);
   const compositionClass = grid.images.length === 4
     ? styles.gridTwoByTwo
@@ -506,7 +484,6 @@ function GridVisual({ grid, expanded = false }: { grid: GridRecord; expanded?: b
         styles.gridPreview,
         compositionClass,
         isLegacy ? styles.legacyPreview : '',
-        expanded ? styles.expandedPreview : '',
       ].filter(Boolean).join(' ')}
       aria-hidden="true"
     >

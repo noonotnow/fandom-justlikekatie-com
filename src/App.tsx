@@ -9,6 +9,7 @@ import { ExportButton } from './components/ExportButton/ExportButton';
 import { Collection } from './components/Collection/Collection';
 import { FandomAdmin } from './components/FandomAdmin/FandomAdmin';
 import { WholeCardTierControls, WholeCardTierBadge } from './components/WholeCardTierControls/WholeCardTierControls';
+import { ArtifactZoomDialog } from './components/ArtifactZoomDialog/ArtifactZoomDialog';
 import { migrateBookmarks } from './utils/migrateBookmarks';
 import { migrateLegacyGridHistory } from './utils/collectionHistory';
 import { applyWholeCardTierOverride, boardIdentity } from './utils/wholeCardTier';
@@ -37,6 +38,7 @@ const GRID_COLS = 3;
 function App() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [dailyGridZoomOpen, setDailyGridZoomOpen] = useState(false);
   const [view, setView] = useState<'daily' | 'collection' | 'plan'>('daily');
   const isAdmin = new URLSearchParams(window.location.search).get('admin') === 'true'
     || sessionStorage.getItem('fandom_admin') === 'true';
@@ -248,14 +250,31 @@ function App() {
         )}
       </header>
 
-      <div className="grid">
-        {loading
-          ? Array.from({ length: 9 }).map((_, i) => <GridItemSkeleton key={i} />)
-          : error
-            ? <div className="col-span-3 text-center py-8 text-gray-500">{error}</div>
-            : renderGridItems()
-        }
+      <div className="daily-grid">
+        {!loading && !error && gridImages.length > 0 && (
+          <button type="button" className="daily-grid__zoom" onClick={() => setDailyGridZoomOpen(true)}>
+            ⛶ View whole grid
+          </button>
+        )}
+        <div className="grid">
+          {loading
+            ? Array.from({ length: 9 }).map((_, i) => <GridItemSkeleton key={i} />)
+            : error
+              ? <div className="col-span-3 text-center py-8 text-gray-500">{error}</div>
+              : renderGridItems()
+          }
+        </div>
       </div>
+
+      {dailyGridZoomOpen && meta && (
+        <ArtifactZoomDialog
+          title={`${meta.vibeEmoji} ${meta.actorName}`}
+          subtitle={`${meta.vibeLabel} · ${meta.vibeLabelEn}`}
+          images={gridImages.map(image => ({ src: image.thumbnail, alt: image.title }))}
+          footer={`${gridImages.length} source ${gridImages.length === 1 ? 'result' : 'results'} · ${meta.date}`}
+          onClose={() => setDailyGridZoomOpen(false)}
+        />
+      )}
 
       {lightboxIndex !== null && (
         <Lightbox
