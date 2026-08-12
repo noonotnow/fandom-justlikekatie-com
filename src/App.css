@@ -27,6 +27,18 @@ h1 {
   margin-bottom: 2rem;
 }
 
+.daily-grid__zoom {
+  display: block;
+  margin: 0 0 12px auto;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, #c9a96e 40%, transparent);
+  background: transparent;
+  color: #9b762e;
+  font-size: .82rem;
+}
+
+.dark .daily-grid__zoom { color: #e0c171; }
+
 .daily-actions,
 .daily-actions__primary {
   display: flex;
