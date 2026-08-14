@@ -1,0 +1,126 @@
+/* Internal diagnostic surface — deliberately plain. It reuses the Admin
+   charcoal/gold tokens so it does not read as a separate product, but it is a
+   status readout, not a dashboard. */
+
+.panel {
+  --metrics-border: color-mix(in srgb, currentColor 14%, transparent);
+  --metrics-panel: color-mix(in srgb, currentColor 4%, transparent);
+  --metrics-muted: #6b7280;
+  padding: 20px 0 40px;
+}
+
+.headline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.headline h3 { margin: 0; font-size: 18px; }
+.headline p {
+  margin: 5px 0 0;
+  max-width: 62ch;
+  color: var(--metrics-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.headline button {
+  flex: none;
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid var(--metrics-border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+}
+.headline button:disabled { opacity: 0.6; }
+.headline button:focus-visible { outline: 2px solid #c9a96e; outline-offset: 2px; }
+
+.statusOk, .statusWarn, .error {
+  padding: 11px 14px;
+  border: 1px solid var(--metrics-border);
+  border-radius: 10px;
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.statusOk { border-color: color-mix(in srgb, #4ade80 45%, transparent); background: color-mix(in srgb, #4ade80 9%, transparent); }
+.statusWarn { border-color: color-mix(in srgb, #f59e0b 50%, transparent); background: color-mix(in srgb, #f59e0b 10%, transparent); }
+.error { border-color: color-mix(in srgb, #ef4444 50%, transparent); background: color-mix(in srgb, #ef4444 9%, transparent); }
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.table caption {
+  caption-side: bottom;
+  padding-top: 9px;
+  color: var(--metrics-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+}
+.table th, .table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--metrics-border);
+  text-align: right;
+}
+.table thead th:first-child, .table tbody th { text-align: left; font-weight: 500; }
+.table thead th { color: var(--metrics-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.table tbody th { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.silent { color: var(--metrics-muted); }
+
+.note {
+  margin: 12px 0 0;
+  max-width: 74ch;
+  color: var(--metrics-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.note code, .headline code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--metrics-panel);
+  font-size: 0.95em;
+}
+
+.rankings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 18px;
+  margin-top: 26px;
+}
+.rankings section {
+  padding: 14px;
+  border: 1px solid var(--metrics-border);
+  border-radius: 10px;
+  background: var(--metrics-panel);
+}
+.rankings h4 { margin: 0 0 10px; font-size: 13px; text-transform: capitalize; }
+.rankings ol { margin: 0; padding: 0; list-style: none; }
+.rankings li {
+  display: grid;
+  grid-template-columns: 2.6rem minmax(0, 1fr);
+  gap: 9px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-top: 1px solid var(--metrics-border);
+  font-size: 13px;
+}
+.rankings li:first-child { border-top: 0; }
+.count { font-variant-numeric: tabular-nums; font-weight: 600; color: #c9a96e; }
+.cardLabel { min-width: 0; }
+.cardLabel small {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--metrics-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}

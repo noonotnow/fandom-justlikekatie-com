@@ -7,6 +7,11 @@
   publish = "dist"
 
 [[redirects]]
+  from = "/api/card-metrics"
+  to = "/.netlify/functions/card-metrics"
+  status = 200
+
+[[redirects]]
   from = "/api/plan-handoff"
   to = "/.netlify/functions/plan-handoff"
   status = 200

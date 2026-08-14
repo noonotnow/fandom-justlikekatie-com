@@ -1,5 +1,7 @@
 /** IndexedDB persistence for the content plan queue */
 
+import { recordCardEvent } from './cardMetrics.ts';
+
 const DB_NAME = 'vibe-atlas-plan';
 const DB_VERSION = 1;
 const STORE_NAME = 'plan';
@@ -66,19 +68,15 @@ export async function dbAddToPlan(
     const tx = db.transaction(STORE_NAME, 'readwrite');
     tx.objectStore(STORE_NAME).put(record);
     tx.oncomplete = () => {
-      fetch('/.netlify/functions/log-engagement', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          event: 'plan_add',
-          actor: card.actor,
-          vibe: card.vibe,
-          imageUrl: card.imageUrl,
-          batchKey: card.gridContext?.batchKey,
-          capturedDate: card.capturedDate,
-          timestamp: new Date().toISOString(),
-        }),
-      }).catch(() => {});
+      recordCardEvent({
+        event: 'plan_add',
+        cardId: card.imageUrl,
+        subjectType: 'image',
+        actor: card.actor,
+        vibe: card.vibe,
+        batchKey: card.gridContext?.batchKey,
+        capturedDate: card.capturedDate,
+      });
       resolve();
     };
     tx.onerror = () => reject(tx.error);

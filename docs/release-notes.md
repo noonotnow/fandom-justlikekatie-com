@@ -1,5 +1,69 @@
 # Release Notes
 
+## card-metrics-v1
+
+Shipped:
+- Added `card_events` in Netlify Database (Drizzle schema at `db/schema.ts`,
+  migration `20260814164206_create_card_events`) as an append-only log of card
+  engagement: `export`, `legendary`, `misprint`, `save`, `share`, `click`,
+  `collection_save`, `plan_add`.
+- Added `/api/card-metrics` with a write path and three read views: `trends`
+  (zero-filled daily series), `top` (most-acted-on cards in a window), and
+  `card` (one card's lifetime per-event totals plus its recent series).
+- Legendary and Misprint marks are now recorded. Both tier controls were
+  previously local React state with no persistence, so the marks were lost on
+  reload and counted nowhere. Only setting a tier is recorded — the controls are
+  toggles, and counting clears too would make deliberation look like popularity.
+- Card exports are now keyed on the image's stable id instead of an
+  `actorName-vibeLabel-date` composite. The old key minted a new identity every
+  day, so per-card export counts could never accumulate beyond a single board.
+- Fixed `collection_save` and `plan_add`, which `collectionDB.ts` and
+  `planDB.ts` had been sending to an endpoint that rejected both with a 400
+  swallowed by `.catch(() => {})`. Those events had never been recorded.
+- Replaced `log-engagement.js` and `batch-metrics.js`. The latter had no callers
+  anywhere in the codebase; the former appended to an unbounded per-key array
+  and lost concurrent events to last-write-wins.
+- Added a fourth read view, `health`, and a **Metrics health** tab in Fandom
+  Admin that shows whether events are arriving: per-event counts across
+  24h/7d/all-time, last-seen times, and a top-cards list. Every event type is
+  listed even at zero, because a wired-up-but-silent event is otherwise
+  indistinguishable from an untriggered one. Loading the tab exercises two read
+  views, so it doubles as an in-app check.
+- Client tracking failures are now visible in dev. The calls stay
+  fire-and-forget, but the client checks `response.ok` — `fetch` resolves rather
+  than rejecting on a 4xx, so the old `.catch()` could not see a rejected
+  payload, which is precisely why the failure went unnoticed. Production UX is
+  unchanged: tracking never interrupts the user.
+- Added `scripts/smoke-card-metrics.mjs` (`npm run smoke:metrics -- <deploy-url>`),
+  a post-deploy check that writes one of each event, reads every view back,
+  confirms the rows landed, confirms bad payloads are rejected, and confirms
+  boards and images stay in separate leaderboards.
+- Migrations no longer emit events. `dbSaveCard` takes `{ track: false }`, used
+  by `migrateBookmarks.ts` and by the Lightbox's legacy-promotion branch. Both
+  move cards that were saved at some earlier unknown time; without the opt-out,
+  `migrateBookmarks` — which runs on every mount — would have dated every user's
+  legacy bookmarks to the deploy and attributed them to actor `Unknown`.
+
+Operational notes:
+- **Metrics before the `card_events` migration are not reliable.** The analytics
+  baseline starts at the deployment date of `/api/card-metrics`. Historical blob
+  data under the old `engagement` and `batch-metrics` stores is not migrated: the
+  original keys embedded display names and dates and never recorded stable image
+  ids, so the old rows cannot be mapped onto the new identities. Counts start
+  from zero and the blobs are left in place.
+- The database queries were validated by compiling them to SQL, not by running
+  them — this branch has no database branch provisioned until a deploy is
+  published, so the first real exercise of the read views happens on deploy.
+  Run the smoke script then.
+- `save`, `share`, and `click` are accepted by the endpoint but sent by no UI, so
+  they will stay at zero. They are in the allowlist because they were in the old
+  one, not because anything emits them.
+- Editorial rate metrics need a denominator that does not exist yet. A
+  misprint-per-view rate requires an impressions signal; nothing currently
+  records that an image was seen. What is computable today is
+  `misprint / (misprint + legendary)` per card and misprint counts ranked
+  against export counts.
+
 ## Durable Saved Collection foundation
 
 - Added Resend-backed public magic links, hashed single-use tokens, revocable

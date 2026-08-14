@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Plan } from '../Plan/Plan';
+import { MetricsHealth } from '../MetricsHealth/MetricsHealth';
 import {
   downloadPacketHandoff,
   includedPacketOutputs,
@@ -27,7 +28,7 @@ interface Props {
 }
 
 export const FandomAdmin: React.FC<Props> = props => {
-  const [view, setView] = useState<'packets' | 'library' | 'plan'>('packets');
+  const [view, setView] = useState<'packets' | 'library' | 'plan' | 'metrics'>('packets');
 
   return (
     <section className={styles.admin}>
@@ -51,10 +52,13 @@ export const FandomAdmin: React.FC<Props> = props => {
           <button type="button" role="tab" aria-selected={view === 'plan'} onClick={() => setView('plan')}>
             PLAN schedule
           </button>
+          <button type="button" role="tab" aria-selected={view === 'metrics'} onClick={() => setView('metrics')}>
+            Metrics health
+          </button>
         </div>
       </header>
 
-      {view === 'plan' ? <Plan /> : props.unauthorized ? (
+      {view === 'metrics' ? <MetricsHealth /> : view === 'plan' ? <Plan /> : props.unauthorized ? (
         <AdminAccess onUnlock={async token => {
           setPlanOperatorToken(token);
           await props.onRefresh();

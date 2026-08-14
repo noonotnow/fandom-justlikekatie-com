@@ -285,9 +285,79 @@ browser record cannot be reconstructed; all newly exported grids are recorded.
 
 `netlify/functions/` also includes image-search/ranking helpers
 (`preview-search.js`, `baidu-image-search.js`, `actor-packs.js`,
-`star-of-day.js`, `rebuild-cache.js`, `log-engagement.js`,
-`batch-metrics.js`, `image-proxy.js`). See `docs/release-notes.md` for their
-change history and `QA_ISSUES.md` for known/tracked issues.
+`star-of-day.js`, `rebuild-cache.js`, `image-proxy.js`). See
+`docs/release-notes.md` for their change history and `QA_ISSUES.md` for
+known/tracked issues.
+
+## Card engagement metrics
+
+`card-metrics.js` records how often cards are exported, marked Legendary or
+Misprint, saved, or sent to PLAN, and serves those counts back as trends over
+time. Events are appended to the `card_events` table in Netlify Database
+(schema in `db/schema.ts`, migrations in `netlify/database/migrations/`) rather
+than accumulated in a counter, so every event keeps its timestamp and
+concurrent writes cannot overwrite each other.
+
+Client calls go through `src/utils/cardMetrics.ts` and are fire-and-forget —
+tracking never delays or fails an export.
+
+```
+POST /api/card-metrics                                    # record one event
+GET  /api/card-metrics?view=health                         # are events arriving?
+GET  /api/card-metrics?view=trends&event=export&days=30    # daily series, zero-filled
+GET  /api/card-metrics?view=top&event=legendary&limit=10   # most-marked cards
+GET  /api/card-metrics?view=card&card=<cardId>             # one card's lifetime totals
+```
+
+`subjectType` distinguishes the two things the app calls a card: `image` (a
+single grid image, whose identity is stable across days so counts accumulate)
+and `board` (the whole 3×3 share card, which is unique to one date+actor and so
+aggregates by actor or by day). The `top` view defaults to images for that
+reason.
+
+### Metrics baseline
+
+**Metrics before the `card_events` migration are not reliable.** The analytics
+baseline starts at the first deploy of `/api/card-metrics`. The previous
+implementation keyed exports by actor name + vibe label + date, never persisted
+tier marks at all, and silently dropped two event types, so historical blob data
+cannot answer which image was exported most, whether a card gained popularity
+over time, or whether Legendary marks predict exports. Treat anything earlier as
+non-authoritative.
+
+Migrations deliberately do not emit events. `dbSaveCard` takes `{ track: false }`
+for data movement — legacy bookmark import, and promoting an already-saved
+localStorage bookmark into IndexedDB — because those cards were saved at some
+earlier unknown time and recording them would date a pile of old saves to
+whenever the migration happened to run.
+
+### Verifying the pipeline
+
+The **Metrics health** tab in Fandom Admin (`?admin=true`) shows whether events
+are arriving, per-event counts across 24h/7d/all-time, last-seen times, and a
+compact top-cards list. Every event type is listed even at zero, because a
+wired-up-but-silent event is otherwise indistinguishable from an untriggered one.
+
+After a deploy, run the smoke test against the deploy URL:
+
+```
+npm run smoke:metrics -- https://<deploy-url>
+```
+
+It writes one of each event, reads every view back, confirms the rows landed,
+and checks that bad payloads are rejected rather than quietly accepted. Rows it
+creates are prefixed `smoke-`.
+
+Client tracking calls are fire-and-forget but not silent: failures — including a
+4xx, which `fetch` resolves rather than rejecting — are logged to the console in
+dev. That missing status check is what hid the original failure.
+
+Note that `save`, `share`, and `click` are accepted by the endpoint but not sent
+by any UI, so they stay at zero until something wires them up.
+
+This replaces the earlier `log-engagement.js` and `batch-metrics.js` Blobs
+functions. Their historical blob data is not migrated — see
+`docs/release-notes.md`.
 
 ## Public Saved Collection identity and sync
 
