@@ -1,5 +1,7 @@
 /** IndexedDB persistence for saved cards */
 
+import { recordCardEvent } from './cardMetrics.ts';
+
 const DB_NAME = 'vibe-atlas-collection';
 const DB_VERSION = 3;
 const CARD_STORE = 'cards';
@@ -96,7 +98,22 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
-export async function dbSaveCard(card: CardRecord): Promise<void> {
+export interface SaveCardOptions {
+  /**
+   * Whether this write represents a user deciding to save the card.
+   *
+   * Pass `false` for data movement — legacy-bookmark migration, or promoting an
+   * already-saved localStorage bookmark into IndexedDB. Those writes are
+   * storage upgrades for cards the user saved at some earlier, unknown time.
+   * Recording them would date a batch of old saves to whenever the migration
+   * happened to run, which is exactly the kind of phantom spike that makes a
+   * metrics baseline untrustworthy.
+   */
+  track?: boolean;
+}
+
+export async function dbSaveCard(card: CardRecord, options: SaveCardOptions = {}): Promise<void> {
+  const { track = true } = options;
   const db = await openDB();
   const existing = await dbGetCard(card.imageUrl);
   const record = {
@@ -108,19 +125,17 @@ export async function dbSaveCard(card: CardRecord): Promise<void> {
     const tx = db.transaction(CARD_STORE, 'readwrite');
     tx.objectStore(CARD_STORE).put(record);
     tx.oncomplete = () => {
-      fetch('/.netlify/functions/log-engagement', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      if (track) {
+        recordCardEvent({
           event: 'collection_save',
+          cardId: card.imageUrl,
+          subjectType: 'image',
           actor: card.actor,
           vibe: card.vibe,
-          imageUrl: card.imageUrl,
           batchKey: card.gridContext?.batchKey,
           capturedDate: card.capturedDate,
-          timestamp: new Date().toISOString(),
-        }),
-      }).catch(() => {});
+        });
+      }
       resolve();
     };
     tx.onerror = () => reject(tx.error);

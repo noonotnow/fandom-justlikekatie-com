@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import type { GridItemData, ImageTier } from '../../types';
 import type { StarOfDayData } from '../../hooks/useStarOfDay';
 import { renderCard, type CardMetadata } from '../../utils/cardRenderer';
+import { recordCardEvent } from '../../utils/cardMetrics';
 import { Toast } from '../Toast/Toast';
 import styles from './ExportCardButton.module.css';
 
@@ -61,16 +62,18 @@ export const ExportCardButton: React.FC<ExportCardButtonProps> = ({ image, metad
       a.remove();
       setTimeout(() => URL.revokeObjectURL(objectUrl), 4000);
 
-      // Log engagement (fire-and-forget)
-      fetch('/.netlify/functions/log-engagement', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          event: 'export',
-          batchKey: `${metadata.actorName}-${metadata.vibeLabel}-${metadata.date}`,
-          imageUrl: image.id,
-        }),
-      }).catch(() => { /* non-critical */ });
+      // Track the export (fire-and-forget). Keyed on the image's stable id
+      // rather than a name+date composite, so counts accumulate across days
+      // instead of starting fresh every board.
+      recordCardEvent({
+        event: 'export',
+        cardId: image.id,
+        subjectType: 'image',
+        batchKey: image.batchKey,
+        actor: metadata.actorName,
+        vibe: metadata.vibeLabel,
+        capturedDate: metadata.date,
+      });
 
       setToastMessage('卡片已保存 ✓ Card exported!');
     } catch (err) {

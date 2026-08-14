@@ -195,8 +195,10 @@ export const Lightbox: React.FC<LightboxProps> = ({
     };
 
     if (isLegacySaved) {
-      // Migrate: promote localStorage bookmark → IndexedDB with full metadata
-      await dbSaveCard(cardPayload);
+      // Migrate: promote localStorage bookmark → IndexedDB with full metadata.
+      // Not tracked: the card was already saved, so this is a storage upgrade
+      // rather than a new save.
+      await dbSaveCard(cardPayload, { track: false });
       storage.removeItem(current.id);
       setIsLegacySaved(false);
       setIsSaved(true);

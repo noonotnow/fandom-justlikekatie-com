@@ -13,6 +13,7 @@ import { ArtifactZoomDialog } from './components/ArtifactZoomDialog/ArtifactZoom
 import { migrateBookmarks } from './utils/migrateBookmarks';
 import { migrateLegacyGridHistory } from './utils/collectionHistory';
 import { applyWholeCardTierOverride, boardIdentity } from './utils/wholeCardTier';
+import { recordCardEvent, tierEventFor } from './utils/cardMetrics';
 import { useDarkMode } from './hooks/useDarkMode';
 import { useStarOfDay } from './hooks/useStarOfDay';
 import { useWholeCardTier } from './hooks/useWholeCardTier';
@@ -56,6 +57,40 @@ function App() {
   const boardKey = rawData ? boardIdentity(rawData) : null;
   const { tier: wholeCardTier, setTier: setWholeCardTier } = useWholeCardTier(boardKey);
   const exportData = rawData ? applyWholeCardTierOverride(rawData, wholeCardTier) : null;
+
+  // The tier controls are toggles: clicking the active tier passes `null` to
+  // clear it. `tierEventFor` decides what is worth recording — see its comment.
+  const handleWholeCardTierChange = (tier: ImageTier) => {
+    setWholeCardTier(tier);
+    const event = tierEventFor(tier);
+    if (event && boardKey) {
+      recordCardEvent({
+        event,
+        cardId: boardKey,
+        subjectType: 'board',
+        actor: meta?.actorName,
+        vibe: meta?.vibeLabel,
+        capturedDate: meta?.date,
+      });
+    }
+  };
+
+  const handleImageTierChange = (imageId: string | undefined, tier: ImageTier) => {
+    if (!imageId) return;
+    setImageTiers((current) => ({ ...current, [imageId]: tier }));
+    const event = tierEventFor(tier);
+    if (event) {
+      recordCardEvent({
+        event,
+        cardId: imageId,
+        subjectType: 'image',
+        batchKey: gridImages.find((image) => image.id === imageId)?.batchKey,
+        actor: meta?.actorName,
+        vibe: meta?.vibeLabel,
+        capturedDate: meta?.date,
+      });
+    }
+  };
 
   useEffect(() => {
     void Promise.all([migrateBookmarks(), migrateLegacyGridHistory()]);
@@ -214,7 +249,7 @@ function App() {
             )}
             {rawData && exportData && (
             <div className="daily-actions">
-              <WholeCardTierControls tier={wholeCardTier} onTierChange={setWholeCardTier} />
+              <WholeCardTierControls tier={wholeCardTier} onTierChange={handleWholeCardTierChange} />
               <WholeCardTierBadge tier={wholeCardTier} />
               <div className="daily-actions__primary">
                 <ExportButton rawData={exportData} />
@@ -285,8 +320,7 @@ function App() {
           planData={rawData ?? undefined}
           tier={imageTiers[gridImages[lightboxIndex]?.id] ?? null}
           onTierChange={(tier) => {
-            const imageId = gridImages[lightboxIndex]?.id;
-            if (imageId) setImageTiers((current) => ({ ...current, [imageId]: tier }));
+            handleImageTierChange(gridImages[lightboxIndex]?.id, tier);
           }}
           cardMetadata={meta ? {
             actorName: meta.actorName,
