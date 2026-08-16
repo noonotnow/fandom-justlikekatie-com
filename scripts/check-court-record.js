@@ -20,28 +20,6 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const FILE = resolve(__dirname, '..', 'src', 'data', 'raccoonCourtRecord.ts');
-
-let src;
-try {
-  src = readFileSync(FILE, 'utf8');
-} catch (err) {
-  console.error(`check-court-record: cannot read ${FILE}: ${err.message}`);
-  process.exit(1);
-}
-
-// ---------------------------------------------------------------------------
-// Locate the RACCOON_COURT_RECORD array body (between [ and ] as const).
-// ---------------------------------------------------------------------------
-const arrayMatch = src.match(/RACCOON_COURT_RECORD\s*=\s*\[([\s\S]*?)\]\s*as\s*const/);
-if (!arrayMatch) {
-  console.error(`check-court-record: could not locate RACCOON_COURT_RECORD array in ${FILE}`);
-  process.exit(1);
-}
-
-const body = arrayMatch[1];
-
 // ---------------------------------------------------------------------------
 // Decode a JavaScript string literal's inner content (the part between the
 // quote characters) into its runtime string value.  Handles every escape
@@ -49,7 +27,7 @@ const body = arrayMatch[1];
 // escapes (\u{…}), hex escapes (\xHH), and named single-character escapes
 // (\n, \r, \t, \v, \f, \b, \0).
 // ---------------------------------------------------------------------------
-function decodeStringContent(raw) {
+export function decodeStringContent(raw) {
   return raw.replace(
     /\\(?:u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|([0-7]+)|([\s\S]))/g,
     (_, codePoint, u4, x2, octal, single) => {
@@ -73,36 +51,73 @@ function decodeStringContent(raw) {
 }
 
 // ---------------------------------------------------------------------------
-// Extract all string literals from the array body.
-// Matches single-quoted, double-quoted, and template literals (without ${}
-// interpolation, which would not be meaningful in this constant array).
-// The inner pattern `(?:\\[\s\S]|(?!\1)[^\\])*` correctly handles embedded
-// escape sequences and prevents the closing quote from ending the match early.
+// Extract all string literals from the array body and identify whitespace-only
+// ones.  The regex matches single-quoted, double-quoted, and template literals
+// (without ${} interpolation, which would not be meaningful in this constant
+// array).  The inner pattern `(?:\\[\s\S]|(?!\1)[^\\])*` correctly handles
+// embedded escape sequences and prevents the closing quote from ending the
+// match early.
+//
+// Returns { totalCount, whitespaceOnly } where whitespaceOnly is an array of
+// the full matched literal strings (e.g. "   ", `\t`) that decoded to
+// whitespace-only values.
 // ---------------------------------------------------------------------------
 const STRING_LITERAL_RE = /(['"`])((?:\\[\s\S]|(?!\1)[^\\])*)\1/g;
 
-const whitespaceOnly = [];
-let totalCount = 0;
-let m;
-while ((m = STRING_LITERAL_RE.exec(body)) !== null) {
-  totalCount++;
-  const raw = m[2]; // content between the quote characters
-  const decoded = decodeStringContent(raw);
-  if (decoded.length > 0 && decoded.trim().length === 0) {
-    whitespaceOnly.push(m[0]); // the full matched literal, e.g. "   "
+export function checkArrayBody(body) {
+  const whitespaceOnly = [];
+  let totalCount = 0;
+  let m;
+  const re = new RegExp(STRING_LITERAL_RE.source, STRING_LITERAL_RE.flags);
+  while ((m = re.exec(body)) !== null) {
+    totalCount++;
+    const raw = m[2]; // content between the quote characters
+    const decoded = decodeStringContent(raw);
+    if (decoded.length > 0 && decoded.trim().length === 0) {
+      whitespaceOnly.push(m[0]); // the full matched literal, e.g. "   "
+    }
   }
+  return { totalCount, whitespaceOnly };
 }
 
-if (whitespaceOnly.length > 0) {
-  const plural = whitespaceOnly.length === 1 ? 'entry' : 'entries';
-  console.error(
-    `\ncheck-court-record: ${FILE}\n` +
-    `  ${whitespaceOnly.length} whitespace-only ${plural} found in RACCOON_COURT_RECORD:\n` +
-    whitespaceOnly.map(s => `    ${s}`).join('\n') + '\n' +
-    '\n  Every ruling must have visible content.\n' +
-    '  Remove or replace the blank entry, then re-run `npm run build` or `npm run lint`.\n',
-  );
-  process.exit(1);
-}
+// ---------------------------------------------------------------------------
+// Main — only runs when this file is the entry point, not when imported as a
+// module by the test suite.
+// ---------------------------------------------------------------------------
+const __self = fileURLToPath(import.meta.url);
+if (process.argv[1] === __self) {
+  const __dirname = dirname(__self);
+  const FILE = resolve(__dirname, '..', 'src', 'data', 'raccoonCourtRecord.ts');
 
-console.log(`check-court-record: OK — ${totalCount} ruling(s) checked, none are whitespace-only.`);
+  let src;
+  try {
+    src = readFileSync(FILE, 'utf8');
+  } catch (err) {
+    console.error(`check-court-record: cannot read ${FILE}: ${err.message}`);
+    process.exit(1);
+  }
+
+  // Locate the RACCOON_COURT_RECORD array body (between [ and ] as const).
+  const arrayMatch = src.match(/RACCOON_COURT_RECORD\s*=\s*\[([\s\S]*?)\]\s*as\s*const/);
+  if (!arrayMatch) {
+    console.error(`check-court-record: could not locate RACCOON_COURT_RECORD array in ${FILE}`);
+    process.exit(1);
+  }
+
+  const body = arrayMatch[1];
+  const { totalCount, whitespaceOnly } = checkArrayBody(body);
+
+  if (whitespaceOnly.length > 0) {
+    const plural = whitespaceOnly.length === 1 ? 'entry' : 'entries';
+    console.error(
+      `\ncheck-court-record: ${FILE}\n` +
+      `  ${whitespaceOnly.length} whitespace-only ${plural} found in RACCOON_COURT_RECORD:\n` +
+      whitespaceOnly.map(s => `    ${s}`).join('\n') + '\n' +
+      '\n  Every ruling must have visible content.\n' +
+      '  Remove or replace the blank entry, then re-run `npm run build` or `npm run lint`.\n',
+    );
+    process.exit(1);
+  }
+
+  console.log(`check-court-record: OK — ${totalCount} ruling(s) checked, none are whitespace-only.`);
+}
