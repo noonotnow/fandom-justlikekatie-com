@@ -69,6 +69,12 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
   // A ref is set synchronously before the first await, guaranteeing re-entrant
   // calls are blocked regardless of render timing.
   const packetInFlight = useRef(false);
+  // Synchronous in-flight lock for exportGrid — same reasoning as packetInFlight.
+  // setBusy('export') schedules a React update but does not mutate the captured
+  // closure value, so a double-click in the same event-loop tick would pass the
+  // `|| busy` state guard and reach saveShareCard twice.  The ref is set before
+  // the first await and cleared in finally, giving a reliable synchronous barrier.
+  const exportInFlight = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -193,6 +199,13 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
    */
   async function exportGrid() {
     if (!proposal || proposal.slots.length !== 9 || busy) return;
+    // Synchronous re-entrant guard: setBusy schedules a React update but does
+    // not mutate the captured closure value until the next render.  A second
+    // call that arrives in the same event-loop tick (double-click) would pass
+    // the `|| busy` check above, so the ref provides a reliable synchronous
+    // barrier — identical to the pattern used in startPacket.
+    if (exportInFlight.current) return;
+    exportInFlight.current = true;
     const wasGridSaved = isGridSaved;
     setBusy('export');
     setNotice('正在生成分享卡……');
@@ -217,6 +230,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     } catch (caught) {
       setNotice(caught instanceof Error ? caught.message : '分享卡生成失败，再试一次？');
     } finally {
+      exportInFlight.current = false;
       setBusy('');
     }
   }

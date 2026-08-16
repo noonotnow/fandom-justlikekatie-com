@@ -754,3 +754,129 @@ test('startPacket source uses packetInFlight ref for synchronous re-entrant guar
     'startPacket finally block must reset packetInFlight.current = false',
   );
 });
+
+// ---------------------------------------------------------------------------
+// exportGrid double-trigger guard tests (Task 52)
+// ---------------------------------------------------------------------------
+
+test('exportGrid in-flight guard: second call concurrent with first is a no-op — behavioral', async () => {
+  // Verifies that the exportInFlight ref used by exportGrid blocks a second
+  // invocation that arrives in the same event-loop tick (before React re-renders
+  // and disables the button).
+  //
+  // setBusy('export') schedules a React state update but does not mutate the
+  // captured closure value; a second call in the same tick would pass the
+  // `|| busy` guard and reach saveShareCard a second time.  The ref provides
+  // a reliable synchronous barrier identical to the packetInFlight pattern.
+  //
+  // The test replicates the guard logic from GridBuilder.tsx:
+  //   if (exportInFlight.current) return;
+  //   exportInFlight.current = true;   // synchronous — before any await
+  //   try { ... } finally { exportInFlight.current = false; }
+
+  const exportCalls: string[] = [];
+
+  // Mirror the guard logic from GridBuilder.exportGrid.
+  const exportInFlight = { current: false };
+
+  async function exportGrid(
+    saveShareCard: () => Promise<string>,
+  ): Promise<void> {
+    if (exportInFlight.current) return;
+    exportInFlight.current = true;
+    try {
+      // Simulate the async export.
+      await saveShareCard();
+      exportCalls.push('exported');
+    } finally {
+      exportInFlight.current = false;
+    }
+  }
+
+  // Slow async export so p1 is still in-flight when p2 fires.
+  let resolveExport!: () => void;
+  const exportPending = new Promise<void>(resolve => { resolveExport = resolve; });
+  const mockSaveShareCard = async () => { await exportPending; return 'done'; };
+
+  // Fire both calls without awaiting — the double-click / double-trigger scenario.
+  const p1 = exportGrid(mockSaveShareCard);
+  const p2 = exportGrid(mockSaveShareCard); // fires before p1 hits its first await
+
+  // Let p1 complete.
+  resolveExport();
+  await Promise.all([p1, p2]);
+
+  assert.strictEqual(
+    exportCalls.length,
+    1,
+    'saveShareCard must be called exactly once — second concurrent exportGrid call must be a no-op',
+  );
+});
+
+test('exportGrid re-entrant guard resets after completion — second call succeeds once first finishes', async () => {
+  // Confirms that exportInFlight.current is reset to false in the finally block,
+  // so a genuine second export attempt after the first completes is not blocked.
+  const exportCalls: string[] = [];
+  const exportInFlight = { current: false };
+
+  async function exportGrid(saveShareCard: () => Promise<string>): Promise<void> {
+    if (exportInFlight.current) return;
+    exportInFlight.current = true;
+    try {
+      await saveShareCard();
+      exportCalls.push('exported');
+    } finally {
+      exportInFlight.current = false;
+    }
+  }
+
+  const noop = async () => 'done';
+
+  // First export succeeds and releases the lock.
+  await exportGrid(noop);
+  assert.strictEqual(exportCalls.length, 1, 'first export must succeed');
+  assert.strictEqual(exportInFlight.current, false, 'lock must be released after first export');
+
+  // Second export (sequential, after the first completed) must also succeed.
+  await exportGrid(noop);
+  assert.strictEqual(
+    exportCalls.length,
+    2,
+    'sequential second export must succeed once the first has completed and released the lock',
+  );
+});
+
+test('exportGrid source uses exportInFlight ref for synchronous re-entrant guard', async () => {
+  // Pins the ref-based guard structure so a future refactor cannot silently
+  // revert to relying on React state alone (which is not synchronous).
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(
+    new URL('../src/components/GridBuilder/GridBuilder.tsx', import.meta.url),
+    'utf8',
+  );
+
+  // Locate the exportGrid function body.
+  const exportGridIdx = source.indexOf('async function exportGrid()');
+  assert.ok(exportGridIdx !== -1, 'exportGrid function must exist in GridBuilder.tsx');
+  const bodyAfter = source.slice(exportGridIdx);
+  const nextFnIdx = bodyAfter.indexOf('\n  async function startPacket()');
+  const exportGridBody = nextFnIdx !== -1 ? bodyAfter.slice(0, nextFnIdx) : bodyAfter.slice(0, 800);
+
+  // The ref guard must appear before the first await.
+  const refGuardPos = exportGridBody.indexOf('if (exportInFlight.current) return');
+  const setRefPos   = exportGridBody.indexOf('exportInFlight.current = true');
+  const firstAwait  = exportGridBody.indexOf('await ');
+
+  assert.ok(refGuardPos !== -1, 'exportGrid must guard with `if (exportInFlight.current) return`');
+  assert.ok(setRefPos   !== -1, 'exportGrid must set exportInFlight.current = true');
+  assert.ok(
+    refGuardPos < firstAwait && setRefPos < firstAwait,
+    'both the guard check and the ref set must appear before the first await (synchronous barrier)',
+  );
+
+  // The ref must be released in the finally block.
+  assert.ok(
+    exportGridBody.includes('exportInFlight.current = false'),
+    'exportGrid finally block must reset exportInFlight.current = false',
+  );
+});
