@@ -5,6 +5,14 @@ name: Test–Source Guard
 # *.test.js file must resolve to a file that exists in the repository.
 # If any import target is missing, this job fails with the list of gaps,
 # giving a clear signal before the whole test suite turns red.
+#
+# Covered import forms:
+#   import './side-effect'           (side-effect / no `from`)
+#   import Foo from './module'       (named static import)
+#   export { x } from './re-export'  (re-export)
+#   import('./dynamic')              (dynamic import)
+#
+# A bare directory path is rejected unless it contains a recognised index file.
 
 on:
   push:
@@ -13,6 +21,7 @@ on:
     branches: ["**"]
 
 jobs:
+  # ── 1. Real guard: checks the actual tests/ directory ─────────────────────
   check-test-imports:
     name: Verify test imports resolve to committed files
     runs-on: ubuntu-latest
@@ -26,66 +35,102 @@ jobs:
           node-version: "22"
 
       - name: Check that every test file's imports exist
+        run: node .github/scripts/check-test-imports.mjs tests
+
+  # ── 2. Self-test: verify the guard itself catches missing imports ──────────
+  guard-self-test:
+    name: Verify the guard catches missing imports (negative tests)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run guard negative tests
         run: |
-          node - <<'EOF'
-          import { readdirSync, existsSync } from 'node:fs';
-          import { readFileSync } from 'node:fs';
-          import { resolve, dirname, extname } from 'node:path';
+          set -euo pipefail
 
-          const TEST_DIR = 'tests';
-          const IMPORT_RE = /from\s+['"](\.[^'"]+)['"]/g;
+          SCRIPT=".github/scripts/check-test-imports.mjs"
+          TMPDIR_BASE=$(mktemp -d)
+          PASSED=0
+          FAILED=0
 
-          // Extensions to try when a path has none (or when .ts is absent)
-          const FALLBACK_EXTS = [
-            '',          // exact path as written
-            '.ts',
-            '.tsx',
-            '.js',
-            '.jsx',
-            '/index.ts',
-            '/index.tsx',
-            '/index.js',
-          ];
+          fail() { echo "FAIL: $1"; FAILED=$((FAILED+1)); }
+          pass() { echo "OK:   $1"; PASSED=$((PASSED+1)); }
 
-          function fileExists(importedPath) {
-            if (existsSync(importedPath)) return true;
-            const base = importedPath.replace(/\.[^/.]+$/, '');
-            for (const ext of FALLBACK_EXTS) {
-              if (existsSync(base + ext)) return true;
-            }
-            return false;
+          # Helper: run the guard against a temp dir; expect exit code $2
+          run_guard() {
+            local dir="$1" expected_exit="$2" label="$3"
+            local actual=0
+            node "$SCRIPT" "$dir" > /dev/null 2>&1 || actual=$?
+            if [ "$actual" -eq "$expected_exit" ]; then
+              pass "$label"
+            else
+              fail "$label — expected exit $expected_exit, got $actual"
+            fi
           }
 
-          let failures = [];
-
-          const testFiles = readdirSync(TEST_DIR)
-            .filter(f => f.endsWith('.test.ts') || f.endsWith('.test.js'))
-            .map(f => `${TEST_DIR}/${f}`);
-
-          for (const testFile of testFiles) {
-            const src = readFileSync(testFile, 'utf8');
-            const dir = dirname(testFile);
-            let match;
-            IMPORT_RE.lastIndex = 0;
-            while ((match = IMPORT_RE.exec(src)) !== null) {
-              const specifier = match[1];
-              if (!specifier.startsWith('.')) continue;   // skip node: and bare specifiers
-              const abs = resolve(dir, specifier);
-              if (!fileExists(abs)) {
-                failures.push(`  ${testFile} → ${specifier}  (resolved: ${abs})`);
-              }
-            }
-          }
-
-          if (failures.length > 0) {
-            console.error(
-              '\n❌ Test-source guard failed — these imports have no committed file:\n' +
-              failures.join('\n') +
-              '\n\nThis usually means implementation commits are still local while the test\n' +
-              'file was already pushed.  Push (or revert) the missing source files.\n'
-            );
-            process.exit(1);
-          }
-
-          console.log(`✅ All relative imports in ${testFiles.length} test file(s) resolve to committed files.`);
+          # ── Case 1: green path — import that exists ────────────────────────
+          D="$TMPDIR_BASE/case-green"
+          mkdir -p "$D"
+          echo "export const x = 1;" > "$D/real-source.ts"
+          cat > "$D/green.test.ts" <<'EOF'
+          import test from 'node:test';
+          import { x } from './real-source.ts';
           EOF
+          run_guard "$D" 0 "named import → existing file exits 0"
+
+          # ── Case 2: missing named import ───────────────────────────────────
+          D="$TMPDIR_BASE/case-missing-named"
+          mkdir -p "$D"
+          cat > "$D/missing.test.ts" <<'EOF'
+          import test from 'node:test';
+          import { fn } from './does-not-exist.ts';
+          EOF
+          run_guard "$D" 1 "named import → missing file exits 1"
+
+          # ── Case 3: missing side-effect import ─────────────────────────────
+          D="$TMPDIR_BASE/case-missing-side-effect"
+          mkdir -p "$D"
+          cat > "$D/side-effect.test.ts" <<'EOF'
+          import test from 'node:test';
+          import './missing-polyfill';
+          EOF
+          run_guard "$D" 1 "side-effect import → missing file exits 1"
+
+          # ── Case 4: directory exists but has no index ──────────────────────
+          D="$TMPDIR_BASE/case-dir-no-index"
+          mkdir -p "$D/empty-dir"
+          cat > "$D/dir-import.test.ts" <<'EOF'
+          import test from 'node:test';
+          import { util } from './empty-dir';
+          EOF
+          run_guard "$D" 1 "bare directory with no index exits 1"
+
+          # ── Case 5: directory WITH index is accepted ───────────────────────
+          D="$TMPDIR_BASE/case-dir-with-index"
+          mkdir -p "$D/util-dir"
+          echo "export const helper = () => {};" > "$D/util-dir/index.ts"
+          cat > "$D/dir-with-index.test.ts" <<'EOF'
+          import test from 'node:test';
+          import { helper } from './util-dir';
+          EOF
+          run_guard "$D" 0 "bare directory WITH index.ts exits 0"
+
+          # ── Case 6: no test files → exits 1 ───────────────────────────────
+          D="$TMPDIR_BASE/case-empty-dir"
+          mkdir -p "$D"
+          run_guard "$D" 1 "empty test directory exits 1"
+
+          # ── Summary ───────────────────────────────────────────────────────
+          echo ""
+          echo "Guard self-test results: $PASSED passed, $FAILED failed"
+          if [ "$FAILED" -gt 0 ]; then
+            echo "❌ Guard self-test FAILED — the guard itself has gaps."
+            exit 1
+          fi
+          echo "✅ All guard self-tests passed."
