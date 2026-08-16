@@ -296,6 +296,56 @@ test("Resend delivery uses only server configuration", async () => {
   assert.equal(JSON.parse(call[1].body).to[0], "person@example.com");
 });
 
+test("sendMagicLinkEmail includes Resend error body message in the thrown error", async () => {
+  // When Resend rejects (e.g. unverified domain → 422, bad key → 403), the JSON
+  // `message` field from its response body must appear in the thrown Error so
+  // server logs are actionable rather than showing only the HTTP status code.
+  await assert.rejects(
+    () => sendMagicLinkEmail({
+      env: {
+        RESEND_API_KEY: "re_bad_key",
+        FANDOM_AUTH_FROM_EMAIL: "Fandom <login@unverified.example.com>",
+      },
+      email: "user@example.com",
+      magicLink: "https://example.com/auth/verify#token=abc",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({ name: "validation_error", message: "The from address must be a verified email address or domain." }),
+          { status: 422, headers: { "Content-Type": "application/json" } },
+        ),
+    }),
+    err => {
+      assert.ok(err.message.includes("422"), `Error must include status code; got: ${err.message}`);
+      assert.ok(
+        err.message.includes("The from address must be a verified email address or domain."),
+        `Error must include the Resend message body; got: ${err.message}`,
+      );
+      return true;
+    },
+  );
+});
+
+test("sendMagicLinkEmail still throws when Resend response body is not JSON", async () => {
+  // A 500 with a plain-text body (e.g. Cloudflare error page) must not crash the
+  // JSON parse and must still propagate as a thrown error containing the status code.
+  await assert.rejects(
+    () => sendMagicLinkEmail({
+      env: {
+        RESEND_API_KEY: "re_some_key",
+        FANDOM_AUTH_FROM_EMAIL: "Fandom <login@auth.justlikekatie.com>",
+      },
+      email: "user@example.com",
+      magicLink: "https://example.com/auth/verify#token=abc",
+      fetchImpl: async () =>
+        new Response("Internal Server Error", { status: 500 }),
+    }),
+    err => {
+      assert.ok(err.message.includes("500"), `Error must include status code; got: ${err.message}`);
+      return true;
+    },
+  );
+});
+
 test("Resend rejection (unverified domain / bad key) surfaces a 503 to the user, not a silent failure", async () => {
   // Simulates what happens when Resend rejects the send — e.g. domain not verified or invalid API key.
   // The user must receive a non-2xx response with a visible error message; the failure must never be swallowed.
@@ -1056,4 +1106,61 @@ test("collection sync rejects a stale tab when its expected account differs from
   }));
   assert.equal(response.status, 409);
   assert.equal(store.records.size, 0);
+});
+
+test("concurrent verifyMagicLink: exactly one request gets a session and the other gets 401", async () => {
+  // Simulate the real concurrent race: two requests receive the same magic link and
+  // both POST /api/auth/verify at the same moment. Both reads see the "issued" token
+  // before either write commits. The store's onlyIfMatch CAS ensures only one write
+  // succeeds, so exactly one caller gets a session cookie and the other gets 401.
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  const tokens = [
+    "concurrent-race-magic-token-exactly-32-chars",
+    "concurrent-race-session-token-exactly-32xx",
+  ];
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => tokens.shift(),
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+
+  // Seed the magic store with a single "issued" token.
+  await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "race@example.com" },
+  }));
+
+  // Fire two verifyMagicLink calls concurrently with the same token.
+  // Both coroutines read the "issued" record (same etag) before either writes.
+  // The first setJSON(onlyIfMatch) wins; the second sees the changed etag and
+  // gets { modified: false }, which verifyMagicLink converts to 401.
+  const makeVerifyRequest = () => auth.verifyMagicLink(
+    request("/api/auth/verify", {
+      body: { token: "concurrent-race-magic-token-exactly-32-chars" },
+    }),
+  );
+  const [resA, resB] = await Promise.all([makeVerifyRequest(), makeVerifyRequest()]);
+
+  const statuses = [resA.status, resB.status].sort();
+  assert.deepEqual(statuses, [200, 401], "exactly one request must succeed and one must get 401");
+
+  // Exactly one session must have been persisted in the sessions store.
+  const sessionStore = stores.get("fandom-auth-sessions");
+  assert.equal(sessionStore.records.size, 1, "exactly one session must be created");
+
+  // The 200 response must carry a valid session cookie.
+  const winner = resA.status === 200 ? resA : resB;
+  const cookie = winner.headers.get("set-cookie");
+  assert.match(cookie, /__Host-fandom_session=/, "the winning request must receive a session cookie");
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /Secure/);
 });
