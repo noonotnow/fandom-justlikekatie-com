@@ -1,0 +1,46 @@
+name: Branch Protection Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-protection:
+    name: Verify main branch protection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check branch protection rules
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          echo "Fetching branch protection settings for main..."
+          PROTECTION=$(gh api /repos/${{ github.repository }}/branches/main/protection)
+
+          # Assert force pushes are disabled
+          FORCE_PUSHES=$(echo "$PROTECTION" | jq -r '.allow_force_pushes.enabled')
+          if [ "$FORCE_PUSHES" != "false" ]; then
+            echo "FAIL: allow_force_pushes is enabled — force pushes must be disabled."
+            exit 1
+          fi
+          echo "OK: allow_force_pushes is disabled."
+
+          # Assert required_pull_request_reviews is present (blocks direct pushes)
+          PR_REVIEWS=$(echo "$PROTECTION" | jq -r '.required_pull_request_reviews // empty')
+          if [ -z "$PR_REVIEWS" ]; then
+            echo "FAIL: required_pull_request_reviews is not configured — direct pushes are not blocked."
+            exit 1
+          fi
+          echo "OK: required_pull_request_reviews is configured — direct pushes to main are blocked."
+
+          # Assert the 'test' status check is required
+          CHECKS=$(echo "$PROTECTION" | jq -r '.required_status_checks.contexts[]')
+          if ! echo "$CHECKS" | grep -qx "test"; then
+            echo "FAIL: 'test' is not a required status check."
+            exit 1
+          fi
+          echo "OK: 'test' is a required status check."
+
+          echo ""
+          echo "All branch protection assertions passed."
