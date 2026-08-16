@@ -58,3 +58,7 @@ The required check name `test` matches the **job id** in `.github/workflows/test
 ### Re-applying the rule via the Replit GitHub integration
 
 The project's GitHub connector (connection `conn_github_01M01CFGTEP9N3DD9ZHB9X222J`) has `repo` scope and can `PUT /repos/{owner}/{repo}/branches/main/protection` directly — no personal token needed inside the Replit environment.
+
+### Last verified
+
+Branch protection settings were last verified on 2026-08-16 as part of the automated CI check workflow smoke test.

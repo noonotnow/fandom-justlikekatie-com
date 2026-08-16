@@ -11,12 +11,27 @@ jobs:
     steps:
       - name: Check branch protection rules
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN cannot read required_status_checks on branch protection;
+          # a PAT with repo scope is required (stored as REPO_ADMIN_PAT).
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_PAT }}
         run: |
           set -euo pipefail
 
           echo "Fetching branch protection settings for main..."
-          PROTECTION=$(gh api /repos/${{ github.repository }}/branches/main/protection)
+          PROTECTION=$(gh api /repos/${{ github.repository }}/branches/main/protection \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28") || {
+            echo "FAIL: gh api exited non-zero — GITHUB_TOKEN may lack branch protection read access."
+            exit 1
+          }
+
+          echo "--- Protection JSON (redacted) ---"
+          echo "$PROTECTION" | jq '{
+            allow_force_pushes: .allow_force_pushes.enabled,
+            has_pr_reviews: (.required_pull_request_reviews != null),
+            contexts: .required_status_checks.contexts,
+            checks: [.required_status_checks.checks[]?.context]
+          }'
 
           # Assert force pushes are disabled
           FORCE_PUSHES=$(echo "$PROTECTION" | jq -r '.allow_force_pushes.enabled')
@@ -34,9 +49,14 @@ jobs:
           fi
           echo "OK: required_pull_request_reviews is configured — direct pushes to main are blocked."
 
-          # Assert the 'test' status check is required
-          CHECKS=$(echo "$PROTECTION" | jq -r '.required_status_checks.contexts[]')
-          if ! echo "$CHECKS" | grep -qx "test"; then
+          # Assert the 'test' status check is required.
+          # Check both the legacy contexts[] array and the newer checks[].context format.
+          FOUND=$(echo "$PROTECTION" | jq -r '
+            [
+              (.required_status_checks.contexts // [])[] ,
+              (.required_status_checks.checks // [] | .[].context)
+            ] | map(select(. == "test")) | length')
+          if [ "$FOUND" = "0" ]; then
             echo "FAIL: 'test' is not a required status check."
             exit 1
           fi
