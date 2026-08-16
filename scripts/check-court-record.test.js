@@ -395,6 +395,74 @@ test('integration: exits 1 with interpolation warning when a template literal co
   assert.match(result.stderr, /interpolation/);
 });
 
+// ---------------------------------------------------------------------------
+// checkArrayBody — multi-expression, nested-backtick, and multiline templates
+// ---------------------------------------------------------------------------
+
+test('checkArrayBody: flags template literal with multiple ${} expressions', () => {
+  // e.g. `${caseNum}: ${ruling}` — two interpolations, still un-evaluable statically
+  const body = '`${caseNum}: ${ruling}`,';
+  const { templateInterpolations, whitespaceOnly, totalCount } = checkArrayBody(body);
+  assert.equal(totalCount, 1);
+  assert.equal(templateInterpolations.length, 1);
+  assert.equal(whitespaceOnly.length, 0);
+});
+
+test('checkArrayBody: flags template literal whose expression contains backtick-delimited content', () => {
+  // `${'`inner`'}` — the outer template literal contains ${, so it must be flagged.
+  // The regex stops at the first unescaped inner backtick, but the partial match still
+  // contains ${ and is therefore reported as a templateInterpolation.
+  const body = "`${'`inner`'}`,";
+  const { templateInterpolations } = checkArrayBody(body);
+  assert.ok(
+    templateInterpolations.length >= 1,
+    `expected at least one interpolation flag, got ${templateInterpolations.length}`,
+  );
+});
+
+test('checkArrayBody: flags multiline template literal with a ${} expression', () => {
+  // Template literal that spans multiple lines — the guard must still catch the ${}
+  const body = '`line one\n${value}\nline two`,';
+  const { templateInterpolations, whitespaceOnly, totalCount } = checkArrayBody(body);
+  assert.equal(totalCount, 1);
+  assert.equal(templateInterpolations.length, 1);
+  assert.equal(whitespaceOnly.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Integration — multi-expression, nested-backtick, and multiline templates
+// ---------------------------------------------------------------------------
+
+test('integration: exits 1 with interpolation warning for multi-expression template literal', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    '`Case ${num}: ${ruling}`',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /interpolation/);
+});
+
+test('integration: exits 1 with interpolation warning for multiline template literal with ${}', () => {
+  // Backtick template spans multiple lines
+  const src =
+    'export const RACCOON_COURT_RECORD = [\n' +
+    '  "Case #001: Motion denied. — Chief Justice 🦝",\n' +
+    '  `line one\n${value}\nline two`,\n' +
+    '] as const;\n';
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /interpolation/);
+});
+
 test('integration: exits 1 with interpolation warning for expression-containing template among valid entries', () => {
   const src = makeSource([
     '"Case #001: Motion denied. — Chief Justice 🦝"',
