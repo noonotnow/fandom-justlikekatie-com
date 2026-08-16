@@ -19,16 +19,7 @@ jobs:
           node-version: "22"
 
       - name: Install dependencies
-        run: |
-          npm ci 2>&1 | tee /tmp/npm-ci.log
-          STATUS=${PIPESTATUS[0]}
-          if [ $STATUS -ne 0 ]; then
-            echo "::error::npm ci failed (exit $STATUS). Output:"
-            tail -30 /tmp/npm-ci.log | while IFS= read -r line; do
-              echo "::error::$line"
-            done
-            exit $STATUS
-          fi
+        run: npm ci
 
       - name: Run app tests
         run: npm run test:app
