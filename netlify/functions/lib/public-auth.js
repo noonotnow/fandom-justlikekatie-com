@@ -19,6 +19,8 @@ class PublicError extends Error {
   }
 }
 
+const ADMIN_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export function createPublicAuth({
   env = process.env,
   getStore,
@@ -27,6 +29,20 @@ export function createPublicAuth({
   randomToken = () => randomBytes(32).toString("base64url"),
   fetchImpl = fetch,
 }) {
+  const adminEmails = [];
+  for (const entry of (env.FANDOM_ADMIN_EMAILS || "").split(",")) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const normalized = trimmed.toLowerCase();
+    if (normalized.length > 254 || !ADMIN_EMAIL_RE.test(normalized)) {
+      console.warn(
+        `[public-auth] FANDOM_ADMIN_EMAILS entry does not look like an email address and will be ignored: "${trimmed}"`
+      );
+    } else {
+      adminEmails.push(normalized);
+    }
+  }
+
   const stores = context => ({
     users: getStore("fandom-auth-users", context),
     magic: getStore("fandom-auth-magic-links", context),
@@ -124,10 +140,6 @@ export function createPublicAuth({
       requireMethod(req, "GET");
       const auth = await authenticateSession(req, stores(context), now());
       if (!auth) return json(200, { user: null });
-      const adminEmails = (env.FANDOM_ADMIN_EMAILS || "")
-        .split(",")
-        .map(e => e.trim().toLowerCase())
-        .filter(Boolean);
       const isAdmin = adminEmails.length > 0 && adminEmails.includes(auth.user.email);
       return json(200, { user: { ...publicUser(auth.user), isAdmin } });
     }),

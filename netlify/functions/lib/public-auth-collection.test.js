@@ -457,6 +457,90 @@ test("getSession returns isAdmin:true when FANDOM_ADMIN_EMAILS entry has leading
   assert.equal(body.user.isAdmin, true, "whitespace-padded env var entry should still grant admin");
 });
 
+test("createPublicAuth warns for each malformed entry in FANDOM_ADMIN_EMAILS", () => {
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  try {
+    createPublicAuth({
+      env: { FANDOM_ADMIN_EMAILS: "admin@example.com, not-an-email, another-bad, @example.com, a@b" },
+      getStore: () => memoryStore(),
+    });
+    assert.equal(warnings.length, 4, "should warn for each malformed entry (no-@, no-@, missing-local, no-dot)");
+    assert.match(warnings[0], /not-an-email/);
+    assert.match(warnings[1], /another-bad/);
+    assert.match(warnings[2], /@example\.com/);
+    assert.match(warnings[3], /a@b/);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("createPublicAuth does not warn when FANDOM_ADMIN_EMAILS contains only valid entries", () => {
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  try {
+    createPublicAuth({
+      env: { FANDOM_ADMIN_EMAILS: "admin@example.com, other@example.com" },
+      getStore: () => memoryStore(),
+    });
+    assert.equal(warnings.length, 0, "should not warn for clean entries");
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("createPublicAuth excludes malformed entries from the admin list so they cannot grant access", async () => {
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const sessionToken = "session-token-malformed-admin-exactly-32xx";
+  const sessionKey = `sessions/${createHash("sha256").update(sessionToken).digest("hex")}`;
+  const accountId = "usr_malformed_admin";
+  const sessionStore = getStore("fandom-auth-sessions");
+  const userStore = getStore("fandom-auth-users");
+  await sessionStore.setJSON(sessionKey, {
+    schemaVersion: 1,
+    sessionId: "sid-malformed",
+    accountId,
+    issuedAt: "2026-08-10T00:00:00Z",
+    expiresAt: "2027-08-10T00:00:00Z",
+    revokedAt: null,
+  });
+  await userStore.setJSON(`users/${accountId}`, {
+    schemaVersion: 1,
+    accountId,
+    email: "notanemail",
+    createdAt: "2026-08-10T00:00:00Z",
+    lastLoginAt: "2026-08-10T00:00:00Z",
+  });
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  let auth;
+  try {
+    auth = createPublicAuth({
+      env: {
+        FANDOM_AUTH_ID_SECRET: "secret",
+        FANDOM_ADMIN_EMAILS: "notanemail, @bad.com, a@b",
+      },
+      getStore,
+      now: () => new Date("2026-08-10T01:00:00Z"),
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
+  const res = await auth.getSession(request("/api/auth/session", {
+    method: "GET",
+    cookie: `__Host-fandom_session=${sessionToken}`,
+  }));
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.user.isAdmin, false, "malformed entries must not grant admin access");
+});
+
 test("collection sync rejects a stale tab when its expected account differs from the cookie session", async () => {
   const store = memoryStore();
   const handlers = createCollectionHandlers({
