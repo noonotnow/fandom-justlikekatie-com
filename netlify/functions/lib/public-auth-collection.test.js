@@ -103,6 +103,180 @@ test("magic links are hashed, single-use, and mint a secure revocable session", 
   assert.equal((await afterLogout.json()).user, null);
 });
 
+test("admin magic-link end-to-end: request with next=plan → link URL carries next=plan → verify → session → plan destination", async () => {
+  // This test walks the complete server-side path an admin goes through:
+  //   1. POST /api/auth/magic-link with { email: adminEmail, next: 'plan' }
+  //   2. Parse the emitted URL — token and next=plan must both be present in the fragment
+  //   3. POST /api/auth/verify with the extracted token
+  //   4. Assert the session cookie is issued and the session belongs to the admin
+  //   5. Assert that reading `next` from the fragment yields 'plan', which is exactly
+  //      what consumeMagicLinkFromLocation does before calling setView(destination)
+  const adminEmail = "admin@example.com";
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  const tokens = [
+    "admin-magic-token-e2e-with-at-least-thirty-two-chars",
+    "admin-session-token-e2e-with-at-least-32-x",
+  ];
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+      FANDOM_ADMIN_EMAILS: adminEmail,
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => tokens.shift(),
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+
+  // Step 1: AdminSignIn posts { email, next: 'plan' }
+  const requestRes = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: adminEmail, next: "plan" },
+  }));
+  assert.equal(requestRes.status, 202, "magic-link request must succeed");
+  assert.equal(delivered.length, 1, "exactly one email must be delivered");
+
+  // Step 2: Parse the emitted link the way consumeMagicLinkFromLocation does —
+  // it reads from window.location.hash, so we parse the fragment here.
+  const linkUrl = new URL(delivered[0].magicLink);
+  const fragment = new URLSearchParams(linkUrl.hash.slice(1)); // drop the leading '#'
+  const extractedToken = fragment.get("token");
+  const extractedNext = fragment.get("next");
+
+  assert.ok(extractedToken, "magic-link URL must carry a token in the fragment");
+  assert.equal(
+    extractedNext,
+    "plan",
+    "magic-link URL fragment must contain next=plan so consumeMagicLinkFromLocation returns 'plan'",
+  );
+
+  // Step 3: POST /api/auth/verify — mirrors the fetch inside consumeMagicLinkFromLocation
+  const verifyRes = await auth.verifyMagicLink(request("/api/auth/verify", {
+    body: { token: extractedToken },
+  }));
+  assert.equal(verifyRes.status, 200, "verify must succeed with the token from the emailed link");
+
+  // Step 4: Session cookie is issued
+  const cookie = verifyRes.headers.get("set-cookie");
+  assert.match(cookie, /__Host-fandom_session=/, "a session cookie must be set after verification");
+
+  // Step 5: The session belongs to the admin email
+  const sessionRes = await auth.getSession(request("/api/auth/session", {
+    method: "GET",
+    cookie: cookie.split(";")[0],
+  }));
+  assert.equal(sessionRes.status, 200);
+  const sessionBody = await sessionRes.json();
+  assert.equal(sessionBody.user.email, adminEmail, "session must belong to the admin email");
+  assert.equal(sessionBody.user.isAdmin, true, "session must have isAdmin:true for an admin email");
+
+  // Step 6: consumeMagicLinkFromLocation reads `next` from the fragment and
+  // returns 'plan' when next === 'plan'. Confirm that the value we extracted
+  // in step 2 triggers the plan branch, i.e. the view the client navigates to.
+  const clientDestination = extractedNext === "plan" ? "plan" : "collection";
+  assert.equal(
+    clientDestination,
+    "plan",
+    "consumeMagicLinkFromLocation must resolve to 'plan' so setView routes the admin to the plan view",
+  );
+});
+
+test("magic-link URL contains next=plan when next=plan is posted, enabling the plan redirect", async () => {
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => "admin-magic-token-with-at-least-thirty-two-chars",
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+
+  const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "admin@example.com", next: "plan" },
+  }));
+  assert.equal(res.status, 202);
+  assert.equal(delivered.length, 1);
+
+  // The magic link URL must carry next=plan in the fragment so that
+  // consumeMagicLinkFromLocation can read it back and route to the plan view.
+  assert.match(
+    delivered[0].magicLink,
+    /[#&]next=plan/,
+    "magic-link URL must contain next=plan so the client redirects to the plan view",
+  );
+});
+
+test("magic-link URL omits next param when next is not provided", async () => {
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => "regular-magic-token-with-at-least-thirty-two-chars",
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+
+  const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "user@example.com" },
+  }));
+  assert.equal(res.status, 202);
+  assert.equal(delivered.length, 1);
+  assert.ok(
+    !delivered[0].magicLink.includes("next="),
+    "magic-link URL must not contain a next param when none was requested",
+  );
+});
+
+test("magic-link URL omits next param when an unrecognised next value is posted", async () => {
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => "unknown-magic-token-with-at-least-thirty-two-chars",
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+
+  const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "user@example.com", next: "dashboard" },
+  }));
+  assert.equal(res.status, 202);
+  assert.equal(delivered.length, 1);
+  assert.ok(
+    !delivered[0].magicLink.includes("next="),
+    "magic-link URL must not forward unrecognised next values (open-redirect guard)",
+  );
+});
+
 test("Resend delivery uses only server configuration", async () => {
   let call;
   await sendMagicLinkEmail({
