@@ -10,6 +10,7 @@ import {
 export interface PublicUser {
   accountId: string;
   email: string;
+  isAdmin?: boolean;
 }
 
 export async function getPublicSession(): Promise<PublicUser | null> {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { dbAddToPlan } from '../../utils/planDB';
 import type { StarOfDayData } from '../../hooks/useStarOfDay';
 import type { GridItemData, ImageTier } from '../../types';
@@ -11,6 +11,7 @@ import {
   sendPlanHandoff,
 } from '../../utils/planHandoff';
 import { SERIES_OPTIONS } from '../../utils/series';
+import { useIsAdmin } from '../../hooks/useIsAdmin';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -34,19 +35,6 @@ type FrozenSelection =
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const PLATFORM_OPTIONS = ["Weibo", "Rednote", "WeChat", "Douyin"];
-
-// ── Helper: check admin access ────────────────────────────────────────────────
-
-function useIsAdmin(): boolean {
-  const [isAdmin, setIsAdmin] = useState(false);
-  useEffect(() => {
-    // Persist admin mode in sessionStorage so it survives client-side nav
-    const fromUrl = new URLSearchParams(window.location.search).get("admin") === "true";
-    if (fromUrl) sessionStorage.setItem("fandom_admin", "true");
-    setIsAdmin(fromUrl || sessionStorage.getItem("fandom_admin") === "true");
-  }, []);
-  return isAdmin;
-}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 

@@ -30,6 +30,7 @@ import {
 } from './utils/ideaPackets';
 import type { CardRecord, GridRecord } from './utils/collectionDB';
 import { consumeMagicLinkFromLocation } from './utils/publicAccount';
+import { useIsAdmin } from './hooks/useIsAdmin';
 import './App.css';
 
 /** Number of columns in the grid — used to calculate preview row insertion */
@@ -40,8 +41,7 @@ function App() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [dailyGridZoomOpen, setDailyGridZoomOpen] = useState(false);
   const [view, setView] = useState<'daily' | 'collection' | 'plan'>('daily');
-  const isAdmin = new URLSearchParams(window.location.search).get('admin') === 'true'
-    || sessionStorage.getItem('fandom_admin') === 'true';
+  const isAdmin = useIsAdmin();
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const { items: gridImages, meta, rawData, loading, error } = useStarOfDay();
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});

@@ -123,7 +123,13 @@ export function createPublicAuth({
     getSession: withErrors(async (req, context) => {
       requireMethod(req, "GET");
       const auth = await authenticateSession(req, stores(context), now());
-      return json(200, { user: auth ? publicUser(auth.user) : null });
+      if (!auth) return json(200, { user: null });
+      const adminEmails = (env.FANDOM_ADMIN_EMAILS || "")
+        .split(",")
+        .map(e => e.trim().toLowerCase())
+        .filter(Boolean);
+      const isAdmin = adminEmails.length > 0 && adminEmails.includes(auth.user.email);
+      return json(200, { user: { ...publicUser(auth.user), isAdmin } });
     }),
 
     logout: withErrors(async (req, context) => {
