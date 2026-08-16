@@ -59,6 +59,10 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
   const [showSaveNudge, setShowSaveNudge] = useState(false);
   // When true, a successful save should also trigger the onExported navigation.
   const [pendingNavAfterSave, setPendingNavAfterSave] = useState(false);
+  // Tracks the id of the last grid that was saved before a slot swap changed
+  // the proposal.  When the user saves after swapping, the stale record is
+  // removed first so only the latest version lives in the store.
+  const [priorSavedGridId, setPriorSavedGridId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,6 +94,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     setSwapSlot(null);
     setIsGridSaved(false);
     setSavedGridId(null);
+    setPriorSavedGridId(null);
     setShowSaveNudge(false);
     setPendingNavAfterSave(false);
   }
@@ -101,6 +106,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     setSwapSlot(null);
     setIsGridSaved(false);
     setSavedGridId(null);
+    setPriorSavedGridId(null);
     setShowSaveNudge(false);
     setPendingNavAfterSave(false);
     setNotice(next.slots.length < 9
@@ -120,6 +126,9 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
       return { slots, alternates, rationale: rebuildRationale(slots, lens, manualSwaps) };
     });
     setSwapSlot(null);
+    // Preserve the stale saved id so the next saveGrid call can remove the
+    // orphaned record.  The slot composition changed → the new hash will differ.
+    if (isGridSaved && savedGridId) setPriorSavedGridId(savedGridId);
     setIsGridSaved(false);
     setSavedGridId(null);
     setShowSaveNudge(false);
@@ -132,6 +141,13 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     setBusy('save');
     try {
       const grid = gridRecordFromProposal(proposal.slots, proposal.rationale);
+      // If the user edited slots after a previous save, the slot hash changed
+      // and this is a brand-new id.  Remove the orphaned prior record first so
+      // the store never holds two versions of the same conceptual grid.
+      if (priorSavedGridId && priorSavedGridId !== grid.id) {
+        await dbRemoveGrid(priorSavedGridId);
+        setPriorSavedGridId(null);
+      }
       await dbSaveGrid(grid);
       setIsGridSaved(true);
       setSavedGridId(grid.id);
@@ -156,6 +172,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
       await dbRemoveGrid(savedGridId);
       setIsGridSaved(false);
       setSavedGridId(null);
+      setPriorSavedGridId(null);
       setNotice('Removed from your collection.');
     } catch (caught) {
       setNotice(caught instanceof Error ? caught.message : 'Could not remove the grid.');

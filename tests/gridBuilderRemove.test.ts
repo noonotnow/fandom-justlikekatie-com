@@ -303,3 +303,100 @@ test('gridRecordFromProposal produces a stable id across repeated calls with ide
     'grid id should start with "builder-"',
   );
 });
+
+// ---------------------------------------------------------------------------
+// Slot-swap orphan tests (Task 40)
+// ---------------------------------------------------------------------------
+
+test('editing slots produces a different id — confirming the orphan scenario exists', () => {
+  const slotsV1 = makeSlots('original');
+  const slotsV2 = makeSlots('edited'); // different slot keys → different hash
+  const rationale = makeRationale();
+  const fixedDate = new Date('2026-08-16T10:00:00Z');
+
+  const recordV1 = gridRecordFromProposal(slotsV1, rationale, fixedDate);
+  const recordV2 = gridRecordFromProposal(slotsV2, rationale, fixedDate);
+
+  assert.notStrictEqual(
+    recordV1.id,
+    recordV2.id,
+    'different slot compositions must produce different ids (the orphan scenario is real)',
+  );
+});
+
+test('saving an edited grid after removing the prior version leaves exactly one record', async () => {
+  // Simulates the full flow:
+  //   1. User proposes → saves grid_v1 (slots_original)
+  //   2. User swaps a slot → new proposal with slots_edited
+  //   3. GridBuilder removes grid_v1 then saves grid_v2
+  //   4. Store must contain only grid_v2
+  const fixedDate = new Date('2026-08-16T10:00:00Z');
+  const rationaleV1 = makeRationale();
+  const rationaleV2 = makeRationale();
+
+  const slotsV1 = makeSlots('pre-swap');
+  const slotsV2 = makeSlots('post-swap');
+
+  const gridV1 = gridRecordFromProposal(slotsV1, rationaleV1, fixedDate);
+  const gridV2 = gridRecordFromProposal(slotsV2, rationaleV2, fixedDate);
+
+  // Confirm this is a genuine id change (the scenario under test is real).
+  assert.notStrictEqual(gridV1.id, gridV2.id, 'precondition: different slots must produce different ids');
+
+  // Step 1: initial save.
+  await dbSaveGrid(gridV1);
+  const afterFirstSave = await dbGetAllGrids();
+  assert.ok(afterFirstSave.some(g => g.id === gridV1.id), 'grid_v1 should be present after initial save');
+
+  // Step 2: GridBuilder removes the stale record (priorSavedGridId cleanup).
+  await dbRemoveGrid(gridV1.id);
+
+  // Step 3: save the edited version.
+  await dbSaveGrid(gridV2);
+
+  // Step 4: only grid_v2 should exist; grid_v1 must be gone.
+  const final = await dbGetAllGrids();
+
+  assert.ok(
+    final.some(g => g.id === gridV2.id),
+    'grid_v2 must be present after saving the edited version',
+  );
+  assert.ok(
+    !final.some(g => g.id === gridV1.id),
+    'grid_v1 must not remain in the store after the edited version was saved',
+  );
+
+  // Also confirm there is no duplication.
+  const matchingV2 = final.filter(g => g.id === gridV2.id);
+  assert.strictEqual(matchingV2.length, 1, 'exactly one record for grid_v2 should exist');
+});
+
+test('GridBuilder.tsx removes the prior saved grid id before saving after a slot swap — source-level assertion', async () => {
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(
+    new URL('../src/components/GridBuilder/GridBuilder.tsx', import.meta.url),
+    'utf8',
+  );
+
+  // priorSavedGridId state must exist.
+  assert.ok(
+    source.includes('priorSavedGridId'),
+    'GridBuilder must track priorSavedGridId to detect orphaned records',
+  );
+
+  // swapInto must capture the stale id before resetting savedGridId.
+  assert.ok(
+    source.includes('setPriorSavedGridId(savedGridId)'),
+    'swapInto must call setPriorSavedGridId(savedGridId) to preserve the stale id',
+  );
+
+  // saveGrid must remove the stale record when the id changed.
+  assert.ok(
+    source.includes('priorSavedGridId !== grid.id'),
+    'saveGrid must guard removal with priorSavedGridId !== grid.id',
+  );
+  assert.ok(
+    source.includes('await dbRemoveGrid(priorSavedGridId)'),
+    'saveGrid must await dbRemoveGrid(priorSavedGridId) to clean up the orphaned record',
+  );
+});
