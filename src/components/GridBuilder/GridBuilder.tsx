@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { dbGetAllCards, dbGetAllGrids, dbGetVisibleCards, dbGetVisibleGrids, dbSaveGrid, type GridRecord } from '../../utils/collectionDB';
+import { dbGetAllCards, dbGetAllGrids, dbGetVisibleCards, dbGetVisibleGrids, dbRemoveGrid, dbSaveGrid, type GridRecord } from '../../utils/collectionDB';
 import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
 import { saveShareCard, buildExportPayload, classifyEditionTier } from '../../utils/exportCanvas';
@@ -53,6 +53,8 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
   // Tracks whether the *current* proposal has been explicitly saved to the collection.
   // Resets to false whenever the proposal changes (re-propose, lens toggle, slot swap).
   const [isGridSaved, setIsGridSaved] = useState(false);
+  // Stores the id of the saved grid so it can be removed without re-deriving it.
+  const [savedGridId, setSavedGridId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,6 +85,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     setProposal(null);
     setSwapSlot(null);
     setIsGridSaved(false);
+    setSavedGridId(null);
   }
 
   function propose() {
@@ -91,6 +94,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     setProposal(next);
     setSwapSlot(null);
     setIsGridSaved(false);
+    setSavedGridId(null);
     setNotice(next.slots.length < 9
       ? `Only ${next.slots.length} cards match this lens — save more material or widen the lens.`
       : '');
@@ -109,6 +113,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     });
     setSwapSlot(null);
     setIsGridSaved(false);
+    setSavedGridId(null);
   }
 
   /** Persist the current grid to the local collection without rendering or sharing. */
@@ -119,9 +124,26 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
       const grid = gridRecordFromProposal(proposal.slots, proposal.rationale);
       await dbSaveGrid(grid);
       setIsGridSaved(true);
+      setSavedGridId(grid.id);
       setNotice('Grid saved to your collection.');
     } catch (caught) {
       setNotice(caught instanceof Error ? caught.message : 'Could not save the grid.');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  /** Remove the currently saved grid from the collection. */
+  async function removeGrid() {
+    if (!savedGridId || busy) return;
+    setBusy('remove');
+    try {
+      await dbRemoveGrid(savedGridId);
+      setIsGridSaved(false);
+      setSavedGridId(null);
+      setNotice('Removed from your collection.');
+    } catch (caught) {
+      setNotice(caught instanceof Error ? caught.message : 'Could not remove the grid.');
     } finally {
       setBusy('');
     }
@@ -141,6 +163,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
       if (!isGridSaved) {
         await dbSaveGrid(grid);
         setIsGridSaved(true);
+        setSavedGridId(grid.id);
       }
       const starData = starDataFromCollectionGrid(grid);
       const message = await saveShareCard(starData, 'full');
@@ -167,6 +190,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
       const grid = gridRecordFromProposal(proposal.slots, proposal.rationale);
       await dbSaveGrid(grid);
       setIsGridSaved(true);
+      setSavedGridId(grid.id);
       await onCreateFromGrid(grid);
       setNotice('Idea Packet started with the curation brief attached.');
       onPacketCreated?.();
@@ -262,6 +286,16 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
               >
                 {busy === 'save' ? 'Saving…' : isGridSaved ? '✓ Saved' : '💾 Save grid'}
               </button>
+              {isGridSaved && (
+                <button
+                  type="button"
+                  onClick={removeGrid}
+                  disabled={Boolean(busy)}
+                  title="Remove this grid from your collection"
+                >
+                  {busy === 'remove' ? 'Removing…' : 'Remove from collection'}
+                </button>
+              )}
               <button type="button" onClick={exportGrid} disabled={Boolean(busy) || proposal.slots.length !== 9}>
                 {busy === 'export' ? 'Exporting…' : '📤 Export share card'}
               </button>
