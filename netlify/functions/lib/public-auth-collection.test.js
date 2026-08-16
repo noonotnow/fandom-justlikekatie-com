@@ -1073,3 +1073,109 @@ test("concurrent verifyMagicLink: exactly one request gets a session and the oth
   assert.match(cookie, /HttpOnly/);
   assert.match(cookie, /Secure/);
 });
+
+test("verifyMagicLink returns 401 when the post-write re-read reveals a claim mismatch (second CAS guard)", async () => {
+  // Simulates the edge case where setJSON succeeds (onlyIfMatch passes) but another
+  // concurrent writer overtakes the store between the write and the follow-up read.
+  // The re-read (line 136 of public-auth.js) sees a different claim than the one
+  // just written, so verifyMagicLink must return 401 — no session is issued.
+  //
+  // We achieve this with a hand-crafted magic store whose getWithMetadata behaves
+  // differently on the second call for the token key:
+  //   call 1 (initial read)  → returns the "issued" entry with a valid etag
+  //   setJSON                → succeeds (returns { modified: true })
+  //   call 2 (post-write re-read) → returns the same key but with a DIFFERENT claim,
+  //                                  simulating an overtaking write
+  const delivered = [];
+  const magicToken = "claim-mismatch-magic-token-at-least-32-chars";
+  const issuedAt = new Date("2026-08-10T01:00:00Z");
+  const expiresAt = new Date(issuedAt.getTime() + 15 * 60 * 1000).toISOString();
+
+  // Precompute what the token key will be so we can intercept only that key.
+  const { createHash: _ch } = await import("node:crypto");
+  const tokenKey = `tokens/${_ch("sha256").update(magicToken).digest("hex")}`;
+
+  // Build the "issued" record that the first getWithMetadata call returns.
+  const issuedRecord = {
+    schemaVersion: 1,
+    accountId: "usr_claimtest",
+    email: "claimtest@example.com",
+    status: "issued",
+    issuedAt: issuedAt.toISOString(),
+    expiresAt,
+  };
+
+  let getWithMetadataCallCount = 0;
+
+  // Minimal store that serves the token key with controlled behaviour.
+  const claimMismatchMagicStore = {
+    async get(key) {
+      const entry = baseRecords.get(key);
+      return entry ? structuredClone(entry.data) : null;
+    },
+    async getWithMetadata(key) {
+      if (key === tokenKey) {
+        getWithMetadataCallCount += 1;
+        if (getWithMetadataCallCount === 1) {
+          // First call: return the "issued" entry so the token passes initial validation.
+          return { data: structuredClone(issuedRecord), etag: "etag-issued" };
+        }
+        // Second call (post-write re-read): return a consumed record with a DIFFERENT
+        // claim, simulating a concurrent writer that overtook our write.
+        return {
+          data: { ...issuedRecord, status: "consumed", claim: "a-different-claim-not-ours" },
+          etag: "etag-overtaken",
+        };
+      }
+      const entry = baseRecords.get(key);
+      return entry ? { data: structuredClone(entry.data), etag: entry.etag } : null;
+    },
+    async setJSON(key, value, options = {}) {
+      // Accept the write unconditionally for the token key (simulating a successful CAS).
+      // For all other keys (users, sessions) behave as a normal store.
+      if (key === tokenKey) return { modified: true };
+      const current = baseRecords.get(key);
+      if (options.onlyIfNew && current) return { modified: false };
+      if (options.onlyIfMatch && options.onlyIfMatch !== current?.etag) return { modified: false };
+      baseRevision += 1;
+      baseRecords.set(key, { data: structuredClone(value), etag: `etag-${baseRevision}` });
+      return { modified: true };
+    },
+    records: new Map(),
+  };
+
+  const baseRecords = new Map();
+  let baseRevision = 0;
+
+  const getStore = name => {
+    if (name === "fandom-auth-magic-links") return claimMismatchMagicStore;
+    // All other stores (users, sessions, rate-limits) are regular memory stores.
+    if (!otherStores.has(name)) otherStores.set(name, memoryStore());
+    return otherStores.get(name);
+  };
+  const otherStores = new Map();
+
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => magicToken,
+    now: () => issuedAt,
+  });
+
+  const res = await auth.verifyMagicLink(request("/api/auth/verify", {
+    body: { token: magicToken },
+  }));
+
+  assert.equal(res.status, 401, "claim mismatch on post-write re-read must return 401");
+  const body = await res.json();
+  assert.match(body.error, /invalid or expired/i, "error must say the link is invalid or expired");
+
+  // No session must have been created — the mismatch guard fired before session creation.
+  const sessionStore = otherStores.get("fandom-auth-sessions");
+  const sessionCount = sessionStore ? sessionStore.records.size : 0;
+  assert.equal(sessionCount, 0, "no session must be created when the claim mismatch guard fires");
+});
