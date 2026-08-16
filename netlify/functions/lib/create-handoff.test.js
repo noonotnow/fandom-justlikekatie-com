@@ -294,30 +294,6 @@ test("registers exact mixed PNGs in MEDIA and signs one canonical CREATE Draft",
     platforms: ["rednote"],
   });
 
-  test("upgrades legacy HTTP publisher links to HTTPS during handoff", async () => {
-    const current = packet();
-    current.sourceCards[0].sourceUrl = "http://publisher.example/one";
-    const store = memoryStore(current);
-    const mediaMetadata = [];
-    let envelope;
-    const handler = testHandler({
-      env: ENV,
-      getStore: () => store,
-      fetchImpl: async (url, init) => {
-        if (url === ENV.MEDIA_ASSETS_URL) {
-          mediaMetadata.push(JSON.parse(init.body.get("metadata")));
-          return Response.json({ data: mediaDescriptor(mediaMetadata.length) }, { status: 201 });
-        }
-        envelope = JSON.parse(init.body);
-        return Response.json(createReceipt(), { status: 201 });
-      },
-    });
-
-    const response = await handler(request(current));
-    assert.equal(response.status, 201);
-    assert.equal(mediaMetadata[0].sourceUrl, "https://publisher.example/one");
-    assert.equal(envelope.sourceCards[0].sourceUrl, "https://publisher.example/one");
-  });
   assert.equal("scheduledDate" in createCall.envelope, false);
   assert.equal(createCall.envelope.mediaAttachments[0].role, "cover");
   assert.equal(createCall.envelope.mediaAttachments[1].role, "slide");
@@ -330,6 +306,31 @@ test("registers exact mixed PNGs in MEDIA and signs one canonical CREATE Draft",
     .digest("hex");
   assert.equal(createCall.init.headers["X-Fandom-Signature"], `v1=${signature}`);
   assert.equal(createCall.init.headers["Idempotency-Key"], idempotencyKey);
+});
+
+test("upgrades legacy HTTP publisher links to HTTPS during handoff", async () => {
+  const current = packet();
+  current.sourceCards[0].sourceUrl = "http://publisher.example/one";
+  const store = memoryStore(current);
+  const mediaMetadata = [];
+  let envelope;
+  const handler = testHandler({
+    env: ENV,
+    getStore: () => store,
+    fetchImpl: async (url, init) => {
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        mediaMetadata.push(JSON.parse(init.body.get("metadata")));
+        return Response.json({ data: mediaDescriptor(mediaMetadata.length) }, { status: 201 });
+      }
+      envelope = JSON.parse(init.body);
+      return Response.json(createReceipt(), { status: 201 });
+    },
+  });
+
+  const response = await handler(request(current));
+  assert.equal(response.status, 201);
+  assert.equal(mediaMetadata[0].sourceUrl, "https://publisher.example/one");
+  assert.equal(envelope.sourceCards[0].sourceUrl, "https://publisher.example/one");
 });
 
 test("replays the same source version and relies on MEDIA checksum dedupe", async () => {
