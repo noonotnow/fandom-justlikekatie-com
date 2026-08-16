@@ -785,6 +785,116 @@ test("createPublicAuth excludes malformed entries from the admin list so they ca
   assert.equal(body.user.isAdmin, false, "malformed entries must not grant admin access");
 });
 
+test("verifyMagicLink returns 401 for an expired next=plan token (admin redirect is not silently granted)", async () => {
+  // An admin clicks a stale magic link (e.g. opened hours later from email).
+  // The server must reject the expired token with 401 so that the client-side
+  // catch path fires: the user lands on the collection view with an error
+  // notice rather than being granted a session on the plan view.
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  const issuedAt = new Date("2026-08-10T01:00:00Z");
+  const MAGIC_TTL_MS = 15 * 60 * 1000;
+  let nowTime = issuedAt;
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+      FANDOM_ADMIN_EMAILS: "admin@example.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => "expired-plan-magic-token-with-at-least-32chars",
+    now: () => nowTime,
+  });
+
+  // Issue a next=plan token — the link URL must carry next=plan in its fragment
+  const requestRes = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "admin@example.com", next: "plan" },
+  }));
+  assert.equal(requestRes.status, 202, "magic-link request must succeed");
+  assert.equal(delivered.length, 1, "one email must be delivered");
+  const linkUrl = new URL(delivered[0].magicLink);
+  const fragment = new URLSearchParams(linkUrl.hash.slice(1));
+  assert.equal(fragment.get("next"), "plan", "emitted link must carry next=plan in fragment");
+
+  // Advance time 1 ms past the TTL boundary — the token is now expired
+  nowTime = new Date(issuedAt.getTime() + MAGIC_TTL_MS + 1);
+
+  // The server must return 401: the client-side catch handler (not the success
+  // path) fires, writing an error notice to sessionStorage and routing to 'collection'
+  const verifyRes = await auth.verifyMagicLink(request("/api/auth/verify", {
+    body: { token: fragment.get("token") },
+  }));
+  assert.equal(verifyRes.status, 401, "verifyMagicLink must return 401 for an expired next=plan token");
+  const verifyBody = await verifyRes.json();
+  assert.match(
+    verifyBody.error,
+    /invalid or expired/i,
+    "error message must indicate the link is invalid or expired",
+  );
+});
+
+test("verifyMagicLink returns 401 when a consumed next=plan token is replayed (plan redirect is not granted twice)", async () => {
+  // An admin successfully signs in, then the same magic link is replayed
+  // (e.g. a stolen or bookmarked link). The second attempt must be rejected
+  // with 401 so the client-side catch path fires — no second session is issued
+  // and the plan view is not opened for the attacker.
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  const tokens = [
+    "replay-plan-magic-token-with-at-least-thirty-two-x",
+    "replay-plan-session-token-with-at-least-thirty-two",
+  ];
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+      FANDOM_ADMIN_EMAILS: "admin@example.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => tokens.shift(),
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+
+  // Issue a next=plan token — the emitted link must carry next=plan
+  const requestRes = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "admin@example.com", next: "plan" },
+  }));
+  assert.equal(requestRes.status, 202, "magic-link request must succeed");
+  assert.equal(delivered.length, 1, "one email must be delivered");
+  const linkUrl = new URL(delivered[0].magicLink);
+  const fragment = new URLSearchParams(linkUrl.hash.slice(1));
+  const magicToken = fragment.get("token");
+  assert.equal(fragment.get("next"), "plan", "emitted link must carry next=plan in fragment");
+
+  // First verification succeeds and consumes the token
+  const firstVerify = await auth.verifyMagicLink(request("/api/auth/verify", {
+    body: { token: magicToken },
+  }));
+  assert.equal(firstVerify.status, 200, "first verify must succeed and issue a session");
+
+  // Replaying the same next=plan token must be rejected — it is now consumed
+  const replay = await auth.verifyMagicLink(request("/api/auth/verify", {
+    body: { token: magicToken },
+  }));
+  assert.equal(replay.status, 401, "replaying a consumed next=plan token must return 401");
+  const replayBody = await replay.json();
+  assert.match(
+    replayBody.error,
+    /invalid or expired/i,
+    "replay error message must indicate the link is invalid or expired",
+  );
+});
+
 test("collection sync rejects a stale tab when its expected account differs from the cookie session", async () => {
   const store = memoryStore();
   const handlers = createCollectionHandlers({
