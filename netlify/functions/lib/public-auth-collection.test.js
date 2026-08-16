@@ -371,6 +371,92 @@ test("getSession returns isAdmin:false when FANDOM_ADMIN_EMAILS is unset", async
   assert.equal(body.user.isAdmin, false);
 });
 
+test("getSession returns isAdmin:true when FANDOM_ADMIN_EMAILS entry has mixed case", async () => {
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const sessionToken = "session-token-mixedcase-exactly-thirty-two-x";
+  const sessionKey = `sessions/${createHash("sha256").update(sessionToken).digest("hex")}`;
+  const accountId = "usr_mixedcase_account";
+  const sessionStore = getStore("fandom-auth-sessions");
+  const userStore = getStore("fandom-auth-users");
+  await sessionStore.setJSON(sessionKey, {
+    schemaVersion: 1,
+    sessionId: "sid-mixedcase",
+    accountId,
+    issuedAt: "2026-08-10T00:00:00Z",
+    expiresAt: "2027-08-10T00:00:00Z",
+    revokedAt: null,
+  });
+  await userStore.setJSON(`users/${accountId}`, {
+    schemaVersion: 1,
+    accountId,
+    email: "admin@example.com",
+    createdAt: "2026-08-10T00:00:00Z",
+    lastLoginAt: "2026-08-10T00:00:00Z",
+  });
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "secret",
+      FANDOM_ADMIN_EMAILS: "Admin@Example.com",
+    },
+    getStore,
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+  const res = await auth.getSession(request("/api/auth/session", {
+    method: "GET",
+    cookie: `__Host-fandom_session=${sessionToken}`,
+  }));
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.user.isAdmin, true, "mixed-case env var entry should still grant admin");
+});
+
+test("getSession returns isAdmin:true when FANDOM_ADMIN_EMAILS entry has leading/trailing whitespace", async () => {
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const sessionToken = "session-token-whitespace-exactly-thirty-two-x";
+  const sessionKey = `sessions/${createHash("sha256").update(sessionToken).digest("hex")}`;
+  const accountId = "usr_whitespace_account";
+  const sessionStore = getStore("fandom-auth-sessions");
+  const userStore = getStore("fandom-auth-users");
+  await sessionStore.setJSON(sessionKey, {
+    schemaVersion: 1,
+    sessionId: "sid-whitespace",
+    accountId,
+    issuedAt: "2026-08-10T00:00:00Z",
+    expiresAt: "2027-08-10T00:00:00Z",
+    revokedAt: null,
+  });
+  await userStore.setJSON(`users/${accountId}`, {
+    schemaVersion: 1,
+    accountId,
+    email: "admin@example.com",
+    createdAt: "2026-08-10T00:00:00Z",
+    lastLoginAt: "2026-08-10T00:00:00Z",
+  });
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "secret",
+      FANDOM_ADMIN_EMAILS: "  admin@example.com  ",
+    },
+    getStore,
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+  const res = await auth.getSession(request("/api/auth/session", {
+    method: "GET",
+    cookie: `__Host-fandom_session=${sessionToken}`,
+  }));
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.user.isAdmin, true, "whitespace-padded env var entry should still grant admin");
+});
+
 test("collection sync rejects a stale tab when its expected account differs from the cookie session", async () => {
   const store = memoryStore();
   const handlers = createCollectionHandlers({
