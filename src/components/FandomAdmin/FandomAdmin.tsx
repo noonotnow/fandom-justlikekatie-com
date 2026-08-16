@@ -15,7 +15,7 @@ import { setPlanOperatorToken } from '../../utils/planPosts';
 import { dbGetAllCards, dbGetAllGrids, type CardRecord, type GridRecord } from '../../utils/collectionDB';
 import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
 import { RACCOON_COURT_RECORD } from '../../data/raccoonCourtRecord';
-import { addCustomRuling, getCustomRulings, removeCustomRuling } from '../../utils/courtRulings';
+import { addCustomRuling, getAllRulings, getCustomRulings, removeCustomRuling } from '../../utils/courtRulings';
 import styles from './FandomAdmin.module.css';
 
 interface Props {
@@ -622,7 +622,7 @@ function AdminAccess({ onUnlock }: { onUnlock: (token: string) => Promise<void> 
   const [showLore, setShowLore] = useState(false);
   const [quoteIndex, setQuoteIndex] = useState(0);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const allRulings = [...RACCOON_COURT_RECORD, ...getCustomRulings()];
+  const allRulings = getAllRulings();
 
   function handleMouseEnter() {
     hoverTimer.current = setTimeout(() => {
