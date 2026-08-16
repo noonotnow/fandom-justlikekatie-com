@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { dbGetAllCards, dbGetAllGrids, dbGetVisibleCards, dbGetVisibleGrids, dbRemoveGrid, dbSaveGrid, type GridRecord } from '../../utils/collectionDB';
 import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
@@ -59,6 +59,22 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
   const [showSaveNudge, setShowSaveNudge] = useState(false);
   // When true, a successful save should also trigger the onExported navigation.
   const [pendingNavAfterSave, setPendingNavAfterSave] = useState(false);
+  // Tracks the id of the last grid that was saved before a slot swap changed
+  // the proposal.  When the user saves after swapping, the stale record is
+  // removed first so only the latest version lives in the store.
+  const [priorSavedGridId, setPriorSavedGridId] = useState<string | null>(null);
+  // Synchronous in-flight lock for startPacket.  React state setters do not
+  // update the captured closure value until the next render, so a second call
+  // that arrives before React flushes would not see busy==='packet' yet.
+  // A ref is set synchronously before the first await, guaranteeing re-entrant
+  // calls are blocked regardless of render timing.
+  const packetInFlight = useRef(false);
+  // Synchronous in-flight lock for exportGrid — same reasoning as packetInFlight.
+  // setBusy('export') schedules a React update but does not mutate the captured
+  // closure value, so a double-click in the same event-loop tick would pass the
+  // `|| busy` state guard and reach saveShareCard twice.  The ref is set before
+  // the first await and cleared in finally, giving a reliable synchronous barrier.
+  const exportInFlight = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,6 +106,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     setSwapSlot(null);
     setIsGridSaved(false);
     setSavedGridId(null);
+    setPriorSavedGridId(null);
     setShowSaveNudge(false);
     setPendingNavAfterSave(false);
   }
@@ -101,6 +118,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     setSwapSlot(null);
     setIsGridSaved(false);
     setSavedGridId(null);
+    setPriorSavedGridId(null);
     setShowSaveNudge(false);
     setPendingNavAfterSave(false);
     setNotice(next.slots.length < 9
@@ -120,6 +138,9 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
       return { slots, alternates, rationale: rebuildRationale(slots, lens, manualSwaps) };
     });
     setSwapSlot(null);
+    // Preserve the stale saved id so the next saveGrid call can remove the
+    // orphaned record.  The slot composition changed → the new hash will differ.
+    if (isGridSaved && savedGridId) setPriorSavedGridId(savedGridId);
     setIsGridSaved(false);
     setSavedGridId(null);
     setShowSaveNudge(false);
@@ -132,6 +153,13 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     setBusy('save');
     try {
       const grid = gridRecordFromProposal(proposal.slots, proposal.rationale);
+      // If the user edited slots after a previous save, the slot hash changed
+      // and this is a brand-new id.  Remove the orphaned prior record first so
+      // the store never holds two versions of the same conceptual grid.
+      if (priorSavedGridId && priorSavedGridId !== grid.id) {
+        await dbRemoveGrid(priorSavedGridId);
+        setPriorSavedGridId(null);
+      }
       await dbSaveGrid(grid);
       setIsGridSaved(true);
       setSavedGridId(grid.id);
@@ -156,6 +184,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
       await dbRemoveGrid(savedGridId);
       setIsGridSaved(false);
       setSavedGridId(null);
+      setPriorSavedGridId(null);
       setNotice('Removed from your collection.');
     } catch (caught) {
       setNotice(caught instanceof Error ? caught.message : 'Could not remove the grid.');
@@ -170,6 +199,13 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
    */
   async function exportGrid() {
     if (!proposal || proposal.slots.length !== 9 || busy) return;
+    // Synchronous re-entrant guard: setBusy schedules a React update but does
+    // not mutate the captured closure value until the next render.  A second
+    // call that arrives in the same event-loop tick (double-click) would pass
+    // the `|| busy` check above, so the ref provides a reliable synchronous
+    // barrier — identical to the pattern used in startPacket.
+    if (exportInFlight.current) return;
+    exportInFlight.current = true;
     const wasGridSaved = isGridSaved;
     setBusy('export');
     setNotice('正在生成分享卡……');
@@ -194,16 +230,29 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     } catch (caught) {
       setNotice(caught instanceof Error ? caught.message : '分享卡生成失败，再试一次？');
     } finally {
+      exportInFlight.current = false;
       setBusy('');
     }
   }
 
   async function startPacket() {
     if (!proposal || proposal.slots.length !== 9 || busy || !onCreateFromGrid) return;
+    // Synchronous re-entrant guard: the ref is set before any await, so a second
+    // call that arrives in the same event-loop tick (before React re-renders and
+    // the button disables) exits here without touching dbSaveGrid or onCreateFromGrid.
+    if (packetInFlight.current) return;
+    packetInFlight.current = true;
     setBusy('packet');
     setNotice('');
     try {
       const grid = gridRecordFromProposal(proposal.slots, proposal.rationale);
+      // If the user swapped a slot after a previous save, the slot hash changed
+      // and this is a brand-new id.  Remove the orphaned prior record first so
+      // the store never holds two versions of the same conceptual grid.
+      if (priorSavedGridId && priorSavedGridId !== grid.id) {
+        await dbRemoveGrid(priorSavedGridId);
+        setPriorSavedGridId(null);
+      }
       await dbSaveGrid(grid);
       setIsGridSaved(true);
       setSavedGridId(grid.id);
@@ -213,6 +262,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     } catch (caught) {
       setNotice(caught instanceof Error ? caught.message : 'Idea Packet could not be started.');
     } finally {
+      packetInFlight.current = false;
       setBusy('');
     }
   }

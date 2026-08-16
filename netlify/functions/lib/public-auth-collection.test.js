@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash, createHmac } from "node:crypto";
-import { createPublicAuth } from "./public-auth.js";
+import { createPublicAuth, pruneExpiredRateLimits } from "./public-auth.js";
 import { syncCollection } from "./collection-repository.js";
 import { createCollectionHandlers } from "./collection-api.js";
 import { sendMagicLinkEmail } from "./resend-email.js";
@@ -22,6 +22,12 @@ function memoryStore() {
       revision += 1;
       records.set(key, { data: structuredClone(value), etag: `etag-${revision}` });
       return { modified: true };
+    },
+    async list() {
+      return { blobs: [...records.keys()].map(key => ({ key })) };
+    },
+    async delete(key) {
+      records.delete(key);
     },
     records,
   };
@@ -1163,4 +1169,384 @@ test("concurrent verifyMagicLink: exactly one request gets a session and the oth
   assert.match(cookie, /__Host-fandom_session=/, "the winning request must receive a session cookie");
   assert.match(cookie, /HttpOnly/);
   assert.match(cookie, /Secure/);
+});
+
+test("verifyMagicLink returns 401 when the post-write re-read reveals a claim mismatch (second CAS guard)", async () => {
+  // Simulates the edge case where setJSON succeeds (onlyIfMatch passes) but another
+  // concurrent writer overtakes the store between the write and the follow-up read.
+  // The re-read (line 136 of public-auth.js) sees a different claim than the one
+  // just written, so verifyMagicLink must return 401 — no session is issued.
+  //
+  // We achieve this with a hand-crafted magic store whose getWithMetadata behaves
+  // differently on the second call for the token key:
+  //   call 1 (initial read)  → returns the "issued" entry with a valid etag
+  //   setJSON                → succeeds (returns { modified: true })
+  //   call 2 (post-write re-read) → returns the same key but with a DIFFERENT claim,
+  //                                  simulating an overtaking write
+  const delivered = [];
+  const magicToken = "claim-mismatch-magic-token-at-least-32-chars";
+  const issuedAt = new Date("2026-08-10T01:00:00Z");
+  const expiresAt = new Date(issuedAt.getTime() + 15 * 60 * 1000).toISOString();
+
+  // Precompute what the token key will be so we can intercept only that key.
+  const { createHash: _ch } = await import("node:crypto");
+  const tokenKey = `tokens/${_ch("sha256").update(magicToken).digest("hex")}`;
+
+  // Build the "issued" record that the first getWithMetadata call returns.
+  const issuedRecord = {
+    schemaVersion: 1,
+    accountId: "usr_claimtest",
+    email: "claimtest@example.com",
+    status: "issued",
+    issuedAt: issuedAt.toISOString(),
+    expiresAt,
+  };
+
+  let getWithMetadataCallCount = 0;
+
+  // Minimal store that serves the token key with controlled behaviour.
+  const claimMismatchMagicStore = {
+    async get(key) {
+      const entry = baseRecords.get(key);
+      return entry ? structuredClone(entry.data) : null;
+    },
+    async getWithMetadata(key) {
+      if (key === tokenKey) {
+        getWithMetadataCallCount += 1;
+        if (getWithMetadataCallCount === 1) {
+          // First call: return the "issued" entry so the token passes initial validation.
+          return { data: structuredClone(issuedRecord), etag: "etag-issued" };
+        }
+        // Second call (post-write re-read): return a consumed record with a DIFFERENT
+        // claim, simulating a concurrent writer that overtook our write.
+        return {
+          data: { ...issuedRecord, status: "consumed", claim: "a-different-claim-not-ours" },
+          etag: "etag-overtaken",
+        };
+      }
+      const entry = baseRecords.get(key);
+      return entry ? { data: structuredClone(entry.data), etag: entry.etag } : null;
+    },
+    async setJSON(key, value, options = {}) {
+      // Accept the write unconditionally for the token key (simulating a successful CAS).
+      // For all other keys (users, sessions) behave as a normal store.
+      if (key === tokenKey) return { modified: true };
+      const current = baseRecords.get(key);
+      if (options.onlyIfNew && current) return { modified: false };
+      if (options.onlyIfMatch && options.onlyIfMatch !== current?.etag) return { modified: false };
+      baseRevision += 1;
+      baseRecords.set(key, { data: structuredClone(value), etag: `etag-${baseRevision}` });
+      return { modified: true };
+    },
+    records: new Map(),
+  };
+
+  const baseRecords = new Map();
+  let baseRevision = 0;
+
+  const getStore = name => {
+    if (name === "fandom-auth-magic-links") return claimMismatchMagicStore;
+    // All other stores (users, sessions, rate-limits) are regular memory stores.
+    if (!otherStores.has(name)) otherStores.set(name, memoryStore());
+    return otherStores.get(name);
+  };
+  const otherStores = new Map();
+
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => magicToken,
+    now: () => issuedAt,
+  });
+
+  const res = await auth.verifyMagicLink(request("/api/auth/verify", {
+    body: { token: magicToken },
+  }));
+
+  assert.equal(res.status, 401, "claim mismatch on post-write re-read must return 401");
+  const body = await res.json();
+  assert.match(body.error, /invalid or expired/i, "error must say the link is invalid or expired");
+
+  // No session must have been created — the mismatch guard fired before session creation.
+  const sessionStore = otherStores.get("fandom-auth-sessions");
+  const sessionCount = sessionStore ? sessionStore.records.size : 0;
+  assert.equal(sessionCount, 0, "no session must be created when the claim mismatch guard fires");
+});
+
+test("rate-limit counter returns MAX_SAFE_INTEGER when all CAS retries fail, blocking email delivery", async () => {
+  // A limits store whose setJSON always reports a CAS conflict (modified: false).
+  // incrementLimit exhausts all 4 attempts and returns Number.MAX_SAFE_INTEGER,
+  // which isRateLimited treats as over-limit. No email must be delivered.
+  const alwaysConflictStore = {
+    async get() { return null; },
+    async getWithMetadata() { return null; },
+    async setJSON() { return { modified: false }; },
+  };
+
+  const delivered = [];
+  const getStore = name => {
+    if (name === "fandom-auth-rate-limits") return alwaysConflictStore;
+    // Other stores are unused in this path, but provide a no-op fallback.
+    return memoryStore();
+  };
+
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => "rate-limit-test-token-at-least-thirty-two-chars",
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+
+  const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "user@example.com" },
+  }));
+
+  // The endpoint always returns 202 (silent path) regardless of rate-limiting,
+  // so callers cannot probe whether they are limited.
+  assert.equal(res.status, 202, "requestMagicLink must return 202 even when rate-limited");
+
+  // But no email must have been delivered — the all-retries-exhausted fallback
+  // (Number.MAX_SAFE_INTEGER) must have caused isRateLimited to return true.
+  assert.equal(
+    delivered.length,
+    0,
+    "no email must be sent when all CAS retries fail — MAX_SAFE_INTEGER count enforces the limit",
+  );
+});
+
+test("rate-limit window resets: a rate-limited email can request a new magic link in the next window", async () => {
+  // The rate-limit key includes the 15-minute window number derived from
+  // Math.floor(now.getTime() / windowMs). When the clock advances into a new
+  // window the key changes, the counter starts fresh, and a previously-limited
+  // address must be able to receive a magic link again.
+  //
+  // This test exhausts the per-email limit (5 requests) in window N, confirms
+  // no 6th email is delivered in that window, then moves the clock into window
+  // N+1 and confirms a new magic link is delivered.
+  const WINDOW_MS = 15 * 60 * 1000;
+  const windowNStart = new Date("2026-08-10T00:00:00Z"); // start of an arbitrary window N
+
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  let nowTime = windowNStart;
+  let tokenCounter = 0;
+
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    // Each call needs a distinct token so magic-store onlyIfNew writes don't
+    // conflict with earlier tokens for the same digest.
+    randomToken: () => `window-reset-token-${++tokenCounter}-padding-to-reach-32`,
+    now: () => nowTime,
+  });
+
+  const makeRequest = () => auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "limited@example.com" },
+  }));
+
+  // Exhaust the per-email limit: 5 successful deliveries, then requests 6–7
+  // are silently suppressed (still 202, but no email).
+  for (let i = 0; i < 5; i += 1) {
+    const res = await makeRequest();
+    assert.equal(res.status, 202, `request ${i + 1} in window N must return 202`);
+  }
+  assert.equal(delivered.length, 5, "exactly 5 emails must be delivered before the limit kicks in");
+
+  // 6th request in the same window — rate-limited, no email
+  const limitedRes = await makeRequest();
+  assert.equal(limitedRes.status, 202, "rate-limited request must still return 202 (silent)");
+  assert.equal(delivered.length, 5, "no 6th email must be sent in window N — rate limit is active");
+
+  // Advance the clock into window N+1. The window key changes, so the counter
+  // resets and the previously-limited address should be able to receive mail again.
+  nowTime = new Date(windowNStart.getTime() + WINDOW_MS);
+
+  const windowNPlusOneRes = await makeRequest();
+  assert.equal(windowNPlusOneRes.status, 202, "request in window N+1 must return 202");
+  assert.equal(
+    delivered.length,
+    6,
+    "a 6th email must be delivered in window N+1 — the rate-limit window has reset",
+  );
+  assert.equal(
+    delivered[5].email,
+    "limited@example.com",
+    "the email delivered in window N+1 must go to the previously-limited address",
+  );
+});
+
+test("rate-limit window resets: a rate-limited IP can request a new magic link in the next window", async () => {
+  // The per-IP rate-limit key is ip/<hmac(ip, secret)>/<window>.
+  // When the clock advances into a new 15-minute window the key changes,
+  // the counter starts fresh at 0, and a previously-blocked IP must be able
+  // to receive a magic link again.
+  //
+  // This test exhausts the per-IP limit (20 requests) in window N using distinct
+  // email addresses so the per-email counter (limit: 5) never triggers, confirms
+  // no 21st email is delivered in that window, then moves the clock into window
+  // N+1 and confirms a new magic link is delivered from that IP.
+  const WINDOW_MS = 15 * 60 * 1000;
+  const windowNStart = new Date("2026-08-10T00:00:00Z"); // start of an arbitrary window N
+  const clientIp = "203.0.113.42"; // fixed IP that will exhaust the limit
+
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  let nowTime = windowNStart;
+  let tokenCounter = 0;
+
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    // Each call gets a distinct token so magic-store onlyIfNew writes don't
+    // conflict with earlier tokens sharing the same digest.
+    randomToken: () => `ip-window-reset-token-${++tokenCounter}-pad-to-32`,
+    now: () => nowTime,
+  });
+
+  // Each request comes from the same IP but a unique email address so the
+  // per-email counter (limit: 5) never triggers — only the IP counter matters.
+  const makeRequest = (i) => auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: `user${i}@example.com` },
+    headers: { "x-nf-client-connection-ip": clientIp },
+  }));
+
+  // Exhaust the per-IP limit: 20 successful deliveries.
+  for (let i = 1; i <= 20; i += 1) {
+    const res = await makeRequest(i);
+    assert.equal(res.status, 202, `request ${i} in window N must return 202`);
+  }
+  assert.equal(delivered.length, 20, "exactly 20 emails must be delivered before the IP limit kicks in");
+
+  // 21st request in the same window — IP is rate-limited, no email sent.
+  const limitedRes = await makeRequest(21);
+  assert.equal(limitedRes.status, 202, "rate-limited IP request must still return 202 (silent)");
+  assert.equal(delivered.length, 20, "no 21st email must be sent in window N — IP rate limit is active");
+
+  // Advance the clock into window N+1. The IP key changes because the window
+  // number changes, so the counter resets and the IP can receive mail again.
+  nowTime = new Date(windowNStart.getTime() + WINDOW_MS);
+
+  const windowNPlusOneRes = await makeRequest(22);
+  assert.equal(windowNPlusOneRes.status, 202, "request in window N+1 from the same IP must return 202");
+  assert.equal(
+    delivered.length,
+    21,
+    "a 21st email must be delivered in window N+1 — the IP rate-limit window has reset",
+  );
+  assert.equal(
+    delivered[20].email,
+    "user22@example.com",
+    "the email delivered in window N+1 must go to the address requested by the previously-limited IP",
+  );
+});
+
+test("rate-limit entry with a past expiresAt is treated as absent so expired counts do not block requests", async () => {
+  // Verify that incrementLimit ignores a stored entry whose expiresAt has already
+  // elapsed.  We pre-seed the limits store with a count of 6 (above the email
+  // threshold of 5) but stamp it with an expiresAt one millisecond before `now`.
+  // If the expiry check works, the entry is discarded and the new count starts at 1,
+  // so the email is delivered.  If the check is absent the request would be silently
+  // suppressed (still 202 but no email).
+  const WINDOW_MS = 15 * 60 * 1000;
+  const now = new Date("2026-08-10T01:15:00Z");
+  const secret = "identity-secret";
+  const email = "expiry-test@example.com";
+
+  // Compute the exact key that isRateLimited will look up for this email + window.
+  const window = Math.floor(now.getTime() / WINDOW_MS);
+  const emailHmac = createHmac("sha256", secret).update(email).digest("base64url");
+  const emailKey = `email/${emailHmac}/${window}`;
+
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+
+  // Pre-seed the limits store with a count above the threshold (6 > 5) but
+  // with expiresAt one millisecond before `now` so it should be treated as absent.
+  const limitsStore = getStore("fandom-auth-rate-limits");
+  await limitsStore.setJSON(emailKey, {
+    count: 6,
+    updatedAt: new Date(now.getTime() - 60_000).toISOString(),
+    expiresAt: new Date(now.getTime() - 1).toISOString(), // expired
+  });
+
+  const delivered = [];
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: secret,
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => "expiry-test-magic-token-at-least-thirty-two-x",
+    now: () => now,
+  });
+
+  const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email },
+  }));
+  assert.equal(res.status, 202, "request must return 202");
+  assert.equal(
+    delivered.length,
+    1,
+    "email must be delivered — the expired entry must be treated as absent, not as count=6",
+  );
+
+  // The new entry written for this window must carry an expiresAt in the future.
+  const updated = await limitsStore.getWithMetadata(emailKey);
+  assert.ok(
+    updated?.data?.expiresAt,
+    "the new entry must store an expiresAt field to enable future cleanup",
+  );
+  assert.ok(
+    Date.parse(updated.data.expiresAt) > now.getTime(),
+    "the stored expiresAt must be in the future relative to the current window",
+  );
+});
+
+test("pruneExpiredRateLimits physically deletes expired entries and leaves non-expired ones intact", async () => {
+  // Confirm that the cleanup sweep removes keys whose expiresAt has elapsed and
+  // does not touch keys whose expiresAt is still in the future.
+  const store = memoryStore();
+  const pruneNow = new Date("2026-08-10T02:00:00Z");
+  const past = new Date(pruneNow.getTime() - 1).toISOString();        // expired
+  const future = new Date(pruneNow.getTime() + 60_000).toISOString(); // still live
+
+  // Seed two expired entries and one that is not yet expired.
+  await store.setJSON("email/hash-a/100", { count: 3, updatedAt: past, expiresAt: past });
+  await store.setJSON("ip/hash-b/100",    { count: 1, updatedAt: past, expiresAt: past });
+  await store.setJSON("email/hash-c/101", { count: 2, updatedAt: past, expiresAt: future });
+
+  const deleted = await pruneExpiredRateLimits(store, pruneNow);
+
+  assert.equal(deleted, 2, "exactly 2 expired entries must be deleted");
+  assert.equal(store.records.has("email/hash-a/100"), false, "first expired entry must be gone");
+  assert.equal(store.records.has("ip/hash-b/100"),    false, "second expired entry must be gone");
+  assert.equal(store.records.has("email/hash-c/101"), true,  "non-expired entry must remain");
 });

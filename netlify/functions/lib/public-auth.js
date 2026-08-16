@@ -19,6 +19,8 @@ class PublicError extends Error {
   }
 }
 
+const ADMIN_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export function createPublicAuth({
   env = process.env,
   getStore,
@@ -27,6 +29,41 @@ export function createPublicAuth({
   randomToken = () => randomBytes(32).toString("base64url"),
   fetchImpl = fetch,
 }) {
+  if (env.FANDOM_AUTH_ID_SECRET === undefined) {
+    console.warn(
+      "[public-auth] FANDOM_AUTH_ID_SECRET is not set — magic-link sign-in will fail at request time. " +
+      "Set this variable to a random secret string."
+    );
+  }
+
+  if (env.FANDOM_PUBLIC_ORIGIN === undefined) {
+    console.warn(
+      "[public-auth] FANDOM_PUBLIC_ORIGIN is not set — magic-link URLs will be broken at request time. " +
+      "Set this variable to the public origin of the app (e.g. https://example.com)."
+    );
+  }
+
+  if (env.FANDOM_ADMIN_EMAILS === undefined) {
+    console.warn(
+      "[public-auth] FANDOM_ADMIN_EMAILS is not set — no one will have admin access. " +
+      "Set this variable to a comma-separated list of admin email addresses."
+    );
+  }
+
+  const adminEmails = [];
+  for (const entry of (env.FANDOM_ADMIN_EMAILS || "").split(",")) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const normalized = trimmed.toLowerCase();
+    if (normalized.length > 254 || !ADMIN_EMAIL_RE.test(normalized)) {
+      console.warn(
+        `[public-auth] FANDOM_ADMIN_EMAILS entry does not look like an email address and will be ignored: "${trimmed}"`
+      );
+    } else {
+      adminEmails.push(normalized);
+    }
+  }
+
   const stores = context => ({
     users: getStore("fandom-auth-users", context),
     magic: getStore("fandom-auth-magic-links", context),
@@ -39,8 +76,10 @@ export function createPublicAuth({
       requireMethod(req, "POST");
       validateSameOrigin(req);
       requireConfiguration(env, ["FANDOM_AUTH_ID_SECRET", "FANDOM_PUBLIC_ORIGIN"]);
-      const { email } = await readJson(req);
+      const { email, next } = await readJson(req);
       const normalizedEmail = normalizeEmail(email);
+      // Only a strict allowlist of destinations is honoured; anything else is ignored.
+      const nextView = next === "plan" ? "plan" : null;
       const current = now();
       const { magic, limits } = stores(context);
       const limited = await isRateLimited(limits, req, normalizedEmail, env.FANDOM_AUTH_ID_SECRET, current);
@@ -57,11 +96,12 @@ export function createPublicAuth({
           expiresAt: new Date(current.getTime() + MAGIC_TTL_MS).toISOString(),
         }, { onlyIfNew: true });
         const origin = new URL(env.FANDOM_PUBLIC_ORIGIN).origin;
+        const nextParam = nextView ? `&next=${encodeURIComponent(nextView)}` : "";
         await sendEmail({
           env,
           fetchImpl,
           email: normalizedEmail,
-          magicLink: `${origin}/auth/verify#token=${encodeURIComponent(token)}`,
+          magicLink: `${origin}/auth/verify#token=${encodeURIComponent(token)}${nextParam}`,
         });
       }
       return json(202, { message: "If that address can receive mail, a sign-in link is on its way." });
@@ -124,10 +164,6 @@ export function createPublicAuth({
       requireMethod(req, "GET");
       const auth = await authenticateSession(req, stores(context), now());
       if (!auth) return json(200, { user: null });
-      const adminEmails = (env.FANDOM_ADMIN_EMAILS || "")
-        .split(",")
-        .map(e => e.trim().toLowerCase())
-        .filter(Boolean);
       const isAdmin = adminEmails.length > 0 && adminEmails.includes(auth.user.email);
       return json(200, { user: { ...publicUser(auth.user), isAdmin } });
     }),
@@ -153,6 +189,17 @@ export function createPublicAuth({
       if (!auth) throw new PublicError("Sign in is required.", 401);
       return auth;
     },
+
+    // Like authenticate, but additionally requires the session's email to be
+    // on the FANDOM_ADMIN_EMAILS allowlist. Use for admin-only mutations.
+    authenticateAdmin: async (req, context) => {
+      const auth = await authenticateSession(req, stores(context), now());
+      if (!auth) throw new PublicError("Sign in is required.", 401);
+      if (adminEmails.length === 0 || !adminEmails.includes(auth.user.email)) {
+        throw new PublicError("Admin access is required.", 403);
+      }
+      return auth;
+    },
   };
 }
 
@@ -173,25 +220,37 @@ async function authenticateSession(req, stores, current, includeExpired = false)
 async function isRateLimited(store, req, email, secret, current) {
   const windowMs = 15 * 60 * 1000;
   const window = Math.floor(current.getTime() / windowMs);
+  const windowEnd = new Date((window + 1) * windowMs);
   const ip = req.headers.get("x-nf-client-connection-ip") || "unknown";
   const emailKey = `email/${hmac(email, secret)}/${window}`;
   const ipKey = `ip/${hmac(ip, secret)}/${window}`;
   const [emailCount, ipCount] = await Promise.all([
-    incrementLimit(store, emailKey, current),
-    incrementLimit(store, ipKey, current),
+    incrementLimit(store, emailKey, current, windowEnd),
+    incrementLimit(store, ipKey, current, windowEnd),
   ]);
   return emailCount > 5 || ipCount > 20;
 }
 
-async function incrementLimit(store, key, current) {
+async function incrementLimit(store, key, current, windowEnd) {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const entry = await getWithMetadata(store, key);
-    const next = { count: (entry?.data?.count || 0) + 1, updatedAt: current.toISOString() };
-    const result = await store.setJSON(
-      key,
-      next,
-      entry?.etag ? { onlyIfMatch: entry.etag } : { onlyIfNew: true },
-    );
+    // Treat entries whose expiresAt is in the past as absent so stale keys are
+    // never counted, even if they were not physically deleted from the store.
+    const isExpired = entry?.data?.expiresAt
+      && Date.parse(entry.data.expiresAt) <= current.getTime();
+    const effectiveEntry = isExpired ? null : entry;
+    const next = {
+      count: (effectiveEntry?.data?.count || 0) + 1,
+      updatedAt: current.toISOString(),
+      expiresAt: windowEnd.toISOString(),
+    };
+    // Use the physical entry's etag for the CAS write whether the entry is live
+    // or expired — onlyIfNew would fail for an expired key that still exists in
+    // storage.  Only fall back to onlyIfNew when no physical record exists yet.
+    const writeOptions = entry?.etag
+      ? { onlyIfMatch: entry.etag }
+      : { onlyIfNew: true };
+    const result = await store.setJSON(key, next, writeOptions);
     if (result?.modified !== false) return next.count;
   }
   return Number.MAX_SAFE_INTEGER;
@@ -241,7 +300,12 @@ function sha256(value) {
 }
 
 function requireConfiguration(env, keys) {
-  if (keys.some(key => !env[key])) throw new Error("Fandom auth is not configured.");
+  const missing = keys.filter(key => !env[key]);
+  if (missing.length > 0) {
+    throw new Error(
+      `Fandom auth is not configured. Missing environment variable${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}.`
+    );
+  }
 }
 
 function requireMethod(req, method) {
@@ -280,6 +344,42 @@ async function getWithMetadata(store, key) {
   }
   const data = await store.get(key, { type: "json", consistency: "strong" });
   return data ? { data } : null;
+}
+
+// Deletes every entry in a rate-limits store whose `expiresAt` is at or before
+// `current`.  Call this from a periodic scheduled function to prevent unbounded
+// key accumulation.  Safe to run concurrently with live traffic: deleting a key
+// that a concurrent request is about to read causes that request to start a
+// fresh counter at 1, which is the correct behaviour.
+//
+// Returns the number of entries deleted.
+export async function pruneExpiredRateLimits(store, current) {
+  if (typeof store.list !== "function" || typeof store.delete !== "function") return 0;
+  const blobs = await listAllKeys(store);
+  let deleted = 0;
+  for (const { key } of blobs) {
+    try {
+      const entry = await store.get(key, { type: "json", consistency: "strong" });
+      if (entry?.expiresAt && Date.parse(entry.expiresAt) <= current.getTime()) {
+        await store.delete(key);
+        deleted += 1;
+      }
+    } catch (error) {
+      console.error("[public-auth] failed to prune rate-limit entry", key, error);
+    }
+  }
+  return deleted;
+}
+
+async function listAllKeys(store) {
+  const listing = store.list({ paginate: true });
+  if (listing && typeof listing[Symbol.asyncIterator] === "function") {
+    const blobs = [];
+    for await (const page of listing) blobs.push(...(page.blobs || []));
+    return blobs;
+  }
+  const page = await listing;
+  return page?.blobs || [];
 }
 
 export function secureEqual(actual, expected) {

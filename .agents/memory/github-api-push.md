@@ -2,7 +2,7 @@
 name: GitHub API push protocol
 description: How to push to GitHub from this repl safely (git push auth fails; API-only), and the corruption trap to avoid
 ---
-Pushes go through the GitHub connector's git data API (blobs → tree → commit → ref); shell `git push` fails auth.
+Shell `git push` WORKS when the URL embeds the PAT: `git push "https://x-access-token:${GITHUB_PAT}@github.com/<owner>/<repo>.git" <branch>` (verified 2026-08-16). Prefer this for normal pushes; the connector git-data API path below is the fallback when no PAT is available. Note: GraphQL `createCommitOnBranch` via the connector cannot touch `.github/workflows/` files (needs `workflow` scope → FORBIDDEN); the PAT push handles those fine.
 
 **Rule:** never collect file content via shellExec output (base64 or otherwise) — the sandbox mangles output (strips tabs, adds \r) and silently head/tail-truncates beyond maxOutputBytes, which once corrupted all 20 pushed files and shipped a broken deploy.
 

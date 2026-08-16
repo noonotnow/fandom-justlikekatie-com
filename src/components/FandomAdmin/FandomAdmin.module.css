@@ -185,6 +185,36 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 
 @keyframes pulse { 50% { opacity: .45; } }
 
+.courtEditor { padding: 24px 0; }
+.courtHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--admin-border);
+  margin-bottom: 20px;
+}
+.courtHeader h3 { margin: 0; }
+.courtHeader p { margin: 4px 0 0; color: var(--admin-muted); font-size: 13px; }
+.courtCount { color: var(--admin-muted); font-size: 12px; white-space: nowrap; }
+
+.courtForm { display: grid; gap: 10px; margin-bottom: 28px; }
+.courtForm button { justify-self: start; min-height: 40px; padding: 0 16px; border: 1px solid var(--admin-border); border-radius: 8px; background: #c9a96e; color: #15120e; font-size: 13px; }
+.courtForm button:disabled { opacity: .45; cursor: not-allowed; }
+.courtLabel { display: grid; gap: 5px; }
+.courtLabel > span { color: var(--admin-muted); font-size: 12px; }
+.courtTextarea { resize: vertical; border: 1px solid var(--admin-border); border-radius: 8px; background: color-mix(in srgb, Canvas 94%, currentColor 6%); color: inherit; padding: 9px 10px; font: inherit; font-size: 13px; }
+
+.courtList { margin-bottom: 24px; }
+.courtList h4 { margin: 0 0 10px; font-size: 13px; color: var(--admin-muted); font-weight: 600; }
+.courtList ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.courtList li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; border-top: 1px solid var(--admin-border); padding-top: 6px; font-size: 13px; }
+.courtList li span { line-height: 1.45; }
+.courtList li button { min-height: 34px; padding: 5px 10px; border: 1px solid var(--admin-border); border-radius: 7px; background: transparent; color: inherit; font-size: 12px; }
+.courtBuiltIn { opacity: .6; }
+.courtBuiltIn span { font-style: italic; }
+
 @media (max-width: 760px) {
   .header, .sectionHeading, .handoff { align-items: stretch; flex-direction: column; }
   .tabs { width: 100%; }

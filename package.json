@@ -6,12 +6,13 @@
   "description": "Fandom Vibe Atlas — React app + Netlify Functions, deployed at fandom.justlikekatie.com",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/check-court-record.js && tsc -b && vite build",
     "preview": "vite preview",
-    "lint": "oxlint",
-    "test": "npm run test:app && npm run test:functions",
+    "lint": "oxlint && node scripts/check-court-record.js",
+    "test": "npm run test:app && npm run test:functions && npm run test:scripts",
     "test:app": "node --import tsx/esm --test tests/*.test.ts",
-    "test:functions": "node --test netlify/functions/lib/*.test.js"
+    "test:functions": "node --test netlify/functions/lib/*.test.js",
+    "test:scripts": "node --test scripts/*.test.js"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.12",

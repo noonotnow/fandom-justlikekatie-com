@@ -60,8 +60,13 @@ function App() {
   useEffect(() => {
     void Promise.all([migrateBookmarks(), migrateLegacyGridHistory()]);
     void consumeMagicLinkFromLocation()
-      .then(consumed => {
-        if (consumed) setView('collection');
+      .then(destination => {
+        if (destination) {
+          // Recheck the admin session with the freshly-issued cookie so that
+          // useIsAdmin transitions to isAdmin=true before the plan view renders.
+          recheckAdmin();
+          setView(destination);
+        }
       })
       .catch(error => {
         sessionStorage.setItem(
@@ -404,7 +409,7 @@ function AdminSignIn() {
     setBusy(true);
     setNotice('');
     try {
-      const message = await requestMagicLink(email);
+      const message = await requestMagicLink(email, 'plan');
       setNotice(message);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not send the sign-in link.');
