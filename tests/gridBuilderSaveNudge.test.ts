@@ -30,6 +30,10 @@ const source = readFileSync(
   path.join(__dirname, '../src/components/GridBuilder/GridBuilder.tsx'),
   'utf8',
 );
+const collectionSource = readFileSync(
+  path.join(__dirname, '../src/components/Collection/Collection.tsx'),
+  'utf8',
+);
 
 // ---------------------------------------------------------------------------
 // Helper: extract a single top-level function body bounded by brace matching.
@@ -82,6 +86,10 @@ const toggleBody      = extractFunctionBody(source, 'function toggle(');
 const proposeBody     = extractFunctionBody(source, 'function propose(');
 const swapIntoBody    = extractFunctionBody(source, 'function swapInto(');
 const saveNudgeJsx    = extractJsxBlock(source, '{showSaveNudge &&');
+
+// Brace-extract the if (pendingNavAfterSave) { ... } guard block from saveGrid.
+// This uses the same brace-matching helper so containment is structural, not positional.
+const pendingNavBlock = extractFunctionBody(saveGridBody, 'if (pendingNavAfterSave) {');
 
 // ---------------------------------------------------------------------------
 // exportGrid — nudge appears after export-without-save
@@ -269,5 +277,78 @@ test('removeGrid() does not touch showSaveNudge state', () => {
   assert.ok(
     !removeGridBody.includes('setShowSaveNudge'),
     'removeGrid() must not reference setShowSaveNudge — nudge is not related to removal',
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Deferred navigation: onExported is called after save when pendingNavAfterSave
+// is true, and is NOT called when the nudge is dismissed before saving.
+//
+// Both tests use pendingNavBlock — the brace-extracted body of the
+// if (pendingNavAfterSave) { … } guard — so containment is proved
+// structurally rather than inferred from text order.
+// ---------------------------------------------------------------------------
+
+test('saveGrid() calls onExported inside the brace-bounded if (pendingNavAfterSave) block', () => {
+  // pendingNavBlock is the brace-matched content of if (pendingNavAfterSave) { … }
+  // extracted from saveGridBody.  If onExported?.() is in there, it is gated.
+  assert.ok(
+    pendingNavBlock.includes('onExported?.()'),
+    'onExported?.() must be inside the brace-bounded if (pendingNavAfterSave) block in saveGrid()',
+  );
+});
+
+test('saveGrid() does not call onExported outside the pendingNavAfterSave guard', () => {
+  // Remove the entire guard block from saveGrid; onExported must not survive.
+  const remainder = saveGridBody.replace(pendingNavBlock, '');
+  assert.ok(
+    !remainder.includes('onExported?.()'),
+    'onExported?.() must not appear anywhere in saveGrid() outside the pendingNavAfterSave guard',
+  );
+});
+
+test('dismissing the nudge via any proposal mutation resets pendingNavAfterSave so saveGrid skips onExported', () => {
+  // Each mutation that can dismiss the nudge must call setPendingNavAfterSave(false).
+  // Combined with the guard test above, this proves the full negative path:
+  //   mutation → pendingNavAfterSave=false → guard skipped → onExported not called.
+  const mutators: Array<[string, string]> = [
+    ['toggle', toggleBody],
+    ['propose', proposeBody],
+    ['swapInto', swapIntoBody],
+  ];
+  for (const [name, body] of mutators) {
+    assert.ok(
+      body.includes('setPendingNavAfterSave(false)'),
+      `${name}() must call setPendingNavAfterSave(false) so dismissed nudge cannot trigger navigation`,
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Collection parent — onExported navigates to the Grids tab and reloads data
+// ---------------------------------------------------------------------------
+
+test('Collection wires onExported to switch the active view to grids', () => {
+  // The onExported prop passed to GridBuilder must call setActiveType('grids').
+  // This is the callback that actually moves the user to the Grids tab.
+  assert.ok(
+    collectionSource.includes("setActiveType('grids')"),
+    "Collection must call setActiveType('grids') somewhere (used as onExported and onPacketCreated)",
+  );
+  // Specifically inside the onExported arrow function alongside loadCollection().
+  const onExportedBlock = extractJsxBlock(collectionSource, 'onExported={() => {');
+  assert.ok(
+    onExportedBlock.includes("setActiveType('grids')"),
+    "onExported callback in Collection must call setActiveType('grids')",
+  );
+});
+
+test('Collection wires onExported to reload the collection after navigating', () => {
+  // After switching to the Grids tab, the collection must be refreshed so the
+  // newly saved grid appears immediately without a manual reload.
+  const onExportedBlock = extractJsxBlock(collectionSource, 'onExported={() => {');
+  assert.ok(
+    onExportedBlock.includes('loadCollection()'),
+    'onExported callback in Collection must call loadCollection() to refresh the Grids tab',
   );
 });
