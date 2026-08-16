@@ -1270,3 +1270,48 @@ test("verifyMagicLink returns 401 when the post-write re-read reveals a claim mi
   const sessionCount = sessionStore ? sessionStore.records.size : 0;
   assert.equal(sessionCount, 0, "no session must be created when the claim mismatch guard fires");
 });
+
+test("rate-limit counter returns MAX_SAFE_INTEGER when all CAS retries fail, blocking email delivery", async () => {
+  // A limits store whose setJSON always reports a CAS conflict (modified: false).
+  // incrementLimit exhausts all 4 attempts and returns Number.MAX_SAFE_INTEGER,
+  // which isRateLimited treats as over-limit. No email must be delivered.
+  const alwaysConflictStore = {
+    async get() { return null; },
+    async getWithMetadata() { return null; },
+    async setJSON() { return { modified: false }; },
+  };
+
+  const delivered = [];
+  const getStore = name => {
+    if (name === "fandom-auth-rate-limits") return alwaysConflictStore;
+    // Other stores are unused in this path, but provide a no-op fallback.
+    return memoryStore();
+  };
+
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => "rate-limit-test-token-at-least-thirty-two-chars",
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+
+  const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "user@example.com" },
+  }));
+
+  // The endpoint always returns 202 (silent path) regardless of rate-limiting,
+  // so callers cannot probe whether they are limited.
+  assert.equal(res.status, 202, "requestMagicLink must return 202 even when rate-limited");
+
+  // But no email must have been delivered — the all-retries-exhausted fallback
+  // (Number.MAX_SAFE_INTEGER) must have caused isRateLimited to return true.
+  assert.equal(
+    delivered.length,
+    0,
+    "no email must be sent when all CAS retries fail — MAX_SAFE_INTEGER count enforces the limit",
+  );
+});
