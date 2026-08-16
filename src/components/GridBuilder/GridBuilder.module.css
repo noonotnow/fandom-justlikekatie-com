@@ -13,6 +13,9 @@
 .header > span { color: var(--gb-muted); font-size: 12px; white-space: nowrap; }
 
 .notice { border: 1px solid var(--gb-border); border-left: 3px solid var(--gb-gold); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+.saveNudge { display: inline; white-space: nowrap; }
+.saveNudgeBtn { display: inline; padding: 0; border: none; background: none; color: var(--gb-gold); font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.saveNudgeBtn:disabled { opacity: .45; cursor: not-allowed; }
 
 .lenses { display: grid; gap: 10px; border: 1px solid var(--gb-border); border-radius: 12px; background: var(--gb-panel); padding: 14px; }
 .lensRow { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px; align-items: start; }

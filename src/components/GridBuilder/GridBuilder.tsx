@@ -55,6 +55,10 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
   const [isGridSaved, setIsGridSaved] = useState(false);
   // Stores the id of the saved grid so it can be removed without re-deriving it.
   const [savedGridId, setSavedGridId] = useState<string | null>(null);
+  // After a successful export-without-save, prompt the user to save.
+  const [showSaveNudge, setShowSaveNudge] = useState(false);
+  // When true, a successful save should also trigger the onExported navigation.
+  const [pendingNavAfterSave, setPendingNavAfterSave] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,6 +90,8 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     setSwapSlot(null);
     setIsGridSaved(false);
     setSavedGridId(null);
+    setShowSaveNudge(false);
+    setPendingNavAfterSave(false);
   }
 
   function propose() {
@@ -95,6 +101,8 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     setSwapSlot(null);
     setIsGridSaved(false);
     setSavedGridId(null);
+    setShowSaveNudge(false);
+    setPendingNavAfterSave(false);
     setNotice(next.slots.length < 9
       ? `Only ${next.slots.length} cards match this lens — save more material or widen the lens.`
       : '');
@@ -114,6 +122,8 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     setSwapSlot(null);
     setIsGridSaved(false);
     setSavedGridId(null);
+    setShowSaveNudge(false);
+    setPendingNavAfterSave(false);
   }
 
   /** Persist the current grid to the local collection without rendering or sharing. */
@@ -125,7 +135,12 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
       await dbSaveGrid(grid);
       setIsGridSaved(true);
       setSavedGridId(grid.id);
+      setShowSaveNudge(false);
       setNotice('Grid saved to your collection.');
+      if (pendingNavAfterSave) {
+        setPendingNavAfterSave(false);
+        onExported?.();
+      }
     } catch (caught) {
       setNotice(caught instanceof Error ? caught.message : 'Could not save the grid.');
     } finally {
@@ -150,21 +165,17 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
   }
 
   /**
-   * Render + share the grid. Also saves the grid to the collection so it
-   * appears in the Grids tab immediately after navigation.
+   * Render + share the grid. Does not auto-save — after a successful export
+   * the notice area nudges the user to save if they haven't yet.
    */
   async function exportGrid() {
     if (!proposal || proposal.slots.length !== 9 || busy) return;
+    const wasGridSaved = isGridSaved;
     setBusy('export');
     setNotice('正在生成分享卡……');
+    setShowSaveNudge(false);
     try {
       const grid = gridRecordFromProposal(proposal.slots, proposal.rationale);
-      // Save to collection as part of the export flow (idempotent — same id if already saved).
-      if (!isGridSaved) {
-        await dbSaveGrid(grid);
-        setIsGridSaved(true);
-        setSavedGridId(grid.id);
-      }
       const starData = starDataFromCollectionGrid(grid);
       const message = await saveShareCard(starData, 'full');
       try {
@@ -174,7 +185,12 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
         console.warn('Post-export logging failed (export succeeded):', bookkeepingErr);
       }
       setNotice(message);
-      onExported?.();
+      if (!wasGridSaved) {
+        setShowSaveNudge(true);
+        setPendingNavAfterSave(true);
+      } else {
+        onExported?.();
+      }
     } catch (caught) {
       setNotice(caught instanceof Error ? caught.message : '分享卡生成失败，再试一次？');
     } finally {
@@ -224,7 +240,24 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
         <span>{lensedCount} of {pool.length} cards in lens</span>
       </header>
 
-      {notice && <div className={styles.notice} role="status">{notice}</div>}
+      {(notice || showSaveNudge) && (
+        <div className={styles.notice} role="status">
+          {notice}
+          {showSaveNudge && (
+            <span className={styles.saveNudge}>
+              {' '}Grid not saved yet —{' '}
+              <button
+                type="button"
+                className={styles.saveNudgeBtn}
+                onClick={saveGrid}
+                disabled={Boolean(busy)}
+              >
+                💾 Save to collection?
+              </button>
+            </span>
+          )}
+        </div>
+      )}
 
       <div className={styles.lenses}>
         <LensRow label="Star" options={options.actors} active={lens.actor} onToggle={value => toggle('actor', value)} />
