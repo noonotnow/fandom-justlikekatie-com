@@ -371,6 +371,141 @@ test('saving an edited grid after removing the prior version leaves exactly one 
   assert.strictEqual(matchingV2.length, 1, 'exactly one record for grid_v2 should exist');
 });
 
+// ---------------------------------------------------------------------------
+// Export → swap → export + save-nudge accepted cycle tests (Task 49)
+// ---------------------------------------------------------------------------
+
+test('export(no-save) → swap → export → save-nudge accepted: only post-swap grid in store', async () => {
+  // Scenario: user exports without saving, then swaps a slot, then exports again
+  // and accepts the save nudge.  Because no dbSaveGrid was called before the swap,
+  // priorSavedGridId stays null and only the post-swap grid enters the store.
+  const fixedDate = new Date('2026-08-16T12:00:00Z');
+  const slotsV1 = makeSlots('presave-export-swap-v1');
+  const slotsV2 = makeSlots('presave-export-swap-v2');
+  const rationale = makeRationale();
+
+  const gridV1 = gridRecordFromProposal(slotsV1, rationale, fixedDate);
+  const gridV2 = gridRecordFromProposal(slotsV2, rationale, fixedDate);
+
+  // Precondition: the two grids must have different ids (genuine slot-change).
+  assert.notStrictEqual(gridV1.id, gridV2.id, 'pre/post-swap grids must have different ids');
+
+  // exportGrid itself never calls dbSaveGrid; only the nudge path does.
+  // grid_v1 was never persisted.
+
+  // User swaps; since isGridSaved was false, priorSavedGridId stays null.
+  // The save nudge is re-armed on the second export.
+  // User accepts nudge → saveGrid saves grid_v2 (no prior record to remove).
+  await dbSaveGrid(gridV2);
+
+  const all = await dbGetAllGrids();
+
+  // grid_v2 must be present.
+  assert.ok(
+    all.some(g => g.id === gridV2.id),
+    'post-swap grid must be in the store after save nudge accepted',
+  );
+
+  // grid_v1 must never have been written (export does not save).
+  assert.ok(
+    !all.some(g => g.id === gridV1.id),
+    'pre-swap grid must not appear in the store (export does not call dbSaveGrid)',
+  );
+});
+
+test('save → export → swap → export → save-nudge accepted: stale grid removed, only new grid in store', async () => {
+  // Scenario:
+  //   1. User proposes → saves grid_v1
+  //   2. User exports: wasGridSaved=true → onExported() fires, no nudge
+  //   3. User swaps a slot: isGridSaved was true → priorSavedGridId=v1_id captured
+  //   4. User exports again: wasGridSaved=false → nudge armed
+  //   5. User accepts nudge → saveGrid removes v1_id, saves grid_v2
+  const fixedDate = new Date('2026-08-16T13:00:00Z');
+  const slotsV1 = makeSlots('saved-export-swap-v1');
+  const slotsV2 = makeSlots('saved-export-swap-v2');
+  const rationale = makeRationale();
+
+  const gridV1 = gridRecordFromProposal(slotsV1, rationale, fixedDate);
+  const gridV2 = gridRecordFromProposal(slotsV2, rationale, fixedDate);
+
+  assert.notStrictEqual(gridV1.id, gridV2.id, 'precondition: different slots must yield different ids');
+
+  // Step 1: initial save.
+  await dbSaveGrid(gridV1);
+  const afterFirstSave = await dbGetAllGrids();
+  assert.ok(afterFirstSave.some(g => g.id === gridV1.id), 'grid_v1 should be present after initial save');
+
+  // Step 2: export fires onExported (wasGridSaved=true) — store unchanged at DB level.
+
+  // Step 3: swap captures priorSavedGridId=v1_id (simulated by saveGrid cleanup below).
+
+  // Step 4: second export re-arms nudge (wasGridSaved=false after swap).
+
+  // Step 5: save nudge accepted — GridBuilder calls dbRemoveGrid(priorSavedGridId) then dbSaveGrid(gridV2).
+  await dbRemoveGrid(gridV1.id);  // priorSavedGridId cleanup
+  await dbSaveGrid(gridV2);
+
+  const final = await dbGetAllGrids();
+
+  assert.ok(
+    final.some(g => g.id === gridV2.id),
+    'post-swap grid_v2 must be present after save-nudge save',
+  );
+  assert.ok(
+    !final.some(g => g.id === gridV1.id),
+    'grid_v1 must have been removed (priorSavedGridId cleanup)',
+  );
+
+  const matchingV2 = final.filter(g => g.id === gridV2.id);
+  assert.strictEqual(matchingV2.length, 1, 'exactly one copy of grid_v2 should exist');
+});
+
+test('swapInto resets pendingNavAfterSave so the second export can re-arm it — source-level assertion', async () => {
+  // After an export nudge (pendingNavAfterSave=true), a slot swap must reset
+  // pendingNavAfterSave to false.  The second export then re-sets it to true.
+  // This prevents the old nudge from triggering onExported with a stale grid.
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(
+    new URL('../src/components/GridBuilder/GridBuilder.tsx', import.meta.url),
+    'utf8',
+  );
+
+  // swapInto must reset pendingNavAfterSave.
+  assert.ok(
+    source.includes('setPendingNavAfterSave(false)'),
+    'swapInto must call setPendingNavAfterSave(false) to cancel a stale post-export nudge',
+  );
+
+  // exportGrid must re-arm pendingNavAfterSave when !wasGridSaved.
+  assert.ok(
+    source.includes('setPendingNavAfterSave(true)'),
+    'exportGrid must call setPendingNavAfterSave(true) when the grid has not been saved',
+  );
+
+  // saveGrid must check pendingNavAfterSave and call onExported when true.
+  assert.ok(
+    source.includes('if (pendingNavAfterSave)'),
+    'saveGrid must branch on pendingNavAfterSave to trigger onExported after the nudge',
+  );
+});
+
+test('swapInto only captures priorSavedGridId when the grid was already saved — source-level assertion', async () => {
+  // When isGridSaved is false (e.g. after an export-without-save), no record
+  // was written to the DB so priorSavedGridId must NOT be set.  This prevents
+  // a phantom dbRemoveGrid call in the subsequent saveGrid.
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(
+    new URL('../src/components/GridBuilder/GridBuilder.tsx', import.meta.url),
+    'utf8',
+  );
+
+  // The guard must be: if (isGridSaved && savedGridId)
+  assert.ok(
+    source.includes('if (isGridSaved && savedGridId) setPriorSavedGridId(savedGridId)'),
+    'swapInto must guard setPriorSavedGridId behind `if (isGridSaved && savedGridId)` to avoid phantom cleanups',
+  );
+});
+
 test('GridBuilder.tsx removes the prior saved grid id before saving after a slot swap — source-level assertion', async () => {
   const { readFileSync } = await import('node:fs');
   const source = readFileSync(
