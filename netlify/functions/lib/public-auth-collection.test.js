@@ -393,7 +393,6 @@ test("Resend rejection (unverified domain / bad key) surfaces a 503 to the user,
   }
 });
 
-||||||| original
 test("collection sync is idempotent, URL-independent, cursor-based, and tombstoned", async () => {
   const store = memoryStore();
   const upsert = {
@@ -1551,4 +1550,3 @@ test("pruneExpiredRateLimits physically deletes expired entries and leaves non-e
   assert.equal(store.records.has("ip/hash-b/100"),    false, "second expired entry must be gone");
   assert.equal(store.records.has("email/hash-c/101"), true,  "non-expired entry must remain");
 });
-||||||| original
