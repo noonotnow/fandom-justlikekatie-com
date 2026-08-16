@@ -29,6 +29,13 @@ export function createPublicAuth({
   randomToken = () => randomBytes(32).toString("base64url"),
   fetchImpl = fetch,
 }) {
+  if (env.FANDOM_ADMIN_EMAILS === undefined) {
+    console.warn(
+      "[public-auth] FANDOM_ADMIN_EMAILS is not set — no one will have admin access. " +
+      "Set this variable to a comma-separated list of admin email addresses."
+    );
+  }
+
   const adminEmails = [];
   for (const entry of (env.FANDOM_ADMIN_EMAILS || "").split(",")) {
     const trimmed = entry.trim();

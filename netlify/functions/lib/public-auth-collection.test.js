@@ -356,11 +356,18 @@ test("getSession returns isAdmin:false when FANDOM_ADMIN_EMAILS is unset", async
     createdAt: "2026-08-10T00:00:00Z",
     lastLoginAt: "2026-08-10T00:00:00Z",
   });
-  const auth = createPublicAuth({
-    env: { FANDOM_AUTH_ID_SECRET: "secret" /* FANDOM_ADMIN_EMAILS deliberately absent */ },
-    getStore,
-    now: () => new Date("2026-08-10T01:00:00Z"),
-  });
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  let auth;
+  try {
+    auth = createPublicAuth({
+      env: { FANDOM_AUTH_ID_SECRET: "secret" /* FANDOM_ADMIN_EMAILS deliberately absent */ },
+      getStore,
+      now: () => new Date("2026-08-10T01:00:00Z"),
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
   const res = await auth.getSession(request("/api/auth/session", {
     method: "GET",
     cookie: `__Host-fandom_session=${sessionToken}`,
@@ -369,6 +376,23 @@ test("getSession returns isAdmin:false when FANDOM_ADMIN_EMAILS is unset", async
   const body = await res.json();
   assert.equal(body.user.email, "someone@example.com");
   assert.equal(body.user.isAdmin, false);
+});
+
+test("createPublicAuth warns when FANDOM_ADMIN_EMAILS is absent entirely", () => {
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  try {
+    createPublicAuth({
+      env: { FANDOM_AUTH_ID_SECRET: "secret" /* FANDOM_ADMIN_EMAILS deliberately absent */ },
+      getStore: () => memoryStore(),
+    });
+    assert.equal(warnings.length, 1, "should emit exactly one warning when FANDOM_ADMIN_EMAILS is absent");
+    assert.match(warnings[0], /FANDOM_ADMIN_EMAILS/);
+    assert.match(warnings[0], /not set/);
+  } finally {
+    console.warn = originalWarn;
+  }
 });
 
 test("getSession returns isAdmin:true when FANDOM_ADMIN_EMAILS entry has mixed case", async () => {
