@@ -66,18 +66,28 @@ const STRING_LITERAL_RE = /(['"`])((?:\\[\s\S]|(?!\1)[^\\])*)\1/g;
 
 export function checkArrayBody(body) {
   const whitespaceOnly = [];
+  const templateInterpolations = [];
   let totalCount = 0;
   let m;
   const re = new RegExp(STRING_LITERAL_RE.source, STRING_LITERAL_RE.flags);
   while ((m = re.exec(body)) !== null) {
     totalCount++;
+    const quote = m[1];
     const raw = m[2]; // content between the quote characters
+    // Template literals that contain ${} expressions cannot be statically
+    // evaluated: the runtime value may be whitespace-only even when the source
+    // looks harmless.  Flag them so the developer is prompted to use a plain
+    // string literal instead.
+    if (quote === '`' && raw.includes('${')) {
+      templateInterpolations.push(m[0]);
+      continue;
+    }
     const decoded = decodeStringContent(raw);
     if (decoded.length > 0 && decoded.trim().length === 0) {
       whitespaceOnly.push(m[0]); // the full matched literal, e.g. "   "
     }
   }
-  return { totalCount, whitespaceOnly };
+  return { totalCount, whitespaceOnly, templateInterpolations };
 }
 
 // ---------------------------------------------------------------------------
@@ -111,7 +121,19 @@ if (process.argv[1] === __self) {
   }
 
   const body = arrayMatch[1];
-  const { totalCount, whitespaceOnly } = checkArrayBody(body);
+  const { totalCount, whitespaceOnly, templateInterpolations } = checkArrayBody(body);
+
+  if (templateInterpolations.length > 0) {
+    const plural = templateInterpolations.length === 1 ? 'entry' : 'entries';
+    console.error(
+      `\ncheck-court-record: ${FILE}\n` +
+      `  ${templateInterpolations.length} template literal ${plural} with \$\{} interpolation found in RACCOON_COURT_RECORD:\n` +
+      templateInterpolations.map(s => `    ${s}`).join('\n') + '\n' +
+      '\n  Template literals with expressions cannot be statically checked for whitespace-only content.\n' +
+      '  Use a plain string literal (\'…\' or "…") instead.\n',
+    );
+    process.exit(1);
+  }
 
   if (whitespaceOnly.length > 0) {
     const plural = whitespaceOnly.length === 1 ? 'entry' : 'entries';

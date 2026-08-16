@@ -172,6 +172,43 @@ test('checkArrayBody: detects mix of whitespace escapes', () => {
 });
 
 // ---------------------------------------------------------------------------
+// checkArrayBody — template literals with ${} interpolation
+// ---------------------------------------------------------------------------
+
+test('checkArrayBody: flags a template literal with a ${} expression', () => {
+  const body = '`${\'  \'}`,';
+  const { templateInterpolations, whitespaceOnly, totalCount } = checkArrayBody(body);
+  assert.equal(totalCount, 1);
+  assert.equal(templateInterpolations.length, 1);
+  assert.equal(whitespaceOnly.length, 0);
+});
+
+test('checkArrayBody: flags template literal with expression even when surrounded by text', () => {
+  const body = '`Case ${num}: ruling`,';
+  const { templateInterpolations } = checkArrayBody(body);
+  assert.equal(templateInterpolations.length, 1);
+});
+
+test('checkArrayBody: does not flag template literals without ${}', () => {
+  const body = '`Case #001: Motion denied. — Justice 🦝`,';
+  const { templateInterpolations, whitespaceOnly } = checkArrayBody(body);
+  assert.equal(templateInterpolations.length, 0);
+  assert.equal(whitespaceOnly.length, 0);
+});
+
+test('checkArrayBody: collects both whitespace-only and template-interpolation violations', () => {
+  const body = [
+    `"Case #001: Valid ruling. — 🦝",`,
+    `"   ",`,
+    '`${\'  \'}`,',
+  ].join('\n');
+  const { totalCount, whitespaceOnly, templateInterpolations } = checkArrayBody(body);
+  assert.equal(totalCount, 3);
+  assert.equal(whitespaceOnly.length, 1);
+  assert.equal(templateInterpolations.length, 1);
+});
+
+// ---------------------------------------------------------------------------
 // checkArrayBody — valid rulings accepted
 // ---------------------------------------------------------------------------
 
@@ -340,6 +377,38 @@ test('integration: exits 1 with "could not locate" when as const suffix is missi
     `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
   );
   assert.match(result.stderr, /could not locate/);
+});
+
+test('integration: exits 1 with interpolation warning when a template literal contains ${}', () => {
+  // A template literal whose expression could evaluate to whitespace at runtime
+  // but passes the static whitespace check silently.
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    '`${\'  \'}`',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /interpolation/);
+});
+
+test('integration: exits 1 with interpolation warning for expression-containing template among valid entries', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    '"Case #002: Appeal upheld. — Associate Justice 🦝"',
+    '`Case ${3}: Ruling. — Bailiff 🦝`',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /interpolation/);
+  assert.match(result.stderr, /plain string/);
 });
 
 test('integration: exits 1 with "cannot read" when the file path does not exist', () => {
