@@ -15,8 +15,8 @@ import { setPlanOperatorToken } from '../../utils/planPosts';
 import { dbGetAllCards, dbGetAllGrids, type CardRecord, type GridRecord } from '../../utils/collectionDB';
 import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
 import { RACCOON_COURT_RECORD } from '../../data/raccoonCourtRecord';
-import { addCustomRuling, getAllRulings, getCustomRulings, removeCustomRuling } from '../../utils/courtRulings';
 import styles from './FandomAdmin.module.css';
+import { addCustomRuling, fetchCustomRulings, getAllRulings, migrateLegacyRulings, removeCustomRuling } from '../../utils/courtRulings';
 
 interface Props {
   packets: IdeaPacket[];
@@ -543,27 +543,67 @@ function PacketContext({ packet, busy, onSave }: {
 
 
 function CourtRulingsEditor() {
-  const [rulings, setRulings] = useState<string[]>(() => getCustomRulings());
+  const [rulings, setRulings] = useState<string[]>([]);
   const [draft, setDraft] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
 
-  function handleAdd(event: React.FormEvent) {
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const shared = await fetchCustomRulings();
+        const merged = await migrateLegacyRulings(shared);
+        if (!cancelled) setRulings(merged);
+      } catch (caught) {
+        if (!cancelled) setNotice(caught instanceof Error ? caught.message : 'The shared court record could not be loaded.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  async function handleAdd(event: React.FormEvent) {
     event.preventDefault();
     const trimmed = draft.trim();
-    if (!trimmed) return;
-    setRulings(addCustomRuling(trimmed));
-    setDraft('');
+    if (!trimmed || busy) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      setRulings(await addCustomRuling(trimmed));
+      setDraft('');
+    } catch (caught) {
+      setNotice(caught instanceof Error ? caught.message : 'The ruling could not be saved.');
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function handleRemove(index: number) {
-    setRulings(removeCustomRuling(index));
+  async function handleRemove(index: number) {
+    if (busy) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      setRulings(await removeCustomRuling(index, rulings[index]));
+    } catch (caught) {
+      setNotice(caught instanceof Error ? caught.message : 'The ruling could not be removed.');
+      // The record may have changed on the server — re-sync.
+      try { setRulings(await fetchCustomRulings()); } catch { /* keep current view */ }
+    } finally {
+      setBusy(false);
+    }
   }
+
+  if (loading) return <div className={styles.loading} aria-label="Loading court rulings"><span /><span /></div>;
 
   return (
     <section className={styles.courtEditor}>
       <header className={styles.courtHeader}>
         <div>
           <h3>Court rulings</h3>
-          <p>Add lore entries that appear in the raccoon judiciary popup on the unlock screen. Custom rulings are stored in this browser.</p>
+          <p>Add lore entries that appear in the raccoon judiciary popup on the unlock screen. Custom rulings are shared across all editors.</p>
         </div>
         <span className={styles.courtCount}>{RACCOON_COURT_RECORD.length} built-in · {rulings.length} custom</span>
       </header>
@@ -579,8 +619,10 @@ function CourtRulingsEditor() {
             rows={3}
           />
         </label>
-        <button type="submit" disabled={!draft.trim()}>Add ruling</button>
+        <button type="submit" disabled={busy || !draft.trim()}>{busy ? 'Saving…' : 'Add ruling'}</button>
       </form>
+
+      {notice && <div className={styles.notice} role="status">{notice}</div>}
 
       {rulings.length > 0 && (
         <section className={styles.courtList} aria-label="Custom rulings">
@@ -592,7 +634,8 @@ function CourtRulingsEditor() {
                 <button
                   type="button"
                   aria-label={`Remove ruling ${index + 1}`}
-                  onClick={() => handleRemove(index)}
+                  disabled={busy}
+                  onClick={() => void handleRemove(index)}
                 >
                   Remove
                 </button>
@@ -622,7 +665,16 @@ function AdminAccess({ onUnlock }: { onUnlock: (token: string) => Promise<void> 
   const [showLore, setShowLore] = useState(false);
   const [quoteIndex, setQuoteIndex] = useState(0);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const allRulings = getAllRulings();
+  const [customRulings, setCustomRulings] = useState<string[]>([]);
+  const allRulings = getAllRulings(customRulings);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCustomRulings()
+      .then(rulings => { if (!cancelled) setCustomRulings(rulings); })
+      .catch(() => { /* built-in rulings still show */ });
+    return () => { cancelled = true; };
+  }, []);
 
   function handleMouseEnter() {
     hoverTimer.current = setTimeout(() => {

@@ -168,6 +168,17 @@ export function createPublicAuth({
       if (!auth) throw new PublicError("Sign in is required.", 401);
       return auth;
     },
+
+    // Like authenticate, but additionally requires the session's email to be
+    // on the FANDOM_ADMIN_EMAILS allowlist. Use for admin-only mutations.
+    authenticateAdmin: async (req, context) => {
+      const auth = await authenticateSession(req, stores(context), now());
+      if (!auth) throw new PublicError("Sign in is required.", 401);
+      if (adminEmails.length === 0 || !adminEmails.includes(auth.user.email)) {
+        throw new PublicError("Admin access is required.", 403);
+      }
+      return auth;
+    },
   };
 }
 
