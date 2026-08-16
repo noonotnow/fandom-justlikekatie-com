@@ -393,6 +393,7 @@ test("Resend rejection (unverified domain / bad key) surfaces a 503 to the user,
   }
 });
 
+||||||| original
 test("collection sync is idempotent, URL-independent, cursor-based, and tombstoned", async () => {
   const store = memoryStore();
   const upsert = {
