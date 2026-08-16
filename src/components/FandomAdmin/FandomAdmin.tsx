@@ -15,6 +15,7 @@ import { setPlanOperatorToken } from '../../utils/planPosts';
 import { dbGetAllCards, dbGetAllGrids, type CardRecord, type GridRecord } from '../../utils/collectionDB';
 import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
 import { RACCOON_COURT_RECORD } from '../../data/raccoonCourtRecord';
+import { addCustomRuling, getCustomRulings, removeCustomRuling } from '../../utils/courtRulings';
 import styles from './FandomAdmin.module.css';
 
 interface Props {
@@ -32,7 +33,7 @@ interface Props {
 }
 
 export const FandomAdmin: React.FC<Props> = props => {
-  const [view, setView] = useState<'packets' | 'library' | 'builder' | 'plan'>('packets');
+  const [view, setView] = useState<'packets' | 'library' | 'builder' | 'plan' | 'court'>('packets');
 
   return (
     <section className={styles.admin}>
@@ -59,10 +60,15 @@ export const FandomAdmin: React.FC<Props> = props => {
           <button type="button" role="tab" aria-selected={view === 'plan'} onClick={() => setView('plan')}>
             PLAN schedule
           </button>
+          <button type="button" role="tab" aria-selected={view === 'court'} onClick={() => setView('court')}>
+            Court rulings
+          </button>
         </div>
       </header>
 
-      {view === 'plan' ? <Plan /> : props.unauthorized ? (
+      {view === 'plan' ? <Plan /> : view === 'court' ? (
+        <CourtRulingsEditor />
+      ) : props.unauthorized ? (
         <AdminAccess onUnlock={async token => {
           setPlanOperatorToken(token);
           await props.onRefresh();
@@ -536,12 +542,87 @@ function PacketContext({ packet, busy, onSave }: {
 }
 
 
+function CourtRulingsEditor() {
+  const [rulings, setRulings] = useState<string[]>(() => getCustomRulings());
+  const [draft, setDraft] = useState('');
+
+  function handleAdd(event: React.FormEvent) {
+    event.preventDefault();
+    const trimmed = draft.trim();
+    if (!trimmed) return;
+    setRulings(addCustomRuling(trimmed));
+    setDraft('');
+  }
+
+  function handleRemove(index: number) {
+    setRulings(removeCustomRuling(index));
+  }
+
+  return (
+    <section className={styles.courtEditor}>
+      <header className={styles.courtHeader}>
+        <div>
+          <h3>Court rulings</h3>
+          <p>Add lore entries that appear in the raccoon judiciary popup on the unlock screen. Custom rulings are stored in this browser.</p>
+        </div>
+        <span className={styles.courtCount}>{RACCOON_COURT_RECORD.length} built-in · {rulings.length} custom</span>
+      </header>
+
+      <form className={styles.courtForm} onSubmit={handleAdd}>
+        <label className={styles.courtLabel}>
+          <span>New ruling</span>
+          <textarea
+            className={styles.courtTextarea}
+            value={draft}
+            onChange={event => setDraft(event.target.value)}
+            placeholder={'Case #999: Your ruling here. — Associate Justice 🦝'}
+            rows={3}
+          />
+        </label>
+        <button type="submit" disabled={!draft.trim()}>Add ruling</button>
+      </form>
+
+      {rulings.length > 0 && (
+        <section className={styles.courtList} aria-label="Custom rulings">
+          <h4>Custom rulings ({rulings.length})</h4>
+          <ol>
+            {rulings.map((ruling, index) => (
+              <li key={index}>
+                <span>{ruling}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ruling ${index + 1}`}
+                  onClick={() => handleRemove(index)}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      <section className={styles.courtList} aria-label="Built-in rulings">
+        <h4>Built-in rulings ({RACCOON_COURT_RECORD.length})</h4>
+        <ol>
+          {RACCOON_COURT_RECORD.map((ruling, index) => (
+            <li key={index} className={styles.courtBuiltIn}>
+              <span>{ruling}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
+    </section>
+  );
+}
+
 function AdminAccess({ onUnlock }: { onUnlock: (token: string) => Promise<void> }) {
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [showLore, setShowLore] = useState(false);
   const [quoteIndex, setQuoteIndex] = useState(0);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const allRulings = [...RACCOON_COURT_RECORD, ...getCustomRulings()];
 
   function handleMouseEnter() {
     hoverTimer.current = setTimeout(() => {
@@ -556,7 +637,7 @@ function AdminAccess({ onUnlock }: { onUnlock: (token: string) => Promise<void> 
     }
     if (showLore) {
       setShowLore(false);
-      setQuoteIndex(i => (i + 1) % RACCOON_COURT_RECORD.length);
+      setQuoteIndex(i => (i + 1) % allRulings.length);
     }
   }
 
@@ -581,7 +662,7 @@ function AdminAccess({ onUnlock }: { onUnlock: (token: string) => Promise<void> 
         🦝⚖️🦝
         {showLore && (
           <span className={styles.raccoonLore}>
-            {RACCOON_COURT_RECORD[quoteIndex]}
+            {allRulings[quoteIndex]}
           </span>
         )}
       </span>
