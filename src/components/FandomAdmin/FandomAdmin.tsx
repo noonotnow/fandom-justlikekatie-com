@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plan } from '../Plan/Plan';
 import { GridBuilder } from '../GridBuilder/GridBuilder';
 import {
@@ -527,9 +527,38 @@ function PacketContext({ packet, busy, onSave }: {
   );
 }
 
+const RACCOON_COURT_RECORD = [
+  "Case #001: Motion to adjourn denied. — Chief Justice 🦝",
+  "Case #017: Plaintiff's evidence (a shiny bottle cap) deemed inadmissible. — Clerk 🦝",
+  "Case #034: Order in the court. The trash shall not be disturbed till morning. — Bailiff 🦝",
+  "Case #052: Appeal upheld. The dumpster remains neutral territory. — Associate Justice 🦝",
+  "Case #089: Verdict reserved pending further investigation of the compost bin. — Chief Justice 🦝",
+];
+
 function AdminAccess({ onUnlock }: { onUnlock: (token: string) => Promise<void> }) {
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showLore, setShowLore] = useState(false);
+  const [quoteIndex, setQuoteIndex] = useState(0);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleMouseEnter() {
+    hoverTimer.current = setTimeout(() => {
+      setShowLore(true);
+    }, 2000);
+  }
+
+  function handleMouseLeave() {
+    if (hoverTimer.current !== null) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+    if (showLore) {
+      setShowLore(false);
+      setQuoteIndex(i => (i + 1) % RACCOON_COURT_RECORD.length);
+    }
+  }
+
   return (
     <form className={styles.access} onSubmit={async event => {
       event.preventDefault();
@@ -541,7 +570,20 @@ function AdminAccess({ onUnlock }: { onUnlock: (token: string) => Promise<void> 
       <label><span>Operator key</span><input type="password" value={token} onChange={event => setToken(event.target.value)} required /></label>
       <button type="submit" disabled={busy || !token.trim()}>{busy ? 'Unlocking…' : 'Unlock workspace'}</button>
       {/* 🦝 The raccoon judiciary presides. Court is in session. */}
-      <span className={styles.raccoonJudiciary} aria-hidden="true" title="The raccoon judiciary is in session. All appeals denied.">🦝⚖️🦝</span>
+      <span
+        className={styles.raccoonJudiciary}
+        aria-hidden="true"
+        title="The raccoon judiciary is in session. All appeals denied."
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
+        🦝⚖️🦝
+        {showLore && (
+          <span className={styles.raccoonLore}>
+            {RACCOON_COURT_RECORD[quoteIndex]}
+          </span>
+        )}
+      </span>
     </form>
   );
 }

@@ -114,8 +114,31 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .access { display: grid; gap: 12px; width: min(420px, 100%); margin: 64px auto; border: 1px solid var(--admin-border); border-radius: 12px; background: var(--admin-panel); padding: 20px; }
 .access h3, .access p { margin: 0; }
 .access input { min-height: 44px; }
-.raccoonJudiciary { display: block; text-align: center; font-size: 9px; opacity: 0.12; cursor: default; user-select: none; letter-spacing: -2px; margin-top: -4px; transition: opacity 0.4s; }
+.raccoonJudiciary { position: relative; display: block; text-align: center; font-size: 9px; opacity: 0.12; cursor: default; user-select: none; letter-spacing: -2px; margin-top: -4px; transition: opacity 0.4s; }
 .raccoonJudiciary:hover { opacity: 0.6; }
+.raccoonLore {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 260px;
+  background: color-mix(in srgb, #15120e 92%, #c9a96e 8%);
+  border: 1px solid color-mix(in srgb, #c9a96e 40%, transparent);
+  border-radius: 9px;
+  padding: 9px 11px;
+  font-size: 11px;
+  font-family: inherit;
+  letter-spacing: 0;
+  line-height: 1.45;
+  color: color-mix(in srgb, #c9a96e 80%, #fff 20%);
+  white-space: normal;
+  text-align: left;
+  pointer-events: none;
+  animation: loreFadeIn 0.25s ease both;
+  z-index: 10;
+}
+@keyframes loreFadeIn { from { opacity: 0; transform: translateX(-50%) translateY(4px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 
 .libraryHeader {
   display: flex;
