@@ -29,6 +29,13 @@ export function createPublicAuth({
   randomToken = () => randomBytes(32).toString("base64url"),
   fetchImpl = fetch,
 }) {
+  if (env.FANDOM_AUTH_ID_SECRET === undefined) {
+    console.warn(
+      "[public-auth] FANDOM_AUTH_ID_SECRET is not set — magic-link sign-in will fail at request time. " +
+      "Set this variable to a random secret string."
+    );
+  }
+
   if (env.FANDOM_ADMIN_EMAILS === undefined) {
     console.warn(
       "[public-auth] FANDOM_ADMIN_EMAILS is not set — no one will have admin access. " +

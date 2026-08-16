@@ -487,7 +487,7 @@ test("createPublicAuth warns for each malformed entry in FANDOM_ADMIN_EMAILS", (
   console.warn = (...args) => warnings.push(args.join(" "));
   try {
     createPublicAuth({
-      env: { FANDOM_ADMIN_EMAILS: "admin@example.com, not-an-email, another-bad, @example.com, a@b" },
+      env: { FANDOM_AUTH_ID_SECRET: "secret", FANDOM_ADMIN_EMAILS: "admin@example.com, not-an-email, another-bad, @example.com, a@b" },
       getStore: () => memoryStore(),
     });
     assert.equal(warnings.length, 4, "should warn for each malformed entry (no-@, no-@, missing-local, no-dot)");
@@ -500,13 +500,30 @@ test("createPublicAuth warns for each malformed entry in FANDOM_ADMIN_EMAILS", (
   }
 });
 
+test("createPublicAuth warns when FANDOM_AUTH_ID_SECRET is absent", () => {
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  try {
+    createPublicAuth({
+      env: { FANDOM_ADMIN_EMAILS: "admin@example.com" /* FANDOM_AUTH_ID_SECRET deliberately absent */ },
+      getStore: () => memoryStore(),
+    });
+    assert.equal(warnings.length, 1, "should emit exactly one warning when FANDOM_AUTH_ID_SECRET is absent");
+    assert.match(warnings[0], /FANDOM_AUTH_ID_SECRET/);
+    assert.match(warnings[0], /not set/);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
 test("createPublicAuth does not warn when FANDOM_ADMIN_EMAILS contains only valid entries", () => {
   const warnings = [];
   const originalWarn = console.warn;
   console.warn = (...args) => warnings.push(args.join(" "));
   try {
     createPublicAuth({
-      env: { FANDOM_ADMIN_EMAILS: "admin@example.com, other@example.com" },
+      env: { FANDOM_AUTH_ID_SECRET: "secret", FANDOM_ADMIN_EMAILS: "admin@example.com, other@example.com" },
       getStore: () => memoryStore(),
     });
     assert.equal(warnings.length, 0, "should not warn for clean entries");
