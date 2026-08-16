@@ -15,7 +15,11 @@ curl -X PUT \
       "contexts": ["test"]
     },
     "enforce_admins": false,
-    "required_pull_request_reviews": null,
+    "required_pull_request_reviews": {
+      "dismiss_stale_reviews": false,
+      "require_code_owner_reviews": false,
+      "required_approving_review_count": 1
+    },
     "restrictions": null
   }'
 ```
@@ -26,9 +30,26 @@ curl -X PUT \
 |---|---|---|
 | Required status check | `test` | The `test` job in `.github/workflows/test.yml` must pass |
 | Strict | `false` | Branch doesn't need to be up to date before merging |
-| Enforce admins | `false` | Admins are not exempt |
-| PR reviews required | none | No review count required |
-| Push restrictions | none | Any collaborator can push |
+| Enforce admins | `false` | Repo owner can bypass rules via GitHub UI when needed |
+| PR reviews required | 1 | All changes must come via PR; direct pushes are blocked |
+| Force pushes | disabled | History cannot be rewritten on `main` |
+| Push restrictions | none (personal repo) | GitHub only supports push allowlists on organisation repos |
+
+### Why `required_pull_request_reviews` blocks direct pushes
+
+GitHub enforces `required_pull_request_reviews` by rejecting non-PR pushes to the protected branch. Setting `required_approving_review_count: 1` is the API minimum; it means any collaborator (other than the repo owner with `enforce_admins: false`) must open a PR and get one approval. The repo owner can still merge via the GitHub UI "Merge without waiting for requirements" bypass when needed.
+
+The `restrictions` field (push allowlist) is only available on organisation repositories and cannot be used here.
+
+### Automated protection check
+
+`.github/workflows/branch-protection-check.yml` runs on every PR to `main` and asserts:
+
+- `allow_force_pushes: false`
+- `required_pull_request_reviews` is present
+- `test` is a required status check
+
+If any rule is missing the check job fails, making protection drift visible in CI.
 
 ### Check name
 
