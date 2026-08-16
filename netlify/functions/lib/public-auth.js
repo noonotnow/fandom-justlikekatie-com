@@ -36,6 +36,13 @@ export function createPublicAuth({
     );
   }
 
+  if (env.FANDOM_PUBLIC_ORIGIN === undefined) {
+    console.warn(
+      "[public-auth] FANDOM_PUBLIC_ORIGIN is not set — magic-link URLs will be broken at request time. " +
+      "Set this variable to the public origin of the app (e.g. https://example.com)."
+    );
+  }
+
   if (env.FANDOM_ADMIN_EMAILS === undefined) {
     console.warn(
       "[public-auth] FANDOM_ADMIN_EMAILS is not set — no one will have admin access. " +
