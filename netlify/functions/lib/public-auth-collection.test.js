@@ -296,6 +296,97 @@ test("Resend delivery uses only server configuration", async () => {
   assert.equal(JSON.parse(call[1].body).to[0], "person@example.com");
 });
 
+test("sendMagicLinkEmail includes Resend error body message in the thrown error", async () => {
+  // When Resend rejects (e.g. unverified domain → 422, bad key → 403), the JSON
+  // `message` field from its response body must appear in the thrown Error so
+  // server logs are actionable rather than showing only the HTTP status code.
+  await assert.rejects(
+    () => sendMagicLinkEmail({
+      env: {
+        RESEND_API_KEY: "re_bad_key",
+        FANDOM_AUTH_FROM_EMAIL: "Fandom <login@unverified.example.com>",
+      },
+      email: "user@example.com",
+      magicLink: "https://example.com/auth/verify#token=abc",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({ name: "validation_error", message: "The from address must be a verified email address or domain." }),
+          { status: 422, headers: { "Content-Type": "application/json" } },
+        ),
+    }),
+    err => {
+      assert.ok(err.message.includes("422"), `Error must include status code; got: ${err.message}`);
+      assert.ok(
+        err.message.includes("The from address must be a verified email address or domain."),
+        `Error must include the Resend message body; got: ${err.message}`,
+      );
+      return true;
+    },
+  );
+});
+
+test("sendMagicLinkEmail still throws when Resend response body is not JSON", async () => {
+  // A 500 with a plain-text body (e.g. Cloudflare error page) must not crash the
+  // JSON parse and must still propagate as a thrown error containing the status code.
+  await assert.rejects(
+    () => sendMagicLinkEmail({
+      env: {
+        RESEND_API_KEY: "re_some_key",
+        FANDOM_AUTH_FROM_EMAIL: "Fandom <login@auth.justlikekatie.com>",
+      },
+      email: "user@example.com",
+      magicLink: "https://example.com/auth/verify#token=abc",
+      fetchImpl: async () =>
+        new Response("Internal Server Error", { status: 500 }),
+    }),
+    err => {
+      assert.ok(err.message.includes("500"), `Error must include status code; got: ${err.message}`);
+      return true;
+    },
+  );
+});
+
+test("Resend rejection (unverified domain / bad key) surfaces a 503 to the user, not a silent failure", async () => {
+  // Simulates what happens when Resend rejects the send — e.g. domain not verified or invalid API key.
+  // The user must receive a non-2xx response with a visible error message; the failure must never be swallowed.
+  const errors = [];
+  const originalError = console.error;
+  console.error = (...args) => errors.push(args.map(a => (a instanceof Error ? a.message : String(a))).join(" "));
+  try {
+    const auth = createPublicAuth({
+      env: {
+        FANDOM_AUTH_ID_SECRET: "identity-secret",
+        FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+        FANDOM_ADMIN_EMAILS: "admin@example.com",
+        RESEND_API_KEY: "re_bad_key",
+        FANDOM_AUTH_FROM_EMAIL: "Fandom <login@unverified.example.com>",
+      },
+      getStore: () => memoryStore(),
+      sendEmail: async () => {
+        // Simulate what sendMagicLinkEmail throws when Resend returns 422 (unverified domain).
+        throw new Error("Resend rejected the message (422) — The from address must be a verified email address or domain.");
+      },
+      randomToken: () => "resend-rejection-test-token-at-least-thirty-two",
+      now: () => new Date("2026-08-10T01:00:00Z"),
+    });
+    const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+      body: { email: "user@example.com" },
+    }));
+    assert.equal(res.status, 503, "Resend rejection must yield 503 to the caller — not 2xx or silent");
+    const body = await res.json();
+    assert.ok(
+      typeof body.error === "string" && body.error.length > 0,
+      `Response body must carry a non-empty error string; got: ${JSON.stringify(body)}`,
+    );
+    assert.ok(
+      errors.some(msg => msg.includes("Resend rejected")),
+      `console.error must log the Resend rejection details; got: ${JSON.stringify(errors)}`,
+    );
+  } finally {
+    console.error = originalError;
+  }
+});
+
 test("collection sync is idempotent, URL-independent, cursor-based, and tombstoned", async () => {
   const store = memoryStore();
   const upsert = {
