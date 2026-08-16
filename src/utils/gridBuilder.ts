@@ -135,6 +135,37 @@ function slugify(value: string): string {
 }
 
 /**
+ * Extract the actor identity a search spell testifies to. Spells are built as
+ * "<actor name> <vibe words>" so the first token is the canonical identity of
+ * whoever the images were actually fetched for. Only a plausible CJK name
+ * (2–4 han characters) counts as evidence; anything else returns undefined.
+ */
+function actorEvidenceFromSpell(batchKey: string | undefined): string | undefined {
+  if (!batchKey) return undefined;
+  const first = batchKey.trim().split(/\s+/)[0];
+  return first && /^[\u4e00-\u9fff]{2,4}$/.test(first) ? first : undefined;
+}
+
+/**
+ * Identity purification: a card's `actor` metadata is inherited from the saved
+ * record and can drift (e.g. a grid record labeled 王以纶 holding images fetched
+ * with an 敖瑞鹏 spell). The spell is primary evidence — when it names a
+ * different person than the metadata, the spell wins. This must happen before
+ * any lens filtering so "star: X" can never seat a separate human man.
+ */
+function reconcileIdentity(card: BuilderCard): BuilderCard {
+  const evidence = actorEvidenceFromSpell(card.batchKey);
+  if (!evidence || evidence === card.actor) return card;
+  return {
+    ...card,
+    actor: evidence,
+    actorEn: '',
+    actorId: `spell-${slugify(evidence)}`,
+    title: card.origin === 'saved-card' ? `${evidence} · ${card.vibe}` : card.title,
+  };
+}
+
+/**
  * Build the deduplicated builder pool from saved cards + saved-grid images,
  * and assign a crude visual family to every card:
  * editorialDetection sets where possible, batch/spell key otherwise.
@@ -143,14 +174,14 @@ export function buildPool(cards: CardRecord[], grids: GridRecord[]): BuilderCard
   const seen = new Set<string>();
   const pool: BuilderCard[] = [];
   for (const card of cards) {
-    const built = fromSavedCard(card);
+    const built = reconcileIdentity(fromSavedCard(card));
     if (seen.has(built.key)) continue;
     seen.add(built.key);
     pool.push(built);
   }
   for (const grid of grids) {
     for (const image of grid.images) {
-      const built = fromGridImage(grid, image);
+      const built = reconcileIdentity(fromGridImage(grid, image));
       if (seen.has(built.key)) continue;
       seen.add(built.key);
       pool.push(built);
