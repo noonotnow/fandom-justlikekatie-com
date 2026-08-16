@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash, createHmac } from "node:crypto";
-import { createPublicAuth } from "./public-auth.js";
+import { createPublicAuth, pruneExpiredRateLimits } from "./public-auth.js";
 import { syncCollection } from "./collection-repository.js";
 import { createCollectionHandlers } from "./collection-api.js";
 import { sendMagicLinkEmail } from "./resend-email.js";
@@ -22,6 +22,12 @@ function memoryStore() {
       revision += 1;
       records.set(key, { data: structuredClone(value), etag: `etag-${revision}` });
       return { modified: true };
+    },
+    async list() {
+      return { blobs: [...records.keys()].map(key => ({ key })) };
+    },
+    async delete(key) {
+      records.delete(key);
     },
     records,
   };
@@ -1456,4 +1462,91 @@ test("rate-limit window resets: a rate-limited IP can request a new magic link i
     "user22@example.com",
     "the email delivered in window N+1 must go to the address requested by the previously-limited IP",
   );
+});
+
+test("rate-limit entry with a past expiresAt is treated as absent so expired counts do not block requests", async () => {
+  // Verify that incrementLimit ignores a stored entry whose expiresAt has already
+  // elapsed.  We pre-seed the limits store with a count of 6 (above the email
+  // threshold of 5) but stamp it with an expiresAt one millisecond before `now`.
+  // If the expiry check works, the entry is discarded and the new count starts at 1,
+  // so the email is delivered.  If the check is absent the request would be silently
+  // suppressed (still 202 but no email).
+  const WINDOW_MS = 15 * 60 * 1000;
+  const now = new Date("2026-08-10T01:15:00Z");
+  const secret = "identity-secret";
+  const email = "expiry-test@example.com";
+
+  // Compute the exact key that isRateLimited will look up for this email + window.
+  const window = Math.floor(now.getTime() / WINDOW_MS);
+  const emailHmac = createHmac("sha256", secret).update(email).digest("base64url");
+  const emailKey = `email/${emailHmac}/${window}`;
+
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+
+  // Pre-seed the limits store with a count above the threshold (6 > 5) but
+  // with expiresAt one millisecond before `now` so it should be treated as absent.
+  const limitsStore = getStore("fandom-auth-rate-limits");
+  await limitsStore.setJSON(emailKey, {
+    count: 6,
+    updatedAt: new Date(now.getTime() - 60_000).toISOString(),
+    expiresAt: new Date(now.getTime() - 1).toISOString(), // expired
+  });
+
+  const delivered = [];
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: secret,
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => "expiry-test-magic-token-at-least-thirty-two-x",
+    now: () => now,
+  });
+
+  const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email },
+  }));
+  assert.equal(res.status, 202, "request must return 202");
+  assert.equal(
+    delivered.length,
+    1,
+    "email must be delivered — the expired entry must be treated as absent, not as count=6",
+  );
+
+  // The new entry written for this window must carry an expiresAt in the future.
+  const updated = await limitsStore.getWithMetadata(emailKey);
+  assert.ok(
+    updated?.data?.expiresAt,
+    "the new entry must store an expiresAt field to enable future cleanup",
+  );
+  assert.ok(
+    Date.parse(updated.data.expiresAt) > now.getTime(),
+    "the stored expiresAt must be in the future relative to the current window",
+  );
+});
+
+test("pruneExpiredRateLimits physically deletes expired entries and leaves non-expired ones intact", async () => {
+  // Confirm that the cleanup sweep removes keys whose expiresAt has elapsed and
+  // does not touch keys whose expiresAt is still in the future.
+  const store = memoryStore();
+  const pruneNow = new Date("2026-08-10T02:00:00Z");
+  const past = new Date(pruneNow.getTime() - 1).toISOString();        // expired
+  const future = new Date(pruneNow.getTime() + 60_000).toISOString(); // still live
+
+  // Seed two expired entries and one that is not yet expired.
+  await store.setJSON("email/hash-a/100", { count: 3, updatedAt: past, expiresAt: past });
+  await store.setJSON("ip/hash-b/100",    { count: 1, updatedAt: past, expiresAt: past });
+  await store.setJSON("email/hash-c/101", { count: 2, updatedAt: past, expiresAt: future });
+
+  const deleted = await pruneExpiredRateLimits(store, pruneNow);
+
+  assert.equal(deleted, 2, "exactly 2 expired entries must be deleted");
+  assert.equal(store.records.has("email/hash-a/100"), false, "first expired entry must be gone");
+  assert.equal(store.records.has("ip/hash-b/100"),    false, "second expired entry must be gone");
+  assert.equal(store.records.has("email/hash-c/101"), true,  "non-expired entry must remain");
 });

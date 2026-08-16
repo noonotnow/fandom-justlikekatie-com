@@ -220,25 +220,37 @@ async function authenticateSession(req, stores, current, includeExpired = false)
 async function isRateLimited(store, req, email, secret, current) {
   const windowMs = 15 * 60 * 1000;
   const window = Math.floor(current.getTime() / windowMs);
+  const windowEnd = new Date((window + 1) * windowMs);
   const ip = req.headers.get("x-nf-client-connection-ip") || "unknown";
   const emailKey = `email/${hmac(email, secret)}/${window}`;
   const ipKey = `ip/${hmac(ip, secret)}/${window}`;
   const [emailCount, ipCount] = await Promise.all([
-    incrementLimit(store, emailKey, current),
-    incrementLimit(store, ipKey, current),
+    incrementLimit(store, emailKey, current, windowEnd),
+    incrementLimit(store, ipKey, current, windowEnd),
   ]);
   return emailCount > 5 || ipCount > 20;
 }
 
-async function incrementLimit(store, key, current) {
+async function incrementLimit(store, key, current, windowEnd) {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const entry = await getWithMetadata(store, key);
-    const next = { count: (entry?.data?.count || 0) + 1, updatedAt: current.toISOString() };
-    const result = await store.setJSON(
-      key,
-      next,
-      entry?.etag ? { onlyIfMatch: entry.etag } : { onlyIfNew: true },
-    );
+    // Treat entries whose expiresAt is in the past as absent so stale keys are
+    // never counted, even if they were not physically deleted from the store.
+    const isExpired = entry?.data?.expiresAt
+      && Date.parse(entry.data.expiresAt) <= current.getTime();
+    const effectiveEntry = isExpired ? null : entry;
+    const next = {
+      count: (effectiveEntry?.data?.count || 0) + 1,
+      updatedAt: current.toISOString(),
+      expiresAt: windowEnd.toISOString(),
+    };
+    // Use the physical entry's etag for the CAS write whether the entry is live
+    // or expired — onlyIfNew would fail for an expired key that still exists in
+    // storage.  Only fall back to onlyIfNew when no physical record exists yet.
+    const writeOptions = entry?.etag
+      ? { onlyIfMatch: entry.etag }
+      : { onlyIfNew: true };
+    const result = await store.setJSON(key, next, writeOptions);
     if (result?.modified !== false) return next.count;
   }
   return Number.MAX_SAFE_INTEGER;
@@ -332,6 +344,42 @@ async function getWithMetadata(store, key) {
   }
   const data = await store.get(key, { type: "json", consistency: "strong" });
   return data ? { data } : null;
+}
+
+// Deletes every entry in a rate-limits store whose `expiresAt` is at or before
+// `current`.  Call this from a periodic scheduled function to prevent unbounded
+// key accumulation.  Safe to run concurrently with live traffic: deleting a key
+// that a concurrent request is about to read causes that request to start a
+// fresh counter at 1, which is the correct behaviour.
+//
+// Returns the number of entries deleted.
+export async function pruneExpiredRateLimits(store, current) {
+  if (typeof store.list !== "function" || typeof store.delete !== "function") return 0;
+  const blobs = await listAllKeys(store);
+  let deleted = 0;
+  for (const { key } of blobs) {
+    try {
+      const entry = await store.get(key, { type: "json", consistency: "strong" });
+      if (entry?.expiresAt && Date.parse(entry.expiresAt) <= current.getTime()) {
+        await store.delete(key);
+        deleted += 1;
+      }
+    } catch (error) {
+      console.error("[public-auth] failed to prune rate-limit entry", key, error);
+    }
+  }
+  return deleted;
+}
+
+async function listAllKeys(store) {
+  const listing = store.list({ paginate: true });
+  if (listing && typeof listing[Symbol.asyncIterator] === "function") {
+    const blobs = [];
+    for await (const page of listing) blobs.push(...(page.blobs || []));
+    return blobs;
+  }
+  const page = await listing;
+  return page?.blobs || [];
 }
 
 export function secureEqual(actual, expected) {
