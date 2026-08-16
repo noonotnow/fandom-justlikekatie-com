@@ -311,3 +311,48 @@ test('integration: exits 1 when a \\x09 hex-escape whitespace-only entry is pres
   );
   assert.match(result.stderr, /whitespace-only/);
 });
+
+test('integration: exits 1 with "could not locate" when RACCOON_COURT_RECORD array is absent', () => {
+  // File exists but uses a different constant name — simulates a rename refactor.
+  const src =
+    'export const RACCOON_VERDICTS = [\n' +
+    '  "Case #001: Motion denied. — Chief Justice 🦝",\n' +
+    '] as const;\n';
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /could not locate/);
+});
+
+test('integration: exits 1 with "could not locate" when as const suffix is missing', () => {
+  // Array is present but without `as const`, so the regex cannot match.
+  const src =
+    'export const RACCOON_COURT_RECORD = [\n' +
+    '  "Case #001: Motion denied. — Chief Justice 🦝",\n' +
+    '];\n';
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /could not locate/);
+});
+
+test('integration: exits 1 with "cannot read" when the file path does not exist', () => {
+  // Pass a path that does not exist on the filesystem.
+  const result = spawnSync(
+    process.execPath,
+    [SCRIPT, '--file=/nonexistent/path/raccoonCourtRecord.ts'],
+    { encoding: 'utf8' },
+  );
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /cannot read/);
+});
