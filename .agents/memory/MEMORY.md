@@ -2,5 +2,5 @@
 - [GitHub API push protocol](github-api-push.md) — git push fails auth; push via connector API with readFile utf-8 blobs + sha verification, never shellExec-piped content (truncation corrupted a deploy once).
 - [Actions token vs branch protection](actions-token-branch-protection.md) — GITHUB_TOKEN can't see required_status_checks; use REPO_ADMIN_PAT secret; `administration` is an invalid workflow permissions key.
 - [GitHub connector proxy write restrictions](github-connector-write-restrictions.md) — POST /git/trees returns 404, PUT /contents is Cloudflare-blocked; only POST /git/blobs and GETs reliably work; use GraphQL createCommitOnBranch or find alternative push path.
-- [Split-brain main breaks CI](split-brain-main.md) — CI-red/local-green means origin/main lacks local implementation commits; fetch, diff, worktree-reproduce, push main promptly.
+- [CI-red but local-green](split-brain-main.md) — suspect local/remote main divergence; reproduce against origin/main in a worktree before touching tests or CI.
 - [Replit npm registry in lockfile](replit-npm-registry.md) — lockfiles generated in Replit have internal proxy URLs that break npm ci in GitHub Actions; delete and regenerate with --registry flag then sed-fix stragglers.
