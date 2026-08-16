@@ -256,3 +256,26 @@ test('popup wraps back to the first ruling after exhausting the list', () => {
     'ruling shown after wrap must be the first ruling in the list',
   );
 });
+
+// ---------------------------------------------------------------------------
+// Non-blank popup content — confirms the timer firing never shows a blank
+// ---------------------------------------------------------------------------
+
+test('allRulings[0] is a non-empty string — popup shows content immediately when showLore becomes true', () => {
+  const all = getAllRulings([]);
+  assert.ok(all.length > 0, 'allRulings must not be empty');
+  assert.equal(typeof all[0], 'string', 'allRulings[0] must be a string');
+  assert.ok(all[0].trim().length > 0, 'allRulings[0] must not be blank — popup would show empty content');
+});
+
+test('every entry in getAllRulings() is a non-empty string — no index in the cycle can produce a blank popup', () => {
+  const all = getAllRulings([]);
+  assert.ok(all.length > 0, 'getAllRulings() must return at least one ruling');
+  for (let i = 0; i < all.length; i++) {
+    assert.equal(typeof all[i], 'string', `allRulings[${i}] must be a string`);
+    assert.ok(
+      all[i].trim().length > 0,
+      `allRulings[${i}] is blank — popup would show empty content at index ${i}`,
+    );
+  }
+});
