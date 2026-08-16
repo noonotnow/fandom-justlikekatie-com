@@ -87,7 +87,13 @@ export function checkArrayBody(body) {
 const __self = fileURLToPath(import.meta.url);
 if (process.argv[1] === __self) {
   const __dirname = dirname(__self);
-  const FILE = resolve(__dirname, '..', 'src', 'data', 'raccoonCourtRecord.ts');
+
+  // Allow callers (e.g. integration tests) to override the target file via a
+  // --file=<path> CLI argument without touching the production default.
+  const fileArg = process.argv.slice(2).find(a => a.startsWith('--file='));
+  const FILE = fileArg
+    ? resolve(fileArg.slice('--file='.length))
+    : resolve(__dirname, '..', 'src', 'data', 'raccoonCourtRecord.ts');
 
   let src;
   try {

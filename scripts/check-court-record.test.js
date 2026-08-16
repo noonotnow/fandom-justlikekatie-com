@@ -10,8 +10,46 @@
  */
 
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { decodeStringContent, checkArrayBody } from './check-court-record.js';
+
+// ---------------------------------------------------------------------------
+// Helpers for integration tests
+// ---------------------------------------------------------------------------
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const SCRIPT = resolve(__dirname, 'check-court-record.js');
+
+/** Wrap array entries in the TypeScript scaffold the script expects. */
+function makeSource(entries) {
+  return (
+    'export const RACCOON_COURT_RECORD = [\n' +
+    entries.map(e => `  ${e},`).join('\n') +
+    '\n] as const;\n'
+  );
+}
+
+/**
+ * Write `content` to a temp file, run the script against it, return the
+ * spawnSync result so tests can inspect exitCode / stderr / stdout.
+ */
+function runScript(content) {
+  const dir = mkdtempSync(join(tmpdir(), 'check-court-record-'));
+  const file = join(dir, 'raccoonCourtRecord.ts');
+  try {
+    writeFileSync(file, content, 'utf8');
+    return spawnSync(process.execPath, [SCRIPT, `--file=${file}`], {
+      encoding: 'utf8',
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 // ---------------------------------------------------------------------------
 // decodeStringContent
@@ -196,4 +234,80 @@ test('checkArrayBody: body with only valid rulings returns empty whitespaceOnly'
   const { totalCount, whitespaceOnly } = checkArrayBody(body);
   assert.equal(totalCount, 3);
   assert.equal(whitespaceOnly.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Integration / smoke tests — run the full script as a subprocess so that
+// end-to-end file-reading and array-extraction are exercised together.
+// ---------------------------------------------------------------------------
+
+test('integration: exits 0 on a clean file with only valid rulings', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    '"Case #002: Appeal upheld. — Associate Justice 🦝"',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    0,
+    `expected exit 0 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stdout, /OK/);
+});
+
+test('integration: exits 1 when a literal-space whitespace-only entry is present', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    '"   "',
+    '"Case #002: Appeal upheld. — Associate Justice 🦝"',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /whitespace-only/);
+});
+
+test('integration: exits 1 when a \\t escape whitespace-only entry is present', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    '"\\t"',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /whitespace-only/);
+});
+
+test('integration: exits 1 when a \\u0020 unicode-escape whitespace-only entry is present', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    '"\\u0020"',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /whitespace-only/);
+});
+
+test('integration: exits 1 when a \\x09 hex-escape whitespace-only entry is present', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    '"\\x09"',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /whitespace-only/);
 });
