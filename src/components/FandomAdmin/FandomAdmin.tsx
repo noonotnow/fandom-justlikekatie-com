@@ -540,6 +540,8 @@ function AdminAccess({ onUnlock }: { onUnlock: (token: string) => Promise<void> 
       <p>Enter the operator key for this browser session.</p>
       <label><span>Operator key</span><input type="password" value={token} onChange={event => setToken(event.target.value)} required /></label>
       <button type="submit" disabled={busy || !token.trim()}>{busy ? 'Unlocking…' : 'Unlock workspace'}</button>
+      {/* 🦝 The raccoon judiciary presides. Court is in session. */}
+      <span className={styles.raccoonJudiciary} aria-hidden="true" title="The raccoon judiciary is in session. All appeals denied.">🦝⚖️🦝</span>
     </form>
   );
 }

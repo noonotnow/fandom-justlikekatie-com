@@ -114,6 +114,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .access { display: grid; gap: 12px; width: min(420px, 100%); margin: 64px auto; border: 1px solid var(--admin-border); border-radius: 12px; background: var(--admin-panel); padding: 20px; }
 .access h3, .access p { margin: 0; }
 .access input { min-height: 44px; }
+.raccoonJudiciary { display: block; text-align: center; font-size: 9px; opacity: 0.12; cursor: default; user-select: none; letter-spacing: -2px; margin-top: -4px; transition: opacity 0.4s; }
+.raccoonJudiciary:hover { opacity: 0.6; }
 
 .libraryHeader {
   display: flex;
