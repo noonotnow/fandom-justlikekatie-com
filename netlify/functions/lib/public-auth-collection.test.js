@@ -242,6 +242,135 @@ test("CREATE collection reads require the dedicated GET-only HMAC scope", async 
   assert.equal(mutation.status, 405);
 });
 
+test("getSession returns isAdmin:true for an email in FANDOM_ADMIN_EMAILS", async () => {
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const sessionToken = "session-token-admin-exactly-thirty-two-chars";
+  const sessionKey = `sessions/${createHash("sha256").update(sessionToken).digest("hex")}`;
+  const accountId = "usr_admin_account";
+  const sessionStore = getStore("fandom-auth-sessions");
+  const userStore = getStore("fandom-auth-users");
+  await sessionStore.setJSON(sessionKey, {
+    schemaVersion: 1,
+    sessionId: "sid-admin",
+    accountId,
+    issuedAt: "2026-08-10T00:00:00Z",
+    expiresAt: "2027-08-10T00:00:00Z",
+    revokedAt: null,
+  });
+  await userStore.setJSON(`users/${accountId}`, {
+    schemaVersion: 1,
+    accountId,
+    email: "admin@example.com",
+    createdAt: "2026-08-10T00:00:00Z",
+    lastLoginAt: "2026-08-10T00:00:00Z",
+  });
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "secret",
+      FANDOM_ADMIN_EMAILS: "admin@example.com, other@example.com",
+    },
+    getStore,
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+  const res = await auth.getSession(request("/api/auth/session", {
+    method: "GET",
+    cookie: `__Host-fandom_session=${sessionToken}`,
+  }));
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.user.email, "admin@example.com");
+  assert.equal(body.user.isAdmin, true);
+});
+
+test("getSession returns isAdmin:false for an email NOT in FANDOM_ADMIN_EMAILS", async () => {
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const sessionToken = "session-token-nonadmin-exactly-thirty-two-x";
+  const sessionKey = `sessions/${createHash("sha256").update(sessionToken).digest("hex")}`;
+  const accountId = "usr_nonadmin_account";
+  const sessionStore = getStore("fandom-auth-sessions");
+  const userStore = getStore("fandom-auth-users");
+  await sessionStore.setJSON(sessionKey, {
+    schemaVersion: 1,
+    sessionId: "sid-nonadmin",
+    accountId,
+    issuedAt: "2026-08-10T00:00:00Z",
+    expiresAt: "2027-08-10T00:00:00Z",
+    revokedAt: null,
+  });
+  await userStore.setJSON(`users/${accountId}`, {
+    schemaVersion: 1,
+    accountId,
+    email: "regular@example.com",
+    createdAt: "2026-08-10T00:00:00Z",
+    lastLoginAt: "2026-08-10T00:00:00Z",
+  });
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "secret",
+      FANDOM_ADMIN_EMAILS: "admin@example.com",
+    },
+    getStore,
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+  const res = await auth.getSession(request("/api/auth/session", {
+    method: "GET",
+    cookie: `__Host-fandom_session=${sessionToken}`,
+  }));
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.user.email, "regular@example.com");
+  assert.equal(body.user.isAdmin, false);
+});
+
+test("getSession returns isAdmin:false when FANDOM_ADMIN_EMAILS is unset", async () => {
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const sessionToken = "session-token-noadminenv-exactly-thirty-two-x";
+  const sessionKey = `sessions/${createHash("sha256").update(sessionToken).digest("hex")}`;
+  const accountId = "usr_noadminenv_account";
+  const sessionStore = getStore("fandom-auth-sessions");
+  const userStore = getStore("fandom-auth-users");
+  await sessionStore.setJSON(sessionKey, {
+    schemaVersion: 1,
+    sessionId: "sid-noadminenv",
+    accountId,
+    issuedAt: "2026-08-10T00:00:00Z",
+    expiresAt: "2027-08-10T00:00:00Z",
+    revokedAt: null,
+  });
+  await userStore.setJSON(`users/${accountId}`, {
+    schemaVersion: 1,
+    accountId,
+    email: "someone@example.com",
+    createdAt: "2026-08-10T00:00:00Z",
+    lastLoginAt: "2026-08-10T00:00:00Z",
+  });
+  const auth = createPublicAuth({
+    env: { FANDOM_AUTH_ID_SECRET: "secret" /* FANDOM_ADMIN_EMAILS deliberately absent */ },
+    getStore,
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+  const res = await auth.getSession(request("/api/auth/session", {
+    method: "GET",
+    cookie: `__Host-fandom_session=${sessionToken}`,
+  }));
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.user.email, "someone@example.com");
+  assert.equal(body.user.isAdmin, false);
+});
+
 test("collection sync rejects a stale tab when its expected account differs from the cookie session", async () => {
   const store = memoryStore();
   const handlers = createCollectionHandlers({
