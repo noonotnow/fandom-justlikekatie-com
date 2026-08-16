@@ -1464,6 +1464,76 @@ test("rate-limit window resets: a rate-limited IP can request a new magic link i
   );
 });
 
+test("rate-limit window resets: the 'unknown' IP bucket resets in window N+1 so header-less requests are not permanently blocked", async () => {
+  // When the x-nf-client-connection-ip header is absent, isRateLimited falls
+  // back to the key ip/<hmac("unknown", secret)>/<window>.  All header-less
+  // requests share that single bucket.  This test confirms that:
+  //   1. 20 header-less requests in window N are each delivered (limit not yet hit).
+  //   2. The 21st header-less request in the same window is suppressed.
+  //   3. After the clock advances into window N+1 the bucket resets and a new
+  //      header-less request is delivered — the block is not permanent.
+  const WINDOW_MS = 15 * 60 * 1000;
+  const windowNStart = new Date("2026-08-10T00:00:00Z"); // start of an arbitrary window N
+
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  let nowTime = windowNStart;
+  let tokenCounter = 0;
+
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    // Each call gets a distinct token so magic-store onlyIfNew writes don't
+    // conflict with earlier tokens sharing the same digest.
+    randomToken: () => `unknown-ip-reset-token-${++tokenCounter}-pad-to-32x`,
+    now: () => nowTime,
+  });
+
+  // No x-nf-client-connection-ip header — all requests share the "unknown" bucket.
+  // Use a distinct email per request so the per-email counter (limit: 5) never triggers.
+  const makeRequest = (i) => auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: `unknown${i}@example.com` },
+    // Deliberately omit x-nf-client-connection-ip to exercise the "unknown" fallback.
+  }));
+
+  // Exhaust the per-"unknown"-IP limit: 20 successful deliveries.
+  for (let i = 1; i <= 20; i += 1) {
+    const res = await makeRequest(i);
+    assert.equal(res.status, 202, `request ${i} in window N must return 202`);
+  }
+  assert.equal(delivered.length, 20, "exactly 20 emails must be delivered before the unknown-IP limit kicks in");
+
+  // 21st header-less request in the same window — bucket is exhausted, no email sent.
+  const limitedRes = await makeRequest(21);
+  assert.equal(limitedRes.status, 202, "rate-limited unknown-IP request must still return 202 (silent)");
+  assert.equal(delivered.length, 20, "no 21st email must be sent in window N — unknown-IP bucket is exhausted");
+
+  // Advance the clock into window N+1. The bucket key changes because the window
+  // number changes, so the counter resets and header-less requests can be served again.
+  nowTime = new Date(windowNStart.getTime() + WINDOW_MS);
+
+  const windowNPlusOneRes = await makeRequest(22);
+  assert.equal(windowNPlusOneRes.status, 202, "header-less request in window N+1 must return 202");
+  assert.equal(
+    delivered.length,
+    21,
+    "a 21st email must be delivered in window N+1 — the unknown-IP bucket has reset",
+  );
+  assert.equal(
+    delivered[20].email,
+    "unknown22@example.com",
+    "the email delivered in window N+1 must go to the address from the header-less request",
+  );
+});
+
 test("rate-limit entry with a past expiresAt is treated as absent so expired counts do not block requests", async () => {
   // Verify that incrementLimit ignores a stored entry whose expiresAt has already
   // elapsed.  We pre-seed the limits store with a count of 6 (above the email
