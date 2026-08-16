@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { dbGetAllCards, dbGetAllGrids, dbGetVisibleCards, dbGetVisibleGrids, dbRemoveGrid, dbSaveGrid, type GridRecord } from '../../utils/collectionDB';
 import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
@@ -63,6 +63,12 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
   // the proposal.  When the user saves after swapping, the stale record is
   // removed first so only the latest version lives in the store.
   const [priorSavedGridId, setPriorSavedGridId] = useState<string | null>(null);
+  // Synchronous in-flight lock for startPacket.  React state setters do not
+  // update the captured closure value until the next render, so a second call
+  // that arrives before React flushes would not see busy==='packet' yet.
+  // A ref is set synchronously before the first await, guaranteeing re-entrant
+  // calls are blocked regardless of render timing.
+  const packetInFlight = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -217,6 +223,11 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
 
   async function startPacket() {
     if (!proposal || proposal.slots.length !== 9 || busy || !onCreateFromGrid) return;
+    // Synchronous re-entrant guard: the ref is set before any await, so a second
+    // call that arrives in the same event-loop tick (before React re-renders and
+    // the button disables) exits here without touching dbSaveGrid or onCreateFromGrid.
+    if (packetInFlight.current) return;
+    packetInFlight.current = true;
     setBusy('packet');
     setNotice('');
     try {
@@ -237,6 +248,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     } catch (caught) {
       setNotice(caught instanceof Error ? caught.message : 'Idea Packet could not be started.');
     } finally {
+      packetInFlight.current = false;
       setBusy('');
     }
   }

@@ -614,3 +614,143 @@ test('startPacket cleans up priorSavedGridId before saving — source-level asse
     'startPacket must call setPriorSavedGridId(null) after removing the stale record',
   );
 });
+
+// ---------------------------------------------------------------------------
+// Double-trigger guard tests (Task 51)
+// ---------------------------------------------------------------------------
+
+test('startPacket in-flight guard: second call concurrent with first is a no-op — behavioral', async () => {
+  // Verifies that the packetInFlight ref used by startPacket blocks a second
+  // invocation that arrives in the same event-loop tick (before React re-renders
+  // and disables the button).
+  //
+  // The test replicates the exact guard pattern from GridBuilder.tsx:
+  //   if (packetInFlight.current) return;
+  //   packetInFlight.current = true;   // synchronous — before any await
+  //   try { ... } finally { packetInFlight.current = false; }
+  //
+  // Because JavaScript is single-threaded, `p2 = startPacket()` executes after
+  // `p1 = startPacket()` has already set packetInFlight.current = true (that
+  // happens synchronously before the first await), so p2 exits at the guard.
+
+  const createCalls: string[] = [];
+  let saveCount = 0;
+
+  // Mirror the guard logic from GridBuilder.startPacket.
+  const packetInFlight = { current: false };
+
+  async function startPacket(
+    onCreateFromGrid: (grid: GridRecord) => Promise<void>,
+  ): Promise<void> {
+    // React state guard (busy) — already truthy for same-render calls after
+    // setBusy is called, but React closures capture the pre-render value.
+    // The ref guard is the reliable synchronous barrier.
+    if (packetInFlight.current) return;
+    packetInFlight.current = true;
+    try {
+      // Simulate dbSaveGrid
+      const grid = makeGrid({ id: 'guard-test-grid' });
+      await dbSaveGrid(grid);
+      saveCount++;
+      // Simulate onCreateFromGrid — the call the guard must deduplicate.
+      await onCreateFromGrid(grid);
+      createCalls.push('invoked');
+    } finally {
+      packetInFlight.current = false;
+    }
+  }
+
+  // Slow async callback so p1 is still in-flight when p2 fires.
+  let resolveCreate!: () => void;
+  const createPending = new Promise<void>(resolve => { resolveCreate = resolve; });
+  const mockOnCreateFromGrid = async (_grid: GridRecord) => { await createPending; };
+
+  // Fire both calls without awaiting — this is the double-click / double-trigger.
+  const p1 = startPacket(mockOnCreateFromGrid);
+  const p2 = startPacket(mockOnCreateFromGrid); // fires before p1 hits its first await
+
+  // Let p1 complete.
+  resolveCreate();
+  await Promise.all([p1, p2]);
+
+  assert.strictEqual(
+    createCalls.length,
+    1,
+    'onCreateFromGrid must be called exactly once — second concurrent startPacket call must be a no-op',
+  );
+  assert.strictEqual(
+    saveCount,
+    1,
+    'dbSaveGrid must be called exactly once — second concurrent startPacket call must not reach dbSaveGrid',
+  );
+});
+
+test('startPacket re-entrant guard resets after completion — second call succeeds once first finishes', async () => {
+  // Confirms that packetInFlight.current is reset to false in the finally block,
+  // so a genuine second attempt after the first completes is not blocked.
+  const createCalls: string[] = [];
+  const packetInFlight = { current: false };
+
+  async function startPacket(onCreateFromGrid: (grid: GridRecord) => Promise<void>): Promise<void> {
+    if (packetInFlight.current) return;
+    packetInFlight.current = true;
+    try {
+      const grid = makeGrid({ id: 'guard-reset-test-grid' });
+      await dbSaveGrid(grid);
+      await onCreateFromGrid(grid);
+      createCalls.push('invoked');
+    } finally {
+      packetInFlight.current = false;
+    }
+  }
+
+  const noop = async (_grid: GridRecord) => {};
+
+  // First call succeeds and releases the lock.
+  await startPacket(noop);
+  assert.strictEqual(createCalls.length, 1, 'first call must succeed');
+  assert.strictEqual(packetInFlight.current, false, 'lock must be released after first call');
+
+  // Second call (sequential, after the first completed) must also succeed.
+  await startPacket(noop);
+  assert.strictEqual(
+    createCalls.length,
+    2,
+    'sequential second call must succeed once the first has completed and released the lock',
+  );
+});
+
+test('startPacket source uses packetInFlight ref for synchronous re-entrant guard', async () => {
+  // Pins the ref-based guard structure in the source so a future refactor cannot
+  // silently revert to relying on React state alone (which is not synchronous).
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(
+    new URL('../src/components/GridBuilder/GridBuilder.tsx', import.meta.url),
+    'utf8',
+  );
+
+  // Locate the startPacket function body.
+  const startPacketIdx = source.indexOf('async function startPacket()');
+  assert.ok(startPacketIdx !== -1, 'startPacket function must exist in GridBuilder.tsx');
+  const bodyAfter = source.slice(startPacketIdx);
+  const nextFnIdx = bodyAfter.indexOf('\n  if (loadError)');
+  const startPacketBody = nextFnIdx !== -1 ? bodyAfter.slice(0, nextFnIdx) : bodyAfter.slice(0, 800);
+
+  // The ref guard must appear before the first await.
+  const refGuardPos = startPacketBody.indexOf('if (packetInFlight.current) return');
+  const setRefPos   = startPacketBody.indexOf('packetInFlight.current = true');
+  const firstAwait  = startPacketBody.indexOf('await ');
+
+  assert.ok(refGuardPos !== -1, 'startPacket must guard with `if (packetInFlight.current) return`');
+  assert.ok(setRefPos   !== -1, 'startPacket must set packetInFlight.current = true');
+  assert.ok(
+    refGuardPos < firstAwait && setRefPos < firstAwait,
+    'both the guard check and the ref set must appear before the first await (synchronous barrier)',
+  );
+
+  // The ref must be released in the finally block.
+  assert.ok(
+    startPacketBody.includes('packetInFlight.current = false'),
+    'startPacket finally block must reset packetInFlight.current = false',
+  );
+});
