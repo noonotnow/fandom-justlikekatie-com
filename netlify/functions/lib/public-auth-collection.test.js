@@ -895,6 +895,107 @@ test("verifyMagicLink returns 401 when a consumed next=plan token is replayed (p
   );
 });
 
+test("requireConfiguration does not throw when all required keys are present", async () => {
+  // Happy path: both keys set → requestMagicLink proceeds past the guard and returns 202.
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+      FANDOM_ADMIN_EMAILS: "admin@example.com",
+    },
+    getStore,
+    sendEmail: async () => {},
+    randomToken: () => "require-config-happy-token-at-least-thirty-two",
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+  const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "user@example.com" },
+  }));
+  // A 503 here would mean requireConfiguration threw; 202 confirms it did not.
+  assert.equal(res.status, 202, "requestMagicLink must not return 503 when all required env vars are set");
+});
+
+test("requireConfiguration names the missing key when one required variable is absent", async () => {
+  // FANDOM_PUBLIC_ORIGIN absent → requireConfiguration throws an Error that names it.
+  // withErrors catches the plain Error and logs it via console.error, then returns 503.
+  const errors = [];
+  const originalError = console.error;
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  console.error = (...args) => errors.push(args.map(a => (a instanceof Error ? a.message : String(a))).join(" "));
+  let auth;
+  try {
+    auth = createPublicAuth({
+      env: {
+        FANDOM_AUTH_ID_SECRET: "identity-secret",
+        /* FANDOM_PUBLIC_ORIGIN deliberately absent */
+      },
+      getStore: () => memoryStore(),
+      sendEmail: async () => {},
+      now: () => new Date("2026-08-10T01:00:00Z"),
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
+  try {
+    const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+      body: { email: "user@example.com" },
+    }));
+    assert.equal(res.status, 503, "missing FANDOM_PUBLIC_ORIGIN must yield 503");
+    assert.ok(
+      errors.some(msg => msg.includes("FANDOM_PUBLIC_ORIGIN")),
+      `console.error must mention FANDOM_PUBLIC_ORIGIN; got: ${JSON.stringify(errors)}`,
+    );
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test("requireConfiguration names all missing keys when two required variables are absent", async () => {
+  // Both FANDOM_AUTH_ID_SECRET and FANDOM_PUBLIC_ORIGIN absent → error lists both.
+  const errors = [];
+  const originalError = console.error;
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  console.error = (...args) => errors.push(args.map(a => (a instanceof Error ? a.message : String(a))).join(" "));
+  let auth;
+  try {
+    auth = createPublicAuth({
+      env: {
+        /* both required keys deliberately absent */
+        FANDOM_ADMIN_EMAILS: "admin@example.com",
+      },
+      getStore: () => memoryStore(),
+      sendEmail: async () => {},
+      now: () => new Date("2026-08-10T01:00:00Z"),
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
+  try {
+    const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+      body: { email: "user@example.com" },
+    }));
+    assert.equal(res.status, 503, "missing both required vars must yield 503");
+    const combined = errors.join(" ");
+    assert.ok(
+      combined.includes("FANDOM_AUTH_ID_SECRET"),
+      `console.error must mention FANDOM_AUTH_ID_SECRET; got: ${JSON.stringify(errors)}`,
+    );
+    assert.ok(
+      combined.includes("FANDOM_PUBLIC_ORIGIN"),
+      `console.error must mention FANDOM_PUBLIC_ORIGIN; got: ${JSON.stringify(errors)}`,
+    );
+  } finally {
+    console.error = originalError;
+  }
+});
+
 test("collection sync rejects a stale tab when its expected account differs from the cookie session", async () => {
   const store = memoryStore();
   const handlers = createCollectionHandlers({
