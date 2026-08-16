@@ -535,3 +535,82 @@ test('GridBuilder.tsx removes the prior saved grid id before saving after a slot
     'saveGrid must await dbRemoveGrid(priorSavedGridId) to clean up the orphaned record',
   );
 });
+
+// ---------------------------------------------------------------------------
+// startPacket swap-orphan tests (Task 50)
+// ---------------------------------------------------------------------------
+
+test('swap → startPacket results in exactly one grid record in the store', async () => {
+  // Simulates the bug scenario:
+  //   1. User proposes → saves grid_v1
+  //   2. User swaps a slot → priorSavedGridId=v1_id, isGridSaved=false
+  //   3. User clicks "Start Idea Packet" instead of Save → Export
+  //   4. startPacket must remove the stale v1 record before saving v2
+  const fixedDate = new Date('2026-08-16T14:00:00Z');
+  const slotsV1 = makeSlots('packet-swap-v1');
+  const slotsV2 = makeSlots('packet-swap-v2');
+  const rationale = makeRationale();
+
+  const gridV1 = gridRecordFromProposal(slotsV1, rationale, fixedDate);
+  const gridV2 = gridRecordFromProposal(slotsV2, rationale, fixedDate);
+
+  assert.notStrictEqual(gridV1.id, gridV2.id, 'precondition: different slots must yield different ids');
+
+  // Step 1: initial save (user explicitly saved grid_v1).
+  await dbSaveGrid(gridV1);
+  const afterFirstSave = await dbGetAllGrids();
+  assert.ok(afterFirstSave.some(g => g.id === gridV1.id), 'grid_v1 should be present after initial save');
+
+  // Step 2-3: user swaps then clicks startPacket.
+  // startPacket runs: dbRemoveGrid(priorSavedGridId=v1_id) then dbSaveGrid(grid_v2).
+  await dbRemoveGrid(gridV1.id);  // priorSavedGridId cleanup
+  await dbSaveGrid(gridV2);
+
+  const final = await dbGetAllGrids();
+
+  assert.ok(
+    final.some(g => g.id === gridV2.id),
+    'post-swap grid_v2 must be present after startPacket',
+  );
+  assert.ok(
+    !final.some(g => g.id === gridV1.id),
+    'pre-swap grid_v1 must have been removed by startPacket priorSavedGridId cleanup',
+  );
+
+  const matchingV2 = final.filter(g => g.id === gridV2.id);
+  assert.strictEqual(matchingV2.length, 1, 'exactly one record for grid_v2 should exist');
+});
+
+test('startPacket cleans up priorSavedGridId before saving — source-level assertion', async () => {
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(
+    new URL('../src/components/GridBuilder/GridBuilder.tsx', import.meta.url),
+    'utf8',
+  );
+
+  // Locate the startPacket function body so assertions are scoped to it.
+  const startPacketIdx = source.indexOf('async function startPacket()');
+  assert.ok(startPacketIdx !== -1, 'startPacket function must exist in GridBuilder.tsx');
+
+  // Find the closing brace of startPacket by grabbing from its start to the
+  // next top-level function declaration.
+  const bodyAfter = source.slice(startPacketIdx);
+  const nextFnIdx = bodyAfter.indexOf('\n  if (loadError)');
+  const startPacketBody = nextFnIdx !== -1 ? bodyAfter.slice(0, nextFnIdx) : bodyAfter.slice(0, 600);
+
+  // startPacket must guard on priorSavedGridId before calling dbSaveGrid.
+  assert.ok(
+    startPacketBody.includes('priorSavedGridId'),
+    'startPacket must read priorSavedGridId to detect an orphaned record from a prior save',
+  );
+
+  assert.ok(
+    startPacketBody.includes('await dbRemoveGrid(priorSavedGridId)'),
+    'startPacket must await dbRemoveGrid(priorSavedGridId) to remove the stale record',
+  );
+
+  assert.ok(
+    startPacketBody.includes('setPriorSavedGridId(null)'),
+    'startPacket must call setPriorSavedGridId(null) after removing the stale record',
+  );
+});

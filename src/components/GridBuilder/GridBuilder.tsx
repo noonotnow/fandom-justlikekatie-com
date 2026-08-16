@@ -221,6 +221,13 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     setNotice('');
     try {
       const grid = gridRecordFromProposal(proposal.slots, proposal.rationale);
+      // If the user swapped a slot after a previous save, the slot hash changed
+      // and this is a brand-new id.  Remove the orphaned prior record first so
+      // the store never holds two versions of the same conceptual grid.
+      if (priorSavedGridId && priorSavedGridId !== grid.id) {
+        await dbRemoveGrid(priorSavedGridId);
+        setPriorSavedGridId(null);
+      }
       await dbSaveGrid(grid);
       setIsGridSaved(true);
       setSavedGridId(grid.id);
