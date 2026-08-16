@@ -288,7 +288,12 @@ function sha256(value) {
 }
 
 function requireConfiguration(env, keys) {
-  if (keys.some(key => !env[key])) throw new Error("Fandom auth is not configured.");
+  const missing = keys.filter(key => !env[key]);
+  if (missing.length > 0) {
+    throw new Error(
+      `Fandom auth is not configured. Missing environment variable${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}.`
+    );
+  }
 }
 
 function requireMethod(req, method) {
