@@ -171,22 +171,28 @@ function reconcileIdentity(card: BuilderCard): BuilderCard {
  * editorialDetection sets where possible, batch/spell key otherwise.
  */
 export function buildPool(cards: CardRecord[], grids: GridRecord[]): BuilderCard[] {
-  const seen = new Set<string>();
-  const pool: BuilderCard[] = [];
-  for (const card of cards) {
-    const built = reconcileIdentity(fromSavedCard(card));
-    if (seen.has(built.key)) continue;
-    seen.add(built.key);
-    pool.push(built);
-  }
-  for (const grid of grids) {
-    for (const image of grid.images) {
-      const built = reconcileIdentity(fromGridImage(grid, image));
-      if (seen.has(built.key)) continue;
-      seen.add(built.key);
-      pool.push(built);
+  const byKey = new Map<string, BuilderCard>();
+  const admit = (built: BuilderCard) => {
+    const existing = byKey.get(built.key);
+    if (!existing) { byKey.set(built.key, built); return; }
+    // Same image, two records: if the discarded duplicate carries spell
+    // identity evidence and the kept one doesn't, adopt its identity so
+    // dedupe order can never launder a drifted actor label.
+    if (!actorEvidenceFromSpell(existing.batchKey) && actorEvidenceFromSpell(built.batchKey)) {
+      byKey.set(built.key, {
+        ...existing,
+        actor: built.actor,
+        actorEn: built.actorEn,
+        actorId: built.actorId,
+        ...(built.batchKey ? { batchKey: built.batchKey } : {}),
+      });
     }
+  };
+  for (const card of cards) admit(reconcileIdentity(fromSavedCard(card)));
+  for (const grid of grids) {
+    for (const image of grid.images) admit(reconcileIdentity(fromGridImage(grid, image)));
   }
+  const pool = [...byKey.values()];
 
   // Editorial detection over items that carry publisher/title signal.
   const detectable: GridItemData[] = pool.map(card => ({
