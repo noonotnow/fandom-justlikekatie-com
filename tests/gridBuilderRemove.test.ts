@@ -49,6 +49,12 @@ import {
   type GridRecord,
 } from '../src/utils/collectionDB.ts';
 
+import {
+  gridRecordFromProposal,
+  type BuilderCard,
+  type GridRationale,
+} from '../src/utils/gridBuilder.ts';
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -206,5 +212,94 @@ test('isGridSaved resets to false and Save button re-enables after removal — c
   assert.ok(
     source.includes('isGridSaved ? \'Already saved to your collection\''),
     'Save button title should reflect the saved state',
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Export → remove → re-export cycle tests (Task 32)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a minimal 9-slot BuilderCard array for use with gridRecordFromProposal.
+ */
+function makeSlots(baseKey = 'slot'): BuilderCard[] {
+  return Array.from({ length: 9 }, (_, index) => ({
+    key: `https://images.example/${baseKey}-${index}.jpg`,
+    imageUrl: `https://images.example/${baseKey}-${index}.jpg`,
+    sourceUrl: `https://publisher.example/story-${index}`,
+    title: `Image ${index}`,
+    actor: 'Test Actor',
+    actorEn: 'Test Actor',
+    actorId: 'actor-test',
+    actorAccentColor: '#aabbcc',
+    vibe: '测试',
+    vibeEn: 'Test Vibe',
+    vibeEmoji: '🧪',
+    vibeSubtitle: '',
+    vibeSubtitleEn: '',
+    capturedDate: '2026-08-16',
+    resultId: `https://images.example/${baseKey}-${index}.jpg`,
+    origin: 'saved-card' as const,
+    familyId: 'test-family',
+    familyLabel: 'Test Family',
+  }));
+}
+
+function makeRationale(): GridRationale {
+  return {
+    aestheticRead: 'Test aesthetic read.',
+    whyTogether: 'They belong together.',
+    motifs: ['Test Family (9)'],
+    suggestedStance: 'Aesthetic archive — a curated visual collection',
+    lens: 'whole saved collection',
+    slotReasons: Array.from({ length: 9 }, () => 'test family set (9)'),
+    manualSwaps: [],
+  };
+}
+
+test('dbSaveGrid called twice with the same id stores exactly one record', async () => {
+  // Simulates: export (save) → remove from collection → re-export (save again).
+  // The second dbSaveGrid must upsert (overwrite), not insert a duplicate.
+  const grid = makeGrid({ id: 'grid-export-remove-reexport-idempotent' });
+
+  // First export: save the grid.
+  await dbSaveGrid(grid);
+
+  // Remove it (user removes from collection).
+  await dbRemoveGrid(grid.id);
+
+  // Re-export: save the same grid again.
+  await dbSaveGrid(grid);
+
+  // Should contain exactly one record with this id.
+  const all = await dbGetAllGrids();
+  const matching = all.filter(g => g.id === grid.id);
+  assert.strictEqual(
+    matching.length,
+    1,
+    'exactly one record should exist after export → remove → re-export',
+  );
+});
+
+test('gridRecordFromProposal produces a stable id across repeated calls with identical slots', () => {
+  const slots = makeSlots('stable');
+  const rationale = makeRationale();
+
+  // Fix the clock so date-based id prefix is deterministic.
+  const fixedDate = new Date('2026-08-16T10:00:00Z');
+
+  const record1 = gridRecordFromProposal(slots, rationale, fixedDate);
+  const record2 = gridRecordFromProposal(slots, rationale, fixedDate);
+
+  assert.strictEqual(
+    record1.id,
+    record2.id,
+    'gridRecordFromProposal must produce the same id for identical slots and date',
+  );
+
+  // Confirm the id is not empty and follows the expected prefix convention.
+  assert.ok(
+    record1.id.startsWith('builder-'),
+    'grid id should start with "builder-"',
   );
 });
