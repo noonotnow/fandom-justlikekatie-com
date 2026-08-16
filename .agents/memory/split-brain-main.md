@@ -1,9 +1,9 @@
 ---
-name: Split-brain main breaks CI
-description: Why sign-in tests were red in CI but green locally, and how to prevent it
+name: CI-red but local-green
+description: Diagnose GitHub CI failures that don't reproduce locally
 ---
-Rule: local `main` and `origin/main` can diverge in this project (partial pushes of test files without their implementation commits). CI-red-but-local-green almost always means origin/main is missing implementation commits that exist locally.
+Rule: when GitHub CI is red but the same tests pass locally, suspect that local and remote main have diverged — tests can land remotely without their implementation. Reproduce against `origin/main` in a throwaway worktree before touching test or CI code.
 
-**Why:** Sign-in tests were merged to origin/main while the matching public-auth implementation only existed on local main → ~11 CI failures blocked all merges.
+**Why:** A red-everywhere CI incident was misdiagnosed as env/secret differences; the real cause was implementation commits that existed only locally.
 
-**How to apply:** When CI fails but local passes, first `git fetch` and diff local vs origin for the files under test; reproduce with a worktree at origin/main. After any local commit meant for production, push main promptly so tests and implementation travel together.
+**How to apply:** `git fetch`, diff local vs origin for the files under test, reproduce in a worktree at origin/main; after committing locally, push main promptly so tests and implementation travel together.
