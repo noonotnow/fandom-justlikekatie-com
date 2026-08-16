@@ -4,7 +4,10 @@
  *
  * IMPORTANT: Do not add empty or whitespace-only strings.
  * A TypeScript static assertion below will fail the build (`tsc -b`) if any
- * entry is the empty string "". The test suite catches whitespace-only strings.
+ * entry is the exact empty string "". A lint-time script
+ * (scripts/check-court-record.js, run by `npm run lint`) catches
+ * whitespace-only strings such as "   " that TypeScript cannot distinguish
+ * from a valid non-empty literal.
  */
 export const RACCOON_COURT_RECORD = [
   "Case #001: Motion to adjourn denied. — Chief Justice 🦝",
