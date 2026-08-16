@@ -40,7 +40,7 @@ const PLATFORM_OPTIONS = ["Weibo", "Rednote", "WeChat", "Douyin"];
 
 export function SendToPlanButton(props: Props) {
   const { rawData } = props;
-  const isAdmin = useIsAdmin();
+  const { isAdmin } = useIsAdmin();
 
   const [open,    setOpen]    = useState(false);
   const [loading, setLoading] = useState(false);

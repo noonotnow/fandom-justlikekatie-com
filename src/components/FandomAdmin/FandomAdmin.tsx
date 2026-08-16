@@ -5,6 +5,7 @@ import {
   downloadPacketHandoff,
   includedPacketOutputs,
   mutateIdeaPacket,
+  IdeaPacketError,
   type CreateReceipt,
   type IdeaPacket,
 } from '../../utils/ideaPackets';
@@ -26,6 +27,8 @@ interface Props {
   onCreateFromGrid: (grid: GridRecord) => Promise<IdeaPacket>;
   onAddSavedCard: (packet: IdeaPacket, card: CardRecord) => Promise<IdeaPacket>;
   onAddSavedGrid: (packet: IdeaPacket, grid: GridRecord) => Promise<IdeaPacket>;
+  /** Called when any admin API request returns 401, so the session can be re-checked. */
+  onSessionExpired?: () => void;
 }
 
 export const FandomAdmin: React.FC<Props> = props => {
@@ -76,6 +79,7 @@ export const FandomAdmin: React.FC<Props> = props => {
           {...props}
           showLibrary={view === 'library'}
           onLibraryPacketCreated={() => setView('packets')}
+          onSessionExpired={props.onSessionExpired}
         />
       )}
     </section>
@@ -91,6 +95,7 @@ function PacketWorkspace({
   onCreateFromGrid,
   onAddSavedCard,
   onAddSavedGrid,
+  onSessionExpired,
   showLibrary,
   onLibraryPacketCreated,
 }: Omit<Props, 'unauthorized'> & {
@@ -119,6 +124,7 @@ function PacketWorkspace({
       onPacketChange(await mutateIdeaPacket(selected, action));
       if (success) setNotice(success);
     } catch (caught) {
+      if (caught instanceof IdeaPacketError && caught.status === 401) onSessionExpired?.();
       setNotice(caught instanceof Error ? caught.message : 'That packet edit could not be saved.');
     } finally {
       setBusy(false);
@@ -139,6 +145,7 @@ function PacketWorkspace({
       );
       await onRefresh();
     } catch (caught) {
+      if (caught instanceof IdeaPacketError && caught.status === 401) onSessionExpired?.();
       setNotice(caught instanceof Error ? caught.message : 'The Idea Packet could not be sent to CREATE.');
     } finally {
       setBusy(false);

@@ -29,7 +29,7 @@ import {
   packetFromCollectionGrid,
 } from './utils/ideaPackets';
 import type { CardRecord, GridRecord } from './utils/collectionDB';
-import { consumeMagicLinkFromLocation } from './utils/publicAccount';
+import { consumeMagicLinkFromLocation, requestMagicLink } from './utils/publicAccount';
 import { useIsAdmin } from './hooks/useIsAdmin';
 import './App.css';
 
@@ -41,7 +41,7 @@ function App() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [dailyGridZoomOpen, setDailyGridZoomOpen] = useState(false);
   const [view, setView] = useState<'daily' | 'collection' | 'plan'>('daily');
-  const isAdmin = useIsAdmin();
+  const { isAdmin, loading: adminLoading, recheck: recheckAdmin } = useIsAdmin();
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const { items: gridImages, meta, rawData, loading, error } = useStarOfDay();
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
@@ -79,8 +79,13 @@ function App() {
       setPackets(await fetchIdeaPackets());
       setPacketsUnauthorized(false);
     } catch (caught) {
-      setPacketsUnauthorized(caught instanceof IdeaPacketError && caught.status === 401);
+      const is401 = caught instanceof IdeaPacketError && caught.status === 401;
+      setPacketsUnauthorized(is401);
       setPacketsError(caught instanceof Error ? caught.message : 'Idea Packets could not be loaded.');
+      // A 401 from a protected API means the session cookie may have expired.
+      // Re-check so that if isAdmin was true, it transitions to false and shows
+      // the sign-in gate rather than leaving a stale admin view on screen.
+      if (is401) recheckAdmin();
     } finally {
       setPacketsLoading(false);
     }
@@ -233,6 +238,7 @@ function App() {
                       } catch (caught) {
                         if (caught instanceof IdeaPacketError && caught.status === 401) {
                           setPacketsUnauthorized(true);
+                          recheckAdmin();
                           setView('plan');
                         } else {
                           setPacketsError(caught instanceof Error ? caught.message : 'Idea Packet could not be started.');
@@ -297,7 +303,12 @@ function App() {
           } : undefined}
           packets={packets}
           onAddToPacket={async (packet, image) => {
-            replacePacket(await mutateIdeaPacket(packet, { type: 'add_media', media: mediaFromResult(image) }));
+            try {
+              replacePacket(await mutateIdeaPacket(packet, { type: 'add_media', media: mediaFromResult(image) }));
+            } catch (caught) {
+              if (caught instanceof IdeaPacketError && caught.status === 401) recheckAdmin();
+              throw caught;
+            }
           }}
         />
       )}
@@ -307,19 +318,33 @@ function App() {
           isAdmin={isAdmin}
           packets={packets}
           onCreateFromGrid={async (grid: GridRecord) => {
-            const packet = await createIdeaPacket(packetFromCollectionGrid(grid));
-            replacePacket(packet);
-            return packet;
+            try {
+              const packet = await createIdeaPacket(packetFromCollectionGrid(grid));
+              replacePacket(packet);
+              return packet;
+            } catch (caught) {
+              if (caught instanceof IdeaPacketError && caught.status === 401) recheckAdmin();
+              throw caught;
+            }
           }}
           onAddGridToPacket={async (packet: IdeaPacket, grid: GridRecord) => {
-            const updated = await mutateIdeaPacket(packet, {
-              type: 'add_grid',
-              grid: packetGridFromCollectionGrid(grid),
-            });
-            replacePacket(updated);
-            return updated;
+            try {
+              const updated = await mutateIdeaPacket(packet, {
+                type: 'add_grid',
+                grid: packetGridFromCollectionGrid(grid),
+              });
+              replacePacket(updated);
+              return updated;
+            } catch (caught) {
+              if (caught instanceof IdeaPacketError && caught.status === 401) recheckAdmin();
+              throw caught;
+            }
           }}
         />
+      ) : adminLoading ? (
+        <div className="admin-gate-loading" aria-label="Checking admin session…" />
+      ) : !isAdmin ? (
+        <AdminSignIn />
       ) : (
         <FandomAdmin
           packets={packets}
@@ -328,26 +353,85 @@ function App() {
           unauthorized={packetsUnauthorized}
           onRefresh={loadPackets}
           onPacketChange={replacePacket}
+          onSessionExpired={recheckAdmin}
           onCreateFromGrid={async (grid: GridRecord) => {
-            const packet = await createIdeaPacket(packetFromCollectionGrid(grid));
-            replacePacket(packet);
-            return packet;
+            try {
+              const packet = await createIdeaPacket(packetFromCollectionGrid(grid));
+              replacePacket(packet);
+              return packet;
+            } catch (caught) {
+              if (caught instanceof IdeaPacketError && caught.status === 401) recheckAdmin();
+              throw caught;
+            }
           }}
           onAddSavedCard={async (packet: IdeaPacket, card: CardRecord) => {
-            const updated = await mutateIdeaPacket(packet, { type: 'add_media', media: mediaFromCollectionCard(card) });
-            replacePacket(updated);
-            return updated;
+            try {
+              const updated = await mutateIdeaPacket(packet, { type: 'add_media', media: mediaFromCollectionCard(card) });
+              replacePacket(updated);
+              return updated;
+            } catch (caught) {
+              if (caught instanceof IdeaPacketError && caught.status === 401) recheckAdmin();
+              throw caught;
+            }
           }}
           onAddSavedGrid={async (packet: IdeaPacket, grid: GridRecord) => {
-            const updated = await mutateIdeaPacket(packet, {
-              type: 'add_grid',
-              grid: packetGridFromCollectionGrid(grid),
-            });
-            replacePacket(updated);
-            return updated;
+            try {
+              const updated = await mutateIdeaPacket(packet, {
+                type: 'add_grid',
+                grid: packetGridFromCollectionGrid(grid),
+              });
+              replacePacket(updated);
+              return updated;
+            } catch (caught) {
+              if (caught instanceof IdeaPacketError && caught.status === 401) recheckAdmin();
+              throw caught;
+            }
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** Shown in the Fandom Admin view when the admin session has expired or was never set. */
+function AdminSignIn() {
+  const [email, setEmail] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setNotice('');
+    try {
+      const message = await requestMagicLink(email);
+      setNotice(message);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not send the sign-in link.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="admin-sign-in">
+      <span className="admin-sign-in__icon" aria-hidden="true">🔒</span>
+      <h2>Admin sign-in required</h2>
+      <p>Your admin session has expired. Enter your admin email to receive a new sign-in link.</p>
+      <form onSubmit={handleSubmit}>
+        <input
+          type="email"
+          required
+          value={email}
+          onChange={event => setEmail(event.target.value)}
+          placeholder="admin@example.com"
+          aria-label="Admin email address"
+        />
+        <button type="submit" disabled={busy || !email.trim()}>
+          {busy ? 'Sending…' : 'Email sign-in link'}
+        </button>
+      </form>
+      {notice && <p className="admin-sign-in__notice" role="status">{notice}</p>}
     </div>
   );
 }
