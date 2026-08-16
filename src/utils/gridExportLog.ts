@@ -20,6 +20,8 @@ export interface GridExportEvent {
   tier: string;
   variant: ExportVariant;
   imageIds: string[];
+  /** Whether the grid was explicitly saved to the collection before this export. */
+  gridWasSaved: boolean;
   ctaSeed?: string;
 }
 
@@ -27,6 +29,7 @@ export function gridExportEventFromRecord(
   grid: GridRecord,
   variant: ExportVariant,
   tier: string,
+  gridWasSaved: boolean,
 ): GridExportEvent {
   return {
     gridId: grid.id,
@@ -40,6 +43,7 @@ export function gridExportEventFromRecord(
     tier,
     variant,
     imageIds: grid.images.map(image => image.resultId),
+    gridWasSaved,
     ctaSeed: grid.ctaSeed,
   };
 }
