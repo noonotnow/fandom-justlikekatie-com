@@ -55,8 +55,10 @@ export function createPublicAuth({
       requireMethod(req, "POST");
       validateSameOrigin(req);
       requireConfiguration(env, ["FANDOM_AUTH_ID_SECRET", "FANDOM_PUBLIC_ORIGIN"]);
-      const { email } = await readJson(req);
+      const { email, next } = await readJson(req);
       const normalizedEmail = normalizeEmail(email);
+      // Only a strict allowlist of destinations is honoured; anything else is ignored.
+      const nextView = next === "plan" ? "plan" : null;
       const current = now();
       const { magic, limits } = stores(context);
       const limited = await isRateLimited(limits, req, normalizedEmail, env.FANDOM_AUTH_ID_SECRET, current);
@@ -73,11 +75,12 @@ export function createPublicAuth({
           expiresAt: new Date(current.getTime() + MAGIC_TTL_MS).toISOString(),
         }, { onlyIfNew: true });
         const origin = new URL(env.FANDOM_PUBLIC_ORIGIN).origin;
+        const nextParam = nextView ? `&next=${encodeURIComponent(nextView)}` : "";
         await sendEmail({
           env,
           fetchImpl,
           email: normalizedEmail,
-          magicLink: `${origin}/auth/verify#token=${encodeURIComponent(token)}`,
+          magicLink: `${origin}/auth/verify#token=${encodeURIComponent(token)}${nextParam}`,
         });
       }
       return json(202, { message: "If that address can receive mail, a sign-in link is on its way." });

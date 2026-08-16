@@ -24,22 +24,29 @@ export async function getPublicSession(): Promise<PublicUser | null> {
   return user;
 }
 
-export async function requestMagicLink(email: string): Promise<string> {
-  const response = await postJson('/api/auth/magic-link', { email });
+export async function requestMagicLink(email: string, next?: string): Promise<string> {
+  const response = await postJson('/api/auth/magic-link', { email, ...(next ? { next } : {}) });
   const body = await response.json();
   if (!response.ok) throw new Error(body.error || 'Could not send the sign-in link.');
   return body.message;
 }
 
-export async function consumeMagicLinkFromLocation(): Promise<boolean> {
+/**
+ * Consumes a magic-link token from the current URL (when on /auth/verify).
+ * Returns the destination view to navigate to on success, or `false` if there
+ * was no magic link to consume.
+ */
+export async function consumeMagicLinkFromLocation(): Promise<'plan' | 'collection' | false> {
   if (window.location.pathname !== '/auth/verify') return false;
-  const token = new URLSearchParams(window.location.hash.slice(1)).get('token');
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  const token = params.get('token');
+  const next = params.get('next');
   window.history.replaceState({}, '', '/');
   if (!token) return false;
   const response = await postJson('/api/auth/verify', { token });
   if (!response.ok) throw new Error((await response.json()).error || 'The sign-in link could not be used.');
   notifyCollection('session-changed');
-  return true;
+  return next === 'plan' ? 'plan' : 'collection';
 }
 
 export async function logoutPublicAccount(user: PublicUser): Promise<void> {
