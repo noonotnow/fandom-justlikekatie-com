@@ -1,0 +1,91 @@
+name: Test–Source Guard
+
+# Catches the "split-brain" failure mode: a test file is pushed while its
+# implementation stays local.  Every relative import in every *.test.ts /
+# *.test.js file must resolve to a file that exists in the repository.
+# If any import target is missing, this job fails with the list of gaps,
+# giving a clear signal before the whole test suite turns red.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  check-test-imports:
+    name: Verify test imports resolve to committed files
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check that every test file's imports exist
+        run: |
+          node - <<'EOF'
+          import { readdirSync, existsSync } from 'node:fs';
+          import { readFileSync } from 'node:fs';
+          import { resolve, dirname, extname } from 'node:path';
+
+          const TEST_DIR = 'tests';
+          const IMPORT_RE = /from\s+['"](\.[^'"]+)['"]/g;
+
+          // Extensions to try when a path has none (or when .ts is absent)
+          const FALLBACK_EXTS = [
+            '',          // exact path as written
+            '.ts',
+            '.tsx',
+            '.js',
+            '.jsx',
+            '/index.ts',
+            '/index.tsx',
+            '/index.js',
+          ];
+
+          function fileExists(importedPath) {
+            if (existsSync(importedPath)) return true;
+            const base = importedPath.replace(/\.[^/.]+$/, '');
+            for (const ext of FALLBACK_EXTS) {
+              if (existsSync(base + ext)) return true;
+            }
+            return false;
+          }
+
+          let failures = [];
+
+          const testFiles = readdirSync(TEST_DIR)
+            .filter(f => f.endsWith('.test.ts') || f.endsWith('.test.js'))
+            .map(f => `${TEST_DIR}/${f}`);
+
+          for (const testFile of testFiles) {
+            const src = readFileSync(testFile, 'utf8');
+            const dir = dirname(testFile);
+            let match;
+            IMPORT_RE.lastIndex = 0;
+            while ((match = IMPORT_RE.exec(src)) !== null) {
+              const specifier = match[1];
+              if (!specifier.startsWith('.')) continue;   // skip node: and bare specifiers
+              const abs = resolve(dir, specifier);
+              if (!fileExists(abs)) {
+                failures.push(`  ${testFile} → ${specifier}  (resolved: ${abs})`);
+              }
+            }
+          }
+
+          if (failures.length > 0) {
+            console.error(
+              '\n❌ Test-source guard failed — these imports have no committed file:\n' +
+              failures.join('\n') +
+              '\n\nThis usually means implementation commits are still local while the test\n' +
+              'file was already pushed.  Push (or revert) the missing source files.\n'
+            );
+            process.exit(1);
+          }
+
+          console.log(`✅ All relative imports in ${testFiles.length} test file(s) resolve to committed files.`);
+          EOF

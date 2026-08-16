@@ -44,6 +44,20 @@ npm test          # app + functions test suites
 - `QA_ISSUES.md` — known/tracked issues
 - `MIGRATION.md` — provenance from original Netlify repo
 
+## Push discipline — preventing split-brain CI failures
+Tests and the source files they import must travel together in the same push.
+A split-brain failure (CI red, local green) nearly always means implementation
+commits are still local while the test file has already reached GitHub.
+
+**Rule:** after committing a test file, immediately push all related commits
+before starting other work.  Never leave a dangling test commit un-pushed.
+
+**Automated guard:** `.github/workflows/test-source-guard.yml` runs on every
+push and PR.  It extracts every relative `import` in `tests/*.test.ts` and
+`tests/*.test.js`, resolves each path, and fails the build if any imported
+file is absent from the repository.  A failed guard job means the source file
+was not pushed — push it (or revert the test) to restore green.
+
 ## User preferences
 - Keep existing project structure and stack
 - This repo is imported for reference and discussion, not to run on Replit
