@@ -1016,3 +1016,60 @@ test("collection sync rejects a stale tab when its expected account differs from
   assert.equal(response.status, 409);
   assert.equal(store.records.size, 0);
 });
+
+test("concurrent verifyMagicLink: exactly one request gets a session and the other gets 401", async () => {
+  // Simulate the real concurrent race: two requests receive the same magic link and
+  // both POST /api/auth/verify at the same moment. Both reads see the "issued" token
+  // before either write commits. The store's onlyIfMatch CAS ensures only one write
+  // succeeds, so exactly one caller gets a session cookie and the other gets 401.
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  const tokens = [
+    "concurrent-race-magic-token-exactly-32-chars",
+    "concurrent-race-session-token-exactly-32xx",
+  ];
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => tokens.shift(),
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+
+  // Seed the magic store with a single "issued" token.
+  await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "race@example.com" },
+  }));
+
+  // Fire two verifyMagicLink calls concurrently with the same token.
+  // Both coroutines read the "issued" record (same etag) before either writes.
+  // The first setJSON(onlyIfMatch) wins; the second sees the changed etag and
+  // gets { modified: false }, which verifyMagicLink converts to 401.
+  const makeVerifyRequest = () => auth.verifyMagicLink(
+    request("/api/auth/verify", {
+      body: { token: "concurrent-race-magic-token-exactly-32-chars" },
+    }),
+  );
+  const [resA, resB] = await Promise.all([makeVerifyRequest(), makeVerifyRequest()]);
+
+  const statuses = [resA.status, resB.status].sort();
+  assert.deepEqual(statuses, [200, 401], "exactly one request must succeed and one must get 401");
+
+  // Exactly one session must have been persisted in the sessions store.
+  const sessionStore = stores.get("fandom-auth-sessions");
+  assert.equal(sessionStore.records.size, 1, "exactly one session must be created");
+
+  // The 200 response must carry a valid session cookie.
+  const winner = resA.status === 200 ? resA : resB;
+  const cookie = winner.headers.get("set-cookie");
+  assert.match(cookie, /__Host-fandom_session=/, "the winning request must receive a session cookie");
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /Secure/);
+});
