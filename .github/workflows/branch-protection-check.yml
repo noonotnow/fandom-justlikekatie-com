@@ -11,7 +11,9 @@ jobs:
     steps:
       - name: Check branch protection rules
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN cannot read required_status_checks on branch protection;
+          # a PAT with repo scope is required (stored as REPO_ADMIN_PAT).
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_PAT }}
         run: |
           set -euo pipefail
 
