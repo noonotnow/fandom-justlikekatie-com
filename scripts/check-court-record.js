@@ -62,6 +62,19 @@ export function decodeStringContent(raw) {
 // the full matched literal strings (e.g. "   ", `\t`) that decoded to
 // whitespace-only values.
 // ---------------------------------------------------------------------------
+// NOTE — tagged template literals (e.g. String.raw`\t`, html`  `)
+// The tag identifier that precedes the opening backtick (e.g. "String.raw") is
+// not a quote character, so the regex below does NOT capture it.  What the regex
+// sees is just the backtick-delimited literal that follows the tag.  Concretely:
+//
+//   String.raw`\t`  →  matched as  `\t`  →  decoded as tab  →  flagged ✓
+//   html`   `       →  matched as  `   ` →  decoded as spaces → flagged ✓
+//   String.raw`Hello world`  →  matched as `Hello world`  →  passes ✓
+//
+// This means the guard correctly flags tagged templates whose content would
+// decode to whitespace-only, and correctly passes tagged templates with visible
+// content.  The tag itself is immaterial to the static analysis because the
+// source-level escape sequences inside the literal are what the regex inspects.
 const STRING_LITERAL_RE = /(['"`])((?:\\[\s\S]|(?!\1)[^\\])*)\1/g;
 
 export function checkArrayBody(body) {

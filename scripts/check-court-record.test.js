@@ -479,6 +479,130 @@ test('integration: exits 1 with interpolation warning for expression-containing 
   assert.match(result.stderr, /plain string/);
 });
 
+// ---------------------------------------------------------------------------
+// checkArrayBody — tagged template literals
+//
+// A tagged template (e.g. String.raw`\t`, html`  `) has a tag identifier
+// before the opening backtick.  STRING_LITERAL_RE does not capture the tag —
+// it starts matching at the backtick — so the guard analyses the inner escape
+// sequences of the literal exactly as it would for a plain template literal.
+// The tests below pin this behaviour.
+// ---------------------------------------------------------------------------
+
+test('checkArrayBody: String.raw tagged template with \\t escape is flagged as whitespace-only', () => {
+  // String.raw`\t` — the tag "String.raw" is before the backtick; the regex
+  // matches `\t`, decodeStringContent decodes it to a tab, trim() → empty.
+  const body = 'String.raw`\\t`,';
+  const { whitespaceOnly, totalCount } = checkArrayBody(body);
+  assert.equal(totalCount, 1, 'tagged template literal should be counted');
+  assert.equal(whitespaceOnly.length, 1, 'whitespace-only tagged template should be flagged');
+});
+
+test('checkArrayBody: tagged template with literal spaces is flagged as whitespace-only', () => {
+  // html`   ` — tag "html" before the backtick; content is three spaces.
+  const body = 'html`   `,';
+  const { whitespaceOnly, totalCount } = checkArrayBody(body);
+  assert.equal(totalCount, 1);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+test('checkArrayBody: tagged template with \\n escape is flagged as whitespace-only', () => {
+  const body = 'String.raw`\\n`,';
+  const { whitespaceOnly } = checkArrayBody(body);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+test('checkArrayBody: tagged template with \\u0020 unicode escape is flagged as whitespace-only', () => {
+  const body = 'tag`\\u0020`,';
+  const { whitespaceOnly } = checkArrayBody(body);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+test('checkArrayBody: tagged template with visible content is not flagged', () => {
+  // String.raw`Hello world` — content is non-whitespace; should pass.
+  const body = 'String.raw`Hello world`,';
+  const { whitespaceOnly, totalCount } = checkArrayBody(body);
+  assert.equal(totalCount, 1);
+  assert.equal(whitespaceOnly.length, 0);
+});
+
+test('checkArrayBody: tagged template with ${} expression is flagged as interpolation', () => {
+  // String.raw`${value}` — contains ${}, so it goes into templateInterpolations.
+  const body = 'String.raw`${value}`,';
+  const { templateInterpolations, whitespaceOnly, totalCount } = checkArrayBody(body);
+  assert.equal(totalCount, 1);
+  assert.equal(templateInterpolations.length, 1);
+  assert.equal(whitespaceOnly.length, 0);
+});
+
+test('checkArrayBody: dotted tagged template (e.g. String.raw) with whitespace-only content is flagged', () => {
+  // Dot-notation tags like String.raw are common; verify the regex is not thrown off
+  // by the dot in the tag name.
+  const body = 'String.raw`  \\t  `,';
+  const { whitespaceOnly } = checkArrayBody(body);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Integration — tagged template literals
+// ---------------------------------------------------------------------------
+
+test('integration: exits 1 (whitespace-only) for String.raw tagged template with \\t escape', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    'String.raw`\\t`',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /whitespace-only/);
+});
+
+test('integration: exits 1 (whitespace-only) for tagged template with literal spaces', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    'html`   `',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /whitespace-only/);
+});
+
+test('integration: exits 0 for tagged template with valid visible content', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    'String.raw`Case #002: Upheld. — 🦝`',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    0,
+    `expected exit 0 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stdout, /OK/);
+});
+
+test('integration: exits 1 (interpolation) for tagged template with ${} expression', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    'String.raw`${value}`',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /interpolation/);
+});
+
 test('integration: exits 1 with "cannot read" when the file path does not exist', () => {
   // Pass a path that does not exist on the filesystem.
   const result = spawnSync(
