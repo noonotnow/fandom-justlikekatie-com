@@ -1464,24 +1464,27 @@ test("rate-limit window resets: a rate-limited IP can request a new magic link i
   );
 });
 
-test("rate-limit window resets: the 'unknown' IP bucket resets in window N+1 so header-less requests are not permanently blocked", async () => {
-  // When the x-nf-client-connection-ip header is absent, isRateLimited falls
-  // back to the key ip/<hmac("unknown", secret)>/<window>.  All header-less
-  // requests share that single bucket.  This test confirms that:
-  //   1. 20 header-less requests in window N are each delivered (limit not yet hit).
-  //   2. The 21st header-less request in the same window is suppressed.
-  //   3. After the clock advances into window N+1 the bucket resets and a new
-  //      header-less request is delivered — the block is not permanent.
-  const WINDOW_MS = 15 * 60 * 1000;
-  const windowNStart = new Date("2026-08-10T00:00:00Z"); // start of an arbitrary window N
-
+test("header-less requests bypass the IP rate-limit and are only gated by the per-email limit", async () => {
+  // When x-nf-client-connection-ip is absent (health checks, local dev,
+  // server-to-server calls), isRateLimited skips the IP bucket entirely and
+  // applies only the per-email limit (5 per 15-minute window).
+  //
+  // This prevents a scraper that strips IP headers from exhausting a shared
+  // "unknown" IP bucket and inadvertently blocking unrelated header-less callers.
+  //
+  // This test confirms:
+  //   1. Each unique email address can receive up to 5 magic links per window
+  //      with no IP header — no shared IP cap interferes.
+  //   2. More than 20 header-less requests across distinct emails are all
+  //      delivered, proving no "unknown" IP bucket caps them collectively.
+  //   3. A single email address is still capped at 5 per window, so the
+  //      per-email guard remains active for header-less flows.
   const stores = new Map();
   const getStore = name => {
     if (!stores.has(name)) stores.set(name, memoryStore());
     return stores.get(name);
   };
   const delivered = [];
-  let nowTime = windowNStart;
   let tokenCounter = 0;
 
   const auth = createPublicAuth({
@@ -1491,46 +1494,107 @@ test("rate-limit window resets: the 'unknown' IP bucket resets in window N+1 so 
     },
     getStore,
     sendEmail: async message => delivered.push(message),
-    // Each call gets a distinct token so magic-store onlyIfNew writes don't
-    // conflict with earlier tokens sharing the same digest.
-    randomToken: () => `unknown-ip-reset-token-${++tokenCounter}-pad-to-32x`,
-    now: () => nowTime,
+    randomToken: () => `headless-bypass-token-${++tokenCounter}-pad-to-32xx`,
+    now: () => new Date("2026-08-10T00:00:00Z"),
   });
 
-  // No x-nf-client-connection-ip header — all requests share the "unknown" bucket.
-  // Use a distinct email per request so the per-email counter (limit: 5) never triggers.
-  const makeRequest = (i) => auth.requestMagicLink(request("/api/auth/magic-link", {
-    body: { email: `unknown${i}@example.com` },
-    // Deliberately omit x-nf-client-connection-ip to exercise the "unknown" fallback.
-  }));
-
-  // Exhaust the per-"unknown"-IP limit: 20 successful deliveries.
-  for (let i = 1; i <= 20; i += 1) {
-    const res = await makeRequest(i);
-    assert.equal(res.status, 202, `request ${i} in window N must return 202`);
+  // Send 25 header-less requests with distinct emails — well above the old
+  // "unknown" IP cap of 20. Every one must be delivered.
+  for (let i = 1; i <= 25; i += 1) {
+    const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+      body: { email: `headless${i}@example.com` },
+      // Deliberately omit x-nf-client-connection-ip.
+    }));
+    assert.equal(res.status, 202, `header-less request ${i} must return 202`);
   }
-  assert.equal(delivered.length, 20, "exactly 20 emails must be delivered before the unknown-IP limit kicks in");
-
-  // 21st header-less request in the same window — bucket is exhausted, no email sent.
-  const limitedRes = await makeRequest(21);
-  assert.equal(limitedRes.status, 202, "rate-limited unknown-IP request must still return 202 (silent)");
-  assert.equal(delivered.length, 20, "no 21st email must be sent in window N — unknown-IP bucket is exhausted");
-
-  // Advance the clock into window N+1. The bucket key changes because the window
-  // number changes, so the counter resets and header-less requests can be served again.
-  nowTime = new Date(windowNStart.getTime() + WINDOW_MS);
-
-  const windowNPlusOneRes = await makeRequest(22);
-  assert.equal(windowNPlusOneRes.status, 202, "header-less request in window N+1 must return 202");
   assert.equal(
     delivered.length,
-    21,
-    "a 21st email must be delivered in window N+1 — the unknown-IP bucket has reset",
+    25,
+    "all 25 header-less requests across distinct emails must be delivered — no shared IP bucket blocks them",
   );
+
+  // Per-email limit still applies: a single address is capped at 5 per window.
+  let tokenCounter2 = 0;
+  const stores2 = new Map();
+  const getStore2 = name => {
+    if (!stores2.has(name)) stores2.set(name, memoryStore());
+    return stores2.get(name);
+  };
+  const auth2 = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore: getStore2,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => `headless-email-cap-token-${++tokenCounter2}-pad32`,
+    now: () => new Date("2026-08-10T00:00:00Z"),
+  });
+  const beforeEmailCap = delivered.length;
+  for (let i = 0; i < 5; i += 1) {
+    await auth2.requestMagicLink(request("/api/auth/magic-link", {
+      body: { email: "repeat@example.com" },
+    }));
+  }
+  // 6th request to the same email in the same window must be suppressed.
+  await auth2.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "repeat@example.com" },
+  }));
   assert.equal(
-    delivered[20].email,
-    "unknown22@example.com",
-    "the email delivered in window N+1 must go to the address from the header-less request",
+    delivered.length - beforeEmailCap,
+    5,
+    "per-email limit (5/window) must still apply for header-less requests — 6th attempt must be silently dropped",
+  );
+});
+
+test("scraper burst without IP header cannot block a subsequent header-less server-to-server magic-link request", async () => {
+  // Confirms the isolation guarantee: a scraper that strips x-nf-client-connection-ip
+  // and hammers magic-link with many addresses cannot exhaust any shared IP bucket
+  // that would then block an unrelated header-less caller (e.g. an integration
+  // test or a server-to-server sign-in flow).
+  //
+  // Under the old "unknown" IP bucket design this was a real risk — 20 requests
+  // from the scraper would saturate the bucket for the whole window.  With the
+  // fix, header-less requests are only limited per-email, so the scraper affects
+  // only the addresses it targets, not the unrelated server-to-server caller.
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  let tokenCounter = 0;
+
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => `scraper-isolation-token-${++tokenCounter}-pad-32`,
+    now: () => new Date("2026-08-10T00:00:00Z"),
+  });
+
+  // Scraper fires 30 header-less magic-link requests with distinct emails.
+  for (let i = 1; i <= 30; i += 1) {
+    await auth.requestMagicLink(request("/api/auth/magic-link", {
+      body: { email: `scraper${i}@example.com` },
+      // No x-nf-client-connection-ip — simulates a scraper stripping headers.
+    }));
+  }
+
+  // A legitimate server-to-server caller (also header-less) now requests a
+  // magic link for a fresh address.  It must be delivered — the scraper's
+  // burst must not have exhausted any shared IP bucket that would block it.
+  const serverToServerRes = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "internal-service@example.com" },
+    // Also no x-nf-client-connection-ip (e.g. a backend making a server-side call).
+  }));
+  assert.equal(serverToServerRes.status, 202, "server-to-server request must return 202");
+  assert.ok(
+    delivered.some(m => m.email === "internal-service@example.com"),
+    "the server-to-server magic link must be delivered — scraper burst must not have blocked it",
   );
 });
 

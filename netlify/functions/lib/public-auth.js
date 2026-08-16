@@ -221,8 +221,24 @@ async function isRateLimited(store, req, email, secret, current) {
   const windowMs = 15 * 60 * 1000;
   const window = Math.floor(current.getTime() / windowMs);
   const windowEnd = new Date((window + 1) * windowMs);
-  const ip = req.headers.get("x-nf-client-connection-ip") || "unknown";
+  const ip = req.headers.get("x-nf-client-connection-ip");
   const emailKey = `email/${hmac(email, secret)}/${window}`;
+
+  // When no IP header is present (health checks, local dev, server-to-server
+  // calls, or scrapers that strip headers), skip the IP-based check entirely.
+  // Netlify injects x-nf-client-connection-ip for every real browser request,
+  // so a missing header does not indicate a normal end-user flow.  Folding all
+  // header-less requests into a single shared "unknown" bucket would let a
+  // scraper that strips headers exhaust the 20-request cap and inadvertently
+  // block unrelated header-less callers (e.g. integration tests or internal
+  // server-to-server magic-link requests) for the rest of the window.
+  // The per-email limit (5 requests per 15 minutes) still applies and is
+  // sufficient to prevent abuse from any single address without a known IP.
+  if (!ip) {
+    const emailCount = await incrementLimit(store, emailKey, current, windowEnd);
+    return emailCount > 5;
+  }
+
   const ipKey = `ip/${hmac(ip, secret)}/${window}`;
   const [emailCount, ipCount] = await Promise.all([
     incrementLimit(store, emailKey, current, windowEnd),
