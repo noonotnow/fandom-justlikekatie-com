@@ -16,7 +16,7 @@ import { dbGetAllCards, dbGetAllGrids, type CardRecord, type GridRecord } from '
 import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
 import { RACCOON_COURT_RECORD } from '../../data/raccoonCourtRecord';
 import styles from './FandomAdmin.module.css';
-import { addCustomRuling, fetchCustomRulings, getAllRulings, migrateLegacyRulings, removeCustomRuling } from '../../utils/courtRulings';
+import { addCustomRuling, advanceRulingIndex, fetchCustomRulings, getAllRulings, migrateLegacyRulings, removeCustomRuling } from '../../utils/courtRulings';
 
 interface Props {
   packets: IdeaPacket[];
@@ -689,7 +689,7 @@ function AdminAccess({ onUnlock }: { onUnlock: (token: string) => Promise<void> 
     }
     if (showLore) {
       setShowLore(false);
-      setQuoteIndex(i => (i + 1) % allRulings.length);
+      setQuoteIndex(i => advanceRulingIndex(i, allRulings.length));
     }
   }
 

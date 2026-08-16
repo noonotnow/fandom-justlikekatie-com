@@ -91,6 +91,15 @@ export function getAllRulings(custom: string[] = []): string[] {
   return [...RACCOON_COURT_RECORD, ...custom];
 }
 
+/**
+ * Advances the ruling index by one step, wrapping at `total`.
+ * AdminAccess calls this in handleMouseLeave to cycle the popup quote:
+ *   setQuoteIndex(i => advanceRulingIndex(i, allRulings.length))
+ */
+export function advanceRulingIndex(current: number, total: number): number {
+  return (current + 1) % total;
+}
+
 /** Fetches the shared custom rulings and merges them with the built-ins. */
 export async function fetchAllRulings(): Promise<string[]> {
   return getAllRulings(await fetchCustomRulings());

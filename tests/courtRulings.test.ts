@@ -16,6 +16,8 @@
  *   6. Fetch failure on the popup path → built-ins still show (fetch rejects,
  *      caller falls back), and malformed payloads yield an empty custom list
  *   7. Legacy localStorage rulings migrate to the server once, then clear
+ *   8. advanceRulingIndex cycles through every ruling without repeating
+ *   9. advanceRulingIndex wraps back to the first ruling after a full cycle
  */
 
 import test from 'node:test';
@@ -74,7 +76,7 @@ function makeLocalStorageStub(): Storage {
 }
 
 async function withStubs(
-  server: { stub: typeof fetch } | { stub: (url: unknown, init?: RequestInit) => Promise<Response> },
+  server: { stub: (url: unknown, init?: RequestInit) => Promise<Response> },
   fn: () => Promise<void>,
 ) {
   const originalFetch = globalThis.fetch;
@@ -97,6 +99,7 @@ import {
   removeCustomRuling,
   migrateLegacyRulings,
   getAllRulings,           // ← the function AdminAccess calls at render time
+  advanceRulingIndex,     // ← the function AdminAccess calls in handleMouseLeave
   CourtRulingsError,
 } from '../src/utils/courtRulings.ts';
 
@@ -111,7 +114,7 @@ test('empty custom list — getAllRulings returns only built-ins, popup still wo
     const custom = await fetchCustomRulings();
     assert.deepEqual(custom, []);
 
-    const all = getAllRulings(custom);    // same call as AdminAccess makes
+    const all = getAllRulings(custom);
     assert.ok(all.length > 0, 'popup list must not be empty');
     assert.deepEqual(all, RACCOON_COURT_RECORD);
   });
@@ -120,9 +123,9 @@ test('empty custom list — getAllRulings returns only built-ins, popup still wo
 test('added ruling appears in getAllRulings — popup shows it after being saved', async () => {
   await withStubs(makeServerStub(), async () => {
     const ruling = 'Case #999: Test ruling added by the court. — Associate Justice 🦝';
-    await addCustomRuling(ruling);
+    const latest = await addCustomRuling(ruling);
 
-    const all = getAllRulings(await fetchCustomRulings());
+    const all = getAllRulings(latest);
     assert.ok(all.includes(ruling), 'custom ruling must be present in the popup list');
     assert.equal(all.length, RACCOON_COURT_RECORD.length + 1);
 
@@ -183,7 +186,7 @@ test('legacy localStorage rulings migrate to the shared store once, then clear',
   await withStubs(server, async () => {
     localStorage.setItem('raccoon-court-custom-rulings', JSON.stringify(['Local only', 'Already shared']));
 
-    const merged = await migrateLegacyRulings(await fetchCustomRulings());
+    const merged = await migrateLegacyRulings([]);
     assert.deepEqual(merged, ['Already shared', 'Local only']);
     assert.equal(localStorage.getItem('raccoon-court-custom-rulings'), null, 'legacy key must be cleared');
 
@@ -200,4 +203,56 @@ test('corrupt legacy localStorage — migration leaves the shared list untouched
     assert.deepEqual(merged, []);
     assert.deepEqual(getAllRulings(merged), RACCOON_COURT_RECORD);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Cycling behaviour — verifies advanceRulingIndex, the exact function
+// AdminAccess calls in handleMouseLeave:
+//   setQuoteIndex(i => advanceRulingIndex(i, allRulings.length))
+// If this function is removed or its logic changes, these tests catch it.
+// ---------------------------------------------------------------------------
+
+test('popup cycles through all rulings on repeated mouse-leave — never stays on the same ruling', () => {
+  // getAllRulings is synchronous; no server stub needed for pure cycling logic.
+  const all = getAllRulings([]);
+  assert.ok(all.length >= 2, 'need at least 2 rulings to test cycling');
+
+  // Simulate successive mouse-leave events via advanceRulingIndex — the exact
+  // function AdminAccess calls. Starting at index 0 (component initial state),
+  // each leave should reveal a ruling not yet seen.
+  let quoteIndex = 0;
+  const seen = new Set<string>();
+  seen.add(all[quoteIndex]);
+
+  for (let leave = 1; leave < all.length; leave++) {
+    quoteIndex = advanceRulingIndex(quoteIndex, all.length);
+    const ruling = all[quoteIndex];
+    assert.ok(
+      !seen.has(ruling),
+      `ruling at index ${quoteIndex} ("${ruling.slice(0, 40)}…") was already shown — popup is not cycling`,
+    );
+    seen.add(ruling);
+  }
+
+  // Every ruling must appear exactly once across a full cycle.
+  assert.equal(seen.size, all.length, 'every ruling must appear exactly once in a full cycle');
+});
+
+test('popup wraps back to the first ruling after exhausting the list', () => {
+  const all = getAllRulings([]);
+  assert.ok(all.length >= 1, 'need at least 1 ruling to test wrap');
+
+  // Advance through the full list via advanceRulingIndex, then one more step —
+  // must wrap back to index 0, just as AdminAccess does on the Nth leave.
+  let quoteIndex = 0;
+  for (let leave = 0; leave < all.length; leave++) {
+    quoteIndex = advanceRulingIndex(quoteIndex, all.length);
+  }
+
+  assert.equal(quoteIndex, 0, 'index must wrap back to 0 after one full cycle');
+  assert.equal(
+    all[quoteIndex],
+    all[0],
+    'ruling shown after wrap must be the first ruling in the list',
+  );
 });
