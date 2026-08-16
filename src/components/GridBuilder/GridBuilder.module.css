@@ -1,0 +1,58 @@
+.builder {
+  --gb-border: color-mix(in srgb, currentColor 14%, transparent);
+  --gb-panel: color-mix(in srgb, currentColor 4%, transparent);
+  --gb-muted: #6b7280;
+  --gb-gold: #c9a96e;
+  display: grid;
+  gap: 16px;
+}
+
+.header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.header h3 { margin: 0; color: var(--gb-gold); }
+.header p { margin: 4px 0 0; color: var(--gb-muted); font-size: 13px; }
+.header > span { color: var(--gb-muted); font-size: 12px; white-space: nowrap; }
+
+.notice { border: 1px solid var(--gb-border); border-left: 3px solid var(--gb-gold); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+
+.lenses { display: grid; gap: 10px; border: 1px solid var(--gb-border); border-radius: 12px; background: var(--gb-panel); padding: 14px; }
+.lensRow { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px; align-items: start; }
+.lensLabel { color: var(--gb-muted); font-size: 12px; padding-top: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { min-height: 34px; padding: 5px 11px; border: 1px solid var(--gb-border); border-radius: 999px; background: transparent; color: inherit; font-size: 13px; }
+.chip em { font-style: normal; color: var(--gb-muted); font-size: 11px; margin-left: 3px; }
+.chip[aria-pressed="true"] { background: var(--gb-gold); color: #15120e; border-color: var(--gb-gold); }
+.chip[aria-pressed="true"] em { color: #5b4a29; }
+
+.propose { justify-self: start; min-height: 42px; padding: 9px 18px; border: 1px solid var(--gb-gold); border-radius: 10px; background: var(--gb-gold); color: #15120e; font-size: 14px; font-weight: 600; }
+.propose:disabled { opacity: .45; cursor: not-allowed; }
+
+.workspace { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(240px, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 860px) { .workspace { grid-template-columns: 1fr; } }
+
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; border-radius: 12px; overflow: hidden; background: var(--gb-panel); }
+.slot { position: relative; padding: 0; border: 2px solid transparent; background: none; aspect-ratio: 1; cursor: pointer; }
+.slot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.slot span { position: absolute; inset: auto 0 0 0; padding: 3px 6px; font-size: 10px; color: #f5f0e6; background: linear-gradient(transparent, rgba(0, 0, 0, .72)); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slot[aria-pressed="true"] { border-color: var(--gb-gold); }
+
+.alternates { margin-top: 12px; display: grid; gap: 8px; font-size: 13px; }
+.noAlternates { color: var(--gb-muted); }
+.alternateStrip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+.alternateStrip button { flex: 0 0 auto; width: 72px; height: 72px; padding: 0; border: 1px solid var(--gb-border); border-radius: 8px; overflow: hidden; background: none; cursor: pointer; }
+.alternateStrip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.alternateStrip button:hover { border-color: var(--gb-gold); }
+
+.rationale { border: 1px solid var(--gb-border); border-radius: 12px; background: var(--gb-panel); padding: 14px; display: grid; gap: 12px; }
+.rationale h4 { margin: 0; color: var(--gb-gold); font-size: 14px; }
+.rationale pre { margin: 0; white-space: pre-wrap; font-family: inherit; font-size: 12.5px; line-height: 1.55; color: inherit; }
+.actions { display: grid; gap: 8px; }
+.actions button { min-height: 42px; border: 1px solid var(--gb-border); border-radius: 10px; background: transparent; color: inherit; font-size: 13px; }
+.actions button:first-child { background: var(--gb-gold); border-color: var(--gb-gold); color: #15120e; font-weight: 600; }
+.actions button:disabled { opacity: .45; cursor: not-allowed; }
+
+.empty, .loading { display: grid; place-items: center; gap: 6px; min-height: 180px; border: 1px dashed var(--gb-border); border-radius: 12px; color: var(--gb-muted); text-align: center; padding: 24px; }
+.loading { grid-auto-flow: column; }
+.loading span { width: 8px; height: 8px; border-radius: 50%; background: var(--gb-gold); animation: gbPulse 1s infinite alternate; }
+.loading span:nth-child(2) { animation-delay: .2s; }
+.loading span:nth-child(3) { animation-delay: .4s; }
+@keyframes gbPulse { from { opacity: .3; } to { opacity: 1; } }

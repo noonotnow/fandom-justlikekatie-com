@@ -1,0 +1,1 @@
+- [Fandom Vibe Atlas product context](product-context.md) — solo Rednote content tool, not the platform the design docs describe; judge work by minutes-to-share-card; caption variation lives in the CREATE repo.

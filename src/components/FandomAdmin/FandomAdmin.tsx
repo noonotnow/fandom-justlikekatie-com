@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Plan } from '../Plan/Plan';
+import { GridBuilder } from '../GridBuilder/GridBuilder';
 import {
   downloadPacketHandoff,
   includedPacketOutputs,
@@ -27,7 +28,7 @@ interface Props {
 }
 
 export const FandomAdmin: React.FC<Props> = props => {
-  const [view, setView] = useState<'packets' | 'library' | 'plan'>('packets');
+  const [view, setView] = useState<'packets' | 'library' | 'builder' | 'plan'>('packets');
 
   return (
     <section className={styles.admin}>
@@ -48,6 +49,9 @@ export const FandomAdmin: React.FC<Props> = props => {
           <button type="button" role="tab" aria-selected={view === 'library'} onClick={() => setView('library')}>
             Saved collection
           </button>
+          <button type="button" role="tab" aria-selected={view === 'builder'} onClick={() => setView('builder')}>
+            Grid Builder
+          </button>
           <button type="button" role="tab" aria-selected={view === 'plan'} onClick={() => setView('plan')}>
             PLAN schedule
           </button>
@@ -59,6 +63,11 @@ export const FandomAdmin: React.FC<Props> = props => {
           setPlanOperatorToken(token);
           await props.onRefresh();
         }} />
+      ) : view === 'builder' ? (
+        <GridBuilder
+          onCreateFromGrid={props.onCreateFromGrid}
+          onPacketCreated={() => setView('packets')}
+        />
       ) : (
         <PacketWorkspace
           {...props}

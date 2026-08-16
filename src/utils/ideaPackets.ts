@@ -237,7 +237,11 @@ export function packetFromCollectionGrid(grid: GridRecord): IdeaPacket {
     media: [],
     outputs: [gridOutput(packetGrid, createdAt)],
     notes: grid.legacyCompositeUrl ? 'Recovered from a legacy exported-grid record.' : '',
-    workingAngle: '',
+    // Grid Builder stores its curation rationale in generationPrompt; carry
+    // it into the packet's working angle so the creative brief reaches CREATE.
+    // Daily grids also carry generationPrompt (the raw image-generation
+    // prompt) — that must NOT become the working angle, so scope to builder.
+    workingAngle: grid.edition?.provider === 'collection-grid-builder' ? (grid.generationPrompt || '') : '',
     captionSeeds: grid.vibeSubtitle,
     outputAngles: '',
   };

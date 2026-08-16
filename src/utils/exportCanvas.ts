@@ -734,6 +734,36 @@ export async function renderExportCanvas(
  * Renders the share card, then tries native share (mobile) or falls back
  * to a PNG download. Returns a toast message string for the caller to display.
  */
+/**
+ * Fire-and-forget: log a successful grid export to the engagement store so
+ * the best grids can inform future curation.  Called from inside saveShareCard
+ * so every caller (useExportCard, Collection screen, etc.) is covered.
+ */
+function logGridExportFireAndForget(payload: ExportPayload, tier: string): void {
+  try {
+    const results = payload.chosen?.results?.slice(0, 9) ?? [];
+    const batchKey = `${payload.date}:${payload.actorNameEn}`;
+    fetch('/.netlify/functions/log-engagement', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event: 'grid-export',
+        batchKey,
+        actor: payload.actorName,
+        vibe: payload.vibeLabel,
+        editionTier: tier,
+        resultPositions: results.map((r, i) => ({
+          position: i,
+          thumbnail: r.thumbnail,
+          source: r.source ?? null,
+        })),
+      }),
+    }).catch(() => { /* fire-and-forget — never blocks card export */ });
+  } catch {
+    // Non-fatal: logging must never interfere with the export path
+  }
+}
+
 export async function saveShareCard(
   data: StarOfDayData,
   variant: ExportVariant = 'full',
@@ -750,6 +780,9 @@ export async function saveShareCard(
   if (!blob) {
     throw new Error('分享卡生成失败，再试一次？');
   }
+
+  // Log the export now that we know the canvas rendered successfully.
+  logGridExportFireAndForget(payload, tier);
 
   const editionStamp = buildEditionStampLine(
     payload.date, payload.actorName, payload.vibeLabel,
