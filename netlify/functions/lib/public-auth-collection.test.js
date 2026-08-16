@@ -1384,3 +1384,76 @@ test("rate-limit window resets: a rate-limited email can request a new magic lin
     "the email delivered in window N+1 must go to the previously-limited address",
   );
 });
+
+test("rate-limit window resets: a rate-limited IP can request a new magic link in the next window", async () => {
+  // The per-IP rate-limit key is ip/<hmac(ip, secret)>/<window>.
+  // When the clock advances into a new 15-minute window the key changes,
+  // the counter starts fresh at 0, and a previously-blocked IP must be able
+  // to receive a magic link again.
+  //
+  // This test exhausts the per-IP limit (20 requests) in window N using distinct
+  // email addresses so the per-email counter (limit: 5) never triggers, confirms
+  // no 21st email is delivered in that window, then moves the clock into window
+  // N+1 and confirms a new magic link is delivered from that IP.
+  const WINDOW_MS = 15 * 60 * 1000;
+  const windowNStart = new Date("2026-08-10T00:00:00Z"); // start of an arbitrary window N
+  const clientIp = "203.0.113.42"; // fixed IP that will exhaust the limit
+
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  let nowTime = windowNStart;
+  let tokenCounter = 0;
+
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    // Each call gets a distinct token so magic-store onlyIfNew writes don't
+    // conflict with earlier tokens sharing the same digest.
+    randomToken: () => `ip-window-reset-token-${++tokenCounter}-pad-to-32`,
+    now: () => nowTime,
+  });
+
+  // Each request comes from the same IP but a unique email address so the
+  // per-email counter (limit: 5) never triggers — only the IP counter matters.
+  const makeRequest = (i) => auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: `user${i}@example.com` },
+    headers: { "x-nf-client-connection-ip": clientIp },
+  }));
+
+  // Exhaust the per-IP limit: 20 successful deliveries.
+  for (let i = 1; i <= 20; i += 1) {
+    const res = await makeRequest(i);
+    assert.equal(res.status, 202, `request ${i} in window N must return 202`);
+  }
+  assert.equal(delivered.length, 20, "exactly 20 emails must be delivered before the IP limit kicks in");
+
+  // 21st request in the same window — IP is rate-limited, no email sent.
+  const limitedRes = await makeRequest(21);
+  assert.equal(limitedRes.status, 202, "rate-limited IP request must still return 202 (silent)");
+  assert.equal(delivered.length, 20, "no 21st email must be sent in window N — IP rate limit is active");
+
+  // Advance the clock into window N+1. The IP key changes because the window
+  // number changes, so the counter resets and the IP can receive mail again.
+  nowTime = new Date(windowNStart.getTime() + WINDOW_MS);
+
+  const windowNPlusOneRes = await makeRequest(22);
+  assert.equal(windowNPlusOneRes.status, 202, "request in window N+1 from the same IP must return 202");
+  assert.equal(
+    delivered.length,
+    21,
+    "a 21st email must be delivered in window N+1 — the IP rate-limit window has reset",
+  );
+  assert.equal(
+    delivered[20].email,
+    "user22@example.com",
+    "the email delivered in window N+1 must go to the address requested by the previously-limited IP",
+  );
+});
