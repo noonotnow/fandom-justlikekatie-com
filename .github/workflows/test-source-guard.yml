@@ -13,6 +13,8 @@ name: Test–Source Guard
 #   import('./dynamic')              (dynamic import)
 #
 # A bare directory path is rejected unless it contains a recognised index file.
+# Test files are discovered recursively under: tests/, netlify/functions/lib/,
+# scripts/
 
 on:
   push:
@@ -21,7 +23,7 @@ on:
     branches: ["**"]
 
 jobs:
-  # ── 1. Real guard: checks the actual tests/ directory ─────────────────────
+  # ── 1. Real guard: checks all test roots ──────────────────────────────────
   check-test-imports:
     name: Verify test imports resolve to committed files
     runs-on: ubuntu-latest
@@ -35,9 +37,13 @@ jobs:
           node-version: "22"
 
       - name: Check that every test file's imports exist
-        run: node .github/scripts/check-test-imports.mjs tests
+        run: |
+          node .github/scripts/check-test-imports.mjs \
+            tests \
+            netlify/functions/lib \
+            scripts
 
-  # ── 2. Self-test: verify the guard itself catches missing imports ──────────
+  # ── 2. Self-test: verify the guard catches missing imports ─────────────────
   guard-self-test:
     name: Verify the guard catches missing imports (negative tests)
     runs-on: ubuntu-latest
@@ -52,85 +58,84 @@ jobs:
 
       - name: Run guard negative tests
         run: |
-          set -euo pipefail
-
           SCRIPT=".github/scripts/check-test-imports.mjs"
-          TMPDIR_BASE=$(mktemp -d)
+          BASE=$(mktemp -d)
           PASSED=0
           FAILED=0
 
-          fail() { echo "FAIL: $1"; FAILED=$((FAILED+1)); }
           pass() { echo "OK:   $1"; PASSED=$((PASSED+1)); }
+          fail() { echo "FAIL: $1"; FAILED=$((FAILED+1)); }
 
-          # Helper: run the guard against a temp dir; expect exit code $2
+          # Runs guard against $1; expects exit code $2; labels as $3
           run_guard() {
-            local dir="$1" expected_exit="$2" label="$3"
-            local actual=0
-            node "$SCRIPT" "$dir" > /dev/null 2>&1 || actual=$?
-            if [ "$actual" -eq "$expected_exit" ]; then
-              pass "$label"
-            else
-              fail "$label — expected exit $expected_exit, got $actual"
-            fi
+            local dir="$1" want="$2" label="$3"
+            local got=0
+            node "$SCRIPT" "$dir" >/dev/null 2>&1 || got=$?
+            if [ "$got" -eq "$want" ]; then pass "$label"; else fail "$label (want $want, got $got)"; fi
           }
 
-          # ── Case 1: green path — import that exists ────────────────────────
-          D="$TMPDIR_BASE/case-green"
-          mkdir -p "$D"
-          echo "export const x = 1;" > "$D/real-source.ts"
-          cat > "$D/green.test.ts" <<'EOF'
-          import test from 'node:test';
-          import { x } from './real-source.ts';
-          EOF
+          # ── 1. green: named import → existing file ─────────────────────────
+          D="$BASE/green"; mkdir -p "$D"
+          echo "export const x = 1;" > "$D/real.ts"
+          printf "import test from 'node:test';\nimport { x } from './real.ts';\n" > "$D/green.test.ts"
           run_guard "$D" 0 "named import → existing file exits 0"
 
-          # ── Case 2: missing named import ───────────────────────────────────
-          D="$TMPDIR_BASE/case-missing-named"
-          mkdir -p "$D"
-          cat > "$D/missing.test.ts" <<'EOF'
-          import test from 'node:test';
-          import { fn } from './does-not-exist.ts';
-          EOF
+          # ── 2. red: named import → missing file ───────────────────────────
+          D="$BASE/missing-named"; mkdir -p "$D"
+          printf "import test from 'node:test';\nimport { fn } from './gone.ts';\n" > "$D/missing.test.ts"
           run_guard "$D" 1 "named import → missing file exits 1"
 
-          # ── Case 3: missing side-effect import ─────────────────────────────
-          D="$TMPDIR_BASE/case-missing-side-effect"
-          mkdir -p "$D"
-          cat > "$D/side-effect.test.ts" <<'EOF'
-          import test from 'node:test';
-          import './missing-polyfill';
-          EOF
+          # ── 3. red: side-effect import → missing file ──────────────────────
+          D="$BASE/side-effect"; mkdir -p "$D"
+          printf "import test from 'node:test';\nimport './missing-polyfill';\n" > "$D/se.test.ts"
           run_guard "$D" 1 "side-effect import → missing file exits 1"
 
-          # ── Case 4: directory exists but has no index ──────────────────────
-          D="$TMPDIR_BASE/case-dir-no-index"
-          mkdir -p "$D/empty-dir"
-          cat > "$D/dir-import.test.ts" <<'EOF'
-          import test from 'node:test';
-          import { util } from './empty-dir';
-          EOF
+          # ── 4. red: dynamic import → missing file ──────────────────────────
+          D="$BASE/dynamic"; mkdir -p "$D"
+          printf "import test from 'node:test';\nconst m = await import('./missing-dynamic.js');\n" > "$D/dyn.test.ts"
+          run_guard "$D" 1 "dynamic import → missing file exits 1"
+
+          # ── 5. green: dynamic import → existing file ───────────────────────
+          D="$BASE/dynamic-ok"; mkdir -p "$D"
+          echo "export const dyn = 1;" > "$D/present.js"
+          printf "import test from 'node:test';\nconst m = await import('./present.js');\n" > "$D/dynok.test.ts"
+          run_guard "$D" 0 "dynamic import → existing file exits 0"
+
+          # ── 6. red: re-export → missing file ──────────────────────────────
+          D="$BASE/reexport"; mkdir -p "$D"
+          printf "import test from 'node:test';\nexport { fn } from './gone-source.ts';\n" > "$D/reexp.test.ts"
+          run_guard "$D" 1 "re-export → missing file exits 1"
+
+          # ── 7. red: bare directory, no index ──────────────────────────────
+          D="$BASE/dir-no-index"; mkdir -p "$D/empty-dir"
+          printf "import test from 'node:test';\nimport { u } from './empty-dir';\n" > "$D/t.test.ts"
           run_guard "$D" 1 "bare directory with no index exits 1"
 
-          # ── Case 5: directory WITH index is accepted ───────────────────────
-          D="$TMPDIR_BASE/case-dir-with-index"
-          mkdir -p "$D/util-dir"
-          echo "export const helper = () => {};" > "$D/util-dir/index.ts"
-          cat > "$D/dir-with-index.test.ts" <<'EOF'
-          import test from 'node:test';
-          import { helper } from './util-dir';
-          EOF
+          # ── 8. green: bare directory WITH index.ts ─────────────────────────
+          D="$BASE/dir-with-index"; mkdir -p "$D/util"
+          echo "export const h = () => {};" > "$D/util/index.ts"
+          printf "import test from 'node:test';\nimport { h } from './util';\n" > "$D/t.test.ts"
           run_guard "$D" 0 "bare directory WITH index.ts exits 0"
 
-          # ── Case 6: no test files → exits 1 ───────────────────────────────
-          D="$TMPDIR_BASE/case-empty-dir"
-          mkdir -p "$D"
+          # ── 9. red: empty test directory ──────────────────────────────────
+          D="$BASE/empty"; mkdir -p "$D"
           run_guard "$D" 1 "empty test directory exits 1"
 
-          # ── Summary ───────────────────────────────────────────────────────
+          # ── 10. red: nested test file with missing import ─────────────────
+          D="$BASE/nested"; mkdir -p "$D/sub"
+          printf "import test from 'node:test';\nimport { x } from './missing-nested.ts';\n" > "$D/sub/nested.test.ts"
+          run_guard "$D" 1 "nested test file → missing import exits 1"
+
+          # ── 11. green: nested test file with existing import ──────────────
+          D="$BASE/nested-ok"; mkdir -p "$D/sub"
+          echo "export const n = 1;" > "$D/sub/real.ts"
+          printf "import test from 'node:test';\nimport { n } from './real.ts';\n" > "$D/sub/ok.test.ts"
+          run_guard "$D" 0 "nested test file → existing import exits 0"
+
           echo ""
           echo "Guard self-test results: $PASSED passed, $FAILED failed"
           if [ "$FAILED" -gt 0 ]; then
-            echo "❌ Guard self-test FAILED — the guard itself has gaps."
+            echo "❌ Guard self-test FAILED."
             exit 1
           fi
           echo "✅ All guard self-tests passed."
