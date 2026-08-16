@@ -8,6 +8,8 @@ jobs:
   check-protection:
     name: Verify main branch protection
     runs-on: ubuntu-latest
+    permissions:
+      administration: read
     steps:
       - name: Check branch protection rules
         env:
@@ -17,6 +19,12 @@ jobs:
 
           echo "Fetching branch protection settings for main..."
           PROTECTION=$(gh api /repos/${{ github.repository }}/branches/main/protection)
+
+          # Fail loudly if the API returned an error object instead of protection data
+          if echo "$PROTECTION" | jq -e '.message' > /dev/null 2>&1; then
+            echo "FAIL: GitHub API returned an error: $(echo "$PROTECTION" | jq -r '.message')"
+            exit 1
+          fi
 
           # Assert force pushes are disabled
           FORCE_PUSHES=$(echo "$PROTECTION" | jq -r '.allow_force_pushes.enabled')
