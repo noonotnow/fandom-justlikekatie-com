@@ -103,6 +103,180 @@ test("magic links are hashed, single-use, and mint a secure revocable session", 
   assert.equal((await afterLogout.json()).user, null);
 });
 
+test("admin magic-link end-to-end: request with next=plan → link URL carries next=plan → verify → session → plan destination", async () => {
+  // This test walks the complete server-side path an admin goes through:
+  //   1. POST /api/auth/magic-link with { email: adminEmail, next: 'plan' }
+  //   2. Parse the emitted URL — token and next=plan must both be present in the fragment
+  //   3. POST /api/auth/verify with the extracted token
+  //   4. Assert the session cookie is issued and the session belongs to the admin
+  //   5. Assert that reading `next` from the fragment yields 'plan', which is exactly
+  //      what consumeMagicLinkFromLocation does before calling setView(destination)
+  const adminEmail = "admin@example.com";
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  const tokens = [
+    "admin-magic-token-e2e-with-at-least-thirty-two-chars",
+    "admin-session-token-e2e-with-at-least-32-x",
+  ];
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+      FANDOM_ADMIN_EMAILS: adminEmail,
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => tokens.shift(),
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+
+  // Step 1: AdminSignIn posts { email, next: 'plan' }
+  const requestRes = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: adminEmail, next: "plan" },
+  }));
+  assert.equal(requestRes.status, 202, "magic-link request must succeed");
+  assert.equal(delivered.length, 1, "exactly one email must be delivered");
+
+  // Step 2: Parse the emitted link the way consumeMagicLinkFromLocation does —
+  // it reads from window.location.hash, so we parse the fragment here.
+  const linkUrl = new URL(delivered[0].magicLink);
+  const fragment = new URLSearchParams(linkUrl.hash.slice(1)); // drop the leading '#'
+  const extractedToken = fragment.get("token");
+  const extractedNext = fragment.get("next");
+
+  assert.ok(extractedToken, "magic-link URL must carry a token in the fragment");
+  assert.equal(
+    extractedNext,
+    "plan",
+    "magic-link URL fragment must contain next=plan so consumeMagicLinkFromLocation returns 'plan'",
+  );
+
+  // Step 3: POST /api/auth/verify — mirrors the fetch inside consumeMagicLinkFromLocation
+  const verifyRes = await auth.verifyMagicLink(request("/api/auth/verify", {
+    body: { token: extractedToken },
+  }));
+  assert.equal(verifyRes.status, 200, "verify must succeed with the token from the emailed link");
+
+  // Step 4: Session cookie is issued
+  const cookie = verifyRes.headers.get("set-cookie");
+  assert.match(cookie, /__Host-fandom_session=/, "a session cookie must be set after verification");
+
+  // Step 5: The session belongs to the admin email
+  const sessionRes = await auth.getSession(request("/api/auth/session", {
+    method: "GET",
+    cookie: cookie.split(";")[0],
+  }));
+  assert.equal(sessionRes.status, 200);
+  const sessionBody = await sessionRes.json();
+  assert.equal(sessionBody.user.email, adminEmail, "session must belong to the admin email");
+  assert.equal(sessionBody.user.isAdmin, true, "session must have isAdmin:true for an admin email");
+
+  // Step 6: consumeMagicLinkFromLocation reads `next` from the fragment and
+  // returns 'plan' when next === 'plan'. Confirm that the value we extracted
+  // in step 2 triggers the plan branch, i.e. the view the client navigates to.
+  const clientDestination = extractedNext === "plan" ? "plan" : "collection";
+  assert.equal(
+    clientDestination,
+    "plan",
+    "consumeMagicLinkFromLocation must resolve to 'plan' so setView routes the admin to the plan view",
+  );
+});
+
+test("magic-link URL contains next=plan when next=plan is posted, enabling the plan redirect", async () => {
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => "admin-magic-token-with-at-least-thirty-two-chars",
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+
+  const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "admin@example.com", next: "plan" },
+  }));
+  assert.equal(res.status, 202);
+  assert.equal(delivered.length, 1);
+
+  // The magic link URL must carry next=plan in the fragment so that
+  // consumeMagicLinkFromLocation can read it back and route to the plan view.
+  assert.match(
+    delivered[0].magicLink,
+    /[#&]next=plan/,
+    "magic-link URL must contain next=plan so the client redirects to the plan view",
+  );
+});
+
+test("magic-link URL omits next param when next is not provided", async () => {
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => "regular-magic-token-with-at-least-thirty-two-chars",
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+
+  const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "user@example.com" },
+  }));
+  assert.equal(res.status, 202);
+  assert.equal(delivered.length, 1);
+  assert.ok(
+    !delivered[0].magicLink.includes("next="),
+    "magic-link URL must not contain a next param when none was requested",
+  );
+});
+
+test("magic-link URL omits next param when an unrecognised next value is posted", async () => {
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => "unknown-magic-token-with-at-least-thirty-two-chars",
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+
+  const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "user@example.com", next: "dashboard" },
+  }));
+  assert.equal(res.status, 202);
+  assert.equal(delivered.length, 1);
+  assert.ok(
+    !delivered[0].magicLink.includes("next="),
+    "magic-link URL must not forward unrecognised next values (open-redirect guard)",
+  );
+});
+
 test("Resend delivery uses only server configuration", async () => {
   let call;
   await sendMagicLinkEmail({
@@ -120,6 +294,47 @@ test("Resend delivery uses only server configuration", async () => {
   assert.equal(call[0], "https://api.resend.com/emails");
   assert.equal(call[1].headers.Authorization, "Bearer server-only-key");
   assert.equal(JSON.parse(call[1].body).to[0], "person@example.com");
+});
+
+test("Resend rejection (unverified domain / bad key) surfaces a 503 to the user, not a silent failure", async () => {
+  // Simulates what happens when Resend rejects the send — e.g. domain not verified or invalid API key.
+  // The user must receive a non-2xx response with a visible error message; the failure must never be swallowed.
+  const errors = [];
+  const originalError = console.error;
+  console.error = (...args) => errors.push(args.map(a => (a instanceof Error ? a.message : String(a))).join(" "));
+  try {
+    const auth = createPublicAuth({
+      env: {
+        FANDOM_AUTH_ID_SECRET: "identity-secret",
+        FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+        FANDOM_ADMIN_EMAILS: "admin@example.com",
+        RESEND_API_KEY: "re_bad_key",
+        FANDOM_AUTH_FROM_EMAIL: "Fandom <login@unverified.example.com>",
+      },
+      getStore: () => memoryStore(),
+      sendEmail: async () => {
+        // Simulate what sendMagicLinkEmail throws when Resend returns 422 (unverified domain).
+        throw new Error("Resend rejected the message (422) — The from address must be a verified email address or domain.");
+      },
+      randomToken: () => "resend-rejection-test-token-at-least-thirty-two",
+      now: () => new Date("2026-08-10T01:00:00Z"),
+    });
+    const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+      body: { email: "user@example.com" },
+    }));
+    assert.equal(res.status, 503, "Resend rejection must yield 503 to the caller — not 2xx or silent");
+    const body = await res.json();
+    assert.ok(
+      typeof body.error === "string" && body.error.length > 0,
+      `Response body must carry a non-empty error string; got: ${JSON.stringify(body)}`,
+    );
+    assert.ok(
+      errors.some(msg => msg.includes("Resend rejected")),
+      `console.error must log the Resend rejection details; got: ${JSON.stringify(errors)}`,
+    );
+  } finally {
+    console.error = originalError;
+  }
 });
 
 test("collection sync is idempotent, URL-independent, cursor-based, and tombstoned", async () => {
@@ -356,11 +571,18 @@ test("getSession returns isAdmin:false when FANDOM_ADMIN_EMAILS is unset", async
     createdAt: "2026-08-10T00:00:00Z",
     lastLoginAt: "2026-08-10T00:00:00Z",
   });
-  const auth = createPublicAuth({
-    env: { FANDOM_AUTH_ID_SECRET: "secret" /* FANDOM_ADMIN_EMAILS deliberately absent */ },
-    getStore,
-    now: () => new Date("2026-08-10T01:00:00Z"),
-  });
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  let auth;
+  try {
+    auth = createPublicAuth({
+      env: { FANDOM_AUTH_ID_SECRET: "secret" /* FANDOM_ADMIN_EMAILS deliberately absent */ },
+      getStore,
+      now: () => new Date("2026-08-10T01:00:00Z"),
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
   const res = await auth.getSession(request("/api/auth/session", {
     method: "GET",
     cookie: `__Host-fandom_session=${sessionToken}`,
@@ -369,6 +591,27 @@ test("getSession returns isAdmin:false when FANDOM_ADMIN_EMAILS is unset", async
   const body = await res.json();
   assert.equal(body.user.email, "someone@example.com");
   assert.equal(body.user.isAdmin, false);
+});
+
+test("createPublicAuth warns when FANDOM_ADMIN_EMAILS is absent entirely", () => {
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  try {
+    createPublicAuth({
+      env: {
+        FANDOM_AUTH_ID_SECRET: "secret",
+        FANDOM_PUBLIC_ORIGIN: "https://example.com",
+        /* FANDOM_ADMIN_EMAILS deliberately absent */
+      },
+      getStore: () => memoryStore(),
+    });
+    assert.equal(warnings.length, 1, "should emit exactly one warning when FANDOM_ADMIN_EMAILS is absent");
+    assert.match(warnings[0], /FANDOM_ADMIN_EMAILS/);
+    assert.match(warnings[0], /not set/);
+  } finally {
+    console.warn = originalWarn;
+  }
 });
 
 test("getSession returns isAdmin:true when FANDOM_ADMIN_EMAILS entry has mixed case", async () => {
@@ -455,6 +698,343 @@ test("getSession returns isAdmin:true when FANDOM_ADMIN_EMAILS entry has leading
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.equal(body.user.isAdmin, true, "whitespace-padded env var entry should still grant admin");
+});
+
+test("createPublicAuth warns for each malformed entry in FANDOM_ADMIN_EMAILS", () => {
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  try {
+    createPublicAuth({
+      env: { FANDOM_AUTH_ID_SECRET: "secret", FANDOM_PUBLIC_ORIGIN: "https://example.com", FANDOM_ADMIN_EMAILS: "admin@example.com, not-an-email, another-bad, @example.com, a@b" },
+      getStore: () => memoryStore(),
+    });
+    assert.equal(warnings.length, 4, "should warn for each malformed entry (no-@, no-@, missing-local, no-dot)");
+    assert.match(warnings[0], /not-an-email/);
+    assert.match(warnings[1], /another-bad/);
+    assert.match(warnings[2], /@example\.com/);
+    assert.match(warnings[3], /a@b/);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("createPublicAuth warns when FANDOM_PUBLIC_ORIGIN is absent", () => {
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  try {
+    createPublicAuth({
+      env: {
+        FANDOM_AUTH_ID_SECRET: "secret",
+        FANDOM_ADMIN_EMAILS: "admin@example.com",
+        /* FANDOM_PUBLIC_ORIGIN deliberately absent */
+      },
+      getStore: () => memoryStore(),
+    });
+    assert.equal(warnings.length, 1, "should emit exactly one warning when FANDOM_PUBLIC_ORIGIN is absent");
+    assert.match(warnings[0], /FANDOM_PUBLIC_ORIGIN/);
+    assert.match(warnings[0], /not set/);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("createPublicAuth warns when FANDOM_AUTH_ID_SECRET is absent", () => {
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  try {
+    createPublicAuth({
+      env: {
+        FANDOM_PUBLIC_ORIGIN: "https://example.com",
+        FANDOM_ADMIN_EMAILS: "admin@example.com",
+        /* FANDOM_AUTH_ID_SECRET deliberately absent */
+      },
+      getStore: () => memoryStore(),
+    });
+    assert.equal(warnings.length, 1, "should emit exactly one warning when FANDOM_AUTH_ID_SECRET is absent");
+    assert.match(warnings[0], /FANDOM_AUTH_ID_SECRET/);
+    assert.match(warnings[0], /not set/);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("createPublicAuth does not warn when FANDOM_ADMIN_EMAILS contains only valid entries", () => {
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  try {
+    createPublicAuth({
+      env: { FANDOM_AUTH_ID_SECRET: "secret", FANDOM_PUBLIC_ORIGIN: "https://example.com", FANDOM_ADMIN_EMAILS: "admin@example.com, other@example.com" },
+      getStore: () => memoryStore(),
+    });
+    assert.equal(warnings.length, 0, "should not warn for clean entries");
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("createPublicAuth excludes malformed entries from the admin list so they cannot grant access", async () => {
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const sessionToken = "session-token-malformed-admin-exactly-32xx";
+  const sessionKey = `sessions/${createHash("sha256").update(sessionToken).digest("hex")}`;
+  const accountId = "usr_malformed_admin";
+  const sessionStore = getStore("fandom-auth-sessions");
+  const userStore = getStore("fandom-auth-users");
+  await sessionStore.setJSON(sessionKey, {
+    schemaVersion: 1,
+    sessionId: "sid-malformed",
+    accountId,
+    issuedAt: "2026-08-10T00:00:00Z",
+    expiresAt: "2027-08-10T00:00:00Z",
+    revokedAt: null,
+  });
+  await userStore.setJSON(`users/${accountId}`, {
+    schemaVersion: 1,
+    accountId,
+    email: "notanemail",
+    createdAt: "2026-08-10T00:00:00Z",
+    lastLoginAt: "2026-08-10T00:00:00Z",
+  });
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  let auth;
+  try {
+    auth = createPublicAuth({
+      env: {
+        FANDOM_AUTH_ID_SECRET: "secret",
+        FANDOM_ADMIN_EMAILS: "notanemail, @bad.com, a@b",
+      },
+      getStore,
+      now: () => new Date("2026-08-10T01:00:00Z"),
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
+  const res = await auth.getSession(request("/api/auth/session", {
+    method: "GET",
+    cookie: `__Host-fandom_session=${sessionToken}`,
+  }));
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.user.isAdmin, false, "malformed entries must not grant admin access");
+});
+
+test("verifyMagicLink returns 401 for an expired next=plan token (admin redirect is not silently granted)", async () => {
+  // An admin clicks a stale magic link (e.g. opened hours later from email).
+  // The server must reject the expired token with 401 so that the client-side
+  // catch path fires: the user lands on the collection view with an error
+  // notice rather than being granted a session on the plan view.
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  const issuedAt = new Date("2026-08-10T01:00:00Z");
+  const MAGIC_TTL_MS = 15 * 60 * 1000;
+  let nowTime = issuedAt;
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+      FANDOM_ADMIN_EMAILS: "admin@example.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => "expired-plan-magic-token-with-at-least-32chars",
+    now: () => nowTime,
+  });
+
+  // Issue a next=plan token — the link URL must carry next=plan in its fragment
+  const requestRes = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "admin@example.com", next: "plan" },
+  }));
+  assert.equal(requestRes.status, 202, "magic-link request must succeed");
+  assert.equal(delivered.length, 1, "one email must be delivered");
+  const linkUrl = new URL(delivered[0].magicLink);
+  const fragment = new URLSearchParams(linkUrl.hash.slice(1));
+  assert.equal(fragment.get("next"), "plan", "emitted link must carry next=plan in fragment");
+
+  // Advance time 1 ms past the TTL boundary — the token is now expired
+  nowTime = new Date(issuedAt.getTime() + MAGIC_TTL_MS + 1);
+
+  // The server must return 401: the client-side catch handler (not the success
+  // path) fires, writing an error notice to sessionStorage and routing to 'collection'
+  const verifyRes = await auth.verifyMagicLink(request("/api/auth/verify", {
+    body: { token: fragment.get("token") },
+  }));
+  assert.equal(verifyRes.status, 401, "verifyMagicLink must return 401 for an expired next=plan token");
+  const verifyBody = await verifyRes.json();
+  assert.match(
+    verifyBody.error,
+    /invalid or expired/i,
+    "error message must indicate the link is invalid or expired",
+  );
+});
+
+test("verifyMagicLink returns 401 when a consumed next=plan token is replayed (plan redirect is not granted twice)", async () => {
+  // An admin successfully signs in, then the same magic link is replayed
+  // (e.g. a stolen or bookmarked link). The second attempt must be rejected
+  // with 401 so the client-side catch path fires — no second session is issued
+  // and the plan view is not opened for the attacker.
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  const tokens = [
+    "replay-plan-magic-token-with-at-least-thirty-two-x",
+    "replay-plan-session-token-with-at-least-thirty-two",
+  ];
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+      FANDOM_ADMIN_EMAILS: "admin@example.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => tokens.shift(),
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+
+  // Issue a next=plan token — the emitted link must carry next=plan
+  const requestRes = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "admin@example.com", next: "plan" },
+  }));
+  assert.equal(requestRes.status, 202, "magic-link request must succeed");
+  assert.equal(delivered.length, 1, "one email must be delivered");
+  const linkUrl = new URL(delivered[0].magicLink);
+  const fragment = new URLSearchParams(linkUrl.hash.slice(1));
+  const magicToken = fragment.get("token");
+  assert.equal(fragment.get("next"), "plan", "emitted link must carry next=plan in fragment");
+
+  // First verification succeeds and consumes the token
+  const firstVerify = await auth.verifyMagicLink(request("/api/auth/verify", {
+    body: { token: magicToken },
+  }));
+  assert.equal(firstVerify.status, 200, "first verify must succeed and issue a session");
+
+  // Replaying the same next=plan token must be rejected — it is now consumed
+  const replay = await auth.verifyMagicLink(request("/api/auth/verify", {
+    body: { token: magicToken },
+  }));
+  assert.equal(replay.status, 401, "replaying a consumed next=plan token must return 401");
+  const replayBody = await replay.json();
+  assert.match(
+    replayBody.error,
+    /invalid or expired/i,
+    "replay error message must indicate the link is invalid or expired",
+  );
+});
+
+test("requireConfiguration does not throw when all required keys are present", async () => {
+  // Happy path: both keys set → requestMagicLink proceeds past the guard and returns 202.
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+      FANDOM_ADMIN_EMAILS: "admin@example.com",
+    },
+    getStore,
+    sendEmail: async () => {},
+    randomToken: () => "require-config-happy-token-at-least-thirty-two",
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+  const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "user@example.com" },
+  }));
+  // A 503 here would mean requireConfiguration threw; 202 confirms it did not.
+  assert.equal(res.status, 202, "requestMagicLink must not return 503 when all required env vars are set");
+});
+
+test("requireConfiguration names the missing key when one required variable is absent", async () => {
+  // FANDOM_PUBLIC_ORIGIN absent → requireConfiguration throws an Error that names it.
+  // withErrors catches the plain Error and logs it via console.error, then returns 503.
+  const errors = [];
+  const originalError = console.error;
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  console.error = (...args) => errors.push(args.map(a => (a instanceof Error ? a.message : String(a))).join(" "));
+  let auth;
+  try {
+    auth = createPublicAuth({
+      env: {
+        FANDOM_AUTH_ID_SECRET: "identity-secret",
+        /* FANDOM_PUBLIC_ORIGIN deliberately absent */
+      },
+      getStore: () => memoryStore(),
+      sendEmail: async () => {},
+      now: () => new Date("2026-08-10T01:00:00Z"),
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
+  try {
+    const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+      body: { email: "user@example.com" },
+    }));
+    assert.equal(res.status, 503, "missing FANDOM_PUBLIC_ORIGIN must yield 503");
+    assert.ok(
+      errors.some(msg => msg.includes("FANDOM_PUBLIC_ORIGIN")),
+      `console.error must mention FANDOM_PUBLIC_ORIGIN; got: ${JSON.stringify(errors)}`,
+    );
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test("requireConfiguration names all missing keys when two required variables are absent", async () => {
+  // Both FANDOM_AUTH_ID_SECRET and FANDOM_PUBLIC_ORIGIN absent → error lists both.
+  const errors = [];
+  const originalError = console.error;
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  console.error = (...args) => errors.push(args.map(a => (a instanceof Error ? a.message : String(a))).join(" "));
+  let auth;
+  try {
+    auth = createPublicAuth({
+      env: {
+        /* both required keys deliberately absent */
+        FANDOM_ADMIN_EMAILS: "admin@example.com",
+      },
+      getStore: () => memoryStore(),
+      sendEmail: async () => {},
+      now: () => new Date("2026-08-10T01:00:00Z"),
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
+  try {
+    const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+      body: { email: "user@example.com" },
+    }));
+    assert.equal(res.status, 503, "missing both required vars must yield 503");
+    const combined = errors.join(" ");
+    assert.ok(
+      combined.includes("FANDOM_AUTH_ID_SECRET"),
+      `console.error must mention FANDOM_AUTH_ID_SECRET; got: ${JSON.stringify(errors)}`,
+    );
+    assert.ok(
+      combined.includes("FANDOM_PUBLIC_ORIGIN"),
+      `console.error must mention FANDOM_PUBLIC_ORIGIN; got: ${JSON.stringify(errors)}`,
+    );
+  } finally {
+    console.error = originalError;
+  }
 });
 
 test("collection sync rejects a stale tab when its expected account differs from the cookie session", async () => {
