@@ -1315,3 +1315,72 @@ test("rate-limit counter returns MAX_SAFE_INTEGER when all CAS retries fail, blo
     "no email must be sent when all CAS retries fail — MAX_SAFE_INTEGER count enforces the limit",
   );
 });
+
+test("rate-limit window resets: a rate-limited email can request a new magic link in the next window", async () => {
+  // The rate-limit key includes the 15-minute window number derived from
+  // Math.floor(now.getTime() / windowMs). When the clock advances into a new
+  // window the key changes, the counter starts fresh, and a previously-limited
+  // address must be able to receive a magic link again.
+  //
+  // This test exhausts the per-email limit (5 requests) in window N, confirms
+  // no 6th email is delivered in that window, then moves the clock into window
+  // N+1 and confirms a new magic link is delivered.
+  const WINDOW_MS = 15 * 60 * 1000;
+  const windowNStart = new Date("2026-08-10T00:00:00Z"); // start of an arbitrary window N
+
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  let nowTime = windowNStart;
+  let tokenCounter = 0;
+
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    // Each call needs a distinct token so magic-store onlyIfNew writes don't
+    // conflict with earlier tokens for the same digest.
+    randomToken: () => `window-reset-token-${++tokenCounter}-padding-to-reach-32`,
+    now: () => nowTime,
+  });
+
+  const makeRequest = () => auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "limited@example.com" },
+  }));
+
+  // Exhaust the per-email limit: 5 successful deliveries, then requests 6–7
+  // are silently suppressed (still 202, but no email).
+  for (let i = 0; i < 5; i += 1) {
+    const res = await makeRequest();
+    assert.equal(res.status, 202, `request ${i + 1} in window N must return 202`);
+  }
+  assert.equal(delivered.length, 5, "exactly 5 emails must be delivered before the limit kicks in");
+
+  // 6th request in the same window — rate-limited, no email
+  const limitedRes = await makeRequest();
+  assert.equal(limitedRes.status, 202, "rate-limited request must still return 202 (silent)");
+  assert.equal(delivered.length, 5, "no 6th email must be sent in window N — rate limit is active");
+
+  // Advance the clock into window N+1. The window key changes, so the counter
+  // resets and the previously-limited address should be able to receive mail again.
+  nowTime = new Date(windowNStart.getTime() + WINDOW_MS);
+
+  const windowNPlusOneRes = await makeRequest();
+  assert.equal(windowNPlusOneRes.status, 202, "request in window N+1 must return 202");
+  assert.equal(
+    delivered.length,
+    6,
+    "a 6th email must be delivered in window N+1 — the rate-limit window has reset",
+  );
+  assert.equal(
+    delivered[5].email,
+    "limited@example.com",
+    "the email delivered in window N+1 must go to the previously-limited address",
+  );
+});
