@@ -23,7 +23,14 @@ export async function sendMagicLinkEmail({
       html: `<p>Open this link within 15 minutes to sign in:</p><p><a href="${escapeHtml(magicLink)}">Sign in to Fandom</a></p><p>If you did not request this, you can ignore this email.</p>`,
     }),
   });
-  if (!response.ok) throw new Error(`Resend rejected the message (${response.status}).`);
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const body = await response.json();
+      detail = body.message ? ` — ${body.message}` : "";
+    } catch { /* ignore parse failure */ }
+    throw new Error(`Resend rejected the message (${response.status})${detail}.`);
+  }
 }
 
 function escapeHtml(value) {
