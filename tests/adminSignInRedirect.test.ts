@@ -108,6 +108,54 @@ test('consumeMagicLinkFromLocation returns collection when next param is absent'
 });
 
 // ---------------------------------------------------------------------------
+// AdminSignIn component — form submit must pass 'plan' as the next argument
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the body of the named function from the given source text.
+ * Returns everything from the function declaration up to (and including) its
+ * closing brace at depth 0.
+ */
+function extractFunctionBody(src: string, name: string): string {
+  const idx = src.indexOf(`function ${name}`);
+  assert.notEqual(idx, -1, `Source must contain 'function ${name}'`);
+  let depth = 0;
+  let started = false;
+  for (let i = idx; i < src.length; i++) {
+    if (src[i] === '{') { depth++; started = true; }
+    else if (src[i] === '}') {
+      depth--;
+      if (started && depth === 0) return src.slice(idx, i + 1);
+    }
+  }
+  throw new Error(`Could not find closing brace for function ${name}`);
+}
+
+const adminSignInBody = extractFunctionBody(appSource, 'AdminSignIn');
+
+test('AdminSignIn handleSubmit calls requestMagicLink with email and the literal string plan', () => {
+  // The call site must be  requestMagicLink(email, 'plan')  — any other second
+  // argument (or no second argument) would send admins to the wrong view.
+  assert.ok(
+    adminSignInBody.includes("requestMagicLink(email, 'plan')"),
+    "AdminSignIn must call requestMagicLink(email, 'plan') so the magic-link URL carries next=plan",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// requestMagicLink — next must be serialized into the POST body
+// ---------------------------------------------------------------------------
+
+test('requestMagicLink spreads next into the POST body when provided', () => {
+  // The function must include `next` in the JSON body so the server embeds it
+  // in the magic-link URL and consumeMagicLinkFromLocation can read it back.
+  assert.ok(
+    accountSource.includes('{ email, ...(next ? { next } : {}) }'),
+    "requestMagicLink must spread { next } into the POST body when the argument is truthy",
+  );
+});
+
+// ---------------------------------------------------------------------------
 // 3. error path — setView('collection') is called in the catch block, and
 //    the error message is persisted to sessionStorage for display.
 // ---------------------------------------------------------------------------
