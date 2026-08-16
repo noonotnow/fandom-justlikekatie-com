@@ -1,8 +1,12 @@
 /**
  * Raccoon Court Record — official rulings of the raccoon judiciary.
  * Edit here to add, amend, or overturn any case. Court is always in session.
+ *
+ * IMPORTANT: Do not add empty or whitespace-only strings.
+ * A TypeScript static assertion below will fail the build (`tsc -b`) if any
+ * entry is the empty string "". The test suite catches whitespace-only strings.
  */
-export const RACCOON_COURT_RECORD: string[] = [
+export const RACCOON_COURT_RECORD = [
   "Case #001: Motion to adjourn denied. — Chief Justice 🦝",
   "Case #017: Plaintiff's evidence (a shiny bottle cap) deemed inadmissible. — Clerk 🦝",
   "Case #034: Order in the court. The trash shall not be disturbed till morning. — Bailiff 🦝",
@@ -18,4 +22,37 @@ export const RACCOON_COURT_RECORD: string[] = [
   "Case #217: Trespass acquittal upheld. The fence had a gap. Intent cannot be inferred from a gap. — Associate Justice 🦝",
   "Case #233: The defence of 'it smelled like an invitation' is hereby recognised as a valid plea. — Chief Justice 🦝",
   "Case #251: Unanimous ruling: the bin belongs to no one. The bin belongs to all. Court dismissed. — Full Bench 🦝🦝🦝",
-];
+] as const;
+
+// ---------------------------------------------------------------------------
+// Compile-time guard — fails `tsc -b` (and therefore `npm run build`) the
+// moment an empty string is added to the array above.
+//
+// How it works: `as const` narrows each element to its exact string literal
+// type. If "" is ever introduced, it joins the union
+// `(typeof RACCOON_COURT_RECORD)[number]`, making the conditional true and
+// collapsing `_AssertNoEmptyRulings` to `never`. Assigning `true` to `never`
+// is a type error that TypeScript reports on save in any editor with ts-server.
+// ---------------------------------------------------------------------------
+type _AssertNoEmptyRulings =
+  "" extends (typeof RACCOON_COURT_RECORD)[number] ? never : true;
+// If this line shows a type error, a ruling was set to "".
+const _assertNoEmptyRulings: _AssertNoEmptyRulings = true;
+// Suppress "declared but never read" — this variable exists only for its type.
+void _assertNoEmptyRulings;
+
+// ---------------------------------------------------------------------------
+// Module-init guard for whitespace-only strings.
+// Throws immediately when the module is first imported, so any test that
+// imports this file will fail with a clear message. This covers the gap that
+// TypeScript's type system cannot catch (e.g. "   " is a non-empty string
+// literal, but it still produces a blank popup).
+// ---------------------------------------------------------------------------
+for (const ruling of RACCOON_COURT_RECORD) {
+  if (!ruling.trim()) {
+    throw new Error(
+      `raccoonCourtRecord.ts: entry ${JSON.stringify(ruling)} is blank or whitespace-only. ` +
+      'Every ruling must have visible content.',
+    );
+  }
+}
