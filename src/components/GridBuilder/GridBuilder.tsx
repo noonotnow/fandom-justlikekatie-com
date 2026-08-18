@@ -3,7 +3,7 @@ import { dbGetAllCards, dbGetAllGrids, dbGetVisibleCards, dbGetVisibleGrids, dbR
 import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
 import { saveShareCard, buildExportPayload, classifyEditionTier } from '../../utils/exportCanvas';
-import { gridExportEventFromRecord, logGridExport } from '../../utils/gridExportLog';
+import { gridExportEventFromRecord, logGridExport, uploadExportedCard } from '../../utils/gridExportLog';
 import {
   applyLens,
   buildPool,
@@ -213,10 +213,19 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     try {
       const grid = gridRecordFromProposal(proposal.slots, proposal.rationale);
       const starData = starDataFromCollectionGrid(grid);
-      const message = await saveShareCard(starData, 'full');
+      // Capture the rendered PNG so it can be persisted server-side after a
+      // successful export of a SAVED grid.  Fire-and-forget: the upload never
+      // blocks the download/share path, and export never saves a grid.
+      let renderedBlob: Blob | null = null;
+      const message = await saveShareCard(starData, 'full', (blob) => { renderedBlob = blob; });
       try {
         const tier = classifyEditionTier(buildExportPayload(starData).chosen);
-        logGridExport(gridExportEventFromRecord(grid, 'full', tier, true));
+        let persistedExportId: string | undefined;
+        if (wasGridSaved && renderedBlob) {
+          persistedExportId = crypto.randomUUID();
+          void uploadExportedCard(grid.id, persistedExportId, renderedBlob, 'full', tier);
+        }
+        logGridExport(gridExportEventFromRecord(grid, 'full', tier, wasGridSaved, persistedExportId));
       } catch (bookkeepingErr) {
         console.warn('Post-export logging failed (export succeeded):', bookkeepingErr);
       }

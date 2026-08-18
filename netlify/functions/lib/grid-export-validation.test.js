@@ -228,7 +228,7 @@ test("GRID_ALLOWED_FIELDS covers every key in a full client payload", () => {
   const clientFields = [
     "gridId", "date", "actorId", "actor", "actorEn",
     "vibe", "vibeEn", "searchSpell", "tier",
-    "variant", "imageIds", "gridWasSaved", "ctaSeed",
+    "variant", "imageIds", "gridWasSaved", "ctaSeed", "persistedExportId",
   ];
   for (const field of clientFields) {
     assert.ok(
@@ -242,7 +242,7 @@ test("GRID_ALLOWED_FIELDS has no extra fields beyond what the client sends", () 
   const clientFields = new Set([
     "gridId", "date", "actorId", "actor", "actorEn",
     "vibe", "vibeEn", "searchSpell", "tier",
-    "variant", "imageIds", "gridWasSaved", "ctaSeed",
+    "variant", "imageIds", "gridWasSaved", "ctaSeed", "persistedExportId",
   ]);
   for (const field of GRID_ALLOWED_FIELDS) {
     assert.ok(

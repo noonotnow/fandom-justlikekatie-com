@@ -23,6 +23,7 @@ export const GRID_ALLOWED_FIELDS = new Set([
   "imageIds",
   "gridWasSaved",
   "ctaSeed",
+  "persistedExportId",
 ]);
 
 /**
@@ -55,6 +56,9 @@ export function validateGridPayload(grid) {
   }
   if (grid.ctaSeed !== undefined && typeof grid.ctaSeed !== "string") {
     return "grid.ctaSeed must be a string";
+  }
+  if (grid.persistedExportId !== undefined && typeof grid.persistedExportId !== "string") {
+    return "grid.persistedExportId must be a string";
   }
   for (const key of Object.keys(grid)) {
     if (!GRID_ALLOWED_FIELDS.has(key)) return `unknown grid field: ${key}`;

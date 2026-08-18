@@ -1598,6 +1598,70 @@ test("scraper burst without IP header cannot block a subsequent header-less serv
   );
 });
 
+test("header-less per-email rate-limit resets when the next 15-minute window starts", async () => {
+  // Exhausts the per-email limit (5 requests) for a header-less caller in window N,
+  // then advances time to window N+1 and confirms the 6th request is delivered — the
+  // counter has reset to 1 and the caller is no longer rate-limited.
+  //
+  // This is the complementary reset path to the within-window suppression test:
+  // it proves that a header-less caller who hit the ceiling can send again once
+  // the next window opens.
+  const WINDOW_MS = 15 * 60 * 1000;
+  // Anchor to a known window boundary so the second time value reliably lands
+  // in window N+1 (not N).  Use an even multiple of WINDOW_MS.
+  const windowNTime = new Date("2026-08-10T00:00:00Z"); // window N
+  const windowN1Time = new Date(windowNTime.getTime() + WINDOW_MS); // window N+1
+
+  let nowTime = windowNTime;
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  let tokenCounter = 0;
+
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => `hl-reset-token-${++tokenCounter}-padded-to-32chars`,
+    now: () => nowTime,
+  });
+
+  const email = "hl-reset@example.com";
+  const makeRequest = () => auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email },
+    // No x-nf-client-connection-ip header — header-less flow.
+  }));
+
+  // Exhaust the per-email limit in window N: requests 1–5 must all be delivered.
+  for (let i = 0; i < 5; i += 1) {
+    const res = await makeRequest();
+    assert.equal(res.status, 202, `header-less request ${i + 1} in window N must return 202`);
+  }
+  assert.equal(delivered.length, 5, "all 5 requests in window N must be delivered");
+
+  // 6th request in the same window must be suppressed (rate-limited).
+  await makeRequest();
+  assert.equal(delivered.length, 5, "6th request in window N must be silently suppressed (rate limit active)");
+
+  // Advance time into window N+1.
+  nowTime = windowN1Time;
+
+  // A request in the new window must succeed — the per-email counter has reset.
+  const resetRes = await makeRequest();
+  assert.equal(resetRes.status, 202, "request in window N+1 must return 202 (window has reset)");
+  assert.equal(
+    delivered.length,
+    6,
+    "email must be delivered in window N+1 — the per-email counter reset to 1 for the new window",
+  );
+});
+
 test("rate-limit entry with a past expiresAt is treated as absent so expired counts do not block requests", async () => {
   // Verify that incrementLimit ignores a stored entry whose expiresAt has already
   // elapsed.  We pre-seed the limits store with a count of 6 (above the email
@@ -1662,6 +1726,48 @@ test("rate-limit entry with a past expiresAt is treated as absent so expired cou
     Date.parse(updated.data.expiresAt) > now.getTime(),
     "the stored expiresAt must be in the future relative to the current window",
   );
+});
+
+test("per-email rate-limit fires on the 6th header-less request: all 5 allowed, 6th returns 202 but no email sent", async () => {
+  // When x-nf-client-connection-ip is absent (header-less flow), the IP bucket
+  // is skipped entirely and only the per-email limit (5 per window) applies.
+  // This test confirms that the 6th request is silently suppressed — 202 is still
+  // returned (so callers get no abuse signal) but no email is delivered.
+  const email = "ratelimit-headerfree@example.com";
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  let tokenIndex = 0;
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => `headerfree-ratelimit-token-${String(tokenIndex++).padStart(4, "0")}-xxxxxxxxxxxxxxxxx`,
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+
+  // Send 5 requests without x-nf-client-connection-ip — all must be delivered.
+  for (let i = 0; i < 5; i += 1) {
+    const res = await auth.requestMagicLink(request("/api/auth/magic-link", {
+      body: { email },
+      // no IP header — the `request` helper does not add x-nf-client-connection-ip
+    }));
+    assert.equal(res.status, 202, `request ${i + 1} must return 202`);
+  }
+  assert.equal(delivered.length, 5, "all 5 allowed requests must deliver an email");
+
+  // 6th request: still returns 202 (no abuse signal), but must NOT send an email.
+  const sixth = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email },
+  }));
+  assert.equal(sixth.status, 202, "6th request must still return 202 — no abuse signal is leaked");
+  assert.equal(delivered.length, 5, "6th request must not deliver an email — per-email limit was reached");
 });
 
 test("pruneExpiredRateLimits physically deletes expired entries and leaves non-expired ones intact", async () => {

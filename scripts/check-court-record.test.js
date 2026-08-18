@@ -617,3 +617,143 @@ test('integration: exits 1 with "cannot read" when the file path does not exist'
   );
   assert.match(result.stderr, /cannot read/);
 });
+
+// ---------------------------------------------------------------------------
+// decodeStringContent — unicode whitespace characters that trim() strips
+// but that are NOT \t / \n / \r.  JavaScript's trim() removes the full set
+// of ECMAScript WhiteSpace and LineTerminator code points, including:
+//   U+00A0  NO-BREAK SPACE          (WhiteSpace)
+//   U+2003  EM SPACE                (WhiteSpace, category Zs)
+//   U+3000  IDEOGRAPHIC SPACE       (WhiteSpace, category Zs)
+//   U+2028  LINE SEPARATOR          (LineTerminator)
+// All four are representable as \uHHHH escapes in source and must be decoded
+// by decodeStringContent so that checkArrayBody flags them.
+// ---------------------------------------------------------------------------
+
+test('decodeStringContent: decodes \\u00A0 to non-breaking space (U+00A0)', () => {
+  const decoded = decodeStringContent('\\u00A0');
+  assert.equal(decoded, '\u00A0');
+  // Confirm that JS trim() actually strips it — this is the core assumption.
+  assert.equal(decoded.trim(), '', '\\u00A0 should trim to empty');
+});
+
+test('decodeStringContent: decodes \\u2003 to em space (U+2003)', () => {
+  const decoded = decodeStringContent('\\u2003');
+  assert.equal(decoded, '\u2003');
+  assert.equal(decoded.trim(), '', '\\u2003 should trim to empty');
+});
+
+test('decodeStringContent: decodes \\u3000 to ideographic space (U+3000)', () => {
+  const decoded = decodeStringContent('\\u3000');
+  assert.equal(decoded, '\u3000');
+  assert.equal(decoded.trim(), '', '\\u3000 should trim to empty');
+});
+
+test('decodeStringContent: decodes \\u2028 to line separator (U+2028)', () => {
+  const decoded = decodeStringContent('\\u2028');
+  assert.equal(decoded, '\u2028');
+  assert.equal(decoded.trim(), '', '\\u2028 should trim to empty');
+});
+
+// ---------------------------------------------------------------------------
+// checkArrayBody — unicode whitespace-only detection
+// ---------------------------------------------------------------------------
+
+test('checkArrayBody: detects \\u00A0 (non-breaking space via unicode escape)', () => {
+  const { whitespaceOnly, totalCount } = checkArrayBody('"\\u00A0",');
+  assert.equal(totalCount, 1);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+test('checkArrayBody: detects \\u2003 (em space via unicode escape)', () => {
+  const { whitespaceOnly, totalCount } = checkArrayBody('"\\u2003",');
+  assert.equal(totalCount, 1);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+test('checkArrayBody: detects \\u3000 (ideographic space via unicode escape)', () => {
+  const { whitespaceOnly, totalCount } = checkArrayBody('"\\u3000",');
+  assert.equal(totalCount, 1);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+test('checkArrayBody: detects \\u2028 (line separator via unicode escape)', () => {
+  const { whitespaceOnly, totalCount } = checkArrayBody('"\\u2028",');
+  assert.equal(totalCount, 1);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+test('checkArrayBody: detects mix of unicode whitespace (\\u00A0 + \\u2003)', () => {
+  const { whitespaceOnly } = checkArrayBody('"\\u00A0\\u2003",');
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+test('checkArrayBody: detects unicode whitespace inside a single-quoted literal', () => {
+  const { whitespaceOnly } = checkArrayBody("'\\u00A0',");
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+test('checkArrayBody: detects unicode whitespace inside a template literal', () => {
+  const { whitespaceOnly } = checkArrayBody('`\\u2028`,');
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Integration — unicode whitespace characters
+// ---------------------------------------------------------------------------
+
+test('integration: exits 1 for \\u00A0 (non-breaking space) unicode-escape entry', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    '"\\u00A0"',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /whitespace-only/);
+});
+
+test('integration: exits 1 for \\u2003 (em space) unicode-escape entry', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    '"\\u2003"',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /whitespace-only/);
+});
+
+test('integration: exits 1 for \\u3000 (ideographic space) unicode-escape entry', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    '"\\u3000"',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /whitespace-only/);
+});
+
+test('integration: exits 1 for \\u2028 (line separator) unicode-escape entry', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    '"\\u2028"',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /whitespace-only/);
+});

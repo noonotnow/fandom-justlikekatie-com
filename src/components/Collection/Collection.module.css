@@ -250,6 +250,30 @@
   font-weight: 750;
 }
 
+.exportHistory {
+  grid-column: 2;
+  font-size: .84rem;
+}
+.exportHistory summary {
+  cursor: pointer;
+  opacity: .75;
+}
+.exportHistory ul {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.exportHistory li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.exportHistory a { color: #c9a96e; font-weight: 650; }
+.exportHistoryNote { display: block; margin-top: 8px; opacity: .7; }
+
 @media (max-width: 760px) {
   .collection { width: min(100% - 24px, 1120px); padding-top: 28px; }
   .hero, .account form, .signedIn { align-items: stretch; flex-direction: column; }

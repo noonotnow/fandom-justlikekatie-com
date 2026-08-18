@@ -8,7 +8,13 @@ import {
   type GridRecord,
 } from '../../utils/collectionDB';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
-import { saveShareCard } from '../../utils/exportCanvas';
+import { buildExportPayload, classifyEditionTier, saveShareCard } from '../../utils/exportCanvas';
+import {
+  exportDownloadUrl,
+  fetchExportHistory,
+  uploadExportedCard,
+  type PersistedExportEntry,
+} from '../../utils/gridExportLog';
 import type { IdeaPacket } from '../../utils/ideaPackets';
 import { ArtifactZoomDialog } from '../ArtifactZoomDialog/ArtifactZoomDialog';
 import { GridBuilder } from '../GridBuilder/GridBuilder';
@@ -330,7 +336,13 @@ export const Collection: React.FC<Props> = ({
                     onClick={async () => {
                       setBusyKey(`export:${grid.id}`);
                       try {
-                        setAccountNotice(await saveShareCard(starDataFromCollectionGrid(grid), 'full'));
+                        // Persist the render for this saved grid, fire-and-forget —
+                        // the upload never blocks the download/share path.
+                        const starData = starDataFromCollectionGrid(grid);
+                        setAccountNotice(await saveShareCard(starData, 'full', (blob) => {
+                          const tier = classifyEditionTier(buildExportPayload(starData).chosen);
+                          void uploadExportedCard(grid.id, crypto.randomUUID(), blob, 'full', tier);
+                        }));
                       } catch (error) {
                         setAccountNotice(messageFrom(error, 'The grid could not be exported.'));
                       } finally {
@@ -368,6 +380,7 @@ export const Collection: React.FC<Props> = ({
                     Remove
                   </button>
                 </div>
+                <GridExportHistory gridId={grid.id} signedIn={Boolean(user)} />
                 {isAdmin && onAddGridToPacket && (
                   <div className={styles.packetAction}>
                     {collectingPackets.length === 0 ? (
@@ -485,6 +498,64 @@ export const Collection: React.FC<Props> = ({
     </main>
   );
 };
+
+/**
+ * Past persisted exports of a saved grid, with a re-download action for each.
+ * History is loaded lazily on first expand — export storage is server-side
+ * and account-scoped, so anonymous visitors are pointed at sign-in instead.
+ */
+function GridExportHistory({ gridId, signedIn }: { gridId: string; signedIn: boolean }) {
+  const [entries, setEntries] = useState<PersistedExportEntry[] | null>(null);
+  const [historyError, setHistoryError] = useState('');
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  async function loadHistory() {
+    if (entries || loadingHistory) return;
+    setLoadingHistory(true);
+    setHistoryError('');
+    try {
+      setEntries(await fetchExportHistory(gridId));
+    } catch (error) {
+      setHistoryError(messageFrom(error, 'Export history could not be loaded.'));
+    } finally {
+      setLoadingHistory(false);
+    }
+  }
+
+  if (!signedIn) return null;
+
+  return (
+    <details
+      className={styles.exportHistory}
+      onToggle={event => { if ((event.target as HTMLDetailsElement).open) void loadHistory(); }}
+    >
+      <summary>Past exports</summary>
+      {loadingHistory && <span className={styles.exportHistoryNote}>Loading export history…</span>}
+      {historyError && <span className={styles.exportHistoryNote} role="alert">{historyError}</span>}
+      {entries && entries.length === 0 && (
+        <span className={styles.exportHistoryNote}>
+          No stored exports yet — export this grid and the rendered card will be kept here.
+        </span>
+      )}
+      {entries && entries.length > 0 && (
+        <ul>
+          {[...entries].reverse().map(entry => (
+            <li key={entry.exportId}>
+              <span>
+                {formatDate(entry.exportedAt.slice(0, 10))}
+                {' · '}{entry.variant}
+                {entry.tier && entry.tier !== 'standard' ? ` · ${entry.tier}` : ''}
+              </span>
+              <a href={exportDownloadUrl(gridId, entry.exportId)} download>
+                Re-download
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
+  );
+}
 
 function GridVisual({ grid }: { grid: GridRecord }) {
   const isLegacy = Boolean(grid.legacyCompositeUrl);

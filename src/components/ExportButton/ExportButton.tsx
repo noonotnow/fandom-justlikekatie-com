@@ -26,6 +26,7 @@ export const ExportButton: React.FC<ExportButtonProps> = ({ rawData }) => {
         📤 导出完整分享卡
         <span className={styles.enHelper}>Export full share card</span>
       </button>
+      <p className={styles.autoSaveNote}>导出后自动存入收藏 · Auto-saves to your collection</p>
       {toastMessage && <Toast message={toastMessage} onClose={dismissToast} />}
     </>
   );

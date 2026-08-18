@@ -767,6 +767,13 @@ function logGridExportFireAndForget(payload: ExportPayload, tier: string): void 
 export async function saveShareCard(
   data: StarOfDayData,
   variant: ExportVariant = 'full',
+  /**
+   * Optional hook invoked with the rendered PNG blob once rasterisation
+   * succeeds, before share/download.  Used by callers that persist the
+   * render server-side (fire-and-forget) — errors thrown by the hook are
+   * swallowed so persistence can never break the export itself.
+   */
+  onBlob?: (blob: Blob) => void,
 ): Promise<string> {
   const payload = buildExportPayload(data);
   const tier = classifyEditionTier(payload.chosen);
@@ -783,6 +790,14 @@ export async function saveShareCard(
 
   // Log the export now that we know the canvas rendered successfully.
   logGridExportFireAndForget(payload, tier);
+
+  if (onBlob) {
+    try {
+      onBlob(blob);
+    } catch {
+      // Persistence hooks must never interfere with the export path.
+    }
+  }
 
   const editionStamp = buildEditionStampLine(
     payload.date, payload.actorName, payload.vibeLabel,
