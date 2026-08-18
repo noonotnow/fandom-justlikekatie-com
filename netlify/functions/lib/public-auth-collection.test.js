@@ -1464,6 +1464,83 @@ test("rate-limit window resets: a rate-limited IP can request a new magic link i
   );
 });
 
+test("per-IP rate-limit counter resets to exactly 1 at the window N+1 boundary, not accumulated from window N", async () => {
+  // The existing IP window-reset test confirms a rate-limited IP can send again
+  // in window N+1, but only checks delivery count.  This test additionally
+  // verifies the counter stored in the limits key for window N+1 is exactly 1
+  // (not some carry-over from window N) by reading the store directly after the
+  // transition.
+  //
+  // Steps:
+  //   1. Exhaust the per-IP limit (20 requests) in window N.
+  //   2. Confirm the 21st request in window N is silently suppressed.
+  //   3. Advance the clock to the exact window N+1 boundary.
+  //   4. Make one more request (the 22nd overall) — it must be delivered.
+  //   5. Read the IP-keyed entry from the limits store and assert count === 1.
+  const WINDOW_MS = 15 * 60 * 1000;
+  const windowNStart = new Date("2026-08-10T00:00:00Z"); // exact multiple of WINDOW_MS
+  const windowN1Start = new Date(windowNStart.getTime() + WINDOW_MS);
+  const clientIp = "203.0.113.55"; // distinct from other tests
+  const secret = "identity-secret";
+
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  let nowTime = windowNStart;
+  let tokenCounter = 0;
+
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: secret,
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => `ip-counter-reset-token-${++tokenCounter}-pad32x`,
+    now: () => nowTime,
+  });
+
+  // Use distinct emails so the per-email limit (5/window) never triggers.
+  const makeRequest = (i) => auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: `ipreset${i}@example.com` },
+    headers: { "x-nf-client-connection-ip": clientIp },
+  }));
+
+  // Exhaust the per-IP limit in window N.
+  for (let i = 1; i <= 20; i += 1) {
+    await makeRequest(i);
+  }
+  assert.equal(delivered.length, 20, "exactly 20 emails must be delivered in window N");
+
+  // 21st request must be suppressed.
+  await makeRequest(21);
+  assert.equal(delivered.length, 20, "21st request in window N must be silently suppressed");
+
+  // Advance to the exact window N+1 boundary.
+  nowTime = windowN1Start;
+
+  // 22nd request — first request in window N+1 — must be delivered.
+  await makeRequest(22);
+  assert.equal(delivered.length, 21, "first request in window N+1 must be delivered");
+
+  // The IP key for window N+1 must carry a count of exactly 1, proving the
+  // counter was not accumulated from window N's 20 increments.
+  const windowN1 = Math.floor(windowN1Start.getTime() / WINDOW_MS);
+  const ipHmac = createHmac("sha256", secret).update(clientIp).digest("base64url");
+  const ipKeyN1 = `ip/${ipHmac}/${windowN1}`;
+  const limitsStore = getStore("fandom-auth-rate-limits");
+  const entry = await limitsStore.getWithMetadata(ipKeyN1);
+  assert.ok(entry?.data, "a rate-limit entry for window N+1 must exist after the first request in that window");
+  assert.equal(
+    entry.data.count,
+    1,
+    "the IP counter in window N+1 must be exactly 1 — it must not carry over from window N's 20 increments",
+  );
+});
+
 test("header-less requests bypass the IP rate-limit and are only gated by the per-email limit", async () => {
   // When x-nf-client-connection-ip is absent (health checks, local dev,
   // server-to-server calls), isRateLimited skips the IP bucket entirely and
