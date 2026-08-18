@@ -132,6 +132,19 @@ jobs:
           printf "import test from 'node:test';\nimport { n } from './real.ts';\n" > "$D/sub/ok.test.ts"
           run_guard "$D" 0 "nested test file → existing import exits 0"
 
+          # ── 12. red: real dir + non-existent dir → must not silently pass ─
+          D="$BASE/mixed-roots"; mkdir -p "$D"
+          echo "export const x = 1;" > "$D/real.ts"
+          printf "import test from 'node:test';\nimport { x } from './real.ts';\n" > "$D/good.test.ts"
+          NONEXISTENT="$BASE/does-not-exist-dir"
+          GOT12=0
+          node "$SCRIPT" "$D" "$NONEXISTENT" >/dev/null 2>&1 || GOT12=$?
+          if [ "$GOT12" -eq 1 ]; then
+            pass "real dir + non-existent root dir exits 1"
+          else
+            fail "real dir + non-existent root dir exits 1 (want 1, got $GOT12)"
+          fi
+
           echo ""
           echo "Guard self-test results: $PASSED passed, $FAILED failed"
           if [ "$FAILED" -gt 0 ]; then
