@@ -3,4 +3,5 @@
 - [Actions token vs branch protection](actions-token-branch-protection.md) — GITHUB_TOKEN can't see required_status_checks; use REPO_ADMIN_PAT secret; `administration` is an invalid workflow permissions key.
 - [GitHub connector proxy write restrictions](github-connector-write-restrictions.md) — POST /git/trees returns 404, PUT /contents is Cloudflare-blocked; only POST /git/blobs and GETs reliably work; use GraphQL createCommitOnBranch or find alternative push path.
 - [Split-brain main breaks CI](split-brain-main.md) — CI-red/local-green means origin/main may lack local implementation commits; fetch, diff, worktree-reproduce against origin/main before touching tests or CI; push main promptly.
+- [External repo working clones](external-repo-clones.md) — clone CREATE to /home/runner not /tmp (gets wiped mid-session); vitest firewall workaround; no CI on that repo.
 - [Replit npm registry in lockfile](replit-npm-registry.md) — lockfiles generated in Replit have internal proxy URLs that break npm ci in GitHub Actions; delete and regenerate with --registry flag then sed-fix stragglers.

@@ -297,6 +297,17 @@ test("registers exact mixed PNGs in MEDIA and signs one canonical CREATE Draft",
   assert.equal("scheduledDate" in createCall.envelope, false);
   assert.equal(createCall.envelope.mediaAttachments[0].role, "cover");
   assert.equal(createCall.envelope.mediaAttachments[1].role, "slide");
+  // Regression: the cover attachment for a grid packet must be the composed
+  // grid render registered with MEDIA — never one of the source cards — and
+  // requiredAssets must lead with that grid asset.
+  assert.equal(createCall.envelope.mediaAttachments[0].provenance.sourceKind, "grid");
+  assert.equal(createCall.envelope.mediaAttachments[0].nameTag, "Idea Packet grid");
+  assert.equal(
+    createCall.envelope.publicationBrief.requiredAssets[0],
+    createCall.envelope.mediaAttachments[0].assetId,
+  );
+  const sourceCardUrls = createCall.envelope.sourceCards.map(card => card.imageUrl);
+  assert.equal(sourceCardUrls.includes(createCall.envelope.mediaAttachments[0].url), false);
   assert.equal(createCall.envelope.draft.caption, "Caption seed");
   const timestamp = createCall.init.headers["X-Fandom-Timestamp"];
   const idempotencyKey = "fandom/deliverable/packet-1/idea-packet-main";
