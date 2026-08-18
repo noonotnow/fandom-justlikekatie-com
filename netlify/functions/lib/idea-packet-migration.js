@@ -231,6 +231,10 @@ function compileMigrationExport(packetEntries, attemptEntries, generatedAt) {
         completedHandoff: handoff.completed,
       },
       attemptDisposition: attempt.quarantine?.quarantineId ?? null,
+      gridRenderPath: Array.isArray(normalizedPacket.outputs) &&
+        normalizedPacket.outputs.some(output => output?.kind === "grid" && output?.included === true)
+        ? `/api/internal/packet-grid-render?packetId=${encodeURIComponent(packetId)}`
+        : null,
     });
   }
 
