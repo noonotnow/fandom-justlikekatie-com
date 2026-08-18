@@ -757,3 +757,103 @@ test('integration: exits 1 for \\u2028 (line separator) unicode-escape entry', (
   );
   assert.match(result.stderr, /whitespace-only/);
 });
+
+// ---------------------------------------------------------------------------
+// checkArrayBody — literal unicode whitespace pasted verbatim into source
+//
+// These tests embed the actual Unicode code points directly in the JS string
+// (no backslash-escape sequences).  When a developer pastes a non-breaking
+// space or em space directly into a string literal in raccoonCourtRecord.ts,
+// the character appears verbatim in the source file — no escape decoding is
+// required — and the guard must still flag it.
+//
+// The literal characters below are:
+//   U+00A0  NO-BREAK SPACE
+//   U+2003  EM SPACE
+//   U+3000  IDEOGRAPHIC SPACE
+//   U+2028  LINE SEPARATOR
+// ---------------------------------------------------------------------------
+
+test('checkArrayBody: detects literal U+00A0 (non-breaking space) pasted verbatim', () => {
+  // The \u00A0 below is a JS template escape — the actual U+00A0 char is
+  // embedded in the body string, simulating a developer pasting it directly.
+  const body = '"\u00A0",';
+  const { whitespaceOnly, totalCount } = checkArrayBody(body);
+  assert.equal(totalCount, 1);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+test('checkArrayBody: detects literal U+2003 (em space) pasted verbatim', () => {
+  const body = '"\u2003",';
+  const { whitespaceOnly, totalCount } = checkArrayBody(body);
+  assert.equal(totalCount, 1);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+test('checkArrayBody: detects literal U+3000 (ideographic space) pasted verbatim', () => {
+  const body = '"\u3000",';
+  const { whitespaceOnly, totalCount } = checkArrayBody(body);
+  assert.equal(totalCount, 1);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+test('checkArrayBody: detects literal U+2028 (line separator) pasted verbatim', () => {
+  const body = '"\u2028",';
+  const { whitespaceOnly, totalCount } = checkArrayBody(body);
+  assert.equal(totalCount, 1);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Integration — literal unicode whitespace pasted verbatim into source files
+//
+// writeFileSync with 'utf8' preserves the literal code points byte-for-byte,
+// so the temp file on disk looks exactly as if a developer had pasted the
+// character directly into the TypeScript source.
+// ---------------------------------------------------------------------------
+
+test('integration: exits 1 for literal U+00A0 (non-breaking space) pasted verbatim', () => {
+  // The \u00A0 in the template literal is an actual U+00A0 char in the
+  // makeSource output, written as-is to the temp file on disk.
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    '"\u00A0"',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /whitespace-only/);
+});
+
+test('integration: exits 1 for literal U+2003 (em space) pasted verbatim', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    '"\u2003"',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /whitespace-only/);
+});
+
+test('integration: exits 1 when multiple literal unicode whitespace chars are present', () => {
+  // Two entries with literal pasted chars — U+3000 and U+00A0 — both flagged.
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    '"\u3000"',
+    '"\u00A0"',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /whitespace-only/);
+});
