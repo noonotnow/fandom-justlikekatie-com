@@ -106,7 +106,7 @@ function collectTestFiles(dir) {
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {
-    return files; // directory doesn't exist — skip silently
+    return files; // subdirectory vanished mid-walk — skip silently
   }
   for (const entry of entries) {
     const full = join(dir, entry.name);
@@ -123,6 +123,21 @@ function collectTestFiles(dir) {
 }
 
 // ── main ─────────────────────────────────────────────────────────────────────
+
+// Validate that every root directory actually exists before collecting files.
+// A missing root silently produces zero files, masking misconfigured paths.
+const missingRoots = TEST_DIRS.filter(d => {
+  const s = statSync(d, { throwIfNoEntry: false });
+  return !s || !s.isDirectory();
+});
+if (missingRoots.length > 0) {
+  console.error(
+    `❌  Root director${missingRoots.length === 1 ? 'y does' : 'ies do'} not exist: ` +
+    `${missingRoots.map(d => `"${d}"`).join(', ')}. ` +
+    'If the directories moved, update the TEST_DIRS list in the workflow.',
+  );
+  process.exit(1);
+}
 
 const testFiles = TEST_DIRS.flatMap(collectTestFiles);
 
