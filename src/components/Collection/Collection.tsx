@@ -10,8 +10,10 @@ import {
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
 import { buildExportPayload, classifyEditionTier, saveShareCard } from '../../utils/exportCanvas';
 import {
+  deleteGridExports,
   exportDownloadUrl,
   fetchExportHistory,
+  retryPendingExportCleanups,
   uploadExportedCard,
   type PersistedExportEntry,
 } from '../../utils/gridExportLog';
@@ -97,6 +99,11 @@ export const Collection: React.FC<Props> = ({
         setNeedsMergeChoice(false);
       }
       await loadCollection(session?.accountId);
+      // Retry any export cleanups that failed on earlier removals — the grid
+      // records are already gone locally, so this queue is the only path left
+      // to finish deleting their server-side export blobs.  Runs after session
+      // resolution so only the matching account's queue entries are retried.
+      void retryPendingExportCleanups(session?.accountId);
     };
     void refreshSession().finally(() => setLoading(false));
     const channel = 'BroadcastChannel' in window ? new BroadcastChannel('fandom-collection') : null;
@@ -120,7 +127,7 @@ export const Collection: React.FC<Props> = ({
     const pending = pendingRemovalRef.current;
     if (!pending) return;
     window.clearTimeout(pending.timeoutId);
-    void persistRemoval(pending).catch(error => {
+    void persistRemoval(pending, accountIdRef.current).catch(error => {
       sessionStorage.setItem('fandom_auth_notice', messageFrom(error, 'The item could not be removed.'));
     });
   }, []);
@@ -131,7 +138,7 @@ export const Collection: React.FC<Props> = ({
     pendingRemovalRef.current = null;
     setPendingRemoval(null);
     try {
-      await persistRemoval(pending);
+      await persistRemoval(pending, accountIdRef.current);
     } catch (error) {
       if (pending.kind === 'grid') {
         setGrids(current => sortGrids([...current, pending.record]));
@@ -580,9 +587,16 @@ function GridVisual({ grid }: { grid: GridRecord }) {
   );
 }
 
-async function persistRemoval(pending: PendingRemoval): Promise<void> {
-  if (pending.kind === 'grid') await dbRemoveGrid(pending.record.id);
-  else await dbRemoveCard(pending.record.imageUrl);
+async function persistRemoval(pending: PendingRemoval, accountId?: string): Promise<void> {
+  if (pending.kind === 'grid') {
+    await dbRemoveGrid(pending.record.id);
+    // Best-effort server cleanup, awaited so navigation/unload can't cut the
+    // request short.  Failure queues the (gridId, accountId) pair for durable
+    // retry; it never blocks or fails the local removal.
+    await deleteGridExports(pending.record.id, accountId).catch(() => {});
+  } else {
+    await dbRemoveCard(pending.record.imageUrl);
+  }
   schedulePublicCollectionSync();
 }
 

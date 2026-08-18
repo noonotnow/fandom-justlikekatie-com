@@ -99,6 +99,99 @@ export function exportDownloadUrl(gridId: string, exportId: string): string {
   return `/.netlify/functions/grid-exports?gridId=${encodeURIComponent(gridId)}&exportId=${encodeURIComponent(exportId)}`;
 }
 
+/**
+ * Durable retry queue for failed export cleanups.  When a DELETE fails
+ * (network error or a 500 from a partial blob-delete failure), the gridId is
+ * queued in localStorage so cleanup is retried on later app activity — the
+ * local grid record is already gone by then, so without this queue a failed
+ * cleanup would orphan the server blobs forever.
+ */
+const CLEANUP_QUEUE_KEY = 'fandom-export-cleanup-queue';
+
+interface PendingCleanup {
+  gridId: string;
+  /** Account whose export namespace holds the blobs. */
+  accountId: string;
+}
+
+function readCleanupQueue(): PendingCleanup[] {
+  try {
+    const raw = localStorage.getItem(CLEANUP_QUEUE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is PendingCleanup =>
+          typeof entry?.gridId === 'string' && typeof entry?.accountId === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+// No size cap: pending cleanups are never evicted — each entry is ~80 bytes
+// and only exists while a cleanup remains undelivered.
+function writeCleanupQueue(entries: PendingCleanup[]): void {
+  try {
+    localStorage.setItem(CLEANUP_QUEUE_KEY, JSON.stringify(entries));
+  } catch {
+    /* storage unavailable — cleanup stays best-effort */
+  }
+}
+
+function enqueueExportCleanup(gridId: string, accountId: string): void {
+  const queue = readCleanupQueue();
+  if (!queue.some(entry => entry.gridId === gridId && entry.accountId === accountId)) {
+    writeCleanupQueue([...queue, { gridId, accountId }]);
+  }
+}
+
+function dequeueExportCleanup(gridId: string, accountId: string): void {
+  const queue = readCleanupQueue();
+  const remaining = queue.filter(entry => !(entry.gridId === gridId && entry.accountId === accountId));
+  if (remaining.length !== queue.length) writeCleanupQueue(remaining);
+}
+
+async function requestExportDeletion(gridId: string): Promise<boolean> {
+  return fetch(`/.netlify/functions/grid-exports?gridId=${encodeURIComponent(gridId)}`, {
+    method: 'DELETE',
+  })
+    .then(response => response.ok)
+    .catch(() => false);
+}
+
+/**
+ * Delete all persisted export blobs for a saved grid (called when the grid is
+ * removed from the collection).  Never throws.  On failure the (gridId,
+ * accountId) pair is queued durably and retried by
+ * retryPendingExportCleanups() on later app activity under the same account,
+ * so a transient failure cannot orphan the blobs forever.
+ *
+ * When no accountId is known there is no signed-in session, so no server
+ * exports exist for the grid and nothing is queued.
+ */
+export async function deleteGridExports(gridId: string, accountId?: string): Promise<boolean> {
+  const ok = await requestExportDeletion(gridId);
+  if (!accountId) return ok;
+  if (ok) dequeueExportCleanup(gridId, accountId);
+  else enqueueExportCleanup(gridId, accountId);
+  return ok;
+}
+
+/**
+ * Retry queued export cleanups belonging to the currently signed-in account.
+ * Server deletion is scoped to the authenticated account's namespace, so
+ * entries queued under a different account are left untouched — a 200 from
+ * the wrong account would be a no-op that must not dequeue the real work.
+ * Successful deletions leave the queue; failures stay for the next attempt.
+ */
+export async function retryPendingExportCleanups(accountId?: string): Promise<void> {
+  if (!accountId) return;
+  for (const entry of readCleanupQueue()) {
+    if (entry.accountId !== accountId) continue;
+    const ok = await requestExportDeletion(entry.gridId);
+    if (ok) dequeueExportCleanup(entry.gridId, entry.accountId);
+  }
+}
+
 export function logGridExport(event: GridExportEvent): void {
   try {
     fetch('/.netlify/functions/log-engagement', {

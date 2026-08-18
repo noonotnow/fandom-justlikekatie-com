@@ -3,7 +3,7 @@ import { dbGetAllCards, dbGetAllGrids, dbGetVisibleCards, dbGetVisibleGrids, dbR
 import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
 import { saveShareCard, buildExportPayload, classifyEditionTier } from '../../utils/exportCanvas';
-import { gridExportEventFromRecord, logGridExport, uploadExportedCard } from '../../utils/gridExportLog';
+import { deleteGridExports, gridExportEventFromRecord, logGridExport, uploadExportedCard } from '../../utils/gridExportLog';
 import {
   applyLens,
   buildPool,
@@ -158,6 +158,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
       // the store never holds two versions of the same conceptual grid.
       if (priorSavedGridId && priorSavedGridId !== grid.id) {
         await dbRemoveGrid(priorSavedGridId);
+        await deleteGridExports(priorSavedGridId, accountId).catch(() => {});
         setPriorSavedGridId(null);
       }
       await dbSaveGrid(grid);
@@ -182,6 +183,9 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     setBusy('remove');
     try {
       await dbRemoveGrid(savedGridId);
+      // Best-effort server cleanup, awaited for delivery reliability; failure
+      // never blocks the local removal.
+      await deleteGridExports(savedGridId, accountId).catch(() => {});
       setIsGridSaved(false);
       setSavedGridId(null);
       setPriorSavedGridId(null);
@@ -260,6 +264,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
       // the store never holds two versions of the same conceptual grid.
       if (priorSavedGridId && priorSavedGridId !== grid.id) {
         await dbRemoveGrid(priorSavedGridId);
+        await deleteGridExports(priorSavedGridId, accountId).catch(() => {});
         setPriorSavedGridId(null);
       }
       await dbSaveGrid(grid);
