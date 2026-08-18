@@ -2,15 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import {
   dbGetVisibleCards,
   dbGetVisibleGrids,
-  dbRemoveCard,
-  dbRemoveGrid,
   type CardRecord,
   type GridRecord,
 } from '../../utils/collectionDB';
+import { persistRemoval, type PendingRemoval } from '../../utils/collectionRemoval';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
 import { buildExportPayload, classifyEditionTier, saveShareCard } from '../../utils/exportCanvas';
 import {
-  deleteGridExports,
   exportDownloadUrl,
   fetchExportHistory,
   retryPendingExportCleanups,
@@ -25,7 +23,6 @@ import {
   hasMergeDecision,
   logoutPublicAccount,
   requestMagicLink,
-  schedulePublicCollectionSync,
   setDeviceMerge,
   shouldSyncCollection,
   syncPublicCollection,
@@ -41,10 +38,6 @@ interface Props {
   onCreateFromGrid?: (grid: GridRecord) => Promise<IdeaPacket>;
   onAddGridToPacket?: (packet: IdeaPacket, grid: GridRecord) => Promise<IdeaPacket>;
 }
-
-type PendingRemoval =
-  | { token: string; kind: 'grid'; record: GridRecord; timeoutId: number }
-  | { token: string; kind: 'card'; record: CardRecord; timeoutId: number };
 
 type ExpandedArtifact =
   | { kind: 'grid'; record: GridRecord }
@@ -585,19 +578,6 @@ function GridVisual({ grid }: { grid: GridRecord }) {
       ))}
     </span>
   );
-}
-
-async function persistRemoval(pending: PendingRemoval, accountId?: string): Promise<void> {
-  if (pending.kind === 'grid') {
-    await dbRemoveGrid(pending.record.id);
-    // Best-effort server cleanup, awaited so navigation/unload can't cut the
-    // request short.  Failure queues the (gridId, accountId) pair for durable
-    // retry; it never blocks or fails the local removal.
-    await deleteGridExports(pending.record.id, accountId).catch(() => {});
-  } else {
-    await dbRemoveCard(pending.record.imageUrl);
-  }
-  schedulePublicCollectionSync();
 }
 
 function sortGrids(grids: GridRecord[]): GridRecord[] {

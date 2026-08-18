@@ -163,15 +163,21 @@ const collectionSource = readFileSync(
   path.join(__dirname, '../src/components/Collection/Collection.tsx'),
   'utf8',
 );
+// persistRemoval was extracted to a standalone utility so it can be imported
+// and tested behaviourally in collectionRemovalEndToEnd.test.ts without CSS deps.
+const collectionRemovalSource = readFileSync(
+  path.join(__dirname, '../src/utils/collectionRemoval.ts'),
+  'utf8',
+);
 const builderSource = readFileSync(
   path.join(__dirname, '../src/components/GridBuilder/GridBuilder.tsx'),
   'utf8',
 );
 
-test('Collection persistRemoval awaits account-scoped export cleanup for grid removals', () => {
-  const idx = collectionSource.indexOf('async function persistRemoval');
-  assert.notEqual(idx, -1, 'persistRemoval must exist');
-  const body = collectionSource.slice(idx, idx + 800);
+test('collectionRemoval persistRemoval awaits account-scoped export cleanup for grid removals', () => {
+  const idx = collectionRemovalSource.indexOf('async function persistRemoval');
+  assert.notEqual(idx, -1, 'persistRemoval must exist in collectionRemoval.ts');
+  const body = collectionRemovalSource.slice(idx, idx + 800);
   assert.match(body, /await dbRemoveGrid\(pending\.record\.id\)/);
   assert.match(
     body,
