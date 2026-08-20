@@ -19,6 +19,7 @@ import {
   type ArtifactType,
   type MemeFlavorName,
 } from "../../data/middleEarthCreativeGrammar";
+import { createArchiveSearchRequestGate } from "./archiveSearchRequestGate";
 import styles from "./MiddleEarthWorkspace.module.css";
 
 export interface MiddleEarthAsset {
@@ -258,6 +259,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
 }) {
   const kind: MiddleEarthContentKind = "meme";
   const [activeStep, setActiveStep] = useState<"forge" | "spellbook">("forge");
+  const [archiveSearchRequestGate] = useState(createArchiveSearchRequestGate);
   const [query, setQuery] = useState("");
   const [searchedQuery, setSearchedQuery] = useState("");
   const [results, setResults] = useState<MiddleEarthAsset[]>([]);
@@ -309,8 +311,15 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   };
 
   const updateMoment = (value: string) => {
+    archiveSearchRequestGate.invalidate();
     setMoment(value);
     setTranslation(undefined);
+    setSelected(undefined);
+    setResults([]);
+    setSearchedQuery("");
+    setSearching(false);
+    setError("");
+    setStatus("");
     invalidateGeneratedVisual();
   };
 
@@ -318,6 +327,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     event?.preventDefault();
     const clean = (requestedQuery ?? query).trim();
     if (!clean) return;
+    const requestId = archiveSearchRequestGate.begin();
     setSearching(true); setError(""); setStatus("");
     try {
       const response = await fetch(`/.netlify/functions/middle-earth-search?q=${encodeURIComponent(clean)}`);
@@ -326,14 +336,18 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
         throw new Error("The archive service is unavailable in this preview.");
       }
       const payload = await response.json() as SearchResponse;
+      if (!archiveSearchRequestGate.isCurrent(requestId)) return;
       setResults(payload.results.map((result, index) => makeAsset(result, payload.query || clean, index)));
       setSearchedQuery(payload.query || clean);
       setSelected(undefined);
       setVisualGeneration(undefined);
       setStatus(payload.results.length ? `${payload.results.length} archive ${payload.results.length === 1 ? "record" : "records"} found.` : "No records found.");
     } catch (searchError) {
+      if (!archiveSearchRequestGate.isCurrent(requestId)) return;
       setResults([]); setError(searchError instanceof Error ? searchError.message : "The archive is unavailable.");
-    } finally { setSearching(false); }
+    } finally {
+      if (archiveSearchRequestGate.isCurrent(requestId)) setSearching(false);
+    }
   };
 
   const selectStep = (next: "forge" | "spellbook") => {

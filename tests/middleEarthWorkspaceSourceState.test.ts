@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { createArchiveSearchRequestGate } from '../src/components/MiddleEarthWorkspace/archiveSearchRequestGate.ts';
 
 test('starting a new archive search invalidates the generated visual before clearing its source', async () => {
   const source = await readFile(
@@ -15,6 +16,57 @@ test('starting a new archive search invalidates the generated visual before clea
     source,
     /disabled=\{busy \|\| !visualGeneration \|\| !text\.trim\(\)\}/,
   );
+});
+
+test('changing the moment clears the old source and archive inspiration', async () => {
+  const source = await readFile(
+    new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
+    'utf8',
+  );
+  const updateMoment = source.slice(
+    source.indexOf('const updateMoment ='),
+    source.indexOf('const search =', source.indexOf('const updateMoment =')),
+  );
+
+  assert.match(
+    updateMoment,
+    /setTranslation\(undefined\);\s*setSelected\(undefined\);\s*setResults\(\[\]\);\s*setSearchedQuery\(""\);/,
+    'changing the moment must clear the translated source and prior search records',
+  );
+  assert.match(
+    source,
+    /\{selected && <div className=\{styles\.provenance\}>/,
+    'source provenance must remain conditional on an active source',
+  );
+});
+
+test('an old archive response cannot restore inspiration after the moment changes', async () => {
+  const requestGate = createArchiveSearchRequestGate();
+  let resolveOldSearch!: (value: { query: string; results: string[] }) => void;
+  const oldSearch = new Promise<{ query: string; results: string[] }>((resolve) => {
+    resolveOldSearch = resolve;
+  });
+  let results = ['old record'];
+  let searchedQuery = 'old query';
+  let selected = 'old source';
+  const requestId = requestGate.begin();
+  const applyOldSearch = oldSearch.then((response) => {
+    if (!requestGate.isCurrent(requestId)) return;
+    results = response.results;
+    searchedQuery = response.query;
+    selected = undefined;
+  });
+
+  requestGate.invalidate();
+  results = [];
+  searchedQuery = '';
+  selected = undefined;
+  resolveOldSearch({ query: 'old query', results: ['old record'] });
+  await applyOldSearch;
+
+  assert.deepEqual(results, []);
+  assert.equal(searchedQuery, '');
+  assert.equal(selected, undefined);
 });
 
 test('visual inspiration stays behind translation and source selection requires a reforge', async () => {
