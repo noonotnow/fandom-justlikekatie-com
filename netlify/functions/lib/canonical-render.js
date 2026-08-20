@@ -121,10 +121,11 @@ async function renderMiddleEarthTypography(content, output) {
     .toBuffer();
 }
 
-function middleEarthImageOverlay(content, output) {
+export function middleEarthImageOverlay(content, output) {
   const isMeme = output.kind === "meme";
+  const isStructuredReaction = isMeme && Boolean(content.cardFormat);
   const kindLabel = isMeme
-    ? `⚔️ ${content.artifactType || "MemeForge"} · ${content.memeFlavor || "Middle-earth"}`
+    ? `⚔️ ${content.cardFormat || content.artifactType || "MemeForge"} · ${content.memeFlavor || "Middle-earth"}`
     : "📖 Quote Spellbook · Middle-earth";
   const accent = isMeme ? "#c9a96e" : "#8bb8d4";
   const layout = content.layout;
@@ -138,15 +139,23 @@ function middleEarthImageOverlay(content, output) {
           ? { x: 630, anchor: "start", startY: 280, titleSize: 34, textSize: 38, secSize: 24, titleChars: 28, textChars: 27, titleMax: 2, textMax: 10, secMax: 2 }
           : { x: 540, anchor: "middle", startY: 570, titleSize: 36, textSize: 46, secSize: 25, titleChars: 34, textChars: 31, titleMax: 2, textMax: 7, secMax: 2 };
 
-  const titleLines = wrapText(content.title, settings.titleChars, settings.titleMax);
-  const textLines = wrapText(content.text, settings.textChars, settings.textMax);
+  const titleLines = isStructuredReaction
+    ? []
+    : wrapText(content.title, settings.titleChars, settings.titleMax);
+  const textLines = isStructuredReaction ? [content.text] : wrapText(content.text, settings.textChars, settings.textMax);
   const secondaryLines = content.secondaryText
-    ? wrapText(content.secondaryText, 38, settings.secMax)
+    ? (isStructuredReaction ? [content.secondaryText] : wrapText(content.secondaryText, 38, settings.secMax))
     : [];
 
   const lineHTitle = settings.titleSize + 14;
-  const lineHText = settings.textSize + 12;
-  const lineHSec = settings.secSize + 10;
+  const reactionLongestLine = Math.max(content.text.length, content.secondaryText?.length ?? 0, 1);
+  const reactionLineSize = Math.max(16, Math.floor(settings.textSize * Math.min(1, settings.textChars / reactionLongestLine)));
+  const textSize = isStructuredReaction ? reactionLineSize : settings.textSize;
+  const lineHText = textSize + 12;
+  const secondarySize = isStructuredReaction
+    ? reactionLineSize
+    : settings.secSize;
+  const lineHSec = secondarySize + 10;
   let y = settings.startY;
   const titleElems = titleLines.map(line => {
     const elem = `<text x="${settings.x}" y="${y}" fill="${accent}" font-family="sans-serif" font-size="${settings.titleSize}" font-weight="700" text-anchor="${settings.anchor}">${escapeXml(line)}</text>`;
@@ -156,17 +165,21 @@ function middleEarthImageOverlay(content, output) {
 
   y += 8;
   const textElems = textLines.map(line => {
-    const elem = `<text x="${settings.x}" y="${y}" fill="#f0ede8" font-family="sans-serif" font-size="${settings.textSize}" font-weight="700" text-anchor="${settings.anchor}">${escapeXml(line)}</text>`;
+    const elem = `<text x="${settings.x}" y="${y}" fill="#f0ede8" font-family="sans-serif" font-size="${textSize}" font-weight="700" text-anchor="${settings.anchor}">${escapeXml(line)}</text>`;
     y += lineHText;
     return elem;
   }).join("\n    ");
 
   y += 8;
   const secElems = secondaryLines.map(line => {
-    const elem = `<text x="${settings.x}" y="${y}" fill="#d8caa9" font-family="sans-serif" font-size="${settings.secSize}" font-style="italic" text-anchor="${settings.anchor}">${escapeXml(line)}</text>`;
+    const treatment = isStructuredReaction ? 'font-weight="700"' : 'font-style="italic"';
+    const elem = `<text x="${settings.x}" y="${y}" fill="#d8caa9" font-family="sans-serif" font-size="${secondarySize}" ${treatment} text-anchor="${settings.anchor}">${escapeXml(line)}</text>`;
     y += lineHSec;
     return elem;
   }).join("\n    ");
+  const footerElem = isStructuredReaction && content.cardFooter
+    ? `<text x="540" y="${RENDER_HEIGHT - 82}" fill="#d8caa9" font-family="sans-serif" font-size="18" text-anchor="middle">${escapeXml(truncate(content.cardFooter, 45))}</text>`
+    : "";
 
   return `<svg width="${RENDER_WIDTH}" height="${RENDER_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
     <defs>
@@ -184,27 +197,32 @@ function middleEarthImageOverlay(content, output) {
     ${titleElems}
     ${textElems}
     ${secElems}
+    ${footerElem}
     <text x="540" y="${RENDER_HEIGHT - 18}" fill="#4c4c58" font-family="sans-serif" font-size="14" text-anchor="middle">${escapeXml(truncate(`${content.tone} · ${content.aesthetic || content.layout} · fandom.justlikekatie.com/memeforge/middle-earth`, 108))}</text>
   </svg>`;
 }
 
-function middleEarthTypographySvg(content, output) {
+export function middleEarthTypographySvg(content, output) {
   const isMeme = output.kind === "meme";
+  const isStructuredReaction = isMeme && Boolean(content.cardFormat);
   const kindLabel = isMeme
-    ? `⚔️ ${content.artifactType || "MemeForge"} · ${content.memeFlavor || "Middle-earth"}`
+    ? `⚔️ ${content.cardFormat || content.artifactType || "MemeForge"} · ${content.memeFlavor || "Middle-earth"}`
     : "📖 Quote Spellbook";
   const accent = isMeme ? "#c9a96e" : "#8bb8d4";
   const subAccent = isMeme ? "#d4b97a" : "#a3c8e0";
 
-  const titleLines = wrapText(content.title, 30, 3);
-  const textLines = wrapText(content.text, 26, 12);
+  const titleLines = isStructuredReaction ? [] : wrapText(content.title, 30, 3);
+  const textLines = isStructuredReaction ? [content.text] : wrapText(content.text, 26, 12);
   const secondaryLines = content.secondaryText
-    ? wrapText(content.secondaryText, 32, 3)
+    ? (isStructuredReaction ? [content.secondaryText] : wrapText(content.secondaryText, 32, 3))
     : [];
 
   const LINE_H_TITLE = 58;
-  const LINE_H_TEXT = 44;
-  const LINE_H_SEC = 36;
+  const reactionLongestLine = Math.max(content.text.length, content.secondaryText?.length ?? 0, 1);
+  const reactionLineSize = Math.max(16, Math.floor(32 * Math.min(1, 26 / reactionLongestLine)));
+  const textSize = isStructuredReaction ? reactionLineSize : 32;
+  const LINE_H_TEXT = textSize + 12;
+  const LINE_H_SEC = isStructuredReaction ? reactionLineSize + 12 : 36;
 
   // Center the text block vertically
   const totalTitleH = titleLines.length * LINE_H_TITLE;
@@ -223,17 +241,21 @@ function middleEarthTypographySvg(content, output) {
 
   y += textLines.length ? 24 : 0;
   const textElems = textLines.map(line => {
-    const elem = `<text x="540" y="${y}" fill="#f0ede8" font-family="sans-serif" font-size="32" text-anchor="middle">${escapeXml(line)}</text>`;
+    const elem = `<text x="540" y="${y}" fill="#f0ede8" font-family="sans-serif" font-size="${textSize}" font-weight="${isStructuredReaction ? "700" : "400"}" text-anchor="middle">${escapeXml(line)}</text>`;
     y += LINE_H_TEXT;
     return elem;
   }).join("\n    ");
 
   y += secondaryLines.length ? 16 : 0;
   const secElems = secondaryLines.map(line => {
-    const elem = `<text x="540" y="${y}" fill="#a3a3ad" font-family="sans-serif" font-size="24" text-anchor="middle">${escapeXml(line)}</text>`;
+    const treatment = isStructuredReaction ? 'font-weight="700"' : "";
+    const elem = `<text x="540" y="${y}" fill="#a3a3ad" font-family="sans-serif" font-size="${isStructuredReaction ? reactionLineSize : 24}" ${treatment} text-anchor="middle">${escapeXml(line)}</text>`;
     y += LINE_H_SEC;
     return elem;
   }).join("\n    ");
+  const footerElem = isStructuredReaction && content.cardFooter
+    ? `<text x="540" y="${RENDER_HEIGHT - 86}" fill="#a3a3ad" font-family="sans-serif" font-size="18" text-anchor="middle">${escapeXml(truncate(content.cardFooter, 45))}</text>`
+    : "";
 
   // Decorative divider line above text
   const dividerY = startY - 32;
@@ -251,6 +273,7 @@ function middleEarthTypographySvg(content, output) {
     ${titleElems}
     ${textElems}
     ${secElems}
+    ${footerElem}
     <line x1="200" y1="${y + 16}" x2="880" y2="${y + 16}" stroke="${subAccent}" stroke-width="1" stroke-opacity="0.35"/>
     <text x="540" y="${RENDER_HEIGHT - 40}" fill="#4c4c58" font-family="sans-serif" font-size="16" text-anchor="middle">${escapeXml([content.tone, content.aesthetic].filter(Boolean).join(" · "))}</text>
     <text x="540" y="${RENDER_HEIGHT - 18}" fill="#333338" font-family="sans-serif" font-size="13" text-anchor="middle">${escapeXml(`${content.layout} · fandom.justlikekatie.com/memeforge/middle-earth`)}</text>

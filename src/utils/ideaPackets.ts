@@ -46,6 +46,10 @@ export interface MiddleEarthOutputContent {
   title: string;
   text: string;
   secondaryText?: string;
+  /** Explicit meme-native structure. Legacy packets simply omit this field. */
+  cardFormat?: string;
+  /** Optional tiny footer for new reaction cards; title remains a legacy label. */
+  cardFooter?: string;
   tone: string;
   layout: string;
   character?: string;
@@ -138,6 +142,8 @@ export interface MiddleEarthDraft {
   title: string;
   text: string;
   secondaryText?: string;
+  cardFormat?: string;
+  cardFooter?: string;
   tone: string;
   layout: string;
   character?: string;
@@ -442,6 +448,8 @@ export function middleEarthTextFingerprint(content: MiddleEarthOutputContent): s
     content.title,
     content.text,
     content.secondaryText ?? '',
+    content.cardFormat ?? '',
+    content.cardFooter ?? '',
     content.tone,
     content.layout,
     content.character ?? '',
@@ -492,6 +500,8 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
     title: draft.title,
     text: draft.text,
     ...(draft.secondaryText !== undefined ? { secondaryText: draft.secondaryText } : {}),
+    ...(draft.cardFormat ? { cardFormat: draft.cardFormat } : {}),
+    ...(draft.cardFooter ? { cardFooter: draft.cardFooter } : {}),
     tone: draft.tone,
     layout: draft.layout,
     ...(draft.character ? { character: draft.character } : {}),

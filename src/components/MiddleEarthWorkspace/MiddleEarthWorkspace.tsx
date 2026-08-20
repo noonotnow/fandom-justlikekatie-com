@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import {
   generateRednoteCopy,
   generateVisualObject,
@@ -6,6 +6,7 @@ import {
   translateMemeMoment,
   type GeneratedMemeTranslation,
   type MiddleEarthAiSource,
+  type MemeCardFormat,
 } from "../../utils/middleEarthAi";
 import {
   ideaPacketStagingErrorMessage,
@@ -39,6 +40,8 @@ export interface MiddleEarthDraft {
   title: string;
   text: string;
   secondaryText?: string;
+  cardFormat?: MemeCardFormat;
+  cardFooter?: string;
   tone: string;
   layout: string;
   character?: string;
@@ -100,6 +103,10 @@ const momentExamples = [
   "Gandalf workplace boundaries",
   "Defending my little treat with my life",
 ];
+
+function cardCopyStyle(value: string): CSSProperties & Record<"--card-copy-length", number> {
+  return { "--card-copy-length": Math.max([...value].length, 1) };
+}
 
 function makeAsset(result: SearchResponse["results"][number], query: string, index: number): MiddleEarthAsset {
   return {
@@ -174,7 +181,7 @@ export async function exportMiddleEarthPng(
   context.fillStyle = "#f4eee2";
   context.textAlign = "left";
   context.font = "600 25px Georgia";
-  const artifactLabel = draft.artifactType || (draft.kind === "meme" ? "Meme card" : "Spellbook");
+  const artifactLabel = draft.cardFormat || draft.artifactType || (draft.kind === "meme" ? "Meme card" : "Spellbook");
   context.fillText(`MIDDLE-EARTH / ${artifactLabel.toUpperCase()}`.slice(0, 58), 108, 170);
   const layout = draft.layout === "Editorial caption"
     ? { x: 92, y: 800, width: 896, size: 58, lineHeight: 70, maxLines: 6, align: "left" as CanvasTextAlign }
@@ -187,25 +194,43 @@ export async function exportMiddleEarthPng(
           : { x: 108, y: 650, width: 864, size: 66, lineHeight: 78, maxLines: 7, align: "left" as CanvasTextAlign };
   context.textAlign = layout.align;
   context.font = `700 ${layout.size}px Georgia`;
-  const lines = wrapCanvasText(context, draft.text || "Your words belong here.", layout.width);
-  lines.slice(0, layout.maxLines).forEach((line, index) => {
-    context.fillText(line, layout.x, layout.y + index * layout.lineHeight);
-  });
-  if (draft.secondaryText) {
+  const isStructuredReaction = draft.kind === "meme" && Boolean(draft.cardFormat);
+  const lines = isStructuredReaction
+    ? [draft.text || "Your setup belongs here."]
+    : wrapCanvasText(context, draft.text || "Your words belong here.", layout.width);
+  if (isStructuredReaction) {
+    const reactionLines = [lines[0], draft.secondaryText || "Your reaction belongs here."];
+    const widest = Math.max(...reactionLines.map((line) => context.measureText(line).width));
+    const fittedSize = Math.max(16, Math.floor(layout.size * Math.min(1, layout.width / widest)));
+    const fittedLineHeight = fittedSize + 14;
+    context.font = `700 ${fittedSize}px Georgia`;
+    reactionLines.forEach((line, index) => {
+      context.fillText(line, layout.x, layout.y + index * fittedLineHeight);
+    });
+  } else {
+    lines.slice(0, layout.maxLines).forEach((line, index) => {
+      context.fillText(line, layout.x, layout.y + index * layout.lineHeight);
+    });
+  }
+  if (draft.secondaryText && !isStructuredReaction) {
     context.fillStyle = "#d4b068";
-    context.font = "500 30px Georgia";
+    const secondarySize = draft.kind === "meme" ? Math.max(38, Math.round(layout.size * .78)) : 30;
+    const secondaryLineHeight = draft.kind === "meme" ? Math.max(46, Math.round(layout.lineHeight * .8)) : 38;
+    context.font = `${draft.kind === "meme" ? "700" : "500"} ${secondarySize}px Georgia`;
     const secondaryY = Math.min(
       1180,
       layout.y + Math.min(lines.length, layout.maxLines) * layout.lineHeight + 42,
     );
-    wrapCanvasText(context, draft.secondaryText, layout.width).slice(0, 3).forEach((line, index) => {
-      context.fillText(line, layout.x, secondaryY + index * 38);
+    wrapCanvasText(context, draft.secondaryText, layout.width).slice(0, draft.kind === "meme" ? 2 : 3).forEach((line, index) => {
+      context.fillText(line, layout.x, secondaryY + index * secondaryLineHeight);
     });
   }
   context.fillStyle = "#d8cdb8";
   context.textAlign = "left";
   context.font = "500 20px monospace";
-  const footerLabel = [draft.memeFlavor, draft.aesthetic].filter(Boolean).join(" · ");
+  const footerLabel = draft.cardFormat
+    ? draft.cardFooter
+    : [draft.memeFlavor, draft.aesthetic].filter(Boolean).join(" · ");
   context.fillText((footerLabel || draft.title).toUpperCase().slice(0, 54), 108, 1265);
   context.fillStyle = "#193b3b";
   context.textAlign = "center";
@@ -278,6 +303,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [secondaryText, setSecondaryText] = useState("");
+  const [cardFormat, setCardFormat] = useState<MemeCardFormat>();
   const [tone, setTone] = useState(memeTones[0]);
   const [layout, setLayout] = useState(memeLayouts[0]);
   const [visualGeneration, setVisualGeneration] = useState<MiddleEarthDraft["aiGeneration"]>();
@@ -407,8 +433,9 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       title,
       primaryText: text,
       secondaryText,
+      cardFormat,
     },
-  }), [resolvedCharacter, resolvedMemeFlavor, resolvedAesthetic, resolvedArtifactType, tone, layout, generationGuidance, selected, title, text, secondaryText]);
+  }), [resolvedCharacter, resolvedMemeFlavor, resolvedAesthetic, resolvedArtifactType, tone, layout, generationGuidance, selected, title, text, secondaryText, cardFormat]);
   const rednoteIsCurrent = Boolean(
     rednoteGroundingFingerprint
     && rednoteGroundingFingerprint === currentGroundingFingerprint
@@ -427,12 +454,14 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   }, [rednoteIsCurrent, rednoteTitle, rednoteCaption, rednoteTags, rednoteCharacter, rednoteGeneratedAt, rednoteModel]);
 
   const draft = useMemo<MiddleEarthDraft>(() => ({
-    kind, title: title.trim() || "Untitled Middle-earth idea", text: text.trim(),
+    kind, title: title.trim() || cardFormat || "Untitled Middle-earth idea", text: text.trim(),
     secondaryText: secondaryText.trim() || undefined, tone, layout,
+    ...(cardFormat ? { cardFormat } : {}),
+    ...(title.trim() ? { cardFooter: title.trim() } : {}),
     character: resolvedCharacter.trim(), memeFlavor: resolvedMemeFlavor, aesthetic: resolvedAesthetic, artifactType: resolvedArtifactType,
     creativeDirection: generationGuidance || undefined,
     aiGeneration: visualGeneration, rednoteCopy, asset: selected, createdAt: new Date().toISOString(),
-  }), [title, text, secondaryText, tone, layout, resolvedCharacter, resolvedMemeFlavor, resolvedAesthetic, resolvedArtifactType, generationGuidance, visualGeneration, rednoteCopy, selected]);
+  }), [title, text, secondaryText, tone, layout, cardFormat, resolvedCharacter, resolvedMemeFlavor, resolvedAesthetic, resolvedArtifactType, generationGuidance, visualGeneration, rednoteCopy, selected]);
 
   const sourceContext = useMemo<MiddleEarthAiSource | undefined>(() => selected ? {
     title: selected.title,
@@ -453,6 +482,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     setBusy(true); setError(""); setStatus("MemeForge is shaping the shareable object…");
     try {
       const generated = await generateVisualObject({
+        moment: moment.trim(),
         character: resolvedCharacter.trim(),
         memeFlavor: resolvedMemeFlavor,
         aesthetic: resolvedAesthetic,
@@ -462,9 +492,10 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
         guidance: generationGuidance || undefined,
         source: sourceContext,
       });
-      setTitle(generated.title);
+      setTitle(generated.cardText.footer);
       setText(generated.primaryText);
       setSecondaryText(generated.secondaryText);
+      setCardFormat(generated.cardFormat);
       setLayout(generated.layout);
       setVisualGeneration({
         provider: "xai",
@@ -490,8 +521,8 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       setActiveStep("forge");
       return;
     }
-    if (!resolvedCharacter.trim() || !text.trim()) {
-      setError("Finish the visual object and translate the moment first.");
+    if (!resolvedCharacter.trim() || !text.trim() || !secondaryText.trim()) {
+      setError("Finish both lines of the reaction card and translate the moment first.");
       return;
     }
     setBusy(true); setError(""); setStatus("Spellbook is drafting the Rednote copy package…");
@@ -506,9 +537,10 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
         guidance: generationGuidance || undefined,
         source: sourceContext,
         visual: {
-          title: title.trim(),
+          title: title.trim() || cardFormat || "Reaction card",
           primaryText: text.trim(),
           secondaryText: secondaryText.trim() || undefined,
+          cardFormat,
           layout,
         },
         currentCopy: {
@@ -546,8 +578,8 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
 
   const savePacket = async () => {
     if (!isAdmin) return;
-    if (!title.trim() || !text.trim()) {
-      setError("The visual object needs a title and primary on-card copy before it can be saved.");
+    if (!text.trim() || !secondaryText.trim()) {
+      setError("The reaction card needs both its setup and punchline before it can be saved.");
       return;
     }
     if (rednoteTouched && !rednoteCopy) {
@@ -718,9 +750,10 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
                 ? <button className={styles.aiAction} onClick={() => void generateVisual()} disabled={busy || !translation}>{busy ? "Generating…" : visualGeneration ? "Reforge card" : "Forge card"}</button>
                 : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in to generate</a>}
             </div>
-            <label>Working title<input value={title} onChange={(event) => { setTitle(event.target.value); setPacketSaved(false); }} maxLength={120} disabled={busy} /></label>
-            <label>Primary on-card copy<textarea value={text} onChange={(event) => { setText(event.target.value); setPacketSaved(false); }} rows={4} maxLength={700} disabled={busy} /></label>
-            <label>Secondary line<input value={secondaryText} onChange={(event) => { setSecondaryText(event.target.value); setPacketSaved(false); }} maxLength={240} disabled={busy} /></label>
+            {cardFormat && <div className={styles.cardFormat}><span>Reaction format</span><strong>{cardFormat}</strong><p>Two lines only: setup, then punchline. Keep longer interpretation in “Translated as.”</p></div>}
+            <label>Tiny footer <small className={styles.optional}>optional</small><input value={title} onChange={(event) => { setTitle(event.target.value); setPacketSaved(false); }} maxLength={45} disabled={busy} /></label>
+            <label>Setup line<textarea value={text} onChange={(event) => { setText(event.target.value); setPacketSaved(false); }} rows={2} maxLength={36} disabled={busy} /></label>
+            <label>Punchline / reaction line<input value={secondaryText} onChange={(event) => { setSecondaryText(event.target.value); setPacketSaved(false); }} maxLength={36} disabled={busy} /></label>
             <div className={styles.choiceGroup}><span>Tone</span><div>{memeTones.map((option) => <button key={option} className={tone === option ? styles.choiceActive : ""} onClick={() => { if (tone === option) return; setTone(option); invalidateGeneratedVisual(); }} disabled={busy}>{option}</button>)}</div></div>
             <div className={styles.choiceGroup}><span>Layout</span><div>{memeLayouts.map((option) => <button key={option} className={layout === option ? styles.choiceActive : ""} onClick={() => { if (layout === option) return; setLayout(option); invalidateGeneratedVisual(); }} disabled={busy}>{option}</button>)}</div></div>
           </> : <>
@@ -757,8 +790,8 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           <div className={`${styles.preview} ${isTypography ? styles.typographyPreview : ""}`} data-layout={layout} ref={setPreviewNode} aria-label="Live 4 by 5 preview">
             {!isTypography && selected && !previewImageFailed && <img src={selected.thumbnail} alt="" onError={() => setPreviewImageFailed(true)} />}
             <div className={styles.previewShade} />
-              <div className={styles.previewCopy}><span>{(resolvedArtifactType || "Reaction card").toUpperCase()} · {resolvedCharacter.toUpperCase()} · {(resolvedMemeFlavor || "Meme translation").toUpperCase()}</span><strong>{text || "Your translated reaction belongs here."}</strong>{secondaryText && <em>{secondaryText}</em>}</div>
-            <small>{title}</small>
+              <div className={styles.previewCopy}><span>{(cardFormat || resolvedArtifactType || "Reaction card").toUpperCase()} · {resolvedCharacter.toUpperCase()}</span><strong style={cardCopyStyle(text || "Your setup belongs here.")}>{text || "Your setup belongs here."}</strong>{secondaryText && <em style={cardCopyStyle(secondaryText)}>{secondaryText}</em>}</div>
+            {title && <small>{title}</small>}
           </div>
           {selected && <div className={styles.provenance}><strong>Source attached</strong><span>{selected.title}</span><span>{selected.publisher || "Publisher unknown"} · {selected.provider || "Provider unknown"}</span><a href={selected.url} target="_blank" rel="noreferrer">Open original source</a><small>Rights status: unknown. This is a personal draft; confirm permission before publishing.</small></div>}
           {!selected && <div className={styles.provenanceMuted}>No source selected. You can still make a typography-only draft.</div>}

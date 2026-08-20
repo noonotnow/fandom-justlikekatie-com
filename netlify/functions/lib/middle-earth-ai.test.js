@@ -64,12 +64,14 @@ function makeAuth(status, message) {
 function makeConnector({
   discoveryModels = [{ id: "grok-2-test" }],
   chatResponse = null,
+  chatResponses,
   chatStatus = 200,
   discoveryStatus = 200,
   discoveryThrow = false,
   chatThrow = false,
 } = {}) {
   const calls = [];
+  let chatResponseIndex = 0;
 
   return {
     calls,
@@ -89,6 +91,7 @@ function makeConnector({
       // Chat completions
       if (path === "/v1/chat/completions") {
         if (chatThrow) throw new Error("chat network error — must not be exposed");
+        const response = chatResponses?.[Math.min(chatResponseIndex++, chatResponses.length - 1)] ?? chatResponse;
         return {
           ok: chatStatus >= 200 && chatStatus < 300,
           status: chatStatus,
@@ -97,9 +100,9 @@ function makeConnector({
             return {
               choices: [{
                 message: {
-                  content: typeof chatResponse === "string"
-                    ? chatResponse
-                    : JSON.stringify(chatResponse),
+                  content: typeof response === "string"
+                    ? response
+                    : JSON.stringify(response),
                 },
               }],
             };
@@ -113,9 +116,12 @@ function makeConnector({
 }
 
 const VALID_VISUAL_RESPONSE = {
-  title: "Into the Shadow",
-  primaryText: "Not all those who wander are lost.",
-  secondaryText: "From the depths of Mirkwood",
+  cardText: {
+    format: "Dialogue Card",
+    line1: "FRODO: I CAN'T DO THIS.",
+    line2: "SAM: THEN WE'LL DO IT TIRED.",
+    footer: "Friday fellowship meeting",
+  },
   layout: "Classic top / bottom",
   rationale: "Top layout suits a dramatic hero shot.",
   translation: {
@@ -501,11 +507,12 @@ test("visual mode chat request uses visual_object schema with required fields", 
   const schema = JSON.parse(chatCall.options.body).response_format.json_schema;
   assert.equal(schema.name, "visual_object");
   const required = schema.schema.required;
-  assert.ok(required.includes("title"));
-  assert.ok(required.includes("primaryText"));
+  assert.ok(required.includes("cardText"));
   assert.ok(required.includes("layout"));
   assert.ok(required.includes("rationale"));
   assert.ok(required.includes("translation"));
+  assert.deepEqual(schema.schema.properties.cardText.required, ["format", "line1", "line2", "footer"]);
+  assert.ok(schema.schema.properties.cardText.properties.format.enum.includes("Internal Debate Card"));
   assert.equal(schema.schema.additionalProperties, false);
 });
 
@@ -868,7 +875,7 @@ test("returns 503 when discovery returns empty model list", async () => {
 // Exact response shape
 // ---------------------------------------------------------------------------
 
-test("visual mode: response is { mode: 'visual', result: { title, primaryText, secondaryText, layout, rationale, model } }", async () => {
+test("visual mode returns a structured two-line card plus legacy draft fields", async () => {
   const connector = makeConnector({ chatResponse: VALID_VISUAL_RESPONSE });
   const handler = makeHandler({ connector });
   const res = await handler(makeRequest(VISUAL_BODY), {});
@@ -880,9 +887,54 @@ test("visual mode: response is { mode: 'visual', result: { title, primaryText, s
   assert.ok(typeof r.title === "string" && r.title, "title must be non-empty string");
   assert.ok(typeof r.primaryText === "string" && r.primaryText, "primaryText must be non-empty string");
   assert.ok("secondaryText" in r, "secondaryText must be present");
+  assert.equal(r.cardFormat, "Dialogue Card");
+  assert.deepEqual(r.cardText, VALID_VISUAL_RESPONSE.cardText);
   assert.ok("layout" in r, "layout must be present");
   assert.ok("rationale" in r, "rationale must be present");
   assert.ok("model" in r, "model must be present");
+});
+
+test("visual mode accepts every supported compact reaction format", async () => {
+  const formats = [
+    {
+      format: "Reaction Card",
+      line1: "WHEN FRIDAY ADDS A MEETING",
+      line2: "MY SOUL LEAVES THE SHIRE.",
+    },
+    {
+      format: "Dialogue Card",
+      line1: "FRODO: I CAN'T DO THIS.",
+      line2: "SAM: THEN WE'LL DO IT TIRED.",
+    },
+    {
+      format: "Proverb Card",
+      line1: "ONE DOES NOT SIMPLY",
+      line2: "LEAVE FRIDAY ON TIME.",
+    },
+    {
+      format: "Boundary Card",
+      line1: "YOU SHALL NOT PASS",
+      line2: "THIS 4:59 PM INVITE.",
+    },
+    {
+      format: "Internal Debate Card",
+      line1: "ME: I'LL BE PRODUCTIVE.",
+      line2: "ALSO ME: SECOND BREAKFAST.",
+    },
+  ];
+
+  for (const cardText of formats) {
+    const connector = makeConnector({
+      chatResponse: { ...VALID_VISUAL_RESPONSE, cardText: { ...cardText, footer: "" } },
+    });
+    const handler = makeHandler({ connector });
+    const res = await handler(makeRequest(VISUAL_BODY), {});
+    const body = await res.json();
+    assert.equal(res.status, 200, cardText.format);
+    assert.equal(body.result.cardFormat, cardText.format);
+    assert.equal(body.result.primaryText, cardText.line1);
+    assert.equal(body.result.secondaryText, cardText.line2);
+  }
 });
 
 test("visual mode: layout is one of the exact allowed enum values", async () => {
@@ -904,25 +956,43 @@ test("visual mode: unrecognized layout is normalized to Classic top / bottom", a
   assert.equal(body.result.layout, "Classic top / bottom");
 });
 
-test("visual mode: returns 502 when AI returns empty title", async () => {
-  const connector = makeConnector({ chatResponse: { ...VALID_VISUAL_RESPONSE, title: "" } });
+test("visual mode: returns 502 after one repair attempt when AI returns an empty setup line", async () => {
+  const invalid = { ...VALID_VISUAL_RESPONSE, cardText: { ...VALID_VISUAL_RESPONSE.cardText, line1: "" } };
+  const connector = makeConnector({ chatResponses: [invalid, invalid] });
   const handler = makeHandler({ connector });
   const res = await handler(makeRequest(VISUAL_BODY), {});
   assert.equal(res.status, 502);
+  assert.equal(connector.calls.filter(c => c.path === "/v1/chat/completions").length, 2);
 });
 
-test("visual mode: returns 502 when AI returns empty primaryText", async () => {
-  const connector = makeConnector({ chatResponse: { ...VALID_VISUAL_RESPONSE, primaryText: "  " } });
+test("visual mode repairs scene prose once and returns compact card copy", async () => {
+  const prose = {
+    ...VALID_VISUAL_RESPONSE,
+    cardText: {
+      format: "Reaction Card",
+      line1: "A weary traveler stands beside the office calendar",
+      line2: "while wondering where the weekend went",
+      footer: "",
+    },
+  };
+  const connector = makeConnector({ chatResponses: [prose, VALID_VISUAL_RESPONSE] });
   const handler = makeHandler({ connector });
   const res = await handler(makeRequest(VISUAL_BODY), {});
-  assert.equal(res.status, 502);
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.result.primaryText, VALID_VISUAL_RESPONSE.cardText.line1);
+  const chats = connector.calls.filter(c => c.path === "/v1/chat/completions");
+  assert.equal(chats.length, 2);
+  assert.match(JSON.parse(chats[1].options.body).messages[0].content, /failed the compact meme contract/i);
 });
 
-test("visual mode: output strings are bounded to max lengths", async () => {
+test("visual mode: rejects overlong card lines instead of silently truncating them", async () => {
   const longResp = {
-    title: "T".repeat(500),
-    primaryText: "P".repeat(500),
-    secondaryText: "S".repeat(500),
+    ...VALID_VISUAL_RESPONSE,
+    cardText: {
+      ...VALID_VISUAL_RESPONSE.cardText,
+      line1: "P".repeat(56),
+    },
     layout: "Classic top / bottom",
     rationale: "R".repeat(500),
     translation: {
@@ -931,17 +1001,11 @@ test("visual mode: output strings are bounded to max lengths", async () => {
       vibe: "V".repeat(500),
     },
   };
-  const connector = makeConnector({ chatResponse: longResp });
+  const connector = makeConnector({ chatResponses: [longResp, longResp] });
   const handler = makeHandler({ connector });
   const res = await handler(makeRequest(VISUAL_BODY), {});
-  const body = await res.json();
-  assert.ok(body.result.title.length <= 120);
-  assert.ok(body.result.primaryText.length <= 700);
-  assert.ok(body.result.secondaryText.length <= 240);
-  assert.ok(body.result.rationale.length <= 300);
-  assert.ok(body.result.translation.scene.length <= 180);
-  assert.ok(body.result.translation.archetype.length <= 180);
-  assert.ok(body.result.translation.vibe.length <= 180);
+  assert.equal(res.status, 502);
+  assert.equal(connector.calls.filter(c => c.path === "/v1/chat/completions").length, 2);
 });
 
 test("rednote mode: response is { mode: 'rednote', result: { title, caption, tags, model } }", async () => {

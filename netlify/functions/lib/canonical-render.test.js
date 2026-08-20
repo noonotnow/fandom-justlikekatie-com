@@ -6,6 +6,7 @@ import {
   RENDER_HEIGHT,
   RENDER_WIDTH,
   fetchSafeImage,
+  middleEarthImageOverlay,
   renderCanonicalOutput,
   validatedProxyTarget,
 } from "./canonical-render.js";
@@ -301,6 +302,51 @@ test("creative grammar changes the canonical Middle-earth artifact", async () =>
   changed.middleEarthContent["meme-abc123"].artifactType = "Carousel slide";
   const revised = await render(changed);
   assert.notDeepEqual(original, revised);
+});
+
+test("structured reaction cards keep two equal-priority lines and a separate optional footer in canonical exports", () => {
+  const svg = middleEarthImageOverlay({
+    kind: "meme",
+    title: "Dialogue Card",
+    cardFormat: "Dialogue Card",
+    cardFooter: "Friday fellowship meeting",
+    text: "FRODO: I CAN'T DO THIS.",
+    secondaryText: "SAM: THEN WE'LL DO IT TIRED.",
+    tone: "Deadpan",
+    layout: "Classic top / bottom",
+    memeFlavor: "Mordor Commute",
+  }, meOutput());
+
+  assert.match(svg, /font-size="46" font-weight="700"[^>]*>FRODO: I CAN&apos;T DO THIS\.<\/text>/);
+  assert.match(svg, /font-size="46" font-weight="700"[^>]*>SAM: THEN WE&apos;LL DO IT TIRED\.<\/text>/);
+  assert.match(svg, /y="1268"[^>]*font-size="18"[^>]*>Friday fellowship meeting<\/text>/);
+  assert.doesNotMatch(svg, /font-size="36" font-weight="700"[^>]*>Dialogue Card<\/text>/);
+});
+
+test("maximum-length reaction copy stays as exactly two physical canonical text lines", () => {
+  const setup = "ONE MORE FRIDAY MEETING APPEARS NOW!";
+  const punchline = "SAM: GOOD THING IT'S OUR PROBLEM NOW";
+  assert.equal(setup.length, 36);
+  assert.equal(punchline.length, 36);
+
+  const svg = middleEarthImageOverlay({
+    kind: "meme",
+    title: "Reaction Card",
+    cardFormat: "Reaction Card",
+    text: setup,
+    secondaryText: punchline,
+    tone: "Deadpan",
+    layout: "Classic top / bottom",
+    memeFlavor: "Mordor Commute",
+  }, meOutput());
+
+  assert.equal(svg.split(setup).length - 1, 1);
+  assert.equal(svg.split("SAM: GOOD THING IT&apos;S OUR PROBLEM NOW").length - 1, 1);
+  assert.equal(
+    [...svg.matchAll(/font-size="\d+" font-weight="700"[^>]*>[^<]+<\/text>/g)].length,
+    2,
+    "only the setup and punchline may be emitted as large reaction-copy text",
+  );
 });
 
 test("renders a typography-only spellbook as a 1080x1350 PNG without any image fetch", async () => {

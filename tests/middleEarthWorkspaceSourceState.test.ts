@@ -110,7 +110,28 @@ test('visual inspiration stays behind translation and source selection requires 
   );
   assert.match(
     source,
-    /source: sourceContext,\s*\n\s*\}\);\s*\n\s*setTitle\(generated\.title\)/,
+    /source: sourceContext,\s*\n\s*\}\);\s*\n\s*setTitle\(generated\.cardText\.footer\)/,
     'the reforge path must send the selected source as grounding context',
+  );
+});
+
+test('the forge editor keeps reaction cards to a setup line, punchline line, and optional tiny footer', async () => {
+  const source = await readFile(
+    new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(source, /<label>Tiny footer[\s\S]*?maxLength=\{45\}/);
+  assert.match(source, /<label>Setup line[\s\S]*?maxLength=\{36\}/);
+  assert.match(source, /<label>Punchline \/ reaction line[\s\S]*?maxLength=\{36\}/);
+  assert.match(source, /const isStructuredReaction = draft\.kind === "meme" && Boolean\(draft\.cardFormat\);/);
+  assert.match(source, /reactionLines\.forEach\(\(line, index\) => \{\s*context\.fillText\(line,/);
+  assert.match(
+    source,
+    /The reaction card needs both its setup and punchline before it can be saved\./,
+  );
+  assert.match(
+    source,
+    /Two lines only: setup, then punchline\. Keep longer interpretation in “Translated as\.”/,
   );
 });

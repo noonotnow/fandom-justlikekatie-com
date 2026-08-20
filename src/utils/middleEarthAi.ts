@@ -17,6 +17,13 @@ export interface GeneratedVisualObject {
   title: string;
   primaryText: string;
   secondaryText: string;
+  cardFormat: MemeCardFormat;
+  cardText: {
+    format: MemeCardFormat;
+    line1: string;
+    line2: string;
+    footer: string;
+  };
   layout: 'Classic top / bottom' | 'Editorial caption' | 'Tiny confession';
   rationale: string;
   translation: {
@@ -26,6 +33,13 @@ export interface GeneratedVisualObject {
   };
   model?: string;
 }
+
+export type MemeCardFormat =
+  | 'Reaction Card'
+  | 'Dialogue Card'
+  | 'Proverb Card'
+  | 'Boundary Card'
+  | 'Internal Debate Card';
 
 export interface GeneratedRednoteCopy {
   title: string;
@@ -73,6 +87,7 @@ interface RednoteInput extends VisualInput {
     title: string;
     primaryText: string;
     secondaryText?: string;
+    cardFormat?: MemeCardFormat;
     layout: string;
   };
   currentCopy?: {
@@ -96,6 +111,7 @@ export interface MiddleEarthGroundingInput {
     title: string;
     primaryText: string;
     secondaryText?: string;
+    cardFormat?: MemeCardFormat;
   };
 }
 
@@ -120,6 +136,7 @@ export function middleEarthGroundingFingerprint(input: MiddleEarthGroundingInput
       title: input.visual.title.trim(),
       primaryText: input.visual.primaryText.trim(),
       secondaryText: input.visual.secondaryText?.trim() || '',
+      cardFormat: input.visual.cardFormat || '',
     },
   });
 }

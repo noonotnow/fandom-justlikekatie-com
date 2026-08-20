@@ -38,6 +38,8 @@ test('builds a Middle-earth packet with structured text and persistent source pr
     title: 'Second breakfast operations',
     text: 'The deployment was small, but there was another deployment.',
     secondaryText: '— Hobbit release management',
+    cardFormat: 'Reaction Card',
+    cardFooter: 'Friday fellowship meeting',
     tone: 'Deadpan',
     layout: 'Editorial caption',
     character: 'Samwise',
@@ -85,6 +87,8 @@ test('builds a Middle-earth packet with structured text and persistent source pr
   assert.equal(packet.middleEarthContent?.[output.id].memeFlavor, 'Samwise Loyalty');
   assert.equal(packet.middleEarthContent?.[output.id].aesthetic, 'Cozy Hobbiton');
   assert.equal(packet.middleEarthContent?.[output.id].artifactType, 'Meme card');
+  assert.equal(packet.middleEarthContent?.[output.id].cardFormat, 'Reaction Card');
+  assert.equal(packet.middleEarthContent?.[output.id].cardFooter, 'Friday fellowship meeting');
   assert.equal(packet.middleEarthContent?.[output.id].rednoteCopy?.tags[1], '#Samwise');
   assert.equal(packet.actor.name, 'Samwise');
   assert.equal(packet.workingAngle, 'Quiet competence under pressure');
@@ -103,6 +107,14 @@ test('builds a Middle-earth packet with structured text and persistent source pr
   );
   assert.notEqual(
     middleEarthTextFingerprint({ ...content, artifactType: 'Hero card' }),
+    output.textFingerprint,
+  );
+  assert.notEqual(
+    middleEarthTextFingerprint({ ...content, cardFormat: 'Dialogue Card' }),
+    output.textFingerprint,
+  );
+  assert.notEqual(
+    middleEarthTextFingerprint({ ...content, cardFooter: 'A new tiny footer' }),
     output.textFingerprint,
   );
 });

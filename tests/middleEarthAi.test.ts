@@ -28,8 +28,15 @@ test('visual generation sends the bounded editor context to the same-origin AI r
     return Response.json({
       result: {
         title: 'A small truth',
-        primaryText: 'Even wizards need a second draft.',
-        secondaryText: 'Moria was not in the content calendar.',
+        primaryText: 'WHEN THE TASK BECOMES A QUEST',
+        secondaryText: 'ME: I NEED SECOND BREAKFAST.',
+        cardFormat: 'Reaction Card',
+        cardText: {
+          format: 'Reaction Card',
+          line1: 'WHEN THE TASK BECOMES A QUEST',
+          line2: 'ME: I NEED SECOND BREAKFAST.',
+          footer: 'A small truth',
+        },
         layout: 'Editorial caption',
         rationale: 'The source image leaves room below.',
         translation: {
@@ -58,6 +65,8 @@ test('visual generation sends the bounded editor context to the same-origin AI r
       },
     });
     assert.equal(result.layout, 'Editorial caption');
+    assert.equal(result.cardFormat, 'Reaction Card');
+    assert.equal(result.cardText.line2, 'ME: I NEED SECOND BREAKFAST.');
     assert.equal(result.translation.archetype, 'Unexpected Journey');
   });
 
@@ -96,6 +105,7 @@ test('Rednote generation carries final visual copy and editable refinement conte
       visual: {
         title: 'A small truth',
         primaryText: 'Even wizards need a second draft.',
+        cardFormat: 'Reaction Card',
         layout: 'Tiny confession',
       },
       currentCopy: {
@@ -116,6 +126,7 @@ test('Rednote generation carries final visual copy and editable refinement conte
     'Even wizards need a second draft.',
   );
   assert.equal((body.currentCopy as { title: string }).title, 'Keep this idea');
+  assert.equal((body.visual as { cardFormat: string }).cardFormat, 'Reaction Card');
 });
 
 test('AI route errors are surfaced without accepting malformed success bodies', async () => {
@@ -162,6 +173,7 @@ test('Rednote grounding changes when any creative grammar, visual, direction, or
       title: 'The real ring-bearer',
       primaryText: 'Some people carry the plan. Sam carried the people.',
       secondaryText: 'Quiet competence, Shire edition.',
+      cardFormat: 'Reaction Card',
     },
   } satisfies MiddleEarthGroundingInput;
   const fingerprint = middleEarthGroundingFingerprint(base);
@@ -178,6 +190,7 @@ test('Rednote grounding changes when any creative grammar, visual, direction, or
     { ...base, visual: { ...base.visual, title: 'A revised title' } },
     { ...base, visual: { ...base.visual, primaryText: 'Revised primary copy.' } },
     { ...base, visual: { ...base.visual, secondaryText: 'Revised secondary copy.' } },
+    { ...base, visual: { ...base.visual, cardFormat: 'Dialogue Card' } },
   ];
   for (const variant of variants) {
     assert.notEqual(middleEarthGroundingFingerprint(variant), fingerprint);
