@@ -9,10 +9,11 @@
     "build": "node scripts/check-court-record.js && tsc -b && vite build",
     "preview": "vite preview",
     "lint": "oxlint && node scripts/check-court-record.js",
-    "test": "npm run test:app && npm run test:functions && npm run test:scripts",
+    "test": "npm run test:app && npm run test:functions && npm run test:scripts && npm run test:browser",
     "test:app": "node --import tsx/esm --test tests/*.test.ts",
     "test:functions": "node --test netlify/functions/lib/*.test.js",
-    "test:scripts": "node --test scripts/*.test.js"
+    "test:scripts": "node --test scripts/*.test.js",
+    "test:browser": "node --import tsx/esm --test tests/browser/*.test.ts"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.12",
@@ -23,6 +24,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.2",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^24.13.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

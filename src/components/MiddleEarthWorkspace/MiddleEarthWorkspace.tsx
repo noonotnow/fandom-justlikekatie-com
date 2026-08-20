@@ -178,7 +178,10 @@ function drawCanvasImageCover(
 
 function downloadCanvasPng(canvas: HTMLCanvasElement, title: string): void {
   const link = document.createElement("a");
-  link.download = `${title || "middle-earth-packet"}.png`.replace(/[^a-z0-9-_]+/gi, "-");
+  const filename = (title || "middle-earth-packet")
+    .replace(/[^a-z0-9-_]+/gi, "-")
+    .replace(/^-+|-+$/g, "");
+  link.download = `${filename || "middle-earth-packet"}.png`;
   link.href = canvas.toDataURL("image/png");
   link.click();
 }
