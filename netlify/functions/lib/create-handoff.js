@@ -765,9 +765,24 @@ function buildCreateEnvelope({
       },
     };
   });
-  const captionSeed = packet.captionSeeds.trim();
-  const angles = splitLines(packet.outputAngles);
   const allMiddleEarth = outputs.every(o => isMiddleEarthKind(o.kind));
+  const primaryMiddleEarthContent = allMiddleEarth
+    ? packet.middleEarthContent?.[outputs[0]?.outputId]
+    : null;
+  const rednoteCopy = isRecord(primaryMiddleEarthContent?.rednoteCopy)
+    ? primaryMiddleEarthContent.rednoteCopy
+    : null;
+  const captionSeed = typeof rednoteCopy?.caption === "string" && rednoteCopy.caption.trim()
+    ? rednoteCopy.caption.trim()
+    : packet.captionSeeds.trim();
+  const rednoteTitle = typeof rednoteCopy?.title === "string" && rednoteCopy.title.trim()
+    ? rednoteCopy.title.trim()
+    : `${packet.actor.name} · ${packet.vibe.labelEn}`;
+  const rednoteTags = Array.isArray(rednoteCopy?.tags)
+    ? rednoteCopy.tags.filter(tag => typeof tag === "string")
+    : [];
+  const angles = splitLines(packet.outputAngles);
+  const series = allMiddleEarth ? ["Middle-earth MemeForge"] : ["A·Vibe"];
   const outputKind = attachments.length > 1
     ? (allMiddleEarth ? "middle_earth_carousel" : "packet_carousel")
     : outputs[0].kind === "grid"
@@ -807,7 +822,7 @@ function buildCreateEnvelope({
     ...(packet.notes.trim() ? { notes: packet.notes.trim() } : {}),
     ...(packet.middleEarthContent ? { middleEarthContent: packet.middleEarthContent } : {}),
     draft: {
-      title: `${packet.actor.name} · ${packet.vibe.labelEn}`,
+      title: rednoteTitle,
       caption: captionSeed,
       provenance: JSON.stringify({
         schema: "fandom.idea-packet.snapshot.v1",
@@ -817,19 +832,19 @@ function buildCreateEnvelope({
         sourceVersion,
       }),
       captionSeed: captionSeed || "Develop caption from the Idea Packet working angle.",
-      tags: [],
-      series: ["A·Vibe"],
+      tags: rednoteTags,
+      series,
       type: "static",
     },
     publicationBrief: {
       type: "static",
       format: attachments.length > 1 ? "carousel" : "static-card",
       template: "Fandom Idea Packet",
-      series: ["A·Vibe"],
+      series,
       distribution: { primaryPlatform: "rednote", platforms: ["rednote"] },
       requiredAssets: attachments.map(attachment => attachment.assetId),
       captionBrief: captionSeed || "Develop caption from the Idea Packet working angle.",
-      tags: [],
+      tags: rednoteTags,
       requirements: [
         "Use only the attached canonical MEDIA assets.",
         "No scheduling or publishing action is authorized by this handoff.",

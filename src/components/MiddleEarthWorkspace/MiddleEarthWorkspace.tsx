@@ -1,4 +1,11 @@
 import { useMemo, useState, type FormEvent } from "react";
+import {
+  generateRednoteCopy,
+  generateVisualObject,
+  middleEarthGroundingFingerprint,
+  type MiddleEarthAiSource,
+} from "../../utils/middleEarthAi";
+import type { MiddleEarthRednoteCopy } from "../../utils/ideaPackets";
 import styles from "./MiddleEarthWorkspace.module.css";
 
 export interface MiddleEarthAsset {
@@ -20,6 +27,14 @@ export interface MiddleEarthDraft {
   secondaryText?: string;
   tone: string;
   layout: string;
+  character?: string;
+  creativeDirection?: string;
+  aiGeneration?: {
+    provider: "xai";
+    generatedAt: string;
+    model?: string;
+  };
+  rednoteCopy?: MiddleEarthRednoteCopy;
   asset?: MiddleEarthAsset;
   createdAt: string;
 }
@@ -46,8 +61,18 @@ const suggestions = [
 
 const memeTones = ["Deadpan", "Tender", "Chaotic", "Dramatic"];
 const memeLayouts = ["Classic top / bottom", "Editorial caption", "Tiny confession"];
-const spellbookTones = ["Field note", "Lyrical", "Wry", "Prophetic"];
-const spellbookLayouts = ["Quote card", "Type specimen", "Marginalia"];
+const characterFilters = [
+  "Gandalf",
+  "Éowyn",
+  "Frodo",
+  "Samwise",
+  "Aragorn",
+  "Galadriel",
+  "Legolas",
+  "Gimli",
+  "Bilbo",
+  "The Fellowship",
+];
 
 function makeAsset(result: SearchResponse["results"][number], query: string, index: number): MiddleEarthAsset {
   return {
@@ -190,36 +215,55 @@ function wrapCanvasText(context: CanvasRenderingContext2D, value: string, maxWid
   });
 }
 
+function parseTagList(value: string): string[] {
+  return value
+    .split(/[\s,]+/)
+    .map((tag) => tag.trim().replace(/^#+/, "").replace(/[^\p{L}\p{N}_-]/gu, ""))
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((tag) => `#${tag.slice(0, 49)}`);
+}
+
 export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   isAdmin: boolean;
   onCreatePacket: (draft: MiddleEarthDraft) => Promise<void>;
 }) {
-  const [kind, setKind] = useState<MiddleEarthContentKind>("meme");
+  const kind: MiddleEarthContentKind = "meme";
+  const [activeStep, setActiveStep] = useState<"forge" | "spellbook">("forge");
   const [query, setQuery] = useState("");
   const [searchedQuery, setSearchedQuery] = useState("");
   const [results, setResults] = useState<MiddleEarthAsset[]>([]);
   const [selected, setSelected] = useState<MiddleEarthAsset>();
+  const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [character, setCharacter] = useState(characterFilters[0]);
+  const [creativeDirection, setCreativeDirection] = useState("");
   const [title, setTitle] = useState("A small truth from the road");
   const [text, setText] = useState("One does not simply leave the group chat.");
   const [secondaryText, setSecondaryText] = useState("— a very reasonable fellowship decision");
   const [tone, setTone] = useState(memeTones[0]);
   const [layout, setLayout] = useState(memeLayouts[0]);
+  const [visualGeneration, setVisualGeneration] = useState<MiddleEarthDraft["aiGeneration"]>();
+  const [rednoteTitle, setRednoteTitle] = useState("");
+  const [rednoteCaption, setRednoteCaption] = useState("");
+  const [rednoteTags, setRednoteTags] = useState<string[]>([]);
+  const [rednoteGeneratedAt, setRednoteGeneratedAt] = useState("");
+  const [rednoteModel, setRednoteModel] = useState("");
+  const [rednoteCharacter, setRednoteCharacter] = useState("");
+  const [rednoteGroundingFingerprint, setRednoteGroundingFingerprint] = useState("");
   const [previewImageFailed, setPreviewImageFailed] = useState(false);
   const [previewNode, setPreviewNode] = useState<HTMLElement | null>(null);
   const [packetSaved, setPacketSaved] = useState(false);
 
-  const currentTones = kind === "meme" ? memeTones : spellbookTones;
-  const currentLayouts = kind === "meme" ? memeLayouts : spellbookLayouts;
-  const isTypography = kind === "spellbook" && layout === "Type specimen";
+  const isTypography = false;
 
   const search = async (event?: FormEvent, requestedQuery?: string) => {
     event?.preventDefault();
     const clean = (requestedQuery ?? query).trim();
     if (!clean) return;
-    setBusy(true); setError(""); setStatus("");
+    setSearching(true); setError(""); setStatus("");
     try {
       const response = await fetch(`/.netlify/functions/middle-earth-search?q=${encodeURIComponent(clean)}`);
       if (!response.ok) throw new Error("The archive did not answer. Try that search again.");
@@ -230,24 +274,154 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       setResults(payload.results.map((result, index) => makeAsset(result, payload.query || clean, index)));
       setSearchedQuery(payload.query || clean);
       setSelected(undefined);
+      setVisualGeneration(undefined);
       setStatus(payload.results.length ? `${payload.results.length} archive ${payload.results.length === 1 ? "record" : "records"} found.` : "No records found.");
     } catch (searchError) {
       setResults([]); setError(searchError instanceof Error ? searchError.message : "The archive is unavailable.");
-    } finally { setBusy(false); }
+    } finally { setSearching(false); }
   };
 
-  const selectKind = (next: MiddleEarthContentKind) => {
-    setKind(next);
-    setTone(next === "meme" ? memeTones[0] : spellbookTones[0]);
-    setLayout(next === "meme" ? memeLayouts[0] : spellbookLayouts[0]);
+  const selectStep = (next: "forge" | "spellbook") => {
+    setActiveStep(next);
     setStatus("");
     setPacketSaved(false);
   };
 
+  const rednoteTouched = Boolean(rednoteTitle.trim() || rednoteCaption.trim() || rednoteTags.length);
+  const currentGroundingFingerprint = useMemo(() => middleEarthGroundingFingerprint({
+    character,
+    tone,
+    layout,
+    guidance: creativeDirection,
+    source: selected ? {
+      id: selected.id,
+      title: selected.title,
+      sourceUrl: selected.url,
+      publisher: selected.publisher,
+      query: selected.query,
+    } : undefined,
+    visual: {
+      title,
+      primaryText: text,
+      secondaryText,
+    },
+  }), [character, tone, layout, creativeDirection, selected, title, text, secondaryText]);
+  const rednoteIsCurrent = Boolean(
+    rednoteGroundingFingerprint
+    && rednoteGroundingFingerprint === currentGroundingFingerprint
+  );
+  const rednoteCopy = useMemo<MiddleEarthRednoteCopy | undefined>(() => {
+    if (!rednoteIsCurrent || !rednoteTitle.trim() || !rednoteCaption.trim() || rednoteTags.length < 3) return undefined;
+    return {
+      title: rednoteTitle.trim(),
+      caption: rednoteCaption.trim(),
+      tags: rednoteTags,
+      character: rednoteCharacter,
+      generatedAt: rednoteGeneratedAt || new Date().toISOString(),
+      provider: "xai",
+      ...(rednoteModel ? { model: rednoteModel } : {}),
+    };
+  }, [rednoteIsCurrent, rednoteTitle, rednoteCaption, rednoteTags, rednoteCharacter, rednoteGeneratedAt, rednoteModel]);
+
   const draft = useMemo<MiddleEarthDraft>(() => ({
     kind, title: title.trim() || "Untitled Middle-earth idea", text: text.trim(),
-    secondaryText: secondaryText.trim() || undefined, tone, layout, asset: selected, createdAt: new Date().toISOString(),
-  }), [kind, title, text, secondaryText, tone, layout, selected]);
+    secondaryText: secondaryText.trim() || undefined, tone, layout,
+    character: character.trim(), creativeDirection: creativeDirection.trim() || undefined,
+    aiGeneration: visualGeneration, rednoteCopy, asset: selected, createdAt: new Date().toISOString(),
+  }), [title, text, secondaryText, tone, layout, character, creativeDirection, visualGeneration, rednoteCopy, selected]);
+
+  const sourceContext = useMemo<MiddleEarthAiSource | undefined>(() => selected ? {
+    title: selected.title,
+    sourceUrl: selected.url,
+    ...(selected.publisher ? { publisher: selected.publisher } : {}),
+    ...(selected.query ? { query: selected.query } : {}),
+  } : undefined, [selected]);
+
+  const generateVisual = async () => {
+    if (!isAdmin) {
+      setError("Sign in through packet staging to use AI generation.");
+      return;
+    }
+    if (!character.trim()) {
+      setError("Choose a character filter before generating.");
+      return;
+    }
+    setBusy(true); setError(""); setStatus("MemeForge is shaping the shareable object…");
+    try {
+      const generated = await generateVisualObject({
+        character: character.trim(),
+        tone,
+        layout,
+        guidance: creativeDirection.trim() || undefined,
+        source: sourceContext,
+      });
+      setTitle(generated.title);
+      setText(generated.primaryText);
+      setSecondaryText(generated.secondaryText);
+      setLayout(generated.layout);
+      setVisualGeneration({
+        provider: "xai",
+        generatedAt: new Date().toISOString(),
+        ...(generated.model ? { model: generated.model } : {}),
+      });
+      setPacketSaved(false);
+      setStatus(`Visual object generated${generated.rationale ? ` — ${generated.rationale}` : "."}`);
+    } catch (generationError) {
+      setError(generationError instanceof Error ? generationError.message : "MemeForge could not generate the visual object.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const generateCopy = async () => {
+    if (!isAdmin) {
+      setError("Sign in through packet staging to use AI generation.");
+      return;
+    }
+    if (!visualGeneration) {
+      setError("Generate the MemeForge visual object before asking Spellbook for Rednote copy.");
+      setActiveStep("forge");
+      return;
+    }
+    if (!character.trim() || !text.trim()) {
+      setError("Finish the visual object and choose a character filter first.");
+      return;
+    }
+    setBusy(true); setError(""); setStatus("Spellbook is drafting the Rednote copy package…");
+    try {
+      const generated = await generateRednoteCopy({
+        character: character.trim(),
+        tone,
+        layout,
+        guidance: creativeDirection.trim() || undefined,
+        source: sourceContext,
+        visual: {
+          title: title.trim(),
+          primaryText: text.trim(),
+          secondaryText: secondaryText.trim() || undefined,
+          layout,
+        },
+        currentCopy: {
+          title: rednoteTitle.trim() || undefined,
+          caption: rednoteCaption.trim() || undefined,
+          tags: rednoteTags,
+        },
+      });
+      setRednoteTitle(generated.title);
+      setRednoteCaption(generated.caption);
+      setRednoteTags(generated.tags);
+      setRednoteGeneratedAt(new Date().toISOString());
+      setRednoteModel(generated.model || "");
+      setRednoteCharacter(character.trim());
+      setRednoteGroundingFingerprint(currentGroundingFingerprint);
+      setPacketSaved(false);
+      setStatus("Rednote title, caption, and tags generated. Edit anything before saving.");
+    } catch (generationError) {
+      setError(generationError instanceof Error ? generationError.message : "Spellbook could not generate the Rednote copy.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const exportPng = async () => {
     if (!previewNode) {
@@ -262,6 +436,16 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
 
   const savePacket = async () => {
     if (!isAdmin) return;
+    if (!title.trim() || !text.trim()) {
+      setError("The visual object needs a title and primary on-card copy before it can be saved.");
+      return;
+    }
+    if (rednoteTouched && !rednoteCopy) {
+      setError(rednoteGroundingFingerprint && !rednoteIsCurrent
+        ? "The visual, character, or source changed after Spellbook wrote this copy. Regenerate it before saving."
+        : "Finish the Rednote title, caption, and at least three tags before saving the packet.");
+      return;
+    }
     setBusy(true); setStatus("Staging your idea packet…"); setError("");
     try {
       await onCreatePacket(draft);
@@ -282,8 +466,8 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       </header>
 
       <section className={styles.modeSwitch} aria-label="Creation mode">
-        <button className={kind === "meme" ? styles.modeActive : ""} onClick={() => selectKind("meme")} disabled={busy}>Meme Forge <small>quick fire</small></button>
-        <button className={kind === "spellbook" ? styles.modeActive : ""} onClick={() => selectKind("spellbook")} disabled={busy}>Quote &amp; Caption Spellbook <small>for the margins</small></button>
+        <button className={activeStep === "forge" ? styles.modeActive : ""} onClick={() => selectStep("forge")} disabled={busy}>1. MemeForge <small>generate the object</small></button>
+        <button className={activeStep === "spellbook" ? styles.modeActive : ""} onClick={() => selectStep("spellbook")} disabled={busy}>2. Rednote Spellbook <small>title · caption · tags</small></button>
       </section>
 
       <div className={styles.layout}>
@@ -292,38 +476,96 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           <form className={styles.searchForm} onSubmit={search}>
             <label htmlFor="archive-search">Search visual evidence</label>
             <div className={styles.searchBox}>
-              <input id="archive-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Try “Rivendell at dusk”" disabled={busy} />
-              <button type="submit" aria-label="Search the archive" disabled={busy || !query.trim()}>Search</button>
+              <input id="archive-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Try “Rivendell at dusk”" disabled={busy || searching} />
+              <button type="submit" aria-label="Search the archive" disabled={busy || searching || !query.trim()}>Search</button>
             </div>
           </form>
           <div className={styles.suggestions}>
-            {suggestions.map((group) => <div key={group.label}><span>{group.label}</span><div className={styles.chips}>{group.items.map((item) => <button key={item} onClick={() => { setQuery(item); void search(undefined, item); }} disabled={busy}>{item}</button>)}</div></div>)}
+            {suggestions.map((group) => <div key={group.label}><span>{group.label}</span><div className={styles.chips}>{group.items.map((item) => <button key={item} onClick={() => { setQuery(item); void search(undefined, item); }} disabled={busy || searching}>{item}</button>)}</div></div>)}
           </div>
           <div className={styles.sourceNote}><span className={styles.dot} /> Source records are gathered live. Always check the original publisher before sharing.</div>
         </aside>
 
         <section className={styles.archive} aria-live="polite">
           <div className={styles.archiveHead}><div><div className={styles.sectionKicker}>02 / visual evidence</div><h2>{searchedQuery ? `Records for “${searchedQuery}”` : "The archive is waiting"}</h2></div>{results.length > 0 && <span className={styles.count}>{results.length} records</span>}</div>
-          {busy && <div className={styles.loadingGrid} aria-label="Loading archive records">{[1, 2, 3, 4].map((item) => <div key={item} className={styles.skeleton} />)}</div>}
-          {!busy && error && <div className={styles.state}><strong>Something interrupted the search.</strong><p>{error}</p><button onClick={() => void search()}>Try again</button></div>}
-          {!busy && !error && !results.length && <div className={styles.empty}><span>Archive note</span><strong>{searchedQuery ? "Nothing surfaced this time." : "Begin with a place, person, or mood."}</strong><p>Search results will keep their source attached, so the trail back is never lost.</p></div>}
-          {!busy && results.length > 0 && <div className={styles.gallery}>{results.map((asset) => <button key={asset.id} className={`${styles.result} ${selected?.id === asset.id ? styles.resultSelected : ""}`} onClick={() => { setSelected(asset); setPreviewImageFailed(false); setPacketSaved(false); setStatus(`Selected “${asset.title}”.`); }} aria-pressed={selected?.id === asset.id}><span className={styles.imageWrap}><img src={asset.thumbnail} alt="" onError={(event) => { event.currentTarget.style.display = "none"; const fallback = event.currentTarget.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.visibility = "visible"; }} /><span className={styles.imageFallback}>Image<br />unavailable</span></span><span className={styles.resultTitle}>{asset.title}</span><span className={styles.publisher}>{asset.publisher || "Unknown publisher"}</span></button>)}</div>}
+          {searching && <div className={styles.loadingGrid} aria-label="Loading archive records">{[1, 2, 3, 4].map((item) => <div key={item} className={styles.skeleton} />)}</div>}
+          {!searching && error && !results.length && <div className={styles.state}><strong>Something interrupted the search.</strong><p>{error}</p><button onClick={() => void search()}>Try again</button></div>}
+          {!searching && !error && !results.length && <div className={styles.empty}><span>Archive note</span><strong>{searchedQuery ? "Nothing surfaced this time." : "Begin with a place, person, or mood."}</strong><p>Search results will keep their source attached, so the trail back is never lost.</p></div>}
+          {!searching && results.length > 0 && <div className={styles.gallery}>{results.map((asset) => <button key={asset.id} className={`${styles.result} ${selected?.id === asset.id ? styles.resultSelected : ""}`} onClick={() => { setSelected(asset); setVisualGeneration(undefined); setPreviewImageFailed(false); setPacketSaved(false); setStatus(`Selected “${asset.title}”. Generate the visual object with this source.`); }} aria-pressed={selected?.id === asset.id} disabled={busy}><span className={styles.imageWrap}><img src={asset.thumbnail} alt="" onError={(event) => { event.currentTarget.style.display = "none"; const fallback = event.currentTarget.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.visibility = "visible"; }} /><span className={styles.imageFallback}>Image<br />unavailable</span></span><span className={styles.resultTitle}>{asset.title}</span><span className={styles.publisher}>{asset.publisher || "Unknown publisher"}</span></button>)}</div>}
         </section>
 
         <section className={styles.forge}>
-          <div className={styles.sectionKicker}>03 / make it yours</div>
-          <div className={styles.forgeHead}><h2>{kind === "meme" ? "Meme Forge" : "Quote & Caption Spellbook"}</h2><span className={styles.liveMark}>Live preview</span></div>
-          <label>Working title<input value={title} onChange={(event) => setTitle(event.target.value)} disabled={busy} /></label>
-          <label>{kind === "meme" ? "Primary text" : "The line"}<textarea value={text} onChange={(event) => setText(event.target.value)} rows={4} disabled={busy} /></label>
-          <label>{kind === "meme" ? "Secondary text" : "Attribution or whisper"}<input value={secondaryText} onChange={(event) => setSecondaryText(event.target.value)} disabled={busy} /></label>
-          <div className={styles.choiceGroup}><span>Tone</span><div>{currentTones.map((option) => <button key={option} className={tone === option ? styles.choiceActive : ""} onClick={() => setTone(option)} disabled={busy}>{option}</button>)}</div></div>
-          <div className={styles.choiceGroup}><span>{kind === "meme" ? "Layout" : "Category"}</span><div>{currentLayouts.map((option) => <button key={option} className={layout === option ? styles.choiceActive : ""} onClick={() => setLayout(option)} disabled={busy}>{option}</button>)}</div></div>
-          {kind === "spellbook" && <label className={styles.check}><input type="checkbox" checked={isTypography} onChange={() => setLayout(isTypography ? "Quote card" : "Type specimen")} disabled={busy} /> Typography-only treatment</label>}
+          <div className={styles.sectionKicker}>03 / generate, then finish</div>
+          <div className={styles.forgeHead}>
+            <h2>{activeStep === "forge" ? "MemeForge" : "Rednote Spellbook"}</h2>
+            <span className={styles.liveMark}>{activeStep === "forge" ? "Shareable object" : "Copy package"}</span>
+          </div>
+
+          <label>
+            Character filter
+            <select value={character} onChange={(event) => { setCharacter(event.target.value); setVisualGeneration(undefined); setPacketSaved(false); }} disabled={busy}>
+              {characterFilters.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </label>
+          <label>
+            Creative direction <small className={styles.optional}>optional</small>
+            <textarea
+              value={creativeDirection}
+              onChange={(event) => { setCreativeDirection(event.target.value); setVisualGeneration(undefined); setPacketSaved(false); }}
+              rows={2}
+              maxLength={500}
+              placeholder="e.g. The calm competence of carrying the whole quest"
+              disabled={busy}
+            />
+          </label>
+
+          {activeStep === "forge" ? <>
+            <div className={styles.aiPanel}>
+              <div><strong>AI visual-object generator</strong><p>Uses the character filter, selected source record, tone, and direction. You keep the final edit.</p></div>
+              {isAdmin
+                ? <button className={styles.aiAction} onClick={() => void generateVisual()} disabled={busy}>{busy ? "Generating…" : visualGeneration ? "Regenerate object" : "Generate object"}</button>
+                : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in to generate</a>}
+            </div>
+            <label>Working title<input value={title} onChange={(event) => { setTitle(event.target.value); setPacketSaved(false); }} maxLength={120} disabled={busy} /></label>
+            <label>Primary on-card copy<textarea value={text} onChange={(event) => { setText(event.target.value); setPacketSaved(false); }} rows={4} maxLength={700} disabled={busy} /></label>
+            <label>Secondary line<input value={secondaryText} onChange={(event) => { setSecondaryText(event.target.value); setPacketSaved(false); }} maxLength={240} disabled={busy} /></label>
+            <div className={styles.choiceGroup}><span>Tone</span><div>{memeTones.map((option) => <button key={option} className={tone === option ? styles.choiceActive : ""} onClick={() => setTone(option)} disabled={busy}>{option}</button>)}</div></div>
+            <div className={styles.choiceGroup}><span>Layout</span><div>{memeLayouts.map((option) => <button key={option} className={layout === option ? styles.choiceActive : ""} onClick={() => setLayout(option)} disabled={busy}>{option}</button>)}</div></div>
+          </> : <>
+            <div className={styles.visualContext}>
+              <span>Grounded in the finished visual</span>
+              <strong>{title}</strong>
+              <p>{text || "Finish the MemeForge object before generating its Rednote copy."}</p>
+            </div>
+            {!visualGeneration && <p className={styles.copyWarning}>Generate the visual object in step 1 before using Spellbook.</p>}
+            {visualGeneration && rednoteTouched && !rednoteIsCurrent && <p className={styles.copyWarning}>The grounding changed. Regenerate this copy before saving it.</p>}
+            <div className={styles.aiPanel}>
+              <div><strong>Character-filtered Rednote writer</strong><p>Generates a separate editable title, caption, and tag set. Existing edits are used as refinement context.</p></div>
+              {isAdmin
+                ? <button className={styles.aiAction} onClick={() => void generateCopy()} disabled={busy || !visualGeneration || !text.trim()}>{busy ? "Writing…" : rednoteIsCurrent ? "Refine copy" : "Generate copy"}</button>
+                : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in to generate</a>}
+            </div>
+            <label>Rednote title<input value={rednoteTitle} onChange={(event) => { setRednoteTitle(event.target.value); setPacketSaved(false); }} maxLength={120} placeholder="A scroll-stopping title" disabled={busy} /></label>
+            <label>Rednote caption<textarea value={rednoteCaption} onChange={(event) => { setRednoteCaption(event.target.value); setPacketSaved(false); }} rows={8} maxLength={2200} placeholder="The editable caption draft will appear here." disabled={busy} /></label>
+            <label>
+              Rednote tags
+              <input
+                value={rednoteTags.join(" ")}
+                onChange={(event) => {
+                  setRednoteTags(parseTagList(event.target.value));
+                  setPacketSaved(false);
+                }}
+                placeholder="#MiddleEarth #Gandalf #Fandom"
+                disabled={busy}
+              />
+            </label>
+            <p className={styles.copyNote}>Draft only. Review names, tone, source rights, and tags before moving the packet to CREATE.</p>
+          </>}
 
           <div className={`${styles.preview} ${isTypography ? styles.typographyPreview : ""}`} data-layout={layout} ref={setPreviewNode} aria-label="Live 4 by 5 preview">
             {!isTypography && selected && !previewImageFailed && <img src={selected.thumbnail} alt="" onError={() => setPreviewImageFailed(true)} />}
             <div className={styles.previewShade} />
-            <div className={styles.previewCopy}><span>{kind === "meme" ? "MIDDLE-EARTH / MEME FORGE" : "MIDDLE-EARTH / SPELLBOOK"}</span><strong>{text || "Your words belong here."}</strong>{secondaryText && <em>{secondaryText}</em>}</div>
+            <div className={styles.previewCopy}><span>MIDDLE-EARTH / MEME FORGE · {character.toUpperCase()}</span><strong>{text || "Your words belong here."}</strong>{secondaryText && <em>{secondaryText}</em>}</div>
             <small>{title}</small>
           </div>
           {selected && <div className={styles.provenance}><strong>Source attached</strong><span>{selected.title}</span><span>{selected.publisher || "Publisher unknown"} · {selected.provider || "Provider unknown"}</span><a href={selected.url} target="_blank" rel="noreferrer">Open original source</a><small>Rights status: unknown. This is a personal draft; confirm permission before publishing.</small></div>}

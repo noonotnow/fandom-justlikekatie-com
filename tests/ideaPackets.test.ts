@@ -36,6 +36,22 @@ test('builds a Middle-earth packet with structured text and persistent source pr
     secondaryText: '— Hobbit release management',
     tone: 'Deadpan',
     layout: 'Editorial caption',
+    character: 'Samwise',
+    creativeDirection: 'Quiet competence under pressure',
+    aiGeneration: {
+      provider: 'xai',
+      generatedAt: '2026-08-19T13:55:00.000Z',
+      model: 'grok-test',
+    },
+    rednoteCopy: {
+      title: 'Sam carried more than the quest',
+      caption: 'The quietest person in the fellowship was doing the heaviest lifting.',
+      tags: ['#MiddleEarth', '#Samwise', '#Fandom'],
+      character: 'Samwise',
+      generatedAt: '2026-08-19T13:58:00.000Z',
+      provider: 'xai',
+      model: 'grok-test',
+    },
     createdAt: '2026-08-19T14:00:00.000Z',
     asset: {
       id: 'result-1',
@@ -56,7 +72,13 @@ test('builds a Middle-earth packet with structured text and persistent source pr
   assert.equal(output.sourceId, packet.sourceCards[0].id);
   assert.equal(packet.sourceCards[0].imageUrl.startsWith('/.netlify/functions/image-proxy?url='), true);
   assert.match(packet.sourceCards[0].provenance, /"rightsStatus":"unknown"/);
+  assert.match(packet.sourceCards[0].provenance, /"character":"Samwise"/);
   assert.equal(packet.middleEarthContent?.[output.id].text, 'The deployment was small, but there was another deployment.');
+  assert.equal(packet.middleEarthContent?.[output.id].rednoteCopy?.tags[1], '#Samwise');
+  assert.equal(packet.actor.name, 'Samwise');
+  assert.equal(packet.workingAngle, 'Quiet competence under pressure');
+  assert.equal(packet.captionSeeds, 'The quietest person in the fellowship was doing the heaviest lifting.');
+  assert.equal(packet.outputAngles, '#MiddleEarth\n#Samwise\n#Fandom');
   assert.ok(output.textFingerprint);
 });
 
