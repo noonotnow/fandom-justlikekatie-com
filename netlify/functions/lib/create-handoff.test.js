@@ -127,14 +127,18 @@ function conditionalMemoryStore(initial) {
 function request(current, outputIds = ["grid-output", "individual-output"]) {
   const outputs = outputIds.map(id => {
     const output = current.outputs.find(candidate => candidate.id === id);
+    const isMiddleEarth = output.kind === "meme" || output.kind === "spellbook";
     return {
       outputId: output.id,
       kind: output.kind,
       sourceId: output.sourceId,
-      renderContract: "fandom.idea-packet-output.v1",
+      renderContract: isMiddleEarth
+        ? "fandom.middle-earth-output.v1"
+        : "fandom.idea-packet-output.v1",
       renderVersion: 1,
       width: 1080,
       height: 1350,
+      ...(output.textFingerprint ? { textFingerprint: output.textFingerprint } : {}),
     };
   });
   const manifest = {
@@ -147,6 +151,55 @@ function request(current, outputIds = ["grid-output", "individual-output"]) {
     headers: { Origin: ORIGIN, Authorization: "Bearer operator-token" },
     body: new Blob([JSON.stringify(manifest)], { type: "application/json" }),
   });
+}
+
+function middleEarthPacket() {
+  const current = packet();
+  current.workspace = "middle-earth";
+  current.content = "meme";
+  current.actor = { id: "middle-earth-samwise", name: "Samwise", nameEn: "Samwise" };
+  current.vibe = { label: "Meme Forge", labelEn: "Meme Forge", emoji: "⚔️" };
+  current.provenance.sourceRoute = "/memeforge/middle-earth";
+  current.provenance.gridId = "middle-earth-meme-source-1";
+  current.grids = [];
+  current.media = [];
+  current.outputs = [{
+    id: "meme-output",
+    kind: "meme",
+    sourceId: "media-1",
+    label: "Meme: The real ring-bearer",
+    included: true,
+    addedAt: "2026-08-05T12:00:00.000Z",
+    textFingerprint: "meme-fingerprint",
+  }];
+  current.middleEarthContent = {
+    "meme-output": {
+      kind: "meme",
+      title: "The real ring-bearer",
+      text: "Some people carry the plan. Sam carried the people.",
+      secondaryText: "Quiet competence, Shire edition.",
+      tone: "Tender",
+      layout: "Editorial caption",
+      character: "Samwise",
+      aiGeneration: {
+        provider: "xai",
+        generatedAt: "2026-08-05T11:55:00.000Z",
+        model: "grok-test",
+      },
+      rednoteCopy: {
+        title: "Sam carried more than the quest",
+        caption: "The quietest person in the fellowship was doing the heaviest lifting.",
+        tags: ["#MiddleEarth", "#Samwise", "#Fandom"],
+        character: "Samwise",
+        generatedAt: "2026-08-05T11:58:00.000Z",
+        provider: "xai",
+        model: "grok-test",
+      },
+    },
+  };
+  current.captionSeeds = current.middleEarthContent["meme-output"].rednoteCopy.caption;
+  current.outputAngles = current.middleEarthContent["meme-output"].rednoteCopy.tags.join("\n");
+  return current;
 }
 
 function mediaDescriptor(index, bytes = PNG) {
@@ -317,6 +370,38 @@ test("registers exact mixed PNGs in MEDIA and signs one canonical CREATE Draft",
     .digest("hex");
   assert.equal(createCall.init.headers["X-Fandom-Signature"], `v1=${signature}`);
   assert.equal(createCall.init.headers["Idempotency-Key"], idempotencyKey);
+});
+
+test("hands the exact character-filtered Rednote package to CREATE with the MemeForge object", async () => {
+  const current = middleEarthPacket();
+  const store = memoryStore(current);
+  let envelope;
+  const handler = testHandler({
+    env: ENV,
+    getStore: () => store,
+    now: () => new Date("2026-08-05T18:00:00.000Z"),
+    fetchImpl: async (url, init) => {
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        return Response.json({ data: mediaDescriptor(1) }, { status: 201 });
+      }
+      envelope = JSON.parse(init.body);
+      return Response.json(createReceipt("created", 1, current.id), { status: 201 });
+    },
+  });
+
+  const response = await handler(request(current, ["meme-output"]));
+  assert.equal(response.status, 201);
+  assert.equal(envelope.outputKind, "middle_earth_meme");
+  assert.equal(envelope.draft.title, "Sam carried more than the quest");
+  assert.equal(
+    envelope.draft.caption,
+    "The quietest person in the fellowship was doing the heaviest lifting.",
+  );
+  assert.deepEqual(envelope.draft.tags, ["#MiddleEarth", "#Samwise", "#Fandom"]);
+  assert.deepEqual(envelope.draft.series, ["Middle-earth MemeForge"]);
+  assert.deepEqual(envelope.publicationBrief.tags, envelope.draft.tags);
+  assert.equal(envelope.middleEarthContent["meme-output"].character, "Samwise");
+  assert.equal("scheduledDate" in envelope, false);
 });
 
 test("upgrades legacy HTTP publisher links to HTTPS during handoff", async () => {

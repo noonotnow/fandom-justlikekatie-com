@@ -48,6 +48,23 @@ export interface MiddleEarthOutputContent {
   secondaryText?: string;
   tone: string;
   layout: string;
+  character?: string;
+  aiGeneration?: {
+    provider: 'xai';
+    generatedAt: string;
+    model?: string;
+  };
+  rednoteCopy?: MiddleEarthRednoteCopy;
+}
+
+export interface MiddleEarthRednoteCopy {
+  title: string;
+  caption: string;
+  tags: string[];
+  character: string;
+  generatedAt: string;
+  provider: 'xai';
+  model?: string;
 }
 
 export type PacketGrid = Omit<
@@ -120,6 +137,10 @@ export interface MiddleEarthDraft {
   secondaryText?: string;
   tone: string;
   layout: string;
+  character?: string;
+  creativeDirection?: string;
+  aiGeneration?: MiddleEarthOutputContent['aiGeneration'];
+  rednoteCopy?: MiddleEarthRednoteCopy;
   asset?: {
     id: string;
     title: string;
@@ -404,6 +425,7 @@ export function middleEarthTextFingerprint(content: MiddleEarthOutputContent): s
     content.secondaryText ?? '',
     content.tone,
     content.layout,
+    content.character ?? '',
   ].join('\x00');
 }
 
@@ -450,6 +472,9 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
     ...(draft.secondaryText !== undefined ? { secondaryText: draft.secondaryText } : {}),
     tone: draft.tone,
     layout: draft.layout,
+    ...(draft.character ? { character: draft.character } : {}),
+    ...(draft.aiGeneration ? { aiGeneration: draft.aiGeneration } : {}),
+    ...(draft.rednoteCopy ? { rednoteCopy: draft.rednoteCopy } : {}),
   };
 
   // Source card — carries rightsStatus unknown via provenance field
@@ -467,6 +492,7 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
           collection: 'middle-earth',
           kind: draft.kind,
           rightsStatus: 'unknown',
+          ...(draft.character ? { character: draft.character } : {}),
           ...(draft.asset.query ? { query: draft.asset.query } : {}),
           ...(draft.asset.provider ? { provider: draft.asset.provider } : {}),
         }),
@@ -483,6 +509,7 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
           collection: 'middle-earth',
           kind: draft.kind,
           rightsStatus: 'unknown',
+          ...(draft.character ? { character: draft.character } : {}),
         }),
       };
 
@@ -494,7 +521,11 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
     state: 'collecting',
     createdAt,
     updatedAt: createdAt,
-    actor: { id: 'middle-earth', name: 'Middle-earth', nameEn: 'Middle-earth' },
+    actor: {
+      id: draft.character ? `middle-earth-${stableMediaId(draft.character)}` : 'middle-earth',
+      name: draft.character || 'Middle-earth',
+      nameEn: draft.character || 'Middle-earth',
+    },
     vibe: {
       label: draft.kind === 'meme' ? 'Meme Forge' : 'Quote Spellbook',
       labelEn: draft.kind === 'meme' ? 'Meme Forge' : 'Quote Spellbook',
@@ -517,10 +548,12 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
     sourceCards: [sourceCard],
     media: [],
     outputs: [output],
-    notes: '',
-    workingAngle: draft.text,
-    captionSeeds: draft.title,
-    outputAngles: '',
+    notes: draft.aiGeneration
+      ? `MemeForge visual copy generated with ${draft.aiGeneration.provider}.`
+      : '',
+    workingAngle: draft.creativeDirection?.trim() || draft.text,
+    captionSeeds: draft.rednoteCopy?.caption || draft.title,
+    outputAngles: draft.rednoteCopy?.tags.join('\n') || draft.secondaryText || '',
     workspace: 'middle-earth',
     content: draft.kind,
     middleEarthContent: { [output.id]: content },

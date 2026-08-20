@@ -147,12 +147,54 @@ export function validatePacket(input) {
         !isRecord(value)
         || !["meme", "spellbook"].includes(value.kind)
         || typeof value.title !== "string"
+        || value.title.length > 120
         || typeof value.text !== "string"
+        || value.text.length > 700
         || typeof value.tone !== "string"
+        || value.tone.length > 80
         || typeof value.layout !== "string"
-        || (value.secondaryText !== undefined && typeof value.secondaryText !== "string")
+        || value.layout.length > 80
+        || (value.secondaryText !== undefined && (typeof value.secondaryText !== "string" || value.secondaryText.length > 240))
+        || (value.character !== undefined && (typeof value.character !== "string" || value.character.length > 80))
       ) {
         throw new RequestError(`Packet middleEarthContent entry "${key}" is invalid.`);
+      }
+      if (value.aiGeneration !== undefined && (
+        !isRecord(value.aiGeneration)
+        || value.aiGeneration.provider !== "xai"
+        || typeof value.aiGeneration.generatedAt !== "string"
+        || !Number.isFinite(Date.parse(value.aiGeneration.generatedAt))
+        || (value.aiGeneration.model !== undefined && (
+          typeof value.aiGeneration.model !== "string"
+          || value.aiGeneration.model.length > 120
+        ))
+      )) {
+        throw new RequestError(`Packet middleEarthContent entry "${key}" has invalid AI provenance.`);
+      }
+      if (value.rednoteCopy !== undefined) {
+        const copy = value.rednoteCopy;
+        if (
+          !isRecord(copy)
+          || typeof copy.title !== "string"
+          || !copy.title.trim()
+          || copy.title.length > 120
+          || typeof copy.caption !== "string"
+          || !copy.caption.trim()
+          || copy.caption.length > 2200
+          || !Array.isArray(copy.tags)
+          || copy.tags.length < 3
+          || copy.tags.length > 8
+          || copy.tags.some(tag => typeof tag !== "string" || !/^#[^\s#,]{1,49}$/u.test(tag))
+          || typeof copy.character !== "string"
+          || !copy.character.trim()
+          || copy.character.length > 80
+          || copy.provider !== "xai"
+          || typeof copy.generatedAt !== "string"
+          || !Number.isFinite(Date.parse(copy.generatedAt))
+          || (copy.model !== undefined && (typeof copy.model !== "string" || copy.model.length > 120))
+        ) {
+          throw new RequestError(`Packet middleEarthContent entry "${key}" has invalid Rednote copy.`);
+        }
       }
     }
   }

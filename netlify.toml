@@ -72,6 +72,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/middle-earth-ai"
+  to = "/.netlify/functions/middle-earth-ai"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
