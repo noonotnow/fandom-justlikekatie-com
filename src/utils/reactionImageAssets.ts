@@ -46,10 +46,13 @@ function queryPerformsEmotion(query: string, emotion: string): boolean {
 }
 
 /**
- * Human-native GIF search starts with the social use, then narrows through
- * character emotion and scene recognition before trying a broad fallback.
+ * Reaction-still search leads with a canonical scene anchor, then narrows
+ * through character emotion and scene recognition before broad fallbacks.
  */
-export function reactionQueryLadder(brief: ReactionImageBriefQueryInput): ReactionSearchQuery[] {
+export function reactionQueryLadder(
+  brief: ReactionImageBriefQueryInput,
+  curatedSceneQuery = '',
+): ReactionSearchQuery[] {
   const performedEmotions = uniquePerformedEmotions(brief.performedEmotion);
   const unmatchedCharacterQueries = [...brief.characterEmotionQueries];
   const emotionQueries = performedEmotions.map((performedEmotion) => {
@@ -62,6 +65,7 @@ export function reactionQueryLadder(brief: ReactionImageBriefQueryInput): Reacti
     return { query, tier: 'Character + emotion' as const, performedEmotion };
   });
   const entries: ReactionSearchQuery[] = [
+    ...(curatedSceneQuery.trim() ? [{ query: curatedSceneQuery, tier: 'Iconic scene' as const }] : []),
     { query: brief.socialUseQuery, tier: 'Social use' },
     ...emotionQueries,
     ...unmatchedCharacterQueries.map((query) => ({ query, tier: 'Character + emotion' as const })),

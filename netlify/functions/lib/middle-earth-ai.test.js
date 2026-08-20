@@ -156,7 +156,7 @@ const VALID_TRANSLATION_RESPONSE = {
     footer: "",
   },
   reactionImageBrief: {
-    socialUseQuery: "Frodo exhausted Friday work reaction Lord of the Rings still",
+    socialUseQuery: "Frodo on the road to Mordor still",
     characterEmotionQueries: ["Frodo exhausted Mordor still"],
     iconicSceneQueries: ["Frodo walking toward Mordor still"],
     broadFallbackQueries: ["Lord of the Rings exhausted reaction"],
@@ -1087,6 +1087,26 @@ test("translation gives Auto the full prototype catalog for a vague Sam and Frod
   assert.match(prompt, /Family: Samwise Loyalty/);
   assert.match(prompt, /MY SAMWISE FRIEND: INCORRECT/i);
   assert.match(prompt, /tender affirmation/i);
+});
+
+test("translation repairs a query that explains the real-world joke instead of finding a still", async () => {
+  const contaminatedSearch = {
+    ...VALID_TRANSLATION_RESPONSE,
+    reactionImageBrief: {
+      ...VALID_TRANSLATION_RESPONSE.reactionImageBrief,
+      socialUseQuery: "Gandalf on bridge for blocking work emails gif",
+    },
+  };
+  const connector = makeConnector({ chatResponses: [contaminatedSearch, VALID_TRANSLATION_RESPONSE] });
+  const handler = makeHandler({ connector });
+  const res = await handler(makeRequest(TRANSLATION_BODY), {});
+  assert.equal(res.status, 200);
+  const chats = connector.calls.filter(c => c.path === "/v1/chat/completions");
+  assert.equal(chats.length, 2);
+  const prompt = JSON.parse(chats[0].options.body).messages[0].content;
+  const repairPrompt = JSON.parse(chats[1].options.body).messages[0].content;
+  assert.match(prompt, /NEVER "Gandalf on the bridge for blocking work emails"/i);
+  assert.match(repairPrompt, /must identify a Middle-earth still, not explain the real-world joke/i);
 });
 
 test("translation repairs an incomplete visual joke brief before returning an angle", async () => {

@@ -156,6 +156,19 @@ test('searches the visual joke brief in human-native priority order and retains 
   assert.equal(ranked[0].query, 'friend refuses to let you suffer alone reaction');
 });
 
+test('leads with the curated iconic scene instead of a joke-explaining AI query', () => {
+  const ladder = reactionQueryLadder({
+    socialUseQuery: 'Gandalf on bridge for blocking work emails gif',
+    characterEmotionQueries: ['Gandalf firm refusal still'],
+    iconicSceneQueries: ['Gandalf you shall not pass bridge'],
+    broadFallbackQueries: ['Gandalf reaction still Lord of the Rings'],
+  }, 'Gandalf Bridge of Khazad-dum reaction still Lord of the Rings');
+
+  assert.equal(ladder[0].query, 'Gandalf Bridge of Khazad-dum reaction still Lord of the Rings');
+  assert.equal(ladder[0].tier, 'Iconic scene');
+  assert.equal(ladder[1].query, 'Gandalf on bridge for blocking work emails gif');
+});
+
 test('asset ranking retains performed-emotion intent for comparison views without changing exact queries', () => {
   const ladder = reactionQueryLadder({
     socialUseQuery: 'friend refuses to let you suffer alone reaction',
@@ -360,8 +373,8 @@ test('reaction images stay behind translation and source selection requires a re
   );
   assert.match(
     source,
-    /await searchReactionLadder\(generated\.reactionImageBrief\);/,
-    'a translated angle must automatically search its paired visual joke brief',
+    /await searchReactionLadder\(generated\.reactionImageBrief, curatedSceneQuery\);/,
+    'a translated angle must lead its paired visual joke search with the curated iconic scene',
   );
   assert.match(
     source,

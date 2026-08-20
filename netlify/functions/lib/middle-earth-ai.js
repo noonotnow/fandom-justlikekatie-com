@@ -67,6 +67,7 @@ const MAX_VISUAL_ROLE_LEN = 180;
 const MAX_PERFORMED_EMOTION_LEN = 48;
 const MAX_REACTION_QUERY_COUNT = 3;
 const MAX_PERFORMED_EMOTIONS = 4;
+const REAL_WORLD_REACTION_QUERY_TERMS = /\b(?:email|e-?mail|inbox|office|work(?:ing|place)?|friday|weekend|meeting|boss|deadline|zoom|slack|calendar|job)\b/iu;
 const MAX_CAPTION_LEN = 2200;
 const MAX_HASHTAGS = 8;
 const MIN_HASHTAGS = 3;
@@ -294,7 +295,10 @@ function buildTranslationPrompt({ moment, character, memeFlavor, aesthetic, arti
     `Use the selected archetype as original emotional grammar only. Never recreate a movie still, a raw meme template, a direct Tolkien quote, or character-voice imitation.`,
     `Write the text joke and the image joke together. cardText says the joke; reactionImageBrief says what a recognizable still must visibly perform for that exact joke to land.`,
     `The image is a visual punchline carrier, never background atmosphere. Describe a social use, performed emotion, and visual role such as grave authority, overprepared intervention, smug correction, exhausted refusal, or too many people having opinions.`,
-    `Build a human-native Google-first query ladder: socialUseQuery first, then character-plus-emotion, iconic scene/action, and broad fandom-reaction fallbacks. Search like a person finding a GIF to send in a group chat, not like a database looking up a character.`,
+    `Build a scene-first Google query ladder: socialUseQuery first, then character-plus-emotion, iconic scene/action, and broad fandom-reaction fallbacks.`,
+    `These are image lookup terms, NEVER an explanation of the joke. Every query must describe only the recognizable Middle-earth still: character + canonical scene/action + optional visible emotion.`,
+    `Do not include the real-world moment, punchline, intended social use, target behavior, or explanatory phrases in any query. For a Friday email-boundary joke, search "Gandalf you shall not pass bridge" or "Gandalf on bridge" — NEVER "Gandalf on the bridge for blocking work emails".`,
+    `socialUseQuery is a historical field name: use it as the short canonical scene anchor, not as a social-caption search.`,
     `Every query must be about a recognizable Middle-earth reaction still. Do not request copied meme captions, watermarks, raw template composites, or generic scenery.`,
     `After the angle is resolved, choose one curated reaction-still family to guide manual override. The reaction still supports the joke; it never writes or changes the joke.`,
     ``,
@@ -317,10 +321,10 @@ function buildTranslationPrompt({ moment, character, memeFlavor, aesthetic, arti
     `    "footer": "optional tiny footer, max ${MAX_CARD_FOOTER_LEN} chars"`,
     `  },`,
     `  "reactionImageBrief": {`,
-    `    "socialUseQuery": "human-native social reaction query, max ${MAX_SEARCH_QUERY_LEN} chars",`,
-    `    "characterEmotionQueries": ["1-${MAX_REACTION_QUERY_COUNT} character plus performed-emotion queries"],`,
-    `    "iconicSceneQueries": ["1-${MAX_REACTION_QUERY_COUNT} iconic scene or action queries"],`,
-    `    "broadFallbackQueries": ["1-${MAX_REACTION_QUERY_COUNT} broad fandom reaction queries"],`,
+    `    "socialUseQuery": "short canonical scene anchor only (for example, Gandalf you shall not pass bridge), max ${MAX_SEARCH_QUERY_LEN} chars",`,
+    `    "characterEmotionQueries": ["1-${MAX_REACTION_QUERY_COUNT} character plus visible-emotion lookup queries only"],`,
+    `    "iconicSceneQueries": ["1-${MAX_REACTION_QUERY_COUNT} canonical scene/action lookup queries only"],`,
+    `    "broadFallbackQueries": ["1-${MAX_REACTION_QUERY_COUNT} broad fandom reaction-still lookup queries only"],`,
     `    "performedEmotion": ["1-${MAX_PERFORMED_EMOTIONS} concise visible emotions"],`,
     `    "visualRole": "what the still must perform for the joke to land, max ${MAX_VISUAL_ROLE_LEN} chars"`,
     `  }`,
@@ -712,7 +716,7 @@ function normalizeReactionImageBrief(value, status = 502) {
     return values;
   };
 
-  return {
+  const normalized = {
     socialUseQuery: compact(value.socialUseQuery, "socialUseQuery", MAX_SEARCH_QUERY_LEN),
     characterEmotionQueries: compactList(
       value.characterEmotionQueries,
@@ -740,6 +744,20 @@ function normalizeReactionImageBrief(value, status = 502) {
     ),
     visualRole: compact(value.visualRole, "visualRole", MAX_VISUAL_ROLE_LEN),
   };
+  const queryFields = [
+    ["socialUseQuery", normalized.socialUseQuery],
+    ...normalized.characterEmotionQueries.map((query, index) => [`characterEmotionQueries[${index}]`, query]),
+    ...normalized.iconicSceneQueries.map((query, index) => [`iconicSceneQueries[${index}]`, query]),
+    ...normalized.broadFallbackQueries.map((query, index) => [`broadFallbackQueries[${index}]`, query]),
+  ];
+  const contaminatedQuery = queryFields.find(([, query]) => REAL_WORLD_REACTION_QUERY_TERMS.test(query));
+  if (contaminatedQuery) {
+    throw new AppError(
+      `reactionImageBrief.${contaminatedQuery[0]} must identify a Middle-earth still, not explain the real-world joke.`,
+      status,
+    );
+  }
+  return normalized;
 }
 
 function normalizeVisualOutput(raw, requestedModel, memeFlavor, comicMechanism, lockedCardText) {

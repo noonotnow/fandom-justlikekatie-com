@@ -34,16 +34,17 @@ The extraction should remain separate from the source wording and composition:
 
 ## Human-native reaction search
 
-The most valuable retrieval behavior is to search like a person looking for a reaction, not like a database looking up a character:
+The image search must look up the recognizable reaction still, not explain the joke:
 
-1. Translate the moment into a social use: “me pretending this tiny task is an impossible quest,” “deadpan friend correcting an overconfident claim,” or “group project collapsing in stages.”
-2. Add the performed reaction: grave authority, exhausted acceptance, smug correction, horrified pause, gremlin debate, or absolute boundary.
-3. Add character, fandom, or scene terms only as useful constraints; do not let them replace the social intent.
-4. Rank results by whether the still visibly performs the reaction, has a clean crop and landscape composition, and can support the setup-to-punchline turn.
+1. Resolve the social use and performed reaction internally so the system knows what visual function it needs.
+2. Search first with a canonical scene anchor: character + recognizable scene/action, such as “Gandalf you shall not pass bridge” or “Gandalf on bridge.”
+3. Then try character plus visible emotion, other iconic-scene phrasings, and broad fandom-reaction fallbacks.
+4. Never put the user’s mundane context, punchline, target behavior, or explanatory wording into a lookup query (for example, never “Gandalf on the bridge for blocking work emails”).
+5. Rank results by whether the still visibly performs the reaction, has a clean crop and landscape composition, and can support the setup-to-punchline turn.
 
-**Why:** Humans often find GIFs by searching for the situation or emotional use they want to express, then recognize the right face when browsing. Literal character-first search returns canonical but socially inert images.
+**Why:** The comedy explains what the image must accomplish, but it is not how a search engine indexes a recognizable movie still. Mixing them produces over-specific queries that return no usable images; a canonical scene anchor reliably retrieves the source material.
 
-**How to apply:** Make retrieval query intent and still-function aware. The visual search layer should be allowed to discover a strong reaction outside the exact named character, while validation checks whether it still fits the selected world, attribution requirements, composition, and comic mechanism.
+**How to apply:** Keep the visual brief intent-aware, but make its actual retrieval strings scene-first. Always lead the query ladder with the curated reaction-still family query, then retain the generated variants and their exact provenance for broader coverage. Reject or repair search queries that leak workplace, schedule, email, or other real-world joke context.
 
 ## Visual joke brief
 
