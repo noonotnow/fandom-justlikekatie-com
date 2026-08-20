@@ -1,0 +1,66 @@
+Ah — yes, that Replit note is consistent with what I saw in the repo.
+
+Short version: **you’re not crazy, and Replit’s proposed fix is the right boundary.**
+
+## What matters
+
+The current problem is not “Baidu is always first.” It’s more specific:
+
+- For normal English Middle-earth queries, **Brave runs before Google Images**.
+- Google Images only gets used if Brave fails quality/relevance checks.
+- For CJK queries, **Baidu can run first**, even on the Middle-earth route.
+- That routing makes sense for C-drama/Vibe Atlas, but not for LOTR MemeForge.
+
+So yes: **MemeForge-specific search policy** is exactly the right fix.
+
+## I’d approve this implementation direction
+
+```
+Middle-earth / MemeForge:
+Google Images → Brave → Bing/Yandex if needed → Baidu only if explicitly selected/requested
+
+Vibe Atlas / C-drama:
+leave existing Baidu-friendly/shared search behavior alone
+```
+
+That avoids breaking the existing C-drama search ecosystem while making LOTR less likely to wander into cursed search-result soup.
+
+## The product rule is even more important
+
+I strongly agree with this sequence:
+
+```
+Moment → Meme Translation → Concept → Source Search
+```
+
+not:
+
+```
+Search Result → Weird Image → Meme Attempt
+```
+
+That is the real product protection.
+
+For “not wanting to go to work on Friday,” MemeForge should first decide:
+
+- Flavor: **Mordor Commute**
+- Alternate flavors: **One Does Not Simply**, **You Shall Not Pass**
+- Vibe: dramatic dread / reluctant quest
+
+Then it can search for visual inspiration around the chosen concept.
+
+## My tiny wording tweak for the Replit task
+
+If Replit is about to implement, I’d phrase the task as:
+
+> Add a Middle-earth-specific source-search policy for MemeForge. `/middle-earth-search` should prefer Google Images first via the existing SerpAPI path, then fall back to Brave and other non-Baidu providers as needed. Baidu should not run first for Middle-earth merely because the query contains CJK characters; only use it when explicitly requested or when a future UI/provider option selects Chinese-source search. Preserve the existing shared C-drama/Vibe Atlas search behavior unchanged. Add tests proving provider order differs by route/policy.
+> 
+
+That is the clean instruction.
+
+And yes, I’d explicitly test both:
+
+1. English Middle-earth query → Google Images attempted before Brave.
+2. CJK Middle-earth query → Google Images still attempted before Baidu, unless Chinese-source mode is explicitly requested.
+
+That catches the exact gremlin.

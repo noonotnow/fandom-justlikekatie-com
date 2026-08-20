@@ -1,0 +1,98 @@
+Yes, absolutely. For MemeForge, **Google-first should be the default**.
+
+Otherwise we risk the product doing the funniest-worst possible thing:
+
+> “I searched Baidu for Samwise workplace dread and now here is a deeply cursed unrelated promo still from 2013.”
+> 
+
+Respectfully: no. The Shire deserves better indexing.
+
+## Recommendation
+
+For Middle-earth / MemeForge source search:
+
+```
+Google first
+fallback only if needed
+```
+
+I’d use this priority:
+
+1. **Google / Programmable Search**
+    - Best default for recognizable LOTR scenes, characters, meme references, general web image/source grounding.
+    - Better for Western fandom context and meme-language adjacency.
+2. **Brave**
+    - Good fallback if Google fails, rate-limits, or returns too little.
+    - Useful for broader web discovery.
+3. **Baidu**
+    - Do **not** use as primary for LOTR/Middle-earth.
+    - Keep it for C-drama / Chinese-platform workflows where it makes sense.
+
+## Product rule
+
+I’d make search provider selection world-aware:
+
+```
+C-drama Vibe Atlas → Baidu / Chinese sources can be primary
+Middle-earth MemeForge → Google primary
+```
+
+So it’s not “one global source ranking.” It’s **fandom skin-specific source routing**.
+
+## Logic I’d want
+
+For `/memeforge/middle-earth`:
+
+```tsx
+const providerPriority = ["google", "brave", "baidu"];
+```
+
+But honestly I’d probably make it:
+
+```tsx
+const providerPriority = ["google", "brave"];
+```
+
+and only allow Baidu if explicitly requested or if the query is Chinese-language / China-platform related.
+
+## UI copy
+
+In the Visual Inspiration panel:
+
+```
+Search source references
+Google-first for Middle-earth. Fallbacks only appear when useful.
+```
+
+Or less technical:
+
+```
+Searches broad web sources first for recognizable Middle-earth references.
+```
+
+## Safety / quality note
+
+This also matters because MemeForge should not let search results steer the joke too much. The engine should generate the meme concept from the **moment + fandom archetype**, then use search only to support the visual/reference layer.
+
+So the flow should be:
+
+```
+Moment → meme translation → concept → optional source search
+```
+
+not:
+
+```
+Search result → weird source image → meme attempt
+```
+
+The latter is how we accidentally invent “Boromir holding a Taobao coupon,” which, while maybe art, is not the product.
+
+## Implementation note
+
+I’d add an explicit issue/requirement:
+
+> For Middle-earth MemeForge, source search should prefer Google-compatible web/image search before Brave or Baidu. Baidu should remain a C-drama/Vibe Atlas-friendly provider and should not be the first provider for LOTR/Middle-earth prompts unless the user explicitly requests Chinese-source search.
+> 
+
+Short version: **yes, Google-first for MemeForge. Baidu can stay in the C-drama goblin enclosure.**
