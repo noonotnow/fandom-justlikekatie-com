@@ -21,9 +21,14 @@ export {
 export async function renderPacketOutputs(packet: IdeaPacket): Promise<RenderedPacketOutput[]> {
   const rendered: RenderedPacketOutput[] = [];
   for (const output of includedPacketOutputs(packet)) {
-    const blob = output.kind === 'grid'
-      ? await renderPacketGridPng(packet, output)
-      : await renderPacketIndividualPng(packet, requirePacketMedia(packet, output));
+    let blob: Blob;
+    if (output.kind === 'grid') {
+      blob = await renderPacketGridPng(packet, output);
+    } else if (output.kind === 'meme' || output.kind === 'spellbook') {
+      blob = await renderMiddleEarthOutputPng(packet, output);
+    } else {
+      blob = await renderPacketIndividualPng(packet, requirePacketMedia(packet, output));
+    }
     rendered.push({
       output,
       blob,
