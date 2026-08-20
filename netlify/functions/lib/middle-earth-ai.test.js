@@ -152,12 +152,14 @@ function makeHandler({
   store = memoryStore(),
   connector = makeConnector({ chatResponse: VALID_VISUAL_RESPONSE }),
   now = () => Date.now(),
+  logger = { info() {} },
 } = {}) {
   return createMiddleEarthAIHandler({
     auth,
     getStore: () => store,
     makeConnectorClient: () => connector,
     now,
+    logger,
   });
 }
 
@@ -1000,6 +1002,31 @@ test("returns 503 when xAI returns 500", async () => {
   const handler = makeHandler({ connector });
   const res = await handler(makeRequest(VISUAL_BODY), {});
   assert.equal(res.status, 503);
+});
+
+test("logs successful discovery and completion without private request copy", async () => {
+  const entries = [];
+  const privateGuidance = "private operator copy must never enter logs";
+  const handler = makeHandler({
+    logger: {
+      info(message, metadata) {
+        entries.push([message, metadata]);
+      },
+    },
+  });
+  const res = await handler(makeRequest({
+    ...VISUAL_BODY,
+    guidance: privateGuidance,
+  }), {});
+  assert.equal(res.status, 200);
+  assert.deepEqual(entries, [
+    ["[middle-earth-ai] model discovered", { model: "grok-2-test" }],
+    ["[middle-earth-ai] completion succeeded", {
+      mode: "visual",
+      model: "grok-2-test",
+    }],
+  ]);
+  assert.ok(!JSON.stringify(entries).includes(privateGuidance));
 });
 
 test("returns 429 when xAI returns 429 (upstream rate limit)", async () => {
