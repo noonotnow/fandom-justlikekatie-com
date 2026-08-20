@@ -3,9 +3,11 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { createArchiveSearchRequestGate } from '../src/components/MiddleEarthWorkspace/archiveSearchRequestGate.ts';
 import {
+  filterReactionCandidates,
   loadableReactionAssets,
   rankReactionCandidates,
   reactionQueryLadder,
+  retainReactionEmotionCandidates,
 } from '../src/utils/reactionImageAssets.ts';
 
 test('starting a new archive search invalidates the generated visual before clearing its source', async () => {
@@ -74,6 +76,30 @@ test('an old archive response cannot restore inspiration after the moment change
   assert.equal(selected, undefined);
 });
 
+test('every ordinary reaction search resets the performed-emotion comparison before selecting fresh results', async () => {
+  const source = await readFile(
+    new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
+    'utf8',
+  );
+  const search = source.slice(
+    source.indexOf('const search ='),
+    source.indexOf('const searchReactionLadder =', source.indexOf('const search =')),
+  );
+
+  assert.match(
+    search,
+    /const requestId = archiveSearchRequestGate\.begin\(\);\s*setComparisonEmotion\(undefined\);\s*setSelected\(undefined\);/,
+    'manual searches must clear the old emotion view before auto-selecting fresh archive results',
+  );
+  assert.match(
+    source,
+    /onChange=\{\(event\) => \{[\s\S]*?void search\(undefined, nextQuery\);[\s\S]*?\}\}/,
+    'changing a reaction-still family must use the shared search path',
+  );
+  assert.match(source, /<form className=\{styles\.searchForm\} onSubmit=\{search\}>/);
+  assert.match(source, /void search\(undefined, item\)/);
+});
+
 test('keeps searching past failed thumbnails and never offers a broken reaction still', async () => {
   const candidates = Array.from({ length: 8 }, (_, index) => ({
     id: `candidate-${index + 1}`,
@@ -130,6 +156,153 @@ test('searches the visual joke brief in human-native priority order and retains 
   assert.equal(ranked[0].query, 'friend refuses to let you suffer alone reaction');
 });
 
+test('asset ranking retains performed-emotion intent for comparison views without changing exact queries', () => {
+  const ladder = reactionQueryLadder({
+    socialUseQuery: 'friend refuses to let you suffer alone reaction',
+    characterEmotionQueries: ['Samwise worried Frodo still', 'Samwise smug correction still'],
+    iconicSceneQueries: [],
+    broadFallbackQueries: [],
+    performedEmotion: ['worried', 'smug'],
+  });
+  const ranked = rankReactionCandidates([
+    {
+      candidate: {
+        id: 'worried',
+        url: 'https://source.example/worried',
+        thumbnail: 'https://image.example/worried.jpg',
+        query: ladder[1].query,
+      },
+      queryTier: ladder[1].tier,
+      performedEmotion: ladder[1].performedEmotion,
+      rank: 100,
+    },
+    {
+      candidate: {
+        id: 'smug',
+        url: 'https://source.example/smug',
+        thumbnail: 'https://image.example/smug.jpg',
+        query: ladder[2].query,
+      },
+      queryTier: ladder[2].tier,
+      performedEmotion: ladder[2].performedEmotion,
+      rank: 200,
+    },
+  ]);
+
+  assert.deepEqual(filterReactionCandidates(ranked, 'smug').map((candidate) => candidate.id), ['smug']);
+  assert.equal(ranked[1].reactionEmotion, 'smug');
+  assert.equal(ranked[1].query, 'Samwise smug correction still');
+  assert.equal(ranked[1].reactionQueryTier, 'Character + emotion');
+});
+
+test('duplicate sources retain every performed-emotion match from the ranked query ladder', () => {
+  const ranked = rankReactionCandidates([
+    {
+      candidate: {
+        id: 'social-result',
+        url: 'https://source.example/shared',
+        thumbnail: 'https://image.example/shared.jpg',
+        query: 'friend refuses to let you suffer alone reaction',
+      },
+      queryTier: 'Social use',
+      rank: 0,
+    },
+    {
+      candidate: {
+        id: 'worried-result',
+        url: 'https://source.example/shared',
+        thumbnail: 'https://image.example/shared.jpg',
+        query: 'Samwise worried Frodo still',
+      },
+      queryTier: 'Character + emotion',
+      performedEmotion: 'worried',
+      rank: 100,
+    },
+    {
+      candidate: {
+        id: 'smug-result',
+        url: 'https://source.example/shared',
+        thumbnail: 'https://image.example/shared.jpg',
+        query: 'Samwise smug correction still',
+      },
+      queryTier: 'Character + emotion',
+      performedEmotion: 'smug',
+      rank: 200,
+    },
+  ]);
+
+  assert.equal(ranked.length, 1);
+  assert.equal(ranked[0].id, 'worried-result');
+  assert.equal(ranked[0].query, 'Samwise worried Frodo still');
+  assert.deepEqual(ranked[0].reactionEmotions, ['worried', 'smug']);
+  assert.deepEqual(filterReactionCandidates(ranked, 'worried').map((candidate) => candidate.id), ['worried-result']);
+  assert.deepEqual(filterReactionCandidates(ranked, 'smug').map((candidate) => candidate.id), ['worried-result']);
+});
+
+test('emotion comparisons survive a full social-result gallery before the display limit is applied', async () => {
+  const ladder = reactionQueryLadder({
+    socialUseQuery: 'friend refuses to let you suffer alone reaction',
+    characterEmotionQueries: ['Samwise smug correction still', 'Samwise worried Frodo still'],
+    iconicSceneQueries: [],
+    broadFallbackQueries: [],
+    performedEmotion: ['worried', 'smug'],
+  });
+  assert.deepEqual(
+    ladder.slice(1, 3).map((entry) => [entry.query, entry.performedEmotion]),
+    [
+      ['Samwise worried Frodo still', 'worried'],
+      ['Samwise smug correction still', 'smug'],
+    ],
+    'emotion labels must be associated from query content rather than character-query array position',
+  );
+
+  const ranked = rankReactionCandidates([
+    ...Array.from({ length: 8 }, (_, index) => ({
+      candidate: {
+        id: `social-${index + 1}`,
+        url: `https://source.example/social-${index + 1}`,
+        thumbnail: `https://image.example/social-${index + 1}.jpg`,
+        query: ladder[0].query,
+      },
+      queryTier: ladder[0].tier,
+      rank: index,
+    })),
+    {
+      candidate: {
+        id: 'worried',
+        url: 'https://source.example/worried',
+        thumbnail: 'https://image.example/worried.jpg',
+        query: ladder[1].query,
+      },
+      queryTier: ladder[1].tier,
+      performedEmotion: ladder[1].performedEmotion,
+      rank: 100,
+    },
+    {
+      candidate: {
+        id: 'smug',
+        url: 'https://source.example/smug',
+        thumbnail: 'https://image.example/smug.jpg',
+        query: ladder[2].query,
+      },
+      queryTier: ladder[2].tier,
+      performedEmotion: ladder[2].performedEmotion,
+      rank: 200,
+    },
+  ]);
+  const loadable = await loadableReactionAssets(ranked, async () => true, ranked.length);
+  const gallery = retainReactionEmotionCandidates(loadable, ['worried', 'smug']);
+
+  assert.equal(gallery.length, 6);
+  assert.deepEqual(filterReactionCandidates(gallery, 'worried').map((candidate) => candidate.id), ['worried']);
+  assert.deepEqual(filterReactionCandidates(gallery, 'smug').map((candidate) => candidate.id), ['smug']);
+  assert.equal(
+    filterReactionCandidates(gallery, 'worried')[0].query,
+    'Samwise worried Frodo still',
+    'comparison filtering must keep the selected candidate’s exact source query',
+  );
+});
+
 test('reaction images stay behind translation and source selection requires a reforge', async () => {
   const source = await readFile(
     new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
@@ -152,8 +325,8 @@ test('reaction images stay behind translation and source selection requires a re
   assert.match(translationResult, /<span>Vibe<\/span><p>\{translation\.tone\} · \{translation\.aesthetic\}<\/p>/);
 
   const sourceSelection = source.slice(
-    source.indexOf('{results.map((asset) =>'),
-    source.indexOf('</div>}</section>', source.indexOf('{results.map((asset) =>')),
+    source.indexOf('{visibleResults.map((asset) =>'),
+    source.indexOf('</div>}</section>', source.indexOf('{visibleResults.map((asset) =>')),
   );
   assert.match(
     sourceSelection,
@@ -197,8 +370,37 @@ test('reaction images stay behind translation and source selection requires a re
   );
   assert.match(
     source,
-    /const candidates = await loadableReactionAssets\(ranked, canLoadReactionImage\);/,
-    'every ladder search must verify candidates before limiting the selectable gallery',
+    /const loadableCandidates = await loadableReactionAssets\(ranked, canLoadReactionImage, ranked\.length\);[\s\S]*?const candidates = retainReactionEmotionCandidates\([\s\S]*?brief\.performedEmotion/,
+    'every ladder search must verify candidates before reserving a bounded, loadable comparison set',
+  );
+  assert.match(
+    source,
+    /const visibleResults = useMemo\(\s*\(\) => filterReactionCandidates\(results, comparisonEmotion\),/,
+    'emotion comparison must derive a display list from ranked assets rather than replacing the source state',
+  );
+  const comparisonView = source.slice(
+    source.indexOf('const compareReactionEmotion ='),
+    source.indexOf('const translateMoment =', source.indexOf('const compareReactionEmotion =')),
+  );
+  assert.match(
+    comparisonView,
+    /setComparisonEmotion\(nextEmotion\);[\s\S]*?setStatus\(/,
+    'changing the comparison view must not clear or replace the selected source',
+  );
+  assert.doesNotMatch(
+    comparisonView,
+    /setSelected\(|setResults\(/,
+    'changing an emotion comparison must leave the selected candidate and its source query intact',
+  );
+  assert.match(
+    source,
+    /selected && comparisonEmotion && !filterReactionCandidates\(\[selected\], comparisonEmotion\)\.length[\s\S]*?selected\.query/,
+    'a selected candidate remains visible as attached source context when its comparison view changes',
+  );
+  assert.match(
+    source,
+    /performedEmotion: step\.performedEmotion/,
+    'ladder results must retain the performed emotion that produced each candidate',
   );
   assert.match(
     source,

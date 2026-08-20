@@ -31,12 +31,12 @@ task = "shell.exec"
 args = "npm run dev"
 waitForPort = 5173
 
-[[ports]]
-localPort = 5173
-externalPort = 80
-exposeLocalhost = true
-
 [userenv]
 
 [userenv.shared]
 FANDOM_AUTH_FROM_EMAIL = "Fandom <login@auth.justlikekatie.com>"
+
+[[ports]]
+localPort = 5173
+externalPort = 80
+exposeLocalhost = true
