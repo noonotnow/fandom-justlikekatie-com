@@ -5,7 +5,10 @@ import {
   middleEarthGroundingFingerprint,
   type MiddleEarthAiSource,
 } from "../../utils/middleEarthAi";
-import type { MiddleEarthRednoteCopy } from "../../utils/ideaPackets";
+import {
+  ideaPacketStagingErrorMessage,
+  type MiddleEarthRednoteCopy,
+} from "../../utils/ideaPackets";
 import {
   aesthetics,
   artifactTypes,
@@ -486,7 +489,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       setPacketSaved(true);
       setStatus("Idea packet staged. No publish or schedule action was taken.");
     }
-    catch (saveError) { setError(saveError instanceof Error ? saveError.message : "The packet could not be staged."); }
+    catch (saveError) { setError(ideaPacketStagingErrorMessage(saveError)); }
     finally { setBusy(false); }
   };
 
@@ -639,10 +642,11 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           </div>
           {selected && <div className={styles.provenance}><strong>Source attached</strong><span>{selected.title}</span><span>{selected.publisher || "Publisher unknown"} · {selected.provider || "Provider unknown"}</span><a href={selected.url} target="_blank" rel="noreferrer">Open original source</a><small>Rights status: unknown. This is a personal draft; confirm permission before publishing.</small></div>}
           {!selected && <div className={styles.provenanceMuted}>No source selected. You can still make a typography-only draft.</div>}
+          <p className={styles.handoffNote}><strong>Your generated draft stays here.</strong> PNG export is independent. Packet staging is an optional handoff to the CREATE workflow.</p>
           <div className={styles.actions}>
             <button className={styles.export} onClick={() => void exportPng()} disabled={busy}>{busy ? "Working…" : "Export PNG"}</button>
             {isAdmin
-              ? <button className={styles.save} onClick={() => void savePacket()} disabled={busy}>Save Idea Packet</button>
+              ? <button className={styles.save} onClick={() => void savePacket()} disabled={busy}>Stage for CREATE</button>
               : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in through packet staging</a>}
             {packetSaved && <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Open packet staging</a>}
           </div>

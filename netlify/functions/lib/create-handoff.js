@@ -60,6 +60,7 @@ export function createCreateHandoffHandler({
   env = process.env,
   fetchImpl = fetch,
   getStore,
+  auth,
   now = () => new Date(),
   renderOutputImpl = renderCanonicalOutput,
 } = {}) {
@@ -69,7 +70,7 @@ export function createCreateHandoffHandler({
     }
     try {
       validateSameOrigin(req);
-      validateAuthorization(req, env.PLAN_OPERATOR_TOKEN);
+      await validateAuthorization(req, env.PLAN_OPERATOR_TOKEN, auth, context);
       try {
         if (isIdeaPacketReadOnly(env)) return ideaPacketReadOnlyResponse();
       } catch (error) {
@@ -1011,7 +1012,6 @@ async function readJson(response, label) {
 }
 
 function requireConfiguration(env) {
-  if (!env.PLAN_OPERATOR_TOKEN) throw new RequestError("PLAN_OPERATOR_TOKEN is not configured.", 503);
   if (!env.MEDIA_ASSETS_TOKEN) throw new RequestError("MEDIA_ASSETS_TOKEN is not configured.", 503);
   if (!env.CREATE_FANDOM_HMAC_KEY_ID || !env.CREATE_FANDOM_HMAC_SECRET) {
     throw new RequestError("CREATE Fandom HMAC credentials are not configured.", 503);
@@ -1026,14 +1026,27 @@ function validateSameOrigin(req) {
   }
 }
 
-function validateAuthorization(req, expectedToken) {
+async function validateAuthorization(req, expectedToken, auth, context) {
   const header = req.headers.get("authorization") || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
   const actual = Buffer.from(token);
   const expected = Buffer.from(expectedToken || "");
-  if (!expected.length || actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
-    throw new RequestError("Fandom Admin authorization is required.", 401);
+  if (expected.length && actual.length === expected.length && timingSafeEqual(actual, expected)) return;
+  if (auth) {
+    try {
+      await auth.authenticateAdmin(req, context);
+      return;
+    } catch (error) {
+      if (error?.status === 401) {
+        throw new RequestError("Sign in to packet staging again before sending to CREATE.", 401);
+      }
+      if (error?.status === 403) {
+        throw new RequestError("An admin account is required to send packets to CREATE.", 403);
+      }
+      throw new RequestError("CREATE handoff could not verify your admin session. Try again.", 503);
+    }
   }
+  throw new RequestError("CREATE handoff operator authorization is required.", 401);
 }
 
 function handoffInputFingerprint(packet, outputs) {

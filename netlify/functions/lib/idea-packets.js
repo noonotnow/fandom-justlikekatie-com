@@ -25,12 +25,14 @@ class RequestError extends Error {
   }
 }
 
-export function createIdeaPacketsHandler({ env = process.env, getStore }) {
+export function createIdeaPacketsHandler({ env = process.env, getStore, auth }) {
   return async function ideaPackets(req, context) {
     try {
       validateSameOrigin(req);
-      validateAuthorization(req, env.PLAN_OPERATOR_TOKEN);
-      if (!env.PLAN_OPERATOR_TOKEN) throw new RequestError("Idea Packets is not configured. Add PLAN_OPERATOR_TOKEN.", 503);
+      await validateAuthorization(req, env.PLAN_OPERATOR_TOKEN, auth, context);
+      if (!env.PLAN_OPERATOR_TOKEN && !auth) {
+        throw new RequestError("Idea Packets authorization is not configured.", 503);
+      }
       const store = getStore(STORE_NAME, context);
       if (req.method === "GET") {
         return jsonResponse(200, { packets: await listPackets(store) }, ideaPacketDeprecationHeaders());
@@ -479,15 +481,27 @@ function validateSameOrigin(req) {
   if (!origin || origin !== new URL(req.url).origin) throw new RequestError("Cross-origin packet requests are not allowed.", 403);
 }
 
-function validateAuthorization(req, expectedToken) {
-  if (!expectedToken) return;
+async function validateAuthorization(req, expectedToken, auth, context) {
   const header = req.headers.get("authorization") || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
   const actual = Buffer.from(token);
-  const expected = Buffer.from(expectedToken);
-  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
-    throw new RequestError("Fandom Admin authorization is required.", 401);
+  const expected = Buffer.from(expectedToken || "");
+  if (expected.length && actual.length === expected.length && timingSafeEqual(actual, expected)) return;
+  if (auth) {
+    try {
+      await auth.authenticateAdmin(req, context);
+      return;
+    } catch (error) {
+      if (error?.status === 401) {
+        throw new RequestError("Sign in to packet staging again to save Idea Packets.", 401);
+      }
+      if (error?.status === 403) {
+        throw new RequestError("An admin account is required to save Idea Packets.", 403);
+      }
+      throw new RequestError("Packet staging could not verify your admin session. Try again.", 503);
+    }
   }
+  throw new RequestError("Idea Packet operator authorization is required.", 401);
 }
 
 function requireString(value, message) {

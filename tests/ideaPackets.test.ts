@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  IDEA_PACKET_STAGING_AUTH_MESSAGE,
+  IdeaPacketError,
+  ideaPacketStagingErrorMessage,
   mediaFromResult,
   middleEarthTextFingerprint,
   packetFromMiddleEarthDraft,
@@ -118,4 +121,13 @@ test('builds typography-only spellbook packets without inventing an external ima
   assert.equal(packet.sourceCards[0].imageUrl, '');
   assert.equal(packet.sourceCards[0].sourceUrl, 'https://fandom.justlikekatie.com/memeforge/middle-earth');
   assert.equal(packet.outputs[0].kind, 'spellbook');
+});
+
+test('keeps packet staging authorization failures separate from successful MemeForge generation', () => {
+  assert.equal(
+    ideaPacketStagingErrorMessage(new IdeaPacketError('Fandom Admin authorization is required.', 401)),
+    IDEA_PACKET_STAGING_AUTH_MESSAGE,
+  );
+  assert.match(IDEA_PACKET_STAGING_AUTH_MESSAGE, /MemeForge object is still ready/);
+  assert.match(IDEA_PACKET_STAGING_AUTH_MESSAGE, /Sign in again through packet staging/);
 });

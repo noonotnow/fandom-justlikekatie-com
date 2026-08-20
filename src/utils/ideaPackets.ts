@@ -168,6 +168,19 @@ export class IdeaPacketError extends Error {
   }
 }
 
+export const IDEA_PACKET_STAGING_AUTH_MESSAGE =
+  'Your MemeForge object is still ready. Packet staging could not confirm your admin session. Sign in again through packet staging, or export the PNG now.';
+
+export function ideaPacketStagingErrorMessage(error: unknown): string {
+  if (error instanceof IdeaPacketError && (error.status === 401 || error.status === 403)) {
+    return IDEA_PACKET_STAGING_AUTH_MESSAGE;
+  }
+  if (error instanceof Error && error.message) {
+    return `Your MemeForge object is still ready, but packet staging failed: ${error.message}`;
+  }
+  return 'Your MemeForge object is still ready, but packet staging is unavailable. Export the PNG or try again.';
+}
+
 export function packetFromGrid(data: StarOfDayData, images: GridItemData[]): IdeaPacket {
   const createdAt = new Date().toISOString();
   const grid = packetGridFromStar(data, images, createdAt);

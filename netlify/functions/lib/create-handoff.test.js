@@ -124,7 +124,11 @@ function conditionalMemoryStore(initial) {
   };
 }
 
-function request(current, outputIds = ["grid-output", "individual-output"]) {
+function request(
+  current,
+  outputIds = ["grid-output", "individual-output"],
+  { authorization = "Bearer operator-token", cookie } = {},
+) {
   const outputs = outputIds.map(id => {
     const output = current.outputs.find(candidate => candidate.id === id);
     const isMiddleEarth = output.kind === "meme" || output.kind === "spellbook";
@@ -148,7 +152,11 @@ function request(current, outputIds = ["grid-output", "individual-output"]) {
   };
   return new Request(`${ORIGIN}/api/create-handoff`, {
     method: "POST",
-    headers: { Origin: ORIGIN, Authorization: "Bearer operator-token" },
+    headers: {
+      Origin: ORIGIN,
+      ...(authorization ? { Authorization: authorization } : {}),
+      ...(cookie ? { Cookie: cookie } : {}),
+    },
     body: new Blob([JSON.stringify(manifest)], { type: "application/json" }),
   });
 }
@@ -373,6 +381,39 @@ test("registers exact mixed PNGs in MEDIA and signs one canonical CREATE Draft",
     .digest("hex");
   assert.equal(createCall.init.headers["X-Fandom-Signature"], `v1=${signature}`);
   assert.equal(createCall.init.headers["Idempotency-Key"], idempotencyKey);
+});
+
+test("lets a signed-in admin hand off to CREATE without the separate operator token", async () => {
+  const store = memoryStore();
+  const env = { ...ENV };
+  delete env.PLAN_OPERATOR_TOKEN;
+  let authCalls = 0;
+  const handler = testHandler({
+    env,
+    getStore: () => store,
+    auth: {
+      async authenticateAdmin(req) {
+        authCalls += 1;
+        assert.equal(req.headers.get("cookie"), "__Host-fandom_session=admin-session");
+        return { user: { accountId: "admin-account" } };
+      },
+    },
+    fetchImpl: async url => {
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        return Response.json({ data: mediaDescriptor(1), meta: { deduplicated: false } }, { status: 201 });
+      }
+      return Response.json(createReceipt(), { status: 201 });
+    },
+  });
+
+  const response = await handler(request(packet(), undefined, {
+    authorization: "",
+    cookie: "__Host-fandom_session=admin-session",
+  }), {});
+
+  assert.equal(response.status, 201);
+  assert.equal(authCalls, 1);
+  assert.equal((await response.json()).receipt.postId, createReceipt().postId);
 });
 
 test("hands the exact character-filtered Rednote package to CREATE with the MemeForge object", async () => {

@@ -292,6 +292,36 @@ test("requires same-origin operator authorization", async () => {
   assert.equal((await handler(crossOrigin)).status, 403);
 });
 
+test("lets a signed-in admin stage a packet without the separate operator token", async () => {
+  const store = memoryStore();
+  let authCalls = 0;
+  const handler = createIdeaPacketsHandler({
+    env: {},
+    getStore: storeRouter(store),
+    auth: {
+      async authenticateAdmin(req) {
+        authCalls += 1;
+        assert.equal(req.headers.get("cookie"), "__Host-fandom_session=admin-session");
+        return { user: { accountId: "admin-account" } };
+      },
+    },
+  });
+  const response = await handler(new Request(`${ORIGIN}/api/idea-packets`, {
+    method: "POST",
+    headers: {
+      Origin: ORIGIN,
+      Cookie: "__Host-fandom_session=admin-session",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ packet: packet() }),
+  }), {});
+
+  assert.equal(response.status, 201);
+  assert.equal((await response.json()).packet.id, "packet-1");
+  assert.equal(authCalls, 1);
+  assert.equal(store.records.has("packet-1"), true);
+});
+
 test("serializes concurrent edits and rejects the stale writer", async () => {
   const store = memoryStore();
   await store.setJSON("packet-1", packet());
