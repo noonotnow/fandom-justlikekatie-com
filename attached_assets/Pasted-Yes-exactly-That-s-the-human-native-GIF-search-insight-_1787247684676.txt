@@ -1,0 +1,216 @@
+Yes — exactly. That’s the “human-native GIF search” insight.
+
+When people look for a meme/GIF, they usually don’t search only the character or franchise. They search some mix of:
+
+1. **Iconic scene phrase**
+    - “keep it secret keep it safe”
+    - “you shall not pass”
+    - “one does not simply”
+    - “my precious”
+    - “fly you fools”
+2. **Character + performed emotion**
+    - “Gollum hiss”
+    - “Gandalf suspicious”
+    - “Frodo exhausted”
+    - “Sam crying”
+    - “Boromir serious face”
+3. **Situation / action**
+    - “Sam carrying Frodo”
+    - “Council of Elrond arguing”
+    - “Pippin second breakfast”
+    - “Gandalf knocks head”
+    - “Gollum talking to himself”
+4. **Reaction use-case**
+    - “confused”
+    - “betrayed”
+    - “smug”
+    - “horrified”
+    - “resigned”
+    - “judgmental”
+    - “done with everything”
+
+So yes: the image search query is not just “find Sam.” It is part of the joke-writing process. It describes the **visual punchline carrier**.
+
+## The better MemeForge model
+
+MemeForge should generate two linked things:
+
+### 1. Text joke
+
+```
+WHEN FRODO FORGETS SECOND BREAKFAST
+
+SAM PACKS THE WHOLE SHIRE
+```
+
+### 2. Image joke brief
+
+```
+Sam looking horrified / overprepared / emotionally responsible
+```
+
+Then search with a human-native bundle:
+
+```
+Sam Frodo Lord of the Rings worried Sam still
+Sam carrying Frodo emotional Lord of the Rings still
+Samwise concerned Frodo still
+```
+
+Not just:
+
+```
+Samwise Loyalty
+```
+
+or:
+
+```
+Frodo and Sam
+```
+
+The search query needs to encode the reaction.
+
+## Product phrasing
+
+I’d call this:
+
+> **visual joke brief**
+> 
+
+or:
+
+> **reaction image brief**
+> 
+
+That field tells the search layer:
+
+> “What does the image need to be doing for the meme to land?”
+> 
+
+Example schema:
+
+```tsx
+{
+  memeFlavor: "Samwise Loyalty",
+  comicMechanism: "relationship-specific contradiction",
+  cardText: {
+    setup: "ME: I’M FINE",
+    punchline: "SAM, HOLDING SNACKS AND EVIDENCE: NO."
+  },
+  reactionImageBrief: {
+    iconicScene: "Sam supporting Frodo on the journey",
+    performedEmotion: ["concerned", "determined", "overprepared"],
+    visualSearchQueries: [
+      "Sam Frodo concerned Lord of the Rings still",
+      "Samwise worried Frodo still",
+      "Sam carrying Frodo Mount Doom still"
+    ]
+  }
+}
+```
+
+## This also explains why some image candidates feel wrong
+
+If the search query is only:
+
+```
+cozy hobbit garden path
+```
+
+it returns atmosphere.
+
+If it is:
+
+```
+Samwise worried Frodo still
+```
+
+it returns reaction.
+
+The former makes a quote card.
+The latter makes a meme.
+
+## The human-native rule
+
+For every MemeForge output, ask:
+
+> If I were searching GIPHY/Google manually, what would I type to find the right reaction face?
+> 
+
+That answer should become the image query.
+
+Examples:
+
+### Prompt
+
+```
+not wanting to go to work on Friday
+```
+
+Human-native image search:
+
+```
+Frodo exhausted Mordor still
+Boromir one does not simply serious face
+Gandalf despair Lord of the Rings still
+```
+
+### Prompt
+
+```
+defending my little treat with my life
+```
+
+Human-native image search:
+
+```
+Gollum precious face
+Gollum holding ring precious
+Hobbits second breakfast excited
+```
+
+### Prompt
+
+```
+group chat planning with fourteen steps
+```
+
+Human-native image search:
+
+```
+Council of Elrond arguing
+Elrond council confused
+Boromir council serious
+```
+
+### Prompt
+
+```
+why didn’t they take the eagles
+```
+
+Human-native image search:
+
+```
+Gandalf knowing look
+Elrond serious council
+LOTR eagles Gandalf
+Tolkien fan meme actually
+```
+
+## Replit-task phrasing
+
+I’d frame the next refinement like:
+
+> Add a reaction-image brief to MemeForge’s angle generation. The model should describe the image part of the joke in human-native search terms: iconic scene phrase, character, performed emotion, and action. Use that brief to generate Google-first source queries. Avoid generic atmosphere searches; search for the reaction the still needs to perform.
+> 
+
+This is the missing bridge between “angle generator” and “good meme/GIF finder.”
+
+The generator should not only write the caption. It should also say:
+
+> “The visual needs Sam looking like he has already packed for everyone’s emotional breakdown.”
+> 
+
+That is *the image part of the joke*.

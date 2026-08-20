@@ -1,0 +1,82 @@
+Honestly that is *exactly* the correct art-direction workflow for this kind of thing.
+
+“Here are 20 memes, study these” is not lazy; it’s basically giving the model a **taste corpus**. The point is not to copy any one image/caption — it’s to extract:
+
+- what counts as funny in this fandom;
+- which stills already carry social meaning;
+- how captions are paced;
+- how much context is enough;
+- where the punchline turns;
+- what kinds of over-seriousness are funny vs. just sincere;
+- which character dynamics produce jokes instead of posters.
+
+That’s way more useful than saying “make it funnier,” which is the cursed feedback equivalent of handing someone a soup spoon in a sword fight.
+
+## The MemeForge version of “study these”
+
+I’d formalize it as a mode or workflow:
+
+```
+Study references → Extract mechanisms → Generate original mutants
+```
+
+Not:
+
+```
+Study references → Copy captions
+```
+
+The reference set becomes a **comedy calibration batch**.
+
+## What MemeForge should learn from batches
+
+When you send 20 memes, Replit/the product should extract things like:
+
+### 1. Comic mechanism
+
+Examples:
+
+- severity inversion
+- fandom-lawyer correction
+- ceremonial setup → petty punchline
+- supportive contradiction
+- escalating specificity
+- literal misread / dumb-smart wordplay
+- overcommitted evidence board
+- mundane task as epic quest
+
+### 2. Caption shape
+
+Not the words, but the rhythm:
+
+```
+SETUP: normal claim / social situation
+PUNCHLINE: Middle-earth reversal
+```
+
+or:
+
+```
+PERSON A: reasonable statement
+PERSON B: wildly overcommitted fandom response
+```
+
+### 3. Still function
+
+What the image is doing:
+
+- Boromir = grave impossible-task authority
+- Sam = emotional support with alarming intensity
+- Gollum = gremlin internal debate
+- Gandalf = absolute boundary
+- Council = too many people having opinions
+- Frodo = burdened little guy at capacity
+- Pippin/Merry = chaos goblins / snack logic
+
+### 4. Failure modes
+
+What to avoid:
+
+- inspirational poster
+- lore explainer
+- solemn virtue statement
