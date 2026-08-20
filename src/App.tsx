@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { ImageTier } from './types';
+import FandomLaunchpad from './components/FandomLaunchpad/FandomLaunchpad';
+import { MiddleEarthWorkspace } from './components/MiddleEarthWorkspace/MiddleEarthWorkspace';
 import { GridItem } from './components/GridItem/GridItem';
 import { GridItemSkeleton } from './components/GridItem/GridItemSkeleton';
 import { InlinePreview } from './components/InlinePreview/InlinePreview';
@@ -21,6 +23,7 @@ import {
   fetchIdeaPackets,
   mediaFromResult,
   mutateIdeaPacket,
+  packetFromMiddleEarthDraft,
   packetFromGrid,
   type IdeaPacket,
   IdeaPacketError,
@@ -31,16 +34,42 @@ import {
 import type { CardRecord, GridRecord } from './utils/collectionDB';
 import { consumeMagicLinkFromLocation, requestMagicLink } from './utils/publicAccount';
 import { useIsAdmin } from './hooks/useIsAdmin';
+import {
+  initialVibeAtlasView,
+  resolveFandomProductRoute,
+} from './utils/fandomRoutes';
 import './App.css';
 
 /** Number of columns in the grid — used to calculate preview row insertion */
 const GRID_COLS = 3;
 
 function App() {
+  const route = resolveFandomProductRoute(window.location.pathname);
+  if (route === 'vibe-atlas') return <VibeAtlasApp />;
+  if (route === 'middle-earth') return <MiddleEarthApp />;
+  return <FandomLaunchpad />;
+}
+
+function MiddleEarthApp() {
+  const { isAdmin } = useIsAdmin();
+
+  return (
+    <MiddleEarthWorkspace
+      isAdmin={isAdmin}
+      onCreatePacket={async draft => {
+        await createIdeaPacket(packetFromMiddleEarthDraft(draft));
+      }}
+    />
+  );
+}
+
+function VibeAtlasApp() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [dailyGridZoomOpen, setDailyGridZoomOpen] = useState(false);
-  const [view, setView] = useState<'daily' | 'collection' | 'plan'>('daily');
+  const [view, setView] = useState<'daily' | 'collection' | 'plan'>(
+    () => initialVibeAtlasView(window.location.search),
+  );
   const { isAdmin, loading: adminLoading, recheck: recheckAdmin } = useIsAdmin();
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const { items: gridImages, meta, rawData, loading, error } = useStarOfDay();
@@ -166,6 +195,7 @@ function App() {
 
       {/* Navigation bar */}
       <nav className="flex justify-center gap-6 pt-4 pb-2 border-b border-gray-200 dark:border-gray-700">
+        <a className="fandom-home-link" href="/">Fandom tools</a>
         <button
           onClick={() => setView('daily')}
           className={`pb-2 text-sm tracking-wide transition-colors ${

@@ -32,6 +32,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .packetRow { width: 100%; display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 9px; text-align: left; padding: 9px; margin-bottom: 5px; border: 1px solid transparent; background: transparent; color: inherit; }
 .packetRow[aria-current="true"] { border-color: color-mix(in srgb, #c9a96e 55%, transparent); background: color-mix(in srgb, #c9a96e 10%, transparent); }
 .packetRow img { width: 48px; height: 48px; border-radius: 7px; object-fit: cover; grid-row: span 2; }
+.packetPlaceholder { width: 48px; height: 48px; border-radius: 7px; display: grid; place-items: center; grid-row: span 2; background: #173a3a; color: #d4a951; font: 700 12px/1 ui-monospace, monospace; letter-spacing: .08em; }
 .packetRow span { min-width: 0; }
 .packetRow strong, .packetRow small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .packetRow small { color: var(--admin-muted); margin-top: 3px; }
@@ -44,6 +45,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .anchor { display: grid; grid-template-columns: 152px 1fr; gap: 18px; padding: 18px 0; border-bottom: 1px solid var(--admin-border); }
 .anchorGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; aspect-ratio: 1; overflow: hidden; border-radius: 9px; background: var(--admin-panel); }
 .anchorGrid img { width: 100%; height: 100%; object-fit: cover; min-height: 0; }
+.anchorPlaceholder { grid-column: 1 / -1; display: grid; place-items: center; padding: 12px; color: #d4a951; background: #173a3a; font-size: 11px; text-align: center; }
 .anchor dl { display: grid; align-content: center; gap: 7px; margin: 0; }
 .anchor dl div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 8px; font-size: 12px; }
 .anchor dt { color: var(--admin-muted); }
@@ -85,6 +87,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .outputPreview { width: 72px; height: 58px; overflow: hidden; border-radius: 6px; background: var(--admin-panel); }
 .outputPreview[data-kind="grid"] { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; }
 .outputPreview img { width: 100%; height: 100%; min-height: 0; object-fit: cover; }
+.outputPlaceholder { width: 100%; height: 100%; display: grid; place-items: center; background: #173a3a; color: #d4a951; font: 600 9px/1 ui-monospace, monospace; letter-spacing: .05em; text-transform: uppercase; }
 .outputTray label { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .outputTray input { width: 18px; height: 18px; accent-color: #c9a96e; }
 .outputTray label span, .outputTray strong, .outputTray small { display: block; min-width: 0; }

@@ -377,7 +377,9 @@ function PacketWorkspace({
               aria-current={packet.id === selected.id}
               onClick={() => setSelectedId(packet.id)}
             >
-              <img src={packet.anchor.imageUrls[0]} alt="" />
+              {packet.anchor.imageUrls[0]
+                ? <img src={packet.anchor.imageUrls[0]} alt="" />
+                : <span className={styles.packetPlaceholder} aria-hidden="true">MF</span>}
               <span><strong>{packet.actor.name}</strong><small>{packet.vibe.emoji} {packet.vibe.labelEn} · {packet.media.length} media</small></span>
               <StateLabel state={packet.state} />
             </button>
@@ -395,7 +397,9 @@ function PacketWorkspace({
 
           <section className={styles.anchor}>
             <div className={styles.anchorGrid}>
-              {selected.anchor.imageUrls.slice(0, 9).map((url, index) => <img key={`${url}-${index}`} src={url} alt="" />)}
+              {selected.anchor.imageUrls.length > 0
+                ? selected.anchor.imageUrls.slice(0, 9).map((url, index) => <img key={`${url}-${index}`} src={url} alt="" />)
+                : <span className={styles.anchorPlaceholder}>Typography-only output</span>}
             </div>
             <dl>
               <div><dt>Anchor</dt><dd>{selected.anchor.label}</dd></div>
@@ -419,7 +423,11 @@ function PacketWorkspace({
               )}
             </div>
             {selected.media.length === 0 ? (
-              <div className={styles.mediaEmpty}>Add individual lightbox results to build this packet’s media set.</div>
+              <div className={styles.mediaEmpty}>
+                {selected.workspace === 'middle-earth'
+                  ? 'This packet is built from MemeForge output provenance rather than Vibe Atlas media.'
+                  : 'Add individual lightbox results to build this packet’s media set.'}
+              </div>
             ) : (
               <ol className={styles.mediaList}>
                 {selected.media.map((media, index) => (
@@ -453,6 +461,9 @@ function PacketWorkspace({
                 const grid = output.kind === 'grid'
                   ? selected.grids.find(item => item.id === output.sourceId)
                   : null;
+                const sourceCard = output.kind === 'meme' || output.kind === 'spellbook'
+                  ? selected.sourceCards.find(item => item.id === output.sourceId || item.resultId === output.sourceId)
+                  : null;
                 const primary = output.included
                   && includedPacketOutputs(selected)[0]?.id === output.id;
                 return (
@@ -462,7 +473,11 @@ function PacketWorkspace({
                         ? (grid?.images.map(image => image.imageUrl) || selected.anchor.imageUrls)
                           .slice(0, 9)
                           .map((url, imageIndex) => <img key={`${url}-${imageIndex}`} src={url} alt="" />)
-                        : <img src={media?.imageUrl} alt="" />}
+                        : output.kind === 'individual'
+                          ? <img src={media?.imageUrl} alt="" />
+                          : sourceCard?.imageUrl
+                            ? <img src={sourceCard.imageUrl} alt="" />
+                            : <span className={styles.outputPlaceholder}>{output.kind === 'meme' ? 'Meme' : 'Quote'}</span>}
                     </div>
                     <label>
                       <input
@@ -473,7 +488,15 @@ function PacketWorkspace({
                       />
                       <span>
                         <strong>{output.label}</strong>
-                        <small>{output.kind === 'grid' ? 'Full rendered grid PNG' : 'Selected lightbox image PNG'}</small>
+                        <small>
+                          {output.kind === 'grid'
+                            ? 'Full rendered grid PNG'
+                            : output.kind === 'individual'
+                              ? 'Selected lightbox image PNG'
+                              : output.kind === 'meme'
+                                ? 'Rendered Middle-earth meme PNG'
+                                : 'Rendered quote spellbook PNG'}
+                        </small>
                       </span>
                     </label>
                     {primary && <span className={styles.primaryLabel}>Primary preview</span>}

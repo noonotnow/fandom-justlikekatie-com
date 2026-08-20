@@ -5,6 +5,7 @@ import {
   createPublicLookup,
   RENDER_HEIGHT,
   RENDER_WIDTH,
+  fetchSafeImage,
   renderCanonicalOutput,
   validatedProxyTarget,
 } from "./canonical-render.js";
@@ -209,4 +210,239 @@ test("reports malformed and missing persisted proxy targets without fetching", a
     );
     assert.equal(fetchCalls, 0);
   }
+});
+
+// ── Middle-earth tests ────────────────────────────────────────────────────────
+
+const ME_REQUEST_URL = "https://fandom.justlikekatie.com/api/create-handoff";
+
+function mePacket(overrides = {}) {
+  return {
+    actor: { name: "Middle-earth", nameEn: "Middle-earth" },
+    vibe: { label: "Meme Forge", labelEn: "Meme Forge", emoji: "⚔️" },
+    provenance: { generatedAt: "2026-08-10T12:00:00.000Z", gridId: "middle-earth-meme-abc123", sourceRoute: "/memeforge/middle-earth" },
+    sourceCards: [{
+      id: "src-abc123",
+      title: "Frodo Baggins",
+      imageUrl: "/.netlify/functions/image-proxy?url=https%3A%2F%2Fimages.example%2Ffrodo.jpg",
+      resultId: "img-frodo-1",
+    }],
+    middleEarthContent: {
+      "meme-abc123": {
+        kind: "meme",
+        title: "Even the smallest person",
+        text: "Even the smallest person can change the course of the future.",
+        tone: "inspirational",
+        layout: "centered",
+      },
+    },
+    ...overrides,
+  };
+}
+
+function meOutput(overrides = {}) {
+  return {
+    id: "meme-abc123",
+    kind: "meme",
+    sourceId: "src-abc123",
+    label: "Meme: Even the smallest person",
+    included: true,
+    addedAt: "2026-08-10T12:00:00.000Z",
+    textFingerprint: "meme\x00Even the smallest person\x00Even the smallest person can change the course of the future.\x00\x00inspirational\x00centered",
+    ...overrides,
+  };
+}
+
+test("renders an image-backed meme as a 1080x1350 PNG using the proxied source visual", async () => {
+  const source = await sharp({
+    create: { width: 800, height: 600, channels: 3, background: "#3a2a1a" },
+  }).jpeg().toBuffer();
+
+  const fetchedTargets = [];
+  const bytes = await renderCanonicalOutput(
+    mePacket(),
+    meOutput(),
+    {
+      requestUrl: ME_REQUEST_URL,
+      fetchSourceImpl: async target => {
+        fetchedTargets.push(target);
+        return source;
+      },
+    },
+  );
+
+  const metadata = await sharp(bytes).metadata();
+  assert.equal(metadata.format, "png");
+  assert.equal(metadata.width, RENDER_WIDTH);
+  assert.equal(metadata.height, RENDER_HEIGHT);
+  // Must have fetched via the proxy, never directly
+  assert.deepEqual(fetchedTargets, ["https://images.example/frodo.jpg"]);
+});
+
+test("renders a typography-only spellbook as a 1080x1350 PNG without any image fetch", async () => {
+  const typoPkt = mePacket({
+    sourceCards: [{
+      id: "src-abc123",
+      title: "The Fellowship",
+      imageUrl: "",    // empty — triggers typography-only path
+      resultId: "middle-earth:spellbook:src-abc123",
+    }],
+    middleEarthContent: {
+      "spellbook-abc123": {
+        kind: "spellbook",
+        title: "Not all those who wander are lost",
+        text: "All that is gold does not glitter, not all those who wander are lost; the old that is strong does not wither, deep roots are not reached by the frost.",
+        secondaryText: "J.R.R. Tolkien · The Fellowship of the Ring",
+        tone: "reflective",
+        layout: "quote",
+      },
+    },
+  });
+  const spellOutput = {
+    id: "spellbook-abc123",
+    kind: "spellbook",
+    sourceId: "src-abc123",
+    label: "Spellbook: Not all those who wander are lost",
+    included: true,
+    addedAt: "2026-08-10T12:00:00.000Z",
+  };
+
+  let fetchCalls = 0;
+  const bytes = await renderCanonicalOutput(
+    typoPkt,
+    spellOutput,
+    {
+      requestUrl: ME_REQUEST_URL,
+      fetchSourceImpl: async () => {
+        fetchCalls += 1;
+        return Buffer.alloc(0);
+      },
+    },
+  );
+
+  const metadata = await sharp(bytes).metadata();
+  assert.equal(metadata.format, "png");
+  assert.equal(metadata.width, RENDER_WIDTH);
+  assert.equal(metadata.height, RENDER_HEIGHT);
+  assert.equal(fetchCalls, 0, "typography-only path must not fetch any image");
+});
+
+test("Type specimen stays typography-only even when the packet retains a selected source asset", async () => {
+  const packetWithEvidence = mePacket({
+    middleEarthContent: {
+      "spellbook-abc123": {
+        kind: "spellbook",
+        title: "A note in the margin",
+        text: "Courage is found in unlikely places.",
+        secondaryText: "Field note",
+        tone: "Field note",
+        layout: "Type specimen",
+      },
+    },
+  });
+  let fetchCalls = 0;
+  const bytes = await renderCanonicalOutput(
+    packetWithEvidence,
+    meOutput({ id: "spellbook-abc123", kind: "spellbook" }),
+    {
+      requestUrl: ME_REQUEST_URL,
+      fetchSourceImpl: async () => {
+        fetchCalls += 1;
+        return Buffer.alloc(0);
+      },
+    },
+  );
+  const metadata = await sharp(bytes).metadata();
+  assert.equal(fetchCalls, 0);
+  assert.equal(metadata.width, RENDER_WIDTH);
+  assert.equal(metadata.height, RENDER_HEIGHT);
+});
+
+test("safe image fetch rejects a redirect from a public URL to a private target before a second request", async () => {
+  const requested = [];
+  await assert.rejects(
+    fetchSafeImage(
+      "https://images.example/public.jpg",
+      0,
+      async target => {
+        requested.push(target);
+        return {
+          status: 302,
+          headers: { location: "https://127.0.0.1/internal" },
+          body: Buffer.alloc(0),
+        };
+      },
+    ),
+    /public HTTPS hostname/,
+  );
+  assert.deepEqual(requested, ["https://images.example/public.jpg"]);
+});
+
+test("rejects a meme/spellbook output when middleEarthContent is missing or mismatched", async () => {
+  const source = await sharp({
+    create: { width: 400, height: 400, channels: 3, background: "#111" },
+  }).jpeg().toBuffer();
+  const fetchImpl = async () => source;
+
+  // Missing middleEarthContent entirely
+  const noContent = mePacket({ middleEarthContent: undefined });
+  await assert.rejects(
+    renderCanonicalOutput(noContent, meOutput(), { requestUrl: ME_REQUEST_URL, fetchSourceImpl: fetchImpl }),
+    /missing its structured text content/,
+  );
+
+  // middleEarthContent present but keyed for a different output id
+  const wrongKey = mePacket({ middleEarthContent: { "other-output-id": mePacket().middleEarthContent["meme-abc123"] } });
+  await assert.rejects(
+    renderCanonicalOutput(wrongKey, meOutput(), { requestUrl: ME_REQUEST_URL, fetchSourceImpl: fetchImpl }),
+    /missing its structured text content/,
+  );
+});
+
+test("rejects a Middle-earth output whose source imageUrl bypasses the same-origin proxy", async () => {
+  const directUrl = mePacket({
+    sourceCards: [{
+      id: "src-abc123",
+      title: "Frodo",
+      // Direct external URL — not via the proxy
+      imageUrl: "https://attacker.example/image.jpg",
+      resultId: "img-1",
+    }],
+  });
+  let fetchCalls = 0;
+  await assert.rejects(
+    renderCanonicalOutput(
+      directUrl,
+      meOutput(),
+      {
+        requestUrl: ME_REQUEST_URL,
+        fetchSourceImpl: async () => {
+          fetchCalls += 1;
+          return Buffer.alloc(0);
+        },
+      },
+    ),
+    /same-origin image proxy/,
+  );
+  assert.equal(fetchCalls, 0);
+});
+
+test("renders image-backed and typography-only Middle-earth outputs deterministically", async () => {
+  const source = await sharp({
+    create: { width: 600, height: 800, channels: 3, background: "#2a1a0a" },
+  }).jpeg().toBuffer();
+  const fetchImpl = async () => source;
+
+  // Image-backed determinism
+  const first = await renderCanonicalOutput(mePacket(), meOutput(), { requestUrl: ME_REQUEST_URL, fetchSourceImpl: fetchImpl });
+  const second = await renderCanonicalOutput(mePacket(), meOutput(), { requestUrl: ME_REQUEST_URL, fetchSourceImpl: fetchImpl });
+  assert.deepEqual(first, second, "image-backed render must be deterministic");
+
+  // Typography-only determinism
+  const typoPkt = mePacket({
+    sourceCards: [{ id: "src-abc123", title: "T", imageUrl: "", resultId: "r" }],
+  });
+  const third = await renderCanonicalOutput(typoPkt, meOutput(), { requestUrl: ME_REQUEST_URL, fetchSourceImpl: fetchImpl });
+  const fourth = await renderCanonicalOutput(typoPkt, meOutput(), { requestUrl: ME_REQUEST_URL, fetchSourceImpl: fetchImpl });
+  assert.deepEqual(third, fourth, "typography-only render must be deterministic");
 });

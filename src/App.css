@@ -4,6 +4,25 @@
   padding: 2rem;
 }
 
+.fandom-home-link {
+  align-self: center;
+  margin-right: auto;
+  color: #9b762e;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.dark .fandom-home-link {
+  color: #e0c171;
+}
+
+.fandom-home-link:hover {
+  text-decoration: underline;
+}
+
 h1 {
   font-size: 2rem;
   margin-bottom: 0.5rem;

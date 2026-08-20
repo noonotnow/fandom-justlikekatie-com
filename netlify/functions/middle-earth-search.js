@@ -7,26 +7,41 @@ const MAX_QUERY_LENGTH = 200;
 // Middle-earth / Tolkien keyword.  Conservative: only appended when the query
 // is short enough that the suffix adds genuine signal rather than noise, and
 // only when none of the known landmark terms already appear.
-const MIDDLE_EARTH_KEYWORDS = [
+//
+// Keywords are split into two groups:
+//   LONG_KEYWORDS  — phrases / names long enough that a substring match is safe
+//                    (≥5 chars; "legolas" in "legolas poster" is unambiguous).
+//   SHORT_KEYWORDS — short tokens (≤4 chars) that could appear as substrings in
+//                    common English words ("elf" in "shelf", "orc" in "orca",
+//                    "ent" in "ancient").  These are matched as whole words only.
+const LONG_KEYWORDS = [
   "middle-earth", "middle earth", "tolkien", "lotr", "lord of the rings",
   "hobbit", "silmarillion", "shire", "mordor", "gondor", "rohan", "rivendell",
-  "mirkwood", "erebor", "amon", "arda", "beleriand", "numenor", "númenor",
-  "isengard", "minas", "helm's deep", "helms deep", "fangorn", "lothlórien",
-  "lothlórien", "lórien", "lorien", "khazad", "moria", "prancing pony",
-  "anduin", "misty mountains", "grey havens", "bag end",
-  // Key races / groups
-  "hobbit", "wizard", "elf", "dwarf", "orc", "uruk", "nazgul", "ringwraith",
-  "balrog", "ent", "valar", "maiar", "istari", "dunedain", "númenórean",
-  // Prominent characters
+  "mirkwood", "erebor", "beleriand", "numenor", "númenor", "isengard",
+  "helm's deep", "helms deep", "fangorn", "lothlórien", "lórien", "lorien",
+  "khazad", "moria", "prancing pony", "anduin", "misty mountains",
+  "grey havens", "bag end", "wizard", "nazgul", "ringwraith", "balrog",
+  "valar", "maiar", "istari", "dunedain", "númenórean",
   "frodo", "gandalf", "aragorn", "legolas", "gimli", "boromir", "samwise",
   "sauron", "saruman", "galadriel", "elrond", "bilbo", "thorin", "smaug",
   "gollum", "faramir", "eowyn", "théoden", "treebeard", "celeborn",
-  "radagast", "glorfindel", "arwen", "pippin", "merry",
+  "radagast", "glorfindel", "arwen", "pippin", "merry", "amon", "arda",
+  "minas",
 ];
+
+// Short tokens matched as whole words (word-boundary regex) to avoid substring
+// false-positives: "elf" ≠ "shelf", "orc" ≠ "orca", "ent" ≠ "ancient".
+const SHORT_KEYWORDS = ["elf", "elves", "elvish", "orc", "orcs", "ent", "ents", "dwarf", "dwarves"];
+
+const SHORT_KEYWORD_PATTERNS = SHORT_KEYWORDS.map(
+  (kw) => new RegExp(`(?<![a-z])${kw}(?![a-z])`, "i"),
+);
 
 function needsContextSuffix(q) {
   const lower = q.toLowerCase();
-  return !MIDDLE_EARTH_KEYWORDS.some((kw) => lower.includes(kw));
+  if (LONG_KEYWORDS.some((kw) => lower.includes(kw))) return false;
+  if (SHORT_KEYWORD_PATTERNS.some((re) => re.test(q))) return false;
+  return true;
 }
 
 // Build the enriched search query sent to the provider cascade.
@@ -69,11 +84,22 @@ function errorResponse(statusCode, query, message) {
 function normalizeItem(item, providerName) {
   return {
     title: item.title || "",
-    thumbnail: item.thumbnail || "",
+    thumbnail: proxyImage(item.thumbnail || ""),
     link: item.link || "",
     source: item.source || "",
     provider: providerName || item.provider || "",
   };
+}
+
+function proxyImage(value) {
+  if (!value) return "";
+  if (
+    value.startsWith("/.netlify/functions/image-proxy?url=")
+    || value.startsWith("/api/image-proxy?url=")
+  ) {
+    return value;
+  }
+  return `/.netlify/functions/image-proxy?url=${encodeURIComponent(value)}`;
 }
 
 export async function handler(event) {
