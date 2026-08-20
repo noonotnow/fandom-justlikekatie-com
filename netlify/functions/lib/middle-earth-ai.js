@@ -485,6 +485,7 @@ export function createMiddleEarthAIHandler({
   // For production this is constructed in the entry-point; for tests it's injected.
   makeConnectorClient,
   now = () => Date.now(),
+  logger = console,
 }) {
   return async function middleEarthAI(req, context) {
     try {
@@ -536,6 +537,7 @@ export function createMiddleEarthAIHandler({
       if (!model) {
         return json(503, { error: "AI service is temporarily unavailable." });
       }
+      logger.info?.("[middle-earth-ai] model discovered", { model });
 
       let result;
       if (validated.mode === "visual") {
@@ -548,6 +550,10 @@ export function createMiddleEarthAIHandler({
         result = normalizeRednoteOutput(raw, model);
       }
 
+      logger.info?.("[middle-earth-ai] completion succeeded", {
+        mode: validated.mode,
+        model,
+      });
       return json(200, { mode: validated.mode, result });
     } catch (err) {
       if (err instanceof AppError) {
