@@ -1,0 +1,167 @@
+soooo not gonna lie its more like trying to make a joke with the auto generator prompt and then it’s super long and doesn’t come close to fitting on the card as a quote, since its not even really a meme, and doesnt have the 2 line format lol
+8:34 AM
+Yeah — this is the exact failure mode of “AI thoughtfully explains the bit” instead of making a meme.
+What it generated is basically:
+a mini scene synopsis + whimsical prose + caption paragraph
+But a reaction card needs:
+setup line + punchline line
+The model is currently treating “Sam and Frodo funny” as an invitation to invent lore comedy, when it should translate it into a compact reusable reaction format.
+The fix
+MemeForge needs a stricter output contract before visual generation.
+Right now it seems to be generating:
+Scene:
+Frodo and Sam in a sun-dappled Shire garden where...
+​
+and then card copy like:
+I told you them rabbits had it in for us, Mr. Frodo.
+Still... least the second breakfast's had a proper send-off.
+​
+That is too long, too scene-specific, and not reaction-image-shaped.
+It should instead generate something like:
+Top:
+ME: I CAN HANDLE THIS
+
+Bottom:
+SAM: AND YET I HAVE PACKED SNACKS
+​
+or:
+Top:
+WHEN YOUR FRIEND SAYS “I’M FINE”
+
+Bottom:
+SAMWISE GAMGEE HAS ENTERED THE CHAT
+​
+or:
+Top:
+FRODO: I CAN’T DO THIS, SAM
+
+Bottom:
+SAM: CORRECT. WE’RE DOING IT TOGETHER.
+​
+That’s the shape.
+New rule: card text must be meme-first
+For the generated card, I’d enforce:
+Required card text format
+Line 1: setup / situation
+Line 2: punchline / reaction
+​
+Hard limits
+Line 1: max ~55 characters
+Line 2: max ~65 characters
+Optional tiny footer: max ~45 characters
+No scene summaries on the card
+No paragraph text
+No “where X has Y and then Z” prose
+No invented lore vignette unless the user asks for story mode
+Basically:
+If it cannot be understood as a reaction image in 1 second, it failed.
+The “Translated as” section can be longer — not the card
+There are two different text layers:
+1. Translation metadata
+This can say:
+Translated as: Sam/Frodo friendship support, shared burden, one person refusing to let the other quit.
+Fine. This is explanatory UI.
+2. Card copy
+This must be short:
+I CAN’T CARRY IT FOR YOU
+BUT I CAN BRING SNACKS
+The model is currently leaking the metadata/story layer into the card layer. That’s the bug.
+I’d add format presets
+Instead of vague “layout,” use meme-native formats:
+Reaction Card
+WHEN [situation]
+[character reaction]
+​
+Example:
+WHEN THE GROUP PROJECT BECOMES A QUEST
+
+SAM HAS ALREADY PACKED FOR THREE DAYS
+​
+Dialogue Card
+FRODO: [setup]
+SAM: [punchline]
+​
+Example:
+FRODO: I CAN’T DO THIS, SAM
+
+SAM: GOOD THING IT’S OUR PROBLEM NOW
+​
+Proverb Card
+ONE DOES NOT SIMPLY
+[modern situation]
+​
+Example:
+ONE DOES NOT SIMPLY
+
+ANSWER ONE EMAIL ON A FRIDAY
+​
+Boundary Card
+YOU SHALL NOT PASS
+
+[thing being blocked]
+​
+Example:
+YOU SHALL NOT PASS
+
+INTO MY WEEKEND
+​
+Internal Debate Card
+ME: [responsible choice]
+ALSO ME: [chaotic choice]
+​
+Example:
+ME: WE SHOULD SLEEP
+
+ALSO ME: BUT SECOND BREAKFAST LORE
+​
+These are much more useful than “Classic top / bottom” as a generator instruction.
+For “Sam and Frodo funny,” better outputs
+Instead of the rabbit garden novella, generate candidates like:
+Option 1
+FRODO: I CAN’T DO THIS, SAM
+
+SAM: CORRECT. WE’RE DOING IT TOGETHER.
+​
+Option 2
+WHEN YOU SAY “I’M FINE”
+
+BUT YOUR SAMWISE FRIEND HEARD THE LIE
+​
+Option 3
+ME: I’LL JUST HANDLE IT ALONE
+
+SAM, ALREADY PACKING SNACKS: NO.
+​
+Option 4
+THE TASK: IMPOSSIBLE
+
+SAM: HAVE WE TRIED LOYALTY AND POTATOES?
+​
+Those are memes. Short, readable, reusable.
+Prompt contract I’d give Replit
+Something like:
+Update MemeForge generation so the visual card copy is always compact meme/reaction-card text, not a scene synopsis. The model may generate a longer “Translated as” explanation and visual direction, but the primaryText / secondaryText used on-card must follow a two-line meme format with strict character limits. Add format presets like Reaction Card, Dialogue Card, Boundary Card, Internal Debate, and Proverb Card. Reject or regenerate any on-card copy that exceeds the card limits.
+Schema change I’d want
+Instead of:
+primaryText: string
+secondaryText: string
+​
+I’d prefer:
+cardText: {
+  format: "reaction" | "dialogue" | "proverb" | "boundary" | "internal_debate";
+  line1: string;
+  line2: string;
+  footer?: string;
+}
+​
+Then the renderer can guarantee layout.
+If they need to keep existing fields:
+primaryText = `${line1}\n${line2}`
+secondaryText = footer
+​
+But the generator should reason in lines, not paragraphs.
+The design rule
+The card should pass the screenshot test:
+Can I read it instantly from the PDF preview without squinting or parsing lore fanfic?
+If no, it’s not a MemeForge card yet.
+Right now it’s making charming Hobbiton prose soup. Cute soup. Not a meme.
