@@ -605,6 +605,7 @@ test("visual prompt includes character, creative grammar, tone, layout, and guid
   assert.ok(capturedPrompt.includes("Tender"), "prompt must include tone");
   assert.ok(capturedPrompt.includes("Editorial caption"), "prompt must include layout");
   assert.ok(capturedPrompt.includes("The quiet strength before battle"), "prompt must include guidance");
+  assert.ok(capturedPrompt.includes("prefer Classic top / bottom"), "prompt must keep meme-native framing as the default for image-backed reaction cards");
 });
 
 test("translation prompt treats a vague meta prompt as content and includes explicit steering", async () => {
@@ -1019,6 +1020,30 @@ test("visual mode repairs inspirational Samwise copy into a supportive contradic
   assert.match(firstPrompt, /MY SAMWISE FRIEND: INCORRECT/i);
   assert.match(firstPrompt, /supportive contradiction/i);
   assert.match(repairPrompt, /inspirational poster copy/i);
+});
+
+test("visual mode repairs an earnest footer instead of putting a tribute on a reaction card", async () => {
+  const earnestFooter = {
+    ...VALID_VISUAL_RESPONSE,
+    cardText: {
+      ...VALID_VISUAL_RESPONSE.cardText,
+      footer: "quiet support, steady as they come",
+    },
+  };
+  const connector = makeConnector({ chatResponses: [earnestFooter, VALID_VISUAL_RESPONSE] });
+  const handler = makeHandler({ connector });
+  const res = await handler(makeRequest({
+    ...VISUAL_BODY,
+    memeFlavor: "Samwise Loyalty",
+  }), {});
+  assert.equal(res.status, 200);
+  const chats = connector.calls.filter(c => c.path === "/v1/chat/completions");
+  assert.equal(chats.length, 2);
+  const firstPrompt = JSON.parse(chats[0].options.body).messages[0].content;
+  const repairPrompt = JSON.parse(chats[1].options.body).messages[0].content;
+  assert.match(firstPrompt, /footer should normally be ""/i);
+  assert.match(firstPrompt, /emergency lembas protocol/i);
+  assert.match(repairPrompt, /commemorative footer/i);
 });
 
 test("translation gives Auto the full prototype catalog for a vague Sam and Frodo prompt", async () => {

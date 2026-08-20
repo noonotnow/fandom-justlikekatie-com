@@ -171,8 +171,13 @@ test('the forge editor keeps reaction cards to a setup line, punchline line, and
   assert.match(source, /const isStructuredReaction = draft\.kind === "meme" && Boolean\(draft\.cardFormat\);/);
   assert.match(
     source,
-    /reactionLines\.forEach\(\(line, index\) => \{[\s\S]*?context\.fillRect\(80, y - fittedSize - 18, 920, fittedLineHeight \+ 12\);[\s\S]*?context\.fillText\(line\.toUpperCase\(\), 108, y\);/,
-    'export must retain both lines as high-contrast reaction-meme blocks',
+    /const isClassicReactionFrame = isStructuredReaction && draft\.layout === "Classic top \/ bottom";[\s\S]*?drawClassicReactionFrame\(context, draft, image\);/,
+    'export must route default reaction cards through the dedicated meme-frame renderer',
+  );
+  assert.match(
+    source,
+    /const reactionStillFrame = \{ x: 54, y: 364, width: 972, height: 548 \};[\s\S]*?drawTextBand\(draft\.text \|\| "YOUR SETUP BELONGS HERE\.", 26, 338\);[\s\S]*?drawTextBand\(draft\.secondaryText \|\| "YOUR REACTION BELONGS HERE\.", 912, 412\);/,
+    'export must reserve separate top, still, and bottom regions for reaction cards',
   );
   assert.match(source, /MEMEFORGE \/\/ \{\(cardFormat \|\| resolvedArtifactType \|\| "Reaction"\)\.toUpperCase\(\)\}/);
   assert.match(
@@ -182,5 +187,20 @@ test('the forge editor keeps reaction cards to a setup line, punchline line, and
   assert.match(
     source,
     /Two lines only: setup, then punchline\. Keep longer interpretation in “Translated as\.”/,
+  );
+});
+
+test('every reaction-card layout keeps setup and punchline at one shared type scale', async () => {
+  const css = await readFile(
+    new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.module.css', import.meta.url),
+    'utf8',
+  );
+  assert.match(css, /\.previewCopy strong,\.previewCopy em \{[\s\S]*?font:700 clamp\(18px,7\.5cqi,29px\)/);
+  assert.doesNotMatch(css, /--card-copy-length/);
+  assert.doesNotMatch(css, /Tiny confession"\] \.previewCopy (?:strong|em)[\s\S]*?font-size/);
+  assert.match(
+    css,
+    /\.preview\[data-layout="Classic top \/ bottom"\] \.previewStillFrame \{[\s\S]*?inset:28% 7% 29%[\s\S]*?\.preview\[data-layout="Classic top \/ bottom"\] \.previewLines \{[\s\S]*?grid-template-rows:28% 43% 29%/,
+    'the default preview must reserve top/bottom text bands around a dedicated reaction-still frame',
   );
 });

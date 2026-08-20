@@ -200,9 +200,12 @@ function buildVisualPrompt({ moment, character, memeFlavor, aesthetic, artifactT
     `The two visible lines must create a turn: setup, then contradiction, escalation, refusal, or inconvenient truth. If either line could sit on an inspirational poster, discard it and write the joke instead.`,
     `Choose ONE card format: ${MEME_CARD_FORMATS.join(" | ")}.`,
     `The visible card must be exactly two short lines: setup on line1 and punchline/reaction on line2.`,
+    `Give line1 and line2 equal joke weight: neither is metadata, a headline, or a solemn caption.`,
+    `For an image-backed reaction card, prefer Classic top / bottom: the renderer gives setup and punchline their own text bands around a clear landscape reaction still. Editorial caption and Tiny confession are optional poster-like treatments, not the default reaction-meme choice.`,
     `Line 1 must be at most ${MAX_CARD_LINE_ONE_LEN} characters and ${MAX_CARD_WORDS} words.`,
     `Line 2 must be at most ${MAX_CARD_LINE_TWO_LEN} characters and ${MAX_CARD_WORDS} words.`,
-    `The optional footer must be at most ${MAX_CARD_FOOTER_LEN} characters.`,
+    `The footer should normally be "". Use it only for a tiny deadpan third beat that makes the joke sharper (for example, “emergency lembas protocol”), never as a virtue label or relationship summary.`,
+    `Never use commemorative, memorial, tribute, heroic-sacrifice, or earnest-support language in the footer.`,
     `Do not put a scene summary, paragraph, invented garden vignette, or explanation in cardText.`,
     `Use these shapes: Dialogue Card = speaker setup / speaker punchline; Reaction Card = situation / reaction; Proverb Card = solemn setup / mundane twist; Boundary Card = hard boundary / blocked thing; Internal Debate Card = ME: responsible thought / ALSO ME: chaotic or honest reaction.`,
     `The longer interpretation belongs only in translation metadata.`,
@@ -537,6 +540,9 @@ function normalizeCardText(value, memeFlavor) {
     throw new AppError("AI returned scene prose instead of a reaction card.", 502);
   }
   const combinedCopy = `${line1} ${line2}`;
+  if (footer && /\b(?:quiet\s+support|steady\s+as|loyal\s+friend|true\s+courage|lasting\s+devotion|in\s+honou?r|heroic\s+sacrifice|tribute|commemorative|memorial|inspir(?:ation|ational)|bravery)\b/iu.test(footer)) {
+    throw new AppError("AI returned a commemorative footer instead of a tiny joke-adjacent tag.", 502);
+  }
   if (/\b(?:believe\s+in\s+(?:yourself|you)|you\s+are\s+stronger|you\s+can\s+do\s+it|keep\s+going|never\s+give\s+up|always\s+(?:there|shows\s+up)|best\s+friend|true\s+friend|carr(?:y|ies|ied|ying)\s+(?:the\s+)?load)\b/iu.test(combinedCopy)) {
     throw new AppError("AI returned inspirational poster copy instead of a compact reaction-meme turn.", 502);
   }

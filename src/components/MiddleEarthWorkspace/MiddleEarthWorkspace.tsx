@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import {
   generateRednoteCopy,
   generateVisualObject,
@@ -113,10 +113,6 @@ const momentExamples = [
   "Defending my little treat with my life",
 ];
 
-function cardCopyStyle(value: string): CSSProperties & Record<"--card-copy-length", number> {
-  return { "--card-copy-length": Math.max([...value].length, 1) };
-}
-
 function makeAsset(result: SearchResponse["results"][number], query: string, index: number): MiddleEarthAsset {
   return {
     id: `${query}-${index}-${result.link}`,
@@ -144,6 +140,97 @@ function canLoadReactionImage(url: string, timeoutMs = 4000): Promise<boolean> {
     image.onerror = () => finish(false);
     image.src = url;
   });
+}
+
+function drawCanvasImageCover(
+  context: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): void {
+  const ratio = Math.max(width / image.width, height / image.height);
+  const renderedWidth = image.width * ratio;
+  const renderedHeight = image.height * ratio;
+  context.drawImage(
+    image,
+    x + (width - renderedWidth) / 2,
+    y + (height - renderedHeight) / 2,
+    renderedWidth,
+    renderedHeight,
+  );
+}
+
+function downloadCanvasPng(canvas: HTMLCanvasElement, title: string): void {
+  const link = document.createElement("a");
+  link.download = `${title || "middle-earth-packet"}.png`.replace(/[^a-z0-9-_]+/gi, "-");
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
+function drawClassicReactionFrame(
+  context: CanvasRenderingContext2D,
+  draft: MiddleEarthDraft,
+  image: HTMLImageElement | null,
+): void {
+  const reactionStillFrame = { x: 54, y: 364, width: 972, height: 548 };
+  context.fillStyle = "#f4eee2";
+  context.fillRect(0, 0, 1080, 1350);
+  context.fillStyle = "#193b3b";
+  context.fillRect(0, 0, 1080, 26);
+  context.fillStyle = "#dfb65b";
+  context.fillRect(0, 1324, 1080, 26);
+
+  context.fillStyle = "#193b3b";
+  context.fillRect(
+    reactionStillFrame.x,
+    reactionStillFrame.y,
+    reactionStillFrame.width,
+    reactionStillFrame.height,
+  );
+  if (image) {
+    drawCanvasImageCover(
+      context,
+      image,
+      reactionStillFrame.x + 6,
+      reactionStillFrame.y + 6,
+      reactionStillFrame.width - 12,
+      reactionStillFrame.height - 12,
+    );
+  }
+
+  const drawTextBand = (copy: string, y: number, height: number) => {
+    const fontSize = 64;
+    const lineHeight = 72;
+    context.fillStyle = "#193b3b";
+    context.textAlign = "center";
+    context.font = `700 ${fontSize}px Arial`;
+    const lines = wrapCanvasText(context, copy.toUpperCase(), 880).slice(0, 2);
+    const blockHeight = lines.length * lineHeight;
+    const firstBaseline = y + (height - blockHeight) / 2 + fontSize;
+    lines.forEach((line, index) => {
+      context.fillText(line, 540, firstBaseline + index * lineHeight);
+    });
+  };
+
+  context.fillStyle = "#a55439";
+  context.textAlign = "center";
+  context.font = "600 18px monospace";
+  context.fillText("MEMEFORGE // REACTION", 540, 68);
+  drawTextBand(draft.text || "YOUR SETUP BELONGS HERE.", 26, 338);
+  drawTextBand(draft.secondaryText || "YOUR REACTION BELONGS HERE.", 912, 412);
+
+  if (draft.cardFooter) {
+    context.fillStyle = "#a55439";
+    context.textAlign = "center";
+    context.font = "500 17px monospace";
+    context.fillText(draft.cardFooter.toUpperCase().slice(0, 54), 540, 1284);
+  }
+  context.fillStyle = "#193b3b";
+  context.textAlign = "center";
+  context.font = "500 16px monospace";
+  context.fillText("fandom.justlikekatie.com/memeforge/middle-earth", 540, 1342);
 }
 
 export async function exportMiddleEarthPng(
@@ -177,13 +264,17 @@ export async function exportMiddleEarthPng(
     throw new Error("The selected image could not be loaded for export. Choose another record or use typography-only.");
   }
   const hasImage = Boolean(image) && draft.layout !== "Type specimen";
+  const isStructuredReaction = draft.kind === "meme" && Boolean(draft.cardFormat);
+  const isClassicReactionFrame = isStructuredReaction && draft.layout === "Classic top / bottom";
+  if (isClassicReactionFrame) {
+    drawClassicReactionFrame(context, draft, image);
+    downloadCanvasPng(canvas, draft.title);
+    return;
+  }
   if (hasImage && image) {
-    const ratio = Math.max(1080 / image.width, 1350 / image.height);
-    const width = image.width * ratio;
-    const height = image.height * ratio;
     context.save();
     context.globalAlpha = 0.72;
-    context.drawImage(image, (1080 - width) / 2, (1350 - height) / 2, width, height);
+    drawCanvasImageCover(context, image, 0, 0, 1080, 1350);
     context.restore();
   }
   context.fillStyle = hasImage ? "rgba(8,18,19,.22)" : "#a55439";
@@ -221,23 +312,28 @@ export async function exportMiddleEarthPng(
           : { x: 108, y: 650, width: 864, size: 66, lineHeight: 78, maxLines: 7, align: "left" as CanvasTextAlign };
   context.textAlign = layout.align;
   context.font = `700 ${layout.size}px Georgia`;
-  const isStructuredReaction = draft.kind === "meme" && Boolean(draft.cardFormat);
   const lines = isStructuredReaction
     ? [draft.text || "Your setup belongs here."]
     : wrapCanvasText(context, draft.text || "Your words belong here.", layout.width);
   if (isStructuredReaction) {
     const reactionLines = [lines[0], draft.secondaryText || "Your reaction belongs here."];
-    const widest = Math.max(...reactionLines.map((line) => context.measureText(line.toUpperCase()).width));
-    const fittedSize = Math.max(24, Math.floor(Math.min(70, layout.size) * Math.min(1, 840 / widest)));
-    const fittedLineHeight = fittedSize + 34;
-    context.font = `700 ${fittedSize}px Arial`;
-    reactionLines.forEach((line, index) => {
-      const y = 720 + index * fittedLineHeight;
+    const reactionFontSize = 58;
+    const reactionLineHeight = 66;
+    context.font = `700 ${reactionFontSize}px Arial`;
+    const reactionBlocks = reactionLines.map((line) => (
+      wrapCanvasText(context, line.toUpperCase(), 840).slice(0, 2)
+    ));
+    const drawReactionBlock = (block: string[], top: number) => {
+      const height = block.length * reactionLineHeight + 38;
       context.fillStyle = "rgba(8,18,19,.88)";
-      context.fillRect(80, y - fittedSize - 18, 920, fittedLineHeight + 12);
+      context.fillRect(80, top, 920, height);
       context.fillStyle = "#f8f3e8";
-      context.fillText(line.toUpperCase(), 108, y);
-    });
+      block.forEach((line, index) => {
+        context.fillText(line, 108, top + reactionFontSize + 10 + index * reactionLineHeight);
+      });
+    };
+    drawReactionBlock(reactionBlocks[0], 430);
+    drawReactionBlock(reactionBlocks[1], 860);
   } else {
     lines.slice(0, layout.maxLines).forEach((line, index) => {
       context.fillText(line, layout.x, layout.y + index * layout.lineHeight);
@@ -256,23 +352,22 @@ export async function exportMiddleEarthPng(
       context.fillText(line, layout.x, secondaryY + index * secondaryLineHeight);
     });
   }
-  context.fillStyle = "rgba(8,18,19,.82)";
-  context.fillRect(82, 1214, 700, 58);
-  context.fillStyle = "#d8cdb8";
   context.textAlign = "left";
   context.font = "500 17px monospace";
   const footerLabel = draft.cardFormat
     ? draft.cardFooter
     : [draft.memeFlavor, draft.aesthetic].filter(Boolean).join(" · ");
-  context.fillText((footerLabel || draft.title).toUpperCase().slice(0, 54), 108, 1252);
+  if (footerLabel) {
+    context.fillStyle = "rgba(8,18,19,.82)";
+    context.fillRect(82, 1214, 700, 58);
+    context.fillStyle = "#d8cdb8";
+    context.fillText(footerLabel.toUpperCase().slice(0, 54), 108, 1252);
+  }
   context.fillStyle = "#193b3b";
   context.textAlign = "center";
   context.font = "500 16px monospace";
   context.fillText("fandom.justlikekatie.com/memeforge/middle-earth", canvas.width / 2, canvas.height - 8);
-  const link = document.createElement("a");
-  link.download = `${draft.title || "middle-earth-packet"}.png`.replace(/[^a-z0-9-_]+/gi, "-");
-  link.href = canvas.toDataURL("image/png");
-  link.click();
+  downloadCanvasPng(canvas, draft.title);
 }
 
 function wrapCanvasText(context: CanvasRenderingContext2D, value: string, maxWidth: number): string[] {
@@ -891,13 +986,13 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           </>}
 
           <div className={styles.preview} data-layout={layout} ref={setPreviewNode} aria-label="Live 4 by 5 preview">
-            {selected && !previewImageFailed && <img src={selected.thumbnail} alt="" onError={() => setPreviewImageFailed(true)} />}
+            {selected && !previewImageFailed && <div className={styles.previewStillFrame}><img src={selected.thumbnail} alt="" onError={() => setPreviewImageFailed(true)} /></div>}
             <div className={styles.previewShade} />
               <div className={styles.previewCopy}>
                 <span>MEMEFORGE // {(cardFormat || resolvedArtifactType || "Reaction").toUpperCase()}</span>
                 <div className={styles.previewLines}>
-                  <strong style={cardCopyStyle(text || "Your setup belongs here.")}>{text || "Your setup belongs here."}</strong>
-                  {secondaryText && <em style={cardCopyStyle(secondaryText)}>{secondaryText}</em>}
+                  <strong>{text || "Your setup belongs here."}</strong>
+                  {secondaryText && <em>{secondaryText}</em>}
                 </div>
               </div>
             {title && <small>{title}</small>}

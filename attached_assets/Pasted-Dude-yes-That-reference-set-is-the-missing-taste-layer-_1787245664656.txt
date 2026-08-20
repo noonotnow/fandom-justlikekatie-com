@@ -1,0 +1,302 @@
+Dude yes. That reference set is the missing taste layer.
+
+What you’re pointing at is: **LOTR memes are not just “LOTR image + relatable caption.”** The good ones have a very specific comedy engine:
+
+> grand fantasy stakes + extremely petty/social/internet-brained reversal
+> 
+
+That is why the “Sam carries the load again” card failed. It understood the **virtue** of Samwise Loyalty, but not the **bit**.
+
+## The actual MemeForge comedy vocabulary
+
+The references you gave are much better because they teach the generator **how LOTR memes behave**.
+
+### 1. Severity inversion
+
+The joke is the mismatch between actual danger and emotional reaction.
+
+```
+ARAGORN: MORTALLY WOUNDED
+EVERYONE: WALK IT OFF
+
+PIPPIN: HAS A COLD
+THE FELLOWSHIP: THE AGE OF MEN IS OVER
+```
+
+Use for:
+
+- overreacting to minor problems
+- underreacting to major problems
+- “why am I like this” situations
+
+### 2. Intent reversal
+
+The joke flips the supposed motive.
+
+```
+FRODO: I’M HERE TO HELP
+
+GOLLUM: YOU’RE HERE TO STEAL FROM ME PERSONALLY
+```
+
+Use for:
+
+- defensive misunderstandings
+- “I am not being attacked, but I feel attacked”
+- someone interpreting kindness as threat
+
+### 3. Escalating repetition
+
+The joke keeps repeating the same claim with increasingly specific evidence.
+
+```
+ME: I DON’T TRUST HIM
+
+ALSO ME: THE CLOAK. THE PAUSE. THE VIBES. THE EYEBROWS.
+```
+
+Use for:
+
+- suspicion spirals
+- fandom evidence boards
+- overcommitted takes
+
+### 4. Ceremonial setup, petty punchline
+
+LOTR is extremely good at solemn ritual. The meme wins by collapsing that ceremony into a dumb tiny complaint.
+
+```
+YOU BOW TO NO ONE
+
+...EXCEPT PIPPIN. HE KNOWS WHAT HE DID.
+```
+
+Use for:
+
+- grand emotional setups
+- petty exceptions
+- “and one more thing” punchlines
+
+### 5. Literal misread / wordplay
+
+Classic dumb-smart fandom humor.
+
+```
+GALADRIEL: I BEAR NENYA
+
+ME: NENYA BUSINESS?
+```
+
+Use for:
+
+- name puns
+- fake lore misunderstandings
+- intentionally stupid punchlines
+
+### 6. Relationship-specific contradiction
+
+This is the Sam/Frodo problem. “Loyalty” alone is not funny. The specific relationship behavior is funny.
+
+```
+FRODO: I CAN’T DO THIS, SAM
+
+SAM: GREAT. WE’RE DOING IT TOGETHER.
+```
+
+Use for:
+
+- loyal friend as gentle enforcer
+- someone refusing your self-sacrifice
+- “I support you by not letting you be dramatic alone”
+
+### 7. Delighted fandom-lawyer energy
+
+This one is huge. It’s not just “lore explanation”; it’s the joy of being given a chance to deploy the receipts.
+
+```
+COMMENT: WHY DIDN’T THEY TAKE THE EAGLES?
+
+ME, OPENING APPENDIX C: ACTUALLY.
+```
+
+Use for:
+
+- plot-hole debates
+- overprepared explanations
+- “finally, my niche knowledge is useful”
+- fandom defense attorney mode
+
+## The key product update
+
+MemeForge should not only choose:
+
+```
+Meme Flavor + Character + Still
+```
+
+It should choose:
+
+```
+Comic Mechanism + Meme Flavor + Character Dynamic + Reaction Still
+```
+
+Because “Samwise Loyalty” is a theme.
+“Supportive contradiction” is the joke engine.
+
+That’s the shift.
+
+## Updated hierarchy
+
+Instead of:
+
+```
+Samwise Loyalty
+→ tender
+→ support card
+```
+
+It should be:
+
+```
+Samwise Loyalty
+→ relationship-specific contradiction
+→ “I’ll suffer alone” / “incorrect”
+→ intense Sam reaction still
+```
+
+Instead of:
+
+```
+Council of Elrond
+→ group discussion
+→ serious council image
+```
+
+It should be:
+
+```
+Council of Elrond
+→ ceremonial setup, petty punchline
+or escalating repetition
+→ “quick question” becomes a 14-person constitutional convention
+```
+
+## This should become generator guidance
+
+I’d tell Replit something like:
+
+> Add a MemeForge comedy-mechanism layer. Existing meme references should not be copied, but they should teach the generator reusable joke engines: severity inversion, intent reversal, escalating repetition, ceremonial setup/petty punchline, literal misread/wordplay, relationship-specific contradiction, and delighted fandom-lawyer correction. The generator should pick a comic mechanism before writing card text. “Meme Flavor” supplies the fandom world; “Comic Mechanism” supplies the laugh.
+> 
+
+That last sentence is the core:
+
+> **Meme Flavor supplies the world. Comic Mechanism supplies the laugh.**
+> 
+
+## Better examples for “Sam and Frodo funny”
+
+### Mechanism: relationship-specific contradiction
+
+```
+FRODO: I’LL JUST SUFFER QUIETLY
+
+SAM: INCORRECT.
+```
+
+### Mechanism: severity inversion
+
+```
+FRODO: I CARRIED THE RING
+
+SAM: AND YET YOU FORGOT SNACKS
+```
+
+### Mechanism: intent reversal
+
+```
+SAM: I’M TRYING TO HELP
+
+FRODO: WHY DOES IT FEEL LIKE A WELL-PACKED INTERVENTION
+```
+
+### Mechanism: escalating repetition
+
+```
+SAM: I PACKED LEMBAS
+
+ALSO SAM: AND ROPE. AND POTS. AND EMOTIONAL SUPPORT.
+```
+
+Those are much closer.
+
+## Better examples for “not wanting to go to work Friday”
+
+### Mechanism: severity inversion
+
+```
+ME: SURVIVED THE WHOLE WEEK
+
+ALSO ME: CAN’T FACE ONE EMAIL
+```
+
+### Mechanism: ceremonial setup, petty punchline
+
+```
+THE BEACONS ARE LIT
+
+UNFORTUNATELY IT’S JUST MY 9 AM
+```
+
+### Mechanism: One Does Not Simply / solemn overstatement
+
+```
+ONE DOES NOT SIMPLY
+
+CLOCK IN WITH WEEKEND IN SIGHT
+```
+
+### Mechanism: Mordor commute
+
+```
+THE ROAD GOES EVER ON
+
+REGRETTABLY, TO WORK
+```
+
+## Why this matters
+
+The current product has been improving in layers:
+
+```
+quote → two-line text → image-backed card
+```
+
+But now it needs:
+
+```
+comedy mechanism
+```
+
+Otherwise it can still produce beautiful, readable, image-backed unfunny cards. Which is arguably more tragic because now the poster has confidence.
+
+## My recommended next task
+
+**Task: Add MemeForge comic mechanisms.**
+
+Scope:
+
+- Add curated comic-mechanism taxonomy.
+- Attach default mechanisms to each Meme Flavor.
+- Let Auto select mechanism from prompt.
+- Include mechanism in backend generation prompt/schema.
+- Store mechanism as metadata.
+- Show it subtly in UI if useful.
+- Add tests for vague prompts:
+    - “Sam and Frodo funny” must choose relationship-specific contradiction or severity inversion, not tender tribute.
+    - “why didn’t they take the eagles” must choose delighted fandom-lawyer correction.
+    - “not wanting to work Friday” must choose severity inversion / solemn overstatement / Mordor commute.
+
+Acceptance criterion:
+
+> If the output only expresses a feeling, it fails. It must contain a comic turn.
+>

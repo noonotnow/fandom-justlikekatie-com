@@ -1,0 +1,154 @@
+Yes — exactly. The layout is still thinking **poster/card**, not **meme still**.
+
+Right now it’s doing:
+
+> portrait 4:5 quote-card composition
+image as atmospheric background
+text floated inside the middle/bottom
+> 
+
+But the reference format you’re describing is more like:
+
+> landscape reaction still
+text gets its own top/bottom bands or large overlay zones
+image remains readable as the reaction face/scene
+> 
+
+## The core layout problem
+
+A meme usually needs three things:
+
+1. **A recognizable reaction image**
+2. **A big readable setup line**
+3. **A big readable punchline line**
+
+The current portrait format squeezes all three into a vertical poster and makes the top line compete with the image. So the setup becomes tiny and the punchline becomes the only readable joke layer.
+
+That’s why it still feels quote-card-adjacent.
+
+## Better default format
+
+For MemeForge, the default card should probably be **landscape still inside a share frame**, not a full-bleed portrait poster.
+
+Something like:
+
+```
+[ TOP TEXT BAND ]
+WHEN FRODO FORGETS SECOND BREAKFAST
+
+[ LANDSCAPE REACTION STILL ]
+Sam's devastated face
+
+[ BOTTOM TEXT BAND ]
+SAM PACKS THE WHOLE SHIRE
+```
+
+Then if it needs to export 4:5 for Rednote, wrap that meme inside a 4:5 canvas:
+
+```
+┌────────────────────────┐
+│ WHEN FRODO FORGETS     │
+│ SECOND BREAKFAST       │
+├────────────────────────┤
+│                        │
+│   landscape still      │
+│                        │
+├────────────────────────┤
+│ SAM PACKS THE WHOLE    │
+│ SHIRE                  │
+└────────────────────────┘
+```
+
+That preserves meme grammar while still producing a platform-friendly portrait asset.
+
+## Product rule
+
+I’d tell Replit:
+
+> Stop treating MemeForge exports as portrait quote cards with image backgrounds. Treat the selected LOTR still as a landscape reaction image, then compose meme text around it. The default renderer should reserve explicit text zones for setup and punchline so both lines get enough room and equal joke priority.
+> 
+
+## Layout options
+
+### 1. Classic meme frame — probably default
+
+- Top text band
+- Image/still
+- Bottom text band
+- Best for most reaction memes
+
+```
+TOP: setup
+CENTER: still
+BOTTOM: punchline
+```
+
+### 2. Subtitle overlay
+
+- Landscape still fills most of card
+- Setup at top overlay
+- Punchline as large subtitle-style bottom overlay
+- Good for cinematic stills
+
+### 3. Chat-reaction card
+
+- Still/gif frame on top
+- Two-line caption below
+- Good for group-chat sharing, less classic meme
+
+### 4. Poster card
+
+- Current style
+- Should be a non-default aesthetic option for “editorial” or “quote card,” not the MemeForge default.
+
+## The key renderer change
+
+The text should not be placed “somewhere aesthetically nice.” It needs **reserved real estate**.
+
+Hard rule:
+
+```
+Top line gets its own readable region.
+Punchline gets its own readable region.
+Image gets a fixed reaction frame.
+```
+
+No more:
+
+```
+Tiny setup floating over Sam’s forehead.
+```
+
+Which, while poetic, is not the assignment.
+
+## Acceptance test
+
+Use your current example:
+
+```
+WHEN FRODO FORGETS SECOND BREAKFAST
+
+SAM PACKS THE WHOLE SHIRE
+```
+
+Passing render:
+
+- Setup is large and immediately readable.
+- Punchline is equally readable.
+- Sam’s face remains recognizable.
+- The image reads like a reaction still, not a dimmed background texture.
+- The output can still fit 4:5 if needed.
+
+Failing render:
+
+- Setup is tiny.
+- Image is overly dark/blurred/full-bleed as ambiance.
+- Punchline is the only obvious text.
+- It looks like an inspirational quote poster or fantasy editorial card.
+
+## The next task wording
+
+> Add a meme-native layout renderer for MemeForge. Default image-backed cards should use a landscape reaction-still composition with reserved top and bottom text zones, wrapped in a platform-friendly export canvas if needed. Both setup and punchline must be large, readable, and visually equal. Keep the current portrait quote-card treatment only as an optional editorial layout, not the default reaction meme layout.
+> 
+
+That’s the missing visual grammar. The joke is getting closer; now the card needs to stop dressing like a tiny fantasy magazine cover.
