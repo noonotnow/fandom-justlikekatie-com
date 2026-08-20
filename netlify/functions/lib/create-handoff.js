@@ -24,6 +24,12 @@ const MAX_RESPONSE_BYTES = 256 * 1024;
 const DEFAULT_MEDIA_URL = "https://media.justlikekatie.com/v1/assets/images";
 const DEFAULT_CREATE_URL = "https://create.justlikekatie.com/api/integrations/fandom/projects";
 const DEFAULT_CREATE_APP_URL = "https://create.justlikekatie.com";
+const MIDDLE_EARTH_RENDER_CONTRACT = "fandom.middle-earth-output.v1";
+const MIDDLE_EARTH_RENDER_VERSION = 1;
+
+function isMiddleEarthKind(kind) {
+  return kind === "meme" || kind === "spellbook";
+}
 // Pre-PR8 handoffAttempt pointers were exactly this shape: no schemaVersion/artifactKey,
 // because the checkpointed-artifact retry pipeline (PR8) did not exist yet.
 const LEGACY_ATTEMPT_POINTER_KEYS = new Set([
@@ -295,6 +301,8 @@ function validatePacketForHandoff(packet, manifest) {
       output.id !== manifest.outputs[index].outputId
       || output.kind !== manifest.outputs[index].kind
       || output.sourceId !== manifest.outputs[index].sourceId
+      // For meme/spellbook outputs, verify that the textFingerprint matches the stored output
+      || (isMiddleEarthKind(output.kind) && output.textFingerprint !== manifest.outputs[index].textFingerprint)
     ))
   ) {
     throw new RequestError("Selected outputs do not match the current Idea Packet.", 409, "packet");
@@ -597,7 +605,7 @@ async function renderFiles(packet, outputs, { renderOutputImpl, requestUrl, rene
 async function registerMedia(file, packet, output, { env, fetchImpl, requestUrl }) {
   const sourceCards = output.kind === "grid"
     ? packet.sourceCards
-    : packet.sourceCards.filter(card => card.id === output.sourceId);
+    : packet.sourceCards.filter(card => card.id === output.sourceId || card.resultId === output.sourceId);
   const sourceUrl = absoluteHttpsUrl(
     sourceCards[0]?.sourceUrl || packet.provenance.sourceRoute,
     requestUrl,
@@ -656,7 +664,7 @@ async function registerMedia(file, packet, output, { env, fetchImpl, requestUrl 
 function buildMediaMetadata(packet, output, requestUrl) {
   const sourceCards = output.kind === "grid"
     ? packet.sourceCards
-    : packet.sourceCards.filter(card => card.id === output.sourceId);
+    : packet.sourceCards.filter(card => card.id === output.sourceId || card.resultId === output.sourceId);
   return {
     sourceType: "fandom-idea-packet-output",
     sourceUrl: absoluteHttpsUrl(
@@ -708,7 +716,7 @@ function buildCreateEnvelope({
   const sourceCards = packet.sourceCards.map(card => ({
     id: card.id,
     order: card.order,
-    imageUrl: absoluteHttpsUrl(card.imageUrl, requestUrl),
+    imageUrl: card.imageUrl ? absoluteHttpsUrl(card.imageUrl, requestUrl) : "",
     sourceUrl: absoluteHttpsUrl(card.sourceUrl, requestUrl),
     title: card.title,
     ...(card.creator ? { creator: card.creator } : {}),
@@ -727,38 +735,55 @@ function buildCreateEnvelope({
           .filter(card => selectedResultIds.has(card.resultId))
           .map(card => card.id)
         : sourceCards.map(card => card.id)
-      : [output.sourceId];
+      : packet.sourceCards
+          .filter(card => card.id === output.sourceId || card.resultId === output.sourceId)
+          .map(card => card.id);
+    const meKind = isMiddleEarthKind(output.kind);
+    const nameTag = output.kind === "grid"
+      ? "Idea Packet grid"
+      : meKind
+        ? `Middle-earth ${output.kind}`
+        : "Idea Packet image";
+    const sourceKind = output.kind === "grid" ? "grid" : meKind ? output.kind : "card";
     return {
       assetId: registration.descriptor.assetId,
       url: registration.descriptor.deliveryUrl,
       filename: files[position].filename,
-      nameTag: output.kind === "grid" ? "Idea Packet grid" : "Idea Packet image",
+      nameTag,
       mimeType: "image/png",
       role: position === 0 ? "cover" : "slide",
       position,
       sourceCardIds,
       provenance: {
         origin: "fandom-vibes",
-        sourceKind: output.kind === "grid" ? "grid" : "card",
+        sourceKind,
         sourceId: output.sourceId,
         packetId: packet.id,
         deliverableId: "idea-packet-main",
         generatedAt,
+        ...(meKind && output.textFingerprint ? { textFingerprint: output.textFingerprint } : {}),
       },
     };
   });
   const captionSeed = packet.captionSeeds.trim();
   const angles = splitLines(packet.outputAngles);
+  const allMiddleEarth = outputs.every(o => isMiddleEarthKind(o.kind));
+  const outputKind = attachments.length > 1
+    ? (allMiddleEarth ? "middle_earth_carousel" : "packet_carousel")
+    : outputs[0].kind === "grid"
+      ? "packet_combined_grid"
+      : isMiddleEarthKind(outputs[0].kind)
+        ? `middle_earth_${outputs[0].kind}`
+        : "packet_single";
+  // workspace/content default to 'cdrama' for legacy packets (set by upgradeLegacyPacket)
+  const workspace = packet.workspace || "cdrama";
+  const content = packet.content || "cdrama";
   return {
     schemaVersion: "fandom.static-deliverable.v1",
     workflow: "packet",
     origin: "fandom-vibes",
     outputId: "idea-packet-main",
-    outputKind: attachments.length > 1
-      ? "packet_carousel"
-      : outputs[0].kind === "grid"
-        ? "packet_combined_grid"
-        : "packet_single",
+    outputKind,
     renderVariant: outputs.map(output => output.kind).join("+"),
     renderVersion: 1,
     sourceVersion,
@@ -767,6 +792,8 @@ function buildCreateEnvelope({
     packetVersion,
     packetStatus: "media_compiled",
     deliverableId: "idea-packet-main",
+    workspace,
+    content,
     starDateShanghai: shanghaiDay(packet.provenance.generatedAt),
     route: packet.provenance.sourceRoute,
     grid: packet.provenance.gridId,
@@ -778,6 +805,7 @@ function buildCreateEnvelope({
     concept: packet.workingAngle.trim() || packet.anchor.label,
     angles: angles.length ? angles : ["Static card"],
     ...(packet.notes.trim() ? { notes: packet.notes.trim() } : {}),
+    ...(packet.middleEarthContent ? { middleEarthContent: packet.middleEarthContent } : {}),
     draft: {
       title: `${packet.actor.name} · ${packet.vibe.labelEn}`,
       caption: captionSeed,
@@ -917,15 +945,18 @@ function parseManifest(value) {
     throw new RequestError("Handoff manifest is invalid.");
   }
   for (const output of manifest.outputs) {
+    const meKind = isMiddleEarthKind(output.kind);
+    const expectedContract = meKind ? MIDDLE_EARTH_RENDER_CONTRACT : RENDER_CONTRACT;
+    const expectedVersion = meKind ? MIDDLE_EARTH_RENDER_VERSION : RENDER_VERSION;
     if (
       !isRecord(output)
       || typeof output.outputId !== "string"
       || !output.outputId
-      || !["grid", "individual"].includes(output.kind)
+      || !["grid", "individual", "meme", "spellbook"].includes(output.kind)
       || typeof output.sourceId !== "string"
       || !output.sourceId
-      || output.renderContract !== RENDER_CONTRACT
-      || output.renderVersion !== RENDER_VERSION
+      || output.renderContract !== expectedContract
+      || output.renderVersion !== expectedVersion
       || output.width !== RENDER_WIDTH
       || output.height !== RENDER_HEIGHT
       || Object.keys(output).some(key => ![
@@ -936,7 +967,9 @@ function parseManifest(value) {
         "renderVersion",
         "width",
         "height",
+        "textFingerprint",
       ].includes(key))
+      || (output.textFingerprint !== undefined && typeof output.textFingerprint !== "string")
     ) throw new RequestError("Handoff output manifest is invalid.");
   }
   return manifest;
@@ -1004,8 +1037,14 @@ function handoffInputFingerprint(packet, outputs) {
       workingAngle: packet.workingAngle,
       captionSeeds: packet.captionSeeds,
       outputAngles: packet.outputAngles,
+      // Middle-earth text content — any edit changes the fingerprint so stale renders are not reused
+      ...(packet.middleEarthContent ? { middleEarthContent: packet.middleEarthContent } : {}),
     },
-    outputs,
+    // Include textFingerprint from each manifest output so per-output text changes also invalidate
+    outputs: outputs.map(o => ({
+      ...o,
+      ...(o.textFingerprint !== undefined ? { textFingerprint: o.textFingerprint } : {}),
+    })),
   }));
 }
 

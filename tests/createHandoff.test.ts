@@ -136,6 +136,35 @@ test('selects the exact individual media for rendering', () => {
   assert.equal(input.date, '2026-08-05');
 });
 
+test('uses the Middle-earth render contract and text fingerprint for meme outputs', async () => {
+  const current = packet();
+  current.outputs = [{
+    id: 'meme-output',
+    kind: 'meme',
+    sourceId: 'media-1',
+    label: 'Meme: Release fellowship',
+    included: true,
+    addedAt: '2026-08-05T12:00:00.000Z',
+    textFingerprint: 'meme\u0000Release fellowship\u0000One more deploy\u0000\u0000Deadpan\u0000Editorial caption',
+  }];
+  let observed: Record<string, unknown> | undefined;
+  await sendIdeaPacketToCreate(current, [{
+    output: current.outputs[0],
+    blob: new Blob(['png'], { type: 'image/png' }),
+    filename: 'meme-output.png',
+  }], async (_url, init) => {
+    observed = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ receipt: receipt() }), { status: 201 });
+  });
+
+  const output = (observed!.outputs as Array<Record<string, unknown>>)[0];
+  assert.equal(output.renderContract, 'fandom.middle-earth-output.v1');
+  assert.equal(output.renderVersion, 1);
+  assert.equal(output.width, 1080);
+  assert.equal(output.height, 1350);
+  assert.equal(output.textFingerprint, current.outputs[0].textFingerprint);
+});
+
 test('rejects the whole grid when any persisted source image fails to load', async () => {
   const current = packet();
   current.sourceCards.push({

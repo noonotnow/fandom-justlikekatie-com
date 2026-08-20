@@ -475,7 +475,7 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
         id: sourceId,
         order: 0,
         imageUrl: '',
-        sourceUrl: '',
+        sourceUrl: 'https://fandom.justlikekatie.com/memeforge/middle-earth',
         title: draft.title,
         capturedAt: createdAt,
         resultId: `middle-earth:${draft.kind}:${sourceId}`,
@@ -503,7 +503,7 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
     provenance: {
       sourceRoute: typeof window !== 'undefined'
         ? `${window.location.pathname}${window.location.search}`
-        : '/middle-earth',
+        : '/memeforge/middle-earth',
       gridId,
       generatedAt: createdAt,
       resultIds: draft.asset ? [draft.asset.id] : [],

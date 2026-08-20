@@ -17,6 +17,10 @@ export async function renderCanonicalOutput(
   output,
   { requestUrl, fetchSourceImpl = fetchSafeImage } = {},
 ) {
+  if (output.kind === "meme" || output.kind === "spellbook") {
+    return renderMiddleEarth(packet, output, { requestUrl, fetchSourceImpl });
+  }
+
   const grid = output.kind === "grid"
     ? packet.grids?.find(candidate => candidate.id === output.sourceId)
     : null;
@@ -47,6 +51,243 @@ export async function renderCanonicalOutput(
     throw new Error("Canonical renderer produced invalid PNG dimensions.");
   }
   return bytes;
+}
+
+async function renderMiddleEarth(packet, output, { requestUrl, fetchSourceImpl }) {
+  const content = packet.middleEarthContent?.[output.id];
+  if (!content || content.kind !== output.kind) {
+    throw new Error(`Middle-earth output ${output.id} is missing its structured text content.`);
+  }
+
+  // Source card for this output — used for image-backed renders
+  const card = packet.sourceCards.find(c => c.id === output.sourceId || c.resultId === output.sourceId);
+
+  const hasImage = Boolean(card?.imageUrl) && content.layout !== "Type specimen";
+  let imageBuffer = null;
+  if (hasImage) {
+    // SSRF protection: same proxy validation path as grid/individual
+    const target = validatedProxyTarget(card.imageUrl, requestUrl);
+    try {
+      imageBuffer = await fetchSourceImpl(target);
+    } catch (error) {
+      throw new Error(`Could not load Middle-earth source "${card.title || card.id}": ${error.message}`);
+    }
+  }
+
+  const bytes = hasImage
+    ? await renderMiddleEarthWithImage(content, output, imageBuffer)
+    : await renderMiddleEarthTypography(content, output);
+
+  const metadata = await sharp(bytes).metadata();
+  if (
+    metadata.format !== "png"
+    || metadata.width !== RENDER_WIDTH
+    || metadata.height !== RENDER_HEIGHT
+  ) {
+    throw new Error("Canonical renderer produced invalid PNG dimensions.");
+  }
+  return bytes;
+}
+
+// Image-backed layouts use the selected photo as the full 4:5 canvas and place
+// text according to the explicit creator preset.
+async function renderMiddleEarthWithImage(content, output, imageBuffer) {
+  const photo = await sharp(imageBuffer, { failOn: "error" })
+    .rotate()
+    .resize(RENDER_WIDTH, RENDER_HEIGHT, { fit: "cover" })
+    .png()
+    .toBuffer();
+
+  const overlay = Buffer.from(middleEarthImageOverlay(content, output));
+  return sharp({
+    create: {
+      width: RENDER_WIDTH,
+      height: RENDER_HEIGHT,
+      channels: 4,
+      background: "#0e0e12",
+    },
+  }).composite([
+    { input: photo, left: 0, top: 0 },
+    { input: overlay, left: 0, top: 0 },
+  ]).png().toBuffer();
+}
+
+// Typography-only layout: full 1080×1350 text composition, no image required
+async function renderMiddleEarthTypography(content, output) {
+  const svg = Buffer.from(middleEarthTypographySvg(content, output));
+  return sharp(svg, { density: 144 })
+    .resize(RENDER_WIDTH, RENDER_HEIGHT, { fit: "fill" })
+    .png()
+    .toBuffer();
+}
+
+function middleEarthImageOverlay(content, output) {
+  const isMeme = output.kind === "meme";
+  const kindLabel = isMeme ? "⚔️ MemeForge · Middle-earth" : "📖 Quote Spellbook · Middle-earth";
+  const accent = isMeme ? "#c9a96e" : "#8bb8d4";
+  const layout = content.layout;
+  const settings = layout === "Editorial caption"
+    ? { x: 92, anchor: "start", startY: 800, titleSize: 34, textSize: 42, secSize: 25, titleChars: 38, textChars: 34, titleMax: 2, textMax: 6, secMax: 2 }
+    : layout === "Tiny confession"
+      ? { x: 92, anchor: "start", startY: 930, titleSize: 26, textSize: 30, secSize: 21, titleChars: 48, textChars: 46, titleMax: 1, textMax: 3, secMax: 1 }
+      : layout === "Quote card"
+        ? { x: 540, anchor: "middle", startY: 350, titleSize: 38, textSize: 48, secSize: 27, titleChars: 34, textChars: 31, titleMax: 2, textMax: 9, secMax: 2 }
+        : layout === "Marginalia"
+          ? { x: 630, anchor: "start", startY: 280, titleSize: 34, textSize: 38, secSize: 24, titleChars: 28, textChars: 27, titleMax: 2, textMax: 10, secMax: 2 }
+          : { x: 540, anchor: "middle", startY: 570, titleSize: 36, textSize: 46, secSize: 25, titleChars: 34, textChars: 31, titleMax: 2, textMax: 7, secMax: 2 };
+
+  const titleLines = wrapText(content.title, settings.titleChars, settings.titleMax);
+  const textLines = wrapText(content.text, settings.textChars, settings.textMax);
+  const secondaryLines = content.secondaryText
+    ? wrapText(content.secondaryText, 38, settings.secMax)
+    : [];
+
+  const lineHTitle = settings.titleSize + 14;
+  const lineHText = settings.textSize + 12;
+  const lineHSec = settings.secSize + 10;
+  let y = settings.startY;
+  const titleElems = titleLines.map(line => {
+    const elem = `<text x="${settings.x}" y="${y}" fill="${accent}" font-family="sans-serif" font-size="${settings.titleSize}" font-weight="700" text-anchor="${settings.anchor}">${escapeXml(line)}</text>`;
+    y += lineHTitle;
+    return elem;
+  }).join("\n    ");
+
+  y += 8;
+  const textElems = textLines.map(line => {
+    const elem = `<text x="${settings.x}" y="${y}" fill="#f0ede8" font-family="sans-serif" font-size="${settings.textSize}" font-weight="700" text-anchor="${settings.anchor}">${escapeXml(line)}</text>`;
+    y += lineHText;
+    return elem;
+  }).join("\n    ");
+
+  y += 8;
+  const secElems = secondaryLines.map(line => {
+    const elem = `<text x="${settings.x}" y="${y}" fill="#d8caa9" font-family="sans-serif" font-size="${settings.secSize}" font-style="italic" text-anchor="${settings.anchor}">${escapeXml(line)}</text>`;
+    y += lineHSec;
+    return elem;
+  }).join("\n    ");
+
+  return `<svg width="${RENDER_WIDTH}" height="${RENDER_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="shade" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#102d2e" stop-opacity=".82"/>
+        <stop offset="50%" stop-color="#102d2e" stop-opacity=".18"/>
+        <stop offset="100%" stop-color="#102d2e" stop-opacity=".9"/>
+      </linearGradient>
+    </defs>
+    <rect width="${RENDER_WIDTH}" height="${RENDER_HEIGHT}" fill="url(#shade)"/>
+    ${layout === "Marginalia" ? `<rect x="540" y="0" width="540" height="${RENDER_HEIGHT}" fill="#102d2e" opacity=".78"/><line x1="600" y1="230" x2="600" y2="1110" stroke="${accent}" stroke-opacity=".7"/>` : ""}
+    ${layout === "Quote card" ? `<rect x="80" y="250" width="920" height="780" rx="8" fill="#102d2e" opacity=".62"/>` : ""}
+    <rect x="0" y="0" width="${RENDER_WIDTH}" height="64" fill="#0e0e12" opacity="0.72"/>
+    <text x="540" y="44" fill="#777782" font-family="sans-serif" font-size="18" text-anchor="middle">${escapeXml(kindLabel)}</text>
+    ${titleElems}
+    ${textElems}
+    ${secElems}
+    <text x="540" y="${RENDER_HEIGHT - 18}" fill="#4c4c58" font-family="sans-serif" font-size="14" text-anchor="middle">${escapeXml(`${content.tone} · ${content.layout} · fandom.justlikekatie.com/memeforge/middle-earth`)}</text>
+  </svg>`;
+}
+
+function middleEarthTypographySvg(content, output) {
+  const isMeme = output.kind === "meme";
+  const kindLabel = isMeme ? "⚔️ MemeForge" : "📖 Quote Spellbook";
+  const accent = isMeme ? "#c9a96e" : "#8bb8d4";
+  const subAccent = isMeme ? "#d4b97a" : "#a3c8e0";
+
+  const titleLines = wrapText(content.title, 30, 3);
+  const textLines = wrapText(content.text, 26, 12);
+  const secondaryLines = content.secondaryText
+    ? wrapText(content.secondaryText, 32, 3)
+    : [];
+
+  const LINE_H_TITLE = 58;
+  const LINE_H_TEXT = 44;
+  const LINE_H_SEC = 36;
+
+  // Center the text block vertically
+  const totalTitleH = titleLines.length * LINE_H_TITLE;
+  const totalTextH = textLines.length * LINE_H_TEXT;
+  const totalSecH = secondaryLines.length * LINE_H_SEC;
+  const totalH = totalTitleH + (textLines.length ? 24 : 0) + totalTextH
+    + (secondaryLines.length ? 16 : 0) + totalSecH;
+  const startY = Math.max(160, Math.round((RENDER_HEIGHT - totalH) / 2));
+
+  let y = startY;
+  const titleElems = titleLines.map(line => {
+    const elem = `<text x="540" y="${y}" fill="${accent}" font-family="sans-serif" font-size="40" font-weight="700" text-anchor="middle">${escapeXml(line)}</text>`;
+    y += LINE_H_TITLE;
+    return elem;
+  }).join("\n    ");
+
+  y += textLines.length ? 24 : 0;
+  const textElems = textLines.map(line => {
+    const elem = `<text x="540" y="${y}" fill="#f0ede8" font-family="sans-serif" font-size="32" text-anchor="middle">${escapeXml(line)}</text>`;
+    y += LINE_H_TEXT;
+    return elem;
+  }).join("\n    ");
+
+  y += secondaryLines.length ? 16 : 0;
+  const secElems = secondaryLines.map(line => {
+    const elem = `<text x="540" y="${y}" fill="#a3a3ad" font-family="sans-serif" font-size="24" text-anchor="middle">${escapeXml(line)}</text>`;
+    y += LINE_H_SEC;
+    return elem;
+  }).join("\n    ");
+
+  // Decorative divider line above text
+  const dividerY = startY - 32;
+
+  return `<svg width="${RENDER_WIDTH}" height="${RENDER_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <radialGradient id="bg" cx="50%" cy="50%" r="70%">
+        <stop offset="0%" stop-color="#16141c"/>
+        <stop offset="100%" stop-color="#0a0a0e"/>
+      </radialGradient>
+    </defs>
+    <rect width="${RENDER_WIDTH}" height="${RENDER_HEIGHT}" fill="url(#bg)"/>
+    <text x="540" y="72" fill="#4c4c58" font-family="sans-serif" font-size="18" text-anchor="middle">${escapeXml(kindLabel)}</text>
+    <line x1="200" y1="${dividerY}" x2="880" y2="${dividerY}" stroke="${subAccent}" stroke-width="1" stroke-opacity="0.35"/>
+    ${titleElems}
+    ${textElems}
+    ${secElems}
+    <line x1="200" y1="${y + 16}" x2="880" y2="${y + 16}" stroke="${subAccent}" stroke-width="1" stroke-opacity="0.35"/>
+    <text x="540" y="${RENDER_HEIGHT - 40}" fill="#4c4c58" font-family="sans-serif" font-size="16" text-anchor="middle">${escapeXml(content.tone)}</text>
+    <text x="540" y="${RENDER_HEIGHT - 18}" fill="#333338" font-family="sans-serif" font-size="13" text-anchor="middle">${escapeXml(`${content.layout} · fandom.justlikekatie.com/memeforge/middle-earth`)}</text>
+  </svg>`;
+}
+
+/**
+ * Splits text into a bounded set of lines. Long unbroken words and CJK text
+ * are chunked so no user-authored string can escape the canvas.
+ */
+function wrapText(text, maxChars, maxLines) {
+  const words = String(text)
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .flatMap(word => {
+      if (word.length <= maxChars) return [word];
+      const chunks = [];
+      for (let index = 0; index < word.length; index += maxChars) {
+        chunks.push(word.slice(index, index + maxChars));
+      }
+      return chunks;
+    });
+  const lines = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length > maxChars && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+  if (lines.length <= maxLines) return lines.length ? lines : [""];
+  const bounded = lines.slice(0, maxLines);
+  const last = bounded[maxLines - 1];
+  bounded[maxLines - 1] = `${last.slice(0, Math.max(1, maxChars - 1)).trimEnd()}…`;
+  return bounded;
 }
 
 export function validatedProxyTarget(value, requestUrl) {
@@ -194,14 +435,18 @@ function individualOverlay(packet) {
   </svg>`;
 }
 
-export async function fetchSafeImage(url, redirectCount = 0) {
+export async function fetchSafeImage(url, redirectCount = 0, requestImpl = requestPinned) {
   const target = validatePublicHttpsUrl(url);
-  const response = await requestPinned(target);
+  const response = await requestImpl(target);
   if (response.status >= 300 && response.status < 400) {
     if (redirectCount >= MAX_REDIRECTS || !response.headers.location) {
       throw new Error("Source image redirect limit exceeded.");
     }
-    return fetchSafeImage(new URL(response.headers.location, target).toString(), redirectCount + 1);
+    return fetchSafeImage(
+      new URL(response.headers.location, target).toString(),
+      redirectCount + 1,
+      requestImpl,
+    );
   }
   if (response.status < 200 || response.status >= 300) {
     throw new Error(`Source image returned HTTP ${response.status}.`);

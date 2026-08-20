@@ -65,6 +65,7 @@ export async function exportMiddleEarthPng(
   draft: MiddleEarthDraft,
   target: HTMLElement,
 ): Promise<void> {
+  if (!target) throw new Error("The live preview is unavailable. Try again.");
   const canvas = document.createElement("canvas");
   canvas.width = 1080;
   canvas.height = 1350;
@@ -77,7 +78,8 @@ export async function exportMiddleEarthPng(
   context.fillStyle = "#dfb65b";
   context.fillRect(0, 1324, canvas.width, 26);
 
-  const image = draft.asset?.thumbnail
+  const shouldRenderImage = Boolean(draft.asset?.thumbnail && !(draft.kind === "spellbook" && draft.layout === "Type specimen"));
+  const image = shouldRenderImage && draft.asset?.thumbnail
     ? await new Promise<HTMLImageElement | null>((resolve) => {
         const loaded = new Image();
         loaded.crossOrigin = "anonymous";
@@ -86,40 +88,107 @@ export async function exportMiddleEarthPng(
         loaded.src = draft.asset?.thumbnail ?? "";
       })
     : null;
-  if (image) {
-    const ratio = Math.max(1080 / image.width, 660 / image.height);
+  if (shouldRenderImage && draft.asset && !image) {
+    throw new Error("The selected image could not be loaded for export. Choose another record or use typography-only.");
+  }
+  const hasImage = Boolean(image) && draft.layout !== "Type specimen";
+  if (hasImage && image) {
+    const ratio = Math.max(1080 / image.width, 1350 / image.height);
     const width = image.width * ratio;
     const height = image.height * ratio;
     context.save();
-    context.globalAlpha = 0.86;
-    context.drawImage(image, (1080 - width) / 2, 105, width, height);
+    context.globalAlpha = 0.72;
+    context.drawImage(image, (1080 - width) / 2, (1350 - height) / 2, width, height);
     context.restore();
   }
   context.fillStyle = "#102f30";
-  context.fillRect(72, 72, 936, image ? 625 : 950);
+  context.fillStyle = hasImage ? "rgba(16,45,46,.38)" : "#a55439";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  const gradient = context.createLinearGradient(0, 0, 0, 1350);
+  gradient.addColorStop(0, "rgba(16,45,46,.88)");
+  gradient.addColorStop(.53, "rgba(16,45,46,.15)");
+  gradient.addColorStop(1, "rgba(16,45,46,.93)");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  if (draft.layout === "Marginalia") {
+    context.fillStyle = "rgba(16,45,46,.78)";
+    context.fillRect(540, 0, 540, 1350);
+    context.fillStyle = "#d4a951";
+    context.fillRect(600, 235, 2, 865);
+  } else if (draft.layout === "Quote card") {
+    context.fillStyle = "rgba(16,45,46,.62)";
+    context.fillRect(80, 250, 920, 780);
+  }
   context.fillStyle = "#f4eee2";
   context.textAlign = "left";
   context.font = "600 25px Georgia";
-  context.fillText(draft.kind === "meme" ? "MIDDLE-EARTH / MEME FORGE" : "MIDDLE-EARTH / SPELLBOOK", 112, image ? 635 : 170);
-  context.font = "700 66px Georgia";
-  const lines = draft.text.split(/\n/);
-  lines.slice(0, 5).forEach((line, index) => context.fillText(line.slice(0,  thirtyChars), 112, (image ? 760 : 290) + index * 78));
+  context.fillText(draft.kind === "meme" ? "MIDDLE-EARTH / MEME FORGE" : "MIDDLE-EARTH / SPELLBOOK", 108, 170);
+  const layout = draft.layout === "Editorial caption"
+    ? { x: 92, y: 800, width: 896, size: 58, lineHeight: 70, maxLines: 6, align: "left" as CanvasTextAlign }
+    : draft.layout === "Tiny confession"
+      ? { x: 92, y: 930, width: 680, size: 42, lineHeight: 54, maxLines: 4, align: "left" as CanvasTextAlign }
+      : draft.layout === "Quote card" || draft.layout === "Type specimen"
+        ? { x: 540, y: 410, width: 820, size: 64, lineHeight: 76, maxLines: 9, align: "center" as CanvasTextAlign }
+        : draft.layout === "Marginalia"
+          ? { x: 640, y: 330, width: 360, size: 46, lineHeight: 58, maxLines: 10, align: "left" as CanvasTextAlign }
+          : { x: 108, y: 650, width: 864, size: 66, lineHeight: 78, maxLines: 7, align: "left" as CanvasTextAlign };
+  context.textAlign = layout.align;
+  context.font = `700 ${layout.size}px Georgia`;
+  const lines = wrapCanvasText(context, draft.text || "Your words belong here.", layout.width);
+  lines.slice(0, layout.maxLines).forEach((line, index) => {
+    context.fillText(line, layout.x, layout.y + index * layout.lineHeight);
+  });
   if (draft.secondaryText) {
     context.fillStyle = "#d4b068";
     context.font = "500 30px Georgia";
-    context.fillText(draft.secondaryText.slice(0, 68), 112, image ? 1180 : 820);
+    const secondaryY = Math.min(
+      1180,
+      layout.y + Math.min(lines.length, layout.maxLines) * layout.lineHeight + 42,
+    );
+    wrapCanvasText(context, draft.secondaryText, layout.width).slice(0, 3).forEach((line, index) => {
+      context.fillText(line, layout.x, secondaryY + index * 38);
+    });
   }
-  context.fillStyle = "#193b3b";
+  context.fillStyle = "#d8cdb8";
+  context.textAlign = "left";
   context.font = "500 20px monospace";
-  context.fillText(draft.title.toUpperCase().slice(0, 54), 112, 1265);
-  if (!target) throw new Error("Preview unavailable.");
+  context.fillText(draft.title.toUpperCase().slice(0, 54), 108, 1265);
+  context.fillStyle = "#193b3b";
+  context.textAlign = "center";
+  context.font = "500 16px monospace";
+  context.fillText("fandom.justlikekatie.com/memeforge/middle-earth", canvas.width / 2, canvas.height - 8);
   const link = document.createElement("a");
   link.download = `${draft.title || "middle-earth-packet"}.png`.replace(/[^a-z0-9-_]+/gi, "-");
   link.href = canvas.toDataURL("image/png");
   link.click();
 }
 
-const thirtyChars = 34;
+function wrapCanvasText(context: CanvasRenderingContext2D, value: string, maxWidth: number): string[] {
+  return value.split(/\n/).flatMap((paragraph) => {
+    const words = paragraph.split(/\s+/).filter(Boolean).flatMap((word) => {
+      if (context.measureText(word).width <= maxWidth) return [word];
+      const chunks: string[] = [];
+      let remaining = word;
+      while (remaining) {
+        let end = remaining.length;
+        while (end > 1 && context.measureText(remaining.slice(0, end)).width > maxWidth) end -= 1;
+        chunks.push(remaining.slice(0, end));
+        remaining = remaining.slice(end);
+      }
+      return chunks;
+    });
+    if (!words.length) return [""];
+    const lines: string[] = [];
+    let line = "";
+    words.forEach((word) => {
+      const candidate = line ? `${line} ${word}` : word;
+      if (context.measureText(candidate).width <= maxWidth || !line) line = candidate;
+      else { lines.push(line); line = word; }
+    });
+    if (line) lines.push(line);
+    return lines;
+  });
+}
 
 export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   isAdmin: boolean;
@@ -140,6 +209,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const [layout, setLayout] = useState(memeLayouts[0]);
   const [previewImageFailed, setPreviewImageFailed] = useState(false);
   const [previewNode, setPreviewNode] = useState<HTMLElement | null>(null);
+  const [packetSaved, setPacketSaved] = useState(false);
 
   const currentTones = kind === "meme" ? memeTones : spellbookTones;
   const currentLayouts = kind === "meme" ? memeLayouts : spellbookLayouts;
@@ -153,6 +223,9 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     try {
       const response = await fetch(`/.netlify/functions/middle-earth-search?q=${encodeURIComponent(clean)}`);
       if (!response.ok) throw new Error("The archive did not answer. Try that search again.");
+      if (!response.headers.get("content-type")?.includes("application/json")) {
+        throw new Error("The archive service is unavailable in this preview.");
+      }
       const payload = await response.json() as SearchResponse;
       setResults(payload.results.map((result, index) => makeAsset(result, payload.query || clean, index)));
       setSearchedQuery(payload.query || clean);
@@ -168,6 +241,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     setTone(next === "meme" ? memeTones[0] : spellbookTones[0]);
     setLayout(next === "meme" ? memeLayouts[0] : spellbookLayouts[0]);
     setStatus("");
+    setPacketSaved(false);
   };
 
   const draft = useMemo<MiddleEarthDraft>(() => ({
@@ -176,9 +250,12 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   }), [kind, title, text, secondaryText, tone, layout, selected]);
 
   const exportPng = async () => {
-    if (!activePreview) return;
+    if (!previewNode) {
+      setError("The live preview is unavailable. Try again.");
+      return;
+    }
     setBusy(true); setStatus("Preparing a 1080 × 1350 PNG…"); setError("");
-    try { await exportMiddleEarthPng(draft, activePreview); setStatus("PNG downloaded. No packet was saved."); }
+    try { await exportMiddleEarthPng(draft, previewNode); setStatus("PNG downloaded. No packet was saved."); }
     catch (exportError) { setError(exportError instanceof Error ? exportError.message : "Export failed."); }
     finally { setBusy(false); }
   };
@@ -186,7 +263,11 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const savePacket = async () => {
     if (!isAdmin) return;
     setBusy(true); setStatus("Staging your idea packet…"); setError("");
-    try { await onCreatePacket(draft); setStatus("Idea packet staged in the workbench."); }
+    try {
+      await onCreatePacket(draft);
+      setPacketSaved(true);
+      setStatus("Idea packet staged. No publish or schedule action was taken.");
+    }
     catch (saveError) { setError(saveError instanceof Error ? saveError.message : "The packet could not be staged."); }
     finally { setBusy(false); }
   };
@@ -194,8 +275,9 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   return (
     <main className={styles.workspace}>
       <header className={styles.header}>
-        <div className={styles.eyebrow}><span className={styles.rune} aria-hidden="true">—</span> Katie's private archive <span className={styles.rule} /></div>
-        <h1>Middle-earth<br /><em>workbench</em></h1>
+        <a className={styles.backLink} href="/">Fandom / launchpad</a>
+        <div className={styles.eyebrow}><span className={styles.rune} aria-hidden="true">—</span> MemeForge / personal workbench <span className={styles.rule} /></div>
+        <h1><small>Middle-earth</small><br /><em>MemeForge</em></h1>
         <p className={styles.intro}>Search the visual record. Find the feeling. Turn it into something worth sending.</p>
       </header>
 
@@ -225,7 +307,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           {busy && <div className={styles.loadingGrid} aria-label="Loading archive records">{[1, 2, 3, 4].map((item) => <div key={item} className={styles.skeleton} />)}</div>}
           {!busy && error && <div className={styles.state}><strong>Something interrupted the search.</strong><p>{error}</p><button onClick={() => void search()}>Try again</button></div>}
           {!busy && !error && !results.length && <div className={styles.empty}><span>Archive note</span><strong>{searchedQuery ? "Nothing surfaced this time." : "Begin with a place, person, or mood."}</strong><p>Search results will keep their source attached, so the trail back is never lost.</p></div>}
-          {!busy && results.length > 0 && <div className={styles.gallery}>{results.map((asset) => <button key={asset.id} className={`${styles.result} ${selected?.id === asset.id ? styles.resultSelected : ""}`} onClick={() => { setSelected(asset); setPreviewImageFailed(false); setStatus(`Selected “${asset.title}”.`); }} aria-pressed={selected?.id === asset.id}><span className={styles.imageWrap}><img src={asset.thumbnail} alt="" onError={(event) => { event.currentTarget.style.display = "none"; const fallback = event.currentTarget.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.visibility = "visible"; }} /><span className={styles.imageFallback}>Image<br />unavailable</span></span><span className={styles.resultTitle}>{asset.title}</span><span className={styles.publisher}>{asset.publisher || "Unknown publisher"}</span></button>)}</div>}
+          {!busy && results.length > 0 && <div className={styles.gallery}>{results.map((asset) => <button key={asset.id} className={`${styles.result} ${selected?.id === asset.id ? styles.resultSelected : ""}`} onClick={() => { setSelected(asset); setPreviewImageFailed(false); setPacketSaved(false); setStatus(`Selected “${asset.title}”.`); }} aria-pressed={selected?.id === asset.id}><span className={styles.imageWrap}><img src={asset.thumbnail} alt="" onError={(event) => { event.currentTarget.style.display = "none"; const fallback = event.currentTarget.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.visibility = "visible"; }} /><span className={styles.imageFallback}>Image<br />unavailable</span></span><span className={styles.resultTitle}>{asset.title}</span><span className={styles.publisher}>{asset.publisher || "Unknown publisher"}</span></button>)}</div>}
         </section>
 
         <section className={styles.forge}>
@@ -238,7 +320,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           <div className={styles.choiceGroup}><span>{kind === "meme" ? "Layout" : "Category"}</span><div>{currentLayouts.map((option) => <button key={option} className={layout === option ? styles.choiceActive : ""} onClick={() => setLayout(option)} disabled={busy}>{option}</button>)}</div></div>
           {kind === "spellbook" && <label className={styles.check}><input type="checkbox" checked={isTypography} onChange={() => setLayout(isTypography ? "Quote card" : "Type specimen")} disabled={busy} /> Typography-only treatment</label>}
 
-          <div className={`${styles.preview} ${isTypography ? styles.typographyPreview : ""}`} ref={setPreviewNode} aria-label="Live 4 by 5 preview">
+          <div className={`${styles.preview} ${isTypography ? styles.typographyPreview : ""}`} data-layout={layout} ref={setPreviewNode} aria-label="Live 4 by 5 preview">
             {!isTypography && selected && !previewImageFailed && <img src={selected.thumbnail} alt="" onError={() => setPreviewImageFailed(true)} />}
             <div className={styles.previewShade} />
             <div className={styles.previewCopy}><span>{kind === "meme" ? "MIDDLE-EARTH / MEME FORGE" : "MIDDLE-EARTH / SPELLBOOK"}</span><strong>{text || "Your words belong here."}</strong>{secondaryText && <em>{secondaryText}</em>}</div>
@@ -246,7 +328,13 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           </div>
           {selected && <div className={styles.provenance}><strong>Source attached</strong><span>{selected.title}</span><span>{selected.publisher || "Publisher unknown"} · {selected.provider || "Provider unknown"}</span><a href={selected.url} target="_blank" rel="noreferrer">Open original source</a><small>Rights status: unknown. This is a personal draft; confirm permission before publishing.</small></div>}
           {!selected && <div className={styles.provenanceMuted}>No source selected. You can still make a typography-only draft.</div>}
-          <div className={styles.actions}><button className={styles.export} onClick={() => void exportPng()} disabled={busy}>{busy ? "Working…" : "Export PNG"}</button>{isAdmin ? <button className={styles.save} onClick={() => void savePacket()} disabled={busy}>Save Idea Packet</button> : <p>Local export works here. CREATE packet staging requires sign-in.</p>}</div>
+          <div className={styles.actions}>
+            <button className={styles.export} onClick={() => void exportPng()} disabled={busy}>{busy ? "Working…" : "Export PNG"}</button>
+            {isAdmin
+              ? <button className={styles.save} onClick={() => void savePacket()} disabled={busy}>Save Idea Packet</button>
+              : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in through packet staging</a>}
+            {packetSaved && <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Open packet staging</a>}
+          </div>
           <div className={styles.status} role="status">{error && <span className={styles.statusError}>{error}</span>}{!error && status}</div>
         </section>
       </div>

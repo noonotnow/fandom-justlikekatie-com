@@ -93,15 +93,28 @@ export function validatePacket(input) {
   if (!isRecord(packet.provenance) || !packet.provenance.sourceRoute || !packet.provenance.gridId) {
     throw new RequestError("Packet provenance is required.");
   }
-  if (!isRecord(packet.anchor) || !Array.isArray(packet.anchor.imageUrls) || packet.anchor.imageUrls.length === 0) {
+  if (!isRecord(packet.anchor) || !Array.isArray(packet.anchor.imageUrls)) {
     throw new RequestError("Packet anchor media is required.");
   }
-  packet.grids ||= [legacyGridForPacket(packet)];
   if (!Array.isArray(packet.media)) throw new RequestError("Packet media must be a list.");
   if (!Array.isArray(packet.sourceCards) || packet.sourceCards.length === 0) {
     throw new RequestError("Packet source cards are required.");
   }
-  if (!Array.isArray(packet.grids) || packet.grids.length === 0) {
+  // Determine whether this is a Middle-earth-only packet (all outputs are meme/spellbook).
+  // For such packets grids may be empty. For all other packets we synthesize a legacy grid.
+  const isMiddleEarthOnlyCandidate = Array.isArray(packet.outputs) && packet.outputs.length > 0
+    && packet.outputs.every(o => o.kind === "meme" || o.kind === "spellbook");
+  if (!isMiddleEarthOnlyCandidate) {
+    // Require at least one anchor image for non-Middle-earth packets
+    if (packet.anchor.imageUrls.length === 0) {
+      throw new RequestError("Packet anchor media is required.");
+    }
+    packet.grids ||= [legacyGridForPacket(packet)];
+  } else {
+    packet.grids ||= [];
+  }
+  if (!Array.isArray(packet.grids)) throw new RequestError("Packet grids must be a list.");
+  if (!isMiddleEarthOnlyCandidate && packet.grids.length === 0) {
     throw new RequestError("Packet grids are required.");
   }
   const gridIds = new Set();
@@ -119,6 +132,30 @@ export function validatePacket(input) {
     if (gridIds.has(grid.id)) throw new RequestError("That grid is already in this packet.", 409);
     gridIds.add(grid.id);
   }
+  // Optional workspace/content metadata — no constraints beyond string length
+  if (packet.workspace !== undefined && (typeof packet.workspace !== "string" || packet.workspace.length > 200)) {
+    throw new RequestError("Packet workspace is invalid.");
+  }
+  if (packet.content !== undefined && (typeof packet.content !== "string" || packet.content.length > 200)) {
+    throw new RequestError("Packet content is invalid.");
+  }
+  // Optional structured Middle-earth content — validate shape if present
+  if (packet.middleEarthContent !== undefined) {
+    if (!isRecord(packet.middleEarthContent)) throw new RequestError("Packet middleEarthContent is invalid.");
+    for (const [key, value] of Object.entries(packet.middleEarthContent)) {
+      if (
+        !isRecord(value)
+        || !["meme", "spellbook"].includes(value.kind)
+        || typeof value.title !== "string"
+        || typeof value.text !== "string"
+        || typeof value.tone !== "string"
+        || typeof value.layout !== "string"
+        || (value.secondaryText !== undefined && typeof value.secondaryText !== "string")
+      ) {
+        throw new RequestError(`Packet middleEarthContent entry "${key}" is invalid.`);
+      }
+    }
+  }
   if (!Array.isArray(packet.outputs) || packet.outputs.length === 0) {
     throw new RequestError("Packet outputs are required.");
   }
@@ -133,7 +170,7 @@ export function validatePacket(input) {
     if (
       !isRecord(output)
       || !output.id
-      || !["grid", "individual"].includes(output.kind)
+      || !["grid", "individual", "meme", "spellbook"].includes(output.kind)
       || !output.sourceId
       || typeof output.included !== "boolean"
     ) {
@@ -145,6 +182,10 @@ export function validatePacket(input) {
     }
     if (output.kind === "grid" && !packet.grids.some(grid => grid.id === output.sourceId)) {
       throw new RequestError("Packet output references a missing grid.");
+    }
+    // meme/spellbook outputs must have a matching source card
+    if ((output.kind === "meme" || output.kind === "spellbook") && !packet.sourceCards.some(card => card.id === output.sourceId)) {
+      throw new RequestError("Packet output references a missing source card.");
     }
     outputIds.add(output.id);
   }
@@ -274,6 +315,9 @@ async function listPackets(store) {
 export function upgradeLegacyPacket(packet) {
   if (!packet) return packet;
   const next = structuredClone(packet);
+  // Legacy packets that carry no workspace/content metadata default to cdrama
+  if (next.workspace === undefined) next.workspace = "cdrama";
+  if (next.content === undefined) next.content = "cdrama";
   next.grids ||= [legacyGridForPacket(next)];
   next.sourceCards ||= (next.anchor?.imageUrls || []).map((imageUrl, order) => {
     const resultId = next.provenance?.resultIds?.[order] || `${next.provenance?.gridId || next.id}:${order}`;

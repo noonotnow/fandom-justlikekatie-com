@@ -236,6 +236,11 @@ test("each result has exactly the documented fields", async () => {
         assert.ok("link" in item, "missing link");
         assert.ok("source" in item, "missing source");
         assert.ok("provider" in item, "missing provider");
+        assert.match(
+          item.thumbnail,
+          /^\/\.netlify\/functions\/image-proxy\?url=/,
+          "thumbnail should use the same-origin image proxy",
+        );
         // Should NOT expose internal fields
         assert.ok(!("isLogo" in item), "should not expose isLogo");
         assert.ok(!("thumbnailOriginal" in item), "should not expose thumbnailOriginal");
