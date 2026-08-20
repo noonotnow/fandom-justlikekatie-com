@@ -1,0 +1,164 @@
+
+2:39 PM
+Yes — that’s exactly the right correction. The bad query was doing semantic explanation, not retrieval.
+The search query should not be:
+gandalf you shall not pass but for blocking work emails on friday afternoon gif
+​
+That’s asking Google to understand the joke. Google is not your improv partner; it is a librarian with vibes but no soul.
+The search query should be:
+gandalf you shall not pass bridge
+​
+or:
+gandalf bridge of khazad dum still
+​
+or:
+gandalf staff raised bridge still
+​
+Because the image layer’s job is to find the recognizable visual shorthand, not restate the workplace mutant.
+The corrected retrieval rule
+For reactionImageBrief, split the fields cleanly:
+Card text / joke context
+Can include:
+4:55PM EMAIL: JUST ONE THING
+MY WEEKEND BOUNDARIES: YOU SHALL NOT
+​
+Visual retrieval
+Should include:
+Gandalf on the bridge
+Gandalf You Shall Not Pass still
+Gandalf Bridge of Khazad-dûm staff raised
+​
+Visual rationale
+Can say:
+The still should show Gandalf physically barring passage with dramatic finality.
+​
+But that rationale should not be pasted into the search query.
+The principle
+Search for the source still, not the adapted joke.
+Or:
+The query should retrieve the archetypal visual. The caption mutates it.
+That is probably the durable rule.
+Why Replit’s fix sounds right
+The two-layer fix is exactly what I’d want:
+AI repair
+If the generated query leaks mutant context like:
+work emails
+Friday afternoon
+workplace boundaries
+little treat
+group chat
+then repair it back to scene/emotion/search terms.
+Client-side curated fallback
+Regardless of what the AI produces, the selected still family should lead with a safe canonical query:
+Gandalf Bridge of Khazad-dûm
+Gandalf you shall not pass bridge
+​
+That prevents one over-literal model phrase from zeroing the gallery.
+Query ladder should look like this for Gandalf boundaries
+For your example:
+Prompt:
+Gandalf workplace boundaries
+
+Flavor:
+You Shall Not Pass
+
+Visual still family:
+Gandalf on the bridge
+​
+Good query ladder:
+1. gandalf you shall not pass bridge
+2. gandalf bridge of khazad dum still
+3. gandalf staff raised bridge still
+4. gandalf you shall not pass gif
+5. gandalf refusing passage still
+​
+Bad query ladder:
+gandalf blocking work emails friday afternoon gif
+​
+That is the difference between human-native GIF search and AI describing the concept to a toaster.
+Bigger product lesson
+reactionImageBrief should have two separate layers:
+{
+  visualRole: "Gandalf physically blocks passage with grave finality",
+  searchQueries: [
+    "gandalf you shall not pass bridge",
+    "gandalf bridge of khazad dum still",
+    "gandalf staff raised bridge still"
+  ],
+  avoidQueryTerms: [
+    "work email",
+    "friday afternoon",
+    "weekend boundaries"
+  ]
+}
+​
+The workplace context belongs in the caption, not the image search.
+Verdict
+Replit’s patch sounds exactly aligned:
+Card/joke is good.
+Retrieval was over-specified.
+Fix should lead with curated iconic scene.
+AI-generated query gets sanitized if it leaks punchline context.
+Tests now cover the specific failure phrase.
+Build/tests are green.
+That should prevent the “no results, typography-only fallback” failure for canonical still families like Gandalf bridge.
+sam and frodo looking tired sam and frodo mordor like that kind of thing. not “sam is overprepared for the journey but make it road trip snacks”
+2:41 PM
+Yes — exactly. The search query should be visual/source-native, not “mutant joke-native.”
+For Sam/Frodo, good image queries are things a human would actually type to find the still:
+sam frodo tired mordor
+sam and frodo mordor still
+sam frodo exhausted lord of the rings
+samwise worried frodo still
+sam carrying frodo mount doom
+frodo sam tired journey still
+​
+Bad queries are the AI explaining the joke to Google:
+sam is overprepared for the journey but make it road trip snacks
+samwise loyalty friend carries emotional burden meme
+sam packs snacks because frodo forgot second breakfast
+​
+Those are caption concepts, not retrieval terms.
+The rule
+Search for the canonical visual evidence. Mutate the caption, not the image query.
+So for “Sam and Frodo funny,” the system can think:
+supportive contradiction / loyal friend / overprepared Sam
+​
+But the search should become:
+sam frodo tired mordor
+sam frodo exhausted still
+sam carrying frodo mount doom
+​
+Then the caption does the mutant work:
+FRODO: I’LL JUST SUFFER QUIETLY
+
+SAM: INCORRECT.
+​
+or:
+FRODO: I CAN’T DO THIS, SAM
+
+SAM: GOOD. WE’RE DOING IT TOGETHER.
+​
+Better reactionImageBrief split
+The brief needs separate fields:
+visualMeaning: "Sam and Frodo visibly exhausted but still together"
+captionMutation: "supportive friend refuses solo suffering"
+searchQueries: [
+  "sam frodo tired mordor",
+  "sam and frodo mordor still",
+  "sam frodo exhausted lord of the rings",
+  "sam carrying frodo mount doom"
+]
+​
+The search queries should use:
+character names;
+iconic location/scene;
+visible emotion;
+action;
+“still” / “gif” if useful.
+They should not include:
+modern scenario;
+workplace/little-treat/group-chat wording;
+full joke paraphrase;
+abstract mechanism labels.
+That’s the durable fix.
