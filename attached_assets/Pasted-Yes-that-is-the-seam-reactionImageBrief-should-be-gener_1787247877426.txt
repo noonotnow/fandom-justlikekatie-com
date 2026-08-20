@@ -1,0 +1,157 @@
+Yes — that is the seam. **`reactionImageBrief` should be generated at the same time as `cardText`, from the same interpreted joke**, not bolted on later by the search layer.
+
+That changes the engine from:
+
+```
+write meme text → search some related LOTR images
+```
+
+to:
+
+```
+write the joke + describe the image-half of the joke → search for that performed reaction
+```
+
+Much better.
+
+## The key contract
+
+For every generated MemeForge angle, the model should output:
+
+```tsx
+{
+  cardText: {
+    setup: string;
+    punchline: string;
+    footer?: string;
+  };
+  reactionImageBrief: {
+    iconicScene?: string;
+    characterOrGroup?: string;
+    performedEmotion: string[];
+    actionOrRelationship?: string;
+    visualSearchQueries: string[];
+  };
+}
+```
+
+The **card text** answers:
+
+> What does the meme say?
+> 
+
+The **reaction image brief** answers:
+
+> What does the image need to be doing for this joke to land?
+> 
+
+That second question is the whole unlock.
+
+## Why this is foundational
+
+Without `reactionImageBrief`, the image search is forced to infer intent from the caption or meme flavor. That gives you searches like:
+
+```
+cozy hobbit garden path
+Samwise Loyalty
+Frodo and Sam
+```
+
+Those find atmosphere, theme, or character presence.
+
+But a meme needs searches like:
+
+```
+Samwise worried Frodo still
+Sam Frodo concerned Lord of the Rings still
+Sam carrying Frodo Mount Doom still
+```
+
+Those find **performed reaction**.
+
+The image is not a background. It is the visual punchline carrier.
+
+## The query bundle is right
+
+One brittle query is too fragile. The brief should generate a small ladder:
+
+1. **Iconic scene / phrase**
+    - `Sam carrying Frodo Mount Doom still`
+    - `Gandalf you shall not pass bridge still`
+2. **Character + performed emotion**
+    - `Samwise worried Frodo still`
+    - `Gandalf annoyed Lord of the Rings still`
+    - `Gollum suspicious precious still`
+3. **Action / relationship**
+    - `Sam comforting Frodo still`
+    - `Council of Elrond arguing still`
+4. **Broad reaction fallback**
+    - `Lord of the Rings exhausted reaction`
+    - `LOTR confused reaction image`
+
+That mirrors actual human GIF search behavior: start with the social reaction, then constrain to the fandom.
+
+## Ranking should change too
+
+Search result ranking should not only ask:
+
+```
+Is this Middle-earth?
+```
+
+It should ask:
+
+```
+Does this image perform the reaction?
+```
+
+Candidate scoring should prioritize:
+
+- visible face / expression;
+- performed emotion matches brief;
+- scene supports the selected comic mechanism;
+- landscape crop works;
+- recognizable LOTR context;
+- source attribution available;
+- not an existing captioned meme composite unless used only as reference.
+
+## Example
+
+For:
+
+```
+Sam and Frodo funny
+```
+
+A good output could be:
+
+```tsx
+cardText: {
+  setup: "ME: I’LL JUST SUFFER QUIETLY",
+  punchline: "MY SAMWISE FRIEND: INCORRECT."
+},
+reactionImageBrief: {
+  iconicScene: "Sam supporting Frodo on the journey",
+  characterOrGroup: "Sam and Frodo",
+  performedEmotion: ["concerned", "determined", "loyal but slightly alarmed"],
+  actionOrRelationship: "supportive friend refuses to let the other suffer alone",
+  visualSearchQueries: [
+    "Samwise worried Frodo still",
+    "Sam Frodo concerned Lord of the Rings still",
+    "Sam carrying Frodo Mount Doom still",
+    "Sam supporting Frodo LOTR reaction"
+  ]
+}
+```
+
+That is radically better than searching “Samwise Loyalty” after the fact.
+
+## The durable product rule
+
+I’d keep this as the north star:
+
+> **MemeForge must generate the text joke and the image joke together.**
+`cardText` compresses the joke into words; `reactionImageBrief` describes the face, scene, or performed emotion that makes it land.
+> 
+
+That’s the engine seam.

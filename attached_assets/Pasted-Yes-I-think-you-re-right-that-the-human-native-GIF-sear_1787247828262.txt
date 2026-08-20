@@ -1,0 +1,186 @@
+Yes — I think you’re right that the **human-native GIF search behavior** is the bigger unlock.
+
+The mechanism taxonomy matters because it tells MemeForge **what kind of joke it is making**. But the GIF-search insight tells MemeForge **how humans actually find the image that makes the joke land**.
+
+## The distinction
+
+### Comic mechanism = grammar
+
+This answers:
+
+> Why is this funny?
+> 
+
+Examples:
+
+- severity inversion
+- ceremonial setup → petty punchline
+- supportive contradiction
+- delighted fandom-lawyer correction
+- escalating specificity
+- canon contradiction
+- literal misread / wordplay
+
+That is necessary, but it can still produce a funny-ish text card with the wrong image.
+
+### Human-native GIF search = behavior
+
+This answers:
+
+> What face / scene / reaction would I search for if I were trying to send this in a group chat?
+> 
+
+That is what makes it feel human.
+
+A database search says:
+
+```
+Gandalf
+```
+
+A human GIF search says:
+
+```
+Gandalf looking absolutely done
+```
+
+or even:
+
+```
+stern wizard refusing one more impossible request
+```
+
+The character is not the meaning. The **performed emotion** is the meaning.
+
+## The real schema seam: visual joke brief
+
+This phrase is the keeper.
+
+MemeForge should generate not just:
+
+```
+setup line
+punchline line
+meme flavor
+```
+
+but also:
+
+```
+visual joke brief
+```
+
+Meaning:
+
+> What does the image need to perform for the joke to work?
+> 
+
+Example:
+
+```
+Prompt:
+Sam and Frodo funny
+
+Comic mechanism:
+relationship-specific contradiction
+
+Text:
+ME: I’LL JUST SUFFER QUIETLY
+MY SAMWISE FRIEND: INCORRECT.
+
+Visual joke brief:
+Find Sam looking intensely concerned, overprepared, or emotionally unable to let Frodo suffer alone. The image should read as loyal intervention, not noble sacrifice.
+```
+
+That would search better than:
+
+```
+Sam Frodo
+```
+
+or:
+
+```
+Samwise Loyalty
+```
+
+## The query ladder idea is probably the engine crack
+
+Instead of one search query, MemeForge should produce a **query ladder**:
+
+1. **Social-use query**
+    - “friend refuses to let you suffer alone reaction”
+    - “overprepared supportive friend reaction”
+2. **Performed-emotion query**
+    - “Samwise concerned Frodo still”
+    - “Sam intense worried Lord of the Rings still”
+3. **Iconic-scene query**
+    - “Sam carrying Frodo Mount Doom still”
+    - “Frodo Sam emotional support still”
+4. **Fallback fandom query**
+    - “Samwise loyalty reaction image”
+
+The point is: search starts from **what the image must do socially**, then constrains to Middle-earth.
+
+That is much closer to how people actually search GIFs.
+
+## Why this matters more than the mechanism catalog
+
+The mechanism catalog can prevent “inspirational quote poster” failures.
+
+But human-native search prevents the equally bad failure:
+
+> the joke is okay, but the image is just decorative.
+> 
+
+For memes, the image is not decoration. The image is half the sentence.
+
+So the better engine model is:
+
+```
+User moment
+→ comic mechanism
+→ two-line quip
+→ visual joke brief
+→ human-native query ladder
+→ reaction-still candidates
+→ visual validation
+→ card
+```
+
+## The validation layer matters too
+
+After search, MemeForge should not only ask:
+
+> Is this image relevant to LOTR?
+> 
+
+It should ask:
+
+> Does this image visibly perform the reaction?
+> 
+
+For example:
+
+- Does Sam look concerned / intense / intervening?
+- Does Gandalf look stern / blocking / done?
+- Does Boromir look grave / over-serious?
+- Does Gollum look conflicted / possessive / gremlin?
+- Does the Council look like too many people having opinions?
+
+That is a different ranking model from ordinary relevance.
+
+## Best durable principle
+
+I’d phrase the engine-level principle like this:
+
+> **Comic mechanism is the grammar. Visual joke brief is the retrieval behavior.**
+MemeForge should decide why the joke turns, then describe the face/scene that would make a human recognize the reaction instantly.
+> 
+
+Or shorter:
+
+> **Write the joke. Then search for the face.**
+> 
+
+That’s the crack.
