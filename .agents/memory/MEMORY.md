@@ -5,3 +5,4 @@
 - [Split-brain main breaks CI](split-brain-main.md) — CI-red/local-green means origin/main may lack local implementation commits; fetch, diff, worktree-reproduce against origin/main before touching tests or CI; push main promptly.
 - [External repo working clones](external-repo-clones.md) — clone CREATE to /home/runner not /tmp (gets wiped mid-session); vitest firewall workaround; no CI on that repo.
 - [Replit npm registry in lockfile](replit-npm-registry.md) — lockfiles generated in Replit have internal proxy URLs that break npm ci in GitHub Actions; delete and regenerate with --registry flag then sed-fix stragglers.
+- [Netlify Function-log verification](netlify-function-log-verification.md) — Real-time can appear empty; verify current Production calls in Last hour with filters cleared.

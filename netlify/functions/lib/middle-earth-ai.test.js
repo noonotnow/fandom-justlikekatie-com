@@ -152,12 +152,14 @@ function makeHandler({
   store = memoryStore(),
   connector = makeConnector({ chatResponse: VALID_VISUAL_RESPONSE }),
   now = () => Date.now(),
+  logger = { log() {} },
 } = {}) {
   return createMiddleEarthAIHandler({
     auth,
     getStore: () => store,
     makeConnectorClient: () => connector,
     now,
+    logger,
   });
 }
 
@@ -230,6 +232,28 @@ test("returns 403 when signed in but not admin", async () => {
   const res = await handler(makeRequest(VISUAL_BODY), {});
   assert.equal(res.status, 403);
   assert.ok((await res.json()).error);
+});
+
+test("does not expose unexpected authentication failure details", async () => {
+  const sensitiveMessage = "session store failed with credential=private-value";
+  const handler = makeHandler({
+    auth: {
+      authenticateAdmin: async () => {
+        throw new Error(sensitiveMessage);
+      },
+    },
+  });
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const res = await handler(makeRequest(VISUAL_BODY), {});
+    assert.equal(res.status, 503);
+    const body = await res.json();
+    assert.equal(body.error, "Authentication service is temporarily unavailable.");
+    assert.ok(!JSON.stringify(body).includes(sensitiveMessage));
+  } finally {
+    console.error = originalError;
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -1005,6 +1029,31 @@ test("returns 503 when xAI returns 500", async () => {
   const handler = makeHandler({ connector });
   const res = await handler(makeRequest(VISUAL_BODY), {});
   assert.equal(res.status, 503);
+});
+
+test("logs successful discovery and completion without private request copy", async () => {
+  const entries = [];
+  const privateGuidance = "private operator copy must never enter logs";
+  const handler = makeHandler({
+    logger: {
+      log(message, metadata) {
+        entries.push([message, metadata]);
+      },
+    },
+  });
+  const res = await handler(makeRequest({
+    ...VISUAL_BODY,
+    guidance: privateGuidance,
+  }), {});
+  assert.equal(res.status, 200);
+  assert.deepEqual(entries, [
+    ["[middle-earth-ai] model discovered", { model: "grok-2-test" }],
+    ["[middle-earth-ai] completion succeeded", {
+      mode: "visual",
+      model: "grok-2-test",
+    }],
+  ]);
+  assert.ok(!JSON.stringify(entries).includes(privateGuidance));
 });
 
 test("returns 429 when xAI returns 429 (upstream rate limit)", async () => {

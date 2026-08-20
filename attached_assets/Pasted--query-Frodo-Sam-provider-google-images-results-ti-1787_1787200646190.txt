@@ -1,0 +1,131 @@
+ "query": "Frodo & Sam",
+    "provider": "google_images",
+    "results": [
+        {
+            "title": "Lord Of The Rings: 10 Times Frodo Would Have Died Without Sam",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcTsJiy6vrL3ASAfeNbKKw2edtX0rJgtBOQAH5Ex1qtwnw%26s%3D10",
+            "link": "https://screenrant.com/lord-of-the-rings-frodo-sam-most-important-moments/",
+            "source": "screenrant.com",
+            "provider": "google_images"
+        },
+        {
+            "title": "Sam Gamgee/Relationships | Middle Earth Film Saga Wikia | Fandom",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcT-yjdE08gyQy9MxnBmBU1ZV9fy8F_BfS-DgFKDH8MY8Q%26s%3D10",
+            "link": "https://middle-earth-film-saga.fandom.com/wiki/Sam_Gamgee/Relationships",
+            "source": "middle-earth-film-saga.fandom.com",
+            "provider": "google_images"
+        },
+        {
+            "title": "What probably was the most risky situation that Frodo and Sam ever found  themselves in? : r/lotr",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcTu8-xT6ohQbW55ReHHoQM5ih-D2guoVAD4JV4xh1ujrw%26s%3D10",
+            "link": "https://www.reddit.com/r/lotr/comments/wcc423/what_probably_was_the_most_risky_situation_that/",
+            "source": "reddit.com",
+            "provider": "google_images"
+        },
+        {
+            "title": "Frodo and Sam | The Hobbit LOTR Wiki | Fandom",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcSYO-rhma4AfdudUHN0CDNJDpGXmg79fhESB6dvqBdY4w%26s%3D10",
+            "link": "https://middlearthfilmseries.fandom.com/wiki/Frodo_and_Sam",
+            "source": "middlearthfilmseries.fandom.com",
+            "provider": "google_images"
+        },
+        {
+            "title": "Are Frodo and Sam...you know? A guide to the most common discussion at your  next LOTR movie marathon viewing : r/lotr",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcTSL6VrDSXxr4sKY6NDKzMQgsYf0M6z3z354Ro0QXVdGQ%26s%3D10",
+            "link": "https://www.reddit.com/r/lotr/comments/87nd9h/are_frodo_and_samyou_know_a_guide_to_the_most/",
+            "source": "reddit.com",
+            "provider": "google_images"
+        },
+        {
+            "title": "We can't do it alone – lessons from Frodo and Sam – Clementine Fraser –  Author",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcRQAmnh0tb36oQaha2sK3h--O1IpBfLj_VMnLBc5E04kA%26s%3D10",
+            "link": "https://clementinefraser.com/2018/01/02/we-cant-do-it-alone-lessons-from-frodo-and-sam/",
+            "source": "clementinefraser.com",
+            "provider": "google_images"
+        },
+        {
+            "title": "The Failure of Sam Gamgee – The Blog of Mazarbul",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcQnUlGj9OXcyUzi5kFxoorncvq4JpnoqfCgvQiJUaYYHg%26s%3D10",
+            "link": "https://www.theblogofmazarbul.com/2022/03/17/the-failure-of-sam-gamgee/",
+            "source": "theblogofmazarbul.com",
+            "provider": "google_images"
+        },
+        {
+            "title": "I've read The Lord of the Rings multiple times, and every time, the  friendship between Sam and Frodo hits harder. This is the emotional core of  the entire story, the relationship that",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcTkRIwWpXSw7g_DzwDtYcZjycjIHg_Hhr4DhL9p5eMO6w%26s%3D10",
+            "link": "https://www.facebook.com/Classicsliteratures/posts/ive-read-the-lord-of-the-rings-multiple-times-and-every-time-the-friendship-betw/122284231856071158/",
+            "source": "facebook.com",
+            "provider": "google_images"
+        },
+        {
+            "title": "Medium",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcRd2TXLuIR56sBdS7Zeyd1P1nBjXNKT7YR-r82MgqCr4w%26s%3D10",
+            "link": "https://marynikkel.medium.com/in-defense-of-frodo-two-kinds-of-strength-383d9feec7eb",
+            "source": "marynikkel.medium.com",
+            "provider": "google_images"
+        },
+        {
+            "title": "T-shirt The Lord of the Rings - Sam and Frodo | Tips for original gifts |  Abposters.com",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcRh3pHrDrGHwhL4StGZl2wTHZY6_-ibVETOLbveuQZlgA%26s%3D10",
+            "link": "https://www.abposters.com/art-photo/the-lord-of-the-rings-sam-and-frodo-v91911?fashion=1&srsltid=AfmBOorvoeoHTvRDbHfOTWEJaIlUd7lCuFvVeWJHDtbLDAvFmSk15-uW",
+            "source": "abposters.com",
+            "provider": "google_images"
+        },
+        {
+            "title": "The Lord Of The Rings Movies Benefited From Cutting One Detail Of Sam's  Character From The Books",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcTQbhZLVRzk9Eg2znW_nKx7GeyVvhzxcn0lCwfNx62mNw%26s%3D10",
+            "link": "https://screenrant.com/lotr-movies-cut-sam-working-for-frodo-books-good-op-ed/",
+            "source": "screenrant.com",
+            "provider": "google_images"
+        },
+        {
+            "title": "MORDOR* Frodo/Sam's Quest to Destroy the Ring- Lord of the Rings",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcShG52f-sT3lcwv84fUwKMU_hfuJSaRzrN9B_2HGgUcJw%26s%3D10",
+            "link": "https://www.youtube.com/watch?v=fkA19EzEy8g",
+            "source": "youtube.com",
+            "provider": "google_images"
+        },
+        {
+            "title": "Lord of the Rings Frodo and Sam's Journey Canvas Print, LOTR Art, LOTR  Print - Etsy",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcTwPmEXWdR5q_fxpcug7dPbuEsETHeHlrlS-gnVq8S0cw%26s%3D10",
+            "link": "https://www.etsy.com/listing/809953648/lord-of-the-rings-frodo-and-sams-journey",
+            "source": "etsy.com",
+            "provider": "google_images"
+        },
+        {
+            "title": "Lord of the Rings: Let's Explore the Queer-Coding of Sam and Frodo | Den of  Geek",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcT6jdDNIAhXmHvrBH4IsAjSCX_oa29_sS6BgwNUVsoQOQ%26s%3D10",
+            "link": "https://www.denofgeek.com/movies/lord-of-the-rings-explore-queer-coding-of-sam-and-frodo/",
+            "source": "denofgeek.com",
+            "provider": "google_images"
+        },
+        {
+            "title": "Review and photos of Lord of the Rings Frodo, Sam 1/6th action figures",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcQ9y6E3g7LOukBE7F5UYy35gsWPPYhe1GngDsBhPArSTQ%26s%3D10",
+            "link": "http://www.mwctoys.com/REVIEW-011617a.htm",
+            "source": "mwctoys.com",
+            "provider": "google_images"
+        },
+        {
+            "title": "LOTR: The Best Moments In Sam And Frodo's Friendship",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcRKrJpQqBq6_DpeTpM_X8wz3iczHrYb-5FNam3Be3cW3g%26s%3D10",
+            "link": "https://screenrant.com/lotr-best-moments-sam-frodo-friendship/",
+            "source": "screenrant.com",
+            "provider": "google_images"
+        },
+        {
+            "title": "Frodo, Sam, and Heroism – Liztalks.com",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcT6S3W5m_ZAeZ4IK3mhvZ9eZwv3SULmBDU8g7lcqsR7nA%26s%3D10",
+            "link": "https://liz-talks.com/2021/02/04/frodo-sam-and-heroism/",
+            "source": "liz-talks.com",
+            "provider": "google_images"
+        },
+        {
+            "title": "Who Is the Real Hero of The Lord of the Rings: Sam or Frodo?",
+            "thumbnail": "/.netlify/functions/image-proxy?url=https%3A%2F%2Fencrypted-tbn0.gstatic.com%2Fimages%3Fq%3Dtbn%3AANd9GcQl0UZWaaoIrGdnyuHvPV43ui7BmEvHArW1MR2bNfJSrA%26s%3D10",
+            "link": "https://fictionhorizon.com/who-is-the-real-hero-of-the-lord-of-the-rings-sam-or-frodo/",
+            "source": "fictionhorizon.com",
+            "provider": "google_images"
+        }
+    ]
+}

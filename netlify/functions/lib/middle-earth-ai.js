@@ -512,6 +512,7 @@ export function createMiddleEarthAIHandler({
   // For production this is constructed in the entry-point; for tests it's injected.
   makeConnectorClient,
   now = () => Date.now(),
+  logger = console,
 }) {
   return async function middleEarthAI(req, context) {
     try {
@@ -525,7 +526,14 @@ export function createMiddleEarthAIHandler({
       try {
         authResult = await auth.authenticateAdmin(req, context);
       } catch (err) {
-        return json(err.status ?? 401, { error: err.message });
+        if (err?.status === 401) {
+          return json(401, { error: "Sign in is required." });
+        }
+        if (err?.status === 403) {
+          return json(403, { error: "Admin access is required." });
+        }
+        console.error("[middle-earth-ai] admin authentication failed unexpectedly");
+        return json(503, { error: "Authentication service is temporarily unavailable." });
       }
 
       const body = await readBody(req);
@@ -556,6 +564,7 @@ export function createMiddleEarthAIHandler({
       if (!model) {
         return json(503, { error: "AI service is temporarily unavailable." });
       }
+      logger.log?.("[middle-earth-ai] model discovered", { model });
 
       let result;
       if (validated.mode === "visual") {
@@ -568,6 +577,10 @@ export function createMiddleEarthAIHandler({
         result = normalizeRednoteOutput(raw, model);
       }
 
+      logger.log?.("[middle-earth-ai] completion succeeded", {
+        mode: validated.mode,
+        model,
+      });
       return json(200, { mode: validated.mode, result });
     } catch (err) {
       if (err instanceof AppError) {
