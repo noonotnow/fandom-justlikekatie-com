@@ -149,7 +149,20 @@ const VALID_TRANSLATION_RESPONSE = {
   tone: "Deadpan",
   visualDirection: "An original, weary reaction card with a small office bag and dramatic road ahead.",
   referenceStillFamily: "frodo-quest-burden",
-  searchQuery: "Frodo walking dramatic landscape office commute mood",
+  cardText: {
+    format: "Dialogue Card",
+    line1: "FRIDAY: ONE MORE MEETING.",
+    line2: "ME: THIS IS MORDOR.",
+    footer: "",
+  },
+  reactionImageBrief: {
+    socialUseQuery: "Frodo exhausted Friday work reaction Lord of the Rings still",
+    characterEmotionQueries: ["Frodo exhausted Mordor still"],
+    iconicSceneQueries: ["Frodo walking toward Mordor still"],
+    broadFallbackQueries: ["Lord of the Rings exhausted reaction"],
+    performedEmotion: ["exhausted", "resigned"],
+    visualRole: "A burdened traveler visibly at capacity before one more impossible task.",
+  },
 };
 
 // Minimal valid visual body
@@ -547,6 +560,8 @@ test("translation mode uses a strict meme_translation schema", async () => {
   assert.equal(body.result.comicMechanism, "Severity inversion");
   assert.equal(body.result.character, "Frodo");
   assert.equal(body.result.referenceStillFamily, "frodo-quest-burden");
+  assert.equal(body.result.cardText.line2, "ME: THIS IS MORDOR.");
+  assert.equal(body.result.reactionImageBrief.visualRole, "A burdened traveler visibly at capacity before one more impossible task.");
 
   const chatCall = connector.calls.find(c => c.path === "/v1/chat/completions");
   const schema = JSON.parse(chatCall.options.body).response_format.json_schema;
@@ -554,8 +569,11 @@ test("translation mode uses a strict meme_translation schema", async () => {
   assert.ok(schema.schema.required.includes("translatedMoment"));
   assert.ok(schema.schema.required.includes("referenceStillFamily"));
   assert.ok(schema.schema.required.includes("comicMechanism"));
-  assert.ok(schema.schema.required.includes("searchQuery"));
+  assert.ok(schema.schema.required.includes("cardText"));
+  assert.ok(schema.schema.required.includes("reactionImageBrief"));
   assert.ok(schema.schema.properties.referenceStillFamily.enum.includes("sam-carrying-frodo"));
+  assert.equal(schema.schema.properties.reactionImageBrief.properties.characterEmotionQueries.minItems, 1);
+  assert.equal(schema.schema.properties.reactionImageBrief.properties.broadFallbackQueries.maxItems, 3);
   assert.equal(schema.schema.additionalProperties, false);
 });
 
@@ -1071,6 +1089,26 @@ test("translation gives Auto the full prototype catalog for a vague Sam and Frod
   assert.match(prompt, /tender affirmation/i);
 });
 
+test("translation repairs an incomplete visual joke brief before returning an angle", async () => {
+  const incompleteBrief = {
+    ...VALID_TRANSLATION_RESPONSE,
+    reactionImageBrief: {
+      ...VALID_TRANSLATION_RESPONSE.reactionImageBrief,
+      performedEmotion: [],
+    },
+  };
+  const connector = makeConnector({ chatResponses: [incompleteBrief, VALID_TRANSLATION_RESPONSE] });
+  const handler = makeHandler({ connector });
+  const res = await handler(makeRequest(TRANSLATION_BODY), {});
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(body.result.reactionImageBrief.performedEmotion[0], "exhausted");
+  const chats = connector.calls.filter(c => c.path === "/v1/chat/completions");
+  assert.equal(chats.length, 2);
+  assert.match(JSON.parse(chats[1].options.body).messages[0].content, /paired joke contract/i);
+  assert.match(JSON.parse(chats[1].options.body).messages[0].content, /performedEmotion/i);
+});
+
 test("visual mode requires a resolved Meme Flavor before it can forge a card", async () => {
   const connector = makeConnector({ chatResponse: VALID_VISUAL_RESPONSE });
   const handler = makeHandler({ connector });
@@ -1102,6 +1140,31 @@ test("visual mode repairs a response that changes the resolved comic mechanism",
   const chats = connector.calls.filter(c => c.path === "/v1/chat/completions");
   assert.equal(chats.length, 2);
   assert.match(JSON.parse(chats[1].options.body).messages[0].content, /changed the resolved comic mechanism/i);
+});
+
+test("visual mode repairs a response that rewrites the locked paired translation copy", async () => {
+  const lockedCardText = VALID_TRANSLATION_RESPONSE.cardText;
+  const rewrittenCopy = {
+    ...VALID_VISUAL_RESPONSE,
+    cardText: {
+      ...lockedCardText,
+      line2: "ME: ABSOLUTELY NOT.",
+    },
+  };
+  const preservedCopy = {
+    ...VALID_VISUAL_RESPONSE,
+    cardText: lockedCardText,
+  };
+  const connector = makeConnector({ chatResponses: [rewrittenCopy, preservedCopy] });
+  const handler = makeHandler({ connector });
+  const res = await handler(makeRequest({ ...VISUAL_BODY, cardText: lockedCardText }), {});
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.deepEqual(body.result.cardText, lockedCardText);
+  const chats = connector.calls.filter(c => c.path === "/v1/chat/completions");
+  assert.equal(chats.length, 2);
+  assert.match(JSON.parse(chats[0].options.body).messages[0].content, /Locked paired card text/i);
+  assert.match(JSON.parse(chats[1].options.body).messages[0].content, /changed the locked paired cardText/i);
 });
 
 test("visual mode repairs feeling-only copy that lacks a comic turn", async () => {

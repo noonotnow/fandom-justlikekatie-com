@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { createArchiveSearchRequestGate } from '../src/components/MiddleEarthWorkspace/archiveSearchRequestGate.ts';
-import { loadableReactionAssets } from '../src/utils/reactionImageAssets.ts';
+import {
+  loadableReactionAssets,
+  rankReactionCandidates,
+  reactionQueryLadder,
+} from '../src/utils/reactionImageAssets.ts';
 
 test('starting a new archive search invalidates the generated visual before clearing its source', async () => {
   const source = await readFile(
@@ -89,6 +93,43 @@ test('keeps searching past failed thumbnails and never offers a broken reaction 
   );
 });
 
+test('searches the visual joke brief in human-native priority order and retains real result provenance', () => {
+  const ladder = reactionQueryLadder({
+    socialUseQuery: 'friend refuses to let you suffer alone reaction',
+    characterEmotionQueries: ['Samwise worried Frodo still'],
+    iconicSceneQueries: ['Sam carrying Frodo Mount Doom still'],
+    broadFallbackQueries: ['Lord of the Rings supportive friend reaction'],
+  });
+  assert.deepEqual(ladder.map((entry) => entry.tier), [
+    'Social use',
+    'Character + emotion',
+    'Iconic scene',
+    'Broad fallback',
+  ]);
+
+  const ranked = rankReactionCandidates([
+    {
+      candidate: { id: 'broad', url: 'https://source.example/broad', thumbnail: 'https://image.example/broad.jpg', query: ladder[3].query },
+      queryTier: ladder[3].tier,
+      rank: 300,
+    },
+    {
+      candidate: { id: 'social', url: 'https://source.example/social', thumbnail: 'https://image.example/social.jpg', query: ladder[0].query },
+      queryTier: ladder[0].tier,
+      rank: 0,
+    },
+    {
+      candidate: { id: 'duplicate-social', url: 'https://source.example/social', thumbnail: 'https://image.example/duplicate.jpg', query: ladder[1].query },
+      queryTier: ladder[1].tier,
+      rank: 101,
+    },
+  ]);
+
+  assert.deepEqual(ranked.map((candidate) => candidate.id), ['social', 'broad']);
+  assert.equal(ranked[0].reactionQueryTier, 'Social use');
+  assert.equal(ranked[0].query, 'friend refuses to let you suffer alone reaction');
+});
+
 test('reaction images stay behind translation and source selection requires a reforge', async () => {
   const source = await readFile(
     new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
@@ -131,18 +172,33 @@ test('reaction images stay behind translation and source selection requires a re
   );
   assert.match(
     source,
-    /source: sourceContext,\s*\n\s*\}\);\s*\n\s*setTitle\(generated\.cardText\.footer\)/,
-    'the reforge path must send the selected source as grounding context',
+    /source: sourceContext,\s*\n\s*reactionImageBrief: translation\.reactionImageBrief,\s*\n\s*cardText: translation\.cardText,\s*\n\s*\}\);\s*\n\s*setTitle\(generated\.cardText\.footer\)/,
+    'the reforge path must send the selected source, paired image brief, and exact text contract as grounding context',
   );
   assert.match(
     source,
-    /await search\(undefined, reactionQuery\);/,
-    'a translated angle must automatically look for and select an initial reaction-image candidate',
+    /setSelected\(undefined\); setPreviewImageFailed\(false\); setVisualGeneration\(undefined\); setPacketSaved\(false\);/,
+    'a new reaction search or translation must invalidate any prior source before async results return',
   );
   assert.match(
     source,
-    /const candidates = await loadableReactionAssets\(allCandidates, canLoadReactionImage\);/,
-    'every reaction search must verify the full candidate set before limiting the selectable gallery',
+    /The paired setup or punchline was edited\. Translate the moment again/,
+    'editing paired text must require a fresh visual brief instead of forging it against a stale reaction contract',
+  );
+  assert.match(
+    source,
+    /await searchReactionLadder\(generated\.reactionImageBrief\);/,
+    'a translated angle must automatically search its paired visual joke brief',
+  );
+  assert.match(
+    source,
+    /const ranked = rankReactionCandidates\(/,
+    'the visual query ladder must merge candidates by reaction-fit rank before display',
+  );
+  assert.match(
+    source,
+    /const candidates = await loadableReactionAssets\(ranked, canLoadReactionImage\);/,
+    'every ladder search must verify candidates before limiting the selectable gallery',
   );
   assert.match(
     source,
@@ -170,6 +226,9 @@ test('resolved comic mechanism survives visual grounding and packet staging', as
   assert.match(source, /Comic mechanism: \$\{translation\.comicMechanism\}/);
   assert.match(source, /\.\.\.\(resolvedComicMechanism \? \{ comicMechanism: resolvedComicMechanism \} : \{\}\)/);
   assert.match(source, /<span>Comic mechanism<\/span><p>\{translation\.comicMechanism\}<\/p>/);
+  assert.match(source, /reactionImageBrief: translation\?\.reactionImageBrief,/);
+  assert.match(source, /Visual joke role<\/span><p>\{translation\.reactionImageBrief\.visualRole\}<\/p>/);
+  assert.match(source, /Performed reaction<\/span><p>\{translation\.reactionImageBrief\.performedEmotion\.join\(" · "\)\}<\/p>/);
 });
 
 test('the forge editor keeps reaction cards to a setup line, punchline line, and optional tiny footer', async () => {

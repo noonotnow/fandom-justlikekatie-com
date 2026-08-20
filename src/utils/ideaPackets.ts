@@ -1,6 +1,7 @@
 import type { GridItemData } from '../types';
 import type { StarOfDayData } from '../hooks/useStarOfDay';
 import type { CardRecord, GridRecord } from './collectionDB';
+import type { ReactionImageBrief } from './middleEarthAi';
 
 export type IdeaPacketState = 'collecting' | 'media_compiled';
 export type PacketOutputKind = 'grid' | 'individual' | 'meme' | 'spellbook';
@@ -62,6 +63,8 @@ export interface MiddleEarthOutputContent {
   referenceStillFamily?: string;
   /** The query used to find the selected reaction still. */
   referenceStillQuery?: string;
+  /** The image-side joke contract used to retrieve and rank reaction stills. */
+  reactionImageBrief?: ReactionImageBrief;
   aiGeneration?: {
     provider: 'xai';
     generatedAt: string;
@@ -159,6 +162,7 @@ export interface MiddleEarthDraft {
   artifactType?: string;
   referenceStillFamily?: string;
   referenceStillQuery?: string;
+  reactionImageBrief?: ReactionImageBrief;
   creativeDirection?: string;
   aiGeneration?: MiddleEarthOutputContent['aiGeneration'];
   rednoteCopy?: MiddleEarthRednoteCopy;
@@ -468,6 +472,7 @@ export function middleEarthTextFingerprint(content: MiddleEarthOutputContent): s
     content.artifactType ?? '',
     content.referenceStillFamily ?? '',
     content.referenceStillQuery ?? '',
+    content.reactionImageBrief ? JSON.stringify(content.reactionImageBrief) : '',
   ].join('\x00');
 }
 
@@ -523,6 +528,7 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
     ...(draft.artifactType ? { artifactType: draft.artifactType } : {}),
     ...(draft.referenceStillFamily ? { referenceStillFamily: draft.referenceStillFamily } : {}),
     ...(draft.referenceStillQuery ? { referenceStillQuery: draft.referenceStillQuery } : {}),
+    ...(draft.reactionImageBrief ? { reactionImageBrief: draft.reactionImageBrief } : {}),
     ...(draft.aiGeneration ? { aiGeneration: draft.aiGeneration } : {}),
     ...(draft.rednoteCopy ? { rednoteCopy: draft.rednoteCopy } : {}),
   };
@@ -549,6 +555,7 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
           ...(draft.artifactType ? { artifactType: draft.artifactType } : {}),
            ...(draft.referenceStillFamily ? { referenceStillFamily: draft.referenceStillFamily } : {}),
            ...(draft.referenceStillQuery ? { referenceStillQuery: draft.referenceStillQuery } : {}),
+          ...(draft.reactionImageBrief ? { reactionImageBrief: draft.reactionImageBrief } : {}),
           ...(draft.asset.query ? { query: draft.asset.query } : {}),
           ...(draft.asset.provider ? { provider: draft.asset.provider } : {}),
         }),
@@ -572,6 +579,7 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
           ...(draft.artifactType ? { artifactType: draft.artifactType } : {}),
            ...(draft.referenceStillFamily ? { referenceStillFamily: draft.referenceStillFamily } : {}),
            ...(draft.referenceStillQuery ? { referenceStillQuery: draft.referenceStillQuery } : {}),
+          ...(draft.reactionImageBrief ? { reactionImageBrief: draft.reactionImageBrief } : {}),
         }),
       };
 

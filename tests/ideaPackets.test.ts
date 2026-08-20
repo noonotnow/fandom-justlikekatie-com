@@ -49,6 +49,14 @@ test('builds a Middle-earth packet with structured text and persistent source pr
     artifactType: 'Meme card',
     referenceStillFamily: 'sam-carrying-frodo',
     referenceStillQuery: 'Sam carrying Frodo reaction still Lord of the Rings',
+    reactionImageBrief: {
+      socialUseQuery: 'friend refuses to let you suffer alone reaction',
+      characterEmotionQueries: ['Samwise worried Frodo still'],
+      iconicSceneQueries: ['Sam carrying Frodo Mount Doom still'],
+      broadFallbackQueries: ['Lord of the Rings supportive friend reaction'],
+      performedEmotion: ['concerned', 'determined'],
+      visualRole: 'An overprepared friend visibly refusing to let someone suffer alone.',
+    },
     creativeDirection: 'Quiet competence under pressure',
     aiGeneration: {
       provider: 'xai',
@@ -92,6 +100,7 @@ test('builds a Middle-earth packet with structured text and persistent source pr
   assert.match(packet.sourceCards[0].provenance, /"comicMechanism":"Relationship-specific contradiction"/);
   assert.match(packet.sourceCards[0].provenance, /"referenceStillFamily":"sam-carrying-frodo"/);
   assert.match(packet.sourceCards[0].provenance, /"referenceStillQuery":"Sam carrying Frodo reaction still Lord of the Rings"/);
+  assert.match(packet.sourceCards[0].provenance, /"socialUseQuery":"friend refuses to let you suffer alone reaction"/);
   assert.match(packet.sourceCards[0].provenance, /"query":"cozy Shire"/);
   assert.equal(packet.middleEarthContent?.[output.id].text, 'The deployment was small, but there was another deployment.');
   assert.equal(packet.middleEarthContent?.[output.id].memeFlavor, 'Samwise Loyalty');
@@ -102,6 +111,7 @@ test('builds a Middle-earth packet with structured text and persistent source pr
   assert.equal(packet.middleEarthContent?.[output.id].cardFooter, 'Friday fellowship meeting');
   assert.equal(packet.middleEarthContent?.[output.id].referenceStillFamily, 'sam-carrying-frodo');
   assert.equal(packet.middleEarthContent?.[output.id].referenceStillQuery, 'Sam carrying Frodo reaction still Lord of the Rings');
+  assert.equal(packet.middleEarthContent?.[output.id].reactionImageBrief?.visualRole, 'An overprepared friend visibly refusing to let someone suffer alone.');
   assert.equal(packet.middleEarthContent?.[output.id].rednoteCopy?.tags[1], '#Samwise');
   assert.equal(packet.actor.name, 'Samwise');
   assert.equal(packet.workingAngle, 'Quiet competence under pressure');
@@ -132,6 +142,16 @@ test('builds a Middle-earth packet with structured text and persistent source pr
   );
   assert.notEqual(
     middleEarthTextFingerprint({ ...content, cardFooter: 'A new tiny footer' }),
+    output.textFingerprint,
+  );
+  assert.notEqual(
+    middleEarthTextFingerprint({
+      ...content,
+      reactionImageBrief: {
+        ...content.reactionImageBrief!,
+        visualRole: 'A decorative Shire landscape.',
+      },
+    }),
     output.textFingerprint,
   );
 });

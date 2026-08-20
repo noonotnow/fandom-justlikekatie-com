@@ -15,18 +15,29 @@ export interface MiddleEarthAiSource {
   query?: string;
 }
 
+export interface MemeCardText {
+  format: MemeCardFormat;
+  line1: string;
+  line2: string;
+  footer: string;
+}
+
+export interface ReactionImageBrief {
+  socialUseQuery: string;
+  characterEmotionQueries: string[];
+  iconicSceneQueries: string[];
+  broadFallbackQueries: string[];
+  performedEmotion: string[];
+  visualRole: string;
+}
+
 export interface GeneratedVisualObject {
   title: string;
   primaryText: string;
   secondaryText: string;
   cardFormat: MemeCardFormat;
   comicMechanism: ComicMechanismName;
-  cardText: {
-    format: MemeCardFormat;
-    line1: string;
-    line2: string;
-    footer: string;
-  };
+  cardText: MemeCardText;
   layout: 'Classic top / bottom' | 'Editorial caption' | 'Tiny confession';
   rationale: string;
   translation: {
@@ -62,7 +73,8 @@ export interface GeneratedMemeTranslation {
   tone: string;
   visualDirection: string;
   referenceStillFamily: ReferenceStillFamilyId;
-  searchQuery: string;
+  cardText: MemeCardText;
+  reactionImageBrief: ReactionImageBrief;
   model?: string;
 }
 
@@ -77,6 +89,9 @@ interface VisualInput {
   layout: string;
   guidance?: string;
   source?: MiddleEarthAiSource;
+  reactionImageBrief?: ReactionImageBrief;
+  /** Paired translation copy that the forge must preserve exactly. */
+  cardText?: MemeCardText;
 }
 
 interface TranslationInput {
@@ -115,6 +130,7 @@ export interface MiddleEarthGroundingInput {
   layout: string;
   guidance?: string;
   referenceStillFamily?: ReferenceStillFamilyId;
+  reactionImageBrief?: ReactionImageBrief;
   source?: MiddleEarthAiSource & { id?: string };
   visual: {
     title: string;
@@ -136,6 +152,14 @@ export function middleEarthGroundingFingerprint(input: MiddleEarthGroundingInput
     layout: input.layout.trim(),
     guidance: input.guidance?.trim() || '',
     referenceStillFamily: input.referenceStillFamily || '',
+    reactionImageBrief: input.reactionImageBrief ? {
+      socialUseQuery: input.reactionImageBrief.socialUseQuery.trim(),
+      characterEmotionQueries: input.reactionImageBrief.characterEmotionQueries.map((query) => query.trim()),
+      iconicSceneQueries: input.reactionImageBrief.iconicSceneQueries.map((query) => query.trim()),
+      broadFallbackQueries: input.reactionImageBrief.broadFallbackQueries.map((query) => query.trim()),
+      performedEmotion: input.reactionImageBrief.performedEmotion.map((emotion) => emotion.trim()),
+      visualRole: input.reactionImageBrief.visualRole.trim(),
+    } : null,
     source: input.source ? {
       id: input.source.id || '',
       title: input.source.title.trim(),

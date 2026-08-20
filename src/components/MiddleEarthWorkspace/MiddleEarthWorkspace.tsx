@@ -7,6 +7,7 @@ import {
   type GeneratedMemeTranslation,
   type MiddleEarthAiSource,
   type MemeCardFormat,
+  type ReactionImageBrief,
 } from "../../utils/middleEarthAi";
 import {
   ideaPacketStagingErrorMessage,
@@ -27,7 +28,12 @@ import {
   referenceStillSearchQuery,
   type ReferenceStillFamilyId,
 } from "../../data/middleEarthReferenceStills";
-import { loadableReactionAssets } from "../../utils/reactionImageAssets";
+import {
+  loadableReactionAssets,
+  rankReactionCandidates,
+  reactionQueryLadder,
+  type ReactionQueryTier,
+} from "../../utils/reactionImageAssets";
 import { createArchiveSearchRequestGate } from "./archiveSearchRequestGate";
 import styles from "./MiddleEarthWorkspace.module.css";
 
@@ -39,6 +45,7 @@ export interface MiddleEarthAsset {
   publisher?: string;
   query: string;
   provider?: string;
+  reactionQueryTier?: ReactionQueryTier;
 }
 
 export type MiddleEarthContentKind = "meme" | "spellbook";
@@ -59,6 +66,7 @@ export interface MiddleEarthDraft {
   artifactType?: string;
   referenceStillFamily?: ReferenceStillFamilyId;
   referenceStillQuery?: string;
+  reactionImageBrief?: ReactionImageBrief;
   creativeDirection?: string;
   aiGeneration?: {
     provider: "xai";
@@ -460,7 +468,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const activeReferenceStillFamily = referenceStillFamilyById(referenceStillFamily);
   const generationGuidance = useMemo(() => [
     moment.trim() ? `Original moment: ${moment.trim()}` : "",
-    translation ? `Translated as: ${translation.translatedMoment}\nScene: ${translation.scene}\nComic mechanism: ${translation.comicMechanism}\nVisual direction: ${translation.visualDirection}` : "",
+    translation ? `Translated as: ${translation.translatedMoment}\nScene: ${translation.scene}\nComic mechanism: ${translation.comicMechanism}\nVisual direction: ${translation.visualDirection}\nVisual joke role: ${translation.reactionImageBrief.visualRole}\nPerformed reaction: ${translation.reactionImageBrief.performedEmotion.join(", ")}` : "",
     creativeDirection.trim() ? `Additional direction: ${creativeDirection.trim()}` : "",
   ].filter(Boolean).join("\n").slice(0, 500), [moment, translation, creativeDirection]);
 
@@ -478,6 +486,10 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     setResults([]);
     setSearchedQuery("");
     setSearching(false);
+    setTitle("");
+    setText("");
+    setSecondaryText("");
+    setCardFormat(undefined);
     invalidateGeneratedVisual();
   };
 
@@ -493,6 +505,10 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     setSearching(false);
     setError("");
     setStatus("");
+    setTitle("");
+    setText("");
+    setSecondaryText("");
+    setCardFormat(undefined);
     invalidateGeneratedVisual();
   };
 
@@ -504,6 +520,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     const clean = (requestedQuery ?? query).trim();
     if (!clean) return;
     const requestId = archiveSearchRequestGate.begin();
+    setSelected(undefined); setPreviewImageFailed(false); setVisualGeneration(undefined); setPacketSaved(false);
     setSearching(true); setError(""); setStatus("");
     try {
       const response = await fetch(`/.netlify/functions/middle-earth-search?q=${encodeURIComponent(clean)}`);
@@ -536,6 +553,52 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     }
   };
 
+  const searchReactionLadder = async (brief: ReactionImageBrief) => {
+    const requestId = archiveSearchRequestGate.begin();
+    const ladder = reactionQueryLadder(brief);
+    if (!ladder.length) return;
+    setSelected(undefined); setPreviewImageFailed(false); setVisualGeneration(undefined); setPacketSaved(false);
+    setSearching(true); setError(""); setStatus("MemeForge is looking for the reaction face…");
+    try {
+      const responses = await Promise.allSettled(ladder.map(async (step, stepIndex) => {
+        const response = await fetch(`/.netlify/functions/middle-earth-search?q=${encodeURIComponent(step.query)}`);
+        if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
+          throw new Error(`The archive could not search “${step.query}”.`);
+        }
+        const payload = await response.json() as SearchResponse;
+        return payload.results.map((result, resultIndex) => ({
+          candidate: makeAsset(result, payload.query || step.query, resultIndex),
+          queryTier: step.tier,
+          rank: stepIndex * 100 + resultIndex,
+        }));
+      }));
+      if (!archiveSearchRequestGate.isCurrent(requestId)) return;
+      const ranked = rankReactionCandidates(
+        responses.flatMap((result) => result.status === "fulfilled" ? result.value : []),
+      );
+      if (!ranked.length && responses.every((result) => result.status === "rejected")) {
+        throw new Error("The archive did not answer any reaction-image searches. Try again in a moment.");
+      }
+      const candidates = await loadableReactionAssets(ranked, canLoadReactionImage);
+      if (!archiveSearchRequestGate.isCurrent(requestId)) return;
+      setResults(candidates);
+      setSearchedQuery(ladder[0].query);
+      setQuery(ladder[0].query);
+      const autoSelected = candidates[0];
+      setSelected(autoSelected);
+      setPreviewImageFailed(false);
+      setVisualGeneration(undefined);
+      setStatus(autoSelected
+        ? `Found ${candidates.length} usable reaction-image ${candidates.length === 1 ? "candidate" : "candidates"} across ${ladder.length} human-native searches. “${autoSelected.title}” is selected; choose the still that performs the bit.`
+        : "The query ladder found attributed records, but none could be loaded. Use typography-only or try a manual search.");
+    } catch (searchError) {
+      if (!archiveSearchRequestGate.isCurrent(requestId)) return;
+      setResults([]); setError(searchError instanceof Error ? searchError.message : "The reaction-image search is unavailable.");
+    } finally {
+      if (archiveSearchRequestGate.isCurrent(requestId)) setSearching(false);
+    }
+  };
+
   const selectStep = (next: "forge" | "spellbook") => {
     setActiveStep(next);
     setStatus("");
@@ -552,6 +615,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       return;
     }
     const requestId = translationRequestGate.begin();
+    setSelected(undefined); setPreviewImageFailed(false); setVisualGeneration(undefined); setPacketSaved(false);
     setBusy(true); setError(""); setStatus("MemeForge is finding the fandom angle…");
     try {
       const generated = await translateMemeMoment({
@@ -566,12 +630,15 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       setTranslation(generated);
       setReferenceStillFamily(generated.referenceStillFamily);
       setTone(generated.tone);
-      const reactionQuery = referenceStillSearchQuery(generated.referenceStillFamily, generated.searchQuery);
-      setQuery(reactionQuery);
+      setTitle(generated.cardText.footer);
+      setText(generated.cardText.line1);
+      setSecondaryText(generated.cardText.line2);
+      setCardFormat(generated.cardText.format);
+      setQuery(generated.reactionImageBrief.socialUseQuery);
       invalidateGeneratedVisual();
-       await search(undefined, reactionQuery);
+      await searchReactionLadder(generated.reactionImageBrief);
       if (!translationRequestGate.isCurrent(requestId)) return;
-      setStatus("Moment translated. Choose the reaction image that lands the bit, then forge the card.");
+      setStatus("Moment translated. The text joke and image joke are paired; choose the reaction still that lands the bit, then forge the card.");
     } catch (translationError) {
       setError(translationError instanceof Error ? translationError.message : "MemeForge could not translate that moment.");
     } finally {
@@ -590,6 +657,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     layout,
     guidance: generationGuidance,
     referenceStillFamily,
+    reactionImageBrief: translation?.reactionImageBrief,
     source: selected ? {
       id: selected.id,
       title: selected.title,
@@ -603,7 +671,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       secondaryText,
       cardFormat,
     },
-  }), [resolvedCharacter, resolvedMemeFlavor, resolvedComicMechanism, resolvedAesthetic, resolvedArtifactType, tone, layout, generationGuidance, referenceStillFamily, selected, title, text, secondaryText, cardFormat]);
+  }), [resolvedCharacter, resolvedMemeFlavor, resolvedComicMechanism, resolvedAesthetic, resolvedArtifactType, tone, layout, generationGuidance, referenceStillFamily, translation, selected, title, text, secondaryText, cardFormat]);
   const rednoteIsCurrent = Boolean(
     rednoteGroundingFingerprint
     && rednoteGroundingFingerprint === currentGroundingFingerprint
@@ -629,9 +697,10 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     character: resolvedCharacter.trim(), memeFlavor: resolvedMemeFlavor, ...(resolvedComicMechanism ? { comicMechanism: resolvedComicMechanism } : {}), aesthetic: resolvedAesthetic, artifactType: resolvedArtifactType,
     ...(referenceStillFamily ? { referenceStillFamily } : {}),
     ...(selected?.query || activeReferenceStillFamily ? { referenceStillQuery: selected?.query || activeReferenceStillFamily?.searchQuery } : {}),
+    ...(translation?.reactionImageBrief ? { reactionImageBrief: translation.reactionImageBrief } : {}),
     creativeDirection: generationGuidance || undefined,
     aiGeneration: visualGeneration, rednoteCopy, asset: selected, createdAt: new Date().toISOString(),
-  }), [title, text, secondaryText, tone, layout, cardFormat, resolvedCharacter, resolvedMemeFlavor, resolvedComicMechanism, resolvedAesthetic, resolvedArtifactType, referenceStillFamily, activeReferenceStillFamily, generationGuidance, visualGeneration, rednoteCopy, selected]);
+  }), [title, text, secondaryText, tone, layout, cardFormat, resolvedCharacter, resolvedMemeFlavor, resolvedComicMechanism, resolvedAesthetic, resolvedArtifactType, referenceStillFamily, activeReferenceStillFamily, translation, generationGuidance, visualGeneration, rednoteCopy, selected]);
 
   const sourceContext = useMemo<MiddleEarthAiSource | undefined>(() => selected ? {
     title: selected.title,
@@ -649,6 +718,15 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       setError("Translate the moment before forging its reaction card.");
       return;
     }
+    if (
+      title !== translation.cardText.footer
+      || text !== translation.cardText.line1
+      || secondaryText !== translation.cardText.line2
+      || cardFormat !== translation.cardText.format
+    ) {
+      setError("The paired setup or punchline was edited. Translate the moment again so MemeForge can match a new reaction brief and image search.");
+      return;
+    }
     setBusy(true); setError(""); setStatus("MemeForge is shaping the shareable object…");
     try {
       const generated = await generateVisualObject({
@@ -662,6 +740,8 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
         layout,
         guidance: generationGuidance || undefined,
         source: sourceContext,
+        reactionImageBrief: translation.reactionImageBrief,
+        cardText: translation.cardText,
       });
       setTitle(generated.cardText.footer);
       setText(generated.primaryText);
@@ -816,6 +896,9 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
             <div><span>Archetype</span><p>{translation.memeFlavor} · {translation.character}</p></div>
               <div><span>Comic mechanism</span><p>{translation.comicMechanism}</p></div>
             <div><span>Vibe</span><p>{translation.tone} · {translation.aesthetic}</p></div>
+              <div><span>Text joke</span><p>{translation.cardText.line1} / {translation.cardText.line2}</p></div>
+              <div><span>Visual joke role</span><p>{translation.reactionImageBrief.visualRole}</p></div>
+              <div><span>Performed reaction</span><p>{translation.reactionImageBrief.performedEmotion.join(" · ")}</p></div>
           </div>
         </div>}
       </section>
@@ -845,6 +928,11 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
               </select>
             </label>
             {activeReferenceStillFamily && <div className={styles.sourceNote}><span className={styles.dot} /> <strong>{activeReferenceStillFamily.label}</strong> · {activeReferenceStillFamily.description}</div>}
+            <div className={styles.sourceNote}>
+              <span className={styles.dot} />
+              <strong>Visual joke brief</strong> · {translation.reactionImageBrief.visualRole}
+              <small> Looking for: {translation.reactionImageBrief.performedEmotion.join(", ")}. Search starts with “{translation.reactionImageBrief.socialUseQuery}”.</small>
+            </div>
             <form className={styles.searchForm} onSubmit={search}>
               <label htmlFor="archive-search">Search reaction images</label>
               <div className={styles.searchBox}>
@@ -864,7 +952,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           {searching && <div className={styles.loadingGrid} aria-label="Loading archive records">{[1, 2, 3, 4].map((item) => <div key={item} className={styles.skeleton} />)}</div>}
           {!searching && error && !results.length && <div className={styles.state}><strong>Something interrupted the search.</strong><p>{error}</p><button onClick={() => void search()}>Try again</button></div>}
            {!searching && !error && !results.length && <div className={styles.empty}><span>Reaction image note</span><strong>{searchedQuery ? "Nothing surfaced this time." : translation ? "The angle is ready. MemeForge will look for a small set of recognizable reaction stills." : "Translate the moment above first."}</strong><p>Every candidate keeps its source attached, so the trail back is never lost.</p></div>}
-          {!searching && results.length > 0 && <div className={styles.gallery}>{results.map((asset) => <button key={asset.id} className={`${styles.result} ${selected?.id === asset.id ? styles.resultSelected : ""}`} onClick={() => { setSelected(asset); setVisualGeneration(undefined); setPreviewImageFailed(false); setPacketSaved(false); setStatus(`Selected “${asset.title}”. Generate the visual object with this source.`); }} aria-pressed={selected?.id === asset.id} disabled={busy}><span className={styles.imageWrap}><img src={asset.thumbnail} alt="" onError={(event) => { event.currentTarget.style.display = "none"; const fallback = event.currentTarget.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.visibility = "visible"; }} /><span className={styles.imageFallback}>Image<br />unavailable</span></span><span className={styles.resultTitle}>{asset.title}</span><span className={styles.publisher}>{asset.publisher || "Unknown publisher"}</span></button>)}</div>}
+          {!searching && results.length > 0 && <div className={styles.gallery}>{results.map((asset) => <button key={asset.id} className={`${styles.result} ${selected?.id === asset.id ? styles.resultSelected : ""}`} onClick={() => { setSelected(asset); setVisualGeneration(undefined); setPreviewImageFailed(false); setPacketSaved(false); setStatus(`Selected “${asset.title}”. Generate the visual object with this source.`); }} aria-pressed={selected?.id === asset.id} disabled={busy}><span className={styles.imageWrap}><img src={asset.thumbnail} alt="" onError={(event) => { event.currentTarget.style.display = "none"; const fallback = event.currentTarget.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.visibility = "visible"; }} /><span className={styles.imageFallback}>Image<br />unavailable</span></span><span className={styles.resultTitle}>{asset.title}</span><span className={styles.publisher}>{asset.reactionQueryTier ? `${asset.reactionQueryTier} match · ` : ""}{asset.publisher || "Unknown publisher"}</span></button>)}</div>}
         </section>
 
         <section className={styles.forge}>

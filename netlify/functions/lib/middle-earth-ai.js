@@ -63,6 +63,10 @@ const MAX_TRANSLATED_MOMENT_LEN = 260;
 const MAX_SCENE_LEN = 200;
 const MAX_VISUAL_DIRECTION_LEN = 300;
 const MAX_SEARCH_QUERY_LEN = 200;
+const MAX_VISUAL_ROLE_LEN = 180;
+const MAX_PERFORMED_EMOTION_LEN = 48;
+const MAX_REACTION_QUERY_COUNT = 3;
+const MAX_PERFORMED_EMOTIONS = 4;
 const MAX_CAPTION_LEN = 2200;
 const MAX_HASHTAGS = 8;
 const MIN_HASHTAGS = 3;
@@ -180,7 +184,7 @@ function renderSource(s) {
   return parts.length ? parts.join(" | ") : "(no source metadata)";
 }
 
-function buildVisualPrompt({ moment, character, memeFlavor, comicMechanism, aesthetic, artifactType, tone, layout, guidance, source }) {
+function buildVisualPrompt({ moment, character, memeFlavor, comicMechanism, aesthetic, artifactType, tone, layout, guidance, source, reactionImageBrief, cardText }) {
   const flavorDetails = memeFlavorPromptDetails(memeFlavor);
   const mechanismDetails = resolvedComicMechanismPromptDetails(comicMechanism);
   return [
@@ -195,6 +199,12 @@ function buildVisualPrompt({ moment, character, memeFlavor, comicMechanism, aest
     `Requested tone: ${tone}`,
     `Preferred layout hint: ${layout}`,
     guidance ? `Creative direction: ${guidance}` : null,
+    reactionImageBrief
+      ? `Visual joke brief (keep the chosen image aligned with this reaction contract): ${reactionImageBrief.visualRole}. Performed emotion: ${reactionImageBrief.performedEmotion.join(", ")}.`
+      : null,
+    cardText
+      ? `Locked paired card text: format "${cardText.format}", setup "${cardText.line1}", punchline "${cardText.line2}", footer "${cardText.footer}". Preserve this cardText exactly in your JSON response; do not rewrite its words, punctuation, casing, or format.`
+      : null,
     `Translate the free-response moment into a concrete, plausible social situation before writing. A short meta prompt such as "Sam and Frodo funny" is enough: find the friendship contradiction instead of asking a follow-up question.`,
     `The creative grammar controls style and emotional structure only. The selected source remains the factual and provenance anchor when one is provided.`,
     ``,
@@ -245,6 +255,15 @@ function buildVisualRepairPrompt(basePrompt, failureMessage) {
   ].join("\n");
 }
 
+function buildTranslationRepairPrompt(basePrompt, failureMessage) {
+  return [
+    basePrompt,
+    ``,
+    `Your previous angle failed MemeForge's paired joke contract: ${failureMessage}`,
+    `Repair it now. Keep one comic mechanism, write a compact original two-line joke, and describe the visual reaction needed to make that exact joke land. Return only a new JSON object.`,
+  ].join("\n");
+}
+
 function buildTranslationPrompt({ moment, character, memeFlavor, aesthetic, artifactType, guidance }) {
   const prototypeDetails = memeFlavor
     ? memeFlavorPromptDetails(memeFlavor)
@@ -273,7 +292,11 @@ function buildTranslationPrompt({ moment, character, memeFlavor, aesthetic, arti
     `For “Why did they not take the Eagles?”, choose Delighted fandom-lawyer correction. For Friday work dread, prefer Severity inversion or ceremonial setup / petty punchline. The mechanism must produce a specific setup-to-punchline turn, never merely repeat the flavor or name a feeling.`,
     `Use the selected flavor's default mechanisms as a strong starting point, then use its prototype as the comedy spine. The prototype shows the cleanest version of the bit; mutate it for this user's situation and do not copy its exact wording.`,
     `Use the selected archetype as original emotional grammar only. Never recreate a movie still, a raw meme template, a direct Tolkien quote, or character-voice imitation.`,
-    `After the angle is resolved, choose one curated reaction-still family to ground a separate image search. The reaction still supports the joke; it never writes or changes the joke.`,
+    `Write the text joke and the image joke together. cardText says the joke; reactionImageBrief says what a recognizable still must visibly perform for that exact joke to land.`,
+    `The image is a visual punchline carrier, never background atmosphere. Describe a social use, performed emotion, and visual role such as grave authority, overprepared intervention, smug correction, exhausted refusal, or too many people having opinions.`,
+    `Build a human-native Google-first query ladder: socialUseQuery first, then character-plus-emotion, iconic scene/action, and broad fandom-reaction fallbacks. Search like a person finding a GIF to send in a group chat, not like a database looking up a character.`,
+    `Every query must be about a recognizable Middle-earth reaction still. Do not request copied meme captions, watermarks, raw template composites, or generic scenery.`,
+    `After the angle is resolved, choose one curated reaction-still family to guide manual override. The reaction still supports the joke; it never writes or changes the joke.`,
     ``,
     `Respond with ONLY a JSON object matching this exact schema — no markdown, no explanation:`,
     `{`,
@@ -287,7 +310,20 @@ function buildTranslationPrompt({ moment, character, memeFlavor, aesthetic, arti
     `  "tone": "one of: ${[...TONE_NAMES].join(" | ")}",`,
     `  "visualDirection": "original reaction-card art direction, max ${MAX_VISUAL_DIRECTION_LEN} chars",`,
     `  "referenceStillFamily": "one of: ${REFERENCE_STILL_FAMILIES.join(" | ")}",`,
-    `  "searchQuery": "short query for that recognizable reaction still, max ${MAX_SEARCH_QUERY_LEN} chars"`,
+    `  "cardText": {`,
+    `    "format": "one of: ${MEME_CARD_FORMATS.join(" | ")}",`,
+    `    "line1": "short setup, max ${MAX_CARD_LINE_ONE_LEN} chars",`,
+    `    "line2": "short punchline or reaction, max ${MAX_CARD_LINE_TWO_LEN} chars",`,
+    `    "footer": "optional tiny footer, max ${MAX_CARD_FOOTER_LEN} chars"`,
+    `  },`,
+    `  "reactionImageBrief": {`,
+    `    "socialUseQuery": "human-native social reaction query, max ${MAX_SEARCH_QUERY_LEN} chars",`,
+    `    "characterEmotionQueries": ["1-${MAX_REACTION_QUERY_COUNT} character plus performed-emotion queries"],`,
+    `    "iconicSceneQueries": ["1-${MAX_REACTION_QUERY_COUNT} iconic scene or action queries"],`,
+    `    "broadFallbackQueries": ["1-${MAX_REACTION_QUERY_COUNT} broad fandom reaction queries"],`,
+    `    "performedEmotion": ["1-${MAX_PERFORMED_EMOTIONS} concise visible emotions"],`,
+    `    "visualRole": "what the still must perform for the joke to land, max ${MAX_VISUAL_ROLE_LEN} chars"`,
+    `  }`,
     `}`,
   ].filter(line => line !== null).join("\n");
 }
@@ -418,11 +454,62 @@ const TRANSLATION_JSON_SCHEMA = {
       tone: { type: "string", enum: [...TONE_NAMES] },
       visualDirection: { type: "string", minLength: 1, maxLength: MAX_VISUAL_DIRECTION_LEN },
       referenceStillFamily: { type: "string", enum: REFERENCE_STILL_FAMILIES },
-      searchQuery: { type: "string", minLength: 1, maxLength: MAX_SEARCH_QUERY_LEN },
+      cardText: {
+        type: "object",
+        properties: {
+          format: { type: "string", enum: MEME_CARD_FORMATS },
+          line1: { type: "string", minLength: 1, maxLength: MAX_CARD_LINE_ONE_LEN },
+          line2: { type: "string", minLength: 1, maxLength: MAX_CARD_LINE_TWO_LEN },
+          footer: { type: "string", maxLength: MAX_CARD_FOOTER_LEN },
+        },
+        required: ["format", "line1", "line2", "footer"],
+        additionalProperties: false,
+      },
+      reactionImageBrief: {
+        type: "object",
+        properties: {
+          socialUseQuery: { type: "string", minLength: 1, maxLength: MAX_SEARCH_QUERY_LEN },
+          characterEmotionQueries: {
+            type: "array",
+            items: { type: "string", minLength: 1, maxLength: MAX_SEARCH_QUERY_LEN },
+            minItems: 1,
+            maxItems: MAX_REACTION_QUERY_COUNT,
+          },
+          iconicSceneQueries: {
+            type: "array",
+            items: { type: "string", minLength: 1, maxLength: MAX_SEARCH_QUERY_LEN },
+            minItems: 1,
+            maxItems: MAX_REACTION_QUERY_COUNT,
+          },
+          broadFallbackQueries: {
+            type: "array",
+            items: { type: "string", minLength: 1, maxLength: MAX_SEARCH_QUERY_LEN },
+            minItems: 1,
+            maxItems: MAX_REACTION_QUERY_COUNT,
+          },
+          performedEmotion: {
+            type: "array",
+            items: { type: "string", minLength: 1, maxLength: MAX_PERFORMED_EMOTION_LEN },
+            minItems: 1,
+            maxItems: MAX_PERFORMED_EMOTIONS,
+          },
+          visualRole: { type: "string", minLength: 1, maxLength: MAX_VISUAL_ROLE_LEN },
+        },
+        required: [
+          "socialUseQuery",
+          "characterEmotionQueries",
+          "iconicSceneQueries",
+          "broadFallbackQueries",
+          "performedEmotion",
+          "visualRole",
+        ],
+        additionalProperties: false,
+      },
     },
     required: [
       "translatedMoment", "scene", "character", "memeFlavor", "aesthetic",
-      "artifactType", "tone", "comicMechanism", "visualDirection", "referenceStillFamily", "searchQuery",
+      "artifactType", "tone", "comicMechanism", "visualDirection", "referenceStillFamily",
+      "cardText", "reactionImageBrief",
     ],
     additionalProperties: false,
   },
@@ -596,12 +683,79 @@ function normalizeCardText(value, memeFlavor) {
   return { format, line1, line2, footer };
 }
 
-function normalizeVisualOutput(raw, requestedModel, memeFlavor, comicMechanism) {
+function normalizeReactionImageBrief(value, status = 502) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AppError("reactionImageBrief must be an object.", status);
+  }
+  const compact = (candidate, fieldName, maxLength) => {
+    if (typeof candidate !== "string" || !candidate.trim()) {
+      throw new AppError(`reactionImageBrief.${fieldName} must be a non-empty string.`, status);
+    }
+    const normalized = candidate.trim();
+    if (normalized.length > maxLength) {
+      throw new AppError(`reactionImageBrief.${fieldName} must be at most ${maxLength} characters.`, status);
+    }
+    if (/[\r\n]/u.test(normalized)) {
+      throw new AppError(`reactionImageBrief.${fieldName} must be one line.`, status);
+    }
+    return normalized;
+  };
+  const compactList = (candidate, fieldName, maxItems, maxLength) => {
+    if (!Array.isArray(candidate) || candidate.length < 1 || candidate.length > maxItems) {
+      throw new AppError(`reactionImageBrief.${fieldName} must contain 1-${maxItems} items.`, status);
+    }
+    const values = candidate.map((item, index) => compact(item, `${fieldName}[${index}]`, maxLength));
+    const unique = [...new Set(values.map((item) => item.toLocaleLowerCase()))];
+    if (unique.length !== values.length) {
+      throw new AppError(`reactionImageBrief.${fieldName} must not repeat queries or emotions.`, status);
+    }
+    return values;
+  };
+
+  return {
+    socialUseQuery: compact(value.socialUseQuery, "socialUseQuery", MAX_SEARCH_QUERY_LEN),
+    characterEmotionQueries: compactList(
+      value.characterEmotionQueries,
+      "characterEmotionQueries",
+      MAX_REACTION_QUERY_COUNT,
+      MAX_SEARCH_QUERY_LEN,
+    ),
+    iconicSceneQueries: compactList(
+      value.iconicSceneQueries,
+      "iconicSceneQueries",
+      MAX_REACTION_QUERY_COUNT,
+      MAX_SEARCH_QUERY_LEN,
+    ),
+    broadFallbackQueries: compactList(
+      value.broadFallbackQueries,
+      "broadFallbackQueries",
+      MAX_REACTION_QUERY_COUNT,
+      MAX_SEARCH_QUERY_LEN,
+    ),
+    performedEmotion: compactList(
+      value.performedEmotion,
+      "performedEmotion",
+      MAX_PERFORMED_EMOTIONS,
+      MAX_PERFORMED_EMOTION_LEN,
+    ),
+    visualRole: compact(value.visualRole, "visualRole", MAX_VISUAL_ROLE_LEN),
+  };
+}
+
+function normalizeVisualOutput(raw, requestedModel, memeFlavor, comicMechanism, lockedCardText) {
   if (typeof raw !== "object" || raw === null) {
     throw new AppError("AI returned an unexpected response format.", 502);
   }
   const layout = clamp(raw.layout, MAX_LAYOUT_LEN);
   const cardText = normalizeCardText(raw.cardText, memeFlavor);
+  if (lockedCardText && (
+    cardText.format !== lockedCardText.format
+    || cardText.line1 !== lockedCardText.line1
+    || cardText.line2 !== lockedCardText.line2
+    || cardText.footer !== lockedCardText.footer
+  )) {
+    throw new AppError("AI changed the locked paired cardText instead of preserving the translated joke.", 502);
+  }
   const returnedMechanism = requireChoice(raw.comicMechanism, "comicMechanism", COMIC_MECHANISM_NAMES);
   if (returnedMechanism !== comicMechanism) {
     throw new AppError("AI changed the resolved comic mechanism instead of writing the requested joke turn.", 502);
@@ -668,18 +822,21 @@ function normalizeTranslationOutput(raw, requestedModel) {
   if (typeof raw !== "object" || raw === null) {
     throw new AppError("AI returned an unexpected response format.", 502);
   }
+  const memeFlavor = requireChoice(raw.memeFlavor, "memeFlavor", MEME_FLAVOR_NAMES);
+  const comicMechanism = requireChoice(raw.comicMechanism, "comicMechanism", COMIC_MECHANISM_NAMES);
   return {
     translatedMoment: requireNonempty(clamp(raw.translatedMoment, MAX_TRANSLATED_MOMENT_LEN), "translatedMoment"),
     scene: requireNonempty(clamp(raw.scene, MAX_SCENE_LEN), "scene"),
     character: requireChoice(raw.character, "character", CHARACTER_NAMES),
-    memeFlavor: requireChoice(raw.memeFlavor, "memeFlavor", MEME_FLAVOR_NAMES),
-    comicMechanism: requireChoice(raw.comicMechanism, "comicMechanism", COMIC_MECHANISM_NAMES),
+    memeFlavor,
+    comicMechanism,
     aesthetic: requireChoice(raw.aesthetic, "aesthetic", AESTHETIC_NAMES),
     artifactType: requireChoice(raw.artifactType, "artifactType", ARTIFACT_TYPE_NAMES),
     tone: requireChoice(raw.tone, "tone", TONE_NAMES),
     visualDirection: requireNonempty(clamp(raw.visualDirection, MAX_VISUAL_DIRECTION_LEN), "visualDirection"),
     referenceStillFamily: requireChoice(raw.referenceStillFamily, "referenceStillFamily", REFERENCE_STILL_FAMILY_SET),
-    searchQuery: requireNonempty(clamp(raw.searchQuery, MAX_SEARCH_QUERY_LEN), "searchQuery"),
+    cardText: normalizeCardText(raw.cardText, memeFlavor),
+    reactionImageBrief: normalizeReactionImageBrief(raw.reactionImageBrief),
     ...(requestedModel ? { model: requestedModel } : {}),
   };
 }
@@ -833,14 +990,26 @@ function validateBody(body) {
   const layout = requireStr(body.layout, "layout", MAX_LAYOUT_LEN);
   const guidance = str(body.guidance, MAX_GUIDANCE_LEN, "guidance");
   const source = validateSource(body.source);
+  const reactionImageBrief = body.reactionImageBrief === undefined
+    ? undefined
+    : normalizeReactionImageBrief(body.reactionImageBrief, 400);
 
   if (mode === "rednote") {
     const visual = validateVisual(body.visual);
     const currentCopy = validateCurrentCopy(body.currentCopy);
-    return { mode, moment, character, memeFlavor, comicMechanism, aesthetic, artifactType, tone, layout, guidance, source, visual, currentCopy };
+    return { mode, moment, character, memeFlavor, comicMechanism, aesthetic, artifactType, tone, layout, guidance, source, reactionImageBrief, visual, currentCopy };
   }
 
-  return { mode, moment, character, memeFlavor, comicMechanism, aesthetic, artifactType, tone, layout, guidance, source };
+  let cardText;
+  if (body.cardText !== undefined) {
+    try {
+      cardText = normalizeCardText(body.cardText, memeFlavor);
+    } catch (err) {
+      if (err instanceof AppError) throw new AppError(`cardText is invalid: ${err.message}`, 400);
+      throw err;
+    }
+  }
+  return { mode, moment, character, memeFlavor, comicMechanism, aesthetic, artifactType, tone, layout, guidance, source, reactionImageBrief, cardText };
 }
 
 // ---------------------------------------------------------------------------
@@ -913,7 +1082,7 @@ export function createMiddleEarthAIHandler({
         const prompt = buildVisualPrompt(validated);
         const raw = await callXAI({ connectorClient, model, prompt, jsonSchema: VISUAL_JSON_SCHEMA });
         try {
-          result = normalizeVisualOutput(raw, model, validated.memeFlavor, validated.comicMechanism);
+          result = normalizeVisualOutput(raw, model, validated.memeFlavor, validated.comicMechanism, validated.cardText);
         } catch (err) {
           // A valid JSON response can still be scene prose or an overlong card.
           // Give the model one constrained repair attempt, never an open-ended
@@ -925,7 +1094,7 @@ export function createMiddleEarthAIHandler({
             prompt: buildVisualRepairPrompt(prompt, err.message),
             jsonSchema: VISUAL_JSON_SCHEMA,
           });
-          result = normalizeVisualOutput(repaired, model, validated.memeFlavor, validated.comicMechanism);
+          result = normalizeVisualOutput(repaired, model, validated.memeFlavor, validated.comicMechanism, validated.cardText);
         }
       } else if (validated.mode === "rednote") {
         const prompt = buildRednotePrompt(validated);
@@ -934,7 +1103,18 @@ export function createMiddleEarthAIHandler({
       } else {
         const prompt = buildTranslationPrompt(validated);
         const raw = await callXAI({ connectorClient, model, prompt, jsonSchema: TRANSLATION_JSON_SCHEMA });
-        result = normalizeTranslationOutput(raw, model);
+        try {
+          result = normalizeTranslationOutput(raw, model);
+        } catch (err) {
+          if (!(err instanceof AppError) || err.status !== 502) throw err;
+          const repaired = await callXAI({
+            connectorClient,
+            model,
+            prompt: buildTranslationRepairPrompt(prompt, err.message),
+            jsonSchema: TRANSLATION_JSON_SCHEMA,
+          });
+          result = normalizeTranslationOutput(repaired, model);
+        }
       }
 
       logger.log?.("[middle-earth-ai] completion succeeded", {
