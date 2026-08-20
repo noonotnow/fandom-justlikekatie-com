@@ -152,7 +152,7 @@ function makeHandler({
   store = memoryStore(),
   connector = makeConnector({ chatResponse: VALID_VISUAL_RESPONSE }),
   now = () => Date.now(),
-  logger = { info() {} },
+  logger = { log() {} },
 } = {}) {
   return createMiddleEarthAIHandler({
     auth,
@@ -1009,7 +1009,7 @@ test("logs successful discovery and completion without private request copy", as
   const privateGuidance = "private operator copy must never enter logs";
   const handler = makeHandler({
     logger: {
-      info(message, metadata) {
+      log(message, metadata) {
         entries.push([message, metadata]);
       },
     },
