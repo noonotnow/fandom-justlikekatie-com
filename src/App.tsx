@@ -194,7 +194,7 @@ function VibeAtlasApp() {
       <ThemeToggle isDark={isDark} onToggle={toggleDarkMode} />
 
       {/* Navigation bar */}
-      <nav className="flex justify-center gap-6 pt-4 pb-2 border-b border-gray-200 dark:border-gray-700">
+      <nav className="flex flex-wrap justify-center gap-6 pt-4 pb-2 border-b border-gray-200 dark:border-gray-700">
         <a className="fandom-home-link" href="/">Fandom tools</a>
         <button
           onClick={() => setView('daily')}
@@ -227,6 +227,15 @@ function VibeAtlasApp() {
           >
             Fandom Admin
           </button>
+        )}
+        {isAdmin && (
+          <a
+            className="memeforge-workbench-link"
+            href="/memeforge/middle-earth"
+          >
+            <span>Middle-earth MemeForge</span>
+            <small>Separate workbench · not Vibe Atlas or CREATE</small>
+          </a>
         )}
       </nav>
 

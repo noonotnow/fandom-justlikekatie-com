@@ -497,9 +497,9 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     <main className={styles.workspace}>
       <header className={styles.header}>
         <a className={styles.backLink} href="/">Fandom / launchpad</a>
-        <div className={styles.eyebrow}><span className={styles.rune} aria-hidden="true">—</span> MemeForge / personal workbench <span className={styles.rule} /></div>
+        <div className={styles.eyebrow}><span className={styles.rune} aria-hidden="true">—</span> MemeForge / separate workbench <span className={styles.rule} /></div>
         <h1><small>Middle-earth</small><br /><em>MemeForge</em></h1>
-        <p className={styles.intro}>Search the visual record. Find the feeling. Turn it into something worth sending.</p>
+        <p className={styles.intro}>A Middle-earth workbench separate from C-drama Vibe Atlas and its CREATE handoff. Search the visual record, find the feeling, and turn it into something worth sending.</p>
       </header>
 
       <section className={styles.modeSwitch} aria-label="Creation mode">
