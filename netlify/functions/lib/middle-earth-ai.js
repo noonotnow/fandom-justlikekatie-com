@@ -537,7 +537,7 @@ export function createMiddleEarthAIHandler({
       if (!model) {
         return json(503, { error: "AI service is temporarily unavailable." });
       }
-      logger.info?.("[middle-earth-ai] model discovered", { model });
+      logger.log?.("[middle-earth-ai] model discovered", { model });
 
       let result;
       if (validated.mode === "visual") {
@@ -550,7 +550,7 @@ export function createMiddleEarthAIHandler({
         result = normalizeRednoteOutput(raw, model);
       }
 
-      logger.info?.("[middle-earth-ai] completion succeeded", {
+      logger.log?.("[middle-earth-ai] completion succeeded", {
         mode: validated.mode,
         model,
       });
