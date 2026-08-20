@@ -19,6 +19,11 @@ export interface GeneratedVisualObject {
   secondaryText: string;
   layout: 'Classic top / bottom' | 'Editorial caption' | 'Tiny confession';
   rationale: string;
+  translation: {
+    scene: string;
+    archetype: string;
+    vibe: string;
+  };
   model?: string;
 }
 
@@ -43,7 +48,8 @@ export interface GeneratedMemeTranslation {
 }
 
 interface VisualInput {
-  character: string;
+  moment?: string;
+  character?: string;
   memeFlavor?: MemeFlavorName;
   aesthetic?: AestheticName;
   artifactType?: ArtifactType;
@@ -77,7 +83,8 @@ interface RednoteInput extends VisualInput {
 }
 
 export interface MiddleEarthGroundingInput {
-  character: string;
+  moment?: string;
+  character?: string;
   memeFlavor?: MemeFlavorName;
   aesthetic?: AestheticName;
   artifactType?: ArtifactType;
@@ -94,7 +101,8 @@ export interface MiddleEarthGroundingInput {
 
 export function middleEarthGroundingFingerprint(input: MiddleEarthGroundingInput): string {
   return JSON.stringify({
-    character: input.character.trim(),
+    moment: input.moment?.trim() || '',
+    character: input.character?.trim() || '',
     memeFlavor: input.memeFlavor?.trim() || '',
     aesthetic: input.aesthetic?.trim() || '',
     artifactType: input.artifactType?.trim() || '',

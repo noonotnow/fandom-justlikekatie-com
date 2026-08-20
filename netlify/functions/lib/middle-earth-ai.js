@@ -35,6 +35,8 @@ const MAX_TITLE_LEN = 120;
 const MAX_PRIMARY_TEXT_LEN = 700;
 const MAX_SECONDARY_TEXT_LEN = 240;
 const MAX_RATIONALE_LEN = 300;
+
+const MAX_TRANSLATION_FIELD_LEN = 180;
 const MAX_TRANSLATED_MOMENT_LEN = 260;
 const MAX_SCENE_LEN = 200;
 const MAX_VISUAL_DIRECTION_LEN = 300;
@@ -156,19 +158,21 @@ function renderSource(s) {
   return parts.length ? parts.join(" | ") : "(no source metadata)";
 }
 
-function buildVisualPrompt({ character, memeFlavor, aesthetic, artifactType, tone, layout, guidance, source }) {
+function buildVisualPrompt({ moment, character, memeFlavor, aesthetic, artifactType, tone, layout, guidance, source }) {
   const flavorDetails = memeFlavorPromptDetails(memeFlavor);
   return [
     `You are a Middle-earth visual copy writer generating overlay text for a fan image post.`,
     ``,
-    `Character: ${character}`,
+    `Free-response moment: ${moment || "(No moment was supplied; make a broadly relatable Middle-earth reaction.)"}`,
+    `Character steering: ${character || "Auto — infer the most fitting character dynamic from the moment."}`,
     flavorDetails,
     aesthetic ? `Aesthetic: ${aesthetic}` : null,
     artifactType ? `Artifact type: ${artifactType}` : null,
     `Requested tone: ${tone}`,
     `Preferred layout hint: ${layout}`,
     guidance ? `Creative direction: ${guidance}` : null,
-    `The creative grammar controls style and emotional structure only. The selected source remains the factual and provenance anchor.`,
+    `Translate the free-response moment into a concrete, plausible social situation before writing. A short meta prompt such as "Sam and Frodo funny" is enough: invent a recognizable friendship situation (for example, one friend carrying the plan while the other carries the snacks) instead of asking a follow-up question.`,
+    `The creative grammar controls style and emotional structure only. The selected source remains the factual and provenance anchor when one is provided.`,
     ``,
     `Source record (use ONLY facts stated here — do NOT fabricate source details or quote long copyrighted Tolkien passages):`,
     renderSource(source),
@@ -182,7 +186,12 @@ function buildVisualPrompt({ character, memeFlavor, aesthetic, artifactType, ton
     `  "primaryText": "non-empty string, max ${MAX_PRIMARY_TEXT_LEN} chars",`,
     `  "secondaryText": "string, may be empty, max ${MAX_SECONDARY_TEXT_LEN} chars",`,
     `  "layout": "one of: ${VISUAL_LAYOUTS.join(" | ")}",`,
-    `  "rationale": "string, max ${MAX_RATIONALE_LEN} chars, brief reason for the layout choice"`,
+    `  "rationale": "string, max ${MAX_RATIONALE_LEN} chars, brief reason for the layout choice",`,
+    `  "translation": {`,
+    `    "scene": "concise inferred social situation, max ${MAX_TRANSLATION_FIELD_LEN} chars",`,
+    `    "archetype": "concise Middle-earth reaction archetype, max ${MAX_TRANSLATION_FIELD_LEN} chars",`,
+    `    "vibe": "concise emotional vibe, max ${MAX_TRANSLATION_FIELD_LEN} chars"`,
+    `  }`,
     `}`,
   ].filter(line => line !== null).join("\n");
 }
@@ -220,13 +229,14 @@ function buildTranslationPrompt({ moment, character, memeFlavor, aesthetic, arti
   ].filter(line => line !== null).join("\n");
 }
 
-function buildRednotePrompt({ character, memeFlavor, aesthetic, artifactType, tone, layout, guidance, source, visual, currentCopy }) {
+function buildRednotePrompt({ moment, character, memeFlavor, aesthetic, artifactType, tone, layout, guidance, source, visual, currentCopy }) {
   const hasCurrentCopy = currentCopy && (currentCopy.title || currentCopy.caption || (currentCopy.tags && currentCopy.tags.length));
   const flavorDetails = memeFlavorPromptDetails(memeFlavor);
   return [
     `You are a Middle-earth Rednote (小红书) copy writer.`,
     ``,
-    `Character: ${character}`,
+    moment ? `Free-response moment: ${moment}` : null,
+    `Character steering: ${character || "Auto"}`,
     flavorDetails,
     aesthetic ? `Aesthetic: ${aesthetic}` : null,
     artifactType ? `Artifact type: ${artifactType}` : null,
@@ -282,8 +292,18 @@ const VISUAL_JSON_SCHEMA = {
       secondaryText: { type: "string", maxLength: MAX_SECONDARY_TEXT_LEN },
       layout:        { type: "string", enum: VISUAL_LAYOUTS },
       rationale:     { type: "string", maxLength: MAX_RATIONALE_LEN },
+      translation: {
+        type: "object",
+        properties: {
+          scene: { type: "string", minLength: 1, maxLength: MAX_TRANSLATION_FIELD_LEN },
+          archetype: { type: "string", minLength: 1, maxLength: MAX_TRANSLATION_FIELD_LEN },
+          vibe: { type: "string", minLength: 1, maxLength: MAX_TRANSLATION_FIELD_LEN },
+        },
+        required: ["scene", "archetype", "vibe"],
+        additionalProperties: false,
+      },
     },
-    required: ["title", "primaryText", "secondaryText", "layout", "rationale"],
+    required: ["title", "primaryText", "secondaryText", "layout", "rationale", "translation"],
     additionalProperties: false,
   },
 };
@@ -395,6 +415,20 @@ function requireNonempty(value, fieldName) {
   return value.trim();
 }
 
+function normalizeTranslation(value) {
+  if (!value || typeof value !== "object") {
+    throw new AppError("AI returned an incomplete moment translation.", 502);
+  }
+  const field = (name) => {
+    const candidate = clamp(value[name], MAX_TRANSLATION_FIELD_LEN);
+    return requireNonempty(candidate, `translation.${name}`);
+  };
+  return {
+    scene: field("scene"),
+    archetype: field("archetype"),
+    vibe: field("vibe"),
+  };
+}
 function normalizeVisualOutput(raw, requestedModel) {
   if (typeof raw !== "object" || raw === null) {
     throw new AppError("AI returned an unexpected response format.", 502);
@@ -406,6 +440,7 @@ function normalizeVisualOutput(raw, requestedModel) {
     secondaryText: clamp(raw.secondaryText, MAX_SECONDARY_TEXT_LEN),
     layout: VISUAL_LAYOUT_SET.has(layout) ? layout : VISUAL_LAYOUTS[0],
     rationale: clamp(raw.rationale, MAX_RATIONALE_LEN),
+    translation: normalizeTranslation(raw.translation),
     ...(requestedModel ? { model: requestedModel } : {}),
   };
 }
@@ -588,7 +623,12 @@ function validateBody(body) {
     };
   }
 
-  const character = requireStr(body.character, "character", MAX_CHARACTER_LEN);
+  const moment = str(body.moment, MAX_MOMENT_LEN, "moment");
+  // Legacy requests without a moment still require a character. Moment-led
+  // requests intentionally leave character inference to the model.
+  const character = moment
+    ? str(body.character, MAX_CHARACTER_LEN, "character")
+    : requireStr(body.character, "character", MAX_CHARACTER_LEN);
   const memeFlavor = optionalChoice(body.memeFlavor, "memeFlavor", MEME_FLAVOR_NAMES);
   const aesthetic = optionalChoice(body.aesthetic, "aesthetic", AESTHETIC_NAMES);
   const artifactType = optionalChoice(body.artifactType, "artifactType", ARTIFACT_TYPE_NAMES);
@@ -600,10 +640,10 @@ function validateBody(body) {
   if (mode === "rednote") {
     const visual = validateVisual(body.visual);
     const currentCopy = validateCurrentCopy(body.currentCopy);
-    return { mode, character, memeFlavor, aesthetic, artifactType, tone, layout, guidance, source, visual, currentCopy };
+    return { mode, moment, character, memeFlavor, aesthetic, artifactType, tone, layout, guidance, source, visual, currentCopy };
   }
 
-  return { mode, character, memeFlavor, aesthetic, artifactType, tone, layout, guidance, source };
+  return { mode, moment, character, memeFlavor, aesthetic, artifactType, tone, layout, guidance, source };
 }
 
 // ---------------------------------------------------------------------------

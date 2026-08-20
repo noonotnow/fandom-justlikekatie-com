@@ -592,9 +592,11 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
         </div>
         {translation && <div className={styles.translationResult}>
           <div><span>You asked</span><strong>{moment}</strong></div>
-          <div><span>Translated as</span><strong>{translation.translatedMoment}</strong><p>{translation.scene}</p></div>
-          <div className={styles.translationTags}>
-            <span>{translation.memeFlavor}</span><span>{translation.character}</span><span>{translation.tone}</span>
+          <div><span>Translated as</span><strong>{translation.translatedMoment}</strong></div>
+          <div className={styles.translationDetails}>
+            <div><span>Scene</span><p>{translation.scene}</p></div>
+            <div><span>Archetype</span><p>{translation.memeFlavor} · {translation.character}</p></div>
+            <div><span>Vibe</span><p>{translation.tone} · {translation.aesthetic}</p></div>
           </div>
         </div>}
       </section>
@@ -602,17 +604,19 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       <div className={styles.layout}>
         <aside className={styles.searchRail}>
           <div className={styles.sectionKicker}>02 / optional inspiration</div>
-          <form className={styles.searchForm} onSubmit={search}>
-            <label htmlFor="archive-search">Search visual inspiration</label>
-            <div className={styles.searchBox}>
-              <input id="archive-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Try “Rivendell at dusk”" disabled={busy || searching} />
-              <button type="submit" aria-label="Search the archive" disabled={busy || searching || !query.trim()}>Search</button>
+          {translation ? <>
+            <form className={styles.searchForm} onSubmit={search}>
+              <label htmlFor="archive-search">Search visual inspiration</label>
+              <div className={styles.searchBox}>
+                <input id="archive-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Try “Rivendell at dusk”" disabled={busy || searching} />
+                <button type="submit" aria-label="Search the archive" disabled={busy || searching || !query.trim()}>Search</button>
+              </div>
+            </form>
+            <div className={styles.suggestions}>
+              {suggestions.map((group) => <div key={group.label}><span>{group.label}</span><div className={styles.chips}>{group.items.map((item) => <button key={item} onClick={() => { setQuery(item); void search(undefined, item); }} disabled={busy || searching}>{item}</button>)}</div></div>)}
             </div>
-          </form>
-          <div className={styles.suggestions}>
-            {suggestions.map((group) => <div key={group.label}><span>{group.label}</span><div className={styles.chips}>{group.items.map((item) => <button key={item} onClick={() => { setQuery(item); void search(undefined, item); }} disabled={busy || searching}>{item}</button>)}</div></div>)}
-          </div>
-          <div className={styles.sourceNote}><span className={styles.dot} /> Search supports the resolved concept; it never decides the joke. Always check the original publisher before sharing.</div>
+            <div className={styles.sourceNote}><span className={styles.dot} /> Search supports the resolved concept; it never decides the joke. Always check the original publisher before sharing.</div>
+          </> : <div className={styles.sourceNote}>Translate the moment first to unlock optional visual inspiration.</div>}
         </aside>
 
         <section className={styles.archive} aria-live="polite">

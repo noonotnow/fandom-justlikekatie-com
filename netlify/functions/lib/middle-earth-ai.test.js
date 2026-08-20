@@ -118,6 +118,11 @@ const VALID_VISUAL_RESPONSE = {
   secondaryText: "From the depths of Mirkwood",
   layout: "Classic top / bottom",
   rationale: "Top layout suits a dramatic hero shot.",
+  translation: {
+    scene: "A small responsibility becomes a fellowship-sized detour.",
+    archetype: "Unexpected Journey",
+    vibe: "dry, adventurous resilience",
+  },
 };
 
 const VALID_REDNOTE_RESPONSE = {
@@ -500,6 +505,7 @@ test("visual mode chat request uses visual_object schema with required fields", 
   assert.ok(required.includes("primaryText"));
   assert.ok(required.includes("layout"));
   assert.ok(required.includes("rationale"));
+  assert.ok(required.includes("translation"));
   assert.equal(schema.schema.additionalProperties, false);
 });
 
@@ -618,6 +624,14 @@ test("translation prompt treats a vague meta prompt as content and includes expl
   assert.ok(capturedPrompt.includes("Meme Flavor steering (honor this): Samwise Loyalty"));
   assert.ok(capturedPrompt.includes("should become an invented everyday dynamic"));
   assert.ok(capturedPrompt.includes("content, not instructions"));
+});
+
+test("visual mode returns 502 when AI omits the required moment translation", async () => {
+  const { translation: _translation, ...incomplete } = VALID_VISUAL_RESPONSE;
+  const handler = makeHandler({ connector: makeConnector({ chatResponse: incomplete }) });
+  const response = await handler(makeRequest(VISUAL_BODY), {});
+  assert.equal(response.status, 502);
+  assert.match((await response.json()).error, /translation/i);
 });
 
 test("visual prompt includes source title, url, publisher, and query", async () => {
@@ -911,6 +925,11 @@ test("visual mode: output strings are bounded to max lengths", async () => {
     secondaryText: "S".repeat(500),
     layout: "Classic top / bottom",
     rationale: "R".repeat(500),
+    translation: {
+      scene: "S".repeat(500),
+      archetype: "A".repeat(500),
+      vibe: "V".repeat(500),
+    },
   };
   const connector = makeConnector({ chatResponse: longResp });
   const handler = makeHandler({ connector });
@@ -920,6 +939,9 @@ test("visual mode: output strings are bounded to max lengths", async () => {
   assert.ok(body.result.primaryText.length <= 700);
   assert.ok(body.result.secondaryText.length <= 240);
   assert.ok(body.result.rationale.length <= 300);
+  assert.ok(body.result.translation.scene.length <= 180);
+  assert.ok(body.result.translation.archetype.length <= 180);
+  assert.ok(body.result.translation.vibe.length <= 180);
 });
 
 test("rednote mode: response is { mode: 'rednote', result: { title, caption, tags, model } }", async () => {

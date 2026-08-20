@@ -32,11 +32,17 @@ test('visual generation sends the bounded editor context to the same-origin AI r
         secondaryText: 'Moria was not in the content calendar.',
         layout: 'Editorial caption',
         rationale: 'The source image leaves room below.',
+        translation: {
+          scene: 'A tiny work task growing into an epic detour.',
+          archetype: 'Unexpected Journey',
+          vibe: 'Dry workplace humor',
+        },
         model: 'grok-test',
       },
     });
   }, async () => {
     const result = await generateVisualObject({
+      moment: 'A small request became three meetings',
       character: 'Gandalf',
       memeFlavor: 'One Does Not Simply',
       aesthetic: 'Epic parchment',
@@ -52,6 +58,7 @@ test('visual generation sends the bounded editor context to the same-origin AI r
       },
     });
     assert.equal(result.layout, 'Editorial caption');
+    assert.equal(result.translation.archetype, 'Unexpected Journey');
   });
 
   assert.equal(seenUrl, MIDDLE_EARTH_AI_URL);
@@ -59,6 +66,7 @@ test('visual generation sends the bounded editor context to the same-origin AI r
   assert.equal(seenInit?.credentials, 'same-origin');
   const body = JSON.parse(String(seenInit?.body));
   assert.equal(body.mode, 'visual');
+  assert.equal(body.moment, 'A small request became three meetings');
   assert.equal(body.character, 'Gandalf');
   assert.equal(body.memeFlavor, 'One Does Not Simply');
   assert.equal(body.aesthetic, 'Epic parchment');
