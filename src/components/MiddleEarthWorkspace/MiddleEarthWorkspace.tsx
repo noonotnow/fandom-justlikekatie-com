@@ -186,13 +186,12 @@ export async function exportMiddleEarthPng(
     context.drawImage(image, (1080 - width) / 2, (1350 - height) / 2, width, height);
     context.restore();
   }
-  context.fillStyle = "#102f30";
-  context.fillStyle = hasImage ? "rgba(16,45,46,.38)" : "#a55439";
+  context.fillStyle = hasImage ? "rgba(8,18,19,.22)" : "#a55439";
   context.fillRect(0, 0, canvas.width, canvas.height);
   const gradient = context.createLinearGradient(0, 0, 0, 1350);
-  gradient.addColorStop(0, "rgba(16,45,46,.88)");
-  gradient.addColorStop(.53, "rgba(16,45,46,.15)");
-  gradient.addColorStop(1, "rgba(16,45,46,.93)");
+  gradient.addColorStop(0, "rgba(8,18,19,.58)");
+  gradient.addColorStop(.42, "rgba(8,18,19,.05)");
+  gradient.addColorStop(1, "rgba(8,18,19,.65)");
   context.fillStyle = gradient;
   context.fillRect(0, 0, canvas.width, canvas.height);
   if (draft.layout === "Marginalia") {
@@ -204,11 +203,13 @@ export async function exportMiddleEarthPng(
     context.fillStyle = "rgba(16,45,46,.62)";
     context.fillRect(80, 250, 920, 780);
   }
+  context.fillStyle = "rgba(8,18,19,.86)";
+  context.fillRect(82, 112, 470, 58);
   context.fillStyle = "#f4eee2";
   context.textAlign = "left";
-  context.font = "600 25px Georgia";
+  context.font = "600 20px monospace";
   const artifactLabel = draft.cardFormat || draft.artifactType || (draft.kind === "meme" ? "Meme card" : "Spellbook");
-  context.fillText(`MIDDLE-EARTH / ${artifactLabel.toUpperCase()}`.slice(0, 58), 108, 170);
+  context.fillText(`MEMEFORGE // ${artifactLabel.toUpperCase()}`.slice(0, 48), 108, 149);
   const layout = draft.layout === "Editorial caption"
     ? { x: 92, y: 800, width: 896, size: 58, lineHeight: 70, maxLines: 6, align: "left" as CanvasTextAlign }
     : draft.layout === "Tiny confession"
@@ -226,12 +227,16 @@ export async function exportMiddleEarthPng(
     : wrapCanvasText(context, draft.text || "Your words belong here.", layout.width);
   if (isStructuredReaction) {
     const reactionLines = [lines[0], draft.secondaryText || "Your reaction belongs here."];
-    const widest = Math.max(...reactionLines.map((line) => context.measureText(line).width));
-    const fittedSize = Math.max(16, Math.floor(layout.size * Math.min(1, layout.width / widest)));
-    const fittedLineHeight = fittedSize + 14;
-    context.font = `700 ${fittedSize}px Georgia`;
+    const widest = Math.max(...reactionLines.map((line) => context.measureText(line.toUpperCase()).width));
+    const fittedSize = Math.max(24, Math.floor(Math.min(70, layout.size) * Math.min(1, 840 / widest)));
+    const fittedLineHeight = fittedSize + 34;
+    context.font = `700 ${fittedSize}px Arial`;
     reactionLines.forEach((line, index) => {
-      context.fillText(line, layout.x, layout.y + index * fittedLineHeight);
+      const y = 720 + index * fittedLineHeight;
+      context.fillStyle = "rgba(8,18,19,.88)";
+      context.fillRect(80, y - fittedSize - 18, 920, fittedLineHeight + 12);
+      context.fillStyle = "#f8f3e8";
+      context.fillText(line.toUpperCase(), 108, y);
     });
   } else {
     lines.slice(0, layout.maxLines).forEach((line, index) => {
@@ -251,13 +256,15 @@ export async function exportMiddleEarthPng(
       context.fillText(line, layout.x, secondaryY + index * secondaryLineHeight);
     });
   }
+  context.fillStyle = "rgba(8,18,19,.82)";
+  context.fillRect(82, 1214, 700, 58);
   context.fillStyle = "#d8cdb8";
   context.textAlign = "left";
-  context.font = "500 20px monospace";
+  context.font = "500 17px monospace";
   const footerLabel = draft.cardFormat
     ? draft.cardFooter
     : [draft.memeFlavor, draft.aesthetic].filter(Boolean).join(" · ");
-  context.fillText((footerLabel || draft.title).toUpperCase().slice(0, 54), 108, 1265);
+  context.fillText((footerLabel || draft.title).toUpperCase().slice(0, 54), 108, 1252);
   context.fillStyle = "#193b3b";
   context.textAlign = "center";
   context.font = "500 16px monospace";
@@ -805,7 +812,18 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
               ))}
             </div>
             {selectedFlavor
-              ? <div className={styles.flavorBrief}><span>{selectedFlavor.coreEmotion}</span><p>{selectedFlavor.socialSituation}</p><small>Original archetype only · no raw template recreation</small></div>
+              ? <div className={styles.flavorBrief}>
+                  <span>{selectedFlavor.coreEmotion}</span>
+                  <p>{selectedFlavor.socialSituation}</p>
+                  <div className={styles.prototypeBrief}>
+                    <span>Baseline bit</span>
+                    <strong>{selectedFlavor.prototype.exemplar.line1}</strong>
+                    <strong>{selectedFlavor.prototype.exemplar.line2}</strong>
+                    <p>{selectedFlavor.prototype.comedicMechanism}</p>
+                    <small>Use the shape, then mutate it for the moment. Never copy a caption or template.</small>
+                  </div>
+                  <small>Original archetype only · no raw template recreation</small>
+                </div>
               : <div className={styles.flavorBrief}><span>Auto / surprise me</span><p>Translate the moment to reveal a fandom-native archetype.</p><small>Original archetype only · no raw template recreation</small></div>}
           </fieldset>
            <div className={styles.choiceGroup}><span>Aesthetic</span><div><button type="button" className={aesthetic === autoSteering ? styles.choiceActive : ""} onClick={() => { if (aesthetic === autoSteering) return; setAesthetic(autoSteering); clearReactionGrounding(); }} disabled={busy}>Auto / surprise me</button>{aesthetics.map((option) => <button key={option.name} type="button" title={option.description} className={aesthetic === option.name ? styles.choiceActive : ""} onClick={() => { if (aesthetic === option.name) return; setAesthetic(option.name); clearReactionGrounding(); }} disabled={busy}>{option.name}</button>)}</div></div>
@@ -875,7 +893,13 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           <div className={styles.preview} data-layout={layout} ref={setPreviewNode} aria-label="Live 4 by 5 preview">
             {selected && !previewImageFailed && <img src={selected.thumbnail} alt="" onError={() => setPreviewImageFailed(true)} />}
             <div className={styles.previewShade} />
-              <div className={styles.previewCopy}><span>{(cardFormat || resolvedArtifactType || "Reaction card").toUpperCase()} · {resolvedCharacter.toUpperCase()}</span><strong style={cardCopyStyle(text || "Your setup belongs here.")}>{text || "Your setup belongs here."}</strong>{secondaryText && <em style={cardCopyStyle(secondaryText)}>{secondaryText}</em>}</div>
+              <div className={styles.previewCopy}>
+                <span>MEMEFORGE // {(cardFormat || resolvedArtifactType || "Reaction").toUpperCase()}</span>
+                <div className={styles.previewLines}>
+                  <strong style={cardCopyStyle(text || "Your setup belongs here.")}>{text || "Your setup belongs here."}</strong>
+                  {secondaryText && <em style={cardCopyStyle(secondaryText)}>{secondaryText}</em>}
+                </div>
+              </div>
             {title && <small>{title}</small>}
           </div>
           {selected && <div className={styles.provenance}><strong>Source attached</strong><span>{selected.title}</span><span>{selected.publisher || "Publisher unknown"} · {selected.provider || "Provider unknown"}</span><a href={selected.url} target="_blank" rel="noreferrer">Open original source</a><small>Rights status: unknown. This is a personal draft; confirm permission before publishing.</small></div>}

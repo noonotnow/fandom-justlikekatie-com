@@ -154,6 +154,7 @@ const VALID_TRANSLATION_RESPONSE = {
 const VISUAL_BODY = {
   mode: "visual",
   character: "Gandalf",
+  memeFlavor: "You Shall Not Pass",
   tone: "Deadpan",
   layout: "Classic top / bottom",
 };
@@ -597,7 +598,7 @@ test("visual prompt includes character, creative grammar, tone, layout, and guid
   }), {});
   assert.ok(capturedPrompt.includes("Éowyn of Rohan"), "prompt must include character");
   assert.ok(capturedPrompt.includes("Meme Flavor: I Am No Man"), "prompt must include flavor");
-  assert.ok(capturedPrompt.includes("underdog triumph"), "prompt must include structured flavor guidance");
+  assert.ok(capturedPrompt.includes("underdog reversal"), "prompt must include structured flavor guidance");
   assert.ok(capturedPrompt.includes("Aesthetic: Illuminated manuscript"), "prompt must include aesthetic");
   assert.ok(capturedPrompt.includes("Artifact type: Hero card"), "prompt must include artifact type");
   assert.ok(capturedPrompt.includes("not permission to reproduce"), "prompt must prohibit template recreation");
@@ -912,13 +913,13 @@ test("visual mode accepts every supported compact reaction format", async () => 
     },
     {
       format: "Proverb Card",
-      line1: "ONE DOES NOT SIMPLY",
-      line2: "LEAVE FRIDAY ON TIME.",
+      line1: "ONE EMAIL ON A FRIDAY.",
+      line2: "AN ENTIRE QUEST.",
     },
     {
       format: "Boundary Card",
-      line1: "YOU SHALL NOT PASS",
-      line2: "THIS 4:59 PM INVITE.",
+      line1: "MY WEEKEND: CLOSED.",
+      line2: "THE EMAIL: STILL TRYING.",
     },
     {
       format: "Internal Debate Card",
@@ -988,6 +989,106 @@ test("visual mode repairs scene prose once and returns compact card copy", async
   const chats = connector.calls.filter(c => c.path === "/v1/chat/completions");
   assert.equal(chats.length, 2);
   assert.match(JSON.parse(chats[1].options.body).messages[0].content, /failed the compact meme contract/i);
+});
+
+test("visual mode repairs inspirational Samwise copy into a supportive contradiction", async () => {
+  const posterCopy = {
+    ...VALID_VISUAL_RESPONSE,
+    cardText: {
+      format: "Reaction Card",
+      line1: "WHEN YOUR BEST FRIEND",
+      line2: "CARRIES THE LOAD AGAIN",
+      footer: "Samwise Loyalty",
+    },
+  };
+  const connector = makeConnector({ chatResponses: [posterCopy, VALID_VISUAL_RESPONSE] });
+  const handler = makeHandler({ connector });
+  const res = await handler(makeRequest({
+    ...VISUAL_BODY,
+    moment: "Sam and Frodo funny",
+    character: "Samwise",
+    memeFlavor: "Samwise Loyalty",
+  }), {});
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(body.result.primaryText, VALID_VISUAL_RESPONSE.cardText.line1);
+  const chats = connector.calls.filter(c => c.path === "/v1/chat/completions");
+  assert.equal(chats.length, 2);
+  const firstPrompt = JSON.parse(chats[0].options.body).messages[0].content;
+  const repairPrompt = JSON.parse(chats[1].options.body).messages[0].content;
+  assert.match(firstPrompt, /MY SAMWISE FRIEND: INCORRECT/i);
+  assert.match(firstPrompt, /supportive contradiction/i);
+  assert.match(repairPrompt, /inspirational poster copy/i);
+});
+
+test("translation gives Auto the full prototype catalog for a vague Sam and Frodo prompt", async () => {
+  const connector = makeConnector({ chatResponse: VALID_TRANSLATION_RESPONSE });
+  const handler = makeHandler({ connector });
+  const res = await handler(makeRequest({
+    mode: "translation",
+    moment: "Sam and Frodo funny",
+  }), {});
+  assert.equal(res.status, 200);
+  const chat = connector.calls.find(c => c.path === "/v1/chat/completions");
+  const prompt = JSON.parse(chat.options.body).messages[0].content;
+  assert.match(prompt, /Family: Samwise Loyalty/);
+  assert.match(prompt, /MY SAMWISE FRIEND: INCORRECT/i);
+  assert.match(prompt, /tender affirmation/i);
+});
+
+test("visual mode requires a resolved Meme Flavor before it can forge a card", async () => {
+  const connector = makeConnector({ chatResponse: VALID_VISUAL_RESPONSE });
+  const handler = makeHandler({ connector });
+  const { memeFlavor: _memeFlavor, ...visualWithoutFlavor } = VISUAL_BODY;
+  const res = await handler(makeRequest(visualWithoutFlavor), {});
+  const body = await res.json();
+  assert.equal(res.status, 400);
+  assert.match(body.error, /memeFlavor.*required/i);
+  assert.equal(connector.calls.filter(c => c.path === "/v1/chat/completions").length, 0);
+});
+
+test("visual mode repairs generic empowerment poster copy for I Am No Man", async () => {
+  const posterCopy = {
+    ...VALID_VISUAL_RESPONSE,
+    cardText: {
+      format: "Reaction Card",
+      line1: "BELIEVE IN YOURSELF.",
+      line2: "YOU ARE STRONGER THAN YOU THINK.",
+      footer: "",
+    },
+  };
+  const connector = makeConnector({ chatResponses: [posterCopy, VALID_VISUAL_RESPONSE] });
+  const handler = makeHandler({ connector });
+  const res = await handler(makeRequest({
+    ...VISUAL_BODY,
+    memeFlavor: "I Am No Man",
+  }), {});
+  assert.equal(res.status, 200);
+  const chats = connector.calls.filter(c => c.path === "/v1/chat/completions");
+  assert.equal(chats.length, 2);
+  assert.match(JSON.parse(chats[1].options.body).messages[0].content, /inspirational poster copy/i);
+});
+
+test("visual mode repairs a cross-flavor source-template catchphrase", async () => {
+  const copiedTemplate = {
+    ...VALID_VISUAL_RESPONSE,
+    cardText: {
+      format: "Reaction Card",
+      line1: "ONE DOES NOT SIMPLY.",
+      line2: "LEAVE AT FIVE.",
+      footer: "",
+    },
+  };
+  const connector = makeConnector({ chatResponses: [copiedTemplate, VALID_VISUAL_RESPONSE] });
+  const handler = makeHandler({ connector });
+  const res = await handler(makeRequest({
+    ...VISUAL_BODY,
+    memeFlavor: "You Shall Not Pass",
+  }), {});
+  assert.equal(res.status, 200);
+  const chats = connector.calls.filter(c => c.path === "/v1/chat/completions");
+  assert.equal(chats.length, 2);
+  assert.match(JSON.parse(chats[1].options.body).messages[0].content, /One Does Not Simply source template/i);
 });
 
 test("visual mode: rejects overlong card lines instead of silently truncating them", async () => {

@@ -169,7 +169,12 @@ test('the forge editor keeps reaction cards to a setup line, punchline line, and
   assert.match(source, /<label>Setup line[\s\S]*?maxLength=\{36\}/);
   assert.match(source, /<label>Punchline \/ reaction line[\s\S]*?maxLength=\{36\}/);
   assert.match(source, /const isStructuredReaction = draft\.kind === "meme" && Boolean\(draft\.cardFormat\);/);
-  assert.match(source, /reactionLines\.forEach\(\(line, index\) => \{\s*context\.fillText\(line,/);
+  assert.match(
+    source,
+    /reactionLines\.forEach\(\(line, index\) => \{[\s\S]*?context\.fillRect\(80, y - fittedSize - 18, 920, fittedLineHeight \+ 12\);[\s\S]*?context\.fillText\(line\.toUpperCase\(\), 108, y\);/,
+    'export must retain both lines as high-contrast reaction-meme blocks',
+  );
+  assert.match(source, /MEMEFORGE \/\/ \{\(cardFormat \|\| resolvedArtifactType \|\| "Reaction"\)\.toUpperCase\(\)\}/);
   assert.match(
     source,
     /The reaction card needs both its setup and punchline before it can be saved\./,

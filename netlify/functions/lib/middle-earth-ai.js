@@ -2,7 +2,10 @@ import { json } from "./public-auth.js";
 import {
   AESTHETIC_NAMES,
   ARTIFACT_TYPE_NAMES,
+  FORBIDDEN_SOURCE_TEMPLATES_BY_FLAVOR,
   MEME_FLAVOR_NAMES,
+  memeFlavorCatalogPromptDetails,
+  memeFlavorAvoidPatterns,
   memeFlavorPromptDetails,
 } from "./middle-earth-creative-grammar.js";
 import {
@@ -187,20 +190,21 @@ function buildVisualPrompt({ moment, character, memeFlavor, aesthetic, artifactT
     `Requested tone: ${tone}`,
     `Preferred layout hint: ${layout}`,
     guidance ? `Creative direction: ${guidance}` : null,
-    `Translate the free-response moment into a concrete, plausible social situation before writing. A short meta prompt such as "Sam and Frodo funny" is enough: invent a recognizable friendship situation (for example, one friend carrying the plan while the other carries the snacks) instead of asking a follow-up question.`,
+    `Translate the free-response moment into a concrete, plausible social situation before writing. A short meta prompt such as "Sam and Frodo funny" is enough: find the friendship contradiction instead of asking a follow-up question.`,
     `The creative grammar controls style and emotional structure only. The selected source remains the factual and provenance anchor when one is provided.`,
     ``,
     `Source record (use ONLY facts stated here — do NOT fabricate source details or quote long copyrighted Tolkien passages):`,
     renderSource(source),
     ``,
     `Write meme-native reaction copy before writing any lore or scene explanation.`,
+    `The two visible lines must create a turn: setup, then contradiction, escalation, refusal, or inconvenient truth. If either line could sit on an inspirational poster, discard it and write the joke instead.`,
     `Choose ONE card format: ${MEME_CARD_FORMATS.join(" | ")}.`,
     `The visible card must be exactly two short lines: setup on line1 and punchline/reaction on line2.`,
     `Line 1 must be at most ${MAX_CARD_LINE_ONE_LEN} characters and ${MAX_CARD_WORDS} words.`,
     `Line 2 must be at most ${MAX_CARD_LINE_TWO_LEN} characters and ${MAX_CARD_WORDS} words.`,
     `The optional footer must be at most ${MAX_CARD_FOOTER_LEN} characters.`,
     `Do not put a scene summary, paragraph, invented garden vignette, or explanation in cardText.`,
-    `Use these shapes: Dialogue Card = CHARACTER: setup / CHARACTER: punchline; Reaction Card = WHEN situation / reaction; Proverb Card = ONE DOES NOT SIMPLY / modern task; Boundary Card = YOU SHALL NOT PASS / blocked thing; Internal Debate Card = ME: responsible thought / ALSO ME: chaotic or honest reaction.`,
+    `Use these shapes: Dialogue Card = speaker setup / speaker punchline; Reaction Card = situation / reaction; Proverb Card = solemn setup / mundane twist; Boundary Card = hard boundary / blocked thing; Internal Debate Card = ME: responsible thought / ALSO ME: chaotic or honest reaction.`,
     `The longer interpretation belongs only in translation metadata.`,
     ``,
     `Respond with ONLY a JSON object matching this exact schema — no markdown, no explanation:`,
@@ -232,6 +236,9 @@ function buildVisualRepairPrompt(basePrompt, failureMessage) {
 }
 
 function buildTranslationPrompt({ moment, character, memeFlavor, aesthetic, artifactType, guidance }) {
+  const prototypeDetails = memeFlavor
+    ? memeFlavorPromptDetails(memeFlavor)
+    : memeFlavorCatalogPromptDetails();
   return [
     `You are MemeForge, a Middle-earth meme translator.`,
     `Turn a messy social moment into one original, fandom-native reaction-card direction.`,
@@ -244,8 +251,12 @@ function buildTranslationPrompt({ moment, character, memeFlavor, aesthetic, arti
     artifactType ? `Artifact type steering (honor this): ${artifactType}` : null,
     guidance ? `Additional creative steering: ${guidance}` : null,
     ``,
+    `Comedy prototype guidance:`,
+    prototypeDetails,
+    ``,
     `Infer a concrete, plausible social situation even when the prompt is meta or vague.`,
-    `For example, “Sam and Frodo funny” should become an invented everyday dynamic, not a request for clarification.`,
+    `For example, “Sam and Frodo funny” should become an invented everyday dynamic with a supportive contradiction, not a request for clarification or a tender affirmation.`,
+    `Select the best Meme Flavor, then use its prototype as the comedy spine. The prototype shows the cleanest version of the bit; mutate it for this user's situation and do not copy its exact wording.`,
     `Use the selected archetype as original emotional grammar only. Never recreate a movie still, a raw meme template, a direct Tolkien quote, or character-voice imitation.`,
     `After the angle is resolved, choose one curated reaction-still family to ground a separate image search. The reaction still supports the joke; it never writes or changes the joke.`,
     ``,
@@ -504,7 +515,7 @@ function requireOptionalCompactCardFooter(value) {
   return footer;
 }
 
-function normalizeCardText(value) {
+function normalizeCardText(value, memeFlavor) {
   if (!value || typeof value !== "object") {
     throw new AppError("AI returned an incomplete reaction card.", 502);
   }
@@ -519,28 +530,49 @@ function normalizeCardText(value) {
   if (format === "Dialogue Card" && (!/^[A-Z][A-Z .'-]{0,24}:\s+\S/u.test(line1) || !/^[A-Z][A-Z .'-]{0,24}:\s+\S/u.test(line2))) {
     throw new AppError("AI returned a Dialogue Card without a speaker on both lines.", 502);
   }
-  if (format === "Proverb Card" && !upperLine1.startsWith("ONE DOES NOT SIMPLY")) {
-    throw new AppError("AI returned a Proverb Card without the proverb setup.", 502);
-  }
-  if (format === "Boundary Card" && !upperLine1.startsWith("YOU SHALL NOT PASS")) {
-    throw new AppError("AI returned a Boundary Card without the boundary setup.", 502);
-  }
   if (format === "Internal Debate Card" && (!upperLine1.startsWith("ME:") || !upperLine2.startsWith("ALSO ME:"))) {
     throw new AppError("AI returned an Internal Debate Card without the two opposing voices.", 502);
   }
   if (format === "Reaction Card" && /\b(?:where|while|because|standing|contemplating|sun-dappled)\b/iu.test(`${line1} ${line2}`)) {
     throw new AppError("AI returned scene prose instead of a reaction card.", 502);
   }
+  const combinedCopy = `${line1} ${line2}`;
+  if (/\b(?:believe\s+in\s+(?:yourself|you)|you\s+are\s+stronger|you\s+can\s+do\s+it|keep\s+going|never\s+give\s+up|always\s+(?:there|shows\s+up)|best\s+friend|true\s+friend|carr(?:y|ies|ied|ying)\s+(?:the\s+)?load)\b/iu.test(combinedCopy)) {
+    throw new AppError("AI returned inspirational poster copy instead of a compact reaction-meme turn.", 502);
+  }
+  const normalizedCopy = combinedCopy
+    .toLocaleLowerCase()
+    .replace(/[’']/gu, "'")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+  const reusedSourceTemplate = Object.entries(FORBIDDEN_SOURCE_TEMPLATES_BY_FLAVOR)
+    .flatMap(([flavor, phrases]) => phrases.map((phrase) => ({ flavor, phrase })))
+    .find(({ phrase }) => normalizedCopy.includes(
+      phrase
+        .toLocaleLowerCase()
+        .replace(/[’']/gu, "'")
+        .replace(/[^\p{L}\p{N}]+/gu, " ")
+        .trim(),
+    ));
+  if (reusedSourceTemplate) {
+    throw new AppError(`AI reused the ${reusedSourceTemplate.flavor} source template instead of an original mutation.`, 502);
+  }
+  const avoidedLanguage = memeFlavorAvoidPatterns(memeFlavor)
+    .filter((phrase) => phrase.split(/\s+/u).length > 1)
+    .find((phrase) => combinedCopy.toLocaleLowerCase().includes(phrase.toLocaleLowerCase()));
+  if (avoidedLanguage) {
+    throw new AppError(`AI reused avoided ${memeFlavor} language: "${avoidedLanguage}".`, 502);
+  }
 
   return { format, line1, line2, footer };
 }
 
-function normalizeVisualOutput(raw, requestedModel) {
+function normalizeVisualOutput(raw, requestedModel, memeFlavor) {
   if (typeof raw !== "object" || raw === null) {
     throw new AppError("AI returned an unexpected response format.", 502);
   }
   const layout = clamp(raw.layout, MAX_LAYOUT_LEN);
-  const cardText = normalizeCardText(raw.cardText);
+  const cardText = normalizeCardText(raw.cardText, memeFlavor);
   return {
     // Keep the established draft and handoff fields populated so existing cards
     // remain readable while generation now reasons in explicit meme-card lines.
@@ -666,6 +698,17 @@ function optionalChoice(value, fieldName, allowed) {
   return selected;
 }
 
+function requiredRequestChoice(value, fieldName, allowed) {
+  const selected = str(value, 80, fieldName);
+  if (!selected) {
+    throw new AppError(`${fieldName} is required and must be a recognized value.`);
+  }
+  if (!allowed.has(selected)) {
+    throw new AppError(`${fieldName} is not recognized.`);
+  }
+  return selected;
+}
+
 function validateSource(s) {
   if (!s || typeof s !== "object") return undefined;
   const title = str(s.title, MAX_SOURCE_TITLE_LEN, "source.title");
@@ -742,7 +785,9 @@ function validateBody(body) {
   const character = moment
     ? str(body.character, MAX_CHARACTER_LEN, "character")
     : requireStr(body.character, "character", MAX_CHARACTER_LEN);
-  const memeFlavor = optionalChoice(body.memeFlavor, "memeFlavor", MEME_FLAVOR_NAMES);
+  const memeFlavor = mode === "visual"
+    ? requiredRequestChoice(body.memeFlavor, "memeFlavor", MEME_FLAVOR_NAMES)
+    : optionalChoice(body.memeFlavor, "memeFlavor", MEME_FLAVOR_NAMES);
   const aesthetic = optionalChoice(body.aesthetic, "aesthetic", AESTHETIC_NAMES);
   const artifactType = optionalChoice(body.artifactType, "artifactType", ARTIFACT_TYPE_NAMES);
   const tone = requireStr(body.tone, "tone", MAX_TONE_LEN);
@@ -829,7 +874,7 @@ export function createMiddleEarthAIHandler({
         const prompt = buildVisualPrompt(validated);
         const raw = await callXAI({ connectorClient, model, prompt, jsonSchema: VISUAL_JSON_SCHEMA });
         try {
-          result = normalizeVisualOutput(raw, model);
+          result = normalizeVisualOutput(raw, model, validated.memeFlavor);
         } catch (err) {
           // A valid JSON response can still be scene prose or an overlong card.
           // Give the model one constrained repair attempt, never an open-ended
@@ -841,7 +886,7 @@ export function createMiddleEarthAIHandler({
             prompt: buildVisualRepairPrompt(prompt, err.message),
             jsonSchema: VISUAL_JSON_SCHEMA,
           });
-          result = normalizeVisualOutput(repaired, model);
+          result = normalizeVisualOutput(repaired, model, validated.memeFlavor);
         }
       } else if (validated.mode === "rednote") {
         const prompt = buildRednotePrompt(validated);
