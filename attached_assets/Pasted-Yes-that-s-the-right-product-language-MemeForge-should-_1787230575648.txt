@@ -1,0 +1,143 @@
+Yes — that’s the right product language:
+
+## MemeForge should be a **quippy reaction translator / angle generator**
+
+Not:
+
+> “AI generates a funny Middle-earth scene.”
+> 
+
+But:
+
+> “MemeForge finds the sharp fandom-native angle and compresses it into a sendable reaction.”
+> 
+
+The output should feel closer to:
+
+```
+Prompt:
+not wanting to go to work on Friday
+
+Angle:
+Mordor Commute
+
+Card:
+ONE DOES NOT SIMPLY
+
+CLOCK IN ON A FRIDAY
+```
+
+or:
+
+```
+Prompt:
+Sam and Frodo funny
+
+Angle:
+loyal friend refuses to let you spiral alone
+
+Card:
+FRODO: I CAN’T DO THIS, SAM
+
+SAM: GOOD. WE’RE DOING IT TOGETHER.
+```
+
+## Product distinction
+
+I’d describe it as:
+
+> **MemeForge is a fandom angle generator.**
+Give it a messy situation, character dynamic, or half-formed joke. It finds the Middle-earth reaction angle and turns it into a compact share card.
+> 
+
+Or more punchy:
+
+> **Say the moment badly. MemeForge finds the bit.**
+> 
+
+That is maybe the cleanest tagline.
+
+## The generator should optimize for
+
+1. **Quip**
+    - Short, sharp, instantly readable.
+2. **Angle**
+    - The recognizable social/fandom mapping:
+    - “work = Mordor”
+    - “friend support = Samwise loyalty”
+    - “boundary = You Shall Not Pass”
+    - “too many opinions = Council of Elrond”
+    - “me vs me = Gollum debate”
+3. **Reaction utility**
+    - Would someone actually send this in a chat?
+    - Could it work as a reaction image without a paragraph of context?
+4. **Middle-earth flavor**
+    - Character/scene/quote rhythm should carry the joke.
+    - But no lore novella. No rabbits unless the rabbits are the joke.
+
+## Possible UI labels
+
+Instead of:
+
+```
+Translate moment
+Forge the reaction card
+```
+
+Maybe:
+
+```
+Find the angle
+Forge reaction card
+```
+
+Or:
+
+```
+Generate angles
+Pick the bit
+Forge card
+```
+
+For the first button, I like:
+
+```
+Find the angle
+```
+
+Because that’s what the product is actually doing.
+
+## Better section language
+
+```
+01 / ANGLE GENERATOR
+
+What’s the moment?
+
+Say the situation, character dynamic, or half-formed joke. MemeForge finds the Middle-earth angle and gives you quippy reaction-card options.
+```
+
+Then:
+
+```
+02 / PICK THE BIT
+
+Choose the strongest angle before forging the card.
+```
+
+Then:
+
+```
+03 / FORGE THE CARD
+
+Turn the chosen angle into a two-line reaction image.
+```
+
+## Acceptance test language
+
+For future Replit tasks, I’d state:
+
+> MemeForge should behave less like a general joke writer and more like a quippy reaction translator. It should identify the reusable social angle first, then output concise two-line card copy. If the result needs explanation to be funny, it failed.
+> 
+
+That’s the bar.
