@@ -54,6 +54,8 @@ export interface MiddleEarthOutputContent {
   layout: string;
   character?: string;
   memeFlavor?: string;
+  /** The selected original comic turn; flavor supplies world, mechanism supplies the laugh. */
+  comicMechanism?: string;
   aesthetic?: string;
   artifactType?: string;
   /** Curated reaction-still family resolved after the angle, not a copied meme template. */
@@ -152,6 +154,7 @@ export interface MiddleEarthDraft {
   layout: string;
   character?: string;
   memeFlavor?: string;
+  comicMechanism?: string;
   aesthetic?: string;
   artifactType?: string;
   referenceStillFamily?: string;
@@ -460,6 +463,7 @@ export function middleEarthTextFingerprint(content: MiddleEarthOutputContent): s
     content.layout,
     content.character ?? '',
     content.memeFlavor ?? '',
+    content.comicMechanism ?? '',
     content.aesthetic ?? '',
     content.artifactType ?? '',
     content.referenceStillFamily ?? '',
@@ -514,6 +518,7 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
     layout: draft.layout,
     ...(draft.character ? { character: draft.character } : {}),
     ...(draft.memeFlavor ? { memeFlavor: draft.memeFlavor } : {}),
+    ...(draft.comicMechanism ? { comicMechanism: draft.comicMechanism } : {}),
     ...(draft.aesthetic ? { aesthetic: draft.aesthetic } : {}),
     ...(draft.artifactType ? { artifactType: draft.artifactType } : {}),
     ...(draft.referenceStillFamily ? { referenceStillFamily: draft.referenceStillFamily } : {}),
@@ -539,6 +544,7 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
           rightsStatus: 'unknown',
           ...(draft.character ? { character: draft.character } : {}),
           ...(draft.memeFlavor ? { memeFlavor: draft.memeFlavor } : {}),
+           ...(draft.comicMechanism ? { comicMechanism: draft.comicMechanism } : {}),
           ...(draft.aesthetic ? { aesthetic: draft.aesthetic } : {}),
           ...(draft.artifactType ? { artifactType: draft.artifactType } : {}),
            ...(draft.referenceStillFamily ? { referenceStillFamily: draft.referenceStillFamily } : {}),
@@ -561,6 +567,7 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
           rightsStatus: 'unknown',
           ...(draft.character ? { character: draft.character } : {}),
           ...(draft.memeFlavor ? { memeFlavor: draft.memeFlavor } : {}),
+           ...(draft.comicMechanism ? { comicMechanism: draft.comicMechanism } : {}),
           ...(draft.aesthetic ? { aesthetic: draft.aesthetic } : {}),
           ...(draft.artifactType ? { artifactType: draft.artifactType } : {}),
            ...(draft.referenceStillFamily ? { referenceStillFamily: draft.referenceStillFamily } : {}),

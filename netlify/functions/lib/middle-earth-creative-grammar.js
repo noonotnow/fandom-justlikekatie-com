@@ -198,6 +198,79 @@ export const MEME_FLAVORS = [
 
 export const MEME_FLAVOR_NAMES = new Set(MEME_FLAVORS.map(flavor => flavor.name));
 
+// Flavor supplies the Middle-earth world; a Comic Mechanism supplies the
+// reusable setup-to-punchline turn. These are original comedy patterns, not
+// copied captions or source-meme templates.
+export const COMIC_MECHANISMS = [
+  {
+    name: "Severity inversion",
+    description: "Treat a small modern inconvenience with wildly disproportionate Middle-earth gravity.",
+    selectionCues: ["mundane dread", "Friday work", "minor task", "commute"],
+    avoid: ["generic hardship", "earnest endurance", "motivational suffering"],
+    exemplarShape: "A tiny obligation appears / the reaction declares an impossible quest.",
+  },
+  {
+    name: "Intent reversal",
+    description: "The speaker's stated plan is immediately undone by what they actually want or do.",
+    selectionCues: ["bad plan", "temptation", "willpower", "one more thing"],
+    avoid: ["a balanced pros-and-cons list", "self-improvement advice"],
+    exemplarShape: "ME: sensible intention / ALSO ME: the immediate exception.",
+  },
+  {
+    name: "Escalating repetition",
+    description: "One harmless step multiplies into a faster, more ridiculous loop.",
+    selectionCues: ["tabs", "errands", "spiral", "again", "too many"],
+    avoid: ["a productivity tip", "explaining every step of the spiral"],
+    exemplarShape: "One quick action / suddenly, a multiplying side quest.",
+  },
+  {
+    name: "Ceremonial setup / petty punchline",
+    description: "A grand formal declaration lands on a tiny, specific modern problem.",
+    selectionCues: ["meeting", "group chat", "announcement", "small decision"],
+    avoid: ["heroic rallying", "actual emergency language"],
+    exemplarShape: "A solemn proclamation / a petty practical consequence.",
+  },
+  {
+    name: "Literal misread / wordplay",
+    description: "A phrase or rule is taken too literally, revealing an inconveniently silly meaning.",
+    selectionCues: ["ambiguous wording", "instructions", "signs", "rules"],
+    avoid: ["forced puns", "explaining the wordplay"],
+    exemplarShape: "A literal reading / the absurd real-world implication.",
+  },
+  {
+    name: "Relationship-specific contradiction",
+    description: "A familiar relationship makes one person's stated plan impossible or immediately challenged.",
+    selectionCues: ["friends", "Sam and Frodo", "group dynamic", "support"],
+    avoid: ["tender tribute", "generic friendship praise", "inspirational support"],
+    exemplarShape: "One friend insists on a doomed plan / the other calmly refuses the premise.",
+  },
+  {
+    name: "Delighted fandom-lawyer correction",
+    description: "A lore-minded voice eagerly corrects the premise, then makes the correction funnier than the question.",
+    selectionCues: ["Why did they not take the Eagles?", "lore question", "canon detail"],
+    avoid: ["a lecture", "gatekeeping", "long factual explanation"],
+    exemplarShape: "A confident fandom question / an overprepared correction with a petty payoff.",
+  },
+];
+
+export const COMIC_MECHANISM_NAMES = new Set(COMIC_MECHANISMS.map(mechanism => mechanism.name));
+
+export const DEFAULT_COMIC_MECHANISMS_BY_FLAVOR = {
+  "One Does Not Simply": ["Severity inversion", "Ceremonial setup / petty punchline"],
+  "You Shall Not Pass": ["Ceremonial setup / petty punchline", "Severity inversion"],
+  "Taking the Hobbits to Isengard": ["Escalating repetition"],
+  "Second Breakfast": ["Intent reversal", "Escalating repetition"],
+  "Precious / My Precious": ["Intent reversal", "Relationship-specific contradiction"],
+  "Council of Elrond": ["Ceremonial setup / petty punchline", "Escalating repetition"],
+  "Samwise Loyalty": ["Relationship-specific contradiction", "Severity inversion"],
+  "Gollum’s Debate": ["Intent reversal", "Relationship-specific contradiction"],
+  "Unexpected Journey": ["Severity inversion", "Escalating repetition"],
+  "Mordor Commute": ["Severity inversion", "Ceremonial setup / petty punchline"],
+  "The Beacons Are Lit": ["Ceremonial setup / petty punchline", "Escalating repetition"],
+  "Fly, You Fools": ["Intent reversal", "Ceremonial setup / petty punchline"],
+  "I Am No Man": ["Intent reversal", "Severity inversion"],
+};
+
 export const FORBIDDEN_SOURCE_TEMPLATES_BY_FLAVOR = {
   "One Does Not Simply": ["one does not simply"],
   "You Shall Not Pass": ["you shall not pass"],
@@ -254,6 +327,7 @@ export function memeFlavorPromptDetails(name) {
     `Social situation: ${flavor.socialSituation}`,
     `Visual cues: ${flavor.visualCues}`,
     `Creative guardrail: ${flavor.creativeBrief}`,
+    `Default comic mechanisms: ${(DEFAULT_COMIC_MECHANISMS_BY_FLAVOR[flavor.name] ?? []).join(" | ")}.`,
     ...prototypePromptDetails(flavor),
     "Use the prototype as the comedy spine, then write a fresh mutant for this user's moment. This is an original creative archetype, not permission to reproduce a meme template, movie still, lyric, or quotation.",
   ].join("\n");
@@ -262,8 +336,32 @@ export function memeFlavorPromptDetails(name) {
 export function memeFlavorCatalogPromptDetails() {
   return MEME_FLAVORS.map((flavor) => [
     `Family: ${flavor.name}`,
+     `Default comic mechanisms: ${(DEFAULT_COMIC_MECHANISMS_BY_FLAVOR[flavor.name] ?? []).join(" | ")}.`,
     ...prototypePromptDetails(flavor),
   ].join("\n")).join("\n\n");
+}
+
+function comicMechanismPromptDetails(mechanism) {
+  return [
+    `Comic Mechanism: ${mechanism.name}`,
+    `How the laugh works: ${mechanism.description}`,
+    `Selection cues: ${mechanism.selectionCues.join("; ")}.`,
+    `Original exemplar shape (do not copy wording): ${mechanism.exemplarShape}`,
+    `Avoid: ${mechanism.avoid.join("; ")}.`,
+  ].join("\n");
+}
+
+export function resolvedComicMechanismPromptDetails(name) {
+  const mechanism = COMIC_MECHANISMS.find(candidate => candidate.name === name);
+  return mechanism ? comicMechanismPromptDetails(mechanism) : null;
+}
+
+export function comicMechanismCatalogPromptDetails() {
+  return COMIC_MECHANISMS.map(comicMechanismPromptDetails).join("\n\n");
+}
+
+export function defaultComicMechanismsForFlavor(name) {
+  return DEFAULT_COMIC_MECHANISMS_BY_FLAVOR[name] ?? [];
 }
 
 export function memeFlavorAvoidPatterns(name) {

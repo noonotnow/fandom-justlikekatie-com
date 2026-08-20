@@ -44,6 +44,7 @@ test('builds a Middle-earth packet with structured text and persistent source pr
     layout: 'Editorial caption',
     character: 'Samwise',
     memeFlavor: 'Samwise Loyalty',
+    comicMechanism: 'Relationship-specific contradiction',
     aesthetic: 'Cozy Hobbiton',
     artifactType: 'Meme card',
     referenceStillFamily: 'sam-carrying-frodo',
@@ -88,11 +89,13 @@ test('builds a Middle-earth packet with structured text and persistent source pr
   assert.match(packet.sourceCards[0].provenance, /"rightsStatus":"unknown"/);
   assert.match(packet.sourceCards[0].provenance, /"character":"Samwise"/);
   assert.match(packet.sourceCards[0].provenance, /"memeFlavor":"Samwise Loyalty"/);
+  assert.match(packet.sourceCards[0].provenance, /"comicMechanism":"Relationship-specific contradiction"/);
   assert.match(packet.sourceCards[0].provenance, /"referenceStillFamily":"sam-carrying-frodo"/);
   assert.match(packet.sourceCards[0].provenance, /"referenceStillQuery":"Sam carrying Frodo reaction still Lord of the Rings"/);
   assert.match(packet.sourceCards[0].provenance, /"query":"cozy Shire"/);
   assert.equal(packet.middleEarthContent?.[output.id].text, 'The deployment was small, but there was another deployment.');
   assert.equal(packet.middleEarthContent?.[output.id].memeFlavor, 'Samwise Loyalty');
+  assert.equal(packet.middleEarthContent?.[output.id].comicMechanism, 'Relationship-specific contradiction');
   assert.equal(packet.middleEarthContent?.[output.id].aesthetic, 'Cozy Hobbiton');
   assert.equal(packet.middleEarthContent?.[output.id].artifactType, 'Meme card');
   assert.equal(packet.middleEarthContent?.[output.id].cardFormat, 'Reaction Card');
@@ -109,6 +112,10 @@ test('builds a Middle-earth packet with structured text and persistent source pr
   assert.ok(content);
   assert.notEqual(
     middleEarthTextFingerprint({ ...content, memeFlavor: 'Council of Elrond' }),
+    output.textFingerprint,
+  );
+  assert.notEqual(
+    middleEarthTextFingerprint({ ...content, comicMechanism: 'Severity inversion' }),
     output.textFingerprint,
   );
   assert.notEqual(

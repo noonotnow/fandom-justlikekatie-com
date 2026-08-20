@@ -198,6 +198,81 @@ export const memeFlavors = [
 
 export type MemeFlavorName = (typeof memeFlavors)[number]['name'];
 
+/**
+ * A Meme Flavor supplies the Middle-earth social world; a Comic Mechanism
+ * supplies the actual setup-to-punchline turn. These are original comedy
+ * patterns, not source captions or recreatable meme templates.
+ */
+export const comicMechanisms = [
+  {
+    name: 'Severity inversion',
+    description: 'Treat a small modern inconvenience with wildly disproportionate Middle-earth gravity.',
+    selectionCues: ['mundane dread', 'Friday work', 'minor task', 'commute'],
+    avoid: ['generic hardship', 'earnest endurance', 'motivational suffering'],
+    exemplarShape: 'A tiny obligation appears / the reaction declares an impossible quest.',
+  },
+  {
+    name: 'Intent reversal',
+    description: 'The speaker’s stated plan is immediately undone by what they actually want or do.',
+    selectionCues: ['bad plan', 'temptation', 'willpower', 'one more thing'],
+    avoid: ['a balanced pros-and-cons list', 'self-improvement advice'],
+    exemplarShape: 'ME: sensible intention / ALSO ME: the immediate exception.',
+  },
+  {
+    name: 'Escalating repetition',
+    description: 'One harmless step multiplies into a faster, more ridiculous loop.',
+    selectionCues: ['tabs', 'errands', 'spiral', 'again', 'too many'],
+    avoid: ['a productivity tip', 'explaining every step of the spiral'],
+    exemplarShape: 'One quick action / suddenly, a multiplying side quest.',
+  },
+  {
+    name: 'Ceremonial setup / petty punchline',
+    description: 'A grand formal declaration lands on a tiny, specific modern problem.',
+    selectionCues: ['meeting', 'group chat', 'announcement', 'small decision'],
+    avoid: ['heroic rallying', 'actual emergency language'],
+    exemplarShape: 'A solemn proclamation / a petty practical consequence.',
+  },
+  {
+    name: 'Literal misread / wordplay',
+    description: 'A phrase or rule is taken too literally, revealing an inconveniently silly meaning.',
+    selectionCues: ['ambiguous wording', 'instructions', 'signs', 'rules'],
+    avoid: ['forced puns', 'explaining the wordplay'],
+    exemplarShape: 'A literal reading / the absurd real-world implication.',
+  },
+  {
+    name: 'Relationship-specific contradiction',
+    description: 'A familiar relationship makes one person’s stated plan impossible or immediately challenged.',
+    selectionCues: ['friends', 'Sam and Frodo', 'group dynamic', 'support'],
+    avoid: ['tender tribute', 'generic friendship praise', 'inspirational support'],
+    exemplarShape: 'One friend insists on a doomed plan / the other calmly refuses the premise.',
+  },
+  {
+    name: 'Delighted fandom-lawyer correction',
+    description: 'A lore-minded voice eagerly corrects the premise, then makes the correction funnier than the question.',
+    selectionCues: ['Why did they not take the Eagles?', 'lore question', 'canon detail'],
+    avoid: ['a lecture', 'gatekeeping', 'long factual explanation'],
+    exemplarShape: 'A confident fandom question / an overprepared correction with a petty payoff.',
+  },
+] as const;
+
+export type ComicMechanismName = (typeof comicMechanisms)[number]['name'];
+
+export const defaultComicMechanismsByFlavor = {
+  'One Does Not Simply': ['Severity inversion', 'Ceremonial setup / petty punchline'],
+  'You Shall Not Pass': ['Ceremonial setup / petty punchline', 'Severity inversion'],
+  'Taking the Hobbits to Isengard': ['Escalating repetition'],
+  'Second Breakfast': ['Intent reversal', 'Escalating repetition'],
+  'Precious / My Precious': ['Intent reversal', 'Relationship-specific contradiction'],
+  'Council of Elrond': ['Ceremonial setup / petty punchline', 'Escalating repetition'],
+  'Samwise Loyalty': ['Relationship-specific contradiction', 'Severity inversion'],
+  'Gollum’s Debate': ['Intent reversal', 'Relationship-specific contradiction'],
+  'Unexpected Journey': ['Severity inversion', 'Escalating repetition'],
+  'Mordor Commute': ['Severity inversion', 'Ceremonial setup / petty punchline'],
+  'The Beacons Are Lit': ['Ceremonial setup / petty punchline', 'Escalating repetition'],
+  'Fly, You Fools': ['Intent reversal', 'Ceremonial setup / petty punchline'],
+  'I Am No Man': ['Intent reversal', 'Severity inversion'],
+} as const satisfies Record<MemeFlavorName, readonly ComicMechanismName[]>;
+
 export const forbiddenSourceTemplatesByFlavor = {
   'One Does Not Simply': ['one does not simply'],
   'You Shall Not Pass': ['you shall not pass'],

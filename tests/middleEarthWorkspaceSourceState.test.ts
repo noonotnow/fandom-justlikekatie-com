@@ -107,6 +107,7 @@ test('reaction images stay behind translation and source selection requires a re
   );
   assert.match(translationResult, /<span>Scene<\/span><p>\{translation\.scene\}<\/p>/);
   assert.match(translationResult, /<span>Archetype<\/span><p>\{translation\.memeFlavor\} · \{translation\.character\}<\/p>/);
+  assert.match(translationResult, /<span>Comic mechanism<\/span><p>\{translation\.comicMechanism\}<\/p>/);
   assert.match(translationResult, /<span>Vibe<\/span><p>\{translation\.tone\} · \{translation\.aesthetic\}<\/p>/);
 
   const sourceSelection = source.slice(
@@ -157,6 +158,18 @@ test('reaction images stay behind translation and source selection requires a re
     /setText\(|setSecondaryText\(|setTitle\(/,
     'choosing or auto-selecting a reaction still must never rewrite the generated joke',
   );
+});
+
+test('resolved comic mechanism survives visual grounding and packet staging', async () => {
+  const source = await readFile(
+    new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(source, /comicMechanism: resolvedComicMechanism,/);
+  assert.match(source, /Comic mechanism: \$\{translation\.comicMechanism\}/);
+  assert.match(source, /\.\.\.\(resolvedComicMechanism \? \{ comicMechanism: resolvedComicMechanism \} : \{\}\)/);
+  assert.match(source, /<span>Comic mechanism<\/span><p>\{translation\.comicMechanism\}<\/p>/);
 });
 
 test('the forge editor keeps reaction cards to a setup line, punchline line, and optional tiny footer', async () => {

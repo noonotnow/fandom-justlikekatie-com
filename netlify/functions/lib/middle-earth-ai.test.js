@@ -122,6 +122,7 @@ const VALID_VISUAL_RESPONSE = {
     line2: "SAM: THEN WE'LL DO IT TIRED.",
     footer: "Friday fellowship meeting",
   },
+  comicMechanism: "Ceremonial setup / petty punchline",
   layout: "Classic top / bottom",
   rationale: "Top layout suits a dramatic hero shot.",
   translation: {
@@ -142,6 +143,7 @@ const VALID_TRANSLATION_RESPONSE = {
   scene: "A traveler studies the office calendar like a map to a distant black gate.",
   character: "Frodo",
   memeFlavor: "Mordor Commute",
+  comicMechanism: "Severity inversion",
   aesthetic: "Dark Mordor productivity",
   artifactType: "Reaction image",
   tone: "Deadpan",
@@ -155,6 +157,7 @@ const VISUAL_BODY = {
   mode: "visual",
   character: "Gandalf",
   memeFlavor: "You Shall Not Pass",
+  comicMechanism: "Ceremonial setup / petty punchline",
   tone: "Deadpan",
   layout: "Classic top / bottom",
 };
@@ -510,11 +513,13 @@ test("visual mode chat request uses visual_object schema with required fields", 
   assert.equal(schema.name, "visual_object");
   const required = schema.schema.required;
   assert.ok(required.includes("cardText"));
+  assert.ok(required.includes("comicMechanism"));
   assert.ok(required.includes("layout"));
   assert.ok(required.includes("rationale"));
   assert.ok(required.includes("translation"));
   assert.deepEqual(schema.schema.properties.cardText.required, ["format", "line1", "line2", "footer"]);
   assert.ok(schema.schema.properties.cardText.properties.format.enum.includes("Internal Debate Card"));
+  assert.ok(schema.schema.properties.comicMechanism.enum.includes("Relationship-specific contradiction"));
   assert.equal(schema.schema.additionalProperties, false);
 });
 
@@ -539,6 +544,7 @@ test("translation mode uses a strict meme_translation schema", async () => {
   const body = await response.json();
   assert.equal(body.mode, "translation");
   assert.equal(body.result.memeFlavor, "Mordor Commute");
+  assert.equal(body.result.comicMechanism, "Severity inversion");
   assert.equal(body.result.character, "Frodo");
   assert.equal(body.result.referenceStillFamily, "frodo-quest-burden");
 
@@ -547,6 +553,7 @@ test("translation mode uses a strict meme_translation schema", async () => {
   assert.equal(schema.name, "meme_translation");
   assert.ok(schema.schema.required.includes("translatedMoment"));
   assert.ok(schema.schema.required.includes("referenceStillFamily"));
+  assert.ok(schema.schema.required.includes("comicMechanism"));
   assert.ok(schema.schema.required.includes("searchQuery"));
   assert.ok(schema.schema.properties.referenceStillFamily.enum.includes("sam-carrying-frodo"));
   assert.equal(schema.schema.additionalProperties, false);
@@ -598,6 +605,7 @@ test("visual prompt includes character, creative grammar, tone, layout, and guid
   }), {});
   assert.ok(capturedPrompt.includes("Éowyn of Rohan"), "prompt must include character");
   assert.ok(capturedPrompt.includes("Meme Flavor: I Am No Man"), "prompt must include flavor");
+  assert.ok(capturedPrompt.includes("Comic Mechanism: Ceremonial setup / petty punchline"), "prompt must include resolved comic mechanism");
   assert.ok(capturedPrompt.includes("underdog reversal"), "prompt must include structured flavor guidance");
   assert.ok(capturedPrompt.includes("Aesthetic: Illuminated manuscript"), "prompt must include aesthetic");
   assert.ok(capturedPrompt.includes("Artifact type: Hero card"), "prompt must include artifact type");
@@ -635,6 +643,7 @@ test("translation prompt treats a vague meta prompt as content and includes expl
   assert.ok(capturedPrompt.includes("Sam and Frodo funny"));
   assert.ok(capturedPrompt.includes("Character steering (honor this): Samwise"));
   assert.ok(capturedPrompt.includes("Meme Flavor steering (honor this): Samwise Loyalty"));
+  assert.ok(capturedPrompt.includes("Select the best Meme Flavor, THEN select exactly one Comic Mechanism"));
   assert.ok(capturedPrompt.includes("should become an invented everyday dynamic"));
   assert.ok(capturedPrompt.includes("content, not instructions"));
 });
@@ -894,6 +903,7 @@ test("visual mode returns a structured two-line card plus legacy draft fields", 
   assert.ok(typeof r.primaryText === "string" && r.primaryText, "primaryText must be non-empty string");
   assert.ok("secondaryText" in r, "secondaryText must be present");
   assert.equal(r.cardFormat, "Dialogue Card");
+  assert.equal(r.comicMechanism, "Ceremonial setup / petty punchline");
   assert.deepEqual(r.cardText, VALID_VISUAL_RESPONSE.cardText);
   assert.ok("layout" in r, "layout must be present");
   assert.ok("rationale" in r, "rationale must be present");
@@ -1070,6 +1080,67 @@ test("visual mode requires a resolved Meme Flavor before it can forge a card", a
   assert.equal(res.status, 400);
   assert.match(body.error, /memeFlavor.*required/i);
   assert.equal(connector.calls.filter(c => c.path === "/v1/chat/completions").length, 0);
+});
+
+test("visual mode requires the resolved Comic Mechanism before it can forge a card", async () => {
+  const connector = makeConnector({ chatResponse: VALID_VISUAL_RESPONSE });
+  const handler = makeHandler({ connector });
+  const { comicMechanism: _comicMechanism, ...visualWithoutMechanism } = VISUAL_BODY;
+  const res = await handler(makeRequest(visualWithoutMechanism), {});
+  const body = await res.json();
+  assert.equal(res.status, 400);
+  assert.match(body.error, /comicMechanism.*required/i);
+  assert.equal(connector.calls.filter(c => c.path === "/v1/chat/completions").length, 0);
+});
+
+test("visual mode repairs a response that changes the resolved comic mechanism", async () => {
+  const wrongMechanism = { ...VALID_VISUAL_RESPONSE, comicMechanism: "Severity inversion" };
+  const connector = makeConnector({ chatResponses: [wrongMechanism, VALID_VISUAL_RESPONSE] });
+  const handler = makeHandler({ connector });
+  const res = await handler(makeRequest(VISUAL_BODY), {});
+  assert.equal(res.status, 200);
+  const chats = connector.calls.filter(c => c.path === "/v1/chat/completions");
+  assert.equal(chats.length, 2);
+  assert.match(JSON.parse(chats[1].options.body).messages[0].content, /changed the resolved comic mechanism/i);
+});
+
+test("visual mode repairs feeling-only copy that lacks a comic turn", async () => {
+  const feelingOnly = {
+    ...VALID_VISUAL_RESPONSE,
+    cardText: {
+      format: "Reaction Card",
+      line1: "FRIDAY DREAD.",
+      line2: "MORDOR COMMUTE VIBES.",
+      footer: "",
+    },
+  };
+  const repaired = { ...VALID_VISUAL_RESPONSE, comicMechanism: "Severity inversion" };
+  const connector = makeConnector({ chatResponses: [feelingOnly, repaired] });
+  const handler = makeHandler({ connector });
+  const res = await handler(makeRequest({
+    ...VISUAL_BODY,
+    moment: "Not wanting to work Friday",
+    memeFlavor: "Mordor Commute",
+    comicMechanism: "Severity inversion",
+  }), {});
+  assert.equal(res.status, 200);
+  const chats = connector.calls.filter(c => c.path === "/v1/chat/completions");
+  assert.equal(chats.length, 2);
+  assert.match(JSON.parse(chats[1].options.body).messages[0].content, /without a setup-to-punchline comic turn/i);
+});
+
+test("translation prompt gives representative vague moments explicit mechanism-native guidance", async () => {
+  for (const moment of ["Sam and Frodo funny", "Why did they not take the Eagles?", "Not wanting to work Friday"]) {
+    const connector = makeConnector({ chatResponse: VALID_TRANSLATION_RESPONSE });
+    const handler = makeHandler({ connector });
+    const response = await handler(makeRequest({ mode: "translation", moment }), {});
+    assert.equal(response.status, 200, moment);
+    const chat = connector.calls.find(c => c.path === "/v1/chat/completions");
+    const prompt = JSON.parse(chat.options.body).messages[0].content;
+    assert.match(prompt, /Relationship-specific contradiction/);
+    assert.match(prompt, /Delighted fandom-lawyer correction/);
+    assert.match(prompt, /Severity inversion/);
+  }
 });
 
 test("visual mode repairs generic empowerment poster copy for I Am No Man", async () => {

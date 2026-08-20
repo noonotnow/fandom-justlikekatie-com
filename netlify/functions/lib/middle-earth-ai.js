@@ -2,8 +2,11 @@ import { json } from "./public-auth.js";
 import {
   AESTHETIC_NAMES,
   ARTIFACT_TYPE_NAMES,
+  COMIC_MECHANISM_NAMES,
   FORBIDDEN_SOURCE_TEMPLATES_BY_FLAVOR,
   MEME_FLAVOR_NAMES,
+  comicMechanismCatalogPromptDetails,
+  resolvedComicMechanismPromptDetails,
   memeFlavorCatalogPromptDetails,
   memeFlavorAvoidPatterns,
   memeFlavorPromptDetails,
@@ -177,14 +180,16 @@ function renderSource(s) {
   return parts.length ? parts.join(" | ") : "(no source metadata)";
 }
 
-function buildVisualPrompt({ moment, character, memeFlavor, aesthetic, artifactType, tone, layout, guidance, source }) {
+function buildVisualPrompt({ moment, character, memeFlavor, comicMechanism, aesthetic, artifactType, tone, layout, guidance, source }) {
   const flavorDetails = memeFlavorPromptDetails(memeFlavor);
+  const mechanismDetails = resolvedComicMechanismPromptDetails(comicMechanism);
   return [
     `You are a Middle-earth visual copy writer generating overlay text for a fan image post.`,
     ``,
     `Free-response moment: ${moment || "(No moment was supplied; make a broadly relatable Middle-earth reaction.)"}`,
     `Character steering: ${character || "Auto — infer the most fitting character dynamic from the moment."}`,
     flavorDetails,
+    mechanismDetails,
     aesthetic ? `Aesthetic: ${aesthetic}` : null,
     artifactType ? `Artifact type: ${artifactType}` : null,
     `Requested tone: ${tone}`,
@@ -197,7 +202,8 @@ function buildVisualPrompt({ moment, character, memeFlavor, aesthetic, artifactT
     renderSource(source),
     ``,
     `Write meme-native reaction copy before writing any lore or scene explanation.`,
-    `The two visible lines must create a turn: setup, then contradiction, escalation, refusal, or inconvenient truth. If either line could sit on an inspirational poster, discard it and write the joke instead.`,
+    `The resolved Comic Mechanism above is mandatory: it tells you how the laugh works. Do not replace it with a feeling, a flavor label, or a second mechanism.`,
+    `The two visible lines must create a turn: setup, then the mechanism-native contradiction, escalation, correction, refusal, or inconvenient truth. If either line could sit on an inspirational poster, discard it and write the joke instead.`,
     `Choose ONE card format: ${MEME_CARD_FORMATS.join(" | ")}.`,
     `The visible card must be exactly two short lines: setup on line1 and punchline/reaction on line2.`,
     `Give line1 and line2 equal joke weight: neither is metadata, a headline, or a solemn caption.`,
@@ -218,6 +224,7 @@ function buildVisualPrompt({ moment, character, memeFlavor, aesthetic, artifactT
     `    "line2": "short punchline or reaction, max ${MAX_CARD_LINE_TWO_LEN} chars",`,
     `    "footer": "optional tiny footer, max ${MAX_CARD_FOOTER_LEN} chars"`,
     `  },`,
+    `  "comicMechanism": "exactly: ${comicMechanism}",`,
     `  "layout": "one of: ${VISUAL_LAYOUTS.join(" | ")}",`,
     `  "rationale": "string, max ${MAX_RATIONALE_LEN} chars, brief reason for the layout choice",`,
     `  "translation": {`,
@@ -257,9 +264,14 @@ function buildTranslationPrompt({ moment, character, memeFlavor, aesthetic, arti
     `Comedy prototype guidance:`,
     prototypeDetails,
     ``,
+    `Comic mechanism catalog:`,
+    comicMechanismCatalogPromptDetails(),
+    ``,
     `Infer a concrete, plausible social situation even when the prompt is meta or vague.`,
     `For example, “Sam and Frodo funny” should become an invented everyday dynamic with a supportive contradiction, not a request for clarification or a tender affirmation.`,
-    `Select the best Meme Flavor, then use its prototype as the comedy spine. The prototype shows the cleanest version of the bit; mutate it for this user's situation and do not copy its exact wording.`,
+    `Select the best Meme Flavor, THEN select exactly one Comic Mechanism before writing the angle. Meme Flavor supplies the Middle-earth world and social energy; Comic Mechanism supplies the laugh.`,
+    `For “Why did they not take the Eagles?”, choose Delighted fandom-lawyer correction. For Friday work dread, prefer Severity inversion or ceremonial setup / petty punchline. The mechanism must produce a specific setup-to-punchline turn, never merely repeat the flavor or name a feeling.`,
+    `Use the selected flavor's default mechanisms as a strong starting point, then use its prototype as the comedy spine. The prototype shows the cleanest version of the bit; mutate it for this user's situation and do not copy its exact wording.`,
     `Use the selected archetype as original emotional grammar only. Never recreate a movie still, a raw meme template, a direct Tolkien quote, or character-voice imitation.`,
     `After the angle is resolved, choose one curated reaction-still family to ground a separate image search. The reaction still supports the joke; it never writes or changes the joke.`,
     ``,
@@ -269,6 +281,7 @@ function buildTranslationPrompt({ moment, character, memeFlavor, aesthetic, arti
     `  "scene": "invented visual situation, max ${MAX_SCENE_LEN} chars",`,
     `  "character": "one of: ${[...CHARACTER_NAMES].join(" | ")}",`,
     `  "memeFlavor": "one of: ${[...MEME_FLAVOR_NAMES].join(" | ")}",`,
+    `  "comicMechanism": "one of: ${[...COMIC_MECHANISM_NAMES].join(" | ")}",`,
     `  "aesthetic": "one of: ${[...AESTHETIC_NAMES].join(" | ")}",`,
     `  "artifactType": "one of: ${[...ARTIFACT_TYPE_NAMES].join(" | ")}",`,
     `  "tone": "one of: ${[...TONE_NAMES].join(" | ")}",`,
@@ -279,7 +292,7 @@ function buildTranslationPrompt({ moment, character, memeFlavor, aesthetic, arti
   ].filter(line => line !== null).join("\n");
 }
 
-function buildRednotePrompt({ moment, character, memeFlavor, aesthetic, artifactType, tone, layout, guidance, source, visual, currentCopy }) {
+function buildRednotePrompt({ moment, character, memeFlavor, comicMechanism, aesthetic, artifactType, tone, layout, guidance, source, visual, currentCopy }) {
   const hasCurrentCopy = currentCopy && (currentCopy.title || currentCopy.caption || (currentCopy.tags && currentCopy.tags.length));
   const flavorDetails = memeFlavorPromptDetails(memeFlavor);
   return [
@@ -288,6 +301,7 @@ function buildRednotePrompt({ moment, character, memeFlavor, aesthetic, artifact
     moment ? `Free-response moment: ${moment}` : null,
     `Character steering: ${character || "Auto"}`,
     flavorDetails,
+    comicMechanism ? `Resolved comic mechanism: ${comicMechanism}` : null,
     aesthetic ? `Aesthetic: ${aesthetic}` : null,
     artifactType ? `Artifact type: ${artifactType}` : null,
     `Requested tone: ${tone}`,
@@ -349,6 +363,7 @@ const VISUAL_JSON_SCHEMA = {
         required: ["format", "line1", "line2", "footer"],
         additionalProperties: false,
       },
+      comicMechanism: { type: "string", enum: [...COMIC_MECHANISM_NAMES] },
       layout:        { type: "string", enum: VISUAL_LAYOUTS },
       rationale:     { type: "string", maxLength: MAX_RATIONALE_LEN },
       translation: {
@@ -362,7 +377,7 @@ const VISUAL_JSON_SCHEMA = {
         additionalProperties: false,
       },
     },
-    required: ["cardText", "layout", "rationale", "translation"],
+    required: ["cardText", "comicMechanism", "layout", "rationale", "translation"],
     additionalProperties: false,
   },
 };
@@ -397,6 +412,7 @@ const TRANSLATION_JSON_SCHEMA = {
       scene: { type: "string", minLength: 1, maxLength: MAX_SCENE_LEN },
       character: { type: "string", enum: [...CHARACTER_NAMES] },
       memeFlavor: { type: "string", enum: [...MEME_FLAVOR_NAMES] },
+      comicMechanism: { type: "string", enum: [...COMIC_MECHANISM_NAMES] },
       aesthetic: { type: "string", enum: [...AESTHETIC_NAMES] },
       artifactType: { type: "string", enum: [...ARTIFACT_TYPE_NAMES] },
       tone: { type: "string", enum: [...TONE_NAMES] },
@@ -406,7 +422,7 @@ const TRANSLATION_JSON_SCHEMA = {
     },
     required: [
       "translatedMoment", "scene", "character", "memeFlavor", "aesthetic",
-      "artifactType", "tone", "visualDirection", "referenceStillFamily", "searchQuery",
+      "artifactType", "tone", "comicMechanism", "visualDirection", "referenceStillFamily", "searchQuery",
     ],
     additionalProperties: false,
   },
@@ -546,6 +562,13 @@ function normalizeCardText(value, memeFlavor) {
   if (/\b(?:believe\s+in\s+(?:yourself|you)|you\s+are\s+stronger|you\s+can\s+do\s+it|keep\s+going|never\s+give\s+up|always\s+(?:there|shows\s+up)|best\s+friend|true\s+friend|carr(?:y|ies|ied|ying)\s+(?:the\s+)?load)\b/iu.test(combinedCopy)) {
     throw new AppError("AI returned inspirational poster copy instead of a compact reaction-meme turn.", 502);
   }
+  const lowerCopy = combinedCopy.toLocaleLowerCase();
+  const hasTurnSignal = /(?:\b(?:but|then|also|still|instead|again|unfortunately|my|me|you|who)\b|:|!|\?)/iu.test(combinedCopy);
+  const isFeelingOnly = /\b(?:vibes?|mood|feels?|feeling|tired|sad|stressed|overwhelmed|dread)\b/iu.test(lowerCopy)
+    && !hasTurnSignal;
+  if (isFeelingOnly) {
+    throw new AppError("AI returned a feeling or flavor label without a setup-to-punchline comic turn.", 502);
+  }
   const normalizedCopy = combinedCopy
     .toLocaleLowerCase()
     .replace(/[’']/gu, "'")
@@ -573,12 +596,16 @@ function normalizeCardText(value, memeFlavor) {
   return { format, line1, line2, footer };
 }
 
-function normalizeVisualOutput(raw, requestedModel, memeFlavor) {
+function normalizeVisualOutput(raw, requestedModel, memeFlavor, comicMechanism) {
   if (typeof raw !== "object" || raw === null) {
     throw new AppError("AI returned an unexpected response format.", 502);
   }
   const layout = clamp(raw.layout, MAX_LAYOUT_LEN);
   const cardText = normalizeCardText(raw.cardText, memeFlavor);
+  const returnedMechanism = requireChoice(raw.comicMechanism, "comicMechanism", COMIC_MECHANISM_NAMES);
+  if (returnedMechanism !== comicMechanism) {
+    throw new AppError("AI changed the resolved comic mechanism instead of writing the requested joke turn.", 502);
+  }
   return {
     // Keep the established draft and handoff fields populated so existing cards
     // remain readable while generation now reasons in explicit meme-card lines.
@@ -587,6 +614,7 @@ function normalizeVisualOutput(raw, requestedModel, memeFlavor) {
     secondaryText: cardText.line2,
     cardFormat: cardText.format,
     cardText,
+    comicMechanism: returnedMechanism,
     layout: VISUAL_LAYOUT_SET.has(layout) ? layout : VISUAL_LAYOUTS[0],
     rationale: clamp(raw.rationale, MAX_RATIONALE_LEN),
     translation: normalizeTranslation(raw.translation),
@@ -645,6 +673,7 @@ function normalizeTranslationOutput(raw, requestedModel) {
     scene: requireNonempty(clamp(raw.scene, MAX_SCENE_LEN), "scene"),
     character: requireChoice(raw.character, "character", CHARACTER_NAMES),
     memeFlavor: requireChoice(raw.memeFlavor, "memeFlavor", MEME_FLAVOR_NAMES),
+    comicMechanism: requireChoice(raw.comicMechanism, "comicMechanism", COMIC_MECHANISM_NAMES),
     aesthetic: requireChoice(raw.aesthetic, "aesthetic", AESTHETIC_NAMES),
     artifactType: requireChoice(raw.artifactType, "artifactType", ARTIFACT_TYPE_NAMES),
     tone: requireChoice(raw.tone, "tone", TONE_NAMES),
@@ -779,6 +808,7 @@ function validateBody(body) {
       moment: requireStr(body.moment, "moment", MAX_MOMENT_LEN),
       character: optionalChoice(body.character, "character", CHARACTER_NAMES),
       memeFlavor: optionalChoice(body.memeFlavor, "memeFlavor", MEME_FLAVOR_NAMES),
+       comicMechanism: optionalChoice(body.comicMechanism, "comicMechanism", COMIC_MECHANISM_NAMES),
       aesthetic: optionalChoice(body.aesthetic, "aesthetic", AESTHETIC_NAMES),
       artifactType: optionalChoice(body.artifactType, "artifactType", ARTIFACT_TYPE_NAMES),
       guidance: str(body.guidance, MAX_GUIDANCE_LEN, "guidance"),
@@ -794,6 +824,9 @@ function validateBody(body) {
   const memeFlavor = mode === "visual"
     ? requiredRequestChoice(body.memeFlavor, "memeFlavor", MEME_FLAVOR_NAMES)
     : optionalChoice(body.memeFlavor, "memeFlavor", MEME_FLAVOR_NAMES);
+  const comicMechanism = mode === "visual"
+    ? requiredRequestChoice(body.comicMechanism, "comicMechanism", COMIC_MECHANISM_NAMES)
+    : optionalChoice(body.comicMechanism, "comicMechanism", COMIC_MECHANISM_NAMES);
   const aesthetic = optionalChoice(body.aesthetic, "aesthetic", AESTHETIC_NAMES);
   const artifactType = optionalChoice(body.artifactType, "artifactType", ARTIFACT_TYPE_NAMES);
   const tone = requireStr(body.tone, "tone", MAX_TONE_LEN);
@@ -804,10 +837,10 @@ function validateBody(body) {
   if (mode === "rednote") {
     const visual = validateVisual(body.visual);
     const currentCopy = validateCurrentCopy(body.currentCopy);
-    return { mode, moment, character, memeFlavor, aesthetic, artifactType, tone, layout, guidance, source, visual, currentCopy };
+    return { mode, moment, character, memeFlavor, comicMechanism, aesthetic, artifactType, tone, layout, guidance, source, visual, currentCopy };
   }
 
-  return { mode, moment, character, memeFlavor, aesthetic, artifactType, tone, layout, guidance, source };
+  return { mode, moment, character, memeFlavor, comicMechanism, aesthetic, artifactType, tone, layout, guidance, source };
 }
 
 // ---------------------------------------------------------------------------
@@ -880,7 +913,7 @@ export function createMiddleEarthAIHandler({
         const prompt = buildVisualPrompt(validated);
         const raw = await callXAI({ connectorClient, model, prompt, jsonSchema: VISUAL_JSON_SCHEMA });
         try {
-          result = normalizeVisualOutput(raw, model, validated.memeFlavor);
+          result = normalizeVisualOutput(raw, model, validated.memeFlavor, validated.comicMechanism);
         } catch (err) {
           // A valid JSON response can still be scene prose or an overlong card.
           // Give the model one constrained repair attempt, never an open-ended
@@ -892,7 +925,7 @@ export function createMiddleEarthAIHandler({
             prompt: buildVisualRepairPrompt(prompt, err.message),
             jsonSchema: VISUAL_JSON_SCHEMA,
           });
-          result = normalizeVisualOutput(repaired, model, validated.memeFlavor);
+          result = normalizeVisualOutput(repaired, model, validated.memeFlavor, validated.comicMechanism);
         }
       } else if (validated.mode === "rednote") {
         const prompt = buildRednotePrompt(validated);

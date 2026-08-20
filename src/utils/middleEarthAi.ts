@@ -1,6 +1,7 @@
 import type {
   AestheticName,
   ArtifactType,
+  ComicMechanismName,
   MemeFlavorName,
 } from '../data/middleEarthCreativeGrammar';
 import type { ReferenceStillFamilyId } from '../data/middleEarthReferenceStills';
@@ -19,6 +20,7 @@ export interface GeneratedVisualObject {
   primaryText: string;
   secondaryText: string;
   cardFormat: MemeCardFormat;
+  comicMechanism: ComicMechanismName;
   cardText: {
     format: MemeCardFormat;
     line1: string;
@@ -54,6 +56,7 @@ export interface GeneratedMemeTranslation {
   scene: string;
   character: string;
   memeFlavor: MemeFlavorName;
+  comicMechanism: ComicMechanismName;
   aesthetic: AestheticName;
   artifactType: ArtifactType;
   tone: string;
@@ -67,6 +70,7 @@ interface VisualInput {
   moment?: string;
   character?: string;
   memeFlavor?: MemeFlavorName;
+  comicMechanism?: ComicMechanismName;
   aesthetic?: AestheticName;
   artifactType?: ArtifactType;
   tone: string;
@@ -79,6 +83,7 @@ interface TranslationInput {
   moment: string;
   character?: string;
   memeFlavor?: MemeFlavorName;
+  comicMechanism?: ComicMechanismName;
   aesthetic?: AestheticName;
   artifactType?: ArtifactType;
   guidance?: string;
@@ -103,6 +108,7 @@ export interface MiddleEarthGroundingInput {
   moment?: string;
   character?: string;
   memeFlavor?: MemeFlavorName;
+  comicMechanism?: ComicMechanismName;
   aesthetic?: AestheticName;
   artifactType?: ArtifactType;
   tone: string;
@@ -123,6 +129,7 @@ export function middleEarthGroundingFingerprint(input: MiddleEarthGroundingInput
     moment: input.moment?.trim() || '',
     character: input.character?.trim() || '',
     memeFlavor: input.memeFlavor?.trim() || '',
+    comicMechanism: input.comicMechanism?.trim() || '',
     aesthetic: input.aesthetic?.trim() || '',
     artifactType: input.artifactType?.trim() || '',
     tone: input.tone.trim(),

@@ -3,13 +3,20 @@ import test from 'node:test';
 import {
   aesthetics,
   artifactTypes,
+  comicMechanisms,
+  defaultComicMechanismsByFlavor,
   memeFlavors,
 } from '../src/data/middleEarthCreativeGrammar.ts';
 import {
   AESTHETIC_NAMES,
   ARTIFACT_TYPE_NAMES,
+  COMIC_MECHANISM_NAMES,
+  COMIC_MECHANISMS,
+  DEFAULT_COMIC_MECHANISMS_BY_FLAVOR,
   FORBIDDEN_SOURCE_TEMPLATES_BY_FLAVOR,
   MEME_FLAVORS,
+  comicMechanismCatalogPromptDetails,
+  defaultComicMechanismsForFlavor,
   memeFlavorCatalogPromptDetails,
   memeFlavorPromptDetails,
 } from '../netlify/functions/lib/middle-earth-creative-grammar.js';
@@ -27,6 +34,38 @@ test('the frontend and server share the same bounded Middle-earth creative gramm
     [...AESTHETIC_NAMES],
   );
   assert.deepEqual(artifactTypes, [...ARTIFACT_TYPE_NAMES]);
+  assert.deepEqual(
+    comicMechanisms.map((mechanism) => mechanism.name),
+    COMIC_MECHANISMS.map((mechanism) => mechanism.name),
+  );
+  assert.deepEqual(
+    comicMechanisms.map((mechanism) => mechanism.name),
+    [...COMIC_MECHANISM_NAMES],
+  );
+});
+
+test('comic mechanisms are reusable original-safe joke turns, not copied templates', () => {
+  assert.equal(comicMechanisms.length, 7);
+  const catalog = comicMechanismCatalogPromptDetails();
+  for (const mechanism of comicMechanisms) {
+    assert.ok(mechanism.description);
+    assert.ok(mechanism.selectionCues.length > 0);
+    assert.ok(mechanism.avoid.length > 0);
+    assert.ok(mechanism.exemplarShape);
+    assert.match(catalog, new RegExp(`Comic Mechanism: ${mechanism.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  }
+});
+
+test('every flavor has synchronized default comic mechanisms', () => {
+  assert.deepEqual(defaultComicMechanismsByFlavor, DEFAULT_COMIC_MECHANISMS_BY_FLAVOR);
+  for (const flavor of memeFlavors) {
+    const defaults = defaultComicMechanismsByFlavor[flavor.name];
+    assert.ok(defaults.length > 0, `${flavor.name} needs a default mechanism`);
+    assert.deepEqual(defaults, defaultComicMechanismsForFlavor(flavor.name));
+    for (const mechanism of defaults) {
+      assert.ok(COMIC_MECHANISM_NAMES.has(mechanism));
+    }
+  }
 });
 
 test('every Meme Flavor prompt enforces original-artifact guardrails', () => {

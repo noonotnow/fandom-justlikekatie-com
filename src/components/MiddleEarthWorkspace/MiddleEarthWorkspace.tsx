@@ -18,6 +18,7 @@ import {
   memeFlavors,
   type AestheticName,
   type ArtifactType,
+  type ComicMechanismName,
   type MemeFlavorName,
 } from "../../data/middleEarthCreativeGrammar";
 import {
@@ -53,6 +54,7 @@ export interface MiddleEarthDraft {
   layout: string;
   character?: string;
   memeFlavor?: string;
+  comicMechanism?: ComicMechanismName;
   aesthetic?: string;
   artifactType?: string;
   referenceStillFamily?: ReferenceStillFamilyId;
@@ -451,13 +453,14 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const isAuto = (value: string) => value === autoSteering;
   const resolvedCharacter = isAuto(character) ? translation?.character ?? "The Fellowship" : character;
   const resolvedMemeFlavor = isAuto(memeFlavor) ? translation?.memeFlavor : memeFlavor;
+  const resolvedComicMechanism = translation?.comicMechanism;
   const resolvedAesthetic = isAuto(aesthetic) ? translation?.aesthetic : aesthetic;
   const resolvedArtifactType = isAuto(artifactType) ? translation?.artifactType : artifactType;
   const selectedFlavor = memeFlavors.find((flavor) => flavor.name === resolvedMemeFlavor);
   const activeReferenceStillFamily = referenceStillFamilyById(referenceStillFamily);
   const generationGuidance = useMemo(() => [
     moment.trim() ? `Original moment: ${moment.trim()}` : "",
-    translation ? `Translated as: ${translation.translatedMoment}\nScene: ${translation.scene}\nVisual direction: ${translation.visualDirection}` : "",
+    translation ? `Translated as: ${translation.translatedMoment}\nScene: ${translation.scene}\nComic mechanism: ${translation.comicMechanism}\nVisual direction: ${translation.visualDirection}` : "",
     creativeDirection.trim() ? `Additional direction: ${creativeDirection.trim()}` : "",
   ].filter(Boolean).join("\n").slice(0, 500), [moment, translation, creativeDirection]);
 
@@ -580,6 +583,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const currentGroundingFingerprint = useMemo(() => middleEarthGroundingFingerprint({
     character: resolvedCharacter,
     memeFlavor: resolvedMemeFlavor,
+    comicMechanism: resolvedComicMechanism,
     aesthetic: resolvedAesthetic,
     artifactType: resolvedArtifactType,
     tone,
@@ -599,7 +603,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       secondaryText,
       cardFormat,
     },
-  }), [resolvedCharacter, resolvedMemeFlavor, resolvedAesthetic, resolvedArtifactType, tone, layout, generationGuidance, referenceStillFamily, selected, title, text, secondaryText, cardFormat]);
+  }), [resolvedCharacter, resolvedMemeFlavor, resolvedComicMechanism, resolvedAesthetic, resolvedArtifactType, tone, layout, generationGuidance, referenceStillFamily, selected, title, text, secondaryText, cardFormat]);
   const rednoteIsCurrent = Boolean(
     rednoteGroundingFingerprint
     && rednoteGroundingFingerprint === currentGroundingFingerprint
@@ -622,12 +626,12 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     secondaryText: secondaryText.trim() || undefined, tone, layout,
     ...(cardFormat ? { cardFormat } : {}),
     ...(title.trim() ? { cardFooter: title.trim() } : {}),
-    character: resolvedCharacter.trim(), memeFlavor: resolvedMemeFlavor, aesthetic: resolvedAesthetic, artifactType: resolvedArtifactType,
+    character: resolvedCharacter.trim(), memeFlavor: resolvedMemeFlavor, ...(resolvedComicMechanism ? { comicMechanism: resolvedComicMechanism } : {}), aesthetic: resolvedAesthetic, artifactType: resolvedArtifactType,
     ...(referenceStillFamily ? { referenceStillFamily } : {}),
     ...(selected?.query || activeReferenceStillFamily ? { referenceStillQuery: selected?.query || activeReferenceStillFamily?.searchQuery } : {}),
     creativeDirection: generationGuidance || undefined,
     aiGeneration: visualGeneration, rednoteCopy, asset: selected, createdAt: new Date().toISOString(),
-  }), [title, text, secondaryText, tone, layout, cardFormat, resolvedCharacter, resolvedMemeFlavor, resolvedAesthetic, resolvedArtifactType, referenceStillFamily, activeReferenceStillFamily, generationGuidance, visualGeneration, rednoteCopy, selected]);
+  }), [title, text, secondaryText, tone, layout, cardFormat, resolvedCharacter, resolvedMemeFlavor, resolvedComicMechanism, resolvedAesthetic, resolvedArtifactType, referenceStillFamily, activeReferenceStillFamily, generationGuidance, visualGeneration, rednoteCopy, selected]);
 
   const sourceContext = useMemo<MiddleEarthAiSource | undefined>(() => selected ? {
     title: selected.title,
@@ -651,6 +655,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
         moment: moment.trim(),
         character: resolvedCharacter.trim(),
         memeFlavor: resolvedMemeFlavor,
+        comicMechanism: resolvedComicMechanism,
         aesthetic: resolvedAesthetic,
         artifactType: resolvedArtifactType,
         tone,
@@ -696,6 +701,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       const generated = await generateRednoteCopy({
         character: resolvedCharacter.trim(),
         memeFlavor: resolvedMemeFlavor,
+        comicMechanism: resolvedComicMechanism,
         aesthetic: resolvedAesthetic,
         artifactType: resolvedArtifactType,
         tone,
@@ -808,6 +814,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           <div className={styles.translationDetails}>
             <div><span>Scene</span><p>{translation.scene}</p></div>
             <div><span>Archetype</span><p>{translation.memeFlavor} · {translation.character}</p></div>
+              <div><span>Comic mechanism</span><p>{translation.comicMechanism}</p></div>
             <div><span>Vibe</span><p>{translation.tone} · {translation.aesthetic}</p></div>
           </div>
         </div>}
@@ -915,6 +922,9 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
                     <strong>{selectedFlavor.prototype.exemplar.line1}</strong>
                     <strong>{selectedFlavor.prototype.exemplar.line2}</strong>
                     <p>{selectedFlavor.prototype.comedicMechanism}</p>
+                    <small>Default mechanisms: {selectedFlavor.name === resolvedMemeFlavor
+                      ? resolvedComicMechanism ?? 'translate the moment to resolve'
+                      : 'resolve after translation'}</small>
                     <small>Use the shape, then mutate it for the moment. Never copy a caption or template.</small>
                   </div>
                   <small>Original archetype only · no raw template recreation</small>
