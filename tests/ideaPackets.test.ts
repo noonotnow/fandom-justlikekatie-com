@@ -82,9 +82,15 @@ test('builds a Middle-earth packet with structured text and persistent source pr
   assert.equal(output.kind, 'meme');
   assert.equal(output.sourceId, packet.sourceCards[0].id);
   assert.equal(packet.sourceCards[0].imageUrl.startsWith('/.netlify/functions/image-proxy?url='), true);
+  assert.equal(packet.sourceCards[0].sourceUrl, 'https://publisher.example/shire');
+  assert.equal(packet.sourceCards[0].title, 'A Shire landscape');
+  assert.equal(packet.sourceCards[0].creator, 'Example Archive');
   assert.match(packet.sourceCards[0].provenance, /"rightsStatus":"unknown"/);
   assert.match(packet.sourceCards[0].provenance, /"character":"Samwise"/);
   assert.match(packet.sourceCards[0].provenance, /"memeFlavor":"Samwise Loyalty"/);
+  assert.match(packet.sourceCards[0].provenance, /"referenceStillFamily":"sam-carrying-frodo"/);
+  assert.match(packet.sourceCards[0].provenance, /"referenceStillQuery":"Sam carrying Frodo reaction still Lord of the Rings"/);
+  assert.match(packet.sourceCards[0].provenance, /"query":"cozy Shire"/);
   assert.equal(packet.middleEarthContent?.[output.id].text, 'The deployment was small, but there was another deployment.');
   assert.equal(packet.middleEarthContent?.[output.id].memeFlavor, 'Samwise Loyalty');
   assert.equal(packet.middleEarthContent?.[output.id].aesthetic, 'Cozy Hobbiton');

@@ -78,15 +78,34 @@ function errorResponse(statusCode, query, message) {
   };
 }
 
+function isPublicHttpsUrl(value) {
+  if (typeof value !== "string" || !value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function publisherFromUrl(value) {
+  return new URL(value).hostname.replace(/^www\./i, "");
+}
+
 // Normalizes a single result item to the public shape, stripping internal
 // fields and ensuring only the documented fields are returned.
 // Never alters the original title or link (preserving source attribution).
+// A candidate needs two distinct, usable URLs: a public HTTPS image for the
+// proxy and a public HTTPS publisher link for provenance/packet staging.
 function normalizeItem(item, providerName) {
+  const thumbnail = item.thumbnail || "";
+  const link = item.link || "";
+  if (!isPublicHttpsUrl(thumbnail) || !isPublicHttpsUrl(link)) return null;
   return {
     title: item.title || "",
-    thumbnail: proxyImage(item.thumbnail || ""),
-    link: item.link || "",
-    source: item.source || "",
+    thumbnail: proxyImage(thumbnail),
+    link,
+    source: publisherFromUrl(link),
     provider: providerName || item.provider || "",
   };
 }
@@ -136,6 +155,7 @@ export async function handler(event) {
     const results = (Array.isArray(result.results) ? result.results : [])
       .slice(0, 18)
       .map((item) => normalizeItem(item, provider))
+      .filter(Boolean)
       // De-duplicate by link as a final safety pass (searchOneQuery already dedupes
       // by thumbnail; link-dedup catches the rare case of identical pages indexed
       // under different thumbnail URLs).

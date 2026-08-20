@@ -26,6 +26,7 @@ import {
   referenceStillSearchQuery,
   type ReferenceStillFamilyId,
 } from "../../data/middleEarthReferenceStills";
+import { loadableReactionAssets } from "../../utils/reactionImageAssets";
 import { createArchiveSearchRequestGate } from "./archiveSearchRequestGate";
 import styles from "./MiddleEarthWorkspace.module.css";
 
@@ -126,6 +127,23 @@ function makeAsset(result: SearchResponse["results"][number], query: string, ind
     query,
     provider: result.provider,
   };
+}
+
+function canLoadReactionImage(url: string, timeoutMs = 4000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const image = new Image();
+    let settled = false;
+    const finish = (loaded: boolean) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      resolve(loaded);
+    };
+    const timeout = window.setTimeout(() => finish(false), timeoutMs);
+    image.onload = () => finish(image.naturalWidth > 0 && image.naturalHeight > 0);
+    image.onerror = () => finish(false);
+    image.src = url;
+  });
 }
 
 export async function exportMiddleEarthPng(
@@ -362,8 +380,8 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     archiveSearchRequestGate.invalidate();
     translationRequestGate.invalidate();
     setMoment(value);
-    setTranslation(undefined);
     setReferenceStillFamily(undefined);
+    setTranslation(undefined);
     setSelected(undefined);
     setResults([]);
     setSearchedQuery("");
@@ -376,7 +394,6 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const search = async (
     event?: FormEvent,
     requestedQuery?: string,
-    options?: { autoSelect?: boolean },
   ) => {
     event?.preventDefault();
     const clean = (requestedQuery ?? query).trim();
@@ -391,21 +408,20 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       }
       const payload = await response.json() as SearchResponse;
       if (!archiveSearchRequestGate.isCurrent(requestId)) return;
-      const candidates = payload.results
-        .map((result, index) => makeAsset(result, payload.query || clean, index))
-        .slice(0, 6);
+      const allCandidates = payload.results
+        .map((result, index) => makeAsset(result, payload.query || clean, index));
+      const candidates = await loadableReactionAssets(allCandidates, canLoadReactionImage);
+      if (!archiveSearchRequestGate.isCurrent(requestId)) return;
       setResults(candidates);
       setSearchedQuery(payload.query || clean);
-      const autoSelected = options?.autoSelect
-        ? candidates.find((candidate) => Boolean(candidate.thumbnail && candidate.url))
-        : undefined;
+      const autoSelected = candidates[0];
       setSelected(autoSelected);
       setPreviewImageFailed(false);
       setVisualGeneration(undefined);
       setStatus(autoSelected
-        ? `Found ${candidates.length} reaction-image candidates. “${autoSelected.title}” is selected; choose another if it misses the bit.`
-        : candidates.length
-          ? `${candidates.length} reaction-image ${candidates.length === 1 ? "candidate" : "candidates"} found.`
+        ? `Found ${candidates.length} usable reaction-image ${candidates.length === 1 ? "candidate" : "candidates"}. “${autoSelected.title}” is selected; choose another if it misses the bit.`
+        : allCandidates.length
+          ? `Found ${allCandidates.length} attributed reaction-image ${allCandidates.length === 1 ? "candidate" : "candidates"}, but none could be loaded. Use typography-only or try another search.`
           : "No records found.");
     } catch (searchError) {
       if (!archiveSearchRequestGate.isCurrent(requestId)) return;
@@ -448,7 +464,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       const reactionQuery = referenceStillSearchQuery(generated.referenceStillFamily, generated.searchQuery);
       setQuery(reactionQuery);
       invalidateGeneratedVisual();
-      await search(undefined, reactionQuery, { autoSelect: true });
+       await search(undefined, reactionQuery);
       if (!translationRequestGate.isCurrent(requestId)) return;
       setStatus("Moment translated. Choose the reaction image that lands the bit, then forge the card.");
     } catch (translationError) {
@@ -712,7 +728,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
                   setSelected(undefined);
                   setPreviewImageFailed(false);
                   invalidateGeneratedVisual();
-                  void search(undefined, nextQuery, { autoSelect: true });
+                  void search(undefined, nextQuery);
                 }}
                 disabled={busy || searching}
               >

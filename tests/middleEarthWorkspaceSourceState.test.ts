@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { createArchiveSearchRequestGate } from '../src/components/MiddleEarthWorkspace/archiveSearchRequestGate.ts';
+import { loadableReactionAssets } from '../src/utils/reactionImageAssets.ts';
 
 test('starting a new archive search invalidates the generated visual before clearing its source', async () => {
   const source = await readFile(
@@ -69,6 +70,25 @@ test('an old archive response cannot restore inspiration after the moment change
   assert.equal(selected, undefined);
 });
 
+test('keeps searching past failed thumbnails and never offers a broken reaction still', async () => {
+  const candidates = Array.from({ length: 8 }, (_, index) => ({
+    id: `candidate-${index + 1}`,
+    thumbnail: `https://images.example/${index + 1}.jpg`,
+  }));
+  const attempted: string[] = [];
+  const usable = await loadableReactionAssets(candidates, async (thumbnail) => {
+    attempted.push(thumbnail);
+    return thumbnail.endsWith('/7.jpg') || thumbnail.endsWith('/8.jpg');
+  });
+
+  assert.equal(attempted.length, 8, 'all provider candidates must be checked before applying the display limit');
+  assert.deepEqual(
+    usable.map((candidate) => candidate.id),
+    ['candidate-7', 'candidate-8'],
+    'failed thumbnails are removed before the gallery can render or select them',
+  );
+});
+
 test('reaction images stay behind translation and source selection requires a reforge', async () => {
   const source = await readFile(
     new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
@@ -115,8 +135,13 @@ test('reaction images stay behind translation and source selection requires a re
   );
   assert.match(
     source,
-    /await search\(undefined, reactionQuery, \{ autoSelect: true \}\)/,
+    /await search\(undefined, reactionQuery\);/,
     'a translated angle must automatically look for and select an initial reaction-image candidate',
+  );
+  assert.match(
+    source,
+    /const candidates = await loadableReactionAssets\(allCandidates, canLoadReactionImage\);/,
+    'every reaction search must verify the full candidate set before limiting the selectable gallery',
   );
   assert.match(
     source,

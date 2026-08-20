@@ -356,6 +356,55 @@ test("each result has exactly the documented fields", async () => {
   }
 });
 
+test("drops candidates without public HTTPS image and publisher URLs", async () => {
+  const originalFetch = globalThis.fetch;
+  const payload = googlePayload("Frodo", 6);
+  payload.images_results[0].thumbnail = "http://images.example/insecure.jpg";
+  payload.images_results[1].thumbnail = "data:image/png;base64,not-an-image";
+  payload.images_results[2].link = "http://publisher.example/insecure";
+  payload.images_results[3].link = "https://user:password@publisher.example/private";
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("serpapi.com")) return mockFetch(payload)();
+    throw new Error(`Brave must not run when Google returns usable results: ${url}`);
+  };
+  try {
+    await withSearchKeys(async () => {
+      const response = await handler(makeEvent({ queryStringParameters: { q: "Frodo" } }));
+      const body = JSON.parse(response.body);
+      assert.equal(response.statusCode, 200);
+      assert.equal(body.results.length, 2);
+      for (const result of body.results) {
+        assert.match(result.thumbnail, /^\/\.netlify\/functions\/image-proxy\?url=https%3A%2F%2F/);
+        assert.match(result.link, /^https:\/\//);
+        assert.doesNotMatch(result.link, /@/);
+      }
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("derives candidate attribution from the validated publisher URL", async () => {
+  const originalFetch = globalThis.fetch;
+  const payload = googlePayload("Sam", 3);
+  payload.images_results.forEach((result) => { result.domain = ""; });
+  payload.images_results[0].link = "https://www.publisher.example/reaction-still";
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("serpapi.com")) return mockFetch(payload)();
+    throw new Error(`Brave must not run when Google returns usable results: ${url}`);
+  };
+  try {
+    await withSearchKeys(async () => {
+      const response = await handler(makeEvent({ queryStringParameters: { q: "Sam" } }));
+      const body = JSON.parse(response.body);
+      assert.equal(response.statusCode, 200);
+      assert.equal(body.results[0].source, "publisher.example");
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("returns at most 18 results", async () => {
   const previousBraveKey = process.env.BRAVE_SEARCH_API_KEY;
   process.env.BRAVE_SEARCH_API_KEY = "test-key";
