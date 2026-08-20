@@ -152,6 +152,8 @@ test("validates the AI visual provenance and Rednote copy stored with Middle-ear
          memeFlavor: "Samwise Loyalty",
          aesthetic: "Cozy Hobbiton",
          artifactType: "Meme card",
+         referenceStillFamily: "sam-carrying-frodo",
+         referenceStillQuery: "Sam carrying Frodo reaction still Lord of the Rings",
         aiGeneration: {
           provider: "xai",
           generatedAt: "2026-08-19T13:55:00.000Z",
@@ -177,12 +179,19 @@ test("validates the AI visual provenance and Rednote copy stored with Middle-ear
     validatePacket(middleEarth).middleEarthContent[output.id].memeFlavor,
     "Samwise Loyalty",
   );
+  assert.equal(
+    validatePacket(middleEarth).middleEarthContent[output.id].referenceStillFamily,
+    "sam-carrying-frodo",
+  );
   const invalid = structuredClone(middleEarth);
   invalid.middleEarthContent[output.id].rednoteCopy.tags = ["#OnlyOne"];
   assert.throws(() => validatePacket(invalid), /invalid Rednote copy/);
   const invalidFlavor = structuredClone(middleEarth);
   invalidFlavor.middleEarthContent[output.id].memeFlavor = "Copied template";
   assert.throws(() => validatePacket(invalidFlavor), /middleEarthContent/);
+  const invalidStill = structuredClone(middleEarth);
+  invalidStill.middleEarthContent[output.id].referenceStillFamily = "scraped-meme";
+  assert.throws(() => validatePacket(invalidStill), /middleEarthContent/);
 });
 
 test("prevents exact duplicate media and supports reversible compilation", () => {

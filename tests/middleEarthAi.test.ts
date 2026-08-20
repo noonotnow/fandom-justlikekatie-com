@@ -162,6 +162,7 @@ test('Rednote grounding changes when any creative grammar, visual, direction, or
     tone: 'Tender',
     layout: 'Editorial caption',
     guidance: 'Quiet competence',
+    referenceStillFamily: 'sam-carrying-frodo',
     source: {
       id: 'source-1',
       title: 'Sam on the road',
@@ -185,6 +186,7 @@ test('Rednote grounding changes when any creative grammar, visual, direction, or
     { ...base, tone: 'Deadpan' },
     { ...base, layout: 'Tiny confession' },
     { ...base, guidance: 'A different direction' },
+    { ...base, referenceStillFamily: 'gollum-smeagol-debate' },
     { ...base, source: { ...base.source, id: 'source-2' } },
     { ...base, source: { ...base.source, sourceUrl: 'https://publisher.example/sam-2' } },
     { ...base, visual: { ...base.visual, title: 'A revised title' } },

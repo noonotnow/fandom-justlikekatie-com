@@ -20,6 +20,12 @@ import {
   type ArtifactType,
   type MemeFlavorName,
 } from "../../data/middleEarthCreativeGrammar";
+import {
+  referenceStillFamilies,
+  referenceStillFamilyById,
+  referenceStillSearchQuery,
+  type ReferenceStillFamilyId,
+} from "../../data/middleEarthReferenceStills";
 import { createArchiveSearchRequestGate } from "./archiveSearchRequestGate";
 import styles from "./MiddleEarthWorkspace.module.css";
 
@@ -48,6 +54,8 @@ export interface MiddleEarthDraft {
   memeFlavor?: string;
   aesthetic?: string;
   artifactType?: string;
+  referenceStillFamily?: ReferenceStillFamilyId;
+  referenceStillQuery?: string;
   creativeDirection?: string;
   aiGeneration?: {
     provider: "xai";
@@ -285,6 +293,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const kind: MiddleEarthContentKind = "meme";
   const [activeStep, setActiveStep] = useState<"forge" | "spellbook">("forge");
   const [archiveSearchRequestGate] = useState(createArchiveSearchRequestGate);
+  const [translationRequestGate] = useState(createArchiveSearchRequestGate);
   const [query, setQuery] = useState("");
   const [searchedQuery, setSearchedQuery] = useState("");
   const [results, setResults] = useState<MiddleEarthAsset[]>([]);
@@ -295,6 +304,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const [error, setError] = useState("");
   const [moment, setMoment] = useState("");
   const [translation, setTranslation] = useState<GeneratedMemeTranslation>();
+  const [referenceStillFamily, setReferenceStillFamily] = useState<ReferenceStillFamilyId>();
   const [character, setCharacter] = useState(characterFilters[0]);
   const [memeFlavor, setMemeFlavor] = useState<MemeFlavorName | typeof autoSteering>(autoSteering);
   const [aesthetic, setAesthetic] = useState<AestheticName | typeof autoSteering>(autoSteering);
@@ -318,13 +328,13 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const [previewNode, setPreviewNode] = useState<HTMLElement | null>(null);
   const [packetSaved, setPacketSaved] = useState(false);
 
-  const isTypography = false;
   const isAuto = (value: string) => value === autoSteering;
   const resolvedCharacter = isAuto(character) ? translation?.character ?? "The Fellowship" : character;
   const resolvedMemeFlavor = isAuto(memeFlavor) ? translation?.memeFlavor : memeFlavor;
   const resolvedAesthetic = isAuto(aesthetic) ? translation?.aesthetic : aesthetic;
   const resolvedArtifactType = isAuto(artifactType) ? translation?.artifactType : artifactType;
   const selectedFlavor = memeFlavors.find((flavor) => flavor.name === resolvedMemeFlavor);
+  const activeReferenceStillFamily = referenceStillFamilyById(referenceStillFamily);
   const generationGuidance = useMemo(() => [
     moment.trim() ? `Original moment: ${moment.trim()}` : "",
     translation ? `Translated as: ${translation.translatedMoment}\nScene: ${translation.scene}\nVisual direction: ${translation.visualDirection}` : "",
@@ -336,10 +346,24 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     setPacketSaved(false);
   };
 
+  const clearReactionGrounding = () => {
+    archiveSearchRequestGate.invalidate();
+    translationRequestGate.invalidate();
+    setTranslation(undefined);
+    setReferenceStillFamily(undefined);
+    setSelected(undefined);
+    setResults([]);
+    setSearchedQuery("");
+    setSearching(false);
+    invalidateGeneratedVisual();
+  };
+
   const updateMoment = (value: string) => {
     archiveSearchRequestGate.invalidate();
+    translationRequestGate.invalidate();
     setMoment(value);
     setTranslation(undefined);
+    setReferenceStillFamily(undefined);
     setSelected(undefined);
     setResults([]);
     setSearchedQuery("");
@@ -349,7 +373,11 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     invalidateGeneratedVisual();
   };
 
-  const search = async (event?: FormEvent, requestedQuery?: string) => {
+  const search = async (
+    event?: FormEvent,
+    requestedQuery?: string,
+    options?: { autoSelect?: boolean },
+  ) => {
     event?.preventDefault();
     const clean = (requestedQuery ?? query).trim();
     if (!clean) return;
@@ -363,11 +391,22 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       }
       const payload = await response.json() as SearchResponse;
       if (!archiveSearchRequestGate.isCurrent(requestId)) return;
-      setResults(payload.results.map((result, index) => makeAsset(result, payload.query || clean, index)));
+      const candidates = payload.results
+        .map((result, index) => makeAsset(result, payload.query || clean, index))
+        .slice(0, 6);
+      setResults(candidates);
       setSearchedQuery(payload.query || clean);
-      setSelected(undefined);
+      const autoSelected = options?.autoSelect
+        ? candidates.find((candidate) => Boolean(candidate.thumbnail && candidate.url))
+        : undefined;
+      setSelected(autoSelected);
+      setPreviewImageFailed(false);
       setVisualGeneration(undefined);
-      setStatus(payload.results.length ? `${payload.results.length} archive ${payload.results.length === 1 ? "record" : "records"} found.` : "No records found.");
+      setStatus(autoSelected
+        ? `Found ${candidates.length} reaction-image candidates. “${autoSelected.title}” is selected; choose another if it misses the bit.`
+        : candidates.length
+          ? `${candidates.length} reaction-image ${candidates.length === 1 ? "candidate" : "candidates"} found.`
+          : "No records found.");
     } catch (searchError) {
       if (!archiveSearchRequestGate.isCurrent(requestId)) return;
       setResults([]); setError(searchError instanceof Error ? searchError.message : "The archive is unavailable.");
@@ -391,6 +430,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       setError("Start with the moment you want MemeForge to translate.");
       return;
     }
+    const requestId = translationRequestGate.begin();
     setBusy(true); setError(""); setStatus("MemeForge is finding the fandom angle…");
     try {
       const generated = await translateMemeMoment({
@@ -401,11 +441,16 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
         ...(isAuto(artifactType) ? {} : { artifactType }),
         ...(creativeDirection.trim() ? { guidance: creativeDirection.trim() } : {}),
       });
+      if (!translationRequestGate.isCurrent(requestId)) return;
       setTranslation(generated);
+      setReferenceStillFamily(generated.referenceStillFamily);
       setTone(generated.tone);
-      setQuery(generated.searchQuery);
+      const reactionQuery = referenceStillSearchQuery(generated.referenceStillFamily, generated.searchQuery);
+      setQuery(reactionQuery);
       invalidateGeneratedVisual();
-      setStatus("Moment translated. The optional visual-inspiration query is ready when you are.");
+      await search(undefined, reactionQuery, { autoSelect: true });
+      if (!translationRequestGate.isCurrent(requestId)) return;
+      setStatus("Moment translated. Choose the reaction image that lands the bit, then forge the card.");
     } catch (translationError) {
       setError(translationError instanceof Error ? translationError.message : "MemeForge could not translate that moment.");
     } finally {
@@ -422,6 +467,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     tone,
     layout,
     guidance: generationGuidance,
+    referenceStillFamily,
     source: selected ? {
       id: selected.id,
       title: selected.title,
@@ -435,7 +481,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       secondaryText,
       cardFormat,
     },
-  }), [resolvedCharacter, resolvedMemeFlavor, resolvedAesthetic, resolvedArtifactType, tone, layout, generationGuidance, selected, title, text, secondaryText, cardFormat]);
+  }), [resolvedCharacter, resolvedMemeFlavor, resolvedAesthetic, resolvedArtifactType, tone, layout, generationGuidance, referenceStillFamily, selected, title, text, secondaryText, cardFormat]);
   const rednoteIsCurrent = Boolean(
     rednoteGroundingFingerprint
     && rednoteGroundingFingerprint === currentGroundingFingerprint
@@ -459,9 +505,11 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     ...(cardFormat ? { cardFormat } : {}),
     ...(title.trim() ? { cardFooter: title.trim() } : {}),
     character: resolvedCharacter.trim(), memeFlavor: resolvedMemeFlavor, aesthetic: resolvedAesthetic, artifactType: resolvedArtifactType,
+    ...(referenceStillFamily ? { referenceStillFamily } : {}),
+    ...(selected?.query || activeReferenceStillFamily ? { referenceStillQuery: selected?.query || activeReferenceStillFamily?.searchQuery } : {}),
     creativeDirection: generationGuidance || undefined,
     aiGeneration: visualGeneration, rednoteCopy, asset: selected, createdAt: new Date().toISOString(),
-  }), [title, text, secondaryText, tone, layout, cardFormat, resolvedCharacter, resolvedMemeFlavor, resolvedAesthetic, resolvedArtifactType, generationGuidance, visualGeneration, rednoteCopy, selected]);
+  }), [title, text, secondaryText, tone, layout, cardFormat, resolvedCharacter, resolvedMemeFlavor, resolvedAesthetic, resolvedArtifactType, referenceStillFamily, activeReferenceStillFamily, generationGuidance, visualGeneration, rednoteCopy, selected]);
 
   const sourceContext = useMemo<MiddleEarthAiSource | undefined>(() => selected ? {
     title: selected.title,
@@ -604,7 +652,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
         <a className={styles.backLink} href="/">Fandom / launchpad</a>
         <div className={styles.eyebrow}><span className={styles.rune} aria-hidden="true">—</span> MemeForge / separate workbench <span className={styles.rule} /></div>
         <h1><small>Middle-earth</small><br /><em>MemeForge</em></h1>
-        <p className={styles.intro}>A Middle-earth workbench separate from C-drama Vibe Atlas and its CREATE handoff. Type the tiny crisis. MemeForge finds the Middle-earth angle, then forges the reaction card. Visual inspiration is optional and comes after the joke.</p>
+        <p className={styles.intro}>A Middle-earth fandom angle generator, separate from C-drama Vibe Atlas and its CREATE handoff. Say the moment badly. MemeForge finds the bit, then grounds it in a recognizable reaction image. Captions stay original.</p>
       </header>
 
       <section className={styles.modeSwitch} aria-label="Creation mode">
@@ -649,27 +697,48 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
 
       <div className={styles.layout}>
         <aside className={styles.searchRail}>
-          <div className={styles.sectionKicker}>02 / optional inspiration</div>
+          <div className={styles.sectionKicker}>02 / choose reaction image</div>
           {translation ? <>
+            <label>
+              Reaction still family
+              <select
+                value={referenceStillFamily ?? ""}
+                onChange={(event) => {
+                  const nextFamily = event.target.value as ReferenceStillFamilyId;
+                  if (!nextFamily || nextFamily === referenceStillFamily) return;
+                  const nextQuery = referenceStillSearchQuery(nextFamily);
+                  setReferenceStillFamily(nextFamily);
+                  setQuery(nextQuery);
+                  setSelected(undefined);
+                  setPreviewImageFailed(false);
+                  invalidateGeneratedVisual();
+                  void search(undefined, nextQuery, { autoSelect: true });
+                }}
+                disabled={busy || searching}
+              >
+                {referenceStillFamilies.map((family) => <option key={family.id} value={family.id}>{family.label}</option>)}
+              </select>
+            </label>
+            {activeReferenceStillFamily && <div className={styles.sourceNote}><span className={styles.dot} /> <strong>{activeReferenceStillFamily.label}</strong> · {activeReferenceStillFamily.description}</div>}
             <form className={styles.searchForm} onSubmit={search}>
-              <label htmlFor="archive-search">Search visual inspiration</label>
+              <label htmlFor="archive-search">Search reaction images</label>
               <div className={styles.searchBox}>
-                <input id="archive-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Try “Rivendell at dusk”" disabled={busy || searching} />
+                <input id="archive-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Try “Sam carrying Frodo reaction still”" disabled={busy || searching} />
                 <button type="submit" aria-label="Search the archive" disabled={busy || searching || !query.trim()}>Search</button>
               </div>
             </form>
             <div className={styles.suggestions}>
               {suggestions.map((group) => <div key={group.label}><span>{group.label}</span><div className={styles.chips}>{group.items.map((item) => <button key={item} onClick={() => { setQuery(item); void search(undefined, item); }} disabled={busy || searching}>{item}</button>)}</div></div>)}
             </div>
-            <div className={styles.sourceNote}><span className={styles.dot} /> Search supports the resolved concept; it never decides the joke. Always check the original publisher before sharing.</div>
-          </> : <div className={styles.sourceNote}>Translate the moment first to unlock optional visual inspiration.</div>}
+            <div className={styles.sourceNote}><span className={styles.dot} /> The still grounds the visual after the angle is chosen; it never decides or rewrites the joke. Always check the original publisher before sharing.</div>
+          </> : <div className={styles.sourceNote}>Translate the moment first to find its reaction-image candidates.</div>}
         </aside>
 
         <section className={styles.archive} aria-live="polite">
-          <div className={styles.archiveHead}><div><div className={styles.sectionKicker}>03 / visual inspiration</div><h2>{searchedQuery ? `Records for “${searchedQuery}”` : "Inspiration comes after the angle"}</h2></div>{results.length > 0 && <span className={styles.count}>{results.length} records</span>}</div>
+          <div className={styles.archiveHead}><div><div className={styles.sectionKicker}>03 / reaction candidates</div><h2>{searchedQuery ? `Choose reaction image for “${searchedQuery}”` : "The image comes after the angle"}</h2></div>{results.length > 0 && <span className={styles.count}>{results.length} candidates</span>}</div>
           {searching && <div className={styles.loadingGrid} aria-label="Loading archive records">{[1, 2, 3, 4].map((item) => <div key={item} className={styles.skeleton} />)}</div>}
           {!searching && error && !results.length && <div className={styles.state}><strong>Something interrupted the search.</strong><p>{error}</p><button onClick={() => void search()}>Try again</button></div>}
-          {!searching && !error && !results.length && <div className={styles.empty}><span>Inspiration note</span><strong>{searchedQuery ? "Nothing surfaced this time." : translation ? "Your concept is ready. Search only if it needs a visual nudge." : "Translate the moment above first."}</strong><p>Search results keep their source attached, so the trail back is never lost.</p></div>}
+           {!searching && !error && !results.length && <div className={styles.empty}><span>Reaction image note</span><strong>{searchedQuery ? "Nothing surfaced this time." : translation ? "The angle is ready. MemeForge will look for a small set of recognizable reaction stills." : "Translate the moment above first."}</strong><p>Every candidate keeps its source attached, so the trail back is never lost.</p></div>}
           {!searching && results.length > 0 && <div className={styles.gallery}>{results.map((asset) => <button key={asset.id} className={`${styles.result} ${selected?.id === asset.id ? styles.resultSelected : ""}`} onClick={() => { setSelected(asset); setVisualGeneration(undefined); setPreviewImageFailed(false); setPacketSaved(false); setStatus(`Selected “${asset.title}”. Generate the visual object with this source.`); }} aria-pressed={selected?.id === asset.id} disabled={busy}><span className={styles.imageWrap}><img src={asset.thumbnail} alt="" onError={(event) => { event.currentTarget.style.display = "none"; const fallback = event.currentTarget.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.visibility = "visible"; }} /><span className={styles.imageFallback}>Image<br />unavailable</span></span><span className={styles.resultTitle}>{asset.title}</span><span className={styles.publisher}>{asset.publisher || "Unknown publisher"}</span></button>)}</div>}
         </section>
 
@@ -683,7 +752,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           <div className={styles.steeringIntro}><strong>Optional steering</strong><p>Leave any control on Auto / surprise me and let the moment decide. Your manual choices always win.</p></div>
           <label>
             Character
-            <select value={character} onChange={(event) => { setCharacter(event.target.value); invalidateGeneratedVisual(); }} disabled={busy}>
+            <select value={character} onChange={(event) => { setCharacter(event.target.value); clearReactionGrounding(); }} disabled={busy}>
               {characterFilters.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
           </label>
@@ -694,7 +763,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
               <button
                 type="button"
                 className={memeFlavor === autoSteering ? styles.flavorActive : ""}
-                onClick={() => { if (memeFlavor === autoSteering) return; setMemeFlavor(autoSteering); invalidateGeneratedVisual(); }}
+                onClick={() => { if (memeFlavor === autoSteering) return; setMemeFlavor(autoSteering); clearReactionGrounding(); }}
                 aria-pressed={memeFlavor === autoSteering}
                 disabled={busy}
               >
@@ -709,7 +778,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
                   onClick={() => {
                     if (memeFlavor === flavor.name) return;
                     setMemeFlavor(flavor.name);
-                    invalidateGeneratedVisual();
+                    clearReactionGrounding();
                   }}
                   aria-pressed={memeFlavor === flavor.name}
                   disabled={busy}
@@ -723,10 +792,10 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
               ? <div className={styles.flavorBrief}><span>{selectedFlavor.coreEmotion}</span><p>{selectedFlavor.socialSituation}</p><small>Original archetype only · no raw template recreation</small></div>
               : <div className={styles.flavorBrief}><span>Auto / surprise me</span><p>Translate the moment to reveal a fandom-native archetype.</p><small>Original archetype only · no raw template recreation</small></div>}
           </fieldset>
-          <div className={styles.choiceGroup}><span>Aesthetic</span><div><button type="button" className={aesthetic === autoSteering ? styles.choiceActive : ""} onClick={() => { if (aesthetic === autoSteering) return; setAesthetic(autoSteering); invalidateGeneratedVisual(); }} disabled={busy}>Auto / surprise me</button>{aesthetics.map((option) => <button key={option.name} type="button" title={option.description} className={aesthetic === option.name ? styles.choiceActive : ""} onClick={() => { if (aesthetic === option.name) return; setAesthetic(option.name); invalidateGeneratedVisual(); }} disabled={busy}>{option.name}</button>)}</div></div>
+           <div className={styles.choiceGroup}><span>Aesthetic</span><div><button type="button" className={aesthetic === autoSteering ? styles.choiceActive : ""} onClick={() => { if (aesthetic === autoSteering) return; setAesthetic(autoSteering); clearReactionGrounding(); }} disabled={busy}>Auto / surprise me</button>{aesthetics.map((option) => <button key={option.name} type="button" title={option.description} className={aesthetic === option.name ? styles.choiceActive : ""} onClick={() => { if (aesthetic === option.name) return; setAesthetic(option.name); clearReactionGrounding(); }} disabled={busy}>{option.name}</button>)}</div></div>
           <label>
             Artifact type
-            <select value={artifactType} onChange={(event) => { setArtifactType(event.target.value as ArtifactType); invalidateGeneratedVisual(); }} disabled={busy}>
+            <select value={artifactType} onChange={(event) => { setArtifactType(event.target.value as ArtifactType); clearReactionGrounding(); }} disabled={busy}>
               <option value={autoSteering}>{autoSteering}</option>
               {artifactTypes.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
@@ -735,7 +804,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
             Creative direction <small className={styles.optional}>optional</small>
             <textarea
               value={creativeDirection}
-              onChange={(event) => { setCreativeDirection(event.target.value); invalidateGeneratedVisual(); }}
+              onChange={(event) => { setCreativeDirection(event.target.value); clearReactionGrounding(); }}
               rows={2}
               maxLength={500}
               placeholder="e.g. The calm competence of carrying the whole quest"
@@ -745,7 +814,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
 
           {activeStep === "forge" ? <>
             <div className={styles.aiPanel}>
-                <div><strong>Forge the reaction card</strong><p>Uses the translated moment first. A selected source is optional visual inspiration; you keep the final edit.</p></div>
+                <div><strong>Forge the reaction card</strong><p>Uses the translated moment first, then the selected reaction still as its visual anchor. The original card copy remains yours to edit.</p></div>
               {isAdmin
                 ? <button className={styles.aiAction} onClick={() => void generateVisual()} disabled={busy || !translation}>{busy ? "Generating…" : visualGeneration ? "Reforge card" : "Forge card"}</button>
                 : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in to generate</a>}
@@ -787,14 +856,15 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
             <p className={styles.copyNote}>Draft only. Review names, tone, source rights, and tags before moving the packet to CREATE.</p>
           </>}
 
-          <div className={`${styles.preview} ${isTypography ? styles.typographyPreview : ""}`} data-layout={layout} ref={setPreviewNode} aria-label="Live 4 by 5 preview">
-            {!isTypography && selected && !previewImageFailed && <img src={selected.thumbnail} alt="" onError={() => setPreviewImageFailed(true)} />}
+          <div className={styles.preview} data-layout={layout} ref={setPreviewNode} aria-label="Live 4 by 5 preview">
+            {selected && !previewImageFailed && <img src={selected.thumbnail} alt="" onError={() => setPreviewImageFailed(true)} />}
             <div className={styles.previewShade} />
               <div className={styles.previewCopy}><span>{(cardFormat || resolvedArtifactType || "Reaction card").toUpperCase()} · {resolvedCharacter.toUpperCase()}</span><strong style={cardCopyStyle(text || "Your setup belongs here.")}>{text || "Your setup belongs here."}</strong>{secondaryText && <em style={cardCopyStyle(secondaryText)}>{secondaryText}</em>}</div>
             {title && <small>{title}</small>}
           </div>
           {selected && <div className={styles.provenance}><strong>Source attached</strong><span>{selected.title}</span><span>{selected.publisher || "Publisher unknown"} · {selected.provider || "Provider unknown"}</span><a href={selected.url} target="_blank" rel="noreferrer">Open original source</a><small>Rights status: unknown. This is a personal draft; confirm permission before publishing.</small></div>}
-          {!selected && <div className={styles.provenanceMuted}>No source selected. You can still make a typography-only draft.</div>}
+           {selected && <button className={styles.typeFallback} type="button" onClick={() => { setSelected(undefined); setVisualGeneration(undefined); setPacketSaved(false); setStatus("Typography-only fallback selected. Choose a reaction image any time to restore image-backed rendering."); }} disabled={busy}>Use typography-only fallback</button>}
+           {!selected && <div className={styles.provenanceMuted}>Typography-only fallback is active. Choose a reaction image to restore image-backed rendering.</div>}
           <p className={styles.handoffNote}><strong>Your generated draft stays here.</strong> PNG export is independent. Packet staging is an optional handoff to the CREATE workflow.</p>
           <div className={styles.actions}>
             <button className={styles.export} onClick={() => void exportPng()} disabled={busy}>{busy ? "Working…" : "Export PNG"}</button>

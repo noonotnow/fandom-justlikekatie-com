@@ -5,6 +5,10 @@ import {
   MEME_FLAVOR_NAMES,
   memeFlavorPromptDetails,
 } from "./middle-earth-creative-grammar.js";
+import {
+  REFERENCE_STILL_FAMILIES,
+  REFERENCE_STILL_FAMILY_SET,
+} from "./middle-earth-reference-stills.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -243,7 +247,7 @@ function buildTranslationPrompt({ moment, character, memeFlavor, aesthetic, arti
     `Infer a concrete, plausible social situation even when the prompt is meta or vague.`,
     `For example, “Sam and Frodo funny” should become an invented everyday dynamic, not a request for clarification.`,
     `Use the selected archetype as original emotional grammar only. Never recreate a movie still, a raw meme template, a direct Tolkien quote, or character-voice imitation.`,
-    `The search query is optional visual inspiration for the resolved concept, not the source of the joke.`,
+    `After the angle is resolved, choose one curated reaction-still family to ground a separate image search. The reaction still supports the joke; it never writes or changes the joke.`,
     ``,
     `Respond with ONLY a JSON object matching this exact schema — no markdown, no explanation:`,
     `{`,
@@ -255,7 +259,8 @@ function buildTranslationPrompt({ moment, character, memeFlavor, aesthetic, arti
     `  "artifactType": "one of: ${[...ARTIFACT_TYPE_NAMES].join(" | ")}",`,
     `  "tone": "one of: ${[...TONE_NAMES].join(" | ")}",`,
     `  "visualDirection": "original reaction-card art direction, max ${MAX_VISUAL_DIRECTION_LEN} chars",`,
-    `  "searchQuery": "short optional visual-inspiration query, max ${MAX_SEARCH_QUERY_LEN} chars"`,
+    `  "referenceStillFamily": "one of: ${REFERENCE_STILL_FAMILIES.join(" | ")}",`,
+    `  "searchQuery": "short query for that recognizable reaction still, max ${MAX_SEARCH_QUERY_LEN} chars"`,
     `}`,
   ].filter(line => line !== null).join("\n");
 }
@@ -382,11 +387,12 @@ const TRANSLATION_JSON_SCHEMA = {
       artifactType: { type: "string", enum: [...ARTIFACT_TYPE_NAMES] },
       tone: { type: "string", enum: [...TONE_NAMES] },
       visualDirection: { type: "string", minLength: 1, maxLength: MAX_VISUAL_DIRECTION_LEN },
+      referenceStillFamily: { type: "string", enum: REFERENCE_STILL_FAMILIES },
       searchQuery: { type: "string", minLength: 1, maxLength: MAX_SEARCH_QUERY_LEN },
     },
     required: [
       "translatedMoment", "scene", "character", "memeFlavor", "aesthetic",
-      "artifactType", "tone", "visualDirection", "searchQuery",
+      "artifactType", "tone", "visualDirection", "referenceStillFamily", "searchQuery",
     ],
     additionalProperties: false,
   },
@@ -605,6 +611,7 @@ function normalizeTranslationOutput(raw, requestedModel) {
     artifactType: requireChoice(raw.artifactType, "artifactType", ARTIFACT_TYPE_NAMES),
     tone: requireChoice(raw.tone, "tone", TONE_NAMES),
     visualDirection: requireNonempty(clamp(raw.visualDirection, MAX_VISUAL_DIRECTION_LEN), "visualDirection"),
+    referenceStillFamily: requireChoice(raw.referenceStillFamily, "referenceStillFamily", REFERENCE_STILL_FAMILY_SET),
     searchQuery: requireNonempty(clamp(raw.searchQuery, MAX_SEARCH_QUERY_LEN), "searchQuery"),
     ...(requestedModel ? { model: requestedModel } : {}),
   };

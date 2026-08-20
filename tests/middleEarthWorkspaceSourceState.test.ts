@@ -69,7 +69,7 @@ test('an old archive response cannot restore inspiration after the moment change
   assert.equal(selected, undefined);
 });
 
-test('visual inspiration stays behind translation and source selection requires a reforge', async () => {
+test('reaction images stay behind translation and source selection requires a reforge', async () => {
   const source = await readFile(
     new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
     'utf8',
@@ -77,8 +77,8 @@ test('visual inspiration stays behind translation and source selection requires 
 
   assert.match(
     source,
-    /\{translation \? <>\s*<form className=\{styles\.searchForm\} onSubmit=\{search\}>[\s\S]*?Search visual inspiration[\s\S]*?<\/form>[\s\S]*?<\/> : <div className=\{styles\.sourceNote\}>Translate the moment first to unlock optional visual inspiration\.<\/div>\}/,
-    'archive search must be rendered only after a moment has been translated',
+    /\{translation \? <>[\s\S]*?<form className=\{styles\.searchForm\} onSubmit=\{search\}>[\s\S]*?Search reaction images[\s\S]*?<\/form>[\s\S]*?<\/> : <div className=\{styles\.sourceNote\}>Translate the moment first to find its reaction-image candidates\.<\/div>\}/,
+    'reaction image search must be rendered only after a moment has been translated',
   );
 
   const translationResult = source.slice(
@@ -112,6 +112,25 @@ test('visual inspiration stays behind translation and source selection requires 
     source,
     /source: sourceContext,\s*\n\s*\}\);\s*\n\s*setTitle\(generated\.cardText\.footer\)/,
     'the reforge path must send the selected source as grounding context',
+  );
+  assert.match(
+    source,
+    /await search\(undefined, reactionQuery, \{ autoSelect: true \}\)/,
+    'a translated angle must automatically look for and select an initial reaction-image candidate',
+  );
+  assert.match(
+    source,
+    /Use typography-only fallback/,
+    'typography-only must remain an explicit fallback, not the default card treatment',
+  );
+  const search = source.slice(
+    source.indexOf('const search ='),
+    source.indexOf('const selectStep =', source.indexOf('const search =')),
+  );
+  assert.doesNotMatch(
+    search,
+    /setText\(|setSecondaryText\(|setTitle\(/,
+    'choosing or auto-selecting a reaction still must never rewrite the generated joke',
   );
 });
 

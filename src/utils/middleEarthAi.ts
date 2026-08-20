@@ -3,6 +3,7 @@ import type {
   ArtifactType,
   MemeFlavorName,
 } from '../data/middleEarthCreativeGrammar';
+import type { ReferenceStillFamilyId } from '../data/middleEarthReferenceStills';
 
 export const MIDDLE_EARTH_AI_URL = '/api/middle-earth-ai';
 
@@ -57,6 +58,7 @@ export interface GeneratedMemeTranslation {
   artifactType: ArtifactType;
   tone: string;
   visualDirection: string;
+  referenceStillFamily: ReferenceStillFamilyId;
   searchQuery: string;
   model?: string;
 }
@@ -106,6 +108,7 @@ export interface MiddleEarthGroundingInput {
   tone: string;
   layout: string;
   guidance?: string;
+  referenceStillFamily?: ReferenceStillFamilyId;
   source?: MiddleEarthAiSource & { id?: string };
   visual: {
     title: string;
@@ -125,6 +128,7 @@ export function middleEarthGroundingFingerprint(input: MiddleEarthGroundingInput
     tone: input.tone.trim(),
     layout: input.layout.trim(),
     guidance: input.guidance?.trim() || '',
+    referenceStillFamily: input.referenceStillFamily || '',
     source: input.source ? {
       id: input.source.id || '',
       title: input.source.title.trim(),

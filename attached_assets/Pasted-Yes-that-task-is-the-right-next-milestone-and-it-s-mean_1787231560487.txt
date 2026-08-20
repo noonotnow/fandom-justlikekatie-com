@@ -1,0 +1,84 @@
+Yes — that task is the right next milestone, and it’s meaningfully different from the previous fixes.
+
+What you’ve solved so far:
+
+1. **Meme Flavors / archetypes**
+    - The emotional grammar exists.
+2. **Google-first Middle-earth search**
+    - Search routing is no longer accidentally Brave/Baidu-led for LOTR.
+3. **Moment-first flow**
+    - MemeForge starts from the situation / character dynamic, not source search.
+4. **Two-line reaction contract**
+    - The text is now meme-shaped instead of quote-card prose.
+
+What’s still missing is exactly what Task #133 names:
+
+> **the image has to carry reaction meaning too.**
+> 
+
+Otherwise the product is still only:
+
+```
+angle + quip + tasteful card design
+```
+
+when the real target is:
+
+```
+angle + quip + culturally recognizable reaction still
+```
+
+## Task #133 sounds correctly scoped
+
+I’d keep these as the non-negotiables:
+
+- **Angle first, image second**
+    - The still should support the chosen bit, not decide it.
+- **Curated reaction-still families**
+    - Boromir Council = impossible-task solemnity
+    - Gandalf bridge = boundary / hard no
+    - Gollum debate = internal conflict
+    - Sam/Frodo = loyal support / shared burden
+    - Frodo Mordor = dread / obligation
+    - Hobbits eating = cozy treat logic
+    - Council wide shot = group chaos
+    - Éowyn = reveal/reversal
+    - Beacons = rally / urgent alert
+- **Google-first attributed candidate search**
+    - Use the new routing policy.
+    - Keep attribution and rights unknown status visible.
+- **Image-backed default**
+    - Typography-only should be a fallback, not the normal artifact.
+- **Original copy only**
+    - Existing meme references can inform the visual vocabulary.
+    - They should not provide copied captions or re-exported meme composites.
+- **Rendering parity**
+    - Preview, PNG export, saved/canonical render, packet persistence, and CREATE handoff all need the same visual contract.
+
+## The product standard
+
+The card should answer:
+
+> “Would this still already land as a reaction before we even read the caption?”
+> 
+
+If yes, MemeForge is working.
+
+If no, it’s still just a quote card with fantasy decor.
+
+## I agree Power is appropriate
+
+This one touches too many surfaces to patch casually:
+
+- angle schema;
+- still-family selection;
+- search query generation;
+- search result picking;
+- source attribution;
+- preview renderer;
+- PNG renderer;
+- saved/canonical export renderer;
+- packet persistence;
+- CREATE handoff compatibility.
+
+So yes: use Power / a more capable implementation pass. This is the integration milestone where the pieces finally become “actual meme” instead of “nicely formatted joke text.”

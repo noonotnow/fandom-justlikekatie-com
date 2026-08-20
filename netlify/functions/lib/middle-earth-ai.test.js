@@ -146,6 +146,7 @@ const VALID_TRANSLATION_RESPONSE = {
   artifactType: "Reaction image",
   tone: "Deadpan",
   visualDirection: "An original, weary reaction card with a small office bag and dramatic road ahead.",
+  referenceStillFamily: "frodo-quest-burden",
   searchQuery: "Frodo walking dramatic landscape office commute mood",
 };
 
@@ -538,12 +539,15 @@ test("translation mode uses a strict meme_translation schema", async () => {
   assert.equal(body.mode, "translation");
   assert.equal(body.result.memeFlavor, "Mordor Commute");
   assert.equal(body.result.character, "Frodo");
+  assert.equal(body.result.referenceStillFamily, "frodo-quest-burden");
 
   const chatCall = connector.calls.find(c => c.path === "/v1/chat/completions");
   const schema = JSON.parse(chatCall.options.body).response_format.json_schema;
   assert.equal(schema.name, "meme_translation");
   assert.ok(schema.schema.required.includes("translatedMoment"));
+  assert.ok(schema.schema.required.includes("referenceStillFamily"));
   assert.ok(schema.schema.required.includes("searchQuery"));
+  assert.ok(schema.schema.properties.referenceStillFamily.enum.includes("sam-carrying-frodo"));
   assert.equal(schema.schema.additionalProperties, false);
 });
 

@@ -56,6 +56,10 @@ export interface MiddleEarthOutputContent {
   memeFlavor?: string;
   aesthetic?: string;
   artifactType?: string;
+  /** Curated reaction-still family resolved after the angle, not a copied meme template. */
+  referenceStillFamily?: string;
+  /** The query used to find the selected reaction still. */
+  referenceStillQuery?: string;
   aiGeneration?: {
     provider: 'xai';
     generatedAt: string;
@@ -150,6 +154,8 @@ export interface MiddleEarthDraft {
   memeFlavor?: string;
   aesthetic?: string;
   artifactType?: string;
+  referenceStillFamily?: string;
+  referenceStillQuery?: string;
   creativeDirection?: string;
   aiGeneration?: MiddleEarthOutputContent['aiGeneration'];
   rednoteCopy?: MiddleEarthRednoteCopy;
@@ -456,6 +462,8 @@ export function middleEarthTextFingerprint(content: MiddleEarthOutputContent): s
     content.memeFlavor ?? '',
     content.aesthetic ?? '',
     content.artifactType ?? '',
+    content.referenceStillFamily ?? '',
+    content.referenceStillQuery ?? '',
   ].join('\x00');
 }
 
@@ -508,6 +516,8 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
     ...(draft.memeFlavor ? { memeFlavor: draft.memeFlavor } : {}),
     ...(draft.aesthetic ? { aesthetic: draft.aesthetic } : {}),
     ...(draft.artifactType ? { artifactType: draft.artifactType } : {}),
+    ...(draft.referenceStillFamily ? { referenceStillFamily: draft.referenceStillFamily } : {}),
+    ...(draft.referenceStillQuery ? { referenceStillQuery: draft.referenceStillQuery } : {}),
     ...(draft.aiGeneration ? { aiGeneration: draft.aiGeneration } : {}),
     ...(draft.rednoteCopy ? { rednoteCopy: draft.rednoteCopy } : {}),
   };
@@ -531,6 +541,8 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
           ...(draft.memeFlavor ? { memeFlavor: draft.memeFlavor } : {}),
           ...(draft.aesthetic ? { aesthetic: draft.aesthetic } : {}),
           ...(draft.artifactType ? { artifactType: draft.artifactType } : {}),
+           ...(draft.referenceStillFamily ? { referenceStillFamily: draft.referenceStillFamily } : {}),
+           ...(draft.referenceStillQuery ? { referenceStillQuery: draft.referenceStillQuery } : {}),
           ...(draft.asset.query ? { query: draft.asset.query } : {}),
           ...(draft.asset.provider ? { provider: draft.asset.provider } : {}),
         }),
@@ -551,6 +563,8 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
           ...(draft.memeFlavor ? { memeFlavor: draft.memeFlavor } : {}),
           ...(draft.aesthetic ? { aesthetic: draft.aesthetic } : {}),
           ...(draft.artifactType ? { artifactType: draft.artifactType } : {}),
+           ...(draft.referenceStillFamily ? { referenceStillFamily: draft.referenceStillFamily } : {}),
+           ...(draft.referenceStillQuery ? { referenceStillQuery: draft.referenceStillQuery } : {}),
         }),
       };
 

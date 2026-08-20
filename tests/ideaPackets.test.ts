@@ -46,6 +46,8 @@ test('builds a Middle-earth packet with structured text and persistent source pr
     memeFlavor: 'Samwise Loyalty',
     aesthetic: 'Cozy Hobbiton',
     artifactType: 'Meme card',
+    referenceStillFamily: 'sam-carrying-frodo',
+    referenceStillQuery: 'Sam carrying Frodo reaction still Lord of the Rings',
     creativeDirection: 'Quiet competence under pressure',
     aiGeneration: {
       provider: 'xai',
@@ -89,6 +91,8 @@ test('builds a Middle-earth packet with structured text and persistent source pr
   assert.equal(packet.middleEarthContent?.[output.id].artifactType, 'Meme card');
   assert.equal(packet.middleEarthContent?.[output.id].cardFormat, 'Reaction Card');
   assert.equal(packet.middleEarthContent?.[output.id].cardFooter, 'Friday fellowship meeting');
+  assert.equal(packet.middleEarthContent?.[output.id].referenceStillFamily, 'sam-carrying-frodo');
+  assert.equal(packet.middleEarthContent?.[output.id].referenceStillQuery, 'Sam carrying Frodo reaction still Lord of the Rings');
   assert.equal(packet.middleEarthContent?.[output.id].rednoteCopy?.tags[1], '#Samwise');
   assert.equal(packet.actor.name, 'Samwise');
   assert.equal(packet.workingAngle, 'Quiet competence under pressure');

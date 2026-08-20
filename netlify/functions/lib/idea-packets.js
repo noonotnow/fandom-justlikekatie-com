@@ -12,6 +12,7 @@ import {
   ARTIFACT_TYPE_NAMES,
   MEME_FLAVOR_NAMES,
 } from "./middle-earth-creative-grammar.js";
+import { REFERENCE_STILL_FAMILY_SET } from "./middle-earth-reference-stills.js";
 
 const STORE_NAME = "idea-packets";
 const MAX_BODY_BYTES = 256 * 1024;
@@ -166,6 +167,8 @@ export function validatePacket(input) {
          || (value.memeFlavor !== undefined && (typeof value.memeFlavor !== "string" || !MEME_FLAVOR_NAMES.has(value.memeFlavor)))
          || (value.aesthetic !== undefined && (typeof value.aesthetic !== "string" || !AESTHETIC_NAMES.has(value.aesthetic)))
          || (value.artifactType !== undefined && (typeof value.artifactType !== "string" || !ARTIFACT_TYPE_NAMES.has(value.artifactType)))
+          || (value.referenceStillFamily !== undefined && (typeof value.referenceStillFamily !== "string" || !REFERENCE_STILL_FAMILY_SET.has(value.referenceStillFamily)))
+          || (value.referenceStillQuery !== undefined && (typeof value.referenceStillQuery !== "string" || !value.referenceStillQuery.trim() || value.referenceStillQuery.length > 200))
       ) {
         throw new RequestError(`Packet middleEarthContent entry "${key}" is invalid.`);
       }
