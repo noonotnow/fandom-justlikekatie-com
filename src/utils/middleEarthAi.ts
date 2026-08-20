@@ -1,3 +1,9 @@
+import type {
+  AestheticName,
+  ArtifactType,
+  MemeFlavorName,
+} from '../data/middleEarthCreativeGrammar';
+
 export const MIDDLE_EARTH_AI_URL = '/api/middle-earth-ai';
 
 export interface MiddleEarthAiSource {
@@ -25,6 +31,9 @@ export interface GeneratedRednoteCopy {
 
 interface VisualInput {
   character: string;
+  memeFlavor?: MemeFlavorName;
+  aesthetic?: AestheticName;
+  artifactType?: ArtifactType;
   tone: string;
   layout: string;
   guidance?: string;
@@ -47,6 +56,9 @@ interface RednoteInput extends VisualInput {
 
 export interface MiddleEarthGroundingInput {
   character: string;
+  memeFlavor?: MemeFlavorName;
+  aesthetic?: AestheticName;
+  artifactType?: ArtifactType;
   tone: string;
   layout: string;
   guidance?: string;
@@ -61,6 +73,9 @@ export interface MiddleEarthGroundingInput {
 export function middleEarthGroundingFingerprint(input: MiddleEarthGroundingInput): string {
   return JSON.stringify({
     character: input.character.trim(),
+    memeFlavor: input.memeFlavor?.trim() || '',
+    aesthetic: input.aesthetic?.trim() || '',
+    artifactType: input.artifactType?.trim() || '',
     tone: input.tone.trim(),
     layout: input.layout.trim(),
     guidance: input.guidance?.trim() || '',

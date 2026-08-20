@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   mediaFromResult,
+  middleEarthTextFingerprint,
   packetFromMiddleEarthDraft,
 } from '../src/utils/ideaPackets.ts';
 
@@ -37,6 +38,9 @@ test('builds a Middle-earth packet with structured text and persistent source pr
     tone: 'Deadpan',
     layout: 'Editorial caption',
     character: 'Samwise',
+    memeFlavor: 'Samwise Loyalty',
+    aesthetic: 'Cozy Hobbiton',
+    artifactType: 'Meme card',
     creativeDirection: 'Quiet competence under pressure',
     aiGeneration: {
       provider: 'xai',
@@ -73,13 +77,31 @@ test('builds a Middle-earth packet with structured text and persistent source pr
   assert.equal(packet.sourceCards[0].imageUrl.startsWith('/.netlify/functions/image-proxy?url='), true);
   assert.match(packet.sourceCards[0].provenance, /"rightsStatus":"unknown"/);
   assert.match(packet.sourceCards[0].provenance, /"character":"Samwise"/);
+  assert.match(packet.sourceCards[0].provenance, /"memeFlavor":"Samwise Loyalty"/);
   assert.equal(packet.middleEarthContent?.[output.id].text, 'The deployment was small, but there was another deployment.');
+  assert.equal(packet.middleEarthContent?.[output.id].memeFlavor, 'Samwise Loyalty');
+  assert.equal(packet.middleEarthContent?.[output.id].aesthetic, 'Cozy Hobbiton');
+  assert.equal(packet.middleEarthContent?.[output.id].artifactType, 'Meme card');
   assert.equal(packet.middleEarthContent?.[output.id].rednoteCopy?.tags[1], '#Samwise');
   assert.equal(packet.actor.name, 'Samwise');
   assert.equal(packet.workingAngle, 'Quiet competence under pressure');
   assert.equal(packet.captionSeeds, 'The quietest person in the fellowship was doing the heaviest lifting.');
   assert.equal(packet.outputAngles, '#MiddleEarth\n#Samwise\n#Fandom');
   assert.ok(output.textFingerprint);
+  const content = packet.middleEarthContent?.[output.id];
+  assert.ok(content);
+  assert.notEqual(
+    middleEarthTextFingerprint({ ...content, memeFlavor: 'Council of Elrond' }),
+    output.textFingerprint,
+  );
+  assert.notEqual(
+    middleEarthTextFingerprint({ ...content, aesthetic: 'Illuminated manuscript' }),
+    output.textFingerprint,
+  );
+  assert.notEqual(
+    middleEarthTextFingerprint({ ...content, artifactType: 'Hero card' }),
+    output.textFingerprint,
+  );
 });
 
 test('builds typography-only spellbook packets without inventing an external image', () => {

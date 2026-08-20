@@ -1,4 +1,10 @@
 import { json } from "./public-auth.js";
+import {
+  AESTHETIC_NAMES,
+  ARTIFACT_TYPE_NAMES,
+  MEME_FLAVOR_NAMES,
+  memeFlavorPromptDetails,
+} from "./middle-earth-creative-grammar.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -140,14 +146,19 @@ function renderSource(s) {
   return parts.length ? parts.join(" | ") : "(no source metadata)";
 }
 
-function buildVisualPrompt({ character, tone, layout, guidance, source }) {
+function buildVisualPrompt({ character, memeFlavor, aesthetic, artifactType, tone, layout, guidance, source }) {
+  const flavorDetails = memeFlavorPromptDetails(memeFlavor);
   return [
     `You are a Middle-earth visual copy writer generating overlay text for a fan image post.`,
     ``,
     `Character: ${character}`,
+    flavorDetails,
+    aesthetic ? `Aesthetic: ${aesthetic}` : null,
+    artifactType ? `Artifact type: ${artifactType}` : null,
     `Requested tone: ${tone}`,
     `Preferred layout hint: ${layout}`,
     guidance ? `Creative direction: ${guidance}` : null,
+    `The creative grammar controls style and emotional structure only. The selected source remains the factual and provenance anchor.`,
     ``,
     `Source record (use ONLY facts stated here — do NOT fabricate source details or quote long copyrighted Tolkien passages):`,
     renderSource(source),
@@ -166,15 +177,20 @@ function buildVisualPrompt({ character, tone, layout, guidance, source }) {
   ].filter(line => line !== null).join("\n");
 }
 
-function buildRednotePrompt({ character, tone, layout, guidance, source, visual, currentCopy }) {
+function buildRednotePrompt({ character, memeFlavor, aesthetic, artifactType, tone, layout, guidance, source, visual, currentCopy }) {
   const hasCurrentCopy = currentCopy && (currentCopy.title || currentCopy.caption || (currentCopy.tags && currentCopy.tags.length));
+  const flavorDetails = memeFlavorPromptDetails(memeFlavor);
   return [
     `You are a Middle-earth Rednote (小红书) copy writer.`,
     ``,
     `Character: ${character}`,
+    flavorDetails,
+    aesthetic ? `Aesthetic: ${aesthetic}` : null,
+    artifactType ? `Artifact type: ${artifactType}` : null,
     `Requested tone: ${tone}`,
     `Layout context: ${layout}`,
     guidance ? `Creative direction: ${guidance}` : null,
+    `The creative grammar controls style and emotional structure only. The selected source and final visual remain the factual anchors.`,
     ``,
     `Source record (use ONLY facts stated here — do NOT fabricate source details or quote long copyrighted Tolkien passages):`,
     renderSource(source),
@@ -402,6 +418,14 @@ function requireStr(value, fieldName, max) {
   return s;
 }
 
+function optionalChoice(value, fieldName, allowed) {
+  const selected = str(value, 80, fieldName);
+  if (selected && !allowed.has(selected)) {
+    throw new AppError(`${fieldName} is not recognized.`);
+  }
+  return selected;
+}
+
 function validateSource(s) {
   if (!s || typeof s !== "object") return undefined;
   const title = str(s.title, MAX_SOURCE_TITLE_LEN, "source.title");
@@ -460,6 +484,9 @@ function validateBody(body) {
   }
 
   const character = requireStr(body.character, "character", MAX_CHARACTER_LEN);
+  const memeFlavor = optionalChoice(body.memeFlavor, "memeFlavor", MEME_FLAVOR_NAMES);
+  const aesthetic = optionalChoice(body.aesthetic, "aesthetic", AESTHETIC_NAMES);
+  const artifactType = optionalChoice(body.artifactType, "artifactType", ARTIFACT_TYPE_NAMES);
   const tone = requireStr(body.tone, "tone", MAX_TONE_LEN);
   const layout = requireStr(body.layout, "layout", MAX_LAYOUT_LEN);
   const guidance = str(body.guidance, MAX_GUIDANCE_LEN, "guidance");
@@ -468,10 +495,10 @@ function validateBody(body) {
   if (mode === "rednote") {
     const visual = validateVisual(body.visual);
     const currentCopy = validateCurrentCopy(body.currentCopy);
-    return { mode, character, tone, layout, guidance, source, visual, currentCopy };
+    return { mode, character, memeFlavor, aesthetic, artifactType, tone, layout, guidance, source, visual, currentCopy };
   }
 
-  return { mode, character, tone, layout, guidance, source };
+  return { mode, character, memeFlavor, aesthetic, artifactType, tone, layout, guidance, source };
 }
 
 // ---------------------------------------------------------------------------

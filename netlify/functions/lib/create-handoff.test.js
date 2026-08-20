@@ -181,6 +181,9 @@ function middleEarthPacket() {
       tone: "Tender",
       layout: "Editorial caption",
       character: "Samwise",
+      memeFlavor: "Samwise Loyalty",
+      aesthetic: "Cozy Hobbiton",
+      artifactType: "Meme card",
       aiGeneration: {
         provider: "xai",
         generatedAt: "2026-08-05T11:55:00.000Z",
@@ -401,6 +404,9 @@ test("hands the exact character-filtered Rednote package to CREATE with the Meme
   assert.deepEqual(envelope.draft.series, ["Middle-earth MemeForge"]);
   assert.deepEqual(envelope.publicationBrief.tags, envelope.draft.tags);
   assert.equal(envelope.middleEarthContent["meme-output"].character, "Samwise");
+  assert.equal(envelope.middleEarthContent["meme-output"].memeFlavor, "Samwise Loyalty");
+  assert.equal(envelope.middleEarthContent["meme-output"].aesthetic, "Cozy Hobbiton");
+  assert.equal(envelope.middleEarthContent["meme-output"].artifactType, "Meme card");
   assert.equal("scheduledDate" in envelope, false);
 });
 

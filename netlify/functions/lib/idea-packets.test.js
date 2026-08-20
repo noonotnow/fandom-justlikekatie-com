@@ -149,6 +149,9 @@ test("validates the AI visual provenance and Rednote copy stored with Middle-ear
         tone: "Tender",
         layout: "Editorial caption",
         character: "Samwise",
+         memeFlavor: "Samwise Loyalty",
+         aesthetic: "Cozy Hobbiton",
+         artifactType: "Meme card",
         aiGeneration: {
           provider: "xai",
           generatedAt: "2026-08-19T13:55:00.000Z",
@@ -170,9 +173,16 @@ test("validates the AI visual provenance and Rednote copy stored with Middle-ear
     validatePacket(middleEarth).middleEarthContent[output.id].rednoteCopy.tags[1],
     "#Samwise",
   );
+  assert.equal(
+    validatePacket(middleEarth).middleEarthContent[output.id].memeFlavor,
+    "Samwise Loyalty",
+  );
   const invalid = structuredClone(middleEarth);
   invalid.middleEarthContent[output.id].rednoteCopy.tags = ["#OnlyOne"];
   assert.throws(() => validatePacket(invalid), /invalid Rednote copy/);
+  const invalidFlavor = structuredClone(middleEarth);
+  invalidFlavor.middleEarthContent[output.id].memeFlavor = "Copied template";
+  assert.throws(() => validatePacket(invalidFlavor), /middleEarthContent/);
 });
 
 test("prevents exact duplicate media and supports reversible compilation", () => {

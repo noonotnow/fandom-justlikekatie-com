@@ -6,6 +6,14 @@ import {
   type MiddleEarthAiSource,
 } from "../../utils/middleEarthAi";
 import type { MiddleEarthRednoteCopy } from "../../utils/ideaPackets";
+import {
+  aesthetics,
+  artifactTypes,
+  memeFlavors,
+  type AestheticName,
+  type ArtifactType,
+  type MemeFlavorName,
+} from "../../data/middleEarthCreativeGrammar";
 import styles from "./MiddleEarthWorkspace.module.css";
 
 export interface MiddleEarthAsset {
@@ -28,6 +36,9 @@ export interface MiddleEarthDraft {
   tone: string;
   layout: string;
   character?: string;
+  memeFlavor?: string;
+  aesthetic?: string;
+  artifactType?: string;
   creativeDirection?: string;
   aiGeneration?: {
     provider: "xai";
@@ -62,6 +73,7 @@ const suggestions = [
 const memeTones = ["Deadpan", "Tender", "Chaotic", "Dramatic"];
 const memeLayouts = ["Classic top / bottom", "Editorial caption", "Tiny confession"];
 const characterFilters = [
+  "Boromir",
   "Gandalf",
   "Éowyn",
   "Frodo",
@@ -71,6 +83,7 @@ const characterFilters = [
   "Legolas",
   "Gimli",
   "Bilbo",
+  "Gollum",
   "The Fellowship",
 ];
 
@@ -147,7 +160,8 @@ export async function exportMiddleEarthPng(
   context.fillStyle = "#f4eee2";
   context.textAlign = "left";
   context.font = "600 25px Georgia";
-  context.fillText(draft.kind === "meme" ? "MIDDLE-EARTH / MEME FORGE" : "MIDDLE-EARTH / SPELLBOOK", 108, 170);
+  const artifactLabel = draft.artifactType || (draft.kind === "meme" ? "Meme card" : "Spellbook");
+  context.fillText(`MIDDLE-EARTH / ${artifactLabel.toUpperCase()}`.slice(0, 58), 108, 170);
   const layout = draft.layout === "Editorial caption"
     ? { x: 92, y: 800, width: 896, size: 58, lineHeight: 70, maxLines: 6, align: "left" as CanvasTextAlign }
     : draft.layout === "Tiny confession"
@@ -177,7 +191,8 @@ export async function exportMiddleEarthPng(
   context.fillStyle = "#d8cdb8";
   context.textAlign = "left";
   context.font = "500 20px monospace";
-  context.fillText(draft.title.toUpperCase().slice(0, 54), 108, 1265);
+  const footerLabel = [draft.memeFlavor, draft.aesthetic].filter(Boolean).join(" · ");
+  context.fillText((footerLabel || draft.title).toUpperCase().slice(0, 54), 108, 1265);
   context.fillStyle = "#193b3b";
   context.textAlign = "center";
   context.font = "500 16px monospace";
@@ -239,10 +254,13 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [character, setCharacter] = useState(characterFilters[0]);
+  const [memeFlavor, setMemeFlavor] = useState<MemeFlavorName>(memeFlavors[0].name);
+  const [aesthetic, setAesthetic] = useState<AestheticName>(aesthetics[0].name);
+  const [artifactType, setArtifactType] = useState<ArtifactType>(artifactTypes[0]);
   const [creativeDirection, setCreativeDirection] = useState("");
-  const [title, setTitle] = useState("A small truth from the road");
-  const [text, setText] = useState("One does not simply leave the group chat.");
-  const [secondaryText, setSecondaryText] = useState("— a very reasonable fellowship decision");
+  const [title, setTitle] = useState("A very reasonable fellowship decision");
+  const [text, setText] = useState("The task was small. The lore attached to it was not.");
+  const [secondaryText, setSecondaryText] = useState("— road-tested admin logic");
   const [tone, setTone] = useState(memeTones[0]);
   const [layout, setLayout] = useState(memeLayouts[0]);
   const [visualGeneration, setVisualGeneration] = useState<MiddleEarthDraft["aiGeneration"]>();
@@ -258,6 +276,12 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const [packetSaved, setPacketSaved] = useState(false);
 
   const isTypography = false;
+  const selectedFlavor = memeFlavors.find((flavor) => flavor.name === memeFlavor) ?? memeFlavors[0];
+
+  const invalidateGeneratedVisual = () => {
+    setVisualGeneration(undefined);
+    setPacketSaved(false);
+  };
 
   const search = async (event?: FormEvent, requestedQuery?: string) => {
     event?.preventDefault();
@@ -290,6 +314,9 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const rednoteTouched = Boolean(rednoteTitle.trim() || rednoteCaption.trim() || rednoteTags.length);
   const currentGroundingFingerprint = useMemo(() => middleEarthGroundingFingerprint({
     character,
+    memeFlavor,
+    aesthetic,
+    artifactType,
     tone,
     layout,
     guidance: creativeDirection,
@@ -305,7 +332,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       primaryText: text,
       secondaryText,
     },
-  }), [character, tone, layout, creativeDirection, selected, title, text, secondaryText]);
+  }), [character, memeFlavor, aesthetic, artifactType, tone, layout, creativeDirection, selected, title, text, secondaryText]);
   const rednoteIsCurrent = Boolean(
     rednoteGroundingFingerprint
     && rednoteGroundingFingerprint === currentGroundingFingerprint
@@ -326,9 +353,10 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const draft = useMemo<MiddleEarthDraft>(() => ({
     kind, title: title.trim() || "Untitled Middle-earth idea", text: text.trim(),
     secondaryText: secondaryText.trim() || undefined, tone, layout,
-    character: character.trim(), creativeDirection: creativeDirection.trim() || undefined,
+    character: character.trim(), memeFlavor, aesthetic, artifactType,
+    creativeDirection: creativeDirection.trim() || undefined,
     aiGeneration: visualGeneration, rednoteCopy, asset: selected, createdAt: new Date().toISOString(),
-  }), [title, text, secondaryText, tone, layout, character, creativeDirection, visualGeneration, rednoteCopy, selected]);
+  }), [title, text, secondaryText, tone, layout, character, memeFlavor, aesthetic, artifactType, creativeDirection, visualGeneration, rednoteCopy, selected]);
 
   const sourceContext = useMemo<MiddleEarthAiSource | undefined>(() => selected ? {
     title: selected.title,
@@ -350,6 +378,9 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     try {
       const generated = await generateVisualObject({
         character: character.trim(),
+        memeFlavor,
+        aesthetic,
+        artifactType,
         tone,
         layout,
         guidance: creativeDirection.trim() || undefined,
@@ -391,6 +422,9 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     try {
       const generated = await generateRednoteCopy({
         character: character.trim(),
+        memeFlavor,
+        aesthetic,
+        artifactType,
         tone,
         layout,
         guidance: creativeDirection.trim() || undefined,
@@ -503,15 +537,50 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
 
           <label>
             Character filter
-            <select value={character} onChange={(event) => { setCharacter(event.target.value); setVisualGeneration(undefined); setPacketSaved(false); }} disabled={busy}>
+            <select value={character} onChange={(event) => { setCharacter(event.target.value); invalidateGeneratedVisual(); }} disabled={busy}>
               {characterFilters.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </label>
+          <fieldset className={styles.flavorPicker}>
+            <legend>Meme Flavor</legend>
+            <p className={styles.flavorIntro}>Choose the emotional grammar, not a copied template. Every result remains an original, source-grounded card.</p>
+            <div className={styles.flavorGrid}>
+              {memeFlavors.map((flavor) => (
+                <button
+                  key={flavor.name}
+                  type="button"
+                  className={memeFlavor === flavor.name ? styles.flavorActive : ""}
+                  onClick={() => {
+                    if (memeFlavor === flavor.name) return;
+                    setMemeFlavor(flavor.name);
+                    invalidateGeneratedVisual();
+                  }}
+                  aria-pressed={memeFlavor === flavor.name}
+                  disabled={busy}
+                >
+                  <strong>{flavor.name}</strong>
+                  <span>{flavor.description}</span>
+                </button>
+              ))}
+            </div>
+            <div className={styles.flavorBrief}>
+              <span>{selectedFlavor.coreEmotion}</span>
+              <p>{selectedFlavor.socialSituation}</p>
+              <small>Original archetype only · no raw template recreation</small>
+            </div>
+          </fieldset>
+          <div className={styles.choiceGroup}><span>Aesthetic</span><div>{aesthetics.map((option) => <button key={option.name} type="button" title={option.description} className={aesthetic === option.name ? styles.choiceActive : ""} onClick={() => { if (aesthetic === option.name) return; setAesthetic(option.name); invalidateGeneratedVisual(); }} disabled={busy}>{option.name}</button>)}</div></div>
+          <label>
+            Artifact type
+            <select value={artifactType} onChange={(event) => { setArtifactType(event.target.value as ArtifactType); invalidateGeneratedVisual(); }} disabled={busy}>
+              {artifactTypes.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
           </label>
           <label>
             Creative direction <small className={styles.optional}>optional</small>
             <textarea
               value={creativeDirection}
-              onChange={(event) => { setCreativeDirection(event.target.value); setVisualGeneration(undefined); setPacketSaved(false); }}
+              onChange={(event) => { setCreativeDirection(event.target.value); invalidateGeneratedVisual(); }}
               rows={2}
               maxLength={500}
               placeholder="e.g. The calm competence of carrying the whole quest"
@@ -521,7 +590,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
 
           {activeStep === "forge" ? <>
             <div className={styles.aiPanel}>
-              <div><strong>AI visual-object generator</strong><p>Uses the character filter, selected source record, tone, and direction. You keep the final edit.</p></div>
+               <div><strong>AI visual-object generator</strong><p>Uses character + Meme Flavor + aesthetic + artifact type, grounded in the selected source. You keep the final edit.</p></div>
               {isAdmin
                 ? <button className={styles.aiAction} onClick={() => void generateVisual()} disabled={busy}>{busy ? "Generating…" : visualGeneration ? "Regenerate object" : "Generate object"}</button>
                 : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in to generate</a>}
@@ -529,8 +598,8 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
             <label>Working title<input value={title} onChange={(event) => { setTitle(event.target.value); setPacketSaved(false); }} maxLength={120} disabled={busy} /></label>
             <label>Primary on-card copy<textarea value={text} onChange={(event) => { setText(event.target.value); setPacketSaved(false); }} rows={4} maxLength={700} disabled={busy} /></label>
             <label>Secondary line<input value={secondaryText} onChange={(event) => { setSecondaryText(event.target.value); setPacketSaved(false); }} maxLength={240} disabled={busy} /></label>
-            <div className={styles.choiceGroup}><span>Tone</span><div>{memeTones.map((option) => <button key={option} className={tone === option ? styles.choiceActive : ""} onClick={() => setTone(option)} disabled={busy}>{option}</button>)}</div></div>
-            <div className={styles.choiceGroup}><span>Layout</span><div>{memeLayouts.map((option) => <button key={option} className={layout === option ? styles.choiceActive : ""} onClick={() => setLayout(option)} disabled={busy}>{option}</button>)}</div></div>
+            <div className={styles.choiceGroup}><span>Tone</span><div>{memeTones.map((option) => <button key={option} className={tone === option ? styles.choiceActive : ""} onClick={() => { if (tone === option) return; setTone(option); invalidateGeneratedVisual(); }} disabled={busy}>{option}</button>)}</div></div>
+            <div className={styles.choiceGroup}><span>Layout</span><div>{memeLayouts.map((option) => <button key={option} className={layout === option ? styles.choiceActive : ""} onClick={() => { if (layout === option) return; setLayout(option); invalidateGeneratedVisual(); }} disabled={busy}>{option}</button>)}</div></div>
           </> : <>
             <div className={styles.visualContext}>
               <span>Grounded in the finished visual</span>
@@ -565,7 +634,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           <div className={`${styles.preview} ${isTypography ? styles.typographyPreview : ""}`} data-layout={layout} ref={setPreviewNode} aria-label="Live 4 by 5 preview">
             {!isTypography && selected && !previewImageFailed && <img src={selected.thumbnail} alt="" onError={() => setPreviewImageFailed(true)} />}
             <div className={styles.previewShade} />
-            <div className={styles.previewCopy}><span>MIDDLE-EARTH / MEME FORGE · {character.toUpperCase()}</span><strong>{text || "Your words belong here."}</strong>{secondaryText && <em>{secondaryText}</em>}</div>
+             <div className={styles.previewCopy}><span>{artifactType.toUpperCase()} · {character.toUpperCase()} · {memeFlavor.toUpperCase()}</span><strong>{text || "Your words belong here."}</strong>{secondaryText && <em>{secondaryText}</em>}</div>
             <small>{title}</small>
           </div>
           {selected && <div className={styles.provenance}><strong>Source attached</strong><span>{selected.title}</span><span>{selected.publisher || "Publisher unknown"} · {selected.provider || "Provider unknown"}</span><a href={selected.url} target="_blank" rel="noreferrer">Open original source</a><small>Rights status: unknown. This is a personal draft; confirm permission before publishing.</small></div>}

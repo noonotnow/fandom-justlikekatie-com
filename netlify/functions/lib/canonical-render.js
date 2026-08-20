@@ -123,7 +123,9 @@ async function renderMiddleEarthTypography(content, output) {
 
 function middleEarthImageOverlay(content, output) {
   const isMeme = output.kind === "meme";
-  const kindLabel = isMeme ? "⚔️ MemeForge · Middle-earth" : "📖 Quote Spellbook · Middle-earth";
+  const kindLabel = isMeme
+    ? `⚔️ ${content.artifactType || "MemeForge"} · ${content.memeFlavor || "Middle-earth"}`
+    : "📖 Quote Spellbook · Middle-earth";
   const accent = isMeme ? "#c9a96e" : "#8bb8d4";
   const layout = content.layout;
   const settings = layout === "Editorial caption"
@@ -178,17 +180,19 @@ function middleEarthImageOverlay(content, output) {
     ${layout === "Marginalia" ? `<rect x="540" y="0" width="540" height="${RENDER_HEIGHT}" fill="#102d2e" opacity=".78"/><line x1="600" y1="230" x2="600" y2="1110" stroke="${accent}" stroke-opacity=".7"/>` : ""}
     ${layout === "Quote card" ? `<rect x="80" y="250" width="920" height="780" rx="8" fill="#102d2e" opacity=".62"/>` : ""}
     <rect x="0" y="0" width="${RENDER_WIDTH}" height="64" fill="#0e0e12" opacity="0.72"/>
-    <text x="540" y="44" fill="#777782" font-family="sans-serif" font-size="18" text-anchor="middle">${escapeXml(kindLabel)}</text>
+    <text x="540" y="44" fill="#777782" font-family="sans-serif" font-size="18" text-anchor="middle">${escapeXml(truncate(kindLabel, 72))}</text>
     ${titleElems}
     ${textElems}
     ${secElems}
-    <text x="540" y="${RENDER_HEIGHT - 18}" fill="#4c4c58" font-family="sans-serif" font-size="14" text-anchor="middle">${escapeXml(`${content.tone} · ${content.layout} · fandom.justlikekatie.com/memeforge/middle-earth`)}</text>
+    <text x="540" y="${RENDER_HEIGHT - 18}" fill="#4c4c58" font-family="sans-serif" font-size="14" text-anchor="middle">${escapeXml(truncate(`${content.tone} · ${content.aesthetic || content.layout} · fandom.justlikekatie.com/memeforge/middle-earth`, 108))}</text>
   </svg>`;
 }
 
 function middleEarthTypographySvg(content, output) {
   const isMeme = output.kind === "meme";
-  const kindLabel = isMeme ? "⚔️ MemeForge" : "📖 Quote Spellbook";
+  const kindLabel = isMeme
+    ? `⚔️ ${content.artifactType || "MemeForge"} · ${content.memeFlavor || "Middle-earth"}`
+    : "📖 Quote Spellbook";
   const accent = isMeme ? "#c9a96e" : "#8bb8d4";
   const subAccent = isMeme ? "#d4b97a" : "#a3c8e0";
 
@@ -242,13 +246,13 @@ function middleEarthTypographySvg(content, output) {
       </radialGradient>
     </defs>
     <rect width="${RENDER_WIDTH}" height="${RENDER_HEIGHT}" fill="url(#bg)"/>
-    <text x="540" y="72" fill="#4c4c58" font-family="sans-serif" font-size="18" text-anchor="middle">${escapeXml(kindLabel)}</text>
+    <text x="540" y="72" fill="#4c4c58" font-family="sans-serif" font-size="18" text-anchor="middle">${escapeXml(truncate(kindLabel, 72))}</text>
     <line x1="200" y1="${dividerY}" x2="880" y2="${dividerY}" stroke="${subAccent}" stroke-width="1" stroke-opacity="0.35"/>
     ${titleElems}
     ${textElems}
     ${secElems}
     <line x1="200" y1="${y + 16}" x2="880" y2="${y + 16}" stroke="${subAccent}" stroke-width="1" stroke-opacity="0.35"/>
-    <text x="540" y="${RENDER_HEIGHT - 40}" fill="#4c4c58" font-family="sans-serif" font-size="16" text-anchor="middle">${escapeXml(content.tone)}</text>
+    <text x="540" y="${RENDER_HEIGHT - 40}" fill="#4c4c58" font-family="sans-serif" font-size="16" text-anchor="middle">${escapeXml([content.tone, content.aesthetic].filter(Boolean).join(" · "))}</text>
     <text x="540" y="${RENDER_HEIGHT - 18}" fill="#333338" font-family="sans-serif" font-size="13" text-anchor="middle">${escapeXml(`${content.layout} · fandom.justlikekatie.com/memeforge/middle-earth`)}</text>
   </svg>`;
 }

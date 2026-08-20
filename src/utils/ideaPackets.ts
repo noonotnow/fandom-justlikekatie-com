@@ -49,6 +49,9 @@ export interface MiddleEarthOutputContent {
   tone: string;
   layout: string;
   character?: string;
+  memeFlavor?: string;
+  aesthetic?: string;
+  artifactType?: string;
   aiGeneration?: {
     provider: 'xai';
     generatedAt: string;
@@ -138,6 +141,9 @@ export interface MiddleEarthDraft {
   tone: string;
   layout: string;
   character?: string;
+  memeFlavor?: string;
+  aesthetic?: string;
+  artifactType?: string;
   creativeDirection?: string;
   aiGeneration?: MiddleEarthOutputContent['aiGeneration'];
   rednoteCopy?: MiddleEarthRednoteCopy;
@@ -426,6 +432,9 @@ export function middleEarthTextFingerprint(content: MiddleEarthOutputContent): s
     content.tone,
     content.layout,
     content.character ?? '',
+    content.memeFlavor ?? '',
+    content.aesthetic ?? '',
+    content.artifactType ?? '',
   ].join('\x00');
 }
 
@@ -473,6 +482,9 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
     tone: draft.tone,
     layout: draft.layout,
     ...(draft.character ? { character: draft.character } : {}),
+    ...(draft.memeFlavor ? { memeFlavor: draft.memeFlavor } : {}),
+    ...(draft.aesthetic ? { aesthetic: draft.aesthetic } : {}),
+    ...(draft.artifactType ? { artifactType: draft.artifactType } : {}),
     ...(draft.aiGeneration ? { aiGeneration: draft.aiGeneration } : {}),
     ...(draft.rednoteCopy ? { rednoteCopy: draft.rednoteCopy } : {}),
   };
@@ -493,6 +505,9 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
           kind: draft.kind,
           rightsStatus: 'unknown',
           ...(draft.character ? { character: draft.character } : {}),
+          ...(draft.memeFlavor ? { memeFlavor: draft.memeFlavor } : {}),
+          ...(draft.aesthetic ? { aesthetic: draft.aesthetic } : {}),
+          ...(draft.artifactType ? { artifactType: draft.artifactType } : {}),
           ...(draft.asset.query ? { query: draft.asset.query } : {}),
           ...(draft.asset.provider ? { provider: draft.asset.provider } : {}),
         }),
@@ -510,6 +525,9 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
           kind: draft.kind,
           rightsStatus: 'unknown',
           ...(draft.character ? { character: draft.character } : {}),
+          ...(draft.memeFlavor ? { memeFlavor: draft.memeFlavor } : {}),
+          ...(draft.aesthetic ? { aesthetic: draft.aesthetic } : {}),
+          ...(draft.artifactType ? { artifactType: draft.artifactType } : {}),
         }),
       };
 

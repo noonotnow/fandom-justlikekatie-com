@@ -332,6 +332,19 @@ test("rejects overlong optional prompt fields instead of truncating them", async
   assert.match((await publisher.json()).error, /source\.publisher/);
 });
 
+test("rejects unknown creative grammar values", async () => {
+  const handler = makeHandler();
+  for (const [field, value] of [
+    ["memeFlavor", "Copied movie template"],
+    ["aesthetic", "Studio franchise still"],
+    ["artifactType", "Feature film frame"],
+  ]) {
+    const res = await handler(makeRequest({ ...VISUAL_BODY, [field]: value }), {});
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /not recognized/);
+  }
+});
+
 test("rejects non-HTTPS source context URLs", async () => {
   const handler = makeHandler();
   const res = await handler(makeRequest({
@@ -461,7 +474,7 @@ test("no Authorization header is added to any connector call", async () => {
 // Client request shape — all bounded fields reach the prompt
 // ---------------------------------------------------------------------------
 
-test("visual prompt includes character, tone, layout, guidance", async () => {
+test("visual prompt includes character, creative grammar, tone, layout, and guidance", async () => {
   let capturedPrompt = null;
   const connector = {
     calls: [],
@@ -482,11 +495,19 @@ test("visual prompt includes character, tone, layout, guidance", async () => {
   await handler(makeRequest({
     ...VISUAL_BODY,
     character: "Éowyn of Rohan",
+    memeFlavor: "I Am No Man",
+    aesthetic: "Illuminated manuscript",
+    artifactType: "Hero card",
     tone: "Tender",
     layout: "Editorial caption",
     guidance: "The quiet strength before battle",
   }), {});
   assert.ok(capturedPrompt.includes("Éowyn of Rohan"), "prompt must include character");
+  assert.ok(capturedPrompt.includes("Meme Flavor: I Am No Man"), "prompt must include flavor");
+  assert.ok(capturedPrompt.includes("underdog triumph"), "prompt must include structured flavor guidance");
+  assert.ok(capturedPrompt.includes("Aesthetic: Illuminated manuscript"), "prompt must include aesthetic");
+  assert.ok(capturedPrompt.includes("Artifact type: Hero card"), "prompt must include artifact type");
+  assert.ok(capturedPrompt.includes("not permission to reproduce"), "prompt must prohibit template recreation");
   assert.ok(capturedPrompt.includes("Tender"), "prompt must include tone");
   assert.ok(capturedPrompt.includes("Editorial caption"), "prompt must include layout");
   assert.ok(capturedPrompt.includes("The quiet strength before battle"), "prompt must include guidance");
@@ -575,6 +596,9 @@ test("rednote prompt includes final visual copy (title, primaryText, layout)", a
   const handler = makeHandler({ connector });
   await handler(makeRequest({
     ...REDNOTE_BODY,
+    memeFlavor: "Samwise Loyalty",
+    aesthetic: "Cozy Hobbiton",
+    artifactType: "Carousel slide",
     visual: {
       title: "The Shield-Maiden Stands",
       primaryText: "I am no man.",
@@ -586,6 +610,9 @@ test("rednote prompt includes final visual copy (title, primaryText, layout)", a
   assert.ok(capturedPrompt.includes("I am no man."), "prompt must include visual primaryText");
   assert.ok(capturedPrompt.includes("Beneath the Pelennor sky"), "prompt must include visual secondaryText");
   assert.ok(capturedPrompt.includes("Tiny confession"), "prompt must include visual layout");
+  assert.ok(capturedPrompt.includes("Meme Flavor: Samwise Loyalty"), "prompt must include flavor");
+  assert.ok(capturedPrompt.includes("Aesthetic: Cozy Hobbiton"), "prompt must include aesthetic");
+  assert.ok(capturedPrompt.includes("Artifact type: Carousel slide"), "prompt must include artifact type");
 });
 
 test("rednote prompt includes currentCopy for refinement when provided", async () => {

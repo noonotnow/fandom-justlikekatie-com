@@ -6,6 +6,7 @@ import {
   generateVisualObject,
   middleEarthGroundingFingerprint,
 } from '../src/utils/middleEarthAi.ts';
+import type { MiddleEarthGroundingInput } from '../src/utils/middleEarthAi.ts';
 
 function withFetch(
   implementation: typeof fetch,
@@ -37,6 +38,9 @@ test('visual generation sends the bounded editor context to the same-origin AI r
   }, async () => {
     const result = await generateVisualObject({
       character: 'Gandalf',
+      memeFlavor: 'One Does Not Simply',
+      aesthetic: 'Epic parchment',
+      artifactType: 'Meme card',
       tone: 'Deadpan',
       layout: 'Classic top / bottom',
       guidance: 'Quiet workplace humor',
@@ -56,6 +60,9 @@ test('visual generation sends the bounded editor context to the same-origin AI r
   const body = JSON.parse(String(seenInit?.body));
   assert.equal(body.mode, 'visual');
   assert.equal(body.character, 'Gandalf');
+  assert.equal(body.memeFlavor, 'One Does Not Simply');
+  assert.equal(body.aesthetic, 'Epic parchment');
+  assert.equal(body.artifactType, 'Meme card');
   assert.equal(body.source.sourceUrl, 'https://publisher.example/gandalf');
 });
 
@@ -73,6 +80,9 @@ test('Rednote generation carries final visual copy and editable refinement conte
   }, async () => {
     const result = await generateRednoteCopy({
       character: 'Gandalf',
+      memeFlavor: 'Council of Elrond',
+      aesthetic: 'Chaotic group chat',
+      artifactType: 'Carousel slide',
       tone: 'Deadpan',
       layout: 'Tiny confession',
       visual: {
@@ -90,6 +100,9 @@ test('Rednote generation carries final visual copy and editable refinement conte
   });
 
   assert.equal(body.mode, 'rednote');
+  assert.equal(body.memeFlavor, 'Council of Elrond');
+  assert.equal(body.aesthetic, 'Chaotic group chat');
+  assert.equal(body.artifactType, 'Carousel slide');
   assert.deepEqual(
     (body.visual as { primaryText: string }).primaryText,
     'Even wizards need a second draft.',
@@ -121,9 +134,12 @@ test('AI route errors are surfaced without accepting malformed success bodies', 
   });
 });
 
-test('Rednote grounding changes when any visual, character, direction, or source dependency changes', () => {
+test('Rednote grounding changes when any creative grammar, visual, direction, or source dependency changes', () => {
   const base = {
     character: 'Samwise',
+    memeFlavor: 'Samwise Loyalty',
+    aesthetic: 'Cozy Hobbiton',
+    artifactType: 'Meme card',
     tone: 'Tender',
     layout: 'Editorial caption',
     guidance: 'Quiet competence',
@@ -139,10 +155,13 @@ test('Rednote grounding changes when any visual, character, direction, or source
       primaryText: 'Some people carry the plan. Sam carried the people.',
       secondaryText: 'Quiet competence, Shire edition.',
     },
-  };
+  } satisfies MiddleEarthGroundingInput;
   const fingerprint = middleEarthGroundingFingerprint(base);
   const variants = [
     { ...base, character: 'Frodo' },
+    { ...base, memeFlavor: 'Council of Elrond' as const },
+    { ...base, aesthetic: 'Illuminated manuscript' as const },
+    { ...base, artifactType: 'Hero card' as const },
     { ...base, tone: 'Deadpan' },
     { ...base, layout: 'Tiny confession' },
     { ...base, guidance: 'A different direction' },

@@ -234,6 +234,9 @@ function mePacket(overrides = {}) {
         text: "Even the smallest person can change the course of the future.",
         tone: "inspirational",
         layout: "centered",
+        memeFlavor: "Unexpected Journey",
+        aesthetic: "Epic parchment",
+        artifactType: "Meme card",
       },
     },
     ...overrides,
@@ -277,6 +280,27 @@ test("renders an image-backed meme as a 1080x1350 PNG using the proxied source v
   assert.equal(metadata.height, RENDER_HEIGHT);
   // Must have fetched via the proxy, never directly
   assert.deepEqual(fetchedTargets, ["https://images.example/frodo.jpg"]);
+});
+
+test("creative grammar changes the canonical Middle-earth artifact", async () => {
+  const source = await sharp({
+    create: { width: 800, height: 600, channels: 3, background: "#3a2a1a" },
+  }).jpeg().toBuffer();
+  const render = current => renderCanonicalOutput(
+    current,
+    meOutput(),
+    {
+      requestUrl: ME_REQUEST_URL,
+      fetchSourceImpl: async () => source,
+    },
+  );
+  const original = await render(mePacket());
+  const changed = mePacket();
+  changed.middleEarthContent["meme-abc123"].memeFlavor = "Council of Elrond";
+  changed.middleEarthContent["meme-abc123"].aesthetic = "Chaotic group chat";
+  changed.middleEarthContent["meme-abc123"].artifactType = "Carousel slide";
+  const revised = await render(changed);
+  assert.notDeepEqual(original, revised);
 });
 
 test("renders a typography-only spellbook as a 1080x1350 PNG without any image fetch", async () => {

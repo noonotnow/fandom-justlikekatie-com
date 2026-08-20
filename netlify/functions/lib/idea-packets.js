@@ -7,6 +7,11 @@ import {
   ideaPacketReadOnlyResponse,
   isIdeaPacketReadOnly,
 } from "./idea-packet-cutover.js";
+import {
+  AESTHETIC_NAMES,
+  ARTIFACT_TYPE_NAMES,
+  MEME_FLAVOR_NAMES,
+} from "./middle-earth-creative-grammar.js";
 
 const STORE_NAME = "idea-packets";
 const MAX_BODY_BYTES = 256 * 1024;
@@ -156,6 +161,9 @@ export function validatePacket(input) {
         || value.layout.length > 80
         || (value.secondaryText !== undefined && (typeof value.secondaryText !== "string" || value.secondaryText.length > 240))
         || (value.character !== undefined && (typeof value.character !== "string" || value.character.length > 80))
+         || (value.memeFlavor !== undefined && (typeof value.memeFlavor !== "string" || !MEME_FLAVOR_NAMES.has(value.memeFlavor)))
+         || (value.aesthetic !== undefined && (typeof value.aesthetic !== "string" || !AESTHETIC_NAMES.has(value.aesthetic)))
+         || (value.artifactType !== undefined && (typeof value.artifactType !== "string" || !ARTIFACT_TYPE_NAMES.has(value.artifactType)))
       ) {
         throw new RequestError(`Packet middleEarthContent entry "${key}" is invalid.`);
       }
