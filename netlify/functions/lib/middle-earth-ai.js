@@ -498,7 +498,14 @@ export function createMiddleEarthAIHandler({
       try {
         authResult = await auth.authenticateAdmin(req, context);
       } catch (err) {
-        return json(err.status ?? 401, { error: err.message });
+        if (err?.status === 401) {
+          return json(401, { error: "Sign in is required." });
+        }
+        if (err?.status === 403) {
+          return json(403, { error: "Admin access is required." });
+        }
+        console.error("[middle-earth-ai] admin authentication failed unexpectedly");
+        return json(503, { error: "Authentication service is temporarily unavailable." });
       }
 
       const body = await readBody(req);

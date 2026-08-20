@@ -232,6 +232,28 @@ test("returns 403 when signed in but not admin", async () => {
   assert.ok((await res.json()).error);
 });
 
+test("does not expose unexpected authentication failure details", async () => {
+  const sensitiveMessage = "session store failed with credential=private-value";
+  const handler = makeHandler({
+    auth: {
+      authenticateAdmin: async () => {
+        throw new Error(sensitiveMessage);
+      },
+    },
+  });
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const res = await handler(makeRequest(VISUAL_BODY), {});
+    assert.equal(res.status, 503);
+    const body = await res.json();
+    assert.equal(body.error, "Authentication service is temporarily unavailable.");
+    assert.ok(!JSON.stringify(body).includes(sensitiveMessage));
+  } finally {
+    console.error = originalError;
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Request body validation
 // ---------------------------------------------------------------------------
