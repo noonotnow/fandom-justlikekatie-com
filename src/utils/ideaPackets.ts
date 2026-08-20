@@ -3,7 +3,7 @@ import type { StarOfDayData } from '../hooks/useStarOfDay';
 import type { CardRecord, GridRecord } from './collectionDB';
 
 export type IdeaPacketState = 'collecting' | 'media_compiled';
-export type PacketOutputKind = 'grid' | 'individual';
+export type PacketOutputKind = 'grid' | 'individual' | 'meme' | 'spellbook';
 
 export interface PacketMedia {
   id: string;
@@ -36,6 +36,35 @@ export interface PacketOutput {
   label: string;
   included: boolean;
   addedAt: string;
+  /** Text content fingerprint inputs for meme/spellbook outputs — ensures stale renders are not silently reused */
+  textFingerprint?: string;
+}
+
+/** Structured text content carried by a Middle-earth output */
+export interface MiddleEarthOutputContent {
+  kind: 'meme' | 'spellbook';
+  title: string;
+  text: string;
+  secondaryText?: string;
+  tone: string;
+  layout: string;
+  character?: string;
+  aiGeneration?: {
+    provider: 'xai';
+    generatedAt: string;
+    model?: string;
+  };
+  rednoteCopy?: MiddleEarthRednoteCopy;
+}
+
+export interface MiddleEarthRednoteCopy {
+  title: string;
+  caption: string;
+  tags: string[];
+  character: string;
+  generatedAt: string;
+  provider: 'xai';
+  model?: string;
 }
 
 export type PacketGrid = Omit<
@@ -92,6 +121,36 @@ export interface IdeaPacket {
   captionSeeds: string;
   outputAngles: string;
   handoff?: PacketHandoff;
+  /** Optional workspace context — legacy packets default to 'cdrama' */
+  workspace?: string;
+  /** Optional content category — legacy packets default to 'cdrama' */
+  content?: string;
+  /** Structured text content for Middle-earth meme/spellbook outputs, keyed by output id */
+  middleEarthContent?: Record<string, MiddleEarthOutputContent>;
+}
+
+/** Shape accepted by packetFromMiddleEarthDraft — matches what the MiddleEarth frontend produces */
+export interface MiddleEarthDraft {
+  kind: 'meme' | 'spellbook';
+  title: string;
+  text: string;
+  secondaryText?: string;
+  tone: string;
+  layout: string;
+  character?: string;
+  creativeDirection?: string;
+  aiGeneration?: MiddleEarthOutputContent['aiGeneration'];
+  rednoteCopy?: MiddleEarthRednoteCopy;
+  asset?: {
+    id: string;
+    title: string;
+    thumbnail: string;
+    url: string;
+    publisher?: string;
+    query?: string;
+    provider?: string;
+  };
+  createdAt: string;
 }
 
 export class IdeaPacketError extends Error {
@@ -351,6 +410,153 @@ export function gridOutput(grid: PacketGrid, addedAt = new Date().toISOString())
     label: `${grid.vibeEmoji} ${grid.actor} · ${grid.vibe} grid`,
     included: true,
     addedAt,
+  };
+}
+
+/**
+ * Builds a textFingerprint string from MiddleEarthOutputContent fields so that
+ * any text edit produces a new fingerprint and prevents stale render reuse.
+ */
+export function middleEarthTextFingerprint(content: MiddleEarthOutputContent): string {
+  return [
+    content.kind,
+    content.title,
+    content.text,
+    content.secondaryText ?? '',
+    content.tone,
+    content.layout,
+    content.character ?? '',
+  ].join('\x00');
+}
+
+/**
+ * Returns a PacketOutput for a Middle-earth meme or spellbook draft.
+ * The textFingerprint is included so any text edit invalidates cached renders.
+ */
+export function middleEarthOutput(
+  content: MiddleEarthOutputContent,
+  sourceId: string,
+  addedAt = new Date().toISOString(),
+): PacketOutput {
+  const kindLabel = content.kind === 'meme' ? 'Meme' : 'Spellbook';
+  return {
+    id: `${content.kind}-${stableMediaId(sourceId)}`,
+    kind: content.kind,
+    sourceId,
+    label: `${kindLabel}: ${content.title}`,
+    included: true,
+    addedAt,
+    textFingerprint: middleEarthTextFingerprint(content),
+  };
+}
+
+/**
+ * Converts a frontend MiddleEarthDraft into a valid IdeaPacket.
+ *
+ * - workspace and content default to 'middle-earth'
+ * - rightsStatus is 'unknown' (preserved via sourceCard provenance)
+ * - If a source asset is provided it becomes the anchor image and source card
+ * - The packet carries structured MiddleEarthOutputContent in middleEarthContent
+ */
+export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket {
+  const createdAt = draft.createdAt;
+  const packetId = crypto.randomUUID();
+  // Use asset id or a deterministic fallback as the output source id
+  const sourceId = draft.asset ? stableMediaId(draft.asset.id) : stableMediaId(`${draft.kind}:${draft.title}:${createdAt}`);
+  const gridId = `middle-earth-${draft.kind}-${sourceId}`;
+
+  const content: MiddleEarthOutputContent = {
+    kind: draft.kind,
+    title: draft.title,
+    text: draft.text,
+    ...(draft.secondaryText !== undefined ? { secondaryText: draft.secondaryText } : {}),
+    tone: draft.tone,
+    layout: draft.layout,
+    ...(draft.character ? { character: draft.character } : {}),
+    ...(draft.aiGeneration ? { aiGeneration: draft.aiGeneration } : {}),
+    ...(draft.rednoteCopy ? { rednoteCopy: draft.rednoteCopy } : {}),
+  };
+
+  // Source card — carries rightsStatus unknown via provenance field
+  const sourceCard: PacketSourceCard = draft.asset
+    ? {
+        id: sourceId,
+        order: 0,
+        imageUrl: draft.asset.thumbnail,
+        sourceUrl: draft.asset.url,
+        title: draft.asset.title,
+        ...(draft.asset.publisher ? { creator: draft.asset.publisher } : {}),
+        capturedAt: createdAt,
+        resultId: draft.asset.id,
+        provenance: JSON.stringify({
+          collection: 'middle-earth',
+          kind: draft.kind,
+          rightsStatus: 'unknown',
+          ...(draft.character ? { character: draft.character } : {}),
+          ...(draft.asset.query ? { query: draft.asset.query } : {}),
+          ...(draft.asset.provider ? { provider: draft.asset.provider } : {}),
+        }),
+      }
+    : {
+        id: sourceId,
+        order: 0,
+        imageUrl: '',
+        sourceUrl: 'https://fandom.justlikekatie.com/memeforge/middle-earth',
+        title: draft.title,
+        capturedAt: createdAt,
+        resultId: `middle-earth:${draft.kind}:${sourceId}`,
+        provenance: JSON.stringify({
+          collection: 'middle-earth',
+          kind: draft.kind,
+          rightsStatus: 'unknown',
+          ...(draft.character ? { character: draft.character } : {}),
+        }),
+      };
+
+  const output = middleEarthOutput(content, sourceId, createdAt);
+
+  return {
+    id: packetId,
+    version: createdAt,
+    state: 'collecting',
+    createdAt,
+    updatedAt: createdAt,
+    actor: {
+      id: draft.character ? `middle-earth-${stableMediaId(draft.character)}` : 'middle-earth',
+      name: draft.character || 'Middle-earth',
+      nameEn: draft.character || 'Middle-earth',
+    },
+    vibe: {
+      label: draft.kind === 'meme' ? 'Meme Forge' : 'Quote Spellbook',
+      labelEn: draft.kind === 'meme' ? 'Meme Forge' : 'Quote Spellbook',
+      emoji: draft.kind === 'meme' ? '⚔️' : '📖',
+    },
+    provenance: {
+      sourceRoute: typeof window !== 'undefined'
+        ? `${window.location.pathname}${window.location.search}`
+        : '/memeforge/middle-earth',
+      gridId,
+      generatedAt: createdAt,
+      resultIds: draft.asset ? [draft.asset.id] : [],
+      batchKeys: draft.asset?.query ? [draft.asset.query] : [],
+    },
+    anchor: {
+      imageUrls: draft.asset ? [draft.asset.thumbnail] : [],
+      label: draft.title,
+    },
+    grids: [],
+    sourceCards: [sourceCard],
+    media: [],
+    outputs: [output],
+    notes: draft.aiGeneration
+      ? `MemeForge visual copy generated with ${draft.aiGeneration.provider}.`
+      : '',
+    workingAngle: draft.creativeDirection?.trim() || draft.text,
+    captionSeeds: draft.rednoteCopy?.caption || draft.title,
+    outputAngles: draft.rednoteCopy?.tags.join('\n') || draft.secondaryText || '',
+    workspace: 'middle-earth',
+    content: draft.kind,
+    middleEarthContent: { [output.id]: content },
   };
 }
 

@@ -75,10 +75,17 @@ HTTPS descriptor URLs.
 - `CREATE_FANDOM_HMAC_SECRET` — matching server-only HMAC secret
 - `CREATE_APP_URL` — optional; defaults to `https://create.justlikekatie.com`
 - `PLAN_OPERATOR_TOKEN` — existing operator-entered bearer key for Fandom admin requests
+- `XAI_API_KEY` — server-only xAI key used by the Netlify MemeForge/Spellbook
+  generation function. The attached Replit xAI connector is used only inside
+  Replit runtimes; it is not a Netlify deployment credential.
 
 The browser never receives MEDIA or CREATE credentials. Do not add them as
 `VITE_` variables. Deployment must preserve the same-origin redirect for
 `/api/create-handoff`.
+
+The browser also never receives `XAI_API_KEY`. Configure it directly in the
+Netlify site's environment variables before deploying AI generation; Replit
+development uses the attached xAI connector without exposing a provider key.
 
 ### One-time Idea Packet migration to CREATE
 

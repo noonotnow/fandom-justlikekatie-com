@@ -1,10 +1,15 @@
-import type { CreateReceipt, IdeaPacket, PacketMedia, PacketOutput } from './ideaPackets.ts';
+import type { CreateReceipt, IdeaPacket, PacketMedia, PacketOutput, PacketOutputKind } from './ideaPackets.ts';
 
 export const CREATE_HANDOFF_URL = '/api/create-handoff';
 export const CREATE_RENDER_CONTRACT = 'fandom.idea-packet-output.v1';
 export const CREATE_RENDER_VERSION = 1;
 export const CREATE_RENDER_WIDTH = 1080;
 export const CREATE_RENDER_HEIGHT = 1350;
+/** Middle-earth meme/spellbook outputs use the same 1080×1350 renderer contract */
+export const MIDDLE_EARTH_RENDER_CONTRACT = 'fandom.middle-earth-output.v1';
+export const MIDDLE_EARTH_RENDER_VERSION = 1;
+export const MIDDLE_EARTH_RENDER_WIDTH = 1080;
+export const MIDDLE_EARTH_RENDER_HEIGHT = 1350;
 
 type Fetch = typeof fetch;
 
@@ -62,15 +67,19 @@ export async function sendIdeaPacketToCreate(
   const manifest = {
     packetId: packet.id,
     expectedVersion: packet.version,
-    outputs: rendered.map(item => ({
-      outputId: item.output.id,
-      kind: item.output.kind,
-      sourceId: item.output.sourceId,
-      renderContract: CREATE_RENDER_CONTRACT,
-      renderVersion: CREATE_RENDER_VERSION,
-      width: CREATE_RENDER_WIDTH,
-      height: CREATE_RENDER_HEIGHT,
-    })),
+    outputs: rendered.map(item => {
+      const isMiddleEarth = isMiddleEarthKind(item.output.kind);
+      return {
+        outputId: item.output.id,
+        kind: item.output.kind,
+        sourceId: item.output.sourceId,
+        renderContract: isMiddleEarth ? MIDDLE_EARTH_RENDER_CONTRACT : CREATE_RENDER_CONTRACT,
+        renderVersion: isMiddleEarth ? MIDDLE_EARTH_RENDER_VERSION : CREATE_RENDER_VERSION,
+        width: isMiddleEarth ? MIDDLE_EARTH_RENDER_WIDTH : CREATE_RENDER_WIDTH,
+        height: isMiddleEarth ? MIDDLE_EARTH_RENDER_HEIGHT : CREATE_RENDER_HEIGHT,
+        ...(item.output.textFingerprint !== undefined ? { textFingerprint: item.output.textFingerprint } : {}),
+      };
+    }),
   };
 
   const response = await fetchImpl(CREATE_HANDOFF_URL, {
@@ -85,6 +94,10 @@ export async function sendIdeaPacketToCreate(
     throw new Error(stage ? `${error} (${stage} stage)` : error);
   }
   return validateReceipt(body, packet.id);
+}
+
+function isMiddleEarthKind(kind: PacketOutputKind): kind is 'meme' | 'spellbook' {
+  return kind === 'meme' || kind === 'spellbook';
 }
 
 function operatorHeaders(): Record<string, string> {

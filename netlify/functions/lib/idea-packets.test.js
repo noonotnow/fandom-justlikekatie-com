@@ -124,6 +124,57 @@ test("validates required provenance and compilation invariants", () => {
   assert.equal(validatePacket(packet()).id, "packet-1");
 });
 
+test("validates the AI visual provenance and Rednote copy stored with Middle-earth outputs", () => {
+  const output = {
+    id: "meme-output",
+    kind: "meme",
+    sourceId: "card-1",
+    label: "MemeForge object",
+    included: true,
+    addedAt: "2026-08-19T14:00:00.000Z",
+    textFingerprint: "fingerprint",
+  };
+  const middleEarth = packet({
+    workspace: "middle-earth",
+    content: "meme",
+    anchor: { imageUrls: ["https://example.com/anchor.jpg"], label: "Samwise visual" },
+    grids: [],
+    outputs: [output],
+    middleEarthContent: {
+      [output.id]: {
+        kind: "meme",
+        title: "The real ring-bearer",
+        text: "Some people carry the plan. Sam carried the people.",
+        secondaryText: "Quiet competence, Shire edition.",
+        tone: "Tender",
+        layout: "Editorial caption",
+        character: "Samwise",
+        aiGeneration: {
+          provider: "xai",
+          generatedAt: "2026-08-19T13:55:00.000Z",
+          model: "grok-test",
+        },
+        rednoteCopy: {
+          title: "Sam carried more than the quest",
+          caption: "The quietest person in the fellowship was doing the heaviest lifting.",
+          tags: ["#MiddleEarth", "#Samwise", "#Fandom"],
+          character: "Samwise",
+          generatedAt: "2026-08-19T13:58:00.000Z",
+          provider: "xai",
+          model: "grok-test",
+        },
+      },
+    },
+  });
+  assert.equal(
+    validatePacket(middleEarth).middleEarthContent[output.id].rednoteCopy.tags[1],
+    "#Samwise",
+  );
+  const invalid = structuredClone(middleEarth);
+  invalid.middleEarthContent[output.id].rednoteCopy.tags = ["#OnlyOne"];
+  assert.throws(() => validatePacket(invalid), /invalid Rednote copy/);
+});
+
 test("prevents exact duplicate media and supports reversible compilation", () => {
   const once = applyAction(packet(), { type: "add_media", media: media() });
   assert.throws(() => applyAction(once, { type: "add_media", media: media() }), /already/);

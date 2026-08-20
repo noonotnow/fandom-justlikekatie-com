@@ -41,7 +41,11 @@ export async function consumeMagicLinkFromLocation(): Promise<'plan' | 'collecti
   const params = new URLSearchParams(window.location.hash.slice(1));
   const token = params.get('token');
   const next = params.get('next');
-  window.history.replaceState({}, '', '/');
+  window.history.replaceState(
+    {},
+    '',
+    next === 'plan' ? '/vibe-atlas?view=plan' : '/vibe-atlas?view=collection',
+  );
   if (!token) return false;
   const response = await postJson('/api/auth/verify', { token });
   if (!response.ok) throw new Error((await response.json()).error || 'The sign-in link could not be used.');

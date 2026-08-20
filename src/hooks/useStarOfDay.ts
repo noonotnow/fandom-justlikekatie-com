@@ -110,6 +110,9 @@ export const useStarOfDay = (): UseStarOfDayReturn => {
       try {
         const res = await fetch('/.netlify/functions/star-of-day');
         if (!res.ok) throw new Error(`API error: ${res.status}`);
+        if (!res.headers.get('content-type')?.includes('application/json')) {
+          throw new Error('Today’s Vibe Atlas data service is unavailable in this preview.');
+        }
 
         const data: StarOfDayData = await res.json();
 
