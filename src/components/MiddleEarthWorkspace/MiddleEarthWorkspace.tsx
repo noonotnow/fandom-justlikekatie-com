@@ -33,6 +33,7 @@ import {
   loadableReactionAssets,
   rankReactionCandidates,
   reactionQueryLadder,
+  retainReactionEmotionCandidates,
   type ReactionQueryTier,
 } from "../../utils/reactionImageAssets";
 import { createArchiveSearchRequestGate } from "./archiveSearchRequestGate";
@@ -597,7 +598,11 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       if (!ranked.length && responses.every((result) => result.status === "rejected")) {
         throw new Error("The archive did not answer any reaction-image searches. Try again in a moment.");
       }
-      const candidates = await loadableReactionAssets(ranked, canLoadReactionImage);
+      const loadableCandidates = await loadableReactionAssets(ranked, canLoadReactionImage, ranked.length);
+      const candidates = retainReactionEmotionCandidates(
+        loadableCandidates,
+        brief.performedEmotion,
+      );
       if (!archiveSearchRequestGate.isCurrent(requestId)) return;
       setResults(candidates);
       setSearchedQuery(ladder[0].query);

@@ -7,6 +7,7 @@ import {
   loadableReactionAssets,
   rankReactionCandidates,
   reactionQueryLadder,
+  retainReactionEmotionCandidates,
 } from '../src/utils/reactionImageAssets.ts';
 
 test('starting a new archive search invalidates the generated visual before clearing its source', async () => {
@@ -170,6 +171,70 @@ test('asset ranking retains performed-emotion intent for comparison views withou
   assert.equal(ranked[1].reactionQueryTier, 'Character + emotion');
 });
 
+test('emotion comparisons survive a full social-result gallery before the display limit is applied', async () => {
+  const ladder = reactionQueryLadder({
+    socialUseQuery: 'friend refuses to let you suffer alone reaction',
+    characterEmotionQueries: ['Samwise smug correction still', 'Samwise worried Frodo still'],
+    iconicSceneQueries: [],
+    broadFallbackQueries: [],
+    performedEmotion: ['worried', 'smug'],
+  });
+  assert.deepEqual(
+    ladder.slice(1, 3).map((entry) => [entry.query, entry.performedEmotion]),
+    [
+      ['Samwise worried Frodo still', 'worried'],
+      ['Samwise smug correction still', 'smug'],
+    ],
+    'emotion labels must be associated from query content rather than character-query array position',
+  );
+
+  const ranked = rankReactionCandidates([
+    ...Array.from({ length: 8 }, (_, index) => ({
+      candidate: {
+        id: `social-${index + 1}`,
+        url: `https://source.example/social-${index + 1}`,
+        thumbnail: `https://image.example/social-${index + 1}.jpg`,
+        query: ladder[0].query,
+      },
+      queryTier: ladder[0].tier,
+      rank: index,
+    })),
+    {
+      candidate: {
+        id: 'worried',
+        url: 'https://source.example/worried',
+        thumbnail: 'https://image.example/worried.jpg',
+        query: ladder[1].query,
+      },
+      queryTier: ladder[1].tier,
+      performedEmotion: ladder[1].performedEmotion,
+      rank: 100,
+    },
+    {
+      candidate: {
+        id: 'smug',
+        url: 'https://source.example/smug',
+        thumbnail: 'https://image.example/smug.jpg',
+        query: ladder[2].query,
+      },
+      queryTier: ladder[2].tier,
+      performedEmotion: ladder[2].performedEmotion,
+      rank: 200,
+    },
+  ]);
+  const loadable = await loadableReactionAssets(ranked, async () => true, ranked.length);
+  const gallery = retainReactionEmotionCandidates(loadable, ['worried', 'smug']);
+
+  assert.equal(gallery.length, 6);
+  assert.deepEqual(filterReactionCandidates(gallery, 'worried').map((candidate) => candidate.id), ['worried']);
+  assert.deepEqual(filterReactionCandidates(gallery, 'smug').map((candidate) => candidate.id), ['smug']);
+  assert.equal(
+    filterReactionCandidates(gallery, 'worried')[0].query,
+    'Samwise worried Frodo still',
+    'comparison filtering must keep the selected candidate’s exact source query',
+  );
+});
+
 test('reaction images stay behind translation and source selection requires a reforge', async () => {
   const source = await readFile(
     new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
@@ -237,8 +302,8 @@ test('reaction images stay behind translation and source selection requires a re
   );
   assert.match(
     source,
-    /const candidates = await loadableReactionAssets\(ranked, canLoadReactionImage\);/,
-    'every ladder search must verify candidates before limiting the selectable gallery',
+    /const loadableCandidates = await loadableReactionAssets\(ranked, canLoadReactionImage, ranked\.length\);[\s\S]*?const candidates = retainReactionEmotionCandidates\([\s\S]*?brief\.performedEmotion/,
+    'every ladder search must verify candidates before reserving a bounded, loadable comparison set',
   );
   assert.match(
     source,

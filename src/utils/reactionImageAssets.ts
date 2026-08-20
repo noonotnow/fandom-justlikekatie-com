@@ -25,21 +25,46 @@ export interface RankedReactionCandidate<T> {
   rank: number;
 }
 
+function normalizeSearchText(value: string): string {
+  return value.trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ');
+}
+
+function uniquePerformedEmotions(performedEmotion: string[] = []): string[] {
+  const seen = new Set<string>();
+  return performedEmotion.filter((emotion) => {
+    const normalized = normalizeSearchText(emotion);
+    if (!normalized || seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+}
+
+function queryPerformsEmotion(query: string, emotion: string): boolean {
+  const normalizedQuery = ` ${normalizeSearchText(query)} `;
+  const emotionWords = normalizeSearchText(emotion).split(' ').filter(Boolean);
+  return emotionWords.length > 0 && emotionWords.every((word) => normalizedQuery.includes(` ${word} `));
+}
+
 /**
  * Human-native GIF search starts with the social use, then narrows through
  * character emotion and scene recognition before trying a broad fallback.
  */
 export function reactionQueryLadder(brief: ReactionImageBriefQueryInput): ReactionSearchQuery[] {
+  const performedEmotions = uniquePerformedEmotions(brief.performedEmotion);
+  const unmatchedCharacterQueries = [...brief.characterEmotionQueries];
+  const emotionQueries = performedEmotions.map((performedEmotion) => {
+    const matchingIndex = unmatchedCharacterQueries.findIndex(
+      (query) => queryPerformsEmotion(query, performedEmotion),
+    );
+    const query = matchingIndex >= 0
+      ? unmatchedCharacterQueries.splice(matchingIndex, 1)[0]
+      : `${brief.socialUseQuery} ${performedEmotion} reaction`;
+    return { query, tier: 'Character + emotion' as const, performedEmotion };
+  });
   const entries: ReactionSearchQuery[] = [
     { query: brief.socialUseQuery, tier: 'Social use' },
-    ...brief.characterEmotionQueries.map((query, index) => {
-      const performedEmotion = brief.performedEmotion?.[index]?.trim();
-      return {
-        query,
-        tier: 'Character + emotion' as const,
-        ...(performedEmotion ? { performedEmotion } : {}),
-      };
-    }),
+    ...emotionQueries,
+    ...unmatchedCharacterQueries.map((query) => ({ query, tier: 'Character + emotion' as const })),
     ...brief.iconicSceneQueries.map((query) => ({ query, tier: 'Iconic scene' as const })),
     ...brief.broadFallbackQueries.map((query) => ({ query, tier: 'Broad fallback' as const })),
   ];
@@ -86,6 +111,31 @@ export function filterReactionCandidates<T extends { reactionEmotion?: string }>
 ): T[] {
   if (!performedEmotion) return candidates;
   return candidates.filter((candidate) => candidate.reactionEmotion === performedEmotion);
+}
+
+/**
+ * Keeps the first ranked, loadable candidate for every requested emotion in
+ * the bounded gallery, then fills any remaining slots in original rank order.
+ */
+export function retainReactionEmotionCandidates<T extends { reactionEmotion?: string }>(
+  candidates: T[],
+  performedEmotion: string[] = [],
+  limit = 6,
+): T[] {
+  const reservedIndexes = new Set<number>();
+  uniquePerformedEmotions(performedEmotion).forEach((emotion) => {
+    const candidateIndex = candidates.findIndex(
+      (candidate, index) => !reservedIndexes.has(index) && candidate.reactionEmotion === emotion,
+    );
+    if (candidateIndex >= 0) reservedIndexes.add(candidateIndex);
+  });
+  const remainingCapacity = Math.max(limit - reservedIndexes.size, 0);
+  const leadingIndexes = candidates
+    .map((_, index) => index)
+    .filter((index) => !reservedIndexes.has(index))
+    .slice(0, remainingCapacity);
+  const includedIndexes = new Set([...reservedIndexes, ...leadingIndexes]);
+  return candidates.filter((_, index) => includedIndexes.has(index));
 }
 
 /**
