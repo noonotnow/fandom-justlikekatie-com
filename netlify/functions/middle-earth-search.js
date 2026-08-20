@@ -128,7 +128,9 @@ export async function handler(event) {
   const searchQuery = buildSearchQuery(q);
 
   try {
-    const result = await searchOneQuery(searchQuery);
+    const result = await searchOneQuery(searchQuery, {
+      providerPolicy: "middle-earth",
+    });
 
     const provider = result.provider || "unknown";
     const results = (Array.isArray(result.results) ? result.results : [])

@@ -409,9 +409,10 @@ function baiduResponse(q, baidu, baiduAttemptLog, debug) {
   return response;
 }
 
-// Runs Baidu first. Only when Baidu fails or does not clear filtering, identity,
-// viability, and quality gates does it invoke the existing Brave baseline -> SerpAPI
-// (google_images -> bing_images -> yandex_images) cascade for the query.
+// The default policy runs Baidu first for CJK queries, then uses the existing Brave
+// baseline -> SerpAPI (google_images -> bing_images -> yandex_images) cascade when
+// needed. Middle-earth opts into the separate Google-first policy so MemeForge does
+// not inherit the C-drama-oriented provider order.
 // Includes the ad/commerce/placeholder
 // filters and the subject-relevance guard. Returns a plain response-shaped
 // object (not an HTTP response) so both the HTTP handler below (manual/full-page
@@ -423,13 +424,20 @@ function baiduResponse(q, baidu, baiduAttemptLog, debug) {
 // thrown/empty result as "this candidate query produced nothing usable").
 export async function searchOneQuery(
   q,
-  { debug = false, fetchImpl = globalThis.fetch, baiduOptions = {} } = {},
+  {
+    debug = false,
+    fetchImpl = globalThis.fetch,
+    baiduOptions = {},
+    providerPolicy = "default",
+  } = {},
 ) {
   if (!q) {
     throw new Error("Missing query parameter");
   }
 
-  const baiduEligible = containsCjk(q);
+  const googleFirst = providerPolicy === "middle-earth";
+  const middleEarthFallback = providerPolicy === "middle-earth-fallback";
+  const baiduEligible = containsCjk(q) && !googleFirst && !middleEarthFallback;
   const baiduAttemptLog = createBaiduAttemptLog(baiduEligible);
   if (baiduEligible) {
     try {
@@ -453,7 +461,7 @@ export async function searchOneQuery(
   }
 
   const braveKey = process.env.BRAVE_SEARCH_API_KEY;
-  if (!braveKey) {
+  if (!braveKey && !googleFirst) {
     throw new Error("Brave API key not configured");
   }
 
@@ -464,13 +472,15 @@ export async function searchOneQuery(
       `&count=40` +
       `&safesearch=moderate`;
 
-    const braveResp = await fetchImpl(braveUrl, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        "X-Subscription-Token": braveKey
-      }
-    });
+    const braveResp = googleFirst
+      ? { ok: false, status: 0, json: async () => ({}) }
+      : await fetchImpl(braveUrl, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            "X-Subscription-Token": braveKey
+          }
+        });
 
     let braveNormalized = [];
     let braveUseful = [];
@@ -543,7 +553,7 @@ export async function searchOneQuery(
     const hasCommerceResults = braveNormalized.length > braveUseful.length;
     const braveQuality = scoreResultQuality(braveUseful);
     const qualityBelowThreshold = braveQuality.overall < QUALITY_FALLBACK_THRESHOLD;
-    const preferActorIdentityProvider = !!subjectToken;
+    const preferActorIdentityProvider = !!subjectToken && !middleEarthFallback;
     const braveTriggerReason = !braveSubjectGuardPassed
       ? `subject_guard_failed (${braveSubjectHitCount}/${braveRaw.length} mention "${subjectToken}", ratio=${braveSubjectHitRatio.toFixed(2)})`
       : preferActorIdentityProvider
@@ -668,6 +678,18 @@ export async function searchOneQuery(
       }
     }
 
+    if (googleFirst && finalResults.length === 0) {
+      // MemeForge's source policy is Google Images first. Only after the
+      // Google-compatible engines cannot clear the existing quality gates do we
+      // use Brave as a non-Baidu fallback.
+      return searchOneQuery(q, {
+        debug,
+        fetchImpl,
+        baiduOptions,
+        providerPolicy: "middle-earth-fallback",
+      });
+    }
+
     const response = {
       query: q,
       provider: finalProvider,
@@ -678,13 +700,19 @@ export async function searchOneQuery(
 
     if (debug) {
       response.version = "baidu-images-v2-primary";
-      response.providerSelectionOrder = baiduEligible
+      response.providerSelectionOrder = googleFirst
+        ? ["google_images", "bing_images", "yandex_images", "brave"]
+        : baiduEligible
         ? ["baidu", "google_images", "bing_images", "yandex_images", "brave"]
         : ["google_images", "bing_images", "yandex_images", "brave"];
       response.providerFetchOrder = [
-        ...(baiduEligible ? ["baidu"] : []),
-        "brave_baseline",
-        ...serpApiEngineLog.map((entry) => entry.engine),
+        ...(googleFirst
+          ? serpApiEngineLog.map((entry) => entry.engine)
+          : [
+              ...(baiduEligible ? ["baidu"] : []),
+              "brave_baseline",
+              ...serpApiEngineLog.map((entry) => entry.engine),
+            ]),
       ];
       response.braveRawCount = braveRaw.length;
       response.braveNormalizedCount = braveNormalized.length;

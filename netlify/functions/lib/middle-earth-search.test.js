@@ -36,6 +36,31 @@ function bravePayload(subject = "Gandalf", count = 8) {
   };
 }
 
+function googlePayload(subject = "Gandalf", count = 8) {
+  return {
+    images_results: Array.from({ length: count }, (_, i) => ({
+      title: `${subject} Google image ${i}`,
+      thumbnail: `https://google-images.example/${i}.jpg`,
+      original: `https://google-originals.example/${i}.jpg`,
+      link: `https://google-source-${i}.example/article-${i}`,
+      domain: `google-source-${i}.example`,
+    })),
+  };
+}
+
+async function withSearchKeys(run) {
+  const previousBraveKey = process.env.BRAVE_SEARCH_API_KEY;
+  const previousSerpKey = process.env.SERPAPI_KEY;
+  process.env.BRAVE_SEARCH_API_KEY = "brave-test";
+  process.env.SERPAPI_KEY = "serp-test";
+  try {
+    await run();
+  } finally {
+    process.env.BRAVE_SEARCH_API_KEY = previousBraveKey;
+    process.env.SERPAPI_KEY = previousSerpKey;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Method validation
 // ---------------------------------------------------------------------------
@@ -124,6 +149,84 @@ test("trims leading and trailing whitespace from q", async () => {
 // ---------------------------------------------------------------------------
 // Context suffix injection
 // ---------------------------------------------------------------------------
+
+test("uses Google Images before Brave for an English Middle-earth search", async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    if (String(url).includes("serpapi.com")) {
+      return mockFetch(googlePayload("Gandalf"))();
+    }
+    throw new Error(`Brave must not run when Google returns usable results: ${url}`);
+  };
+  try {
+    await withSearchKeys(async () => {
+      const response = await handler(makeEvent({ queryStringParameters: { q: "Gandalf" } }));
+      const body = JSON.parse(response.body);
+      assert.equal(response.statusCode, 200);
+      assert.equal(body.provider, "google_images");
+      assert.equal(calls.length, 1);
+      assert.match(calls[0], /engine=google_images/);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("keeps CJK Middle-earth searches Google-first instead of starting with Baidu", async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    if (String(url).includes("serpapi.com")) {
+      return mockFetch(googlePayload("甘道夫"))();
+    }
+    throw new Error(`Baidu and Brave must not run when Google returns usable results: ${url}`);
+  };
+  try {
+    await withSearchKeys(async () => {
+      const response = await handler(makeEvent({ queryStringParameters: { q: "甘道夫 工作反应图" } }));
+      const body = JSON.parse(response.body);
+      assert.equal(response.statusCode, 200);
+      assert.equal(body.provider, "google_images");
+      assert.equal(calls.length, 1);
+      assert.match(calls[0], /engine=google_images/);
+      assert.ok(!calls.some((url) => url.includes("image.baidu.com")));
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("uses Brave only after Middle-earth Google-compatible engines are unusable", async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    if (String(url).includes("serpapi.com")) {
+      return mockFetch({}, { status: 503 })();
+    }
+    if (String(url).includes("api.search.brave.com")) {
+      return mockFetch(bravePayload("Frodo"))();
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  try {
+    await withSearchKeys(async () => {
+      const response = await handler(makeEvent({ queryStringParameters: { q: "Frodo" } }));
+      const body = JSON.parse(response.body);
+      assert.equal(response.statusCode, 200);
+      assert.equal(body.provider, "brave");
+      assert.match(calls[0], /engine=google_images/);
+      assert.match(calls[1], /engine=bing_images/);
+      assert.match(calls[2], /engine=yandex_images/);
+      assert.match(calls[3], /api\.search\.brave\.com/);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("appends Middle-earth context suffix for generic short queries", async () => {
   const previousBraveKey = process.env.BRAVE_SEARCH_API_KEY;

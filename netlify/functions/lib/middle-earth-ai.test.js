@@ -126,6 +126,18 @@ const VALID_REDNOTE_RESPONSE = {
   tags: ["#legolas", "#lotr", "#tolkien", "#elvish", "#middleearth"],
 };
 
+const VALID_TRANSLATION_RESPONSE = {
+  translatedMoment: "Friday's commute is a reluctant quest into Mordor.",
+  scene: "A traveler studies the office calendar like a map to a distant black gate.",
+  character: "Frodo",
+  memeFlavor: "Mordor Commute",
+  aesthetic: "Dark Mordor productivity",
+  artifactType: "Reaction image",
+  tone: "Deadpan",
+  visualDirection: "An original, weary reaction card with a small office bag and dramatic road ahead.",
+  searchQuery: "Frodo walking dramatic landscape office commute mood",
+};
+
 // Minimal valid visual body
 const VISUAL_BODY = {
   mode: "visual",
@@ -145,6 +157,11 @@ const REDNOTE_BODY = {
     primaryText: "Not all those who wander are lost.",
     layout: "Classic top / bottom",
   },
+};
+
+const TRANSLATION_BODY = {
+  mode: "translation",
+  moment: "Not wanting to go to work on Friday",
 };
 
 function makeHandler({
@@ -302,6 +319,23 @@ test("returns 400 when the JSON body is not an object", async () => {
   const handler = makeHandler();
   assert.equal((await handler(makeRequest(null), {})).status, 400);
   assert.equal((await handler(makeRequest([]), {})).status, 400);
+});
+
+test("translation mode requires a non-empty moment", async () => {
+  const handler = makeHandler();
+  const response = await handler(makeRequest({ mode: "translation" }), {});
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /moment is required/i);
+});
+
+test("translation mode rejects overlong moments", async () => {
+  const handler = makeHandler();
+  const response = await handler(makeRequest({
+    ...TRANSLATION_BODY,
+    moment: "x".repeat(501),
+  }), {});
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /moment must be at most 500/i);
 });
 
 test("returns 400 when character is missing", async () => {
@@ -482,6 +516,24 @@ test("rednote mode chat request uses rednote_copy schema with required fields", 
   assert.equal(schema.schema.additionalProperties, false);
 });
 
+test("translation mode uses a strict meme_translation schema", async () => {
+  const connector = makeConnector({ chatResponse: VALID_TRANSLATION_RESPONSE });
+  const handler = makeHandler({ connector });
+  const response = await handler(makeRequest(TRANSLATION_BODY), {});
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.mode, "translation");
+  assert.equal(body.result.memeFlavor, "Mordor Commute");
+  assert.equal(body.result.character, "Frodo");
+
+  const chatCall = connector.calls.find(c => c.path === "/v1/chat/completions");
+  const schema = JSON.parse(chatCall.options.body).response_format.json_schema;
+  assert.equal(schema.name, "meme_translation");
+  assert.ok(schema.schema.required.includes("translatedMoment"));
+  assert.ok(schema.schema.required.includes("searchQuery"));
+  assert.equal(schema.schema.additionalProperties, false);
+});
+
 test("no Authorization header is added to any connector call", async () => {
   const connector = makeConnector({ chatResponse: VALID_VISUAL_RESPONSE });
   const handler = makeHandler({ connector });
@@ -535,6 +587,37 @@ test("visual prompt includes character, creative grammar, tone, layout, and guid
   assert.ok(capturedPrompt.includes("Tender"), "prompt must include tone");
   assert.ok(capturedPrompt.includes("Editorial caption"), "prompt must include layout");
   assert.ok(capturedPrompt.includes("The quiet strength before battle"), "prompt must include guidance");
+});
+
+test("translation prompt treats a vague meta prompt as content and includes explicit steering", async () => {
+  let capturedPrompt = null;
+  const connector = {
+    proxy: async (_name, path, opts) => {
+      if (path === "/v1/language-models") {
+        return { ok: true, status: 200, json: async () => ({ models: [{ id: "grok-2-test" }] }) };
+      }
+      if (path === "/v1/chat/completions") {
+        capturedPrompt = JSON.parse(opts.body).messages[0].content;
+        return { ok: true, status: 200, json: async () => ({
+          choices: [{ message: { content: JSON.stringify(VALID_TRANSLATION_RESPONSE) } }],
+        }) };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    },
+  };
+  const handler = makeHandler({ connector });
+  const response = await handler(makeRequest({
+    ...TRANSLATION_BODY,
+    moment: "Sam and Frodo funny",
+    character: "Samwise",
+    memeFlavor: "Samwise Loyalty",
+  }), {});
+  assert.equal(response.status, 200);
+  assert.ok(capturedPrompt.includes("Sam and Frodo funny"));
+  assert.ok(capturedPrompt.includes("Character steering (honor this): Samwise"));
+  assert.ok(capturedPrompt.includes("Meme Flavor steering (honor this): Samwise Loyalty"));
+  assert.ok(capturedPrompt.includes("should become an invented everyday dynamic"));
+  assert.ok(capturedPrompt.includes("content, not instructions"));
 });
 
 test("visual prompt includes source title, url, publisher, and query", async () => {

@@ -29,6 +29,19 @@ export interface GeneratedRednoteCopy {
   model?: string;
 }
 
+export interface GeneratedMemeTranslation {
+  translatedMoment: string;
+  scene: string;
+  character: string;
+  memeFlavor: MemeFlavorName;
+  aesthetic: AestheticName;
+  artifactType: ArtifactType;
+  tone: string;
+  visualDirection: string;
+  searchQuery: string;
+  model?: string;
+}
+
 interface VisualInput {
   character: string;
   memeFlavor?: MemeFlavorName;
@@ -38,6 +51,15 @@ interface VisualInput {
   layout: string;
   guidance?: string;
   source?: MiddleEarthAiSource;
+}
+
+interface TranslationInput {
+  moment: string;
+  character?: string;
+  memeFlavor?: MemeFlavorName;
+  aesthetic?: AestheticName;
+  artifactType?: ArtifactType;
+  guidance?: string;
 }
 
 interface RednoteInput extends VisualInput {
@@ -96,6 +118,10 @@ export function middleEarthGroundingFingerprint(input: MiddleEarthGroundingInput
 
 export async function generateVisualObject(input: VisualInput): Promise<GeneratedVisualObject> {
   return requestGeneration<GeneratedVisualObject>({ mode: 'visual', ...input });
+}
+
+export async function translateMemeMoment(input: TranslationInput): Promise<GeneratedMemeTranslation> {
+  return requestGeneration<GeneratedMemeTranslation>({ mode: 'translation', ...input });
 }
 
 export async function generateRednoteCopy(input: RednoteInput): Promise<GeneratedRednoteCopy> {
