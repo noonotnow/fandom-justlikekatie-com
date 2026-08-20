@@ -31,7 +31,7 @@ function normalizeSearchText(value: string): string {
 
 function uniquePerformedEmotions(performedEmotion: string[] = []): string[] {
   const seen = new Set<string>();
-  return performedEmotion.filter((emotion) => {
+  return performedEmotion.map((emotion) => emotion.trim()).filter((emotion) => {
     const normalized = normalizeSearchText(emotion);
     if (!normalized || seen.has(normalized)) return false;
     seen.add(normalized);
@@ -83,21 +83,29 @@ export function reactionQueryLadder(brief: ReactionImageBriefQueryInput): Reacti
  */
 export function rankReactionCandidates<T extends { url: string; thumbnail: string }>(
   candidates: RankedReactionCandidate<T>[],
-): Array<T & { reactionQueryTier: ReactionQueryTier; reactionEmotion?: string }> {
-  const seen = new Set<string>();
-  return [...candidates]
-    .sort((left, right) => left.rank - right.rank)
-    .filter(({ candidate }) => {
-      const sourceKey = candidate.url.trim() || candidate.thumbnail.trim();
-      if (!sourceKey || seen.has(sourceKey)) return false;
-      seen.add(sourceKey);
-      return true;
-    })
-    .map(({ candidate, queryTier, performedEmotion }) => ({
-      ...candidate,
-      reactionQueryTier: queryTier,
-      ...(performedEmotion ? { reactionEmotion: performedEmotion } : {}),
-    }));
+): Array<T & { reactionQueryTier: ReactionQueryTier; reactionEmotion?: string; reactionEmotions?: string[] }> {
+  const sourceOccurrences = new Map<string, RankedReactionCandidate<T>[]>();
+  [...candidates].sort((left, right) => left.rank - right.rank).forEach((entry) => {
+    const sourceKey = entry.candidate.url.trim() || entry.candidate.thumbnail.trim();
+    if (!sourceKey) return;
+    const occurrences = sourceOccurrences.get(sourceKey);
+    if (occurrences) occurrences.push(entry);
+    else sourceOccurrences.set(sourceKey, [entry]);
+  });
+  return Array.from(sourceOccurrences.values()).map((occurrences) => {
+    const preferredOccurrence = occurrences.find((entry) => entry.performedEmotion?.trim()) ?? occurrences[0];
+    const reactionEmotions = uniquePerformedEmotions(
+      occurrences.flatMap((entry) => entry.performedEmotion ? [entry.performedEmotion] : []),
+    );
+    return {
+      ...preferredOccurrence.candidate,
+      reactionQueryTier: preferredOccurrence.queryTier,
+      ...(reactionEmotions.length ? {
+        reactionEmotion: reactionEmotions[0],
+        reactionEmotions,
+      } : {}),
+    };
+  });
 }
 
 /**
@@ -105,19 +113,22 @@ export function rankReactionCandidates<T extends { url: string; thumbnail: strin
  * Keeping this as a pure operation means selection, provenance, and the
  * candidate's exact search query remain untouched.
  */
-export function filterReactionCandidates<T extends { reactionEmotion?: string }>(
+export function filterReactionCandidates<T extends { reactionEmotion?: string; reactionEmotions?: string[] }>(
   candidates: T[],
   performedEmotion?: string,
 ): T[] {
   if (!performedEmotion) return candidates;
-  return candidates.filter((candidate) => candidate.reactionEmotion === performedEmotion);
+  return candidates.filter((candidate) => (
+    candidate.reactionEmotion === performedEmotion
+    || candidate.reactionEmotions?.includes(performedEmotion)
+  ));
 }
 
 /**
  * Keeps the first ranked, loadable candidate for every requested emotion in
  * the bounded gallery, then fills any remaining slots in original rank order.
  */
-export function retainReactionEmotionCandidates<T extends { reactionEmotion?: string }>(
+export function retainReactionEmotionCandidates<T extends { reactionEmotion?: string; reactionEmotions?: string[] }>(
   candidates: T[],
   performedEmotion: string[] = [],
   limit = 6,
@@ -125,7 +136,10 @@ export function retainReactionEmotionCandidates<T extends { reactionEmotion?: st
   const reservedIndexes = new Set<number>();
   uniquePerformedEmotions(performedEmotion).forEach((emotion) => {
     const candidateIndex = candidates.findIndex(
-      (candidate, index) => !reservedIndexes.has(index) && candidate.reactionEmotion === emotion,
+      (candidate) => (
+        candidate.reactionEmotion === emotion
+        || candidate.reactionEmotions?.includes(emotion)
+      ),
     );
     if (candidateIndex >= 0) reservedIndexes.add(candidateIndex);
   });

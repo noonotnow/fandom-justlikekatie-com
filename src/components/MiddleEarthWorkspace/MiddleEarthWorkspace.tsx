@@ -49,6 +49,7 @@ export interface MiddleEarthAsset {
   provider?: string;
   reactionQueryTier?: ReactionQueryTier;
   reactionEmotion?: string;
+  reactionEmotions?: string[];
 }
 
 export type MiddleEarthContentKind = "meme" | "spellbook";
@@ -1002,10 +1003,10 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
                 return <button key={emotion} type="button" className={comparisonEmotion === emotion ? styles.emotionFilterActive : ""} onClick={() => compareReactionEmotion(emotion)} aria-pressed={comparisonEmotion === emotion} disabled={busy || searching || !matchCount}>{emotion} <small>{matchCount}</small></button>;
               })}
             </div>
-            {selected && comparisonEmotion && selected.reactionEmotion !== comparisonEmotion && <p>Selected source remains attached from “{selected.query}”. Switch back to all reactions to compare it alongside this view.</p>}
+            {selected && comparisonEmotion && !filterReactionCandidates([selected], comparisonEmotion).length && <p>Selected source remains attached from “{selected.query}”. Switch back to all reactions to compare it alongside this view.</p>}
           </div>}
           {!searching && results.length > 0 && !visibleResults.length && <div className={styles.empty}><span>Comparison note</span><strong>No loaded candidates perform “{comparisonEmotion}” yet.</strong><p>Your selected source and its rights-status labeling remain attached. Try another emotion or view all reactions.</p></div>}
-          {!searching && visibleResults.length > 0 && <div className={styles.gallery}>{visibleResults.map((asset) => <button key={asset.id} className={`${styles.result} ${selected?.id === asset.id ? styles.resultSelected : ""}`} onClick={() => { setSelected(asset); setVisualGeneration(undefined); setPreviewImageFailed(false); setPacketSaved(false); setStatus(`Selected “${asset.title}”. Generate the visual object with this source.`); }} aria-pressed={selected?.id === asset.id} disabled={busy}><span className={styles.imageWrap}><img src={asset.thumbnail} alt="" onError={(event) => { event.currentTarget.style.display = "none"; const fallback = event.currentTarget.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.visibility = "visible"; }} /><span className={styles.imageFallback}>Image<br />unavailable</span></span><span className={styles.resultTitle}>{asset.title}</span>{asset.reactionEmotion && <span className={styles.resultEmotion}>{asset.reactionEmotion} reaction</span>}<span className={styles.publisher}>{asset.reactionQueryTier ? `${asset.reactionQueryTier} match · ` : ""}{asset.publisher || "Unknown publisher"}</span></button>)}</div>}
+          {!searching && visibleResults.length > 0 && <div className={styles.gallery}>{visibleResults.map((asset) => <button key={asset.id} className={`${styles.result} ${selected?.id === asset.id ? styles.resultSelected : ""}`} onClick={() => { setSelected(asset); setVisualGeneration(undefined); setPreviewImageFailed(false); setPacketSaved(false); setStatus(`Selected “${asset.title}”. Generate the visual object with this source.`); }} aria-pressed={selected?.id === asset.id} disabled={busy}><span className={styles.imageWrap}><img src={asset.thumbnail} alt="" onError={(event) => { event.currentTarget.style.display = "none"; const fallback = event.currentTarget.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.visibility = "visible"; }} /><span className={styles.imageFallback}>Image<br />unavailable</span></span><span className={styles.resultTitle}>{asset.title}</span>{asset.reactionEmotion && <span className={styles.resultEmotion}>{(asset.reactionEmotions ?? [asset.reactionEmotion]).join(" · ")} reaction</span>}<span className={styles.publisher}>{asset.reactionQueryTier ? `${asset.reactionQueryTier} match · ` : ""}{asset.publisher || "Unknown publisher"}</span></button>)}</div>}
         </section>
 
         <section className={styles.forge}>

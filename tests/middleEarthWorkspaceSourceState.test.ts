@@ -195,6 +195,50 @@ test('asset ranking retains performed-emotion intent for comparison views withou
   assert.equal(ranked[1].reactionQueryTier, 'Character + emotion');
 });
 
+test('duplicate sources retain every performed-emotion match from the ranked query ladder', () => {
+  const ranked = rankReactionCandidates([
+    {
+      candidate: {
+        id: 'social-result',
+        url: 'https://source.example/shared',
+        thumbnail: 'https://image.example/shared.jpg',
+        query: 'friend refuses to let you suffer alone reaction',
+      },
+      queryTier: 'Social use',
+      rank: 0,
+    },
+    {
+      candidate: {
+        id: 'worried-result',
+        url: 'https://source.example/shared',
+        thumbnail: 'https://image.example/shared.jpg',
+        query: 'Samwise worried Frodo still',
+      },
+      queryTier: 'Character + emotion',
+      performedEmotion: 'worried',
+      rank: 100,
+    },
+    {
+      candidate: {
+        id: 'smug-result',
+        url: 'https://source.example/shared',
+        thumbnail: 'https://image.example/shared.jpg',
+        query: 'Samwise smug correction still',
+      },
+      queryTier: 'Character + emotion',
+      performedEmotion: 'smug',
+      rank: 200,
+    },
+  ]);
+
+  assert.equal(ranked.length, 1);
+  assert.equal(ranked[0].id, 'worried-result');
+  assert.equal(ranked[0].query, 'Samwise worried Frodo still');
+  assert.deepEqual(ranked[0].reactionEmotions, ['worried', 'smug']);
+  assert.deepEqual(filterReactionCandidates(ranked, 'worried').map((candidate) => candidate.id), ['worried-result']);
+  assert.deepEqual(filterReactionCandidates(ranked, 'smug').map((candidate) => candidate.id), ['worried-result']);
+});
+
 test('emotion comparisons survive a full social-result gallery before the display limit is applied', async () => {
   const ladder = reactionQueryLadder({
     socialUseQuery: 'friend refuses to let you suffer alone reaction',
@@ -350,7 +394,7 @@ test('reaction images stay behind translation and source selection requires a re
   );
   assert.match(
     source,
-    /selected && comparisonEmotion && selected\.reactionEmotion !== comparisonEmotion[\s\S]*?selected\.query/,
+    /selected && comparisonEmotion && !filterReactionCandidates\(\[selected\], comparisonEmotion\)\.length[\s\S]*?selected\.query/,
     'a selected candidate remains visible as attached source context when its comparison view changes',
   );
   assert.match(
