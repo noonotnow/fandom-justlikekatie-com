@@ -9,6 +9,7 @@ import {
   reactionQueryLadder,
   retainReactionEmotionCandidates,
 } from '../src/utils/reactionImageAssets.ts';
+import { referenceStillSearchQueries } from '../src/data/middleEarthReferenceStills.ts';
 
 test('starting a new archive search invalidates the generated visual before clearing its source', async () => {
   const source = await readFile(
@@ -167,6 +168,31 @@ test('leads with the curated iconic scene instead of a joke-explaining AI query'
   assert.equal(ladder[0].query, 'Gandalf Bridge of Khazad-dum reaction still Lord of the Rings');
   assert.equal(ladder[0].tier, 'Iconic scene');
   assert.equal(ladder[1].query, 'Gandalf on bridge for blocking work emails gif');
+});
+
+test('Sam and Frodo’s curated ladder searches canonical visual evidence before caption concepts', () => {
+  const curatedQueries = referenceStillSearchQueries('sam-carrying-frodo');
+  assert.deepEqual(curatedQueries, [
+    'Sam Frodo tired Mordor',
+    'Sam and Frodo Mordor still',
+    'Samwise worried Frodo still',
+    'Sam carrying Frodo Mount Doom',
+  ]);
+
+  const ladder = reactionQueryLadder({
+    socialUseQuery: 'Sam is overprepared for the journey but make it road trip snacks',
+    characterEmotionQueries: ['Samwise loyalty friend carries emotional burden meme'],
+    iconicSceneQueries: ['Sam carrying Frodo Mount Doom'],
+    broadFallbackQueries: ['Sam Frodo exhausted Lord of the Rings'],
+  }, curatedQueries);
+
+  assert.deepEqual(ladder.slice(0, 4).map((entry) => entry.query), curatedQueries);
+  assert.deepEqual(ladder.slice(0, 4).map((entry) => entry.tier), [
+    'Iconic scene',
+    'Iconic scene',
+    'Iconic scene',
+    'Iconic scene',
+  ]);
 });
 
 test('asset ranking retains performed-emotion intent for comparison views without changing exact queries', () => {
@@ -373,8 +399,8 @@ test('reaction images stay behind translation and source selection requires a re
   );
   assert.match(
     source,
-    /await searchReactionLadder\(generated\.reactionImageBrief, curatedSceneQuery\);/,
-    'a translated angle must lead its paired visual joke search with the curated iconic scene',
+    /await searchReactionLadder\(generated\.reactionImageBrief, curatedSceneQueries\);/,
+    'a translated angle must lead its paired visual joke search with curated iconic-scene variants',
   );
   assert.match(
     source,

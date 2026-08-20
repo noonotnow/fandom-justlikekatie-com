@@ -68,6 +68,7 @@ const MAX_PERFORMED_EMOTION_LEN = 48;
 const MAX_REACTION_QUERY_COUNT = 3;
 const MAX_PERFORMED_EMOTIONS = 4;
 const REAL_WORLD_REACTION_QUERY_TERMS = /\b(?:email|e-?mail|inbox|office|work(?:ing|place)?|friday|weekend|meeting|boss|deadline|zoom|slack|calendar|job)\b/iu;
+const JOKE_CONCEPT_REACTION_QUERY_TERMS = /\b(?:road\s+trip|snacks?|second\s+breakfast|emotional\s+burden|loyal\s+friend|supportive\s+contradiction|group\s+chat|little\s+treats?|overprepared|meme|caption|joke|comic\s+mechanism|contradiction|boundary|petty\s+punchline)\b/iu;
 const MAX_CAPTION_LEN = 2200;
 const MAX_HASHTAGS = 8;
 const MIN_HASHTAGS = 3;
@@ -298,6 +299,7 @@ function buildTranslationPrompt({ moment, character, memeFlavor, aesthetic, arti
     `Build a scene-first Google query ladder: socialUseQuery first, then character-plus-emotion, iconic scene/action, and broad fandom-reaction fallbacks.`,
     `These are image lookup terms, NEVER an explanation of the joke. Every query must describe only the recognizable Middle-earth still: character + canonical scene/action + optional visible emotion.`,
     `Do not include the real-world moment, punchline, intended social use, target behavior, or explanatory phrases in any query. For a Friday email-boundary joke, search "Gandalf you shall not pass bridge" or "Gandalf on bridge" — NEVER "Gandalf on the bridge for blocking work emails".`,
+    `For a Sam/Frodo prompt, search "Sam Frodo tired Mordor", "Sam and Frodo Mordor still", "Samwise worried Frodo still", or "Sam carrying Frodo Mount Doom" — NEVER "Sam is overprepared for the journey but make it road trip snacks", "Samwise loyalty friend carries emotional burden meme", or "Sam packs snacks because Frodo forgot second breakfast".`,
     `socialUseQuery is a historical field name: use it as the short canonical scene anchor, not as a social-caption search.`,
     `Every query must be about a recognizable Middle-earth reaction still. Do not request copied meme captions, watermarks, raw template composites, or generic scenery.`,
     `After the angle is resolved, choose one curated reaction-still family to guide manual override. The reaction still supports the joke; it never writes or changes the joke.`,
@@ -750,7 +752,10 @@ function normalizeReactionImageBrief(value, status = 502) {
     ...normalized.iconicSceneQueries.map((query, index) => [`iconicSceneQueries[${index}]`, query]),
     ...normalized.broadFallbackQueries.map((query, index) => [`broadFallbackQueries[${index}]`, query]),
   ];
-  const contaminatedQuery = queryFields.find(([, query]) => REAL_WORLD_REACTION_QUERY_TERMS.test(query));
+  const contaminatedQuery = queryFields.find(([, query]) => (
+    REAL_WORLD_REACTION_QUERY_TERMS.test(query)
+    || JOKE_CONCEPT_REACTION_QUERY_TERMS.test(query)
+  ));
   if (contaminatedQuery) {
     throw new AppError(
       `reactionImageBrief.${contaminatedQuery[0]} must identify a Middle-earth still, not explain the real-world joke.`,

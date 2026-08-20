@@ -26,6 +26,7 @@ import {
   referenceStillFamilies,
   referenceStillFamilyById,
   referenceStillSearchQuery,
+  referenceStillSearchQueries,
   type ReferenceStillFamilyId,
 } from "../../data/middleEarthReferenceStills";
 import {
@@ -576,7 +577,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     }
   };
 
-  const searchReactionLadder = async (brief: ReactionImageBrief, curatedSceneQuery = "") => {
+  const searchReactionLadder = async (brief: ReactionImageBrief, curatedSceneQuery: string | string[] = "") => {
     const requestId = archiveSearchRequestGate.begin();
     const ladder = reactionQueryLadder(brief, curatedSceneQuery);
     if (!ladder.length) return;
@@ -670,10 +671,11 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       setText(generated.cardText.line1);
       setSecondaryText(generated.cardText.line2);
       setCardFormat(generated.cardText.format);
-      const curatedSceneQuery = referenceStillSearchQuery(generated.referenceStillFamily);
-      setQuery(curatedSceneQuery || generated.reactionImageBrief.socialUseQuery);
+      const curatedSceneQueries = referenceStillSearchQueries(generated.referenceStillFamily);
+      const curatedSceneQuery = curatedSceneQueries[0] || generated.reactionImageBrief.socialUseQuery;
+      setQuery(curatedSceneQuery);
       invalidateGeneratedVisual();
-      await searchReactionLadder(generated.reactionImageBrief, curatedSceneQuery);
+      await searchReactionLadder(generated.reactionImageBrief, curatedSceneQueries);
       if (!translationRequestGate.isCurrent(requestId)) return;
       setStatus("Moment translated. The text joke and image joke are paired; choose the reaction still that lands the bit, then forge the card.");
     } catch (translationError) {
@@ -968,7 +970,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
             <div className={styles.sourceNote}>
               <span className={styles.dot} />
               <strong>Visual joke brief</strong> · {translation.reactionImageBrief.visualRole}
-              <small> Looking for: {translation.reactionImageBrief.performedEmotion.join(", ")}. Search starts with “{referenceStillSearchQuery(translation.referenceStillFamily, translation.reactionImageBrief.socialUseQuery)}”.</small>
+              <small> Looking for: {translation.reactionImageBrief.performedEmotion.join(", ")}. Search starts with “{referenceStillSearchQueries(translation.referenceStillFamily, translation.reactionImageBrief.socialUseQuery)[0]}”.</small>
             </div>
             <form className={styles.searchForm} onSubmit={search}>
               <label htmlFor="archive-search">Search reaction images</label>

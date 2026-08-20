@@ -44,7 +44,7 @@ The image search must look up the recognizable reaction still, not explain the j
 
 **Why:** The comedy explains what the image must accomplish, but it is not how a search engine indexes a recognizable movie still. Mixing them produces over-specific queries that return no usable images; a canonical scene anchor reliably retrieves the source material.
 
-**How to apply:** Keep the visual brief intent-aware, but make its actual retrieval strings scene-first. Always lead the query ladder with the curated reaction-still family query, then retain the generated variants and their exact provenance for broader coverage. Reject or repair search queries that leak workplace, schedule, email, or other real-world joke context.
+**How to apply:** Keep the visual brief intent-aware, but make its actual retrieval strings scene-first. Always lead the query ladder with curated reaction-still queries, then retain the generated variants and their exact provenance for broader coverage. Gandalf boundary cards lead with bridge/staff terms; Sam/Frodo cards lead with tired Mordor, worried Frodo, or Mount Doom carrying terms. Reject or repair search queries that leak workplace, schedule, email, abstract mechanism labels, or caption mutations such as road-trip snacks and emotional burden.
 
 ## Visual joke brief
 

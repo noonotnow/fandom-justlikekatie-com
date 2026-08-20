@@ -10,6 +10,11 @@ export const referenceStillFamilies = [
     label: 'Gandalf on the bridge',
     description: 'For boundaries, bad ideas, and firm no.',
     searchQuery: 'Gandalf Bridge of Khazad-dum reaction still Lord of the Rings',
+    searchQueries: [
+      'Gandalf you shall not pass bridge',
+      'Gandalf Bridge of Khazad-dum still',
+      'Gandalf staff raised bridge still',
+    ],
   },
   {
     id: 'frodo-quest-burden',
@@ -22,6 +27,12 @@ export const referenceStillFamilies = [
     label: 'Sam carrying Frodo',
     description: 'For showing up, support, and quiet competence.',
     searchQuery: 'Sam carrying Frodo reaction still Lord of the Rings',
+    searchQueries: [
+      'Sam Frodo tired Mordor',
+      'Sam and Frodo Mordor still',
+      'Samwise worried Frodo still',
+      'Sam carrying Frodo Mount Doom',
+    ],
   },
   {
     id: 'gollum-smeagol-debate',
@@ -57,4 +68,11 @@ export function referenceStillFamilyById(id?: string) {
 
 export function referenceStillSearchQuery(id?: string, fallback = ''): string {
   return referenceStillFamilyById(id)?.searchQuery || fallback.trim();
+}
+
+export function referenceStillSearchQueries(id?: string, fallback = ''): string[] {
+  const family = referenceStillFamilyById(id);
+  if (!family) return fallback.trim() ? [fallback.trim()] : [];
+  if ('searchQueries' in family && family.searchQueries?.length) return [...family.searchQueries];
+  return [family.searchQuery];
 }

@@ -1109,6 +1109,27 @@ test("translation repairs a query that explains the real-world joke instead of f
   assert.match(repairPrompt, /must identify a Middle-earth still, not explain the real-world joke/i);
 });
 
+test("translation repairs a Sam and Frodo query that leaks the caption mutation", async () => {
+  const contaminatedSearch = {
+    ...VALID_TRANSLATION_RESPONSE,
+    reactionImageBrief: {
+      ...VALID_TRANSLATION_RESPONSE.reactionImageBrief,
+      characterEmotionQueries: ["Samwise loyalty friend carries emotional burden meme"],
+    },
+  };
+  const connector = makeConnector({ chatResponses: [contaminatedSearch, VALID_TRANSLATION_RESPONSE] });
+  const handler = makeHandler({ connector });
+  const res = await handler(makeRequest(TRANSLATION_BODY), {});
+  assert.equal(res.status, 200);
+  const chats = connector.calls.filter(c => c.path === "/v1/chat/completions");
+  assert.equal(chats.length, 2);
+  const prompt = JSON.parse(chats[0].options.body).messages[0].content;
+  const repairPrompt = JSON.parse(chats[1].options.body).messages[0].content;
+  assert.match(prompt, /Sam Frodo tired Mordor/i);
+  assert.match(prompt, /Sam is overprepared for the journey but make it road trip snacks/i);
+  assert.match(repairPrompt, /must identify a Middle-earth still, not explain the real-world joke/i);
+});
+
 test("translation repairs an incomplete visual joke brief before returning an angle", async () => {
   const incompleteBrief = {
     ...VALID_TRANSLATION_RESPONSE,

@@ -51,7 +51,7 @@ function queryPerformsEmotion(query: string, emotion: string): boolean {
  */
 export function reactionQueryLadder(
   brief: ReactionImageBriefQueryInput,
-  curatedSceneQuery = '',
+  curatedSceneQuery: string | string[] = '',
 ): ReactionSearchQuery[] {
   const performedEmotions = uniquePerformedEmotions(brief.performedEmotion);
   const unmatchedCharacterQueries = [...brief.characterEmotionQueries];
@@ -64,8 +64,13 @@ export function reactionQueryLadder(
       : `${brief.socialUseQuery} ${performedEmotion} reaction`;
     return { query, tier: 'Character + emotion' as const, performedEmotion };
   });
+  const curatedSceneQueries = Array.isArray(curatedSceneQuery)
+    ? curatedSceneQuery
+    : [curatedSceneQuery];
   const entries: ReactionSearchQuery[] = [
-    ...(curatedSceneQuery.trim() ? [{ query: curatedSceneQuery, tier: 'Iconic scene' as const }] : []),
+    ...curatedSceneQueries
+      .filter((query) => query.trim())
+      .map((query) => ({ query, tier: 'Iconic scene' as const })),
     { query: brief.socialUseQuery, tier: 'Social use' },
     ...emotionQueries,
     ...unmatchedCharacterQueries.map((query) => ({ query, tier: 'Character + emotion' as const })),
