@@ -9,16 +9,19 @@ export interface ReactionImageBriefQueryInput {
   characterEmotionQueries: string[];
   iconicSceneQueries: string[];
   broadFallbackQueries: string[];
+  performedEmotion?: string[];
 }
 
 export interface ReactionSearchQuery {
   query: string;
   tier: ReactionQueryTier;
+  performedEmotion?: string;
 }
 
 export interface RankedReactionCandidate<T> {
   candidate: T;
   queryTier: ReactionQueryTier;
+  performedEmotion?: string;
   rank: number;
 }
 
@@ -29,7 +32,14 @@ export interface RankedReactionCandidate<T> {
 export function reactionQueryLadder(brief: ReactionImageBriefQueryInput): ReactionSearchQuery[] {
   const entries: ReactionSearchQuery[] = [
     { query: brief.socialUseQuery, tier: 'Social use' },
-    ...brief.characterEmotionQueries.map((query) => ({ query, tier: 'Character + emotion' as const })),
+    ...brief.characterEmotionQueries.map((query, index) => {
+      const performedEmotion = brief.performedEmotion?.[index]?.trim();
+      return {
+        query,
+        tier: 'Character + emotion' as const,
+        ...(performedEmotion ? { performedEmotion } : {}),
+      };
+    }),
     ...brief.iconicSceneQueries.map((query) => ({ query, tier: 'Iconic scene' as const })),
     ...brief.broadFallbackQueries.map((query) => ({ query, tier: 'Broad fallback' as const })),
   ];
@@ -48,7 +58,7 @@ export function reactionQueryLadder(brief: ReactionImageBriefQueryInput): Reacti
  */
 export function rankReactionCandidates<T extends { url: string; thumbnail: string }>(
   candidates: RankedReactionCandidate<T>[],
-): Array<T & { reactionQueryTier: ReactionQueryTier }> {
+): Array<T & { reactionQueryTier: ReactionQueryTier; reactionEmotion?: string }> {
   const seen = new Set<string>();
   return [...candidates]
     .sort((left, right) => left.rank - right.rank)
@@ -58,7 +68,24 @@ export function rankReactionCandidates<T extends { url: string; thumbnail: strin
       seen.add(sourceKey);
       return true;
     })
-    .map(({ candidate, queryTier }) => ({ ...candidate, reactionQueryTier: queryTier }));
+    .map(({ candidate, queryTier, performedEmotion }) => ({
+      ...candidate,
+      reactionQueryTier: queryTier,
+      ...(performedEmotion ? { reactionEmotion: performedEmotion } : {}),
+    }));
+}
+
+/**
+ * Comparison views only change which already-ranked assets are displayed.
+ * Keeping this as a pure operation means selection, provenance, and the
+ * candidate's exact search query remain untouched.
+ */
+export function filterReactionCandidates<T extends { reactionEmotion?: string }>(
+  candidates: T[],
+  performedEmotion?: string,
+): T[] {
+  if (!performedEmotion) return candidates;
+  return candidates.filter((candidate) => candidate.reactionEmotion === performedEmotion);
 }
 
 /**

@@ -29,6 +29,7 @@ import {
   type ReferenceStillFamilyId,
 } from "../../data/middleEarthReferenceStills";
 import {
+  filterReactionCandidates,
   loadableReactionAssets,
   rankReactionCandidates,
   reactionQueryLadder,
@@ -46,6 +47,7 @@ export interface MiddleEarthAsset {
   query: string;
   provider?: string;
   reactionQueryTier?: ReactionQueryTier;
+  reactionEmotion?: string;
 }
 
 export type MiddleEarthContentKind = "meme" | "spellbook";
@@ -427,6 +429,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const [query, setQuery] = useState("");
   const [searchedQuery, setSearchedQuery] = useState("");
   const [results, setResults] = useState<MiddleEarthAsset[]>([]);
+  const [comparisonEmotion, setComparisonEmotion] = useState<string>();
   const [selected, setSelected] = useState<MiddleEarthAsset>();
   const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -466,6 +469,18 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const resolvedArtifactType = isAuto(artifactType) ? translation?.artifactType : artifactType;
   const selectedFlavor = memeFlavors.find((flavor) => flavor.name === resolvedMemeFlavor);
   const activeReferenceStillFamily = referenceStillFamilyById(referenceStillFamily);
+  const reactionEmotionOptions = useMemo(
+    () => Array.from(new Set(
+      (translation?.reactionImageBrief.performedEmotion ?? [])
+        .map((emotion) => emotion.trim())
+        .filter(Boolean),
+    )),
+    [translation],
+  );
+  const visibleResults = useMemo(
+    () => filterReactionCandidates(results, comparisonEmotion),
+    [results, comparisonEmotion],
+  );
   const generationGuidance = useMemo(() => [
     moment.trim() ? `Original moment: ${moment.trim()}` : "",
     translation ? `Translated as: ${translation.translatedMoment}\nScene: ${translation.scene}\nComic mechanism: ${translation.comicMechanism}\nVisual direction: ${translation.visualDirection}\nVisual joke role: ${translation.reactionImageBrief.visualRole}\nPerformed reaction: ${translation.reactionImageBrief.performedEmotion.join(", ")}` : "",
@@ -483,6 +498,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     setTranslation(undefined);
     setReferenceStillFamily(undefined);
     setSelected(undefined);
+    setComparisonEmotion(undefined);
     setResults([]);
     setSearchedQuery("");
     setSearching(false);
@@ -502,6 +518,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     setSelected(undefined);
     setResults([]);
     setSearchedQuery("");
+    setComparisonEmotion(undefined);
     setSearching(false);
     setError("");
     setStatus("");
@@ -569,6 +586,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
         return payload.results.map((result, resultIndex) => ({
           candidate: makeAsset(result, payload.query || step.query, resultIndex),
           queryTier: step.tier,
+          ...(step.performedEmotion ? { performedEmotion: step.performedEmotion } : {}),
           rank: stepIndex * 100 + resultIndex,
         }));
       }));
@@ -605,6 +623,13 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     setPacketSaved(false);
   };
 
+  const compareReactionEmotion = (nextEmotion?: string) => {
+    setComparisonEmotion(nextEmotion);
+    setStatus(nextEmotion
+      ? `Showing ${nextEmotion} reaction candidates. Your selected source stays attached.`
+      : "Showing all reaction candidates. Your selected source stays attached.");
+  };
+
   const translateMoment = async () => {
     if (!isAdmin) {
       setError("Sign in through packet staging to translate a moment.");
@@ -628,6 +653,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       });
       if (!translationRequestGate.isCurrent(requestId)) return;
       setTranslation(generated);
+      setComparisonEmotion(undefined);
       setReferenceStillFamily(generated.referenceStillFamily);
       setTone(generated.tone);
       setTitle(generated.cardText.footer);
@@ -948,11 +974,32 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
         </aside>
 
         <section className={styles.archive} aria-live="polite">
-          <div className={styles.archiveHead}><div><div className={styles.sectionKicker}>03 / reaction candidates</div><h2>{searchedQuery ? `Choose reaction image for “${searchedQuery}”` : "The image comes after the angle"}</h2></div>{results.length > 0 && <span className={styles.count}>{results.length} candidates</span>}</div>
+          <div className={styles.archiveHead}>
+            <div>
+              <div className={styles.sectionKicker}>03 / reaction candidates</div>
+              <h2>{searchedQuery ? `Choose reaction image for “${searchedQuery}”` : "The image comes after the angle"}</h2>
+            </div>
+            {results.length > 0 && <span className={styles.count}>{comparisonEmotion ? `${visibleResults.length} of ${results.length}` : results.length} candidates</span>}
+          </div>
           {searching && <div className={styles.loadingGrid} aria-label="Loading archive records">{[1, 2, 3, 4].map((item) => <div key={item} className={styles.skeleton} />)}</div>}
           {!searching && error && !results.length && <div className={styles.state}><strong>Something interrupted the search.</strong><p>{error}</p><button onClick={() => void search()}>Try again</button></div>}
            {!searching && !error && !results.length && <div className={styles.empty}><span>Reaction image note</span><strong>{searchedQuery ? "Nothing surfaced this time." : translation ? "The angle is ready. MemeForge will look for a small set of recognizable reaction stills." : "Translate the moment above first."}</strong><p>Every candidate keeps its source attached, so the trail back is never lost.</p></div>}
-          {!searching && results.length > 0 && <div className={styles.gallery}>{results.map((asset) => <button key={asset.id} className={`${styles.result} ${selected?.id === asset.id ? styles.resultSelected : ""}`} onClick={() => { setSelected(asset); setVisualGeneration(undefined); setPreviewImageFailed(false); setPacketSaved(false); setStatus(`Selected “${asset.title}”. Generate the visual object with this source.`); }} aria-pressed={selected?.id === asset.id} disabled={busy}><span className={styles.imageWrap}><img src={asset.thumbnail} alt="" onError={(event) => { event.currentTarget.style.display = "none"; const fallback = event.currentTarget.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.visibility = "visible"; }} /><span className={styles.imageFallback}>Image<br />unavailable</span></span><span className={styles.resultTitle}>{asset.title}</span><span className={styles.publisher}>{asset.reactionQueryTier ? `${asset.reactionQueryTier} match · ` : ""}{asset.publisher || "Unknown publisher"}</span></button>)}</div>}
+          {!searching && results.length > 0 && reactionEmotionOptions.length > 0 && <div className={styles.emotionComparison} aria-label="Compare reaction candidates by performed emotion">
+            <div>
+              <span>Compare performed emotion</span>
+              <small>Viewing a comparison never changes the selected source, its query, or the typography-only fallback.</small>
+            </div>
+            <div className={styles.emotionFilters}>
+              <button type="button" className={!comparisonEmotion ? styles.emotionFilterActive : ""} onClick={() => compareReactionEmotion()} aria-pressed={!comparisonEmotion} disabled={busy || searching}>All reactions <small>{results.length}</small></button>
+              {reactionEmotionOptions.map((emotion) => {
+                const matchCount = filterReactionCandidates(results, emotion).length;
+                return <button key={emotion} type="button" className={comparisonEmotion === emotion ? styles.emotionFilterActive : ""} onClick={() => compareReactionEmotion(emotion)} aria-pressed={comparisonEmotion === emotion} disabled={busy || searching || !matchCount}>{emotion} <small>{matchCount}</small></button>;
+              })}
+            </div>
+            {selected && comparisonEmotion && selected.reactionEmotion !== comparisonEmotion && <p>Selected source remains attached from “{selected.query}”. Switch back to all reactions to compare it alongside this view.</p>}
+          </div>}
+          {!searching && results.length > 0 && !visibleResults.length && <div className={styles.empty}><span>Comparison note</span><strong>No loaded candidates perform “{comparisonEmotion}” yet.</strong><p>Your selected source and its rights-status labeling remain attached. Try another emotion or view all reactions.</p></div>}
+          {!searching && visibleResults.length > 0 && <div className={styles.gallery}>{visibleResults.map((asset) => <button key={asset.id} className={`${styles.result} ${selected?.id === asset.id ? styles.resultSelected : ""}`} onClick={() => { setSelected(asset); setVisualGeneration(undefined); setPreviewImageFailed(false); setPacketSaved(false); setStatus(`Selected “${asset.title}”. Generate the visual object with this source.`); }} aria-pressed={selected?.id === asset.id} disabled={busy}><span className={styles.imageWrap}><img src={asset.thumbnail} alt="" onError={(event) => { event.currentTarget.style.display = "none"; const fallback = event.currentTarget.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.visibility = "visible"; }} /><span className={styles.imageFallback}>Image<br />unavailable</span></span><span className={styles.resultTitle}>{asset.title}</span>{asset.reactionEmotion && <span className={styles.resultEmotion}>{asset.reactionEmotion} reaction</span>}<span className={styles.publisher}>{asset.reactionQueryTier ? `${asset.reactionQueryTier} match · ` : ""}{asset.publisher || "Unknown publisher"}</span></button>)}</div>}
         </section>
 
         <section className={styles.forge}>

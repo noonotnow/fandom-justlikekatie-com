@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { createArchiveSearchRequestGate } from '../src/components/MiddleEarthWorkspace/archiveSearchRequestGate.ts';
 import {
+  filterReactionCandidates,
   loadableReactionAssets,
   rankReactionCandidates,
   reactionQueryLadder,
@@ -130,6 +131,45 @@ test('searches the visual joke brief in human-native priority order and retains 
   assert.equal(ranked[0].query, 'friend refuses to let you suffer alone reaction');
 });
 
+test('asset ranking retains performed-emotion intent for comparison views without changing exact queries', () => {
+  const ladder = reactionQueryLadder({
+    socialUseQuery: 'friend refuses to let you suffer alone reaction',
+    characterEmotionQueries: ['Samwise worried Frodo still', 'Samwise smug correction still'],
+    iconicSceneQueries: [],
+    broadFallbackQueries: [],
+    performedEmotion: ['worried', 'smug'],
+  });
+  const ranked = rankReactionCandidates([
+    {
+      candidate: {
+        id: 'worried',
+        url: 'https://source.example/worried',
+        thumbnail: 'https://image.example/worried.jpg',
+        query: ladder[1].query,
+      },
+      queryTier: ladder[1].tier,
+      performedEmotion: ladder[1].performedEmotion,
+      rank: 100,
+    },
+    {
+      candidate: {
+        id: 'smug',
+        url: 'https://source.example/smug',
+        thumbnail: 'https://image.example/smug.jpg',
+        query: ladder[2].query,
+      },
+      queryTier: ladder[2].tier,
+      performedEmotion: ladder[2].performedEmotion,
+      rank: 200,
+    },
+  ]);
+
+  assert.deepEqual(filterReactionCandidates(ranked, 'smug').map((candidate) => candidate.id), ['smug']);
+  assert.equal(ranked[1].reactionEmotion, 'smug');
+  assert.equal(ranked[1].query, 'Samwise smug correction still');
+  assert.equal(ranked[1].reactionQueryTier, 'Character + emotion');
+});
+
 test('reaction images stay behind translation and source selection requires a reforge', async () => {
   const source = await readFile(
     new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
@@ -152,8 +192,8 @@ test('reaction images stay behind translation and source selection requires a re
   assert.match(translationResult, /<span>Vibe<\/span><p>\{translation\.tone\} · \{translation\.aesthetic\}<\/p>/);
 
   const sourceSelection = source.slice(
-    source.indexOf('{results.map((asset) =>'),
-    source.indexOf('</div>}</section>', source.indexOf('{results.map((asset) =>')),
+    source.indexOf('{visibleResults.map((asset) =>'),
+    source.indexOf('</div>}</section>', source.indexOf('{visibleResults.map((asset) =>')),
   );
   assert.match(
     sourceSelection,
@@ -199,6 +239,35 @@ test('reaction images stay behind translation and source selection requires a re
     source,
     /const candidates = await loadableReactionAssets\(ranked, canLoadReactionImage\);/,
     'every ladder search must verify candidates before limiting the selectable gallery',
+  );
+  assert.match(
+    source,
+    /const visibleResults = useMemo\(\s*\(\) => filterReactionCandidates\(results, comparisonEmotion\),/,
+    'emotion comparison must derive a display list from ranked assets rather than replacing the source state',
+  );
+  const comparisonView = source.slice(
+    source.indexOf('const compareReactionEmotion ='),
+    source.indexOf('const translateMoment =', source.indexOf('const compareReactionEmotion =')),
+  );
+  assert.match(
+    comparisonView,
+    /setComparisonEmotion\(nextEmotion\);[\s\S]*?setStatus\(/,
+    'changing the comparison view must not clear or replace the selected source',
+  );
+  assert.doesNotMatch(
+    comparisonView,
+    /setSelected\(|setResults\(/,
+    'changing an emotion comparison must leave the selected candidate and its source query intact',
+  );
+  assert.match(
+    source,
+    /selected && comparisonEmotion && selected\.reactionEmotion !== comparisonEmotion[\s\S]*?selected\.query/,
+    'a selected candidate remains visible as attached source context when its comparison view changes',
+  );
+  assert.match(
+    source,
+    /performedEmotion: step\.performedEmotion/,
+    'ladder results must retain the performed emotion that produced each candidate',
   );
   assert.match(
     source,
