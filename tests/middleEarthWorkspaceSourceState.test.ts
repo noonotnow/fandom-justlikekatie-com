@@ -76,6 +76,30 @@ test('an old archive response cannot restore inspiration after the moment change
   assert.equal(selected, undefined);
 });
 
+test('every ordinary reaction search resets the performed-emotion comparison before selecting fresh results', async () => {
+  const source = await readFile(
+    new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
+    'utf8',
+  );
+  const search = source.slice(
+    source.indexOf('const search ='),
+    source.indexOf('const searchReactionLadder =', source.indexOf('const search =')),
+  );
+
+  assert.match(
+    search,
+    /const requestId = archiveSearchRequestGate\.begin\(\);\s*setComparisonEmotion\(undefined\);\s*setSelected\(undefined\);/,
+    'manual searches must clear the old emotion view before auto-selecting fresh archive results',
+  );
+  assert.match(
+    source,
+    /onChange=\{\(event\) => \{[\s\S]*?void search\(undefined, nextQuery\);[\s\S]*?\}\}/,
+    'changing a reaction-still family must use the shared search path',
+  );
+  assert.match(source, /<form className=\{styles\.searchForm\} onSubmit=\{search\}>/);
+  assert.match(source, /void search\(undefined, item\)/);
+});
+
 test('keeps searching past failed thumbnails and never offers a broken reaction still', async () => {
   const candidates = Array.from({ length: 8 }, (_, index) => ({
     id: `candidate-${index + 1}`,

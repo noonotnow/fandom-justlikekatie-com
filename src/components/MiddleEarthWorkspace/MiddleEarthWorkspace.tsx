@@ -538,6 +538,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     const clean = (requestedQuery ?? query).trim();
     if (!clean) return;
     const requestId = archiveSearchRequestGate.begin();
+    setComparisonEmotion(undefined);
     setSelected(undefined); setPreviewImageFailed(false); setVisualGeneration(undefined); setPacketSaved(false);
     setSearching(true); setError(""); setStatus("");
     try {
