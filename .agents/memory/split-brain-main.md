@@ -6,4 +6,4 @@ Rule: when GitHub CI is red but the same tests pass locally, suspect that local 
 
 **Why:** A red-everywhere CI incident was misdiagnosed as env/secret differences; the real cause was implementation commits that existed only locally.
 
-**How to apply:** `git fetch`, diff local vs origin for the files under test, reproduce in a worktree at origin/main; after committing locally, push main promptly so tests and implementation travel together.
+**How to apply:** `git fetch`, diff local vs origin for the files under test, reproduce in a worktree at origin/main; fetch again immediately before pushing, because the remote can advance during a session. When it has, merge it normally, validate the combined tree, and never force-push over it.
