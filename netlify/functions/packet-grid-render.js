@@ -1,7 +1,8 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { getBlobStore } from "./lib/blob-store.js";
 import { upgradeLegacyPacket } from "./lib/idea-packets.js";
 import { renderCanonicalOutput } from "./lib/canonical-render.js";
+import { secureEqual } from "./lib/public-auth.js";
 
 const PACKET_STORE = "idea-packets";
 const NONCE_STORE = "render-nonces";
@@ -157,19 +158,6 @@ export function canonicalizeQuery(searchParams) {
   const entries = [...searchParams.entries()];
   entries.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
   return new URLSearchParams(entries).toString();
-}
-
-function secureEqual(a, b) {
-  if (typeof a !== "string" || typeof b !== "string") return false;
-  const aBuffer = Buffer.from(a);
-  const bBuffer = Buffer.from(b);
-  if (aBuffer.length !== bBuffer.length) {
-    // Still run timingSafeEqual on buffers of equal synthetic length to avoid
-    // timing leaks through the length branch.
-    timingSafeEqual(aBuffer, Buffer.alloc(aBuffer.length));
-    return false;
-  }
-  return timingSafeEqual(aBuffer, bBuffer);
 }
 
 function jsonError(status, message, extraHeaders = {}) {
