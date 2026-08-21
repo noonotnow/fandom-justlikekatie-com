@@ -1688,6 +1688,11 @@ test("header-less per-email rate-limit resets when the next 15-minute window sta
   // in window N+1 (not N).  Use an even multiple of WINDOW_MS.
   const windowNTime = new Date("2026-08-10T00:00:00Z"); // window N
   const windowN1Time = new Date(windowNTime.getTime() + WINDOW_MS); // window N+1
+  const secret = "identity-secret";
+  const email = "hl-reset@example.com";
+  const windowN1 = Math.floor(windowN1Time.getTime() / WINDOW_MS);
+  const emailHmac = createHmac("sha256", secret).update(email).digest("base64url");
+  const windowN1EmailKey = `email/${emailHmac}/${windowN1}`;
 
   let nowTime = windowNTime;
   const stores = new Map();
@@ -1700,7 +1705,7 @@ test("header-less per-email rate-limit resets when the next 15-minute window sta
 
   const auth = createPublicAuth({
     env: {
-      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_AUTH_ID_SECRET: secret,
       FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
     },
     getStore,
@@ -1709,7 +1714,6 @@ test("header-less per-email rate-limit resets when the next 15-minute window sta
     now: () => nowTime,
   });
 
-  const email = "hl-reset@example.com";
   const makeRequest = () => auth.requestMagicLink(request("/api/auth/magic-link", {
     body: { email },
     // No x-nf-client-connection-ip header — header-less flow.
@@ -1736,6 +1740,13 @@ test("header-less per-email rate-limit resets when the next 15-minute window sta
     delivered.length,
     6,
     "email must be delivered in window N+1 — the per-email counter reset to 1 for the new window",
+  );
+  const limitsStore = getStore("fandom-auth-rate-limits");
+  const windowN1Entry = await limitsStore.getWithMetadata(windowN1EmailKey);
+  assert.equal(
+    windowN1Entry?.data?.count,
+    1,
+    "the per-email rate-limit counter in window N+1 must start at exactly 1",
   );
 });
 
