@@ -458,6 +458,36 @@ test("renderer failure returns 502 with a clean JSON error", async () => {
   }
 });
 
+test("a fresh signed request can retry after a render failure, but the failed request remains a replay", async () => {
+  const packetId = "render-retry";
+  const packets = new Map([[packetId, packetWithGrid(packetId)]]);
+  const sharedNonceStore = makeNonceStore();
+  let renderAttempts = 0;
+  const handler = makeHandler({
+    packets,
+    sharedNonceStore,
+    render: async () => {
+      renderAttempts += 1;
+      if (renderAttempts === 1) {
+        throw new Error("transient renderer failure");
+      }
+      return PNG_BYTES;
+    },
+  });
+
+  const failedRequest = signedRequest({ packetId });
+  const failedResponse = await handler(failedRequest.clone());
+  assert.equal(failedResponse.status, 502);
+
+  const retryResponse = await handler(signedRequest({ packetId }));
+  assert.equal(retryResponse.status, 200);
+  assert.deepEqual(Buffer.from(await retryResponse.arrayBuffer()), PNG_BYTES);
+
+  const replayResponse = await handler(failedRequest.clone());
+  assert.equal(replayResponse.status, 401);
+  assert.equal(renderAttempts, 2, "replaying the failed request must not invoke the renderer");
+});
+
 // ---------------------------------------------------------------------------
 // 404 paths
 // ---------------------------------------------------------------------------
