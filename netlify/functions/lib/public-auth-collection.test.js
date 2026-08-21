@@ -1675,24 +1675,27 @@ test("scraper burst without IP header cannot block a subsequent header-less serv
   );
 });
 
-test("header-less per-email rate-limit resets when the next 15-minute window starts", async () => {
+test("header-less per-email rate-limit resets across consecutive 15-minute windows", async () => {
   // Exhausts the per-email limit (5 requests) for a header-less caller in window N,
-  // then advances time to window N+1 and confirms the 6th request is delivered — the
-  // counter has reset to 1 and the caller is no longer rate-limited.
+  // then advances time through windows N+1 and N+2. The first request in each new
+  // window must be delivered and its window-specific counter must start at 1.
   //
   // This is the complementary reset path to the within-window suppression test:
-  // it proves that a header-less caller who hit the ceiling can send again once
-  // the next window opens.
+  // it proves that a header-less caller who hit the ceiling can send again at
+  // multiple consecutive window boundaries without carrying a stale counter.
   const WINDOW_MS = 15 * 60 * 1000;
-  // Anchor to a known window boundary so the second time value reliably lands
-  // in window N+1 (not N).  Use an even multiple of WINDOW_MS.
+  // Anchor to known window boundaries so each clock value reliably lands in a
+  // new window. Use exact multiples of WINDOW_MS.
   const windowNTime = new Date("2026-08-10T00:00:00Z"); // window N
   const windowN1Time = new Date(windowNTime.getTime() + WINDOW_MS); // window N+1
+  const windowN2Time = new Date(windowN1Time.getTime() + WINDOW_MS); // window N+2
   const secret = "identity-secret";
   const email = "hl-reset@example.com";
   const windowN1 = Math.floor(windowN1Time.getTime() / WINDOW_MS);
+  const windowN2 = Math.floor(windowN2Time.getTime() / WINDOW_MS);
   const emailHmac = createHmac("sha256", secret).update(email).digest("base64url");
   const windowN1EmailKey = `email/${emailHmac}/${windowN1}`;
+  const windowN2EmailKey = `email/${emailHmac}/${windowN2}`;
 
   let nowTime = windowNTime;
   const stores = new Map();
@@ -1747,6 +1750,24 @@ test("header-less per-email rate-limit resets when the next 15-minute window sta
     windowN1Entry?.data?.count,
     1,
     "the per-email rate-limit counter in window N+1 must start at exactly 1",
+  );
+
+  // Advance to the next consecutive window. Its first request must also be
+  // delivered, rather than inheriting window N+1's count.
+  nowTime = windowN2Time;
+  const secondResetRes = await makeRequest();
+  assert.equal(secondResetRes.status, 202, "request in window N+2 must return 202 (window has reset again)");
+  assert.equal(
+    delivered.length,
+    7,
+    "email must be delivered in window N+2 — the counter must reset again",
+  );
+
+  const windowN2Entry = await limitsStore.getWithMetadata(windowN2EmailKey);
+  assert.equal(
+    windowN2Entry?.data?.count,
+    1,
+    "the per-email rate-limit counter in window N+2 must start at exactly 1",
   );
 });
 
