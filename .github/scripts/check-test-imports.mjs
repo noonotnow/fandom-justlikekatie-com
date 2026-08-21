@@ -124,16 +124,35 @@ function collectTestFiles(dir) {
 
 // ── main ─────────────────────────────────────────────────────────────────────
 
-// Validate that every root directory actually exists before collecting files.
-// A missing root silently produces zero files, masking misconfigured paths.
-const missingRoots = TEST_DIRS.filter(d => {
-  const s = statSync(d, { throwIfNoEntry: false });
-  return !s || !s.isDirectory();
-});
-if (missingRoots.length > 0) {
+// Validate that every root directory exists and is actually a directory before
+// collecting files. An invalid root silently produces zero files, masking
+// misconfigured paths.
+const rootStats = TEST_DIRS.map(d => ({
+  path: d,
+  stat: statSync(d, { throwIfNoEntry: false }),
+}));
+const missingRoots = rootStats.filter(({ stat }) => !stat).map(({ path }) => path);
+const nonDirectoryRoots = rootStats
+  .filter(({ stat }) => stat && !stat.isDirectory())
+  .map(({ path }) => path);
+
+if (missingRoots.length > 0 || nonDirectoryRoots.length > 0) {
+  const rootErrors = [];
+  if (missingRoots.length > 0) {
+    rootErrors.push(
+      `❌  Root director${missingRoots.length === 1 ? 'y does' : 'ies do'} not exist: ` +
+      `${missingRoots.map(d => `"${d}"`).join(', ')}.`,
+    );
+  }
+  if (nonDirectoryRoots.length > 0) {
+    rootErrors.push(
+      `❌  Root path${nonDirectoryRoots.length === 1 ? ' is' : 's are'} not a ` +
+      `director${nonDirectoryRoots.length === 1 ? 'y' : 'ies'}: ` +
+      `${nonDirectoryRoots.map(d => `"${d}"`).join(', ')}.`,
+    );
+  }
   console.error(
-    `❌  Root director${missingRoots.length === 1 ? 'y does' : 'ies do'} not exist: ` +
-    `${missingRoots.map(d => `"${d}"`).join(', ')}. ` +
+    rootErrors.join('\n') + ' ' +
     'If the directories moved, update the TEST_DIRS list in the workflow.',
   );
   process.exit(1);

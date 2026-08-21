@@ -145,13 +145,27 @@ jobs:
             fail "real dir + non-existent root dir exits 1 (want 1, got $GOT12)"
           fi
 
-          # ── 13. red: nested test file, cross-dir '../' import → missing ───
+          # ── 13. red: root path is a file, not a directory ────────────────
+          D="$BASE/root-is-file"; mkdir -p "$D"
+          ROOT_FILE="$D/stray-root"
+          echo "not a directory" > "$ROOT_FILE"
+          GOT13=0
+          OUTPUT13=$(node "$SCRIPT" "$ROOT_FILE" 2>&1) || GOT13=$?
+          if [ "$GOT13" -eq 1 ] \
+            && printf '%s\n' "$OUTPUT13" | grep -Fq "Root path is not a directory" \
+            && printf '%s\n' "$OUTPUT13" | grep -Fq "$ROOT_FILE"; then
+            pass "root path is a file, not a directory, exits 1 clearly"
+          else
+            fail "root path is a file, not a directory, exits 1 clearly (want diagnostic and exit 1, got $GOT13: $OUTPUT13)"
+          fi
+
+          # ── 14. red: nested test file, cross-dir '../' import → missing ───
           D="$BASE/cross-dir-missing"; mkdir -p "$D/functions" "$D/shared"
           printf "import test from 'node:test';\nimport { x } from '../shared/util';\n" > "$D/functions/fn.test.ts"
           # shared/util.ts intentionally absent
           run_guard "$D" 1 "cross-dir '../' import → missing sibling file exits 1"
 
-          # ── 14. green: nested test file, cross-dir '../' import → exists ──
+          # ── 15. green: nested test file, cross-dir '../' import → exists ──
           D="$BASE/cross-dir-ok"; mkdir -p "$D/functions" "$D/shared"
           echo "export const x = 1;" > "$D/shared/util.ts"
           printf "import test from 'node:test';\nimport { x } from '../shared/util';\n" > "$D/functions/fn.test.ts"
