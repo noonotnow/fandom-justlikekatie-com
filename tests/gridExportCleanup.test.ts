@@ -194,6 +194,34 @@ test('Collection retries pending cleanups after session resolution with the sess
   );
 });
 
+test('Collection routes both removal paths through shared persistRemoval', () => {
+  assert.match(
+    collectionSource,
+    /import\s+\{\s*persistRemoval\b[^}]*\}\s+from\s+['"]\.\.\/\.\.\/utils\/collectionRemoval['"]/,
+    'Collection must import persistRemoval from the shared removal utility',
+  );
+
+  const finalizeStart = collectionSource.indexOf('async function finalizeRemoval');
+  const queueRemovalStart = collectionSource.indexOf('function queueRemoval', finalizeStart);
+  assert.notEqual(finalizeStart, -1, 'finalizeRemoval must exist');
+  assert.notEqual(queueRemovalStart, -1, 'queueRemoval must follow finalizeRemoval');
+  assert.match(
+    collectionSource.slice(finalizeStart, queueRemovalStart),
+    /await persistRemoval\(pending,\s*accountIdRef\.current\)/,
+    'undo-window expiry must persist the removal through the shared utility',
+  );
+
+  const unmountStart = collectionSource.indexOf('useEffect(() => () =>');
+  const unmountEnd = collectionSource.indexOf('}, []);', unmountStart);
+  assert.notEqual(unmountStart, -1, 'unmount cleanup effect must exist');
+  assert.notEqual(unmountEnd, -1, 'unmount cleanup effect must have an empty dependency list');
+  assert.match(
+    collectionSource.slice(unmountStart, unmountEnd),
+    /persistRemoval\(pending,\s*accountIdRef\.current\)/,
+    'unmount cleanup must persist the pending removal through the shared utility',
+  );
+});
+
 test('GridBuilder invokes account-scoped export cleanup on every dbRemoveGrid path', () => {
   const removals = builderSource.match(/await dbRemoveGrid\(/g) ?? [];
   const cleanups = builderSource.match(/await deleteGridExports\([A-Za-z]+,\s*accountId\)/g) ?? [];
