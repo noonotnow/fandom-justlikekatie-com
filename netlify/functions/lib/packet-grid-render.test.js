@@ -13,6 +13,7 @@
  *  - Non-existent packetId (404)
  *  - Packet with no included grid output (404)
  *  - Happy path (200 image/png with correct body and headers)
+ *  - Renderer failure (502 with a clean JSON error)
  */
 
 import assert from "node:assert/strict";
@@ -424,6 +425,37 @@ test("valid request with correct HMAC returns 200 image/png with expected header
   assert.ok(renderCalled, "render should have been called");
   const bytes = Buffer.from(await response.arrayBuffer());
   assert.deepEqual(bytes, PNG_BYTES);
+});
+
+test("renderer failure returns 502 with a clean JSON error", async () => {
+  const packetId = "render-fails";
+  const packets = new Map([[packetId, packetWithGrid(packetId)]]);
+  const renderError = new Error("renderer exploded");
+  let loggedArgs;
+  const originalConsoleError = console.error;
+  console.error = (...args) => {
+    loggedArgs = args;
+  };
+
+  try {
+    const handler = makeHandler({
+      packets,
+      render: async () => {
+        throw renderError;
+      },
+    });
+    const response = await handler(signedRequest({ packetId }));
+
+    assert.equal(response.status, 502);
+    assert.equal(response.headers.get("Content-Type"), "application/json");
+    assert.deepEqual(await response.json(), { error: "Grid render failed." });
+    assert.deepEqual(loggedArgs, [
+      "[packet-grid-render] render failed",
+      { packetId, error: String(renderError) },
+    ]);
+  } finally {
+    console.error = originalConsoleError;
+  }
 });
 
 // ---------------------------------------------------------------------------
