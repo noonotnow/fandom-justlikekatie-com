@@ -201,7 +201,7 @@ test('Collection routes both removal paths through shared persistRemoval', () =>
     'Collection must import persistRemoval from the shared removal utility',
   );
 
-  const finalizeStart = collectionSource.indexOf('async function finalizeRemoval');
+  const finalizeStart = collectionSource.indexOf('  async function finalizeRemoval');
   const queueRemovalStart = collectionSource.indexOf('function queueRemoval', finalizeStart);
   assert.notEqual(finalizeStart, -1, 'finalizeRemoval must exist');
   assert.notEqual(queueRemovalStart, -1, 'queueRemoval must follow finalizeRemoval');
@@ -219,6 +219,41 @@ test('Collection routes both removal paths through shared persistRemoval', () =>
     collectionSource.slice(unmountStart, unmountEnd),
     /persistRemoval\(pending,\s*accountIdRef\.current\)/,
     'unmount cleanup must persist the pending removal through the shared utility',
+  );
+});
+
+test('Collection Undo cancels the pending removal before server export cleanup can run', () => {
+  const undoStart = collectionSource.indexOf('function undoRemoval()');
+  const undoEnd = collectionSource.indexOf('  async function handleMagicLink', undoStart);
+  assert.notEqual(undoStart, -1, 'undoRemoval must exist in Collection.tsx');
+  assert.notEqual(undoEnd, -1, 'undoRemoval body must be bounded by the next handler');
+
+  const undoBody = collectionSource.slice(undoStart, undoEnd);
+  assert.match(
+    undoBody,
+    /window\.clearTimeout\(pending\.timeoutId\)/,
+    'Undo must cancel the expiry timer before it can finalize the removal',
+  );
+  assert.match(
+    undoBody,
+    /pendingRemovalRef\.current = null/,
+    'Undo must clear the pending ref used by the expiry finalizer',
+  );
+  assert.doesNotMatch(
+    undoBody,
+    /persistRemoval\(/,
+    'Undo must restore the item locally without persisting removal or deleting server exports',
+  );
+
+  const finalizeStart = collectionSource.indexOf('  async function finalizeRemoval');
+  const finalizeEnd = collectionSource.indexOf('  function queueRemoval', finalizeStart);
+  assert.notEqual(finalizeStart, -1, 'finalizeRemoval must exist in Collection.tsx');
+  assert.notEqual(finalizeEnd, -1, 'finalizeRemoval body must be bounded by queueRemoval');
+  const finalizeBody = collectionSource.slice(finalizeStart, finalizeEnd);
+  assert.match(
+    finalizeBody,
+    /if \(!pending \|\| pending\.token !== token\) return;/,
+    'an expired timer must stop when Undo has already cleared the pending ref',
   );
 });
 
