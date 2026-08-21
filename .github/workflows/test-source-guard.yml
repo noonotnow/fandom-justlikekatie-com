@@ -157,6 +157,18 @@ jobs:
           printf "import test from 'node:test';\nimport { x } from '../shared/util';\n" > "$D/functions/fn.test.ts"
           run_guard "$D" 0 "cross-dir '../' import → existing sibling file exits 0"
 
+          # ── 15. red: nested test file, '../../' import escapes root → missing
+          D="$BASE/escape-root-missing"; mkdir -p "$D/nested"
+          printf "import test from 'node:test';\nimport { x } from '../../outside-root-missing/util';\n" > "$D/nested/escape.test.ts"
+          # outside-root-missing/util.ts intentionally absent outside the root
+          run_guard "$D" 1 "cross-root '../../' import → missing file exits 1"
+
+          # ── 16. green: nested test file, '../../' import escapes root → exists
+          D="$BASE/escape-root-ok"; mkdir -p "$D/nested" "$BASE/outside-root-ok"
+          echo "export const x = 1;" > "$BASE/outside-root-ok/util.ts"
+          printf "import test from 'node:test';\nimport { x } from '../../outside-root-ok/util';\n" > "$D/nested/escape.test.ts"
+          run_guard "$D" 0 "cross-root '../../' import → existing file exits 0"
+
           echo ""
           echo "Guard self-test results: $PASSED passed, $FAILED failed"
           if [ "$FAILED" -gt 0 ]; then
