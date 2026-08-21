@@ -1,4 +1,4 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { HANDOFF_ATTEMPT_STORE, withHandoffLease } from "./handoff-lease.js";
 import {
   IdeaPacketModeError,
@@ -13,6 +13,7 @@ import {
   MEME_FLAVOR_NAMES,
 } from "./middle-earth-creative-grammar.js";
 import { REFERENCE_STILL_FAMILY_SET } from "./middle-earth-reference-stills.js";
+import { secureEqual } from "./public-auth.js";
 
 const STORE_NAME = "idea-packets";
 const MAX_BODY_BYTES = 256 * 1024;
@@ -487,9 +488,7 @@ function validateSameOrigin(req) {
 async function validateAuthorization(req, expectedToken, auth, context) {
   const header = req.headers.get("authorization") || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-  const actual = Buffer.from(token);
-  const expected = Buffer.from(expectedToken || "");
-  if (expected.length && actual.length === expected.length && timingSafeEqual(actual, expected)) return;
+  if (expectedToken && secureEqual(token, expectedToken)) return;
   if (auth) {
     try {
       await auth.authenticateAdmin(req, context);

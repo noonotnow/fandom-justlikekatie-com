@@ -1,4 +1,5 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { secureEqual } from "./public-auth.js";
 
 const DEFAULT_XHS_BASE_URL = "https://xhs.justlikekatie.com";
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -320,9 +321,7 @@ function validateAuthorization(req, expectedToken) {
   const actualToken = authorization.startsWith("Bearer ")
     ? authorization.slice("Bearer ".length)
     : "";
-  const actual = Buffer.from(actualToken);
-  const expected = Buffer.from(expectedToken);
-  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+  if (!secureEqual(actualToken, expectedToken)) {
     throw new RequestError(
       "PLAN operator authorization is required",
       401,

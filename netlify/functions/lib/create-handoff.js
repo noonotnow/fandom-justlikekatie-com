@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import {
   RENDER_CONTRACT,
   RENDER_HEIGHT,
@@ -8,6 +8,7 @@ import {
 } from "./canonical-render.js";
 import { HANDOFF_ATTEMPT_STORE, withHandoffLease } from "./handoff-lease.js";
 import { upgradeLegacyPacket, withIdeaPacketLock } from "./idea-packets.js";
+import { secureEqual } from "./public-auth.js";
 import {
   IdeaPacketModeError,
   ideaPacketInvalidModeResponse,
@@ -1029,9 +1030,7 @@ function validateSameOrigin(req) {
 async function validateAuthorization(req, expectedToken, auth, context) {
   const header = req.headers.get("authorization") || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-  const actual = Buffer.from(token);
-  const expected = Buffer.from(expectedToken || "");
-  if (expected.length && actual.length === expected.length && timingSafeEqual(actual, expected)) return;
+  if (expectedToken && secureEqual(token, expectedToken)) return;
   if (auth) {
     try {
       await auth.authenticateAdmin(req, context);

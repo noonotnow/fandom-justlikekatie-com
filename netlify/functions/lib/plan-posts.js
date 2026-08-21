@@ -1,4 +1,5 @@
 import { enrichPostsWithExecution } from "./plan-execution.js";
+import { secureEqual } from "./public-auth.js";
 
 const NOTION_API_URL = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
@@ -112,11 +113,8 @@ function validateAuthorization(req, expectedToken) {
   const actualToken = authorization.startsWith("Bearer ")
     ? authorization.slice("Bearer ".length)
     : "";
-  const actual = Buffer.from(actualToken);
-  const expected = Buffer.from(expectedToken);
   if (
-    actual.length !== expected.length
-    || !timingSafeEqual(actual, expected)
+    !secureEqual(actualToken, expectedToken)
   ) {
     throw new RequestError("PLAN operator authorization is required", 401);
   }
@@ -510,4 +508,3 @@ function jsonResponse(status, body, extraHeaders = {}) {
     },
   });
 }
-import { timingSafeEqual } from "node:crypto";
