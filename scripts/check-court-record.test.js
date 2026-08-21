@@ -506,6 +506,20 @@ test('checkArrayBody: tagged template with literal spaces is flagged as whitespa
   assert.equal(whitespaceOnly.length, 1);
 });
 
+test('checkArrayBody: tagged template with literal U+00A0 is flagged as whitespace-only', () => {
+  const body = 'html` `,';
+  const { whitespaceOnly, totalCount } = checkArrayBody(body);
+  assert.equal(totalCount, 1);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+test('checkArrayBody: tagged template with literal U+2003 is flagged as whitespace-only', () => {
+  const body = 'html` `,';
+  const { whitespaceOnly, totalCount } = checkArrayBody(body);
+  assert.equal(totalCount, 1);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
 test('checkArrayBody: tagged template with \\n escape is flagged as whitespace-only', () => {
   const body = 'String.raw`\\n`,';
   const { whitespaceOnly } = checkArrayBody(body);
