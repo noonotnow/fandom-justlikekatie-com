@@ -804,6 +804,30 @@ test('checkArrayBody: detects literal U+2028 (line separator) pasted verbatim', 
   assert.equal(whitespaceOnly.length, 1);
 });
 
+test('checkArrayBody: detects literal U+00A0 in a single-quoted string', () => {
+  const body = "'\u00A0',";
+  const { whitespaceOnly } = checkArrayBody(body);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+test('checkArrayBody: detects literal U+2003 in a single-quoted string', () => {
+  const body = "'\u2003',";
+  const { whitespaceOnly } = checkArrayBody(body);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+test('checkArrayBody: detects literal U+3000 in a template literal', () => {
+  const body = '`\u3000`,';
+  const { whitespaceOnly } = checkArrayBody(body);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
+test('checkArrayBody: detects literal U+2028 in a template literal', () => {
+  const body = '`\u2028`,';
+  const { whitespaceOnly } = checkArrayBody(body);
+  assert.equal(whitespaceOnly.length, 1);
+});
+
 // ---------------------------------------------------------------------------
 // Integration — literal unicode whitespace pasted verbatim into source files
 //
