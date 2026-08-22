@@ -5,7 +5,13 @@ import {
   type CardRecord,
   type GridRecord,
 } from '../../utils/collectionDB';
-import { persistRemoval, type PendingRemoval } from '../../utils/collectionRemoval';
+import {
+  persistRemoval,
+  forgetPendingRemoval,
+  readPendingRemoval,
+  rememberPendingRemoval,
+  type PendingRemoval,
+} from '../../utils/collectionRemoval';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
 import { buildExportPayload, classifyEditionTier, saveShareCard } from '../../utils/exportCanvas';
 import {
@@ -91,6 +97,7 @@ export const Collection: React.FC<Props> = ({
       } else {
         setNeedsMergeChoice(false);
       }
+      await recoverPendingRemoval();
       await loadCollection(session?.accountId);
       // Retry any export cleanups that failed on earlier removals — the grid
       // records are already gone locally, so this queue is the only path left
@@ -116,11 +123,24 @@ export const Collection: React.FC<Props> = ({
     };
   }, []);
 
+  async function recoverPendingRemoval() {
+    const stored = readPendingRemoval();
+    if (!stored) return;
+    try {
+      await persistRemoval(stored.pending, stored.accountId ?? accountIdRef.current);
+      forgetPendingRemoval(stored.pending.token);
+    } catch (error) {
+      setAccountNotice(messageFrom(error, 'The item could not be removed.'));
+    }
+  }
+
   useEffect(() => () => {
     const pending = pendingRemovalRef.current;
     if (!pending) return;
     window.clearTimeout(pending.timeoutId);
-    void persistRemoval(pending, accountIdRef.current).catch(error => {
+    void persistRemoval(pending, accountIdRef.current).then(() => {
+      forgetPendingRemoval(pending.token);
+    }).catch(error => {
       sessionStorage.setItem('fandom_auth_notice', messageFrom(error, 'The item could not be removed.'));
     });
   }, []);
@@ -132,6 +152,7 @@ export const Collection: React.FC<Props> = ({
     setPendingRemoval(null);
     try {
       await persistRemoval(pending, accountIdRef.current);
+      forgetPendingRemoval(pending.token);
     } catch (error) {
       if (pending.kind === 'grid') {
         setGrids(current => sortGrids([...current, pending.record]));
@@ -147,6 +168,7 @@ export const Collection: React.FC<Props> = ({
     const token = crypto.randomUUID();
     const timeoutId = window.setTimeout(() => void finalizeRemoval(token), UNDO_WINDOW_MS);
     const pending = { ...removal, token, timeoutId } as PendingRemoval;
+    rememberPendingRemoval(pending, accountIdRef.current);
     pendingRemovalRef.current = pending;
     setPendingRemoval(pending);
     if (pending.kind === 'grid') {
@@ -162,6 +184,7 @@ export const Collection: React.FC<Props> = ({
     window.clearTimeout(pending.timeoutId);
     pendingRemovalRef.current = null;
     setPendingRemoval(null);
+    forgetPendingRemoval(pending.token);
     if (pending.kind === 'grid') {
       setGrids(current => sortGrids([...current, pending.record]));
     } else {

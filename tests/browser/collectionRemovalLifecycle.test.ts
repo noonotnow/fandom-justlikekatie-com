@@ -208,6 +208,111 @@ test('Collection commits pending grid and saved-result removals when navigation 
   }
 });
 
+test('Collection commits a pending removal after the browser page reloads', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const exportCleanupRequests: string[] = [];
+
+  try {
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        user: { accountId: ACCOUNT_ID, email: 'cleanup@example.test', isAdmin: false },
+      }),
+    }));
+    await page.route(
+      url => new URL(url).pathname === '/.netlify/functions/grid-exports',
+      async route => {
+        if (route.request().method() === 'DELETE') exportCleanupRequests.push(route.request().url());
+        await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'retry later' }) });
+      },
+    );
+
+    await page.goto(origin);
+    await seedCollection(page);
+    await page.goto(`${origin}/vibe-atlas?view=collection`);
+    await page.getByRole('button', { name: 'Remove' }).first().click();
+    assert.equal(
+      await page.evaluate(() => localStorage.getItem('fandom-pending-collection-removal') !== null),
+      true,
+      'the pending removal must be durable before the page is reloaded',
+    );
+
+    await page.reload();
+    await expectEventually(async () => {
+      const contents = await collectionContents(page);
+      assert.equal(contents.grid, undefined, 'the pending grid removal must persist after page reload');
+      assert.ok(exportCleanupRequests.length >= 1, 'reload recovery must start grid export cleanup');
+      assert.deepEqual(
+        contents.cleanupQueue,
+        [{ gridId: GRID_ID, accountId: ACCOUNT_ID }],
+        'reload recovery must preserve the owning account for export cleanup',
+      );
+      assert.equal(
+        await page.evaluate(() => localStorage.getItem('fandom-pending-collection-removal')),
+        null,
+        'the durable removal intent must clear after recovery commits',
+      );
+    });
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('Collection replays a saved-result removal left durable by a closed page', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+
+  try {
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        user: { accountId: ACCOUNT_ID, email: 'cleanup@example.test', isAdmin: false },
+      }),
+    }));
+
+    await page.goto(origin);
+    await seedCollection(page);
+    await page.evaluate(({ cardUrl, accountId }) => {
+      localStorage.setItem('fandom-pending-collection-removal', JSON.stringify({
+        token: 'closed-page-card-removal',
+        kind: 'card',
+        record: {
+          imageUrl: cardUrl,
+          thumbnailUrl: 'https://images.example/pending-unmount-card-thumb.jpg',
+          actor: 'Card cleanup actor',
+          actorEn: 'Card cleanup actor',
+          vibe: 'Unmount test',
+          vibeEn: 'Unmount test',
+          vibeEmoji: '🧪',
+          capturedDate: '2026-08-21',
+          savedAt: '2026-08-21T10:00:00.000Z',
+          sourceRoute: '/test',
+        },
+        accountId,
+      }));
+    }, { cardUrl: CARD_URL, accountId: ACCOUNT_ID });
+
+    await page.goto(`${origin}/vibe-atlas?view=collection`);
+    await expectEventually(async () => {
+      const contents = await collectionContents(page);
+      assert.notEqual(contents.grid, undefined, 'recovery must not remove unrelated grids');
+      assert.equal(contents.card, undefined, 'the saved result must be removed when the collection reopens');
+      assert.equal(
+        await page.evaluate(() => localStorage.getItem('fandom-pending-collection-removal')),
+        null,
+        'the durable removal intent must clear only after recovery commits',
+      );
+    });
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
 async function expectEventually(assertion: () => Promise<void>): Promise<void> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 40; attempt += 1) {
