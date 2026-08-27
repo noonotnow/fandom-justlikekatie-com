@@ -10,15 +10,19 @@ import {
 import {
   AESTHETIC_NAMES,
   ARTIFACT_TYPE_NAMES,
+  COMIC_MECHANISM_EXAMPLE_BANK,
   COMIC_MECHANISM_NAMES,
   COMIC_MECHANISMS,
   DEFAULT_COMIC_MECHANISMS_BY_FLAVOR,
   FORBIDDEN_SOURCE_TEMPLATES_BY_FLAVOR,
   MEME_FLAVORS,
   comicMechanismCatalogPromptDetails,
+  comicMechanismExampleBank,
   defaultComicMechanismsForFlavor,
   memeFlavorCatalogPromptDetails,
   memeFlavorPromptDetails,
+  resolvedComicMechanismPromptDetails,
+  sampledComicMechanismExamples,
 } from '../netlify/functions/lib/middle-earth-creative-grammar.js';
 import { referenceStillFamilies } from '../src/data/middleEarthReferenceStills.ts';
 import { forbiddenSourceTemplatesByFlavor } from '../src/data/middleEarthCreativeGrammar.ts';
@@ -111,6 +115,53 @@ test('the translation catalog gives Auto a prototype spine for every family', ()
   for (const flavor of MEME_FLAVORS) {
     assert.match(catalog, new RegExp(`Family: ${flavor.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
     assert.match(catalog, new RegExp(`Default reaction-still family: ${flavor.prototype.defaultStillFamily}`));
+  }
+});
+
+test('every comic mechanism has a bank of concrete, card-safe calibration jokes', () => {
+  assert.deepEqual(Object.keys(COMIC_MECHANISM_EXAMPLE_BANK), COMIC_MECHANISMS.map((m) => m.name));
+  for (const mechanism of COMIC_MECHANISMS) {
+    const bank = comicMechanismExampleBank(mechanism.name);
+    assert.ok(bank.length >= 3, `${mechanism.name} needs at least 3 calibration jokes`);
+    for (const example of bank) {
+      for (const line of [example.line1, example.line2]) {
+        assert.ok(line.length <= 36, `${mechanism.name} calibration line exceeds card limit: "${line}"`);
+        assert.ok(line.split(/\s+/).length <= 8, `${mechanism.name} calibration line exceeds word limit: "${line}"`);
+      }
+    }
+  }
+});
+
+test('calibration jokes are sampled without replacement and rotate across requests', () => {
+  const name = 'Intent reversal';
+  const bank = comicMechanismExampleBank(name);
+  const sequence = [0.9, 0.1, 0.5, 0.5];
+  let i = 0;
+  const deterministicRandom = () => sequence[i++ % sequence.length];
+  const picked = sampledComicMechanismExamples(name, 2, deterministicRandom);
+  assert.equal(picked.length, 2);
+  assert.notDeepEqual(picked[0], picked[1]);
+  for (const example of picked) {
+    assert.ok(bank.some((candidate) => candidate.line1 === example.line1 && candidate.line2 === example.line2));
+  }
+
+  const otherRandom = () => 0;
+  const alwaysFirstTwo = sampledComicMechanismExamples(name, 2, otherRandom);
+  assert.deepEqual(alwaysFirstTwo, [bank[0], bank[1]]);
+});
+
+test('the resolved Comic Mechanism prompt injects calibration jokes labeled as craft reference only', () => {
+  const details = resolvedComicMechanismPromptDetails('Severity inversion', { random: () => 0 }) ?? '';
+  assert.match(details, /Concrete calibration jokes/i);
+  assert.match(details, /never reuse these lines verbatim/i);
+  assert.match(details, /REPLYING TO ONE TEXT/);
+});
+
+test('the comic mechanism catalog includes calibration jokes for every mechanism', () => {
+  const catalog = comicMechanismCatalogPromptDetails({ random: () => 0 });
+  for (const mechanism of COMIC_MECHANISMS) {
+    const bank = comicMechanismExampleBank(mechanism.name);
+    assert.match(catalog, new RegExp(bank[0].line1.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
 });
 

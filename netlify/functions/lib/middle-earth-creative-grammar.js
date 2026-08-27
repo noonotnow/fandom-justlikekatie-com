@@ -255,6 +255,69 @@ export const COMIC_MECHANISMS = [
 
 export const COMIC_MECHANISM_NAMES = new Set(COMIC_MECHANISMS.map(mechanism => mechanism.name));
 
+// A small bank of concrete, hand-curated Middle-earth joke pairs per Comic
+// Mechanism. `exemplarShape` above is an abstract pattern; these are actual
+// worked jokes that teach what "the laugh landing" sounds like for this
+// mechanism. They are calibration only — a request samples a rotating
+// subset so the model never converges on the same handful of jokes, and it
+// is explicitly told never to reuse them verbatim.
+export const COMIC_MECHANISM_EXAMPLE_BANK = {
+  "Severity inversion": [
+    { line1: "REPLYING TO ONE TEXT", line2: "BECAME A FULL EXPEDITION." },
+    { line1: "PICKING A DINNER SPOT", line2: "TOOK THE EFFORT OF A SIEGE." },
+    { line1: "THE PRINTER NEEDS PAPER", line2: "THIS IS NOW MOUNT DOOM." },
+  ],
+  "Intent reversal": [
+    { line1: "ME: NO MORE SNACKS.", line2: "ALSO ME: JUST ONE MORE." },
+    { line1: "ME: EARLY BEDTIME TONIGHT.", line2: "ALSO ME: ONE MORE EPISODE." },
+    { line1: "ME: STICKING TO THE LIST.", line2: "ALSO ME: THIS WASN'T ON IT." },
+  ],
+  "Escalating repetition": [
+    { line1: "OPENED ONE BROWSER TAB.", line2: "NOW THERE ARE THIRTY-SEVEN." },
+    { line1: "CHECKED ONE NOTIFICATION.", line2: "SUDDENLY, THE WHOLE FEED." },
+    { line1: "STARTED ONE SMALL PROJECT.", line2: "NOW THE WHOLE HOUSE IS INVOLVED." },
+  ],
+  "Ceremonial setup / petty punchline": [
+    { line1: "LET IT BE KNOWN:", line2: "THE MEETING RAN LONG. AGAIN." },
+    { line1: "BY ORDER OF THE COUNCIL:", line2: "WE ARE OUT OF COFFEE." },
+    { line1: "A GRAVE ANNOUNCEMENT:", line2: "THE WIFI IS DOWN AGAIN." },
+  ],
+  "Literal misread / wordplay": [
+    { line1: "THE SIGN SAID WET FLOOR.", line2: "SO I THANKED IT." },
+    { line1: "IT SAID ONE SIZE FITS ALL.", line2: "IT DID NOT." },
+    { line1: "THE RECIPE SAID A PINCH.", line2: "I ADDED A FISTFUL." },
+  ],
+  "Relationship-specific contradiction": [
+    { line1: "ME: I'LL HANDLE IT ALONE.", line2: "MY FRIEND: ABSOLUTELY NOT." },
+    { line1: "ME: I'M FINE, REALLY.", line2: "MY FRIEND: GRABBING MY COAT." },
+    { line1: "ME: DON'T MAKE A FUSS.", line2: "MY FRIEND: TOO LATE. I CALLED THEM." },
+  ],
+  "Delighted fandom-lawyer correction": [
+    { line1: "WHY NOT USE THE EAGLES?", line2: "OH, LET ME EXPLAIN. HAPPILY." },
+    { line1: "ISN'T THAT JUST A WIZARD?", line2: "SIT DOWN. THIS TAKES A WHILE." },
+    { line1: "COULDN'T THEY WALK FASTER?", line2: "I HAVE A CHART. SEVERAL CHARTS." },
+  ],
+};
+
+function sampleWithoutReplacement(list, count, random = Math.random) {
+  const pool = [...list];
+  const picked = [];
+  while (picked.length < count && pool.length > 0) {
+    const index = Math.floor(random() * pool.length);
+    picked.push(pool.splice(index, 1)[0]);
+  }
+  return picked;
+}
+
+export function comicMechanismExampleBank(name) {
+  return COMIC_MECHANISM_EXAMPLE_BANK[name] ?? [];
+}
+
+export function sampledComicMechanismExamples(name, count = 2, random) {
+  const bank = comicMechanismExampleBank(name);
+  return sampleWithoutReplacement(bank, Math.min(count, bank.length), random);
+}
+
 export const DEFAULT_COMIC_MECHANISMS_BY_FLAVOR = {
   "One Does Not Simply": ["Severity inversion", "Ceremonial setup / petty punchline"],
   "You Shall Not Pass": ["Ceremonial setup / petty punchline", "Severity inversion"],
@@ -341,23 +404,27 @@ export function memeFlavorCatalogPromptDetails() {
   ].join("\n")).join("\n\n");
 }
 
-function comicMechanismPromptDetails(mechanism) {
+function comicMechanismPromptDetails(mechanism, options = {}) {
+  const examples = sampledComicMechanismExamples(mechanism.name, 2, options.random);
   return [
     `Comic Mechanism: ${mechanism.name}`,
     `How the laugh works: ${mechanism.description}`,
     `Selection cues: ${mechanism.selectionCues.join("; ")}.`,
     `Original exemplar shape (do not copy wording): ${mechanism.exemplarShape}`,
+    ...(examples.length
+      ? [`Concrete calibration jokes for craft only — study the turn, then invent a fresh original mutant; never reuse these lines verbatim: ${examples.map(e => `${e.line1} / ${e.line2}`).join(" || ")}`]
+      : []),
     `Avoid: ${mechanism.avoid.join("; ")}.`,
   ].join("\n");
 }
 
-export function resolvedComicMechanismPromptDetails(name) {
+export function resolvedComicMechanismPromptDetails(name, options) {
   const mechanism = COMIC_MECHANISMS.find(candidate => candidate.name === name);
-  return mechanism ? comicMechanismPromptDetails(mechanism) : null;
+  return mechanism ? comicMechanismPromptDetails(mechanism, options) : null;
 }
 
-export function comicMechanismCatalogPromptDetails() {
-  return COMIC_MECHANISMS.map(comicMechanismPromptDetails).join("\n\n");
+export function comicMechanismCatalogPromptDetails(options) {
+  return COMIC_MECHANISMS.map((mechanism) => comicMechanismPromptDetails(mechanism, options)).join("\n\n");
 }
 
 export function defaultComicMechanismsForFlavor(name) {
