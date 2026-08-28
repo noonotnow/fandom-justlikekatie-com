@@ -617,7 +617,7 @@ export const Collection: React.FC<Props> = ({
                 aria-label={card.contentKind === 'middle-earth-meme' ? `View ${card.title || card.vibe} meme larger` : `View ${card.actor} ${card.vibe} result larger`}
                 onClick={() => setExpandedArtifact({ kind: 'card', record: card })}
               >
-                <img src={card.thumbnailUrl} alt="" />
+                <img src={card.media?.thumbnailUrl || card.thumbnailUrl} alt="" />
                 <span>View larger</span>
               </button>
               <div>
@@ -627,6 +627,7 @@ export const Collection: React.FC<Props> = ({
                   : card.vibe}</span>
                 {card.contentKind === 'middle-earth-meme' && card.sourceUrl && <a href={card.sourceUrl} target="_blank" rel="noreferrer">{card.publisher ? `Source: ${card.publisher}` : 'Open original source'}</a>}
                 <small>{card.capturedDate}</small>
+                <small>{card.media ? 'MEDIA-backed' : 'Legacy URL'}</small>
               </div>
               <button
                 type="button"
@@ -677,7 +678,9 @@ export const Collection: React.FC<Props> = ({
             ? `Middle-earth · ${expandedArtifact.record.actor} · saved as-is`
             : `${expandedArtifact.record.vibe} · ${expandedArtifact.record.vibeEn}`}
           images={[{
-            src: expandedArtifact.record.imageUrl || expandedArtifact.record.thumbnailUrl,
+            src: expandedArtifact.record.media?.deliveryUrl
+              || expandedArtifact.record.imageUrl
+              || expandedArtifact.record.thumbnailUrl,
             alt: expandedArtifact.record.title || `${expandedArtifact.record.actor} · ${expandedArtifact.record.vibe}`,
           }]}
           singleImage

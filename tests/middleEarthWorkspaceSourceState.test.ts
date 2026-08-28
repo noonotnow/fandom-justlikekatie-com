@@ -620,6 +620,16 @@ test('Middle-earth saves have a separate collection scope from Vibe Atlas', asyn
     'ambiguous legacy cards must be movable between logical collections without deletion',
   );
   assert.match(
+    collectionSource,
+    /card\.media\?\.thumbnailUrl \|\| card\.thumbnailUrl/,
+    'MEDIA-backed cards must render from their canonical thumbnail before legacy URL fields',
+  );
+  assert.match(
+    collectionSource,
+    /card\.media \? 'MEDIA-backed' : 'Legacy URL'/,
+    'saved cards must expose their recovery status without mutating the record',
+  );
+  assert.match(
     appSource,
     /if \(showCollection\) return <Collection scope="middle-earth" \/>/,
     'MemeForge must route to its own collection instead of the Vibe Atlas collection view',
