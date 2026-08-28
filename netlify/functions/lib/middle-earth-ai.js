@@ -689,20 +689,28 @@ function normalizeCardText(value, memeFlavor) {
   return { format, line1, line2, footer };
 }
 
-function normalizeReactionImageBrief(value, status = 502) {
+function normalizeReactionImageBrief(value, status = 502, { compactVisualRole = false } = {}) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new AppError("reactionImageBrief must be an object.", status);
   }
-  const compact = (candidate, fieldName, maxLength) => {
+  const compact = (candidate, fieldName, maxLength, compactOverflow = false) => {
     if (typeof candidate !== "string" || !candidate.trim()) {
       throw new AppError(`reactionImageBrief.${fieldName} must be a non-empty string.`, status);
     }
     const normalized = candidate.trim();
-    if (normalized.length > maxLength) {
-      throw new AppError(`reactionImageBrief.${fieldName} must be at most ${maxLength} characters.`, status);
-    }
     if (/[\r\n]/u.test(normalized)) {
       throw new AppError(`reactionImageBrief.${fieldName} must be one line.`, status);
+    }
+    if (normalized.length > maxLength) {
+      if (!compactOverflow) {
+        throw new AppError(`reactionImageBrief.${fieldName} must be at most ${maxLength} characters.`, status);
+      }
+      const clipped = normalized.slice(0, maxLength);
+      const wordBoundary = clipped.lastIndexOf(" ");
+      return (wordBoundary >= Math.floor(maxLength * 0.75)
+        ? clipped.slice(0, wordBoundary)
+        : clipped
+      ).trimEnd();
     }
     return normalized;
   };
@@ -744,7 +752,7 @@ function normalizeReactionImageBrief(value, status = 502) {
       MAX_PERFORMED_EMOTIONS,
       MAX_PERFORMED_EMOTION_LEN,
     ),
-    visualRole: compact(value.visualRole, "visualRole", MAX_VISUAL_ROLE_LEN),
+    visualRole: compact(value.visualRole, "visualRole", MAX_VISUAL_ROLE_LEN, compactVisualRole),
   };
   const queryFields = [
     ["socialUseQuery", normalized.socialUseQuery],
@@ -859,7 +867,11 @@ function normalizeTranslationOutput(raw, requestedModel) {
     visualDirection: requireNonempty(clamp(raw.visualDirection, MAX_VISUAL_DIRECTION_LEN), "visualDirection"),
     referenceStillFamily: requireChoice(raw.referenceStillFamily, "referenceStillFamily", REFERENCE_STILL_FAMILY_SET),
     cardText: normalizeCardText(raw.cardText, memeFlavor),
-    reactionImageBrief: normalizeReactionImageBrief(raw.reactionImageBrief),
+    reactionImageBrief: normalizeReactionImageBrief(
+      raw.reactionImageBrief,
+      502,
+      { compactVisualRole: true },
+    ),
     ...(requestedModel ? { model: requestedModel } : {}),
   };
 }

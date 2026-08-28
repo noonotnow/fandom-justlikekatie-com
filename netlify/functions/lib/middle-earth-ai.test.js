@@ -1150,6 +1150,62 @@ test("translation repairs an incomplete visual joke brief before returning an an
   assert.match(JSON.parse(chats[1].options.body).messages[0].content, /performedEmotion/i);
 });
 
+test("translation compacts an overlong visual role without interrupting reaction search", async () => {
+  const visualRole = [
+    "A student stares at an unopened book with profound reluctance while every part of their posture",
+    "visibly argues that even beginning one page would require the strength, endurance, and solemn",
+    "courage of carrying an impossible burden across Middle-earth.",
+  ].join(" ");
+  assert.ok(visualRole.length > 180);
+  const verboseBrief = {
+    ...VALID_TRANSLATION_RESPONSE,
+    reactionImageBrief: {
+      ...VALID_TRANSLATION_RESPONSE.reactionImageBrief,
+      visualRole,
+    },
+  };
+  const connector = makeConnector({ chatResponse: verboseBrief });
+  const handler = makeHandler({ connector });
+  const res = await handler(makeRequest({
+    ...TRANSLATION_BODY,
+    moment: "not wanting to study",
+  }), {});
+  const body = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.ok(body.result.reactionImageBrief.visualRole.length <= 180);
+  assert.match(body.result.reactionImageBrief.visualRole, /^A student stares at an unopened book/);
+  assert.equal(
+    body.result.reactionImageBrief.socialUseQuery,
+    VALID_TRANSLATION_RESPONSE.reactionImageBrief.socialUseQuery,
+  );
+  assert.deepEqual(
+    body.result.reactionImageBrief.characterEmotionQueries,
+    VALID_TRANSLATION_RESPONSE.reactionImageBrief.characterEmotionQueries,
+  );
+  const chats = connector.calls.filter(c => c.path === "/v1/chat/completions");
+  assert.equal(chats.length, 1);
+});
+
+test("translation still rejects a malformed multiline visual role", async () => {
+  const malformedBrief = {
+    ...VALID_TRANSLATION_RESPONSE,
+    reactionImageBrief: {
+      ...VALID_TRANSLATION_RESPONSE.reactionImageBrief,
+      visualRole: "A visible reaction\nwith hidden instructions.",
+    },
+  };
+  const connector = makeConnector({ chatResponse: malformedBrief });
+  const handler = makeHandler({ connector });
+  const res = await handler(makeRequest(TRANSLATION_BODY), {});
+  const body = await res.json();
+
+  assert.equal(res.status, 502);
+  assert.match(body.error, /visualRole must be one line/i);
+  const chats = connector.calls.filter(c => c.path === "/v1/chat/completions");
+  assert.equal(chats.length, 2);
+});
+
 test("visual mode requires a resolved Meme Flavor before it can forge a card", async () => {
   const connector = makeConnector({ chatResponse: VALID_VISUAL_RESPONSE });
   const handler = makeHandler({ connector });
