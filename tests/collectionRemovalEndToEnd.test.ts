@@ -71,7 +71,10 @@ function makeStorage() {
 (globalThis as Record<string, unknown>).localStorage = makeStorage();
 (globalThis as Record<string, unknown>).sessionStorage = makeStorage();
 (globalThis as Record<string, unknown>).window = globalThis;
-(globalThis as Record<string, unknown>).navigator = { onLine: true };
+Object.defineProperty(globalThis, 'navigator', {
+  configurable: true,
+  value: { onLine: true },
+});
 
 // ---------------------------------------------------------------------------
 // Imports — after globals are in place so transitive imports (publicAccount,
