@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   dbGetVisibleCardsByScope,
+  dbReplaceCardImage,
   dbGetVisibleGrids,
   dbSaveCard,
   type CardRecord,
@@ -25,6 +26,7 @@ import {
 import type { IdeaPacket } from '../../utils/ideaPackets';
 import { ArtifactZoomDialog } from '../ArtifactZoomDialog/ArtifactZoomDialog';
 import { GridBuilder } from '../GridBuilder/GridBuilder';
+import { uploadCollectionImage } from '../../utils/collectionMedia';
 import {
   getPublicSession,
   hasMergeDecision,
@@ -292,6 +294,34 @@ export const Collection: React.FC<Props> = ({
       );
     } catch (error) {
       setAccountNotice(messageFrom(error, 'The saved result could not be moved.'));
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  async function registerCardMedia(event: React.ChangeEvent<HTMLInputElement>, card: CardRecord) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!SUPPORTED_MEME_TYPES.has(file.type)) {
+      setAccountNotice('Upload a PNG, JPEG, or WebP image.');
+      return;
+    }
+    if (file.size > MAX_UPLOADED_MEME_BYTES) {
+      setAccountNotice('That image is larger than 8 MB. Choose a smaller image.');
+      return;
+    }
+    setBusyKey(`media:${card.localId || card.imageUrl}`);
+    try {
+      const localId = card.localId || crypto.randomUUID();
+      if (!card.localId) await dbSaveCard({ ...card, localId });
+      const dataUrl = await readFileAsDataUrl(file);
+      const media = await uploadCollectionImage(dataUrl, isMiddleEarth ? 'middle-earth' : 'vibe-atlas', localId);
+      await dbReplaceCardImage(card.imageUrl, media);
+      await loadCollection(user?.accountId);
+      setAccountNotice('The saved result is now backed by a canonical MEDIA reference.');
+    } catch (error) {
+      setAccountNotice(messageFrom(error, 'The image could not be registered in MEDIA.'));
     } finally {
       setBusyKey('');
     }
@@ -632,6 +662,18 @@ export const Collection: React.FC<Props> = ({
                 <small>{card.capturedDate}</small>
                 <small>{card.media ? 'MEDIA-backed' : 'Legacy URL'}</small>
               </div>
+              {!card.media && (
+                <label className={styles.collectionUpload}>
+                  {busyKey === `media:${card.localId || card.imageUrl}` ? 'Registering…' : 'Register replacement in MEDIA'}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    aria-label={`Register a replacement image for ${card.actor} ${card.vibe}`}
+                    disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
+                    onChange={event => void registerCardMedia(event, card)}
+                  />
+                </label>
+              )}
               <button
                 type="button"
                 disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
