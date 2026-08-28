@@ -383,10 +383,15 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     assert.match(download.suggestedFilename(), /friday-fellowship\.png/i);
     await page.getByText('PNG downloaded. No packet was saved.').waitFor();
 
+    await page.getByRole('button', { name: 'Save generated card' }).click();
+    await page.getByRole('button', { name: 'Saved to Collection' }).waitFor();
+    assert.equal(collectionMediaUploads, 2, 'saving a generated card should register its rendered PNG in MEDIA');
+
     await alternateCandidate.click();
     assert.equal(await setupLine.inputValue(), originalSetup);
     assert.equal(await punchlineLine.inputValue(), originalPunchline);
     assert.equal(await alternateCandidate.getAttribute('aria-pressed'), 'true');
+    await page.getByRole('button', { name: 'Save generated card' }).waitFor();
 
     await page.getByRole('button', { name: 'Stage for CREATE' }).click();
     await page.getByText('Idea packet staged. No publish or schedule action was taken.').waitFor();

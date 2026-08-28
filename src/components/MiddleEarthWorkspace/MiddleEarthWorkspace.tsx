@@ -306,7 +306,8 @@ function drawClassicReactionFrame(
 export async function exportMiddleEarthPng(
   draft: MiddleEarthDraft,
   target: HTMLElement,
-): Promise<void> {
+  options: { download?: boolean } = {},
+): Promise<string> {
   if (!target) throw new Error("The live preview is unavailable. Try again.");
   const canvas = document.createElement("canvas");
   canvas.width = 1080;
@@ -338,8 +339,9 @@ export async function exportMiddleEarthPng(
   const isClassicReactionFrame = isStructuredReaction && draft.layout === "Classic top / bottom";
   if (isClassicReactionFrame) {
     drawClassicReactionFrame(context, draft, image);
-    downloadCanvasPng(canvas, draft.title);
-    return;
+    const imageUrl = canvas.toDataURL("image/png");
+    if (options.download !== false) downloadCanvasPng(canvas, draft.title);
+    return imageUrl;
   }
   if (hasImage && image) {
     context.save();
@@ -437,7 +439,9 @@ export async function exportMiddleEarthPng(
   context.textAlign = "center";
   context.font = "500 16px monospace";
   context.fillText("fandom.justlikekatie.com/memeforge/middle-earth", canvas.width / 2, canvas.height - 8);
-  downloadCanvasPng(canvas, draft.title);
+  const imageUrl = canvas.toDataURL("image/png");
+  if (options.download !== false) downloadCanvasPng(canvas, draft.title);
+  return imageUrl;
 }
 
 function wrapCanvasText(context: CanvasRenderingContext2D, value: string, maxWidth: number): string[] {
@@ -576,6 +580,10 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     });
     return () => { current = false; };
   }, [isExistingMemeAsIs, selected]);
+
+  useEffect(() => {
+    if (isEditorRequired) setCollectionSaved(false);
+  }, [isEditorRequired, title, text, secondaryText, layout, selected, visualGeneration]);
 
   const clearReactionGrounding = () => {
     archiveSearchRequestGate.invalidate();
@@ -1110,6 +1118,51 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     }
   };
 
+  const saveGeneratedMeme = async () => {
+    if (!isEditorRequired || !previewNode) {
+      setError("The generated card preview is unavailable. Try again.");
+      return;
+    }
+    setBusy(true); setStatus("Rendering and saving your generated card…"); setError("");
+    try {
+      const imageUrl = await exportMiddleEarthPng(draft, previewNode, { download: false });
+      const localId = crypto.randomUUID();
+      await dbSaveCard({
+        localId,
+        imageUrl,
+        thumbnailUrl: imageUrl,
+        resultId: `generated-${localId}`,
+        ...(selected?.url ? { sourceUrl: selected.url } : {}),
+        actor: resolvedCharacter.trim() || "Middle-earth",
+        actorEn: resolvedCharacter.trim() || "Middle-earth",
+        vibe: title.trim() || cardFormat || "Generated Middle-earth card",
+        vibeEn: "Generated MemeForge card",
+        vibeEmoji: "🧙",
+        capturedDate: new Date().toISOString().slice(0, 10),
+        contentKind: "middle-earth-meme",
+        title: title.trim() || cardFormat || "Generated Middle-earth card",
+        ...(selected?.publisher ? { publisher: selected.publisher } : {}),
+        ...(selected?.query ? { searchQuery: selected.query } : {}),
+        sourceRoute: "/memeforge/middle-earth",
+      });
+      const session = await getPublicSession();
+      const registeredInMedia = Boolean(session && await shouldSyncCollection(session.accountId));
+      if (session && registeredInMedia) {
+        await syncPublicCollection(session);
+      } else {
+        schedulePublicCollectionSync();
+      }
+      setCollectionSaved(true);
+      setStatus(registeredInMedia
+        ? "Generated card saved to the Middle-earth Collection and registered in MEDIA."
+        : "Generated card saved to the Middle-earth Collection on this device. Sign in and merge this device to register it in MEDIA.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "The generated card could not be saved.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const savePacket = async () => {
     if (!isAdmin) return;
     if (!text.trim() || !secondaryText.trim()) {
@@ -1482,7 +1535,9 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
             {isEditorRequired && <button className={styles.export} onClick={() => void exportPng()} disabled={busy}>{busy ? "Working…" : "Export PNG"}</button>}
             {isExistingMemeAsIs && <button className={styles.export} onClick={() => void exportPng()} disabled={busy}>{busy ? "Working…" : "Export original meme"}</button>}
             {isExistingMemeAsIs && <button className={styles.save} onClick={() => void saveExistingMeme()} disabled={busy || collectionSaved}>{collectionSaved ? "Saved to Collection" : "Save to Collection"}</button>}
+            {isEditorRequired && <button className={styles.save} onClick={() => void saveGeneratedMeme()} disabled={busy || collectionSaved}>{collectionSaved ? "Saved to Collection" : "Save generated card"}</button>}
             {isExistingMemeAsIs && collectionSaved && <a className={styles.stagingLink} href="/memeforge/middle-earth?view=collection">Open Collection</a>}
+            {isEditorRequired && collectionSaved && <a className={styles.stagingLink} href="/memeforge/middle-earth?view=collection">Open Collection</a>}
             {isEditorRequired && (isAdmin
               ? <button className={styles.save} onClick={() => void savePacket()} disabled={busy}>Stage for CREATE</button>
               : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in through packet staging</a>)}

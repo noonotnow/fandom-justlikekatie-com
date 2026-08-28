@@ -634,6 +634,22 @@ test('an existing meme can be saved to the shared collection without generated c
   assert.doesNotMatch(saveExistingMeme, /visualGeneration|text\.trim|secondaryText\.trim/);
 });
 
+test('a generated MemeForge card can be rendered and saved directly to Collection', async () => {
+  const source = await readFile(
+    new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
+    'utf8',
+  );
+  const saveGeneratedMeme = source.slice(
+    source.indexOf('const saveGeneratedMeme ='),
+    source.indexOf('const savePacket =', source.indexOf('const saveGeneratedMeme =')),
+  );
+  assert.match(saveGeneratedMeme, /exportMiddleEarthPng\(draft, previewNode, \{ download: false \}\)/);
+  assert.match(saveGeneratedMeme, /await dbSaveCard\(\{/);
+  assert.match(saveGeneratedMeme, /contentKind: "middle-earth-meme"/);
+  assert.match(saveGeneratedMeme, /syncPublicCollection\(session\)/);
+  assert.match(source, /"Save generated card"/);
+});
+
 test('resolved comic mechanism survives visual grounding and packet staging', async () => {
   const source = await readFile(
     new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),

@@ -569,7 +569,9 @@ export const Collection: React.FC<Props> = ({
               </button>
               <div>
                 <strong>{card.vibeEmoji} {card.contentKind === 'middle-earth-meme' ? card.title || card.vibe : card.actor}</strong>
-                <span>{card.contentKind === 'middle-earth-meme' ? `Middle-earth · ${card.actor} · saved as-is` : card.vibe}</span>
+                <span>{card.contentKind === 'middle-earth-meme'
+                  ? `Middle-earth · ${card.actor} · ${card.resultId?.startsWith('generated-') ? 'generated in MemeForge' : 'saved as-is'}`
+                  : card.vibe}</span>
                 {card.contentKind === 'middle-earth-meme' && card.sourceUrl && <a href={card.sourceUrl} target="_blank" rel="noreferrer">{card.publisher ? `Source: ${card.publisher}` : 'Open original source'}</a>}
                 <small>{card.capturedDate}</small>
               </div>
