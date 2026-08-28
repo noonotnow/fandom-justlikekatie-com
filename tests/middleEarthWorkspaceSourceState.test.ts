@@ -385,7 +385,7 @@ test('emotion comparisons survive a full social-result gallery before the displa
   );
 });
 
-test('reaction images stay behind translation and source selection requires a reforge', async () => {
+test('new and reworked cards require translation while unchanged memes can search directly', async () => {
   const source = await readFile(
     new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
     'utf8',
@@ -393,8 +393,13 @@ test('reaction images stay behind translation and source selection requires a re
 
   assert.match(
     source,
-    /\{translation \? <>[\s\S]*?<form className=\{styles\.searchForm\} onSubmit=\{search\}>[\s\S]*?Search existing memes[\s\S]*?Search clean reaction stills[\s\S]*?<\/form>[\s\S]*?<\/> : <div className=\{styles\.sourceNote\}>Translate the moment first to find its reaction-image candidates\.<\/div>\}/,
-    'reaction image search must be rendered only after a moment has been translated',
+    /\{translation \|\| !isEditorRequired \? <>[\s\S]*?<form className=\{styles\.searchForm\} onSubmit=\{search\}>[\s\S]*?Search existing memes[\s\S]*?Search clean reaction stills[\s\S]*?<\/form>[\s\S]*?<\/> : <div className=\{styles\.sourceNote\}>Translate the moment first to find its reaction-image candidates\.<\/div>\}/,
+    'unchanged memes may search directly while editor-backed paths must translate first',
+  );
+  assert.match(
+    source,
+    /\{isEditorRequired \? \([\s\S]*?<section className=\{styles\.momentPrompt\}[\s\S]*?\) : \([\s\S]*?Translation bypassed[\s\S]*?The joke is already in the image\./,
+    'the unchanged path must visibly bypass translation instead of presenting irrelevant controls',
   );
 
   const translationResult = source.slice(
@@ -500,17 +505,38 @@ test('reaction images stay behind translation and source selection requires a re
   );
 });
 
-test('source treatment supports clean-still forging, existing-meme rework, and direct grab', async () => {
+test('source treatment supports clean-still forging, existing-meme rework, and unchanged export', async () => {
   const source = await readFile(
     new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
     'utf8',
   );
 
   assert.match(source, /New card from a clean still/);
-  assert.match(source, /Browse existing memes/);
+  assert.match(source, /Rework an existing meme/);
+  assert.match(source, /Use an existing meme/);
   assert.match(
     source,
-    /setQuery\(\[resolvedCharacter, moment\.trim\(\), "meme"\]/,
+    /onClick=\{\(\) => chooseSourcePath\("new-image"\)\}[\s\S]*?onClick=\{\(\) => chooseSourcePath\("rework-existing"\)\}[\s\S]*?onClick=\{\(\) => chooseSourcePath\("existing-meme"\)\}/,
+    'each visible decision path must route through one explicit source-path controller',
+  );
+  assert.match(
+    source,
+    /const isEditorRequired = sourcePath !== "existing-meme"/,
+    'the selected path must explicitly control whether the editor is required',
+  );
+  assert.match(
+    source,
+    /\{!isEditorRequired && activeStep === "forge" \? \([\s\S]*?Editor bypassed[\s\S]*?Switch to rework and open the editor[\s\S]*?\) : \([\s\S]*?<div className=\{styles\.editorPanel\}>/,
+    'unchanged memes must bypass the editor while offering an explicit route into rework',
+  );
+  assert.match(
+    source,
+    /disabled=\{busy \|\| !isEditorRequired\}>2\. Rednote Spellbook/,
+    'the copy editor must remain unavailable when an unchanged source needs no editing',
+  );
+  assert.match(
+    source,
+    /setQuery\(moment\.trim\(\)[\s\S]*?\[resolvedCharacter, moment\.trim\(\), "meme"\]/,
     'existing-meme search may intentionally use the personal moment',
   );
   assert.match(
@@ -520,14 +546,54 @@ test('source treatment supports clean-still forging, existing-meme rework, and d
   );
   assert.match(
     source,
-    /reactionSearchMode === "existing-meme" && <a href=\{selected\.thumbnail\} target="_blank" rel="noreferrer">Grab existing meme image<\/a>/,
-    'an existing meme must also be directly accessible without forcing a reforge',
+    /setSourceTreatment\(nextMode === "existing-meme" \? "as-is" : "new-overlay"\)/,
+    'existing-meme searches must default to unchanged use rather than an overlay',
+  );
+  assert.match(
+    source,
+    /if \(isExistingMemeAsIs && selected\) \{[\s\S]*?await downloadExistingMeme\(selected\);[\s\S]*?return;[\s\S]*?if \(!previewNode\)/,
+    'as-is export must branch before the generated 4:5 canvas renderer',
+  );
+  assert.match(
+    source,
+    /const response = await fetch\(asset\.thumbnail,[\s\S]*?const blob = await response\.blob\(\);[\s\S]*?URL\.createObjectURL\(blob\)/,
+    'unchanged export must download the proxied source bytes directly',
+  );
+  assert.match(
+    source,
+    /if \(reactionSearchMode === "existing-meme" && sourceTreatment === "as-is"\) \{[\s\S]*?Choose Rework in MemeForge before forging a new overlay card\.[\s\S]*?return;/,
+    'the forge action must not silently turn an as-is selection into a rework',
+  );
+  assert.match(
+    source,
+    /disabled=\{busy \|\| !translation \|\| isExistingMemeAsIs\}/,
+    'the forge control must stay disabled until Rework is explicitly selected',
   );
   assert.match(
     source,
     /<a href=\{selected\.url\} target="_blank" rel="noreferrer">Open original source<\/a>/,
     'both treatments must preserve the attributed source link',
   );
+});
+
+test('an existing meme can be saved to the shared collection without generated copy', async () => {
+  const source = await readFile(
+    new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
+    'utf8',
+  );
+
+  const saveExistingMeme = source.slice(
+    source.indexOf('const saveExistingMeme ='),
+    source.indexOf('const savePacket =', source.indexOf('const saveExistingMeme =')),
+  );
+  assert.match(saveExistingMeme, /if \(!selected \|\| !isExistingMemeAsIs\) return;/);
+  assert.match(saveExistingMeme, /await dbSaveCard\(\{/);
+  assert.match(saveExistingMeme, /contentKind: "middle-earth-meme"/);
+  assert.match(saveExistingMeme, /sourceUrl: selected\.url/);
+  assert.match(saveExistingMeme, /publisher: selected\.publisher/);
+  assert.match(saveExistingMeme, /searchQuery: selected\.query/);
+  assert.match(saveExistingMeme, /schedulePublicCollectionSync\(\)/);
+  assert.doesNotMatch(saveExistingMeme, /visualGeneration|text\.trim|secondaryText\.trim/);
 });
 
 test('resolved comic mechanism survives visual grounding and packet staging', async () => {

@@ -199,6 +199,25 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     });
 
     await page.goto(`${origin}/memeforge/middle-earth`);
+    const newImagePath = page.getByRole('button', { name: /^01 New image/ });
+    const reworkPath = page.getByRole('button', { name: /^02 Rework an existing meme/ });
+    const unchangedPath = page.getByRole('button', { name: /^03 Use an existing meme/ });
+    await newImagePath.waitFor();
+    assert.equal(await reworkPath.isVisible(), true, 'the rework pathway should be explicit before translation');
+    assert.equal(await unchangedPath.isVisible(), true, 'the unchanged pathway should be explicit before translation');
+
+    await unchangedPath.click();
+    await page.getByText('The joke is already in the image.').waitFor();
+    assert.equal(await page.getByLabel('The moment').count(), 0, 'unchanged memes should bypass translation');
+    assert.equal(await page.getByText('This path preserves the finished meme exactly.').isVisible(), true);
+    assert.equal(
+      await page.getByRole('button', { name: /^2\. Rednote Spellbook/ }).isDisabled(),
+      true,
+      'Spellbook should be disabled when the selected path has no editor',
+    );
+    assert.equal(await page.getByLabel('Search existing memes').isVisible(), true);
+
+    await newImagePath.click();
     await page.getByLabel('The moment').fill('Not wanting to go to work on Friday');
     await page.getByRole('button', { name: 'Translate moment' }).click();
 

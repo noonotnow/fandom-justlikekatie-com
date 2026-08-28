@@ -190,42 +190,43 @@ function VibeAtlasApp() {
   };
 
   return (
-    <div className="app">
+    <div className="app fandom-atlas-page">
       <ThemeToggle isDark={isDark} onToggle={toggleDarkMode} />
 
       {/* Navigation bar */}
-      <nav className="flex flex-wrap justify-center gap-6 pt-4 pb-2 border-b border-gray-200 dark:border-gray-700">
-        <a className="fandom-home-link" href="/">Fandom tools</a>
-        <button
-          onClick={() => setView('daily')}
-          className={`pb-2 text-sm tracking-wide transition-colors ${
-            view === 'daily'
-              ? 'border-b-2 border-gold text-gold font-semibold'
-              : 'text-gray-500'
-          }`}
-        >
-          今日之星 · Daily
-        </button>
-        <button
-          onClick={() => setView('collection')}
-          className={`pb-2 text-sm tracking-wide transition-colors ${
-            view === 'collection'
-              ? 'border-b-2 border-gold text-gold font-semibold'
-              : 'text-gray-500'
-          }`}
-        >
-          我的收藏 · Collection
-        </button>
+      <nav className="fandom-universe-nav" aria-label="Fandom Vibes navigation">
+        <a className="fandom-universe-brand" href="/">
+          <span className="fandom-universe-mark">FV</span>
+          <span><strong>Fandom Vibes</strong><small>Worldbuilding launchpad</small></span>
+        </a>
+        <div className="fandom-universe-tools">
+          <span className="fandom-universe-current">Current universe</span>
+          <a className="fandom-tool-link fandom-tool-link--active" href="/vibe-atlas">
+            <strong>Vibe Atlas</strong><small>C-drama atmosphere</small>
+          </a>
+        </div>
+        <div className="fandom-atlas-nav">
+          <button
+            aria-label="今日之星 · Daily"
+            onClick={() => setView('daily')}
+            className={view === 'daily' ? 'fandom-atlas-nav__active' : ''}
+          >
+            <span>Daily edition</span><small>今日之星</small>
+          </button>
+          <button
+            aria-label="我的收藏 · Collection"
+            onClick={() => setView('collection')}
+            className={view === 'collection' ? 'fandom-atlas-nav__active' : ''}
+          >
+            <span>Collection</span><small>我的收藏</small>
+          </button>
+        </div>
         {isAdmin && (
           <button
             onClick={() => setView('plan')}
-            className={`pb-2 text-sm tracking-wide transition-colors ${
-              view === 'plan'
-                ? 'border-b-2 border-gold text-gold font-semibold'
-                : 'text-gray-500'
-            }`}
+            className={`fandom-atlas-admin-link ${view === 'plan' ? 'fandom-atlas-admin-link--active' : ''}`}
           >
-            Fandom Admin
+            <span>Admin</span><small>Packets</small>
           </button>
         )}
         {isAdmin && (
@@ -241,23 +242,26 @@ function VibeAtlasApp() {
 
       {view === 'daily' ? (
         <>
-      <header className="text-center py-12 px-4">
-        <h1 className="text-5xl md:text-6xl font-bold text-gold mb-4">
-          Vibe Atlas — 氛围图鉴
-        </h1>
-        <p className="text-xl md:text-2xl text-gray-600 dark:text-gray-400 font-light tracking-wide">
-          Too wrong to discard. Too iconic to ignore.
-        </p>
+      <header className="atlas-hero">
+        <div className="atlas-hero__eyebrow"><span>Fandom Vibes / studio 01</span><i /></div>
+        <div className="atlas-hero__title-row">
+          <div>
+            <p className="atlas-hero__universe">A C-drama worldbuilding instrument</p>
+            <h1>Vibe Atlas <span>氛围图鉴</span></h1>
+          </div>
+          <p className="atlas-hero__thesis">Too wrong to discard.<br /><em>Too iconic to ignore.</em></p>
+        </div>
+        <p className="atlas-hero__intro">Compose the emotional weather of the day: a living grid of faces, textures, and tiny signals from the C-drama worlds you keep returning to.</p>
         {meta && (
-          <div className="mt-4">
-            <div className="text-2xl font-semibold text-gold-text">
+          <div className="atlas-edition">
+            <div className="atlas-edition__name">
               {meta.vibeEmoji} {meta.actorName} · {meta.vibeLabel}
             </div>
-            <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+            <div className="atlas-edition__subline">
               {meta.vibeLabelEn} — {meta.vibeSubtitleEn}
             </div>
             {meta.stale && (
-              <div className="text-xs text-amber-500 mt-1">
+              <div className="atlas-edition__stale">
                 ⏳ Showing yesterday's picks while today's grid builds
               </div>
             )}

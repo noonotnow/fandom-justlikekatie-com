@@ -1,11 +1,12 @@
 ---
-name: Fandom Vibe Atlas product context
-description: What this product actually is vs. what the design docs describe; single-user goals and repo boundaries.
+name: Fandom Vibes product context
+description: The umbrella universe, its specialized fandom studios, single-user goals, and repo boundaries.
 ---
 
-# Fandom Vibe Atlas product context
+# Fandom Vibes product context
 
-- **Real product:** solo-operated Netlify app (React/Vite + Netlify Functions + Blobs) making curated 3×3 CDRAMA-actor image grids via "vibe spells" for Rednote sharing. Single owner/operator.
+- **Umbrella identity:** Fandom Vibes is the growing worldbuilding universe and launchpad; Vibe Atlas is the specialized C-drama atmosphere/grid studio, and MemeForge is the Middle-earth reaction studio. **Why:** the app now hosts multiple fandom tools and must leave room for future universes without making every experience look like Vibe Atlas. **How to apply:** shared navigation and launch surfaces lead with Fandom Vibes; each workbench keeps its own fandom, purpose, and visual character.
+- **Operating context:** solo-operated Netlify app (React/Vite + Netlify Functions + Blobs). Vibe Atlas makes curated 3×3 C-drama actor image grids via "vibe spells" for Rednote sharing; MemeForge handles Middle-earth reaction craft. Single owner/operator.
 - **Rule:** the uploaded "Vibe Atlas Unified System Design" docs (v1.0/v1.5, sprint breakdown) describe an aspirational multi-user platform (Postgres/Redis/Elasticsearch, Connect Hub, promo detection). Do NOT build to that spec. **Why:** owner confirmed the docs lag the real product and the goal is low-activation-energy single-user workflow. **How to apply:** judge all work by "minutes from opening app to a Rednote-ready share card," not platform metrics.
 - **Repo boundary:** CREATE remains the broader post-production studio, but Fandom owns the complete Middle-earth flow: MemeForge visual-object copy, the grounded Rednote Spellbook package, exact-copy approval, and canonical CREATE handoff.
 - **Middle-earth creative grammar:** Character = emotional anchor; Meme Flavor = social/joke archetype; Comic Mechanism = setup-to-punchline turn; Aesthetic = treatment; Artifact Type = intended object. **Why:** this keeps recognizable fandom language without copying raw templates or mistaking a feeling for a joke. **How to apply:** all five inputs must ground AI, staleness, persistence, rendering, and handoff; the selected source remains the factual/provenance anchor.

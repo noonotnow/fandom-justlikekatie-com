@@ -438,6 +438,39 @@ test("collection sync is idempotent, URL-independent, cursor-based, and tombston
   assert.equal(removed.tombstones[0].id, id);
 });
 
+test("collection sync preserves attributed Middle-earth meme metadata", async () => {
+  const store = memoryStore();
+  const item = {
+    kind: "card",
+    contentKind: "middle-earth-meme",
+    imageUrl: "/.netlify/functions/image-proxy?url=https%3A%2F%2Fimages.example%2Fgandalf.jpg",
+    thumbnailUrl: "/.netlify/functions/image-proxy?url=https%3A%2F%2Fimages.example%2Fgandalf.jpg",
+    resultId: "gandalf-meme-1",
+    sourceUrl: "https://publisher.example/gandalf",
+    title: "Gandalf reaction meme",
+    publisher: "Example publisher",
+    searchQuery: "Gandalf Friday meme",
+    sourceRoute: "/memeforge/middle-earth",
+  };
+  const response = await syncCollection(store, "usr_test", {
+    schemaVersion: 1,
+    clientId: "device-a",
+    cursor: 0,
+    operations: [{
+      type: "upsert",
+      mutationId: "middle-earth-meme-upsert",
+      localId: "middle-earth-meme-local",
+      item,
+    }],
+  });
+
+  assert.equal(response.items[0].contentKind, "middle-earth-meme");
+  assert.equal(response.items[0].sourceUrl, item.sourceUrl);
+  assert.equal(response.items[0].publisher, item.publisher);
+  assert.equal(response.items[0].searchQuery, item.searchQuery);
+  assert.equal(response.items[0].sourceRoute, item.sourceRoute);
+});
+
 test("grid sync preserves artifact identity across devices", async () => {
   const store = memoryStore();
   const item = {

@@ -461,19 +461,20 @@ export const Collection: React.FC<Props> = ({
       ) : (
         <section className={styles.savedResults} aria-label="Saved results">
           {displayedCards.map(card => (
-            <article key={card.imageUrl}>
+            <article key={card.imageUrl} className={card.contentKind === 'middle-earth-meme' ? styles.memeResult : undefined}>
               <button
                 type="button"
                 className={styles.resultPreviewButton}
-                aria-label={`View ${card.actor} ${card.vibe} result larger`}
+                aria-label={card.contentKind === 'middle-earth-meme' ? `View ${card.title || card.vibe} meme larger` : `View ${card.actor} ${card.vibe} result larger`}
                 onClick={() => setExpandedArtifact({ kind: 'card', record: card })}
               >
                 <img src={card.thumbnailUrl} alt="" />
                 <span>View larger</span>
               </button>
               <div>
-                <strong>{card.vibeEmoji} {card.actor}</strong>
-                <span>{card.vibe}</span>
+                <strong>{card.vibeEmoji} {card.contentKind === 'middle-earth-meme' ? card.title || card.vibe : card.actor}</strong>
+                <span>{card.contentKind === 'middle-earth-meme' ? `Middle-earth · ${card.actor} · saved as-is` : card.vibe}</span>
+                {card.contentKind === 'middle-earth-meme' && card.sourceUrl && <a href={card.sourceUrl} target="_blank" rel="noreferrer">{card.publisher ? `Source: ${card.publisher}` : 'Open original source'}</a>}
                 <small>{card.capturedDate}</small>
               </div>
               <button
@@ -507,14 +508,20 @@ export const Collection: React.FC<Props> = ({
       )}
       {expandedArtifact?.kind === 'card' && (
         <ArtifactZoomDialog
-          title={`${expandedArtifact.record.vibeEmoji} ${expandedArtifact.record.actor}`}
-          subtitle={`${expandedArtifact.record.vibe} · ${expandedArtifact.record.vibeEn}`}
+          title={expandedArtifact.record.contentKind === 'middle-earth-meme'
+            ? `${expandedArtifact.record.vibeEmoji} ${expandedArtifact.record.title || expandedArtifact.record.vibe}`
+            : `${expandedArtifact.record.vibeEmoji} ${expandedArtifact.record.actor}`}
+          subtitle={expandedArtifact.record.contentKind === 'middle-earth-meme'
+            ? `Middle-earth · ${expandedArtifact.record.actor} · saved as-is`
+            : `${expandedArtifact.record.vibe} · ${expandedArtifact.record.vibeEn}`}
           images={[{
             src: expandedArtifact.record.imageUrl || expandedArtifact.record.thumbnailUrl,
-            alt: `${expandedArtifact.record.actor} · ${expandedArtifact.record.vibe}`,
+            alt: expandedArtifact.record.title || `${expandedArtifact.record.actor} · ${expandedArtifact.record.vibe}`,
           }]}
           singleImage
-          footer={formatDate(expandedArtifact.record.capturedDate)}
+          footer={expandedArtifact.record.contentKind === 'middle-earth-meme'
+            ? `${expandedArtifact.record.publisher || 'Publisher unknown'} · Rights status unknown · ${formatDate(expandedArtifact.record.capturedDate)}`
+            : formatDate(expandedArtifact.record.capturedDate)}
           onClose={() => setExpandedArtifact(null)}
         />
       )}

@@ -104,6 +104,28 @@ test('saved grids sync as first-class artifacts without flattening their source 
   assert.equal(operations.filter(operation => operation.type === 'upsert').length, 2);
 });
 
+test('saved Middle-earth memes keep attribution and treatment metadata through card sync', () => {
+  const meme: CardRecord = {
+    ...card(2),
+    contentKind: 'middle-earth-meme',
+    title: 'Gandalf reaction meme',
+    publisher: 'Example publisher',
+    searchQuery: 'Gandalf Friday meme',
+    sourceUrl: 'https://publisher.example/gandalf',
+    sourceRoute: '/memeforge/middle-earth',
+  };
+  const operation = buildSyncOperations([meme], state(), 'account-a')
+    .find(candidate => candidate.localId === meme.localId);
+  const item = operation?.item as Record<string, unknown>;
+
+  assert.equal(item.contentKind, 'middle-earth-meme');
+  assert.equal(item.title, 'Gandalf reaction meme');
+  assert.equal(item.publisher, 'Example publisher');
+  assert.equal(item.searchQuery, 'Gandalf Friday meme');
+  assert.equal(item.sourceUrl, 'https://publisher.example/gandalf');
+  assert.equal(item.sourceRoute, '/memeforge/middle-earth');
+});
+
 test('Lightbox save and remove schedule account-aware synchronization', async () => {
   const source = await readFile(new URL('../src/components/Lightbox/Lightbox.tsx', import.meta.url), 'utf8');
   assert.match(source, /import \{ schedulePublicCollectionSync \}/);

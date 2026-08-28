@@ -192,6 +192,7 @@
   cursor: zoom-in;
 }
 .resultPreviewButton img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; transition: transform 180ms ease; }
+.memeResult .resultPreviewButton img { aspect-ratio: 4 / 3; object-fit: contain; }
 .resultPreviewButton span {
   position: absolute;
   inset-inline-end: 10px;
@@ -214,6 +215,7 @@
 .savedResults strong, .savedResults span, .savedResults small { display: block; }
 .savedResults span { margin-top: 4px; color: color-mix(in srgb, currentColor 62%, transparent); font-size: .8rem; }
 .savedResults small { margin-top: 6px; color: color-mix(in srgb, currentColor 48%, transparent); }
+.savedResults a { display:block; margin-top:7px; color:#9a7435; font-size:.72rem; font-weight:700; text-underline-offset:2px; }
 .savedResults > article > button:not(.resultPreviewButton) { width: calc(100% - 20px); margin: 0 10px 10px; }
 
 .empty { padding: 80px 20px; text-align: center; color: color-mix(in srgb, currentColor 58%, transparent); }

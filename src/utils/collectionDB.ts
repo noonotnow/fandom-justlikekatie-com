@@ -21,6 +21,11 @@ export interface CardRecord {
   savedAt?: string;
   resultId?: string;
   sourceUrl?: string;
+  contentKind?: 'middle-earth-meme';
+  title?: string;
+  publisher?: string;
+  searchQuery?: string;
+  sourceRoute?: string;
   gridContext?: {
     batchKey?: string;
     position: number;
@@ -305,6 +310,11 @@ export function buildSyncOperations(
           capturedDate: card.capturedDate,
           savedAt: card.savedAt,
           gridContext: card.gridContext,
+          contentKind: card.contentKind,
+          title: card.title,
+          publisher: card.publisher,
+          searchQuery: card.searchQuery,
+          sourceRoute: card.sourceRoute,
         },
       };
     })

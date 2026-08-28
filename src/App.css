@@ -4,6 +4,273 @@
   padding: 2rem;
 }
 
+.fandom-atlas-page {
+  max-width: 1320px;
+  padding: 1.25rem clamp(1rem, 3vw, 3rem) 4rem;
+  color: #242d34;
+}
+
+.fandom-universe-nav {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) auto minmax(300px, 1.4fr) auto;
+  align-items: center;
+  gap: 1.4rem;
+  min-height: 58px;
+  border-bottom: 1px solid rgba(36, 45, 52, .16);
+}
+
+.fandom-universe-brand,
+.fandom-tool-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.fandom-universe-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: .7rem;
+}
+
+.fandom-universe-mark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #263e40;
+  color: #f5f0e8;
+  font: 600 .68rem "DM Mono", monospace;
+  letter-spacing: .08em;
+}
+
+.fandom-universe-brand strong,
+.fandom-tool-link strong {
+  display: block;
+  font: 600 1rem "Fraunces", serif;
+  letter-spacing: -.02em;
+}
+
+.fandom-universe-brand small,
+.fandom-tool-link small {
+  display: block;
+  margin-top: .12rem;
+  color: #7a817e;
+  font: 500 .58rem "DM Mono", monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.fandom-universe-tools {
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+}
+
+.fandom-universe-current {
+  color: #92958d;
+  font: 500 .58rem "DM Mono", monospace;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.fandom-tool-link {
+  padding-left: .8rem;
+  border-left: 1px solid rgba(36, 45, 52, .18);
+}
+
+.fandom-tool-link--active strong { color: #b35f49; }
+
+.fandom-atlas-nav {
+  display: flex;
+  justify-content: center;
+  gap: .25rem;
+}
+
+.fandom-atlas-nav button,
+.fandom-atlas-admin-link {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: #7a817e;
+  padding: .65rem .75rem .55rem;
+  font: 600 .7rem "Manrope", sans-serif;
+  text-align: left;
+}
+
+.fandom-atlas-nav button span,
+.fandom-atlas-nav button small,
+.fandom-atlas-admin-link span,
+.fandom-atlas-admin-link small {
+  display: block;
+}
+
+.fandom-atlas-nav button small,
+.fandom-atlas-admin-link small {
+  margin-top: .18rem;
+  color: #a3a49d;
+  font: 500 .55rem "DM Mono", monospace;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.fandom-atlas-nav button:hover,
+.fandom-atlas-nav button:focus-visible,
+.fandom-atlas-nav button.fandom-atlas-nav__active,
+.fandom-atlas-admin-link--active {
+  border-bottom-color: #c96d54;
+  color: #263e40;
+}
+
+.fandom-atlas-admin-link { justify-self: end; }
+
+.atlas-hero {
+  padding: clamp(3.5rem, 8vw, 7rem) 0 clamp(2.5rem, 5vw, 5rem);
+}
+
+.atlas-hero__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  color: #b35f49;
+  font: 500 .62rem "DM Mono", monospace;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.atlas-hero__eyebrow i {
+  width: 6rem;
+  height: 1px;
+  background: #d3ae62;
+}
+
+.atlas-hero__title-row {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 2rem;
+  margin-top: 1.4rem;
+}
+
+.atlas-hero__universe {
+  margin: 0 0 .8rem;
+  color: #8b918b;
+  font: 500 .7rem "DM Mono", monospace;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.atlas-hero h1 {
+  margin: 0;
+  color: #263e40;
+  font: 600 clamp(3.3rem, 8vw, 7.7rem)/.82 "Fraunces", serif;
+  letter-spacing: -.075em;
+}
+
+.atlas-hero h1 span {
+  color: #b35f49;
+  font-size: .58em;
+  font-weight: 500;
+  letter-spacing: -.06em;
+}
+
+.atlas-hero__thesis {
+  margin: 0 0 .4rem;
+  color: #76817f;
+  font: 500 clamp(.8rem, 1.5vw, 1.1rem)/1.25 "Manrope", sans-serif;
+  text-align: right;
+}
+
+.atlas-hero__thesis em {
+  color: #b35f49;
+  font-family: "Fraunces", serif;
+  font-size: 1.2em;
+}
+
+.atlas-hero__intro {
+  max-width: 510px;
+  margin: 2rem 0 0 12%;
+  color: #687371;
+  font-size: .88rem;
+  line-height: 1.7;
+}
+
+.atlas-edition {
+  max-width: 760px;
+  margin: 3.5rem 0 0 12%;
+  padding: 1rem 1.15rem;
+  border-left: 3px solid #d3ae62;
+  background: rgba(211, 174, 98, .1);
+}
+
+.atlas-edition__name {
+  color: #263e40;
+  font: 600 1.3rem "Fraunces", serif;
+}
+
+.atlas-edition__subline {
+  margin-top: .25rem;
+  color: #74807d;
+  font-size: .76rem;
+}
+
+.atlas-edition__stale {
+  margin-top: .5rem;
+  color: #a26b30;
+  font-size: .68rem;
+}
+
+.dark .fandom-atlas-page { color: #ece7dd; }
+.dark .fandom-universe-nav { border-bottom-color: rgba(236, 231, 221, .14); }
+.dark .fandom-universe-mark { background: #b35f49; color: #171619; }
+.dark .fandom-universe-brand small,
+.dark .fandom-tool-link small,
+.dark .fandom-universe-current,
+.dark .fandom-atlas-nav button,
+.dark .fandom-atlas-admin-link { color: #9b9b9b; }
+.dark .fandom-tool-link { border-left-color: rgba(236, 231, 221, .18); }
+.dark .fandom-tool-link--active strong { color: #e18a70; }
+.dark .fandom-atlas-nav button:hover,
+.dark .fandom-atlas-nav button:focus-visible,
+.dark .fandom-atlas-nav button.fandom-atlas-nav__active,
+.dark .fandom-atlas-admin-link--active { color: #f2e9dc; }
+.dark .atlas-hero h1 { color: #b9d4d1; }
+.dark .atlas-hero h1 span,
+.dark .atlas-hero__thesis em { color: #e18a70; }
+.dark .atlas-hero__universe,
+.dark .atlas-hero__intro,
+.dark .atlas-hero__thesis,
+.dark .atlas-edition__subline { color: #a4a4a5; }
+.dark .atlas-edition { background: rgba(211, 174, 98, .09); }
+.dark .atlas-edition__name { color: #f0e8dc; }
+
+@media (max-width: 800px) {
+  .fandom-universe-nav {
+    grid-template-columns: 1fr auto;
+    gap: .7rem;
+    padding-bottom: .6rem;
+  }
+
+  .fandom-universe-tools { grid-column: 1 / -1; grid-row: 2; }
+  .fandom-universe-current { display: none; }
+  .fandom-atlas-nav { grid-column: 1 / -1; grid-row: 3; justify-content: flex-start; }
+  .fandom-atlas-admin-link { position: absolute; top: 1.25rem; right: 1rem; }
+  .fandom-universe-nav:has(.fandom-atlas-admin-link) .fandom-atlas-nav { padding-right: 4.5rem; }
+  .atlas-hero__title-row { display: block; }
+  .atlas-hero__thesis { margin-top: 1.4rem; text-align: left; }
+  .atlas-hero__intro,
+  .atlas-edition { margin-left: 0; }
+}
+
+@media (max-width: 520px) {
+  .fandom-atlas-page { padding-inline: 1rem; }
+  .fandom-universe-brand strong { font-size: .94rem; }
+  .fandom-atlas-nav button { padding-inline: .5rem; }
+  .atlas-hero { padding-top: 3rem; }
+  .atlas-hero h1 { font-size: clamp(3rem, 15vw, 5rem); }
+  .atlas-hero h1 span { display: block; margin-top: .18em; }
+}
+
 .fandom-home-link {
   align-self: center;
   margin-right: auto;

@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   generateRednoteCopy,
   generateVisualObject,
@@ -37,6 +37,8 @@ import {
   type ReactionQueryTier,
 } from "../../utils/reactionImageAssets";
 import { createArchiveSearchRequestGate } from "./archiveSearchRequestGate";
+import { dbIsCardSaved, dbSaveCard } from "../../utils/collectionDB";
+import { schedulePublicCollectionSync } from "../../utils/publicAccount";
 import styles from "./MiddleEarthWorkspace.module.css";
 
 export interface MiddleEarthAsset {
@@ -54,6 +56,8 @@ export interface MiddleEarthAsset {
 
 export type MiddleEarthContentKind = "meme" | "spellbook";
 type ReactionSearchMode = "clean-still" | "existing-meme";
+export type MemeSourceTreatment = "new-overlay" | "as-is";
+type MemeSourcePath = "new-image" | "rework-existing" | "existing-meme";
 
 export interface MiddleEarthDraft {
   kind: MiddleEarthContentKind;
@@ -185,6 +189,36 @@ function downloadCanvasPng(canvas: HTMLCanvasElement, title: string): void {
   link.download = `${filename || "middle-earth-packet"}.png`;
   link.href = canvas.toDataURL("image/png");
   link.click();
+}
+
+function safeDownloadName(value: string): string {
+  return (value || "middle-earth-meme")
+    .replace(/[^a-z0-9-_]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "middle-earth-meme";
+}
+
+export async function downloadExistingMeme(asset: MiddleEarthAsset): Promise<void> {
+  const response = await fetch(asset.thumbnail, { credentials: "same-origin" });
+  if (!response.ok) throw new Error("The selected meme could not be downloaded. Open the original source instead.");
+  const blob = await response.blob();
+  if (!blob.type.startsWith("image/")) throw new Error("The selected record did not return an image.");
+  const extension = ({
+    "image/avif": "avif",
+    "image/gif": "gif",
+    "image/heif": "heif",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/svg+xml": "svg",
+    "image/tiff": "tiff",
+    "image/webp": "webp",
+  } as Record<string, string>)[blob.type] || "img";
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.download = `${safeDownloadName(asset.title)}.${extension}`;
+  link.href = objectUrl;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
 }
 
 function drawClassicReactionFrame(
@@ -435,6 +469,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const [query, setQuery] = useState("");
   const [searchedQuery, setSearchedQuery] = useState("");
   const [reactionSearchMode, setReactionSearchMode] = useState<ReactionSearchMode>("clean-still");
+  const [sourceTreatment, setSourceTreatment] = useState<MemeSourceTreatment>("new-overlay");
   const [results, setResults] = useState<MiddleEarthAsset[]>([]);
   const [comparisonEmotion, setComparisonEmotion] = useState<string>();
   const [selected, setSelected] = useState<MiddleEarthAsset>();
@@ -467,6 +502,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const [previewImageFailed, setPreviewImageFailed] = useState(false);
   const [previewNode, setPreviewNode] = useState<HTMLElement | null>(null);
   const [packetSaved, setPacketSaved] = useState(false);
+  const [collectionSaved, setCollectionSaved] = useState(false);
 
   const isAuto = (value: string) => value === autoSteering;
   const resolvedCharacter = isAuto(character) ? translation?.character ?? "The Fellowship" : character;
@@ -488,6 +524,16 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     () => filterReactionCandidates(results, comparisonEmotion),
     [results, comparisonEmotion],
   );
+  const isExistingMemeAsIs = reactionSearchMode === "existing-meme"
+    && sourceTreatment === "as-is"
+    && Boolean(selected);
+  const sourcePath: MemeSourcePath = reactionSearchMode === "clean-still"
+    ? "new-image"
+    : sourceTreatment === "as-is"
+      ? "existing-meme"
+      : "rework-existing";
+  const isEditorRequired = sourcePath !== "existing-meme";
+  const reworkPanelTitle = reactionSearchMode === "existing-meme" ? "Rework this existing meme" : "Forge a new reaction card";
   const generationGuidance = useMemo(() => [
     moment.trim() ? `Original moment: ${moment.trim()}` : "",
     translation ? `Translated as: ${translation.translatedMoment}\nScene: ${translation.scene}\nComic mechanism: ${translation.comicMechanism}\nVisual direction: ${translation.visualDirection}\nVisual joke role: ${translation.reactionImageBrief.visualRole}\nPerformed reaction: ${translation.reactionImageBrief.performedEmotion.join(", ")}` : "",
@@ -499,6 +545,20 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     setPacketSaved(false);
   };
 
+  useEffect(() => {
+    let current = true;
+    if (!isExistingMemeAsIs || !selected) {
+      setCollectionSaved(false);
+      return () => { current = false; };
+    }
+    void dbIsCardSaved(selected.thumbnail).then(saved => {
+      if (current) setCollectionSaved(saved);
+    }).catch(() => {
+      if (current) setCollectionSaved(false);
+    });
+    return () => { current = false; };
+  }, [isExistingMemeAsIs, selected]);
+
   const clearReactionGrounding = () => {
     archiveSearchRequestGate.invalidate();
     translationRequestGate.invalidate();
@@ -509,6 +569,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     setResults([]);
     setSearchedQuery("");
     setReactionSearchMode("clean-still");
+    setSourceTreatment("new-overlay");
     setSearching(false);
     setTitle("");
     setText("");
@@ -527,6 +588,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     setResults([]);
     setSearchedQuery("");
     setReactionSearchMode("clean-still");
+    setSourceTreatment("new-overlay");
     setComparisonEmotion(undefined);
     setSearching(false);
     setError("");
@@ -548,6 +610,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     const requestId = archiveSearchRequestGate.begin();
     setComparisonEmotion(undefined);
     setSelected(undefined); setPreviewImageFailed(false); setVisualGeneration(undefined); setPacketSaved(false);
+    setSourceTreatment(sourcePath === "existing-meme" ? "as-is" : "new-overlay");
     setSearching(true); setError(""); setStatus("");
     try {
       const response = await fetch(`/.netlify/functions/middle-earth-search?q=${encodeURIComponent(clean)}`);
@@ -587,6 +650,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   ) => {
     const requestId = archiveSearchRequestGate.begin();
     setComparisonEmotion(undefined);
+    setSourceTreatment("new-overlay");
     const curatedQueries = Array.isArray(curatedSceneQuery)
       ? curatedSceneQuery
       : [curatedSceneQuery];
@@ -647,6 +711,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   };
 
   const selectStep = (next: "forge" | "spellbook") => {
+    if (next === "spellbook" && !isEditorRequired) return;
     setActiveStep(next);
     setStatus("");
     setPacketSaved(false);
@@ -663,6 +728,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     if (nextMode === reactionSearchMode) return;
     archiveSearchRequestGate.invalidate();
     setReactionSearchMode(nextMode);
+    setSourceTreatment(nextMode === "existing-meme" ? "as-is" : "new-overlay");
     setComparisonEmotion(undefined);
     setSelected(undefined);
     setPreviewImageFailed(false);
@@ -671,12 +737,29 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     setSearchedQuery("");
     setError("");
     if (nextMode === "existing-meme") {
-      setQuery([resolvedCharacter, moment.trim(), "meme"].filter(Boolean).join(" ").replace(/\s+/gu, " ").slice(0, 200));
+      setQuery(moment.trim()
+        ? [resolvedCharacter, moment.trim(), "meme"].filter(Boolean).join(" ").replace(/\s+/gu, " ").slice(0, 200)
+        : "Middle-earth meme");
       setStatus("Existing-meme mode is ready. Search the situation to find pre-captioned examples you can grab or rework.");
     } else {
       const cleanQuery = referenceStillSearchQueries(referenceStillFamily, translation?.reactionImageBrief.socialUseQuery)[0] ?? "";
       setQuery(cleanQuery);
       setStatus("Clean-still mode is ready. Search canonical Middle-earth scenes for a fresh overlay.");
+    }
+  };
+
+  const chooseSourcePath = (nextPath: MemeSourcePath) => {
+    const nextMode: ReactionSearchMode = nextPath === "new-image" ? "clean-still" : "existing-meme";
+    if (nextMode !== reactionSearchMode) changeReactionSearchMode(nextMode);
+    setSourceTreatment(nextPath === "existing-meme" ? "as-is" : "new-overlay");
+    setActiveStep("forge");
+    setPacketSaved(false);
+    if (nextPath === "existing-meme") {
+      setStatus("Unchanged export selected. Find a finished meme, then export or save its original bytes without opening the editor.");
+    } else if (nextPath === "rework-existing") {
+      setStatus("Rework selected. Find a finished meme, then open the editor to make a new original overlay card.");
+    } else {
+      setStatus("New image selected. Find a clean canonical still, then open the editor to make a new reaction card.");
     }
   };
 
@@ -711,6 +794,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       setSecondaryText(generated.cardText.line2);
       setCardFormat(generated.cardText.format);
       setReactionSearchMode("clean-still");
+      setSourceTreatment("new-overlay");
       const curatedSceneQueries = referenceStillSearchQueries(generated.referenceStillFamily);
       const curatedSceneQuery = curatedSceneQueries[0] || generated.reactionImageBrief.socialUseQuery;
       setQuery(curatedSceneQuery);
@@ -795,6 +879,10 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     }
     if (!moment.trim() || !translation) {
       setError("Translate the moment before forging its reaction card.");
+      return;
+    }
+    if (reactionSearchMode === "existing-meme" && sourceTreatment === "as-is") {
+      setError("Choose Rework in MemeForge before forging a new overlay card.");
       return;
     }
     if (
@@ -897,6 +985,18 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   };
 
   const exportPng = async () => {
+    if (isExistingMemeAsIs && selected) {
+      setBusy(true); setStatus("Downloading the original meme without overlays…"); setError("");
+      try {
+        await downloadExistingMeme(selected);
+        setStatus("Original meme downloaded unchanged. Source attribution remains attached in your collection.");
+      } catch (exportError) {
+        setError(exportError instanceof Error ? exportError.message : "Export failed.");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     if (!previewNode) {
       setError("The live preview is unavailable. Try again.");
       return;
@@ -905,6 +1005,37 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     try { await exportMiddleEarthPng(draft, previewNode); setStatus("PNG downloaded. No packet was saved."); }
     catch (exportError) { setError(exportError instanceof Error ? exportError.message : "Export failed."); }
     finally { setBusy(false); }
+  };
+
+  const saveExistingMeme = async () => {
+    if (!selected || !isExistingMemeAsIs) return;
+    setBusy(true); setStatus("Saving the attributed meme to your collection…"); setError("");
+    try {
+      await dbSaveCard({
+        imageUrl: selected.thumbnail,
+        thumbnailUrl: selected.thumbnail,
+        resultId: selected.id,
+        sourceUrl: selected.url,
+        actor: resolvedCharacter.trim() || "Middle-earth",
+        actorEn: resolvedCharacter.trim() || "Middle-earth",
+        vibe: selected.title || "Existing Middle-earth meme",
+        vibeEn: "Existing meme · saved as-is",
+        vibeEmoji: "🧙",
+        capturedDate: new Date().toISOString().slice(0, 10),
+        contentKind: "middle-earth-meme",
+        title: selected.title || "Existing Middle-earth meme",
+        publisher: selected.publisher,
+        searchQuery: selected.query,
+        sourceRoute: "/memeforge/middle-earth",
+      });
+      setCollectionSaved(true);
+      schedulePublicCollectionSync();
+      setStatus("Saved to Collection as an unchanged, attributed Middle-earth meme.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "The meme could not be saved.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const savePacket = async () => {
@@ -939,13 +1070,41 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       </header>
 
       <section className={styles.modeSwitch} aria-label="Creation mode">
-        <button className={activeStep === "forge" ? styles.modeActive : ""} onClick={() => selectStep("forge")} disabled={busy}>1. MemeForge <small>translate, then forge</small></button>
-        <button className={activeStep === "spellbook" ? styles.modeActive : ""} onClick={() => selectStep("spellbook")} disabled={busy}>2. Rednote Spellbook <small>title · caption · tags</small></button>
+        <button className={activeStep === "forge" ? styles.modeActive : ""} onClick={() => selectStep("forge")} disabled={busy}>1. MemeForge <small>{isEditorRequired ? "translate, then forge" : "search, then save"}</small></button>
+        <button className={activeStep === "spellbook" ? styles.modeActive : ""} onClick={() => selectStep("spellbook")} disabled={busy || !isEditorRequired}>2. Rednote Spellbook <small>{isEditorRequired ? "title · caption · tags" : "not needed for unchanged memes"}</small></button>
       </section>
 
+      <section className={styles.pathChooser} aria-labelledby="path-heading">
+        <div className={styles.sectionKicker}>01 / choose the outcome</div>
+        <fieldset className={styles.sourceMode}>
+          <legend id="path-heading">What do you want to leave with?</legend>
+          <p>Choose first. MemeForge will show only the translation, search, and editor steps that outcome needs.</p>
+          <div className={styles.pathGrid}>
+            <button type="button" className={sourcePath === "new-image" ? styles.pathActive : ""} onClick={() => chooseSourcePath("new-image")} aria-pressed={sourcePath === "new-image"} disabled={busy || searching}>
+              <span>01</span><strong>New image</strong><small>New card from a clean still</small>
+            </button>
+            <button type="button" className={sourcePath === "rework-existing" ? styles.pathActive : ""} onClick={() => chooseSourcePath("rework-existing")} aria-pressed={sourcePath === "rework-existing"} disabled={busy || searching}>
+              <span>02</span><strong>Rework an existing meme</strong><small>Rework in MemeForge with a new overlay</small>
+            </button>
+            <button type="button" className={sourcePath === "existing-meme" ? styles.pathActive : ""} onClick={() => chooseSourcePath("existing-meme")} aria-pressed={sourcePath === "existing-meme"} disabled={busy || searching}>
+              <span>03</span><strong>Use an existing meme</strong><small>Use as-is; keep unchanged with no editor</small>
+            </button>
+          </div>
+          <div className={styles.pathStatus}>
+            <span>{isEditorRequired ? "Translation + editor required" : "Direct search · editor bypassed"}</span>
+            <p>{sourcePath === "new-image"
+              ? "Translate the moment, find a clean still, and forge a new setup-and-punchline card."
+              : sourcePath === "rework-existing"
+                ? "Translate the new angle, find an existing meme for context, and build a distinct rework."
+                : "Search for the finished meme now, preserve it exactly, and go straight to export or Collection."}</p>
+          </div>
+        </fieldset>
+      </section>
+
+      {isEditorRequired ? (
       <section className={styles.momentPrompt} aria-labelledby="moment-heading">
         <div>
-          <div className={styles.sectionKicker}>01 / meme translation</div>
+          <div className={styles.sectionKicker}>02 / meme translation</div>
           <h2 id="moment-heading">What moment are we forging?</h2>
           <p>Say the moment badly. MemeForge finds the archetype.</p>
         </div>
@@ -981,35 +1140,18 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           </div>
         </div>}
       </section>
+      ) : (
+        <section className={styles.momentBypass} aria-label="Translation bypassed">
+          <div><span>02 / translation bypassed</span><strong>The joke is already in the image.</strong></div>
+          <p>This path does not rewrite, reframe, or add copy. Search for the finished meme below and keep its source attached.</p>
+        </section>
+      )}
 
       <div className={styles.layout}>
         <aside className={styles.searchRail}>
-          <div className={styles.sectionKicker}>02 / choose reaction image</div>
-          {translation ? <>
-            <fieldset className={styles.sourceMode}>
-              <legend>What are you forging?</legend>
-              <p>Choose the source treatment first. MemeForge can make a new card from a clean still, or find a finished meme to grab or rework.</p>
-              <div className={styles.emotionFilters}>
-                <button
-                  type="button"
-                  className={reactionSearchMode === "clean-still" ? styles.emotionFilterActive : ""}
-                  onClick={() => changeReactionSearchMode("clean-still")}
-                  aria-pressed={reactionSearchMode === "clean-still"}
-                  disabled={busy || searching}
-                >
-                  New card from a clean still
-                </button>
-                <button
-                  type="button"
-                  className={reactionSearchMode === "existing-meme" ? styles.emotionFilterActive : ""}
-                  onClick={() => changeReactionSearchMode("existing-meme")}
-                  aria-pressed={reactionSearchMode === "existing-meme"}
-                  disabled={busy || searching}
-                >
-                  Browse existing memes
-                </button>
-              </div>
-            </fieldset>
+          <div className={styles.sectionKicker}>03 / choose source image</div>
+          {translation || !isEditorRequired ? <>
+            {reactionSearchMode === "clean-still" && translation && <>
             <label>
               Reaction still family
               <select
@@ -1019,6 +1161,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
                   if (!nextFamily || nextFamily === referenceStillFamily) return;
                   const curatedQueries = referenceStillSearchQueries(nextFamily);
                   setReactionSearchMode("clean-still");
+                   setSourceTreatment("new-overlay");
                   setReferenceStillFamily(nextFamily);
                   setSelected(undefined);
                   setPreviewImageFailed(false);
@@ -1036,6 +1179,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
               <strong>Selected still family</strong> · {activeReferenceStillFamily?.label ?? "Reaction still"}
               <small> {activeReferenceStillFamily?.description} Search starts with “{referenceStillSearchQueries(referenceStillFamily, translation.reactionImageBrief.socialUseQuery)[0]}”. Your original moment and joke stay unchanged.</small>
             </div>
+            </>}
             <form className={styles.searchForm} onSubmit={search}>
               <label htmlFor="archive-search">{reactionSearchMode === "existing-meme" ? "Search existing memes" : "Search clean reaction stills"}</label>
               <div className={styles.searchBox}>
@@ -1046,21 +1190,21 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
             <div className={styles.suggestions}>
               {suggestions.map((group) => <div key={group.label}><span>{group.label}</span><div className={styles.chips}>{group.items.map((item) => <button key={item} onClick={() => { setQuery(item); void search(undefined, item); }} disabled={busy || searching}>{item}</button>)}</div></div>)}
             </div>
-            <div className={styles.sourceNote}><span className={styles.dot} /> {reactionSearchMode === "existing-meme" ? "Existing-meme search may return images that already contain text. Select one to grab it as-is or use it as the source for a fresh rework." : "Clean-still search uses canonical scene anchors only. MemeForge adds the new joke as an overlay after you choose the image."} Always check the original publisher before sharing.</div>
+            <div className={styles.sourceNote}><span className={styles.dot} /> {sourcePath === "existing-meme" ? "Existing-meme search may return finished images with text. The selected image will stay byte-for-byte unchanged; the editor remains bypassed." : sourcePath === "rework-existing" ? "Existing-meme search may return images that already contain text. The selected image becomes visual context for a fresh, original rework in the editor." : "Clean-still search uses canonical scene anchors only. MemeForge adds the new joke as an overlay after you choose the image."} Always check the original publisher before sharing.</div>
           </> : <div className={styles.sourceNote}>Translate the moment first to find its reaction-image candidates.</div>}
         </aside>
 
         <section className={styles.archive} aria-live="polite">
           <div className={styles.archiveHead}>
             <div>
-              <div className={styles.sectionKicker}>03 / reaction candidates</div>
-              <h2>{searchedQuery ? `${reactionSearchMode === "existing-meme" ? "Browse existing memes for" : "Choose a clean reaction still for"} “${searchedQuery}”` : "The image comes after the angle"}</h2>
+              <div className={styles.sectionKicker}>04 / source candidates</div>
+              <h2>{searchedQuery ? `${reactionSearchMode === "existing-meme" ? "Browse existing memes for" : "Choose a clean reaction still for"} “${searchedQuery}”` : isEditorRequired ? "The image comes after the angle" : "Search for the finished meme"}</h2>
             </div>
             {results.length > 0 && <span className={styles.count}>{comparisonEmotion ? `${visibleResults.length} of ${results.length}` : results.length} candidates</span>}
           </div>
           {searching && <div className={styles.loadingGrid} aria-label="Loading archive records">{[1, 2, 3, 4].map((item) => <div key={item} className={styles.skeleton} />)}</div>}
           {!searching && error && !results.length && <div className={styles.state}><strong>Something interrupted the search.</strong><p>{error}</p><button onClick={() => void search()}>Try again</button></div>}
-           {!searching && !error && !results.length && <div className={styles.empty}><span>Reaction image note</span><strong>{searchedQuery ? "Nothing surfaced this time." : translation ? "The angle is ready. MemeForge will look for a small set of recognizable reaction stills." : "Translate the moment above first."}</strong><p>Every candidate keeps its source attached, so the trail back is never lost.</p></div>}
+           {!searching && !error && !results.length && <div className={styles.empty}><span>Reaction image note</span><strong>{searchedQuery ? "Nothing surfaced this time." : !isEditorRequired ? "Search by character, scene, or remembered caption." : translation ? "The angle is ready. MemeForge will look for a small set of recognizable reaction stills." : "Translate the moment above first."}</strong><p>Every candidate keeps its source attached, so the trail back is never lost.</p></div>}
           {!searching && results.length > 0 && reactionEmotionOptions.length > 0 && <div className={styles.emotionComparison} aria-label="Compare reaction candidates by performed emotion">
             <div>
               <span>Compare performed emotion</span>
@@ -1076,16 +1220,31 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
             {selected && comparisonEmotion && !filterReactionCandidates([selected], comparisonEmotion).length && <p>Selected source remains attached from “{selected.query}”. Switch back to all reactions to compare it alongside this view.</p>}
           </div>}
           {!searching && results.length > 0 && !visibleResults.length && <div className={styles.empty}><span>Comparison note</span><strong>No loaded candidates perform “{comparisonEmotion}” yet.</strong><p>Your selected source and its rights-status labeling remain attached. Try another emotion or view all reactions.</p></div>}
-          {!searching && visibleResults.length > 0 && <div className={styles.gallery}>{visibleResults.map((asset) => <button key={asset.id} className={`${styles.result} ${selected?.id === asset.id ? styles.resultSelected : ""}`} onClick={() => { setSelected(asset); setVisualGeneration(undefined); setPreviewImageFailed(false); setPacketSaved(false); setStatus(reactionSearchMode === "existing-meme" ? `Selected “${asset.title}”. Grab this meme as-is or rework it into a new card.` : `Selected “${asset.title}”. Generate the visual object with this source.`); }} aria-pressed={selected?.id === asset.id} disabled={busy}><span className={styles.imageWrap}><img src={asset.thumbnail} alt="" onError={(event) => { event.currentTarget.style.display = "none"; const fallback = event.currentTarget.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.visibility = "visible"; }} /><span className={styles.imageFallback}>Image<br />unavailable</span></span><span className={styles.resultTitle}>{asset.title}</span>{asset.reactionEmotion && <span className={styles.resultEmotion}>{(asset.reactionEmotions ?? [asset.reactionEmotion]).join(" · ")} reaction</span>}<span className={styles.publisher}>{reactionSearchMode === "existing-meme" ? "Existing meme · " : asset.reactionQueryTier ? `${asset.reactionQueryTier} match · ` : ""}{asset.publisher || "Unknown publisher"}</span></button>)}</div>}
+          {!searching && visibleResults.length > 0 && <div className={styles.gallery}>{visibleResults.map((asset) => <button key={asset.id} className={`${styles.result} ${selected?.id === asset.id ? styles.resultSelected : ""}`} onClick={() => { setSelected(asset); setVisualGeneration(undefined); setSourceTreatment(sourcePath === "existing-meme" ? "as-is" : "new-overlay"); setPreviewImageFailed(false); setPacketSaved(false); setStatus(sourcePath === "existing-meme" ? `Selected “${asset.title}”. The editor is bypassed; export or save the unchanged meme below.` : sourcePath === "rework-existing" ? `Selected “${asset.title}”. The editor is ready for a fresh rework.` : `Selected “${asset.title}”. Generate the visual object with this source.`); }} aria-pressed={selected?.id === asset.id} disabled={busy}><span className={styles.imageWrap}><img src={asset.thumbnail} alt="" onError={(event) => { event.currentTarget.style.display = "none"; const fallback = event.currentTarget.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.visibility = "visible"; }} /><span className={styles.imageFallback}>Image<br />unavailable</span></span><span className={styles.resultTitle}>{asset.title}</span>{asset.reactionEmotion && <span className={styles.resultEmotion}>{(asset.reactionEmotions ?? [asset.reactionEmotion]).join(" · ")} reaction</span>}<span className={styles.publisher}>{reactionSearchMode === "existing-meme" ? "Existing meme · " : asset.reactionQueryTier ? `${asset.reactionQueryTier} match · ` : ""}{asset.publisher || "Unknown publisher"}</span></button>)}</div>}
         </section>
 
         <section className={styles.forge}>
-          <div className={styles.sectionKicker}>04 / forge, then finish</div>
+          <div className={styles.sectionKicker}>05 / {isEditorRequired ? "forge, then finish" : "review, then save"}</div>
           <div className={styles.forgeHead}>
             <h2>{activeStep === "forge" ? "MemeForge" : "Rednote Spellbook"}</h2>
             <span className={styles.liveMark}>{activeStep === "forge" ? "Shareable object" : "Copy package"}</span>
           </div>
 
+          {!isEditorRequired && activeStep === "forge" ? (
+            <div className={styles.editorBypass}>
+              <span>Editor bypassed</span>
+              <strong>This path preserves the finished meme exactly.</strong>
+              <p>{selected
+                ? "Your source is ready below. Review its attribution, then export the original image or save it to Collection."
+                : "Choose a finished meme from the search results. No setup, punchline, frame, footer, or MemeForge branding will be added."}</p>
+              <button type="button" onClick={() => chooseSourcePath("rework-existing")} disabled={busy || searching}>Switch to rework and open the editor</button>
+            </div>
+          ) : (
+          <div className={styles.editorPanel}>
+          <div className={styles.editorPanelHead}>
+            <span>Editor required</span>
+            <p>{sourcePath === "rework-existing" ? "Build a distinct card from the existing meme's visual idea." : "Turn the clean still into a new reaction card."}</p>
+          </div>
           <div className={styles.steeringIntro}><strong>Optional steering</strong><p>Leave any control on Auto / surprise me and let the moment decide. Your manual choices always win.</p></div>
           <label>
             Character
@@ -1165,9 +1324,9 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
 
           {activeStep === "forge" ? <>
             <div className={styles.aiPanel}>
-                <div><strong>{reactionSearchMode === "existing-meme" ? "Rework this existing meme" : "Forge a new reaction card"}</strong><p>{reactionSearchMode === "existing-meme" ? "Use the selected pre-captioned meme as a visual starting point, or grab it as-is from the source panel below." : "Uses the translated moment first, then the selected clean reaction still as its visual anchor. The new card copy remains yours to edit."}</p></div>
+                <div><strong>{reworkPanelTitle}</strong><p>{reactionSearchMode === "existing-meme" ? "Uses the pre-captioned meme as visual context for a distinct card with original overlay copy." : "Uses the translated moment first, then the selected clean reaction still as its visual anchor. The new card copy remains yours to edit."}</p></div>
               {isAdmin
-                ? <button className={styles.aiAction} onClick={() => void generateVisual()} disabled={busy || !translation}>{busy ? "Generating…" : visualGeneration ? "Reforge card" : "Forge card"}</button>
+                ? <button className={styles.aiAction} onClick={() => void generateVisual()} disabled={busy || !translation || isExistingMemeAsIs}>{busy ? "Generating…" : isExistingMemeAsIs ? "Choose Rework to forge" : visualGeneration ? "Reforge card" : "Forge card"}</button>
                 : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in to generate</a>}
             </div>
             {cardFormat && <div className={styles.cardFormat}><span>Reaction format</span><strong>{cardFormat}</strong><p>Two lines only: setup, then punchline. Keep longer interpretation in “Translated as.”</p></div>}
@@ -1206,28 +1365,48 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
             </label>
             <p className={styles.copyNote}>Draft only. Review names, tone, source rights, and tags before moving the packet to CREATE.</p>
           </>}
-
-          <div className={styles.preview} data-layout={layout} ref={setPreviewNode} aria-label="Live 4 by 5 preview">
-            {selected && !previewImageFailed && <div className={styles.previewStillFrame}><img src={selected.thumbnail} alt="" onError={() => setPreviewImageFailed(true)} /></div>}
-            <div className={styles.previewShade} />
-              <div className={styles.previewCopy}>
-                <span>MEMEFORGE // {(cardFormat || resolvedArtifactType || "Reaction").toUpperCase()}</span>
-                <div className={styles.previewLines}>
-                  <strong>{text || "Your setup belongs here."}</strong>
-                  {secondaryText && <em>{secondaryText}</em>}
-                </div>
-              </div>
-            {title && <small>{title}</small>}
           </div>
-          {selected && <div className={styles.provenance}><strong>Source attached</strong><span>{selected.title}</span><span>{selected.publisher || "Publisher unknown"} · {selected.provider || "Provider unknown"}</span>{reactionSearchMode === "existing-meme" && <a href={selected.thumbnail} target="_blank" rel="noreferrer">Grab existing meme image</a>}<a href={selected.url} target="_blank" rel="noreferrer">Open original source</a><small>Rights status: unknown. This is a personal draft; confirm permission before publishing.</small></div>}
-           {selected && <button className={styles.typeFallback} type="button" onClick={() => { setSelected(undefined); setVisualGeneration(undefined); setPacketSaved(false); setStatus("Typography-only fallback selected. Choose a reaction image any time to restore image-backed rendering."); }} disabled={busy}>Use typography-only fallback</button>}
-           {!selected && <div className={styles.provenanceMuted}>Typography-only fallback is active. Choose a reaction image to restore image-backed rendering.</div>}
-          <p className={styles.handoffNote}><strong>Your generated draft stays here.</strong> PNG export is independent. Packet staging is an optional handoff to the CREATE workflow.</p>
+          )}
+
+          {!isEditorRequired && !selected ? (
+            <div className={styles.previewAwaiting}>
+              <span>Original preview</span>
+              <strong>Select a finished meme to review it here.</strong>
+              <p>The original aspect ratio, embedded text, and image pixels will remain untouched.</p>
+            </div>
+          ) : (
+          <div className={`${styles.preview} ${isExistingMemeAsIs ? styles.previewAsIs : ""}`} data-layout={isExistingMemeAsIs ? undefined : layout} ref={setPreviewNode} aria-label={isExistingMemeAsIs ? "Unchanged existing meme preview" : "Live 4 by 5 preview"}>
+            {selected && !previewImageFailed && (isExistingMemeAsIs
+              ? <img className={styles.asIsImage} src={selected.thumbnail} alt={selected.title} onError={() => setPreviewImageFailed(true)} />
+              : <div className={styles.previewStillFrame}><img src={selected.thumbnail} alt="" onError={() => setPreviewImageFailed(true)} /></div>)}
+            {!isExistingMemeAsIs && <>
+              <div className={styles.previewShade} />
+                <div className={styles.previewCopy}>
+                  <span>MEMEFORGE // {(cardFormat || resolvedArtifactType || "Reaction").toUpperCase()}</span>
+                  <div className={styles.previewLines}>
+                    <strong>{text || "Your setup belongs here."}</strong>
+                    {secondaryText && <em>{secondaryText}</em>}
+                  </div>
+                </div>
+              {title && <small>{title}</small>}
+            </>}
+          </div>
+          )}
+          {selected && <div className={styles.provenance}><strong>{isExistingMemeAsIs ? "Existing meme · unchanged" : "Source attached"}</strong><span>{selected.title}</span><span>{selected.publisher || "Publisher unknown"} · {selected.provider || "Provider unknown"}</span><a href={selected.url} target="_blank" rel="noreferrer">Open original source</a><small>Rights status: unknown. This is a personal draft; confirm permission before publishing.</small></div>}
+           {isEditorRequired && selected && <button className={styles.typeFallback} type="button" onClick={() => { setSelected(undefined); setVisualGeneration(undefined); setPacketSaved(false); setStatus("Typography-only fallback selected. Choose a reaction image any time to restore image-backed rendering."); }} disabled={busy}>Use typography-only fallback</button>}
+           {isEditorRequired && !selected && <div className={styles.provenanceMuted}>Typography-only fallback is active. Choose a reaction image to restore image-backed rendering.</div>}
+          <p className={styles.handoffNote}>{isEditorRequired
+            ? <><strong>Your generated draft stays here.</strong> PNG export is independent. Packet staging is an optional handoff to the CREATE workflow.</>
+            : <><strong>The original stays original.</strong> Export and Collection save use the selected source image without MemeForge overlays or branding.</>}</p>
           <div className={styles.actions}>
-            <button className={styles.export} onClick={() => void exportPng()} disabled={busy}>{busy ? "Working…" : "Export PNG"}</button>
-            {isAdmin
+            {isEditorRequired && <button className={styles.export} onClick={() => void exportPng()} disabled={busy}>{busy ? "Working…" : "Export PNG"}</button>}
+            {isExistingMemeAsIs && <button className={styles.export} onClick={() => void exportPng()} disabled={busy}>{busy ? "Working…" : "Export original meme"}</button>}
+            {isExistingMemeAsIs && <button className={styles.save} onClick={() => void saveExistingMeme()} disabled={busy || collectionSaved}>{collectionSaved ? "Saved to Collection" : "Save to Collection"}</button>}
+            {isExistingMemeAsIs && collectionSaved && <a className={styles.stagingLink} href="/vibe-atlas?view=collection">Open Collection</a>}
+            {isEditorRequired && (isAdmin
               ? <button className={styles.save} onClick={() => void savePacket()} disabled={busy}>Stage for CREATE</button>
-              : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in through packet staging</a>}
+              : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in through packet staging</a>)}
+            {!isEditorRequired && !selected && <span className={styles.actionHint}>Choose a source to unlock export and Collection save.</span>}
             {packetSaved && <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Open packet staging</a>}
           </div>
           <div className={styles.status} role="status">{error && <span className={styles.statusError}>{error}</span>}{!error && status}</div>
