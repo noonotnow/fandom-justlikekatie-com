@@ -48,6 +48,7 @@ interface Props {
   isAdmin?: boolean;
   packets?: IdeaPacket[];
   onCreateFromGrid?: (grid: GridRecord) => Promise<IdeaPacket>;
+  onPacketCreated?: (packet: IdeaPacket) => void;
   onAddGridToPacket?: (packet: IdeaPacket, grid: GridRecord) => Promise<IdeaPacket>;
 }
 
@@ -61,6 +62,7 @@ export const Collection: React.FC<Props> = ({
   isAdmin = false,
   packets = [],
   onCreateFromGrid,
+  onPacketCreated,
   onAddGridToPacket,
 }) => {
   const isMiddleEarth = scope === 'middle-earth';
@@ -529,8 +531,9 @@ export const Collection: React.FC<Props> = ({
                       onClick={async () => {
                         setBusyKey(`create:${grid.id}`);
                         try {
-                          await onCreateFromGrid(grid);
-                          setAccountNotice('New Idea Packet started from this grid.');
+                          const packet = await onCreateFromGrid(grid);
+                          setAccountNotice('Idea Packet created. Opening the packet workspace…');
+                          onPacketCreated?.(packet);
                         } catch (error) {
                           setAccountNotice(messageFrom(error, 'The Idea Packet could not be started.'));
                         } finally {

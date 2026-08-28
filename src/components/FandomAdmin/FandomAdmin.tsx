@@ -17,6 +17,7 @@ import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
 import { RACCOON_COURT_RECORD } from '../../data/raccoonCourtRecord';
 import styles from './FandomAdmin.module.css';
 import { addCustomRuling, advanceRulingIndex, fetchCustomRulings, getAllRulings, migrateLegacyRulings, removeCustomRuling } from '../../utils/courtRulings';
+import { vibeAtlasPacketPath } from '../../utils/fandomRoutes';
 
 interface Props {
   packets: IdeaPacket[];
@@ -28,6 +29,8 @@ interface Props {
   onCreateFromGrid: (grid: GridRecord) => Promise<IdeaPacket>;
   onAddSavedCard: (packet: IdeaPacket, card: CardRecord) => Promise<IdeaPacket>;
   onAddSavedGrid: (packet: IdeaPacket, grid: GridRecord) => Promise<IdeaPacket>;
+  initialPacketId?: string | null;
+  initialNotice?: string;
   /** Called when any admin API request returns 401, so the session can be re-checked. */
   onSessionExpired?: () => void;
 }
@@ -84,6 +87,8 @@ export const FandomAdmin: React.FC<Props> = props => {
         <PacketWorkspace
           {...props}
           showLibrary={view === 'library'}
+          initialPacketId={props.initialPacketId}
+          initialNotice={props.initialNotice}
           onLibraryPacketCreated={() => setView('packets')}
           onSessionExpired={props.onSessionExpired}
         />
@@ -104,15 +109,25 @@ function PacketWorkspace({
   onSessionExpired,
   showLibrary,
   onLibraryPacketCreated,
+  initialPacketId,
+  initialNotice,
 }: Omit<Props, 'unauthorized'> & {
   showLibrary: boolean;
   onLibraryPacketCreated: () => void;
+  initialPacketId?: string | null;
+  initialNotice?: string;
 }) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialPacketId ?? null);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState(initialNotice ?? '');
   const [createReceipt, setCreateReceipt] = useState<CreateReceipt | null>(null);
   const selected = packets.find(packet => packet.id === selectedId) ?? packets[0] ?? null;
+
+  useEffect(() => {
+    if (initialPacketId && packets.some(packet => packet.id === initialPacketId)) {
+      setSelectedId(initialPacketId);
+    }
+  }, [initialPacketId, packets]);
 
   useEffect(() => {
     if (selected && selected.id !== selectedId) setSelectedId(selected.id);
@@ -156,6 +171,11 @@ function PacketWorkspace({
     } finally {
       setBusy(false);
     }
+  }
+
+  function selectPacket(packetId: string) {
+    setSelectedId(packetId);
+    window.history.replaceState({}, '', vibeAtlasPacketPath(packetId));
   }
 
   if (showLibrary) {
@@ -378,7 +398,7 @@ function PacketWorkspace({
               type="button"
               className={styles.packetRow}
               aria-current={packet.id === selected.id}
-              onClick={() => setSelectedId(packet.id)}
+              onClick={() => selectPacket(packet.id)}
             >
               {packet.anchor.imageUrls[0]
                 ? <img src={packet.anchor.imageUrls[0]} alt="" />

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { ImageTier } from './types';
 import FandomLaunchpad from './components/FandomLaunchpad/FandomLaunchpad';
 import { MiddleEarthWorkspace } from './components/MiddleEarthWorkspace/MiddleEarthWorkspace';
@@ -36,8 +36,10 @@ import { consumeMagicLinkFromLocation, requestMagicLink } from './utils/publicAc
 import { useIsAdmin } from './hooks/useIsAdmin';
 import {
   initialCollectionType,
+  initialVibeAtlasPacketId,
   initialVibeAtlasView,
   resolveFandomProductRoute,
+  vibeAtlasPacketPath,
 } from './utils/fandomRoutes';
 import './App.css';
 
@@ -76,6 +78,11 @@ function VibeAtlasApp() {
   const [collectionTab, setCollectionTab] = useState<'grids' | 'results' | 'builder'>(
     () => initialCollectionType(window.location.search),
   );
+  const [openPacketId, setOpenPacketId] = useState<string | null>(
+    () => initialVibeAtlasPacketId(window.location.search),
+  );
+  const [packetNotice, setPacketNotice] = useState('');
+  const openPacketIdRef = useRef(openPacketId);
   const { isAdmin, loading: adminLoading, recheck: recheckAdmin } = useIsAdmin();
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const { items: gridImages, meta, rawData, loading, error } = useStarOfDay();
@@ -116,6 +123,9 @@ function VibeAtlasApp() {
     const restoreUrlView = () => {
       setView(initialVibeAtlasView(window.location.search));
       setCollectionTab(initialCollectionType(window.location.search));
+      const packetId = initialVibeAtlasPacketId(window.location.search);
+      openPacketIdRef.current = packetId;
+      setOpenPacketId(packetId);
     };
     window.addEventListener('popstate', restoreUrlView);
     return () => window.removeEventListener('popstate', restoreUrlView);
@@ -129,15 +139,35 @@ function VibeAtlasApp() {
       ? ''
       : `?view=${tab === 'grids' ? 'collection' : tab}`;
     window.history.pushState({}, '', `/vibe-atlas${search}`);
+    openPacketIdRef.current = null;
+    setOpenPacketId(null);
+    setPacketNotice('');
     setCollectionTab(tab);
     setView(destination);
+  };
+
+  const openCreatedPacket = (packet: IdeaPacket) => {
+    replacePacket(packet);
+    openPacketIdRef.current = packet.id;
+    setOpenPacketId(packet.id);
+    setPacketNotice('Idea Packet created from the saved grid and opened here.');
+    window.history.pushState({}, '', vibeAtlasPacketPath(packet.id));
+    setView('plan');
   };
 
   const loadPackets = async () => {
     setPacketsLoading(true);
     setPacketsError('');
     try {
-      setPackets(await fetchIdeaPackets());
+      const loadedPackets = await fetchIdeaPackets();
+      setPackets(current => {
+        const openedPacket = openPacketIdRef.current
+          ? current.find(packet => packet.id === openPacketIdRef.current)
+          : undefined;
+        return openedPacket && !loadedPackets.some(packet => packet.id === openedPacket.id)
+          ? [openedPacket, ...loadedPackets]
+          : loadedPackets;
+      });
       setPacketsUnauthorized(false);
     } catch (caught) {
       const is401 = caught instanceof IdeaPacketError && caught.status === 401;
@@ -422,6 +452,7 @@ function VibeAtlasApp() {
               throw caught;
             }
           }}
+          onPacketCreated={openCreatedPacket}
           onAddGridToPacket={async (packet: IdeaPacket, grid: GridRecord) => {
             try {
               const updated = await mutateIdeaPacket(packet, {
@@ -449,6 +480,8 @@ function VibeAtlasApp() {
           onRefresh={loadPackets}
           onPacketChange={replacePacket}
           onSessionExpired={recheckAdmin}
+          initialPacketId={openPacketId}
+          initialNotice={packetNotice}
           onCreateFromGrid={async (grid: GridRecord) => {
             try {
               const packet = await createIdeaPacket(packetFromCollectionGrid(grid));
