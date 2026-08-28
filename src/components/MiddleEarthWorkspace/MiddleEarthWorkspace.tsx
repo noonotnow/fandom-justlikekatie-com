@@ -53,6 +53,7 @@ export interface MiddleEarthAsset {
 }
 
 export type MiddleEarthContentKind = "meme" | "spellbook";
+type ReactionSearchMode = "clean-still" | "existing-meme";
 
 export interface MiddleEarthDraft {
   kind: MiddleEarthContentKind;
@@ -433,6 +434,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const [translationRequestGate] = useState(createArchiveSearchRequestGate);
   const [query, setQuery] = useState("");
   const [searchedQuery, setSearchedQuery] = useState("");
+  const [reactionSearchMode, setReactionSearchMode] = useState<ReactionSearchMode>("clean-still");
   const [results, setResults] = useState<MiddleEarthAsset[]>([]);
   const [comparisonEmotion, setComparisonEmotion] = useState<string>();
   const [selected, setSelected] = useState<MiddleEarthAsset>();
@@ -506,6 +508,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     setComparisonEmotion(undefined);
     setResults([]);
     setSearchedQuery("");
+    setReactionSearchMode("clean-still");
     setSearching(false);
     setTitle("");
     setText("");
@@ -523,6 +526,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     setSelected(undefined);
     setResults([]);
     setSearchedQuery("");
+    setReactionSearchMode("clean-still");
     setComparisonEmotion(undefined);
     setSearching(false);
     setError("");
@@ -655,6 +659,27 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       : "Showing all reaction candidates. Your selected source stays attached.");
   };
 
+  const changeReactionSearchMode = (nextMode: ReactionSearchMode) => {
+    if (nextMode === reactionSearchMode) return;
+    archiveSearchRequestGate.invalidate();
+    setReactionSearchMode(nextMode);
+    setComparisonEmotion(undefined);
+    setSelected(undefined);
+    setPreviewImageFailed(false);
+    invalidateGeneratedVisual();
+    setResults([]);
+    setSearchedQuery("");
+    setError("");
+    if (nextMode === "existing-meme") {
+      setQuery([resolvedCharacter, moment.trim(), "meme"].filter(Boolean).join(" ").replace(/\s+/gu, " ").slice(0, 200));
+      setStatus("Existing-meme mode is ready. Search the situation to find pre-captioned examples you can grab or rework.");
+    } else {
+      const cleanQuery = referenceStillSearchQueries(referenceStillFamily, translation?.reactionImageBrief.socialUseQuery)[0] ?? "";
+      setQuery(cleanQuery);
+      setStatus("Clean-still mode is ready. Search canonical Middle-earth scenes for a fresh overlay.");
+    }
+  };
+
   const translateMoment = async () => {
     if (!isAdmin) {
       setError("Sign in through packet staging to translate a moment.");
@@ -685,6 +710,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       setText(generated.cardText.line1);
       setSecondaryText(generated.cardText.line2);
       setCardFormat(generated.cardText.format);
+      setReactionSearchMode("clean-still");
       const curatedSceneQueries = referenceStillSearchQueries(generated.referenceStillFamily);
       const curatedSceneQuery = curatedSceneQueries[0] || generated.reactionImageBrief.socialUseQuery;
       setQuery(curatedSceneQuery);
@@ -960,6 +986,30 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
         <aside className={styles.searchRail}>
           <div className={styles.sectionKicker}>02 / choose reaction image</div>
           {translation ? <>
+            <fieldset className={styles.sourceMode}>
+              <legend>What are you forging?</legend>
+              <p>Choose the source treatment first. MemeForge can make a new card from a clean still, or find a finished meme to grab or rework.</p>
+              <div className={styles.emotionFilters}>
+                <button
+                  type="button"
+                  className={reactionSearchMode === "clean-still" ? styles.emotionFilterActive : ""}
+                  onClick={() => changeReactionSearchMode("clean-still")}
+                  aria-pressed={reactionSearchMode === "clean-still"}
+                  disabled={busy || searching}
+                >
+                  New card from a clean still
+                </button>
+                <button
+                  type="button"
+                  className={reactionSearchMode === "existing-meme" ? styles.emotionFilterActive : ""}
+                  onClick={() => changeReactionSearchMode("existing-meme")}
+                  aria-pressed={reactionSearchMode === "existing-meme"}
+                  disabled={busy || searching}
+                >
+                  Browse existing memes
+                </button>
+              </div>
+            </fieldset>
             <label>
               Reaction still family
               <select
@@ -968,6 +1018,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
                   const nextFamily = event.target.value as ReferenceStillFamilyId;
                   if (!nextFamily || nextFamily === referenceStillFamily) return;
                   const curatedQueries = referenceStillSearchQueries(nextFamily);
+                  setReactionSearchMode("clean-still");
                   setReferenceStillFamily(nextFamily);
                   setSelected(undefined);
                   setPreviewImageFailed(false);
@@ -986,16 +1037,16 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
               <small> {activeReferenceStillFamily?.description} Search starts with “{referenceStillSearchQueries(referenceStillFamily, translation.reactionImageBrief.socialUseQuery)[0]}”. Your original moment and joke stay unchanged.</small>
             </div>
             <form className={styles.searchForm} onSubmit={search}>
-              <label htmlFor="archive-search">Search reaction images</label>
+              <label htmlFor="archive-search">{reactionSearchMode === "existing-meme" ? "Search existing memes" : "Search clean reaction stills"}</label>
               <div className={styles.searchBox}>
-                <input id="archive-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Try “Sam carrying Frodo reaction still”" disabled={busy || searching} />
+                <input id="archive-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={reactionSearchMode === "existing-meme" ? "Try “Gandalf meme when avoiding homework”" : "Try “Sam carrying Frodo reaction still”"} disabled={busy || searching} />
                 <button type="submit" aria-label="Search the archive" disabled={busy || searching || !query.trim()}>Search</button>
               </div>
             </form>
             <div className={styles.suggestions}>
               {suggestions.map((group) => <div key={group.label}><span>{group.label}</span><div className={styles.chips}>{group.items.map((item) => <button key={item} onClick={() => { setQuery(item); void search(undefined, item); }} disabled={busy || searching}>{item}</button>)}</div></div>)}
             </div>
-            <div className={styles.sourceNote}><span className={styles.dot} /> The still grounds the visual after the angle is chosen; it never decides or rewrites the joke. Always check the original publisher before sharing.</div>
+            <div className={styles.sourceNote}><span className={styles.dot} /> {reactionSearchMode === "existing-meme" ? "Existing-meme search may return images that already contain text. Select one to grab it as-is or use it as the source for a fresh rework." : "Clean-still search uses canonical scene anchors only. MemeForge adds the new joke as an overlay after you choose the image."} Always check the original publisher before sharing.</div>
           </> : <div className={styles.sourceNote}>Translate the moment first to find its reaction-image candidates.</div>}
         </aside>
 
@@ -1003,7 +1054,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           <div className={styles.archiveHead}>
             <div>
               <div className={styles.sectionKicker}>03 / reaction candidates</div>
-              <h2>{searchedQuery ? `Choose reaction image for “${searchedQuery}”` : "The image comes after the angle"}</h2>
+              <h2>{searchedQuery ? `${reactionSearchMode === "existing-meme" ? "Browse existing memes for" : "Choose a clean reaction still for"} “${searchedQuery}”` : "The image comes after the angle"}</h2>
             </div>
             {results.length > 0 && <span className={styles.count}>{comparisonEmotion ? `${visibleResults.length} of ${results.length}` : results.length} candidates</span>}
           </div>
@@ -1025,7 +1076,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
             {selected && comparisonEmotion && !filterReactionCandidates([selected], comparisonEmotion).length && <p>Selected source remains attached from “{selected.query}”. Switch back to all reactions to compare it alongside this view.</p>}
           </div>}
           {!searching && results.length > 0 && !visibleResults.length && <div className={styles.empty}><span>Comparison note</span><strong>No loaded candidates perform “{comparisonEmotion}” yet.</strong><p>Your selected source and its rights-status labeling remain attached. Try another emotion or view all reactions.</p></div>}
-          {!searching && visibleResults.length > 0 && <div className={styles.gallery}>{visibleResults.map((asset) => <button key={asset.id} className={`${styles.result} ${selected?.id === asset.id ? styles.resultSelected : ""}`} onClick={() => { setSelected(asset); setVisualGeneration(undefined); setPreviewImageFailed(false); setPacketSaved(false); setStatus(`Selected “${asset.title}”. Generate the visual object with this source.`); }} aria-pressed={selected?.id === asset.id} disabled={busy}><span className={styles.imageWrap}><img src={asset.thumbnail} alt="" onError={(event) => { event.currentTarget.style.display = "none"; const fallback = event.currentTarget.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.visibility = "visible"; }} /><span className={styles.imageFallback}>Image<br />unavailable</span></span><span className={styles.resultTitle}>{asset.title}</span>{asset.reactionEmotion && <span className={styles.resultEmotion}>{(asset.reactionEmotions ?? [asset.reactionEmotion]).join(" · ")} reaction</span>}<span className={styles.publisher}>{asset.reactionQueryTier ? `${asset.reactionQueryTier} match · ` : ""}{asset.publisher || "Unknown publisher"}</span></button>)}</div>}
+          {!searching && visibleResults.length > 0 && <div className={styles.gallery}>{visibleResults.map((asset) => <button key={asset.id} className={`${styles.result} ${selected?.id === asset.id ? styles.resultSelected : ""}`} onClick={() => { setSelected(asset); setVisualGeneration(undefined); setPreviewImageFailed(false); setPacketSaved(false); setStatus(reactionSearchMode === "existing-meme" ? `Selected “${asset.title}”. Grab this meme as-is or rework it into a new card.` : `Selected “${asset.title}”. Generate the visual object with this source.`); }} aria-pressed={selected?.id === asset.id} disabled={busy}><span className={styles.imageWrap}><img src={asset.thumbnail} alt="" onError={(event) => { event.currentTarget.style.display = "none"; const fallback = event.currentTarget.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.visibility = "visible"; }} /><span className={styles.imageFallback}>Image<br />unavailable</span></span><span className={styles.resultTitle}>{asset.title}</span>{asset.reactionEmotion && <span className={styles.resultEmotion}>{(asset.reactionEmotions ?? [asset.reactionEmotion]).join(" · ")} reaction</span>}<span className={styles.publisher}>{reactionSearchMode === "existing-meme" ? "Existing meme · " : asset.reactionQueryTier ? `${asset.reactionQueryTier} match · ` : ""}{asset.publisher || "Unknown publisher"}</span></button>)}</div>}
         </section>
 
         <section className={styles.forge}>
@@ -1114,7 +1165,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
 
           {activeStep === "forge" ? <>
             <div className={styles.aiPanel}>
-                <div><strong>Forge the reaction card</strong><p>Uses the translated moment first, then the selected reaction still as its visual anchor. The original card copy remains yours to edit.</p></div>
+                <div><strong>{reactionSearchMode === "existing-meme" ? "Rework this existing meme" : "Forge a new reaction card"}</strong><p>{reactionSearchMode === "existing-meme" ? "Use the selected pre-captioned meme as a visual starting point, or grab it as-is from the source panel below." : "Uses the translated moment first, then the selected clean reaction still as its visual anchor. The new card copy remains yours to edit."}</p></div>
               {isAdmin
                 ? <button className={styles.aiAction} onClick={() => void generateVisual()} disabled={busy || !translation}>{busy ? "Generating…" : visualGeneration ? "Reforge card" : "Forge card"}</button>
                 : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in to generate</a>}
@@ -1168,7 +1219,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
               </div>
             {title && <small>{title}</small>}
           </div>
-          {selected && <div className={styles.provenance}><strong>Source attached</strong><span>{selected.title}</span><span>{selected.publisher || "Publisher unknown"} · {selected.provider || "Provider unknown"}</span><a href={selected.url} target="_blank" rel="noreferrer">Open original source</a><small>Rights status: unknown. This is a personal draft; confirm permission before publishing.</small></div>}
+          {selected && <div className={styles.provenance}><strong>Source attached</strong><span>{selected.title}</span><span>{selected.publisher || "Publisher unknown"} · {selected.provider || "Provider unknown"}</span>{reactionSearchMode === "existing-meme" && <a href={selected.thumbnail} target="_blank" rel="noreferrer">Grab existing meme image</a>}<a href={selected.url} target="_blank" rel="noreferrer">Open original source</a><small>Rights status: unknown. This is a personal draft; confirm permission before publishing.</small></div>}
            {selected && <button className={styles.typeFallback} type="button" onClick={() => { setSelected(undefined); setVisualGeneration(undefined); setPacketSaved(false); setStatus("Typography-only fallback selected. Choose a reaction image any time to restore image-backed rendering."); }} disabled={busy}>Use typography-only fallback</button>}
            {!selected && <div className={styles.provenanceMuted}>Typography-only fallback is active. Choose a reaction image to restore image-backed rendering.</div>}
           <p className={styles.handoffNote}><strong>Your generated draft stays here.</strong> PNG export is independent. Packet staging is an optional handoff to the CREATE workflow.</p>

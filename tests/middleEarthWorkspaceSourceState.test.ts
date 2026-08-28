@@ -393,7 +393,7 @@ test('reaction images stay behind translation and source selection requires a re
 
   assert.match(
     source,
-    /\{translation \? <>[\s\S]*?<form className=\{styles\.searchForm\} onSubmit=\{search\}>[\s\S]*?Search reaction images[\s\S]*?<\/form>[\s\S]*?<\/> : <div className=\{styles\.sourceNote\}>Translate the moment first to find its reaction-image candidates\.<\/div>\}/,
+    /\{translation \? <>[\s\S]*?<form className=\{styles\.searchForm\} onSubmit=\{search\}>[\s\S]*?Search existing memes[\s\S]*?Search clean reaction stills[\s\S]*?<\/form>[\s\S]*?<\/> : <div className=\{styles\.sourceNote\}>Translate the moment first to find its reaction-image candidates\.<\/div>\}/,
     'reaction image search must be rendered only after a moment has been translated',
   );
 
@@ -462,7 +462,7 @@ test('reaction images stay behind translation and source selection requires a re
   );
   const comparisonView = source.slice(
     source.indexOf('const compareReactionEmotion ='),
-    source.indexOf('const translateMoment =', source.indexOf('const compareReactionEmotion =')),
+    source.indexOf('const changeReactionSearchMode =', source.indexOf('const compareReactionEmotion =')),
   );
   assert.match(
     comparisonView,
@@ -497,6 +497,36 @@ test('reaction images stay behind translation and source selection requires a re
     search,
     /setText\(|setSecondaryText\(|setTitle\(/,
     'choosing or auto-selecting a reaction still must never rewrite the generated joke',
+  );
+});
+
+test('source treatment supports clean-still forging, existing-meme rework, and direct grab', async () => {
+  const source = await readFile(
+    new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(source, /New card from a clean still/);
+  assert.match(source, /Browse existing memes/);
+  assert.match(
+    source,
+    /setQuery\(\[resolvedCharacter, moment\.trim\(\), "meme"\]/,
+    'existing-meme search may intentionally use the personal moment',
+  );
+  assert.match(
+    source,
+    /reactionSearchMode === "existing-meme" \? "Rework this existing meme" : "Forge a new reaction card"/,
+    'a selected existing meme must remain available as a rework source',
+  );
+  assert.match(
+    source,
+    /reactionSearchMode === "existing-meme" && <a href=\{selected\.thumbnail\} target="_blank" rel="noreferrer">Grab existing meme image<\/a>/,
+    'an existing meme must also be directly accessible without forcing a reforge',
+  );
+  assert.match(
+    source,
+    /<a href=\{selected\.url\} target="_blank" rel="noreferrer">Open original source<\/a>/,
+    'both treatments must preserve the attributed source link',
   );
 });
 
