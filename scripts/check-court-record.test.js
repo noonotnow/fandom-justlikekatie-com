@@ -589,6 +589,34 @@ test('integration: exits 1 (whitespace-only) for tagged template with literal sp
   assert.match(result.stderr, /whitespace-only/);
 });
 
+test('integration: exits 1 (whitespace-only) for tagged template with literal U+00A0', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    'html` `',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /whitespace-only/);
+});
+
+test('integration: exits 1 (whitespace-only) for tagged template with literal U+2003', () => {
+  const src = makeSource([
+    '"Case #001: Motion denied. — Chief Justice 🦝"',
+    'html` `',
+  ]);
+  const result = runScript(src);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1 but got ${result.status}.\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+  );
+  assert.match(result.stderr, /whitespace-only/);
+});
+
 test('integration: exits 0 for tagged template with valid visible content', () => {
   const src = makeSource([
     '"Case #001: Motion denied. — Chief Justice 🦝"',
