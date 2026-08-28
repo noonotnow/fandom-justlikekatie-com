@@ -6,6 +6,7 @@ import {
   buildSyncOperations,
   collectionScopeForCard,
   normalizeCardForCollection,
+  markGridAsLegendaryMisprint,
   queueCardDelete,
   resolveDeleteAccount,
   type CardRecord,
@@ -180,6 +181,32 @@ test('already-moved Middle-earth cards with Vibe grid context are repaired after
   assert.equal(repaired.vibe, 'Existing Middle-earth meme');
   assert.equal(repaired.gridContext, undefined);
   assert.equal(repaired.sourceRoute, '/memeforge/middle-earth?view=collection');
+});
+
+test('Legendary Misprints preserve the unexpected actor while setting both export tier flags', () => {
+  const markedAt = new Date('2026-08-28T19:47:00.000Z');
+  const marked = markGridAsLegendaryMisprint({
+    ...grid(),
+    actorId: 'gandalf',
+    actor: 'Gandalf',
+    actorEn: 'Gandalf',
+  }, markedAt);
+  assert.deepEqual(marked.edition, {
+    provider: 'brave',
+    misprint: true,
+    legendary: true,
+  });
+  assert.deepEqual(marked.legendaryMisprint, {
+    schemaVersion: 1,
+    markedAt: markedAt.toISOString(),
+    intendedStudio: 'vibe-atlas',
+    unexpectedActor: {
+      id: 'gandalf',
+      name: 'Gandalf',
+      nameEn: 'Gandalf',
+    },
+  });
+  assert.equal(marked.actor, 'Gandalf');
 });
 
 test('Lightbox save and remove schedule account-aware synchronization', async () => {

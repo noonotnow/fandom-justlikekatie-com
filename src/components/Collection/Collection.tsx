@@ -3,8 +3,10 @@ import {
   dbGetVisibleCardsByScope,
   dbReplaceCardImage,
   normalizeCardForCollection,
+  markGridAsLegendaryMisprint,
   dbGetVisibleGrids,
   dbSaveCard,
+  dbSaveGrid,
   type CardRecord,
   type GridRecord,
 } from '../../utils/collectionDB';
@@ -64,6 +66,8 @@ interface Props {
 type ExpandedArtifact =
   | { kind: 'grid'; record: GridRecord }
   | { kind: 'card'; record: CardRecord };
+
+const LEGENDARY_MISPRINT_FILTER = '__legendary-misprints__';
 
 export const Collection: React.FC<Props> = ({
   scope = 'vibe-atlas',
@@ -314,6 +318,21 @@ export const Collection: React.FC<Props> = ({
     }
   }
 
+  async function markLegendaryMisprint(grid: GridRecord) {
+    setBusyKey(`misprint:${grid.id}`);
+    try {
+      await dbSaveGrid(markGridAsLegendaryMisprint(grid));
+      await loadCollection(user?.accountId);
+      schedulePublicCollectionSync();
+      setFilterActor(LEGENDARY_MISPRINT_FILTER);
+      setAccountNotice('Legendary Misprint preserved. It is separated from ordinary actor filters and Builder proposals.');
+    } catch (error) {
+      setAccountNotice(messageFrom(error, 'The grid could not be marked as a Legendary Misprint.'));
+    } finally {
+      setBusyKey('');
+    }
+  }
+
   async function registerCardMedia(event: React.ChangeEvent<HTMLInputElement>, card: CardRecord) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -453,11 +472,20 @@ export const Collection: React.FC<Props> = ({
   if (loading) return <div className={styles.loading}>Loading collection…</div>;
 
   const allActors = Array.from(new Set([
-    ...grids.map(grid => grid.actor),
+    ...grids.filter(grid => !grid.legendaryMisprint).map(grid => grid.actor),
     ...cards.map(card => card.actor),
   ]));
-  const displayedGrids = filterActor ? grids.filter(grid => grid.actor === filterActor) : grids;
-  const displayedCards = filterActor ? cards.filter(card => card.actor === filterActor) : cards;
+  if (grids.some(grid => grid.legendaryMisprint)) allActors.unshift(LEGENDARY_MISPRINT_FILTER);
+  const displayedGrids = filterActor === LEGENDARY_MISPRINT_FILTER
+    ? grids.filter(grid => grid.legendaryMisprint)
+    : filterActor
+      ? grids.filter(grid => !grid.legendaryMisprint && grid.actor === filterActor)
+      : grids;
+  const displayedCards = filterActor === LEGENDARY_MISPRINT_FILTER
+    ? []
+    : filterActor
+      ? cards.filter(card => card.actor === filterActor)
+      : cards;
 
   return (
     <main className={styles.collection}>
@@ -546,7 +574,7 @@ export const Collection: React.FC<Props> = ({
               aria-pressed={filterActor === actor}
               onClick={() => setFilterActor(actor)}
             >
-              {actor}
+              {actor === LEGENDARY_MISPRINT_FILTER ? '🔥 Legendary Misprints' : actor}
             </button>
           ))}
         </div>
@@ -589,8 +617,16 @@ export const Collection: React.FC<Props> = ({
                 <div className={styles.gridStory}>
                   <div className={styles.gridTitle}>
                     <div>
-                      <h3>{grid.vibeEmoji} {grid.actor}</h3>
-                      <p>{grid.vibe} · {grid.vibeEn}</p>
+                      <h3>
+                        {grid.legendaryMisprint
+                          ? '🔥 Legendary Misprint'
+                          : `${grid.vibeEmoji} ${grid.actor}`}
+                      </h3>
+                      <p>
+                        {grid.legendaryMisprint
+                          ? `Vibe Atlas × ${grid.legendaryMisprint.unexpectedActor.name} · ${grid.vibe}`
+                          : `${grid.vibe} · ${grid.vibeEn}`}
+                      </p>
                     </div>
                     <span>{formatDate(grid.capturedDate)}</span>
                   </div>
@@ -658,6 +694,15 @@ export const Collection: React.FC<Props> = ({
                       }}
                     >
                       {busyKey === `create:${grid.id}` ? 'Starting…' : 'Start packet'}
+                    </button>
+                  )}
+                  {!grid.legendaryMisprint && (
+                    <button
+                      type="button"
+                      disabled={Boolean(busyKey)}
+                      onClick={() => void markLegendaryMisprint(grid)}
+                    >
+                      {busyKey === `misprint:${grid.id}` ? 'Marking…' : 'Mark Legendary Misprint'}
                     </button>
                   )}
                   <button

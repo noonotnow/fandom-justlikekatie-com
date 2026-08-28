@@ -92,6 +92,40 @@ export interface GridRecord {
   legacyCompositeUrl?: string;
   media?: MediaReference;
   mediaRecovery?: CollectionMediaRecovery;
+  legendaryMisprint?: {
+    schemaVersion: 1;
+    markedAt: string;
+    intendedStudio: 'vibe-atlas';
+    unexpectedActor: {
+      id: string;
+      name: string;
+      nameEn: string;
+    };
+  };
+}
+
+export function markGridAsLegendaryMisprint(
+  grid: GridRecord,
+  now = new Date(),
+): GridRecord {
+  return {
+    ...grid,
+    edition: {
+      ...grid.edition,
+      misprint: true,
+      legendary: true,
+    },
+    legendaryMisprint: {
+      schemaVersion: 1,
+      markedAt: now.toISOString(),
+      intendedStudio: 'vibe-atlas',
+      unexpectedActor: {
+        id: grid.actorId,
+        name: grid.actor,
+        nameEn: grid.actorEn,
+      },
+    },
+  };
 }
 
 function openDB(): Promise<IDBDatabase> {
@@ -432,7 +466,7 @@ export function buildSyncOperations(
     .filter(grid => !grid.ownerAccountId || grid.ownerAccountId === accountId)
     .map(grid => {
       const localId = grid.localId!;
-      const mutationId = `upsert:${state.clientId}:${localId}:${grid.savedAt}`;
+      const mutationId = `upsert:${state.clientId}:${localId}:${grid.legendaryMisprint?.markedAt || grid.savedAt}`;
       return {
         type: 'upsert',
         mutationId,
@@ -600,6 +634,7 @@ export function normalizeGridRecord(grid: Partial<GridRecord>): GridRecord {
     ...(grid.legacyCompositeUrl ? { legacyCompositeUrl: grid.legacyCompositeUrl } : {}),
     ...(grid.media ? { media: grid.media } : {}),
     ...(grid.mediaRecovery ? { mediaRecovery: grid.mediaRecovery } : {}),
+    ...(grid.legendaryMisprint ? { legendaryMisprint: grid.legendaryMisprint } : {}),
   };
 }
 
