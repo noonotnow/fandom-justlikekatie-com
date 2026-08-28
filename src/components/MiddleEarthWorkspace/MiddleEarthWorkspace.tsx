@@ -525,6 +525,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const [previewNode, setPreviewNode] = useState<HTMLElement | null>(null);
   const [packetSaved, setPacketSaved] = useState(false);
   const [collectionSaved, setCollectionSaved] = useState(false);
+  const [originalCollectionSaved, setOriginalCollectionSaved] = useState(false);
 
   const isAuto = (value: string) => value === autoSteering;
   const resolvedCharacter = isAuto(character) ? translation?.character ?? "The Fellowship" : character;
@@ -555,6 +556,10 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       ? "existing-meme"
       : "rework-existing";
   const isEditorRequired = sourcePath !== "existing-meme";
+  const isReworkExisting = sourcePath === "rework-existing";
+  const canSaveOriginalMeme = Boolean(selected && (isExistingMemeAsIs || isReworkExisting));
+  const hasReworkOverlay = Boolean(isReworkExisting && selected && (text.trim() || secondaryText.trim()));
+  const hasSavableGeneratedCard = Boolean(visualGeneration || hasReworkOverlay);
   const reworkPanelTitle = reactionSearchMode === "existing-meme" ? "Rework this existing meme" : "Forge a new reaction card";
   const generationGuidance = useMemo(() => [
     moment.trim() ? `Original moment: ${moment.trim()}` : "",
@@ -569,17 +574,17 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
 
   useEffect(() => {
     let current = true;
-    if (!isExistingMemeAsIs || !selected) {
-      setCollectionSaved(false);
+    if (!canSaveOriginalMeme || !selected) {
+      setOriginalCollectionSaved(false);
       return () => { current = false; };
     }
     void dbIsCardSaved(selected.thumbnail).then(saved => {
-      if (current) setCollectionSaved(saved);
+      if (current) setOriginalCollectionSaved(saved);
     }).catch(() => {
-      if (current) setCollectionSaved(false);
+      if (current) setOriginalCollectionSaved(false);
     });
     return () => { current = false; };
-  }, [isExistingMemeAsIs, selected]);
+  }, [canSaveOriginalMeme, selected]);
 
   useEffect(() => {
     if (isEditorRequired) setCollectionSaved(false);
@@ -613,12 +618,17 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     setSelected(undefined);
     setResults([]);
     setSearchedQuery("");
-    setReactionSearchMode("clean-still");
+    setReactionSearchMode(isReworkExisting ? "existing-meme" : "clean-still");
     setSourceTreatment("new-overlay");
+    if (isReworkExisting) {
+      setQuery([value.trim(), "meme"].filter(Boolean).join(" ").slice(0, 200));
+    }
     setComparisonEmotion(undefined);
     setSearching(false);
     setError("");
-    setStatus("");
+    setStatus(isReworkExisting && value.trim()
+      ? `Rework search is ready: “${value.trim()} meme”. Search now, then keep the source or add your own joke.`
+      : "");
     setTitle("");
     setText("");
     setSecondaryText("");
@@ -631,8 +641,12 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     requestedQuery?: string,
   ) => {
     event?.preventDefault();
-    const clean = (requestedQuery ?? query).trim();
+    const rawQuery = (requestedQuery ?? query).trim();
+    const clean = isReworkExisting && rawQuery && !/\bmeme\b/iu.test(rawQuery)
+      ? `${rawQuery} meme`.slice(0, 200)
+      : rawQuery;
     if (!clean) return;
+    if (clean !== query) setQuery(clean);
     const requestId = archiveSearchRequestGate.begin();
     setComparisonEmotion(undefined);
     setSelected(undefined); setPreviewImageFailed(false); setVisualGeneration(undefined); setPacketSaved(false);
@@ -788,7 +802,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     }
     setBusy(true);
     setError("");
-    setStatus("Reading your existing meme without changing it…");
+    setStatus(isReworkExisting ? "Reading your existing meme for an optional rework…" : "Reading your existing meme without changing it…");
     archiveSearchRequestGate.invalidate();
     try {
       const dataUrl = await readImageFileAsDataUrl(file);
@@ -803,7 +817,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
         provider: "local-upload",
       };
       setReactionSearchMode("existing-meme");
-      setSourceTreatment("as-is");
+      setSourceTreatment(isReworkExisting ? "new-overlay" : "as-is");
       setComparisonEmotion(undefined);
       setResults([uploadedAsset]);
       setSearchedQuery("your uploaded meme");
@@ -811,8 +825,11 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       setSelected(uploadedAsset);
       setPreviewImageFailed(false);
       setCollectionSaved(false);
+      setOriginalCollectionSaved(false);
       invalidateGeneratedVisual();
-      setStatus(`“${file.name}” is ready. The editor is bypassed and the original image will be exported unchanged.`);
+      setStatus(isReworkExisting
+        ? `“${file.name}” is ready. Save the original now, or add your own optional joke in the editor.`
+        : `“${file.name}” is ready. The editor is bypassed and the original image will be exported unchanged.`);
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "The existing meme could not be loaded.");
     } finally {
@@ -829,7 +846,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     if (nextPath === "existing-meme") {
       setStatus("Unchanged export selected. Find a finished meme, then export or save its original bytes without opening the editor.");
     } else if (nextPath === "rework-existing") {
-      setStatus("Rework selected. Find a finished meme, then open the editor to make a new original overlay card.");
+      setStatus("Rework selected. Find or upload a finished meme, save it as-is if you want, or add your own optional joke in the editor.");
     } else {
       setStatus("New image selected. Find a clean canonical still, then open the editor to make a new reaction card.");
     }
@@ -844,8 +861,10 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       setError("Start with the moment you want MemeForge to translate.");
       return;
     }
+    const translatingRework = isReworkExisting;
     const requestId = translationRequestGate.begin();
-    setSelected(undefined); setPreviewImageFailed(false); setVisualGeneration(undefined); setPacketSaved(false);
+    if (!translatingRework) setSelected(undefined);
+    setPreviewImageFailed(false); setVisualGeneration(undefined); setPacketSaved(false);
     setBusy(true); setError(""); setStatus("MemeForge is finding the fandom angle…");
     try {
       const generated = await translateMemeMoment({
@@ -867,6 +886,13 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       setCardFormat(generated.cardText.format);
       setReactionSearchMode("clean-still");
       setSourceTreatment("new-overlay");
+      if (translatingRework) {
+        setReactionSearchMode("existing-meme");
+        setSourceTreatment("new-overlay");
+        if (!translationRequestGate.isCurrent(requestId)) return;
+        setStatus("Joke suggestion ready. Your existing meme stays selected; edit either line or save the original below.");
+        return;
+      }
       const curatedSceneQueries = referenceStillSearchQueries(generated.referenceStillFamily);
       const curatedSceneQuery = curatedSceneQueries[0] || generated.reactionImageBrief.socialUseQuery;
       setQuery(curatedSceneQuery);
@@ -1057,11 +1083,13 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   };
 
   const exportPng = async () => {
-    if (isExistingMemeAsIs && selected) {
-      setBusy(true); setStatus("Downloading the original meme without overlays…"); setError("");
+    if (canSaveOriginalMeme && selected) {
+      setBusy(true); setStatus(isExistingMemeAsIs ? "Downloading the original meme without overlays…" : "Downloading the existing meme before any rework…"); setError("");
       try {
         await downloadExistingMeme(selected);
-        setStatus("Original meme downloaded unchanged. Source attribution remains attached in your collection.");
+        setStatus(isExistingMemeAsIs
+          ? "Original meme downloaded unchanged. Source attribution remains attached in your collection."
+          : "Original meme downloaded unchanged. Add an optional overlay separately, or keep this source as-is.");
       } catch (exportError) {
         setError(exportError instanceof Error ? exportError.message : "Export failed.");
       } finally {
@@ -1080,8 +1108,8 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   };
 
   const saveExistingMeme = async () => {
-    if (!selected || !isExistingMemeAsIs) return;
-    setBusy(true); setStatus("Saving the attributed meme to your Middle-earth Collection…"); setError("");
+    if (!selected || !canSaveOriginalMeme) return;
+    setBusy(true); setStatus(isExistingMemeAsIs ? "Saving the attributed meme to your Middle-earth Collection…" : "Saving the original source to your Middle-earth Collection…"); setError("");
     try {
       await dbSaveCard({
         imageUrl: selected.thumbnail,
@@ -1107,10 +1135,10 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       } else {
         schedulePublicCollectionSync();
       }
-      setCollectionSaved(true);
+      setOriginalCollectionSaved(true);
       setStatus(registeredInMedia
-        ? "Saved to the Middle-earth Collection and registered in MEDIA."
-        : "Saved to the Middle-earth Collection on this device. Sign in and merge this device to register it in MEDIA.");
+        ? `${isExistingMemeAsIs ? "Saved" : "Original source saved"} to the Middle-earth Collection and registered in MEDIA.`
+        : `${isExistingMemeAsIs ? "Saved" : "Original source saved"} to the Middle-earth Collection on this device. Sign in and merge this device to register it in MEDIA.`);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "The meme could not be saved.");
     } finally {
@@ -1217,22 +1245,22 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
             </button>
           </div>
           <div className={styles.pathStatus}>
-            <span>{isEditorRequired ? "Translation + editor required" : "Direct search · editor bypassed"}</span>
+             <span>{isReworkExisting ? "Existing-meme search + optional editor" : isEditorRequired ? "Translation + editor required" : "Direct search · editor bypassed"}</span>
             <p>{sourcePath === "new-image"
               ? "Translate the moment, find a clean still, and forge a new setup-and-punchline card."
               : sourcePath === "rework-existing"
-                ? "Translate the new angle, find an existing meme for context, and build a distinct rework."
+                 ? "Search your terms plus “meme,” then save the original, add a joke yourself, or ask MemeForge for a suggestion."
                 : "Search for the finished meme now, preserve it exactly, and go straight to export or Collection."}</p>
           </div>
         </fieldset>
       </section>
 
       {isEditorRequired ? (
-      <section className={styles.momentPrompt} aria-labelledby="moment-heading">
+       <section className={styles.momentPrompt} aria-labelledby="moment-heading">
         <div>
-          <div className={styles.sectionKicker}>02 / meme translation</div>
-          <h2 id="moment-heading">What moment are we forging?</h2>
-          <p>Say the moment badly. MemeForge finds the archetype.</p>
+           <div className={styles.sectionKicker}>02 / {isReworkExisting ? "optional joke assist" : "meme translation"}</div>
+           <h2 id="moment-heading">{isReworkExisting ? "Want help with a new joke?" : "What moment are we forging?"}</h2>
+           <p>{isReworkExisting ? "Describe your angle if you want a suggestion. You can also write the overlay yourself below." : "Say the moment badly. MemeForge finds the archetype."}</p>
         </div>
         <label htmlFor="meme-moment">The moment</label>
         <textarea
@@ -1248,8 +1276,8 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           <div className={styles.momentExamples} aria-label="Moment examples">
             {momentExamples.map((example) => <button key={example} type="button" onClick={() => updateMoment(example)} disabled={busy}>{example}</button>)}
           </div>
-          {isAdmin
-            ? <button className={styles.translateAction} type="button" onClick={() => void translateMoment()} disabled={busy || !moment.trim()}>{busy ? "Translating…" : "Translate moment"}</button>
+           {isAdmin
+             ? <button className={styles.translateAction} type="button" onClick={() => void translateMoment()} disabled={busy || !moment.trim()}>{busy ? "Working…" : isReworkExisting ? "Suggest a joke" : "Translate moment"}</button>
             : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in to translate</a>}
         </div>
         {translation && <div className={styles.translationResult}>
@@ -1266,7 +1294,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           </div>
         </div>}
       </section>
-      ) : (
+       ) : (
         <section className={styles.momentBypass} aria-label="Translation bypassed">
           <div><span>02 / translation bypassed</span><strong>The joke is already in the image.</strong></div>
           <p>This path does not rewrite, reframe, or add copy. Search for the finished meme below and keep its source attached.</p>
@@ -1276,7 +1304,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       <div className={styles.layout}>
         <aside className={styles.searchRail}>
           <div className={styles.sectionKicker}>03 / choose source image</div>
-          {translation || !isEditorRequired ? <>
+           {translation || !isEditorRequired || isReworkExisting ? <>
             {reactionSearchMode === "clean-still" && translation && <>
             <label>
               Reaction still family
@@ -1307,23 +1335,23 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
             </div>
             </>}
             {reactionSearchMode === "existing-meme" && <div className={styles.uploadPanel}>
-              <div><strong>Have your own meme?</strong><p>Upload the image you already made. MemeForge will keep it byte-for-byte unchanged—no translation, overlays, or branding.</p></div>
+              <div><strong>Have your own meme?</strong><p>{isReworkExisting ? "Upload it, save the original whenever you want, and optionally add your own joke below." : "Upload the image you already made. MemeForge will keep it byte-for-byte unchanged—no translation, overlays, or branding."}</p></div>
               <label className={styles.uploadLabel} htmlFor="existing-meme-upload">
                 Upload image
                 <input id="existing-meme-upload" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void handleExistingMemeUpload(event)} disabled={busy || searching} />
               </label>
             </div>}
-            <form className={styles.searchForm} onSubmit={search}>
+             <form className={styles.searchForm} onSubmit={search}>
               <label htmlFor="archive-search">{reactionSearchMode === "existing-meme" ? "Search existing memes" : "Search clean reaction stills"}</label>
               <div className={styles.searchBox}>
-                <input id="archive-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={reactionSearchMode === "existing-meme" ? "Try “Gandalf meme when avoiding homework”" : "Try “Sam carrying Frodo reaction still”"} disabled={busy || searching} />
+                 <input id="archive-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={reactionSearchMode === "existing-meme" ? "Try “Gandalf avoiding homework meme”" : "Try “Sam carrying Frodo reaction still”"} disabled={busy || searching} />
                 <button type="submit" aria-label="Search the archive" disabled={busy || searching || !query.trim()}>Search</button>
               </div>
             </form>
             <div className={styles.suggestions}>
               {suggestions.map((group) => <div key={group.label}><span>{group.label}</span><div className={styles.chips}>{group.items.map((item) => <button key={item} onClick={() => { setQuery(item); void search(undefined, item); }} disabled={busy || searching}>{item}</button>)}</div></div>)}
             </div>
-            <div className={styles.sourceNote}><span className={styles.dot} /> {sourcePath === "existing-meme" ? "Existing-meme search may return finished images with text. The selected image will stay byte-for-byte unchanged; the editor remains bypassed." : sourcePath === "rework-existing" ? "Existing-meme search may return images that already contain text. The selected image becomes visual context for a fresh, original rework in the editor." : "Clean-still search uses canonical scene anchors only. MemeForge adds the new joke as an overlay after you choose the image."} Always check the original publisher before sharing.</div>
+             <div className={styles.sourceNote}><span className={styles.dot} /> {sourcePath === "existing-meme" ? "Existing-meme search may return finished images with text. The selected image will stay byte-for-byte unchanged; the editor remains bypassed." : sourcePath === "rework-existing" ? "Rework searches existing memes using your terms plus “meme.” The selected image stays available as the original source while you optionally add an overlay." : "Clean-still search uses canonical scene anchors only. MemeForge adds the new joke as an overlay after you choose the image."} Always check the original publisher before sharing.</div>
           </> : <div className={styles.sourceNote}>Translate the moment first to find its reaction-image candidates.</div>}
         </aside>
 
@@ -1375,8 +1403,8 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           ) : (
           <div className={styles.editorPanel}>
           <div className={styles.editorPanelHead}>
-            <span>Editor required</span>
-            <p>{sourcePath === "rework-existing" ? "Build a distinct card from the existing meme's visual idea." : "Turn the clean still into a new reaction card."}</p>
+            <span>{isReworkExisting ? "Optional editor" : "Editor required"}</span>
+            <p>{isReworkExisting ? "Keep the source meme as-is, or add one or two lines of your own without generating anything." : "Turn the clean still into a new reaction card."}</p>
           </div>
           <div className={styles.steeringIntro}><strong>Optional steering</strong><p>Leave any control on Auto / surprise me and let the moment decide. Your manual choices always win.</p></div>
           <label>
@@ -1457,15 +1485,15 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
 
           {activeStep === "forge" ? <>
             <div className={styles.aiPanel}>
-                <div><strong>{reworkPanelTitle}</strong><p>{reactionSearchMode === "existing-meme" ? "Uses the pre-captioned meme as visual context for a distinct card with original overlay copy." : "Uses the translated moment first, then the selected clean reaction still as its visual anchor. The new card copy remains yours to edit."}</p></div>
+                <div><strong>{reworkPanelTitle}</strong><p>{isReworkExisting ? "AI is optional. Describe a moment above if you want a joke suggestion, or type your own overlay below." : "Uses the translated moment first, then the selected clean reaction still as its visual anchor. The new card copy remains yours to edit."}</p></div>
               {isAdmin
                 ? <button className={styles.aiAction} onClick={() => void generateVisual()} disabled={busy || !translation || isExistingMemeAsIs}>{busy ? "Generating…" : isExistingMemeAsIs ? "Choose Rework to forge" : visualGeneration ? "Reforge card" : "Forge card"}</button>
                 : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in to generate</a>}
             </div>
             {cardFormat && <div className={styles.cardFormat}><span>Reaction format</span><strong>{cardFormat}</strong><p>Two lines only: setup, then punchline. Keep longer interpretation in “Translated as.”</p></div>}
             <label>Tiny footer <small className={styles.optional}>optional</small><input value={title} onChange={(event) => { setTitle(event.target.value); setPacketSaved(false); }} maxLength={45} disabled={busy} /></label>
-            <label>Setup line<textarea value={text} onChange={(event) => { setText(event.target.value); setPacketSaved(false); }} rows={2} maxLength={36} disabled={busy} /></label>
-            <label>Punchline / reaction line<input value={secondaryText} onChange={(event) => { setSecondaryText(event.target.value); setPacketSaved(false); }} maxLength={36} disabled={busy} /></label>
+            <label>{isReworkExisting ? "Joke line 1" : "Setup line"}{isReworkExisting && <small className={styles.optional}> optional</small>}<textarea value={text} onChange={(event) => { setText(event.target.value); setPacketSaved(false); }} rows={2} maxLength={36} disabled={busy} /></label>
+            <label>{isReworkExisting ? "Joke line 2" : "Punchline / reaction line"}{isReworkExisting && <small className={styles.optional}> optional</small>}<input value={secondaryText} onChange={(event) => { setSecondaryText(event.target.value); setPacketSaved(false); }} maxLength={36} disabled={busy} /></label>
             <div className={styles.choiceGroup}><span>Tone</span><div>{memeTones.map((option) => <button key={option} className={tone === option ? styles.choiceActive : ""} onClick={() => { if (tone === option) return; setTone(option); invalidateGeneratedVisual(); }} disabled={busy}>{option}</button>)}</div></div>
             <div className={styles.choiceGroup}><span>Layout</span><div>{memeLayouts.map((option) => <button key={option} className={layout === option ? styles.choiceActive : ""} onClick={() => { if (layout === option) return; setLayout(option); invalidateGeneratedVisual(); }} disabled={busy}>{option}</button>)}</div></div>
           </> : <>
@@ -1529,15 +1557,16 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
            {isEditorRequired && selected && <button className={styles.typeFallback} type="button" onClick={() => { setSelected(undefined); setVisualGeneration(undefined); setPacketSaved(false); setStatus("Typography-only fallback selected. Choose a reaction image any time to restore image-backed rendering."); }} disabled={busy}>Use typography-only fallback</button>}
            {isEditorRequired && !selected && <div className={styles.provenanceMuted}>Typography-only fallback is active. Choose a reaction image to restore image-backed rendering.</div>}
           <p className={styles.handoffNote}>{isEditorRequired
-            ? <><strong>Your generated draft stays here.</strong> PNG export is independent. Packet staging is an optional handoff to the CREATE workflow.</>
+             ? isReworkExisting
+               ? <><strong>Your source and rework stay separate.</strong> Save the original at any time, or save a reworked card after adding at least one joke line. Translation, AI, and CREATE are optional.</>
+               : <><strong>Your generated draft stays here.</strong> PNG export is independent. Packet staging is an optional handoff to the CREATE workflow.</>
             : <><strong>The original stays original.</strong> Export and Collection save use the selected source image without MemeForge overlays or branding.</>}</p>
           <div className={styles.actions}>
             {isEditorRequired && <button className={styles.export} onClick={() => void exportPng()} disabled={busy}>{busy ? "Working…" : "Export PNG"}</button>}
-            {isExistingMemeAsIs && <button className={styles.export} onClick={() => void exportPng()} disabled={busy}>{busy ? "Working…" : "Export original meme"}</button>}
-            {isExistingMemeAsIs && <button className={styles.save} onClick={() => void saveExistingMeme()} disabled={busy || collectionSaved}>{collectionSaved ? "Saved to Collection" : "Save to Collection"}</button>}
-            {isEditorRequired && visualGeneration && <button className={styles.save} onClick={() => void saveGeneratedMeme()} disabled={busy || collectionSaved}>{collectionSaved ? "Saved to Collection" : "Save generated card"}</button>}
-            {isExistingMemeAsIs && collectionSaved && <a className={styles.stagingLink} href="/memeforge/middle-earth?view=collection">Open Collection</a>}
-            {isEditorRequired && visualGeneration && collectionSaved && <a className={styles.stagingLink} href="/memeforge/middle-earth?view=collection">Open Collection</a>}
+             {canSaveOriginalMeme && <button className={styles.export} onClick={() => void exportPng()} disabled={busy}>{busy ? "Working…" : isExistingMemeAsIs ? "Export original meme" : "Export source meme"}</button>}
+             {canSaveOriginalMeme && <button className={styles.save} onClick={() => void saveExistingMeme()} disabled={busy || originalCollectionSaved}>{originalCollectionSaved ? isExistingMemeAsIs ? "Saved to Collection" : "Original saved" : isExistingMemeAsIs ? "Save to Collection" : "Save original to Collection"}</button>}
+             {isEditorRequired && hasSavableGeneratedCard && <button className={styles.save} onClick={() => void saveGeneratedMeme()} disabled={busy || collectionSaved}>{collectionSaved ? "Saved to Collection" : hasReworkOverlay && !visualGeneration ? "Save reworked card" : "Save generated card"}</button>}
+             {(canSaveOriginalMeme && originalCollectionSaved || isEditorRequired && hasSavableGeneratedCard && collectionSaved) && <a className={styles.stagingLink} href="/memeforge/middle-earth?view=collection">Open Collection</a>}
             {isEditorRequired && (isAdmin
               ? <button className={styles.save} onClick={() => void savePacket()} disabled={busy}>Stage for CREATE</button>
               : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in through packet staging</a>)}

@@ -385,7 +385,7 @@ test('emotion comparisons survive a full social-result gallery before the displa
   );
 });
 
-test('new and reworked cards require translation while unchanged memes can search directly', async () => {
+test('new cards require translation while reworks and unchanged memes can search directly', async () => {
   const source = await readFile(
     new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
     'utf8',
@@ -393,14 +393,16 @@ test('new and reworked cards require translation while unchanged memes can searc
 
   assert.match(
     source,
-    /\{translation \|\| !isEditorRequired \? <>[\s\S]*?<form className=\{styles\.searchForm\} onSubmit=\{search\}>[\s\S]*?Search existing memes[\s\S]*?Search clean reaction stills[\s\S]*?<\/form>[\s\S]*?<\/> : <div className=\{styles\.sourceNote\}>Translate the moment first to find its reaction-image candidates\.<\/div>\}/,
-    'unchanged memes may search directly while editor-backed paths must translate first',
+    /\{translation \|\| !isEditorRequired \|\| isReworkExisting \? <>[\s\S]*?<form className=\{styles\.searchForm\} onSubmit=\{search\}>[\s\S]*?Search existing memes[\s\S]*?Search clean reaction stills[\s\S]*?<\/form>[\s\S]*?<\/> : <div className=\{styles\.sourceNote\}>Translate the moment first to find its reaction-image candidates\.<\/div>\}/,
+    'reworks and unchanged memes may search directly while clean-still cards translate first',
   );
   assert.match(
     source,
     /\{isEditorRequired \? \([\s\S]*?<section className=\{styles\.momentPrompt\}[\s\S]*?\) : \([\s\S]*?Translation bypassed[\s\S]*?The joke is already in the image\./,
     'the unchanged path must visibly bypass translation instead of presenting irrelevant controls',
   );
+  assert.match(source, /02 \/ \{isReworkExisting \? "optional joke assist" : "meme translation"\}/);
+  assert.match(source, /isReworkExisting \? "Suggest a joke" : "Translate moment"/);
 
   const translationResult = source.slice(
     source.indexOf('{translation && <div className={styles.translationResult}>'),
@@ -566,8 +568,13 @@ test('source treatment supports clean-still forging, existing-meme rework, and u
   );
   assert.match(
     source,
-    /if \(isExistingMemeAsIs && selected\) \{[\s\S]*?await downloadExistingMeme\(selected\);[\s\S]*?return;[\s\S]*?if \(!previewNode\)/,
-    'as-is export must branch before the generated 4:5 canvas renderer',
+    /const clean = isReworkExisting && rawQuery && !\/\\bmeme\\b\/iu\.test\(rawQuery\)[\s\S]*?\? `\$\{rawQuery\} meme`/,
+    'rework searches must append meme to the user terms instead of using a clean-still query',
+  );
+  assert.match(
+    source,
+    /if \(canSaveOriginalMeme && selected\) \{[\s\S]*?await downloadExistingMeme\(selected\);[\s\S]*?return;[\s\S]*?if \(!previewNode\)/,
+    'original export must branch before the generated 4:5 canvas renderer for unchanged and rework paths',
   );
   assert.match(
     source,
@@ -624,7 +631,7 @@ test('an existing meme can be saved to the shared collection without generated c
     source.indexOf('const saveExistingMeme ='),
     source.indexOf('const savePacket =', source.indexOf('const saveExistingMeme =')),
   );
-  assert.match(saveExistingMeme, /if \(!selected \|\| !isExistingMemeAsIs\) return;/);
+  assert.match(saveExistingMeme, /if \(!selected \|\| !canSaveOriginalMeme\) return;/);
   assert.match(saveExistingMeme, /await dbSaveCard\(\{/);
   assert.match(saveExistingMeme, /contentKind: "middle-earth-meme"/);
   assert.match(saveExistingMeme, /sourceUrl: selected\.url/);
@@ -632,6 +639,8 @@ test('an existing meme can be saved to the shared collection without generated c
   assert.match(saveExistingMeme, /searchQuery: selected\.query/);
   assert.match(saveExistingMeme, /schedulePublicCollectionSync\(\)/);
   assert.doesNotMatch(saveExistingMeme, /visualGeneration|text\.trim|secondaryText\.trim/);
+  assert.match(source, /"Save original to Collection"/);
+  assert.match(source, /hasReworkOverlay && !visualGeneration \? "Save reworked card"/);
 });
 
 test('a generated MemeForge card can be rendered and saved directly to Collection', async () => {
@@ -648,6 +657,7 @@ test('a generated MemeForge card can be rendered and saved directly to Collectio
   assert.match(saveGeneratedMeme, /contentKind: "middle-earth-meme"/);
   assert.match(saveGeneratedMeme, /syncPublicCollection\(session\)/);
   assert.match(source, /"Save generated card"/);
+  assert.match(source, /const hasSavableGeneratedCard = Boolean\(visualGeneration \|\| hasReworkOverlay\)/);
 });
 
 test('resolved comic mechanism survives visual grounding and packet staging', async () => {
@@ -672,8 +682,8 @@ test('the forge editor keeps reaction cards to a setup line, punchline line, and
   );
 
   assert.match(source, /<label>Tiny footer[\s\S]*?maxLength=\{45\}/);
-  assert.match(source, /<label>Setup line[\s\S]*?maxLength=\{36\}/);
-  assert.match(source, /<label>Punchline \/ reaction line[\s\S]*?maxLength=\{36\}/);
+  assert.match(source, /isReworkExisting \? "Joke line 1" : "Setup line"[\s\S]*?maxLength=\{36\}/);
+  assert.match(source, /isReworkExisting \? "Joke line 2" : "Punchline \/ reaction line"[\s\S]*?maxLength=\{36\}/);
   assert.match(source, /const isStructuredReaction = draft\.kind === "meme" && Boolean\(draft\.cardFormat\);/);
   assert.match(
     source,

@@ -331,6 +331,37 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     );
 
     await page.goto(`${origin}/memeforge/middle-earth`);
+    await reworkPath.waitFor();
+    await reworkPath.click();
+    await page.getByRole('heading', { name: 'Want help with a new joke?' }).waitFor();
+    assert.equal(await page.getByLabel('Search existing memes').isVisible(), true);
+    await page.getByLabel('The moment').fill('Gandalf avoiding homework');
+    assert.equal(
+      await page.getByLabel('Search existing memes').inputValue(),
+      'Gandalf avoiding homework meme',
+      'rework should turn the user terms into an existing-meme query',
+    );
+    await page.getByRole('button', { name: 'Search the archive', exact: true }).click();
+    await page.getByRole('button', { name: new RegExp(`^${selectedSource.title}`) }).waitFor();
+    await page.getByRole('button', { name: 'Save original to Collection' }).click();
+    await page.getByRole('button', { name: 'Original saved' }).waitFor();
+    assert.equal(
+      await page.getByRole('button', { name: 'Save reworked card' }).count(),
+      0,
+      'rework should not force an overlay when the creator only wants the source',
+    );
+    await page.getByLabel('Joke line 1').fill('YOU SHALL NOT PASS THIS DEADLINE');
+    await page.getByRole('button', { name: 'Save reworked card' }).waitFor();
+    const reworkUploadsBeforeSave = collectionMediaUploads;
+    await page.getByRole('button', { name: 'Save reworked card' }).click();
+    await page.getByRole('button', { name: 'Saved to Collection' }).waitFor();
+    assert.equal(
+      collectionMediaUploads,
+      reworkUploadsBeforeSave + 1,
+      'a manual rework should register the rendered result separately from its original source',
+    );
+
+    await page.goto(`${origin}/memeforge/middle-earth`);
     await newImagePath.waitFor();
     await newImagePath.click();
     await page.getByLabel('The moment').fill('Not wanting to go to work on Friday');
@@ -383,9 +414,10 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     assert.match(download.suggestedFilename(), /friday-fellowship\.png/i);
     await page.getByText('PNG downloaded. No packet was saved.').waitFor();
 
+    const generatedUploadsBeforeSave = collectionMediaUploads;
     await page.getByRole('button', { name: 'Save generated card' }).click();
     await page.getByRole('button', { name: 'Saved to Collection' }).waitFor();
-    assert.equal(collectionMediaUploads, 2, 'saving a generated card should register its rendered PNG in MEDIA');
+    assert.equal(collectionMediaUploads, generatedUploadsBeforeSave + 1, 'saving a generated card should register its rendered PNG in MEDIA');
 
     await alternateCandidate.click();
     assert.equal(await setupLine.inputValue(), originalSetup);
