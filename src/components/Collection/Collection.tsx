@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   dbGetVisibleCards,
   dbGetVisibleGrids,
+  dbSaveCard,
   type CardRecord,
   type GridRecord,
 } from '../../utils/collectionDB';
@@ -29,6 +30,7 @@ import {
   hasMergeDecision,
   logoutPublicAccount,
   requestMagicLink,
+  schedulePublicCollectionSync,
   setDeviceMerge,
   shouldSyncCollection,
   syncPublicCollection,
@@ -37,6 +39,8 @@ import {
 import styles from './Collection.module.css';
 
 const UNDO_WINDOW_MS = 8_000;
+const MAX_UPLOADED_MEME_BYTES = 8 * 1024 * 1024;
+const SUPPORTED_MEME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
 interface Props {
   scope?: 'vibe-atlas' | 'middle-earth';
@@ -239,6 +243,61 @@ export const Collection: React.FC<Props> = ({
     }
   }
 
+  async function handleMiddleEarthUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!SUPPORTED_MEME_TYPES.has(file.type)) {
+      setAccountNotice('Upload a PNG, JPEG, or WebP image.');
+      return;
+    }
+    if (file.size > MAX_UPLOADED_MEME_BYTES) {
+      setAccountNotice('That image is larger than 8 MB. Choose a smaller meme.');
+      return;
+    }
+
+    setBusyKey('upload-meme');
+    try {
+      const imageUrl = await readFileAsDataUrl(file);
+      const title = file.name.replace(/\.[^/.]+$/u, '').trim() || 'Uploaded Middle-earth meme';
+      await dbSaveCard({
+        localId: crypto.randomUUID(),
+        imageUrl,
+        thumbnailUrl: imageUrl,
+        resultId: `local-upload-${file.name}-${file.lastModified}-${file.size}`,
+        actor: 'Middle-earth',
+        actorEn: 'Middle-earth',
+        vibe: title,
+        vibeEn: 'Existing meme · saved as-is',
+        vibeEmoji: '🧙',
+        capturedDate: new Date().toISOString().slice(0, 10),
+        contentKind: 'middle-earth-meme',
+        title,
+        publisher: 'Uploaded from your device',
+        searchQuery: 'Your uploaded meme',
+        sourceRoute: '/memeforge/middle-earth?view=collection',
+      });
+      await loadCollection(user?.accountId);
+
+      if (user && await shouldSyncCollection(user.accountId)) {
+        try {
+          await syncPublicCollection(user);
+          await loadCollection(user.accountId);
+          setAccountNotice(`“${file.name}” was uploaded, saved, and registered in MEDIA.`);
+        } catch (error) {
+          setAccountNotice(`“${file.name}” is saved on this device, but MEDIA sync failed: ${messageFrom(error, 'try again after reconnecting')}`);
+        }
+      } else {
+        schedulePublicCollectionSync();
+        setAccountNotice(`“${file.name}” is saved in this Collection. Sign in and merge this device to register it in MEDIA.`);
+      }
+    } catch (error) {
+      setAccountNotice(messageFrom(error, 'The image could not be saved.'));
+    } finally {
+      setBusyKey('');
+    }
+  }
+
   if (loading) return <div className={styles.loading}>Loading collection…</div>;
 
   const allActors = Array.from(new Set([
@@ -297,7 +356,19 @@ export const Collection: React.FC<Props> = ({
       {isMiddleEarth ? (
         <div className={styles.collectionScopeNav}>
           <strong>Saved memes <span>{cards.length}</span></strong>
-          <a href="/memeforge/middle-earth">Back to MemeForge</a>
+          <div className={styles.collectionScopeActions}>
+            <label className={styles.collectionUpload}>
+              {busyKey === 'upload-meme' ? 'Saving image…' : 'Upload and save image'}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                aria-label="Upload and save a Middle-earth meme"
+                disabled={Boolean(busyKey)}
+                onChange={event => void handleMiddleEarthUpload(event)}
+              />
+            </label>
+            <a href="/memeforge/middle-earth">Back to MemeForge</a>
+          </div>
         </div>
       ) : (
         <nav className={styles.typeTabs} aria-label="Collection artifact type">
@@ -651,6 +722,17 @@ function EmptyState({ symbol, title, body }: { symbol: string; title: string; bo
       <p>{body}</p>
     </div>
   );
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === 'string'
+      ? resolve(reader.result)
+      : reject(new Error('The selected image could not be read.'));
+    reader.onerror = () => reject(reader.error || new Error('The selected image could not be read.'));
+    reader.readAsDataURL(file);
+  });
 }
 
 function formatDate(value: string): string {

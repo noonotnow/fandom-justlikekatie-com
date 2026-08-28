@@ -56,6 +56,30 @@
 .collectionScopeNav strong { color: #c9a96e; font-size: .9rem; }
 .collectionScopeNav strong span { margin-left: 6px; font-size: .75rem; font-weight: 400; }
 .collectionScopeNav a { color: #9b762e; font-size: .8rem; font-weight: 700; text-underline-offset: 3px; }
+.collectionScopeActions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 10px 16px; }
+.collectionUpload {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  padding: 8px 14px;
+  border-radius: 7px;
+  background: #c9a96e;
+  color: #17130d;
+  cursor: pointer;
+  font-size: .82rem;
+  font-weight: 750;
+}
+.collectionUpload:has(input:disabled) { cursor: wait; opacity: .64; }
+.collectionUpload input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.collectionUpload:focus-within { outline: 3px solid #c9a96e; outline-offset: 3px; }
 .typeTabs button {
   display: flex;
   align-items: center;

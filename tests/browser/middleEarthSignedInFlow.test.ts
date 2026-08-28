@@ -300,6 +300,19 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
       0,
       'the separate Middle-earth collection should show the uploaded meme',
     );
+    const directCollectionUpload = page.getByLabel('Upload and save a Middle-earth meme');
+    assert.equal(
+      await directCollectionUpload.isVisible(),
+      true,
+      'the Collection itself should expose an obvious upload-and-save action',
+    );
+    await directCollectionUpload.setInputFiles({
+      name: 'collection-direct-save.png',
+      mimeType: 'image/png',
+      buffer: onePixelPng,
+    });
+    await page.getByText(/collection-direct-save\.png.*saved in this Collection/).waitFor();
+    await page.getByText(/collection-direct-save/).first().waitFor();
     await page.getByRole('button', { name: 'Merge and sync' }).click();
     await page.getByText('This device is now synced.').waitFor();
     assert.equal(collectionMediaUploads, 1, 'the embedded upload should be persisted before collection sync');
