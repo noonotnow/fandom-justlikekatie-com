@@ -8,3 +8,5 @@ Legendary Misprint is attached to one member-preserved event, not to an entire u
 **Why:** The appeal is preserving an unusually funny or meaningful system blooper while ensuring the underlying studio taxonomy remains trustworthy. Treating the exception as a new universe or global filter would recreate the original failure.
 
 **How to apply:** Keep the artifact visible in the member’s saved Collection and dedicated Legendary Misprints view, preserve its provenance and unexpected identity, and carry a reimagined Misprint Seal into exports. Exclude it from ordinary actor/star-of-the-day grids, normal filters, and Builder proposals; do not infer or enable a reusable mixed-universe mode.
+
+Retain the original generation context and an explicit mismatch account: intended identity, intruding identity or pool, failure type, preservation disposition, and creator-facing canonical title. These fields explain the exception without reclassifying its source records.
