@@ -16,6 +16,7 @@ export interface RankedBatch {
   provider: string | null;
   misprint?: boolean;
   legendary?: boolean;
+  intentionalMisprint?: boolean;
 }
 
 export interface StarOfDayData {

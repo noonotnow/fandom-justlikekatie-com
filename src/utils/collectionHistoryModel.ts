@@ -124,6 +124,7 @@ export function starDataFromCollectionGrid(grid: GridRecord): StarOfDayData {
       provider: grid.edition.provider,
       ...(grid.edition.misprint ? { misprint: true } : {}),
       ...(grid.edition.legendary ? { legendary: true } : {}),
+      ...(grid.intent === 'legendary-misprint' ? { intentionalMisprint: true } : {}),
     }],
     displayResults: results,
     date: grid.capturedDate,

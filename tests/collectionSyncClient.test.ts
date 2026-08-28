@@ -5,6 +5,7 @@ import {
   activateSyncState,
   buildSyncOperations,
   collectionScopeForCard,
+  createLegendaryMisprint,
   normalizeCardForCollection,
   markGridAsLegendaryMisprint,
   queueCardDelete,
@@ -128,6 +129,89 @@ test('saved Middle-earth memes keep attribution and treatment metadata through c
   assert.equal(item.sourceUrl, 'https://publisher.example/gandalf');
   assert.equal(item.sourceRoute, '/memeforge/middle-earth');
   assert.equal(item.collectionScope, 'middle-earth');
+});
+
+test('creator-entered Legendary Misprint identity and provenance survive card sync', () => {
+  const marked: CardRecord = {
+    ...card(7),
+    actor: '刘学义',
+    actorEn: 'Liu Xueyi',
+    legendaryMisprint: {
+      kind: 'legendary-misprint',
+      confirmedByCreator: true,
+      markedAt: '2026-08-28T12:00:00.000Z',
+      intendedIdentity: {
+        actor: '刘学义',
+        actorEn: 'Liu Xueyi',
+        vibe: 'Vibe',
+        vibeEn: 'Vibe',
+        collectionScope: 'vibe-atlas',
+      },
+      unexpectedImageIdentity: { label: 'Gandalf' },
+      provenance: {
+        imageUrl: 'https://images.example/7.jpg',
+        resultId: 'result-7',
+        searchQuery: '刘学义 editorial',
+      },
+    },
+  };
+  const operation = buildSyncOperations([marked], state(), 'account-a')
+    .find(candidate => candidate.localId === marked.localId);
+  const synced = Reflect.get(operation?.item || {}, 'legendaryMisprint');
+  assert.deepEqual(synced, marked.legendaryMisprint);
+});
+
+test('Legendary Misprint metadata is created only by an explicit creator description', () => {
+  const source = {
+    ...card(8),
+    actor: '刘学义',
+    actorEn: 'Liu Xueyi',
+    collectionScope: 'vibe-atlas' as const,
+    searchQuery: '刘学义 editorial',
+  };
+  assert.equal(source.legendaryMisprint, undefined);
+  assert.throws(() => createLegendaryMisprint(source, '   '), /Describe the unexpected image identity/);
+  const marked = createLegendaryMisprint(source, '  Gandalf  ', new Date('2026-08-28T12:00:00.000Z'));
+  assert.equal(marked.confirmedByCreator, true);
+  assert.equal(marked.intendedIdentity.actor, '刘学义');
+  assert.equal(marked.unexpectedImageIdentity.label, 'Gandalf');
+  assert.equal(marked.provenance.resultId, source.resultId);
+  assert.equal(marked.provenance.searchQuery, source.searchQuery);
+});
+
+test('marking and restoring a previously acknowledged card produce new sync mutations', () => {
+  const original = card(9);
+  const syncState = state();
+  const initial = buildSyncOperations([original], syncState, 'account-a')
+    .find(operation => operation.localId === original.localId);
+  syncState.acknowledgedUpsertsByAccount['account-a'] = {
+    [original.localId!]: String(initial?.mutationId),
+  };
+
+  const marked: CardRecord = {
+    ...original,
+    savedAt: '2026-08-28T12:00:00.000Z',
+    legendaryMisprint: createLegendaryMisprint(
+      { ...original, actor: '刘学义', actorEn: 'Liu Xueyi' },
+      'Gandalf',
+      new Date('2026-08-28T12:00:00.000Z'),
+    ),
+  };
+  const markOperation = buildSyncOperations([marked], syncState, 'account-a')
+    .find(operation => operation.localId === original.localId);
+  assert.ok(markOperation);
+  assert.notEqual(markOperation.mutationId, initial?.mutationId);
+
+  syncState.acknowledgedUpsertsByAccount['account-a'][original.localId!] = String(markOperation.mutationId);
+  const restored: CardRecord = {
+    ...marked,
+    savedAt: '2026-08-28T13:00:00.000Z',
+    legendaryMisprint: undefined,
+  };
+  const restoreOperation = buildSyncOperations([restored], syncState, 'account-a')
+    .find(operation => operation.localId === original.localId);
+  assert.ok(restoreOperation);
+  assert.notEqual(restoreOperation.mutationId, markOperation.mutationId);
 });
 
 test('collection scope keeps legacy MemeForge records out of Vibe Atlas without guessing from imagery', () => {

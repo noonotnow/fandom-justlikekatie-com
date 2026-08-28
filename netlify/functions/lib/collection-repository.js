@@ -143,6 +143,10 @@ function validateItem(item) {
       ))
     ) throw new TypeError("Collection grid is invalid.");
     if (item.media !== undefined) validateCollectionMedia(item.media);
+    if (item.misprintMetadata !== undefined) validateMisprintMetadata(item.misprintMetadata);
+    for (const image of item.images) {
+      if (image.legendaryMisprint !== undefined) validateLegendaryMisprint(image.legendaryMisprint);
+    }
     if (item.images.some(image => image.media !== undefined)) {
       for (const image of item.images) {
         if (image.media !== undefined) {
@@ -174,6 +178,38 @@ function validateItem(item) {
       throw new TypeError("Collection MEDIA URLs do not match the saved descriptor.");
     }
   }
+  if (item.legendaryMisprint !== undefined) validateLegendaryMisprint(item.legendaryMisprint);
+}
+
+function validateMisprintMetadata(metadata) {
+  if (
+    !metadata
+    || metadata.confirmedByCreator !== true
+    || !Array.isArray(metadata.intendedIdentities)
+    || !Array.isArray(metadata.unexpectedImageIdentities)
+    || !Array.isArray(metadata.sourceResultIds)
+    || [...metadata.intendedIdentities, ...metadata.unexpectedImageIdentities, ...metadata.sourceResultIds]
+      .some(value => typeof value !== "string" || value.length > 4096)
+  ) throw new TypeError("Legendary Misprint metadata is invalid.");
+}
+
+function validateLegendaryMisprint(misprint) {
+  if (
+    !misprint
+    || misprint.kind !== "legendary-misprint"
+    || misprint.confirmedByCreator !== true
+    || typeof misprint.markedAt !== "string"
+    || typeof misprint.intendedIdentity?.actor !== "string"
+    || typeof misprint.intendedIdentity?.actorEn !== "string"
+    || typeof misprint.intendedIdentity?.vibe !== "string"
+    || typeof misprint.intendedIdentity?.vibeEn !== "string"
+    || !["vibe-atlas", "middle-earth"].includes(misprint.intendedIdentity?.collectionScope)
+    || typeof misprint.unexpectedImageIdentity?.label !== "string"
+    || misprint.unexpectedImageIdentity.label.length < 1
+    || misprint.unexpectedImageIdentity.label.length > 160
+    || typeof misprint.provenance?.imageUrl !== "string"
+    || misprint.provenance.imageUrl.length > 4096
+  ) throw new TypeError("Legendary Misprint provenance is invalid.");
 }
 
 function validateCollectionMedia(media, localId) {

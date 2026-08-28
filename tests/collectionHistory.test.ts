@@ -108,3 +108,100 @@ test('deduplicates new saved cards with live results and legacy cards by provena
   const legacy = { ...current, resultId: undefined, sourceUrl: undefined };
   assert.equal(cardStableResultId(legacy), cardStableResultId({ ...legacy, imageUrl: '/different-proxy' }));
 });
+
+test('intentional Legendary Misprint metadata survives export and CREATE packet conversion', () => {
+  const grid = collectionGridFromStar({
+    actorId: 'liu-xueyi',
+    actorName: '刘学义',
+    actorShortNameEn: 'Liu Xueyi',
+    actorAccentColor: '#fff',
+    vibeEmoji: '✨',
+    vibeLabel: '仙门冷玉',
+    vibeLabelEn: 'Cold jade',
+    vibeSubtitle: '',
+    vibeSubtitleEn: '',
+    date: '2026-08-28',
+    rankedBatches: [{
+      query: '刘学义 editorial',
+      count: 1,
+      distinctSources: 1,
+      provider: 'test',
+      results: [{
+        title: 'Unexpected Gandalf still',
+        thumbnail: 'https://images.example/gandalf.jpg',
+        link: 'https://publisher.example/gandalf',
+        source: 'Publisher',
+      }],
+    }],
+  });
+  const misprint = {
+    kind: 'legendary-misprint' as const,
+    confirmedByCreator: true as const,
+    markedAt: '2026-08-28T12:00:00.000Z',
+    intendedIdentity: {
+      actor: '刘学义',
+      actorEn: 'Liu Xueyi',
+      vibe: '仙门冷玉',
+      vibeEn: 'Cold jade',
+      collectionScope: 'vibe-atlas' as const,
+    },
+    unexpectedImageIdentity: { label: 'Gandalf' },
+    provenance: {
+      imageUrl: grid.images[0].imageUrl,
+      resultId: grid.images[0].resultId,
+      sourceUrl: grid.images[0].sourceUrl,
+    },
+  };
+  grid.intent = 'legendary-misprint';
+  grid.edition = { ...grid.edition, misprint: true, legendary: true };
+  grid.misprintMetadata = {
+    confirmedByCreator: true,
+    intendedIdentities: ['刘学义'],
+    unexpectedImageIdentities: ['Gandalf'],
+    sourceResultIds: [grid.images[0].resultId],
+  };
+  grid.images[0].legendaryMisprint = misprint;
+
+  const starData = starDataFromCollectionGrid(grid);
+  assert.equal(starData.rankedBatches[0].intentionalMisprint, true);
+  const packet = packetFromCollectionGrid(grid);
+  assert.equal(packet.grids[0].intent, 'legendary-misprint');
+  assert.match(packet.notes, /Intentional Legendary Misprint/);
+  assert.match(packet.sourceCards[0].provenance, /"unexpectedImageIdentity":\{"label":"Gandalf"\}/);
+});
+
+test('an individual Misprint keeps its intentional label and dual identity in packet media', () => {
+  const card = {
+    imageUrl: 'https://images.example/gandalf.jpg',
+    thumbnailUrl: 'https://images.example/gandalf-thumb.jpg',
+    resultId: 'gandalf-result',
+    sourceUrl: 'https://publisher.example/gandalf',
+    actor: '刘学义',
+    actorEn: 'Liu Xueyi',
+    vibe: '仙门冷玉',
+    vibeEn: 'Cold jade',
+    vibeEmoji: '✨',
+    capturedDate: '2026-08-28',
+    legendaryMisprint: {
+      kind: 'legendary-misprint' as const,
+      confirmedByCreator: true as const,
+      markedAt: '2026-08-28T12:00:00.000Z',
+      intendedIdentity: {
+        actor: '刘学义',
+        actorEn: 'Liu Xueyi',
+        vibe: '仙门冷玉',
+        vibeEn: 'Cold jade',
+        collectionScope: 'vibe-atlas' as const,
+      },
+      unexpectedImageIdentity: { label: 'Gandalf' },
+      provenance: {
+        imageUrl: 'https://images.example/gandalf.jpg',
+        resultId: 'gandalf-result',
+      },
+    },
+  };
+  const media = mediaFromCollectionCard(card);
+  assert.match(media.title, /Intentional Legendary Misprint/);
+  assert.equal(media.legendaryMisprint?.intendedIdentity.actor, '刘学义');
+  assert.equal(media.legendaryMisprint?.unexpectedImageIdentity.label, 'Gandalf');
+});

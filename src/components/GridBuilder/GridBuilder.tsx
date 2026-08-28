@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { dbGetCardsByScope, dbGetAllGrids, dbGetVisibleCardsByScope, dbGetVisibleGrids, dbRemoveGrid, dbSaveGrid, type GridRecord } from '../../utils/collectionDB';
+import { dbGetCardsByScope, dbGetAllGrids, dbGetVisibleCardsByScope, dbGetVisibleGrids, dbRemoveGrid, dbSaveGrid, type CardRecord, type GridRecord } from '../../utils/collectionDB';
 import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
 import { saveShareCard, buildExportPayload, classifyEditionTier } from '../../utils/exportCanvas';
@@ -44,6 +44,7 @@ interface Props {
  */
 export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, isAdmin = false, onCreateFromGrid, onPacketCreated, onExported }) => {
   const [pool, setPool] = useState<BuilderCard[] | null>(null);
+  const [sourceRecords, setSourceRecords] = useState<{ cards: CardRecord[]; grids: GridRecord[] } | null>(null);
   const [loadError, setLoadError] = useState('');
   const [lens, setLens] = useState<CollectionLens>({});
   const [proposal, setProposal] = useState<GridProposal | null>(null);
@@ -91,7 +92,10 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
             : dbGetVisibleCardsByScope(accountId, 'vibe-atlas'),
           allRecords ? dbGetAllGrids() : dbGetVisibleGrids(accountId),
         ]);
-        if (!cancelled) setPool(buildVibeAtlasPool(cards, grids));
+        if (!cancelled) {
+          setSourceRecords({ cards, grids });
+          setPool(buildVibeAtlasPool(cards, grids, 'standard'));
+        }
       } catch (caught) {
         if (!cancelled) setLoadError(caught instanceof Error ? caught.message : 'Saved collection could not be loaded.');
       }
@@ -101,6 +105,18 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
 
   const options = useMemo(() => (pool ? lensOptions(pool) : null), [pool]);
   const lensedCount = useMemo(() => (pool ? applyLens(pool, lens).length : 0), [pool, lens]);
+
+  function setMode(mode: 'standard' | 'misprints') {
+    if (!sourceRecords) return;
+    setPool(buildVibeAtlasPool(sourceRecords.cards, sourceRecords.grids, mode));
+    setLens({ mode });
+    setProposal(null);
+    setSwapSlot(null);
+    setIsGridSaved(false);
+    setSavedGridId(null);
+    setPriorSavedGridId(null);
+    setShowSaveNudge(false);
+  }
 
   function toggle(key: keyof CollectionLens, value: string) {
     setLens(current => ({ ...current, [key]: current[key] === value ? undefined : value }));
@@ -326,6 +342,15 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
       )}
 
       <div className={styles.lenses}>
+        <LensRow
+          label="Collection"
+          options={[
+            { value: 'standard', label: 'Ordinary Vibe Atlas', count: buildVibeAtlasPool(sourceRecords?.cards || [], sourceRecords?.grids || [], 'standard').length },
+            { value: 'misprints', label: 'Legendary Misprints', count: buildVibeAtlasPool(sourceRecords?.cards || [], sourceRecords?.grids || [], 'misprints').length },
+          ]}
+          active={lens.mode || 'standard'}
+          onToggle={value => setMode(value as 'standard' | 'misprints')}
+        />
         <LensRow label="Star" options={options.actors} active={lens.actor} onToggle={value => toggle('actor', value)} />
         <LensRow label="Vibe" options={options.vibes} active={lens.vibe} onToggle={value => toggle('vibe', value)} />
         {options.families.length > 0 && (
@@ -375,6 +400,9 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
 
           <aside className={styles.rationale} aria-label="Curation rationale">
             <h4>Creative brief</h4>
+            {lens.mode === 'misprints' && (
+              <p><strong>Legendary Misprint lens</strong> · Only creator-marked mismatches are included. Exports and CREATE packets retain both identities and provenance.</p>
+            )}
             <pre>{rationaleBrief(proposal.rationale)}</pre>
             <div className={styles.actions}>
               <button

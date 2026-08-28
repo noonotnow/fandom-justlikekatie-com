@@ -104,6 +104,16 @@ test('setting the override to "misprint" or "legendary" forces classifyEditionTi
   assert.equal(classifyEditionTier(standardBatch), 'standard');
 });
 
+test('intentional cross-fandom records export as Legendary Misprints rather than automatic Legendary editions', () => {
+  const chosen = {
+    ...standardBatch,
+    misprint: true,
+    legendary: true,
+    intentionalMisprint: true,
+  };
+  assert.equal(classifyEditionTier(chosen), 'legendary-misprint');
+});
+
 test('clearing the override (tier: null) restores automatic classification instead of forcing "standard"', () => {
   const dataWithAutoLegendaryChosen: StarOfDayData = {
     ...baseData,

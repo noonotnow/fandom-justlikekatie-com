@@ -203,6 +203,34 @@ test("prevents exact duplicate media and supports reversible compilation", () =>
   assert.equal(resumed.state, "collecting");
 });
 
+test("adds an individual Legendary Misprint with intentional labeling and dual-identity provenance", () => {
+  const marked = media("misprint-result");
+  marked.title = "刘学义 · 仙门冷玉 · Intentional Legendary Misprint";
+  marked.legendaryMisprint = {
+    kind: "legendary-misprint",
+    confirmedByCreator: true,
+    markedAt: "2026-08-28T12:00:00.000Z",
+    intendedIdentity: {
+      actor: "刘学义",
+      actorEn: "Liu Xueyi",
+      vibe: "仙门冷玉",
+      vibeEn: "Cold jade",
+      collectionScope: "vibe-atlas",
+    },
+    unexpectedImageIdentity: { label: "Gandalf" },
+    provenance: {
+      imageUrl: marked.imageUrl,
+      resultId: marked.resultId,
+    },
+  };
+  const updated = applyAction(packet(), { type: "add_media", media: marked });
+  assert.match(updated.outputs.at(-1).label, /Intentional Legendary Misprint/);
+  const source = updated.sourceCards.find(card => card.resultId === marked.resultId);
+  assert.match(source.provenance, /"intentionalMisprint":true/);
+  assert.match(source.provenance, /"intendedIdentity":\{"actor":"刘学义"/);
+  assert.match(source.provenance, /"unexpectedImageIdentity":\{"label":"Gandalf"\}/);
+});
+
 test("adds a complete saved grid as one packet output without flattening it into curated media", () => {
   const updated = applyAction(packet(), { type: "add_grid", grid: grid() });
   assert.equal(updated.grids.length, 2);
@@ -211,6 +239,41 @@ test("adds a complete saved grid as one packet output without flattening it into
   assert.equal(updated.outputs.at(-1).kind, "grid");
   assert.equal(updated.grids.at(-1).searchSpell, "second star editorial search");
   assert.throws(() => applyAction(updated, { type: "add_grid", grid: grid() }), /already/);
+});
+
+test("adds an intentional Legendary Misprint grid with both identities and provenance", () => {
+  const misprintGrid = grid("misprint-grid");
+  misprintGrid.actor = "刘学义";
+  misprintGrid.intent = "legendary-misprint";
+  misprintGrid.misprintMetadata = {
+    confirmedByCreator: true,
+    intendedIdentities: ["刘学义"],
+    unexpectedImageIdentities: ["Gandalf"],
+    sourceResultIds: ["grid-result-2"],
+  };
+  misprintGrid.images[0].legendaryMisprint = {
+    kind: "legendary-misprint",
+    confirmedByCreator: true,
+    markedAt: "2026-08-28T12:00:00.000Z",
+    intendedIdentity: {
+      actor: "刘学义",
+      actorEn: "Liu Xueyi",
+      vibe: "仙门冷玉",
+      vibeEn: "Cold jade",
+      collectionScope: "vibe-atlas",
+    },
+    unexpectedImageIdentity: { label: "Gandalf" },
+    provenance: {
+      imageUrl: misprintGrid.images[0].imageUrl,
+      resultId: misprintGrid.images[0].resultId,
+    },
+  };
+
+  const updated = applyAction(packet(), { type: "add_grid", grid: misprintGrid });
+  assert.match(updated.outputs.at(-1).label, /Intentional Legendary Misprint/);
+  const source = updated.sourceCards.find(card => card.resultId === "grid-result-2");
+  assert.match(source.provenance, /"intentionalMisprint":true/);
+  assert.match(source.provenance, /"unexpectedImageIdentity":\{"label":"Gandalf"\}/);
 });
 
 test("retains a failed handoff pointer as stale history across packet mutation", () => {

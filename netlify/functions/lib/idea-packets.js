@@ -299,6 +299,12 @@ export function applyAction(current, action) {
           collection: "curated-media",
           batchKey: action.media.batchKey,
           gridPosition: action.media.gridPosition,
+          ...(action.media.legendaryMisprint ? {
+            intentionalMisprint: true,
+            intendedIdentity: action.media.legendaryMisprint.intendedIdentity,
+            unexpectedImageIdentity: action.media.legendaryMisprint.unexpectedImageIdentity,
+            originalProvenance: action.media.legendaryMisprint.provenance,
+          } : {}),
         }),
         ...(action.media.media ? {
           media: {
@@ -316,7 +322,7 @@ export function applyAction(current, action) {
       id: `individual-${action.media.id}`,
       kind: "individual",
       sourceId: action.media.id,
-      label: action.media.title,
+      label: `${action.media.title}${action.media.legendaryMisprint && !action.media.title.includes("Intentional Legendary Misprint") ? " · Intentional Legendary Misprint" : ""}`,
       included: true,
       addedAt: new Date().toISOString(),
     });
@@ -343,6 +349,12 @@ export function applyAction(current, action) {
           gridId: action.grid.id,
           batchKey: image.batchKey,
           gridPosition: image.gridPosition,
+          ...(image.legendaryMisprint ? {
+            intentionalMisprint: true,
+            intendedIdentity: image.legendaryMisprint.intendedIdentity,
+            unexpectedImageIdentity: image.legendaryMisprint.unexpectedImageIdentity,
+            originalProvenance: image.legendaryMisprint.provenance,
+          } : {}),
         }),
       });
     }
@@ -350,7 +362,7 @@ export function applyAction(current, action) {
       id: `grid-${stableId(action.grid.id)}`,
       kind: "grid",
       sourceId: action.grid.id,
-      label: `${action.grid.vibeEmoji} ${action.grid.actor} · ${action.grid.vibe} grid`,
+      label: `${action.grid.vibeEmoji} ${action.grid.actor} · ${action.grid.vibe} grid${action.grid.intent === "legendary-misprint" ? " · Intentional Legendary Misprint" : ""}`,
       included: true,
       addedAt: new Date().toISOString(),
     });

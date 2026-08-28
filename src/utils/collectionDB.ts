@@ -12,6 +12,31 @@ const SYNC_STORE = 'sync';
 
 export type CollectionScope = 'vibe-atlas' | 'middle-earth';
 
+export interface LegendaryMisprint {
+  kind: 'legendary-misprint';
+  confirmedByCreator: true;
+  markedAt: string;
+  intendedIdentity: {
+    actor: string;
+    actorEn: string;
+    vibe: string;
+    vibeEn: string;
+    collectionScope: CollectionScope;
+  };
+  unexpectedImageIdentity: {
+    label: string;
+    collectionScope?: CollectionScope;
+  };
+  provenance: {
+    imageUrl: string;
+    resultId?: string;
+    sourceUrl?: string;
+    publisher?: string;
+    searchQuery?: string;
+    batchKey?: string;
+  };
+}
+
 export interface CardRecord {
   localId?: string;
   serverId?: string;
@@ -36,6 +61,8 @@ export interface CardRecord {
   mediaRecovery?: CollectionMediaRecovery;
   /** Logical collection namespace. Optional only for records saved before namespacing. */
   collectionScope?: CollectionScope;
+  /** Creator-confirmed only. Never populated by image or metadata inference. */
+  legendaryMisprint?: LegendaryMisprint;
   gridContext?: {
     batchKey?: string;
     position: number;
@@ -57,6 +84,7 @@ export interface GridMediaSnapshot {
   batchKey?: string;
   gridPosition: number;
   media?: MediaReference;
+  legendaryMisprint?: LegendaryMisprint;
 }
 
 export interface GridRecord {
@@ -92,6 +120,13 @@ export interface GridRecord {
   legacyCompositeUrl?: string;
   media?: MediaReference;
   mediaRecovery?: CollectionMediaRecovery;
+  intent?: 'standard' | 'legendary-misprint';
+  misprintMetadata?: {
+    confirmedByCreator: true;
+    intendedIdentities: string[];
+    unexpectedImageIdentities: string[];
+    sourceResultIds: string[];
+  };
   legendaryMisprint?: {
     schemaVersion: 1;
     markedAt: string;
@@ -124,6 +159,43 @@ export function markGridAsLegendaryMisprint(
         name: grid.actor,
         nameEn: grid.actorEn,
       },
+    },
+    intent: 'legendary-misprint',
+    misprintMetadata: {
+      confirmedByCreator: true,
+      intendedIdentities: ['Vibe Atlas'],
+      unexpectedImageIdentities: [grid.actor],
+      sourceResultIds: grid.images.map(image => image.resultId),
+    },
+  };
+}
+
+export function createLegendaryMisprint(
+  card: CardRecord,
+  unexpectedImageIdentity: string,
+  now = new Date(),
+): LegendaryMisprint {
+  const label = unexpectedImageIdentity.trim().slice(0, 160);
+  if (!label) throw new Error('Describe the unexpected image identity before marking a Legendary Misprint.');
+  return {
+    kind: 'legendary-misprint',
+    confirmedByCreator: true,
+    markedAt: now.toISOString(),
+    intendedIdentity: {
+      actor: card.actor,
+      actorEn: card.actorEn,
+      vibe: card.vibe,
+      vibeEn: card.vibeEn,
+      collectionScope: collectionScopeForCard(card),
+    },
+    unexpectedImageIdentity: { label },
+    provenance: {
+      imageUrl: card.imageUrl,
+      ...(card.resultId ? { resultId: card.resultId } : {}),
+      ...(card.sourceUrl ? { sourceUrl: card.sourceUrl } : {}),
+      ...(card.publisher ? { publisher: card.publisher } : {}),
+      ...(card.searchQuery ? { searchQuery: card.searchQuery } : {}),
+      ...(card.gridContext?.batchKey ? { batchKey: card.gridContext.batchKey } : {}),
     },
   };
 }
@@ -458,6 +530,7 @@ export function buildSyncOperations(
           media: card.media,
           mediaRecovery: card.mediaRecovery,
           collectionScope,
+          legendaryMisprint: card.legendaryMisprint,
         },
       };
     })
@@ -635,6 +708,8 @@ export function normalizeGridRecord(grid: Partial<GridRecord>): GridRecord {
     ...(grid.media ? { media: grid.media } : {}),
     ...(grid.mediaRecovery ? { mediaRecovery: grid.mediaRecovery } : {}),
     ...(grid.legendaryMisprint ? { legendaryMisprint: grid.legendaryMisprint } : {}),
+    ...(grid.intent ? { intent: grid.intent } : {}),
+    ...(grid.misprintMetadata ? { misprintMetadata: grid.misprintMetadata } : {}),
   };
 }
 

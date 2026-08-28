@@ -3,6 +3,7 @@ import {
   dbGetVisibleCardsByScope,
   dbReplaceCardImage,
   normalizeCardForCollection,
+  createLegendaryMisprint,
   markGridAsLegendaryMisprint,
   dbGetVisibleGrids,
   dbSaveCard,
@@ -333,6 +334,46 @@ export const Collection: React.FC<Props> = ({
     }
   }
 
+  async function markCardLegendaryMisprint(card: CardRecord) {
+    const unexpectedIdentity = window.prompt(
+      'Who or what is unexpectedly shown in this image? This is saved as creator-entered provenance; the image is not analyzed.',
+      '',
+    )?.trim();
+    if (!unexpectedIdentity) return;
+    const misprintKey = `card-misprint:${card.localId || card.imageUrl}`;
+    setBusyKey(misprintKey);
+    try {
+      await dbSaveCard({
+        ...card,
+        savedAt: new Date().toISOString(),
+        legendaryMisprint: createLegendaryMisprint(card, unexpectedIdentity),
+      });
+      await loadCollection(user?.accountId);
+      schedulePublicCollectionSync();
+      setFilterActor(LEGENDARY_MISPRINT_FILTER);
+      setAccountNotice('Saved as an intentional Legendary Misprint. It now appears only in the Misprints lens.');
+    } catch (error) {
+      setAccountNotice(messageFrom(error, 'The Legendary Misprint could not be saved.'));
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  async function restoreOrdinaryResult(card: CardRecord) {
+    const misprintKey = `card-misprint:${card.localId || card.imageUrl}`;
+    setBusyKey(misprintKey);
+    try {
+      await dbSaveCard({ ...card, savedAt: new Date().toISOString(), legendaryMisprint: undefined });
+      await loadCollection(user?.accountId);
+      schedulePublicCollectionSync();
+      setAccountNotice('Restored as an ordinary saved result.');
+    } catch (error) {
+      setAccountNotice(messageFrom(error, 'The saved result could not be restored.'));
+    } finally {
+      setBusyKey('');
+    }
+  }
+
   async function registerCardMedia(event: React.ChangeEvent<HTMLInputElement>, card: CardRecord) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -472,20 +513,22 @@ export const Collection: React.FC<Props> = ({
   if (loading) return <div className={styles.loading}>Loading collection…</div>;
 
   const allActors = Array.from(new Set([
-    ...grids.filter(grid => !grid.legendaryMisprint).map(grid => grid.actor),
-    ...cards.map(card => card.actor),
+    ...grids.filter(grid => !grid.legendaryMisprint && grid.intent !== 'legendary-misprint').map(grid => grid.actor),
+    ...cards.filter(card => !card.legendaryMisprint).map(card => card.actor),
   ]));
-  if (grids.some(grid => grid.legendaryMisprint)) allActors.unshift(LEGENDARY_MISPRINT_FILTER);
+  if (grids.some(grid => grid.legendaryMisprint || grid.intent === 'legendary-misprint') || cards.some(card => card.legendaryMisprint)) {
+    allActors.unshift(LEGENDARY_MISPRINT_FILTER);
+  }
   const displayedGrids = filterActor === LEGENDARY_MISPRINT_FILTER
-    ? grids.filter(grid => grid.legendaryMisprint)
+    ? grids.filter(grid => grid.legendaryMisprint || grid.intent === 'legendary-misprint')
     : filterActor
-      ? grids.filter(grid => !grid.legendaryMisprint && grid.actor === filterActor)
-      : grids;
+      ? grids.filter(grid => !grid.legendaryMisprint && grid.intent !== 'legendary-misprint' && grid.actor === filterActor)
+      : grids.filter(grid => !grid.legendaryMisprint && grid.intent !== 'legendary-misprint');
   const displayedCards = filterActor === LEGENDARY_MISPRINT_FILTER
-    ? []
+    ? cards.filter(card => card.legendaryMisprint)
     : filterActor
-      ? cards.filter(card => card.actor === filterActor)
-      : cards;
+      ? cards.filter(card => !card.legendaryMisprint && card.actor === filterActor)
+      : cards.filter(card => !card.legendaryMisprint);
 
   return (
     <main className={styles.collection}>
@@ -618,13 +661,13 @@ export const Collection: React.FC<Props> = ({
                   <div className={styles.gridTitle}>
                     <div>
                       <h3>
-                        {grid.legendaryMisprint
+                        {grid.legendaryMisprint || grid.intent === 'legendary-misprint'
                           ? '🔥 Legendary Misprint'
                           : `${grid.vibeEmoji} ${grid.actor}`}
                       </h3>
                       <p>
-                        {grid.legendaryMisprint
-                          ? `Vibe Atlas × ${grid.legendaryMisprint.unexpectedActor.name} · ${grid.vibe}`
+                        {grid.legendaryMisprint || grid.intent === 'legendary-misprint'
+                          ? `Vibe Atlas × ${grid.legendaryMisprint?.unexpectedActor.name || grid.misprintMetadata?.unexpectedImageIdentities.join(', ') || 'unexpected identity'} · ${grid.vibe}`
                           : `${grid.vibe} · ${grid.vibeEn}`}
                       </p>
                     </div>
@@ -634,7 +677,13 @@ export const Collection: React.FC<Props> = ({
                   {grid.vibeSubtitle && <p className={styles.subtitle}>{grid.vibeSubtitle}</p>}
                   <p className={styles.provenance}>
                     {grid.images.length} source results · {grid.rendererVersion}
-                    {grid.edition.legendary ? ' · Legendary' : grid.edition.misprint ? ' · Misprint' : ''}
+                    {grid.legendaryMisprint || grid.intent === 'legendary-misprint'
+                      ? ' · Intentional Legendary Misprint'
+                      : grid.edition.legendary
+                        ? ' · Legendary'
+                        : grid.edition.misprint
+                          ? ' · Misprint'
+                          : ''}
                   </p>
                   {grid.legacyCompositeUrl
                     && (failedGridImages[grid.id] || grid.mediaRecovery?.status === 'unrecoverable') && (
@@ -793,6 +842,12 @@ export const Collection: React.FC<Props> = ({
                 <span>{card.contentKind === 'middle-earth-meme'
                   ? `Middle-earth · ${card.actor} · ${card.resultId?.startsWith('generated-') ? 'generated in MemeForge' : 'saved as-is'}`
                   : card.vibe}</span>
+                {card.legendaryMisprint && (
+                  <span>
+                    Legendary Misprint · intended {card.legendaryMisprint.intendedIdentity.actor}
+                    {' '}· unexpected {card.legendaryMisprint.unexpectedImageIdentity.label}
+                  </span>
+                )}
                 {card.contentKind === 'middle-earth-meme' && card.sourceUrl && <a href={card.sourceUrl} target="_blank" rel="noreferrer">{card.publisher ? `Source: ${card.publisher}` : 'Open original source'}</a>}
                 <small>{card.capturedDate}</small>
                 {(!card.thumbnailUrl || failedCardImages[card.imageUrl] || card.mediaRecovery?.status === 'unrecoverable') && (
@@ -823,6 +878,21 @@ export const Collection: React.FC<Props> = ({
                     onChange={event => void registerCardMedia(event, card)}
                   />
                 </label>
+              )}
+              {!isMiddleEarth && (
+                <button
+                  type="button"
+                  disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
+                  onClick={() => void (card.legendaryMisprint
+                    ? restoreOrdinaryResult(card)
+                    : markCardLegendaryMisprint(card))}
+                >
+                  {busyKey === `card-misprint:${card.localId || card.imageUrl}`
+                    ? 'Saving…'
+                    : card.legendaryMisprint
+                      ? 'Restore ordinary result'
+                      : 'Mark Legendary Misprint'}
+                </button>
               )}
               <button
                 type="button"
@@ -860,7 +930,9 @@ export const Collection: React.FC<Props> = ({
           singleImage={Boolean(expandedArtifact.record.legacyCompositeUrl)}
           footer={expandedArtifact.record.legacyCompositeUrl
             ? 'Legacy saved share card'
-            : `${expandedArtifact.record.images.length} source results · ${expandedArtifact.record.rendererVersion}`}
+            : `${expandedArtifact.record.images.length} source results · ${expandedArtifact.record.rendererVersion}${expandedArtifact.record.legendaryMisprint || expandedArtifact.record.intent === 'legendary-misprint'
+              ? ` · Intentional Legendary Misprint · unexpected ${expandedArtifact.record.legendaryMisprint?.unexpectedActor.name || expandedArtifact.record.misprintMetadata?.unexpectedImageIdentities.join(', ') || 'identity recorded in provenance'}`
+              : ''}`}
           onClose={() => setExpandedArtifact(null)}
         />
       )}
@@ -871,7 +943,9 @@ export const Collection: React.FC<Props> = ({
             : `${expandedArtifact.record.vibeEmoji} ${expandedArtifact.record.actor}`}
           subtitle={expandedArtifact.record.contentKind === 'middle-earth-meme'
             ? `Middle-earth · ${expandedArtifact.record.actor} · saved as-is`
-            : `${expandedArtifact.record.vibe} · ${expandedArtifact.record.vibeEn}`}
+            : `${expandedArtifact.record.vibe} · ${expandedArtifact.record.vibeEn}${expandedArtifact.record.legendaryMisprint
+              ? ` · Legendary Misprint: unexpected ${expandedArtifact.record.legendaryMisprint.unexpectedImageIdentity.label}`
+              : ''}`}
           images={[{
             src: expandedArtifact.record.imageUrl || expandedArtifact.record.thumbnailUrl,
             alt: expandedArtifact.record.title || `${expandedArtifact.record.actor} · ${expandedArtifact.record.vibe}`,

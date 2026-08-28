@@ -1,6 +1,6 @@
 import type { GridItemData } from '../types';
 import type { StarOfDayData } from '../hooks/useStarOfDay';
-import type { CardRecord, GridRecord } from './collectionDB';
+import type { CardRecord, GridRecord, LegendaryMisprint } from './collectionDB';
 import type { ReactionImageBrief } from './middleEarthAi';
 import {
   associateMediaWithIdeaPacket,
@@ -21,6 +21,7 @@ export interface PacketMedia {
   gridPosition?: number;
   addedAt: string;
   media?: MediaReference;
+  legendaryMisprint?: LegendaryMisprint;
 }
 
 export interface PacketSourceCard {
@@ -337,11 +338,22 @@ export function packetFromCollectionGrid(grid: GridRecord): IdeaPacket {
         gridId: grid.id,
         batchKey: image.batchKey,
         gridPosition: image.gridPosition,
+        ...(image.legendaryMisprint ? {
+          intentionalMisprint: true,
+          intendedIdentity: image.legendaryMisprint.intendedIdentity,
+          unexpectedImageIdentity: image.legendaryMisprint.unexpectedImageIdentity,
+          originalProvenance: image.legendaryMisprint.provenance,
+        } : {}),
       }),
     })),
     media: [],
     outputs: [gridOutput(packetGrid, createdAt)],
-    notes: grid.legacyCompositeUrl ? 'Recovered from a legacy exported-grid record.' : '',
+    notes: [
+      grid.legacyCompositeUrl ? 'Recovered from a legacy exported-grid record.' : '',
+      grid.intent === 'legendary-misprint'
+        ? `Intentional Legendary Misprint. Intended: ${grid.misprintMetadata?.intendedIdentities.join(', ') || grid.actor}. Unexpected image identity: ${grid.misprintMetadata?.unexpectedImageIdentities.join(', ') || 'creator documented in source provenance'}.`
+        : '',
+    ].filter(Boolean).join('\n'),
     // Grid Builder stores its curation rationale in generationPrompt; carry
     // it into the packet's working angle so the creative brief reaches CREATE.
     // Daily grids also carry generationPrompt (the raw image-generation
@@ -370,11 +382,12 @@ export function mediaFromCollectionCard(card: CardRecord, packetId?: string): Pa
     id,
     imageUrl: card.thumbnailUrl,
     sourceUrl: card.sourceUrl || card.imageUrl,
-    title: `${card.actor} · ${card.vibe}`,
+    title: `${card.actor} · ${card.vibe}${card.legendaryMisprint ? ' · Intentional Legendary Misprint' : ''}`,
     publisher: card.actorEn,
     resultId,
     ...(card.gridContext?.batchKey ? { batchKey: card.gridContext.batchKey } : {}),
     ...(card.gridContext ? { gridPosition: card.gridContext.position } : {}),
+    ...(card.legendaryMisprint ? { legendaryMisprint: card.legendaryMisprint } : {}),
     ...(card.media && packetId
       ? { media: associateMediaWithIdeaPacket(card.media, packetId, outputId) }
       : card.media

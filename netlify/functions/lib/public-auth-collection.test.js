@@ -487,6 +487,52 @@ test("collection sync preserves attributed Middle-earth meme metadata", async ()
   assert.deepEqual(response.items[0].media, item.media);
 });
 
+test("collection sync replaces an ordinary card with creator-confirmed Misprint metadata", async () => {
+  const store = memoryStore();
+  const ordinary = {
+    kind: "card",
+    imageUrl: "https://images.example/mashup.jpg",
+    thumbnailUrl: "https://images.example/mashup-thumb.jpg",
+    resultId: "mashup-1",
+    actor: "刘学义",
+    actorEn: "Liu Xueyi",
+    vibe: "仙门冷玉",
+    vibeEn: "Cold jade",
+  };
+  const first = await syncCollection(store, "usr_test", {
+    schemaVersion: 1,
+    clientId: "device-a",
+    cursor: 0,
+    operations: [{ type: "upsert", mutationId: "ordinary-v1", localId: "mashup-local", item: ordinary }],
+  });
+  const legendaryMisprint = {
+    kind: "legendary-misprint",
+    confirmedByCreator: true,
+    markedAt: "2026-08-28T12:00:00.000Z",
+    intendedIdentity: {
+      actor: "刘学义",
+      actorEn: "Liu Xueyi",
+      vibe: "仙门冷玉",
+      vibeEn: "Cold jade",
+      collectionScope: "vibe-atlas",
+    },
+    unexpectedImageIdentity: { label: "Gandalf" },
+    provenance: { imageUrl: ordinary.imageUrl, resultId: ordinary.resultId },
+  };
+  const marked = await syncCollection(store, "usr_test", {
+    schemaVersion: 1,
+    clientId: "device-a",
+    cursor: first.cursor,
+    operations: [{
+      type: "upsert",
+      mutationId: "misprint-v2",
+      localId: "mashup-local",
+      item: { ...ordinary, legendaryMisprint },
+    }],
+  });
+  assert.deepEqual(marked.items[0].legendaryMisprint, legendaryMisprint);
+});
+
 test("grid sync preserves artifact identity across devices", async () => {
   const store = memoryStore();
   const item = {

@@ -16,6 +16,7 @@ const TIER_BADGE_PATHS: Record<string, string> = {
   'star-of-day': '/assets/cards/badges/star-of-day.svg',
   misprint: '/assets/cards/badges/misprint.svg',
   legendary: '/assets/cards/badges/legendary.svg',
+  'legendary-misprint': '/assets/cards/badges/legendary.svg',
 };
 const BADGE_SIZE = 80;
 const BADGE_OFFSET = 20;
@@ -283,6 +284,7 @@ export function readExportCardColors(accentColor?: string): ExportCardColors {
 
 export function classifyEditionTier(chosen: RankedBatch | undefined | null): string {
   if (!chosen) return 'standard';
+  if (chosen.intentionalMisprint === true) return 'legendary-misprint';
   // Manual overrides via explicit flags
   if ((chosen as RankedBatch & { legendary?: boolean }).legendary) return 'legendary';
   if ((chosen as RankedBatch & { misprint?: boolean }).misprint) return 'misprint';
@@ -320,13 +322,14 @@ function editionCodeTagText(dateStr: string, rankNum: number, tier: string): str
   const code = formatEditionCode(dateStr, rankNum);
   if (tier === 'misprint') return code + ' · misprint';
   if (tier === 'legendary') return code + ' · relic-class';
+  if (tier === 'legendary-misprint') return code + ' · legendary misprint';
   return code;
 }
 
 function pickMicroCopyLine(dateStr: string, tier: string): string {
   const pool = tier === 'misprint'
     ? MISPRINT_MICRO_COPY_LINES
-    : tier === 'legendary'
+    : tier === 'legendary' || tier === 'legendary-misprint'
       ? LEGENDARY_MICRO_COPY_LINES
       : MICRO_COPY_LINES;
   const idx = hashStringToUint('microcopy:' + tier + ':' + (dateStr || '')) % pool.length;
@@ -350,6 +353,7 @@ function buildEditionStampLine(
   let trailing: string | null = null;
   if (tier === 'misprint') trailing = 'misprint pull';
   else if (tier === 'legendary') trailing = 'unstable era';
+  else if (tier === 'legendary-misprint') trailing = 'intentional legendary misprint';
   else if (hasRank) trailing = '第 ' + rankNum + ' / ' + totalBatches + ' 期';
   if (trailing) text += ' · ' + trailing;
   return { text, rankNum };
@@ -842,5 +846,6 @@ export async function saveShareCard(
 
   if (tier === 'misprint') return '已导出稀有错版 · Misprint exported';
   if (tier === 'legendary') return '已导出传说级错版 · Legendary export';
+  if (tier === 'legendary-misprint') return '已导出传说错版 · Intentional Legendary Misprint exported';
   return '分享卡已导出 ✓';
 }

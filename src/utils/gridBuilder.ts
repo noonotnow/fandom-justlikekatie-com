@@ -7,7 +7,7 @@
  * downstream copy stops sounding templated.
  */
 import type { GridItemData } from '../types';
-import type { CardRecord, GridRecord, GridMediaSnapshot } from './collectionDB';
+import type { CardRecord, GridRecord, GridMediaSnapshot, LegendaryMisprint } from './collectionDB';
 import { detectEditorialSets } from './editorialDetection';
 
 /** A normalized card in the builder pool (saved card or saved-grid image). */
@@ -36,9 +36,11 @@ export interface BuilderCard {
   /** Visual family id assigned during pool build (editorial set or batch). */
   familyId: string;
   familyLabel: string;
+  legendaryMisprint?: LegendaryMisprint;
 }
 
 export interface CollectionLens {
+  mode?: 'standard' | 'misprints';
   actor?: string;   // actor display name
   vibe?: string;    // vibe (EN preferred) label
   familyId?: string;
@@ -98,10 +100,37 @@ function fromSavedCard(card: CardRecord): BuilderCard {
     origin: 'saved-card',
     familyId: '',
     familyLabel: '',
+    ...(card.legendaryMisprint ? { legendaryMisprint: card.legendaryMisprint } : {}),
   };
 }
 
 function fromGridImage(grid: GridRecord, image: GridMediaSnapshot): BuilderCard {
+  const gridLegendaryMisprint = grid.intent === 'legendary-misprint' || Boolean(grid.legendaryMisprint)
+    ? {
+      kind: 'legendary-misprint' as const,
+      confirmedByCreator: true as const,
+      markedAt: grid.legendaryMisprint?.markedAt || grid.savedAt,
+      intendedIdentity: {
+        actor: grid.misprintMetadata?.intendedIdentities[0] || 'Vibe Atlas',
+        actorEn: grid.misprintMetadata?.intendedIdentities[0] || 'Vibe Atlas',
+        vibe: grid.vibe,
+        vibeEn: grid.vibeEn,
+        collectionScope: 'vibe-atlas' as const,
+      },
+      unexpectedImageIdentity: {
+        label: grid.legendaryMisprint?.unexpectedActor.name
+          || grid.misprintMetadata?.unexpectedImageIdentities[0]
+          || grid.actor,
+      },
+      provenance: {
+        imageUrl: image.imageUrl,
+        resultId: image.resultId,
+        sourceUrl: image.sourceUrl,
+        ...(image.publisher ? { publisher: image.publisher } : {}),
+        ...(image.batchKey ? { batchKey: image.batchKey } : {}),
+      },
+    }
+    : undefined;
   return {
     key: image.imageUrl,
     imageUrl: image.imageUrl,
@@ -127,6 +156,9 @@ function fromGridImage(grid: GridRecord, image: GridMediaSnapshot): BuilderCard 
     sourceGridId: grid.id,
     familyId: '',
     familyLabel: '',
+    ...(image.legendaryMisprint || gridLegendaryMisprint
+      ? { legendaryMisprint: image.legendaryMisprint || gridLegendaryMisprint }
+      : {}),
   };
 }
 
@@ -220,10 +252,21 @@ export function isVibeAtlasActorIdentity(value: string): boolean {
   return (value.match(/\p{Script=Han}/gu)?.length || 0) >= 2;
 }
 
-export function buildVibeAtlasPool(cards: CardRecord[], grids: GridRecord[]): BuilderCard[] {
+export function buildVibeAtlasPool(
+  cards: CardRecord[],
+  grids: GridRecord[],
+  mode: 'standard' | 'misprints' = 'standard',
+): BuilderCard[] {
+  const includeMisprints = mode === 'misprints';
   return buildPool(
-    cards.filter(card => isVibeAtlasActorIdentity(card.actor)),
-    grids.filter(grid => isVibeAtlasActorIdentity(grid.actor)),
+    cards.filter(card =>
+      isVibeAtlasActorIdentity(card.actor)
+      && Boolean(card.legendaryMisprint) === includeMisprints),
+    grids.filter(grid => includeMisprints
+      ? grid.intent === 'legendary-misprint' || Boolean(grid.legendaryMisprint)
+      : isVibeAtlasActorIdentity(grid.actor)
+        && grid.intent !== 'legendary-misprint'
+        && !grid.legendaryMisprint),
   );
 }
 
@@ -339,6 +382,7 @@ function buildRationale(slots: BuilderCard[], lens: CollectionLens): GridRationa
   const motifs = familyList.map(group => `${group[0].familyLabel} (${group.length})`);
 
   const lensParts = [
+    lens.mode === 'misprints' ? 'Legendary Misprints' : '',
     lens.actor ? `star: ${lens.actor}` : '',
     lens.vibe ? `vibe: ${lens.vibe}` : '',
     lens.familyId ? `visual family: ${familyList.find(g => g[0].familyId === lens.familyId)?.[0].familyLabel || lens.familyId}` : '',
@@ -412,6 +456,8 @@ export function gridRecordFromProposal(
   const anchor = slots[0];
   const vibes = [...new Set(slots.map(card => card.vibe))];
   const id = `builder-${date}-${stableHash(slots.map(card => card.key).join('|'))}`;
+  const misprints = slots.flatMap(card => card.legendaryMisprint ? [card.legendaryMisprint] : []);
+  const intentionalMisprint = misprints.length > 0;
   return {
     kind: 'grid',
     schemaVersion: 1,
@@ -428,11 +474,24 @@ export function gridRecordFromProposal(
     vibeSubtitleEn: anchor.vibeSubtitleEn,
     searchSpell: rationale.lens,
     generationPrompt: rationaleBrief(rationale),
-    edition: { provider: 'collection-grid-builder', misprint: false, legendary: false },
+    edition: {
+      provider: 'collection-grid-builder',
+      misprint: intentionalMisprint,
+      legendary: intentionalMisprint,
+    },
     capturedDate: date,
     generatedAt: now.toISOString(),
     savedAt: now.toISOString(),
     sourceRoute: '/admin#grid-builder',
+    intent: intentionalMisprint ? 'legendary-misprint' : 'standard',
+    ...(intentionalMisprint ? {
+      misprintMetadata: {
+        confirmedByCreator: true,
+        intendedIdentities: [...new Set(misprints.map(item => item.intendedIdentity.actor))],
+        unexpectedImageIdentities: [...new Set(misprints.map(item => item.unexpectedImageIdentity.label))],
+        sourceResultIds: [...new Set(misprints.flatMap(item => item.provenance.resultId ? [item.provenance.resultId] : []))],
+      },
+    } : {}),
     images: slots.map((card, gridPosition) => ({
       resultId: card.resultId,
       imageUrl: card.imageUrl,
@@ -440,6 +499,7 @@ export function gridRecordFromProposal(
       title: card.title,
       ...(card.publisher ? { publisher: card.publisher } : {}),
       ...(card.batchKey ? { batchKey: card.batchKey } : {}),
+      ...(card.legendaryMisprint ? { legendaryMisprint: card.legendaryMisprint } : {}),
       gridPosition,
     })),
   };
