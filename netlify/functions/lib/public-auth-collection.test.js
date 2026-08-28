@@ -1617,12 +1617,12 @@ test("rate-limit window resets: a rate-limited IP can request a new magic link i
   );
 });
 
-test("per-IP rate-limit counter resets to exactly 1 at the window N+1 boundary, not accumulated from window N", async () => {
+test("per-IP rate-limit counter resets to exactly 1 across consecutive 15-minute boundaries", async () => {
   // The existing IP window-reset test confirms a rate-limited IP can send again
   // in window N+1, but only checks delivery count.  This test additionally
   // verifies the counter stored in the limits key for window N+1 is exactly 1
   // (not some carry-over from window N) by reading the store directly after the
-  // transition.
+  // transition, then repeats the check at the next consecutive boundary.
   //
   // Steps:
   //   1. Exhaust the per-IP limit (20 requests) in window N.
@@ -1630,9 +1630,11 @@ test("per-IP rate-limit counter resets to exactly 1 at the window N+1 boundary, 
   //   3. Advance the clock to the exact window N+1 boundary.
   //   4. Make one more request (the 22nd overall) — it must be delivered.
   //   5. Read the IP-keyed entry from the limits store and assert count === 1.
+  //   6. Repeat steps 4–5 in window N+2 with the same IP.
   const WINDOW_MS = 15 * 60 * 1000;
   const windowNStart = new Date("2026-08-10T00:00:00Z"); // exact multiple of WINDOW_MS
   const windowN1Start = new Date(windowNStart.getTime() + WINDOW_MS);
+  const windowN2Start = new Date(windowN1Start.getTime() + WINDOW_MS);
   const clientIp = "203.0.113.55"; // distinct from other tests
   const secret = "identity-secret";
 
@@ -1691,6 +1693,23 @@ test("per-IP rate-limit counter resets to exactly 1 at the window N+1 boundary, 
     entry.data.count,
     1,
     "the IP counter in window N+1 must be exactly 1 — it must not carry over from window N's 20 increments",
+  );
+
+  // Advance to the next consecutive boundary and repeat the same checks with
+  // the same IP. This catches counter-key regressions that only reappear after
+  // more than one window transition.
+  nowTime = windowN2Start;
+  await makeRequest(23);
+  assert.equal(delivered.length, 22, "first request in window N+2 must be delivered");
+
+  const windowN2 = Math.floor(windowN2Start.getTime() / WINDOW_MS);
+  const ipKeyN2 = `ip/${ipHmac}/${windowN2}`;
+  const secondEntry = await limitsStore.getWithMetadata(ipKeyN2);
+  assert.ok(secondEntry?.data, "a rate-limit entry for window N+2 must exist after the first request in that window");
+  assert.equal(
+    secondEntry.data.count,
+    1,
+    "the IP counter in window N+2 must be exactly 1 — it must not carry over from either earlier window",
   );
 });
 
