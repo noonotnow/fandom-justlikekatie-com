@@ -98,7 +98,11 @@ test('deduplicates new saved cards with live results and legacy cards by provena
   };
   const packetMedia = mediaFromCollectionCard(current, 'packet-1');
   assert.equal(packetMedia.resultId, current.resultId);
-  assert.deepEqual(packetMedia.media?.association, { type: 'idea_packet', id: 'packet-1' });
+  assert.deepEqual(packetMedia.media?.association, {
+    type: 'idea_packet',
+    id: 'packet-1',
+    outputId: `individual-${packetMedia.id}`,
+  });
   assert.equal(cardStableResultId(current), current.resultId);
 
   const legacy = { ...current, resultId: undefined, sourceUrl: undefined };

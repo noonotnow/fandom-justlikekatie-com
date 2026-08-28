@@ -7,6 +7,7 @@ import {
   sendIdeaPacketToCreate,
   type RenderedPacketOutput,
 } from '../src/utils/createHandoffClient.ts';
+import type { MediaReference } from '../src/utils/mediaReference.ts';
 import type { IdeaPacket } from '../src/utils/ideaPackets.ts';
 
 function packet(): IdeaPacket {
@@ -134,6 +135,66 @@ test('selects the exact individual media for rendering', () => {
   const input = packetIndividualRenderInput(current, current.media[1]);
   assert.equal(input.imageUrl, 'https://images.example/one.jpg');
   assert.equal(input.date, '2026-08-05');
+});
+
+test('includes only the saved output-associated MEDIA descriptor as a reuse claim', async () => {
+  const current = packet();
+  const output = current.outputs[1];
+  const media: MediaReference = {
+    schemaVersion: 1,
+    assetId: '11111111-1111-4111-8111-111111111111',
+    deliveryUrl: 'https://media.example/assets/source.png',
+    thumbnailUrl: 'https://media.example/assets/source-thumb.png',
+    mimeType: 'image/png',
+    sizeBytes: 128,
+    checksum: 'a'.repeat(64),
+    dimensions: { width: 1080, height: 1350 },
+    association: {
+      type: 'idea_packet',
+      id: current.id,
+      outputId: output.id,
+    },
+  };
+  current.media[0].media = media;
+  let observed: Record<string, unknown> | undefined;
+
+  await sendIdeaPacketToCreate(current, current.outputs.map(candidate => ({
+    output: candidate,
+    blob: new Blob(['png'], { type: 'image/png' }),
+    filename: `${candidate.id}.png`,
+  })), async (_url, init) => {
+    observed = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ receipt: receipt() }), { status: 201 });
+  });
+
+  const outputs = observed!.outputs as Array<Record<string, unknown>>;
+  assert.equal(outputs[0].sourceDescriptor, undefined);
+  assert.deepEqual(outputs[1].sourceDescriptor, {
+    schemaVersion: 1,
+    assetId: media.assetId,
+    checksum: media.checksum,
+    association: {
+      type: 'idea_packet',
+      id: current.id,
+      outputId: output.id,
+    },
+  });
+
+  current.media[0].media = {
+    ...media,
+    association: { type: 'idea_packet', id: current.id, outputId: 'other-output' },
+  };
+  await sendIdeaPacketToCreate(current, current.outputs.map(candidate => ({
+    output: candidate,
+    blob: new Blob(['png'], { type: 'image/png' }),
+    filename: `${candidate.id}.png`,
+  })), async (_url, init) => {
+    const body = JSON.parse(String(init?.body)) as {
+      outputs: Array<Record<string, unknown>>;
+    };
+    assert.equal(body.outputs[1].sourceDescriptor, undefined);
+    return new Response(JSON.stringify({ receipt: receipt() }), { status: 201 });
+  });
 });
 
 test('uses the Middle-earth render contract and text fingerprint for meme outputs', async () => {

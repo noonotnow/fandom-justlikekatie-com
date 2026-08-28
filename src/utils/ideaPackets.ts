@@ -363,8 +363,10 @@ export function packetGridFromCollectionGrid(grid: GridRecord): PacketGrid {
 
 export function mediaFromCollectionCard(card: CardRecord, packetId?: string): PacketMedia {
   const resultId = collectionCardResultId(card);
+  const id = stableMediaId(resultId);
+  const outputId = `individual-${id}`;
   return {
-    id: stableMediaId(resultId),
+    id,
     imageUrl: card.thumbnailUrl,
     sourceUrl: card.sourceUrl || card.imageUrl,
     title: `${card.actor} · ${card.vibe}`,
@@ -373,7 +375,7 @@ export function mediaFromCollectionCard(card: CardRecord, packetId?: string): Pa
     ...(card.gridContext?.batchKey ? { batchKey: card.gridContext.batchKey } : {}),
     ...(card.gridContext ? { gridPosition: card.gridContext.position } : {}),
     ...(card.media && packetId
-      ? { media: associateMediaWithIdeaPacket(card.media, packetId) }
+      ? { media: associateMediaWithIdeaPacket(card.media, packetId, outputId) }
       : card.media
         ? { media: card.media }
         : {}),
@@ -597,6 +599,13 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
       };
 
   const output = middleEarthOutput(content, sourceId, createdAt);
+  if (sourceCard.media) {
+    sourceCard.media = associateMediaWithIdeaPacket(
+      sourceCard.media,
+      packetId,
+      output.id,
+    );
+  }
 
   return {
     id: packetId,

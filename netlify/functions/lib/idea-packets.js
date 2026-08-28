@@ -218,7 +218,14 @@ export function validatePacket(input) {
   const ids = new Set();
   for (const media of packet.media) {
     if (!isRecord(media) || !media.id || !media.imageUrl || !media.resultId) throw new RequestError("Packet media is invalid.");
-    if (media.media !== undefined) validateMediaReference(media.media, "idea_packet", packet.id);
+    if (media.media !== undefined) {
+      validateMediaReference(
+        media.media,
+        "idea_packet",
+        packet.id,
+        `individual-${media.id}`,
+      );
+    }
     if (ids.has(media.resultId)) throw new RequestError("That exact media is already in this packet.", 409);
     ids.add(media.resultId);
   }
@@ -245,6 +252,20 @@ export function validatePacket(input) {
       throw new RequestError("Packet output references a missing source card.");
     }
     outputIds.add(output.id);
+  }
+  for (const sourceCard of packet.sourceCards) {
+    if (!isRecord(sourceCard)) throw new RequestError("Packet source card is invalid.");
+    if (sourceCard.media === undefined) continue;
+    const output = packet.outputs.find(candidate => (
+      candidate.kind !== "grid"
+      && (candidate.sourceId === sourceCard.id || candidate.sourceId === sourceCard.resultId)
+    ));
+    validateMediaReference(
+      sourceCard.media,
+      "idea_packet",
+      packet.id,
+      output?.id,
+    );
   }
   for (const field of ["notes", "workingAngle", "captionSeeds", "outputAngles"]) {
     if (typeof packet[field] !== "string" || packet[field].length > 8000) throw new RequestError(`${field} is invalid.`);
@@ -279,7 +300,16 @@ export function applyAction(current, action) {
           batchKey: action.media.batchKey,
           gridPosition: action.media.gridPosition,
         }),
-        ...(action.media.media ? { media: action.media.media } : {}),
+        ...(action.media.media ? {
+          media: {
+            ...action.media.media,
+            association: {
+              type: "idea_packet",
+              id: next.id,
+              outputId: `individual-${action.media.id}`,
+            },
+          },
+        } : {}),
       });
     }
     next.outputs.push({
@@ -364,7 +394,7 @@ export function applyAction(current, action) {
   return validatePacket(next);
 }
 
-function validateMediaReference(media, expectedType, expectedId) {
+function validateMediaReference(media, expectedType, expectedId, expectedOutputId) {
   if (
     !isRecord(media)
     || media.schemaVersion !== 1
@@ -382,6 +412,11 @@ function validateMediaReference(media, expectedType, expectedId) {
     || !isRecord(media.association)
     || media.association.type !== expectedType
     || media.association.id !== expectedId
+    || (
+      expectedOutputId !== undefined
+      && media.association.outputId !== undefined
+      && media.association.outputId !== expectedOutputId
+    )
   ) throw new RequestError("Packet MEDIA reference is invalid.");
 }
 

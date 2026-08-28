@@ -1,4 +1,5 @@
 import type { CreateReceipt, IdeaPacket, PacketMedia, PacketOutput, PacketOutputKind } from './ideaPackets.ts';
+import { mediaSourceDescriptor } from './mediaReference.ts';
 
 export const CREATE_HANDOFF_URL = '/api/create-handoff';
 export const CREATE_RENDER_CONTRACT = 'fandom.idea-packet-output.v1';
@@ -78,6 +79,7 @@ export async function sendIdeaPacketToCreate(
         width: isMiddleEarth ? MIDDLE_EARTH_RENDER_WIDTH : CREATE_RENDER_WIDTH,
         height: isMiddleEarth ? MIDDLE_EARTH_RENDER_HEIGHT : CREATE_RENDER_HEIGHT,
         ...(item.output.textFingerprint !== undefined ? { textFingerprint: item.output.textFingerprint } : {}),
+        ...sourceDescriptorForOutput(packet, item.output),
       };
     }),
   };
@@ -94,6 +96,18 @@ export async function sendIdeaPacketToCreate(
     throw new Error(stage ? `${error} (${stage} stage)` : error);
   }
   return validateReceipt(body, packet.id);
+}
+
+function sourceDescriptorForOutput(packet: IdeaPacket, output: PacketOutput) {
+  if (output.kind === 'grid') return {};
+  const reference = output.kind === 'individual'
+    ? packet.media.find(item => item.id === output.sourceId)?.media
+    : packet.sourceCards.find(
+        card => card.id === output.sourceId || card.resultId === output.sourceId,
+      )?.media;
+  if (!reference) return {};
+  const sourceDescriptor = mediaSourceDescriptor(reference, packet.id, output.id);
+  return sourceDescriptor ? { sourceDescriptor } : {};
 }
 
 function isMiddleEarthKind(kind: PacketOutputKind): kind is 'meme' | 'spellbook' {

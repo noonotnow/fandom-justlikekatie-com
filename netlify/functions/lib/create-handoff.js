@@ -41,6 +41,7 @@ const LEGACY_ATTEMPT_POINTER_KEYS = new Set([
   "generatedAt",
 ]);
 const HEX64_PATTERN = /^[0-9a-f]{64}$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 class RequestError extends Error {
   constructor(message, status = 400, stage = "request", details) {
@@ -108,6 +109,8 @@ export function createCreateHandoffHandler({
             renderOutputImpl,
             requestUrl: req.url,
             renew,
+            env,
+            fetchImpl,
           });
         await renew();
           attempt = createAttemptSnapshot(packet, manifest, files, now().toISOString());
@@ -153,16 +156,27 @@ export function createCreateHandoffHandler({
           await renew();
           let registration;
           try {
-            registration = await registerMedia(
-              attempt.files[index],
-              attempt.packet,
-              attempt.outputs[index],
-              {
-                env,
-                fetchImpl,
-                requestUrl: req.url,
-              },
-            );
+            registration = attempt.files[index].reused
+              ? {
+                  descriptor: attempt.files[index].descriptor,
+                  deduplicated: true,
+                  reused: true,
+                  metadata: buildMediaMetadata(
+                    attempt.packet,
+                    attempt.outputs[index],
+                    req.url,
+                  ),
+                }
+              : await registerMedia(
+                  attempt.files[index],
+                  attempt.packet,
+                  attempt.outputs[index],
+                  {
+                    env,
+                    fetchImpl,
+                    requestUrl: req.url,
+                  },
+                );
           } catch (error) {
             throw new UpstreamError(
               publicError(error, `MEDIA registration failed for output ${index + 1}`),
@@ -309,6 +323,46 @@ function validatePacketForHandoff(packet, manifest) {
   ) {
     throw new RequestError("Selected outputs do not match the current Idea Packet.", 409, "packet");
   }
+  const sourceAssetIds = new Set();
+  for (const output of manifest.outputs) {
+    if (output.sourceDescriptor === undefined) continue;
+    const trusted = trustedMediaReference(packet, output);
+    if (
+      !trusted
+      || trusted.schemaVersion !== 1
+      || trusted.assetId !== output.sourceDescriptor.assetId
+      || trusted.checksum !== output.sourceDescriptor.checksum
+      || output.sourceDescriptor.association.id !== packet.id
+      || output.sourceDescriptor.association.outputId !== output.outputId
+      || trusted.association?.type !== "idea_packet"
+      || trusted.association.id !== packet.id
+      || trusted.association.outputId !== output.outputId
+    ) {
+      throw new RequestError(
+        "The requested MEDIA source does not match this Idea Packet output.",
+        409,
+        "packet",
+      );
+    }
+    if (sourceAssetIds.has(output.sourceDescriptor.assetId)) {
+      throw new RequestError(
+        "A MEDIA source asset cannot be reused for more than one selected output.",
+        409,
+        "packet",
+      );
+    }
+    sourceAssetIds.add(output.sourceDescriptor.assetId);
+  }
+}
+
+function trustedMediaReference(packet, output) {
+  if (output.kind === "grid") return null;
+  if (output.kind === "individual") {
+    return packet.media.find(item => item.id === output.sourceId)?.media ?? null;
+  }
+  return packet.sourceCards.find(
+    card => card.id === output.sourceId || card.resultId === output.sourceId,
+  )?.media ?? null;
 }
 
 async function getBlobWithMetadata(store, key) {
@@ -433,6 +487,8 @@ async function loadReplayAttempt(packet, manifest, attemptStore, requestUrl) {
     }
     if (
       typeof registration.deduplicated !== "boolean"
+      || (attempt.files[index].reused && registration.reused !== true)
+      || (!attempt.files[index].reused && registration.reused !== undefined)
       || JSON.stringify(registration.metadata)
         !== JSON.stringify(buildMediaMetadata(attempt.packet, attempt.outputs[index], requestUrl))
     ) {
@@ -459,12 +515,22 @@ function attemptPointer(attempt) {
 function serializeAttempt(attempt) {
   return {
     ...attempt,
-    files: attempt.files.map(file => ({
-      checksum: file.checksum,
-      sizeBytes: file.sizeBytes,
-      filename: file.filename,
-      bytesBase64: Buffer.from(file.bytes).toString("base64"),
-    })),
+    files: attempt.files.map(file => file.reused
+      ? {
+          reused: true,
+          checksum: file.checksum,
+          sizeBytes: file.sizeBytes,
+          filename: file.filename,
+          mimeType: file.mimeType,
+          descriptor: file.descriptor,
+          sourceDescriptor: file.sourceDescriptor,
+        }
+      : {
+          checksum: file.checksum,
+          sizeBytes: file.sizeBytes,
+          filename: file.filename,
+          bytesBase64: Buffer.from(file.bytes).toString("base64"),
+        }),
   };
 }
 
@@ -481,6 +547,31 @@ function deserializeAttempt(value) {
     throw invalidAttemptState();
   }
   const files = value.files.map(file => {
+    if (isRecord(file) && file.reused === true) {
+      if (
+        typeof file.checksum !== "string"
+        || !HEX64_PATTERN.test(file.checksum)
+        || typeof file.filename !== "string"
+        || !Number.isInteger(file.sizeBytes)
+        || !["image/png", "image/jpeg", "image/webp"].includes(file.mimeType)
+        || !isRecord(file.sourceDescriptor)
+      ) {
+        throw invalidAttemptState();
+      }
+      try {
+        validateSourceDescriptor(file.sourceDescriptor);
+        validateMediaDescriptor({ data: file.descriptor }, file);
+      } catch {
+        throw invalidAttemptState();
+      }
+      if (
+        file.sourceDescriptor.assetId !== file.descriptor.assetId
+        || file.sourceDescriptor.checksum !== file.checksum
+      ) {
+        throw invalidAttemptState();
+      }
+      return structuredClone(file);
+    }
     if (
       !isRecord(file)
       || typeof file.bytesBase64 !== "string"
@@ -566,10 +657,34 @@ function validateLegacyAttemptPointer(pointer, packet) {
   return "current";
 }
 
-async function renderFiles(packet, outputs, { renderOutputImpl, requestUrl, renew }) {
+async function renderFiles(packet, outputs, {
+  renderOutputImpl,
+  requestUrl,
+  renew,
+  env,
+  fetchImpl,
+}) {
   const files = [];
   for (const output of outputs) {
     await renew?.();
+    if (output.sourceDescriptor) {
+      const trusted = trustedMediaReference(packet, output);
+      const descriptor = await resolveMediaAsset(output.sourceDescriptor, trusted, {
+        env,
+        fetchImpl,
+      });
+      files.push({
+        reused: true,
+        descriptor,
+        sourceDescriptor: structuredClone(output.sourceDescriptor),
+        checksum: descriptor.checksum,
+        sizeBytes: descriptor.sizeBytes,
+        mimeType: descriptor.mimeType,
+        filename: `idea-packet-${safeFilenameSegment(packet.id)}-${safeFilenameSegment(output.outputId)}.${imageExtension(descriptor.mimeType)}`,
+      });
+      await renew?.();
+      continue;
+    }
     const selected = packet.outputs.find(candidate => candidate.id === output.outputId);
     let bytes;
     try {
@@ -593,6 +708,80 @@ async function renderFiles(packet, outputs, { renderOutputImpl, requestUrl, rene
     await renew?.();
   }
   return files;
+}
+
+async function resolveMediaAsset(sourceDescriptor, trusted, { env, fetchImpl }) {
+  let response;
+  try {
+    response = await fetchImpl(mediaAssetLookupUrl(
+      env.MEDIA_ASSETS_URL || DEFAULT_MEDIA_URL,
+      sourceDescriptor.assetId,
+    ), {
+      method: "GET",
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      headers: { Authorization: `Bearer ${env.MEDIA_ASSETS_TOKEN}` },
+    });
+  } catch (error) {
+    throw new UpstreamError(
+      publicError(error, "MEDIA asset lookup failed"),
+      502,
+      "media",
+    );
+  }
+  const payload = await readJson(response, "MEDIA");
+  if (!response.ok) {
+    throw new UpstreamError(
+      errorMessage(payload, `MEDIA returned HTTP ${response.status}`),
+      502,
+      "media",
+    );
+  }
+  const descriptor = validateMediaDescriptor(payload, {
+    checksum: sourceDescriptor.checksum,
+    sizeBytes: trusted.sizeBytes,
+    mimeType: trusted.mimeType,
+  });
+  if (
+    descriptor.assetId !== sourceDescriptor.assetId
+    || descriptor.deliveryUrl !== trusted.deliveryUrl
+    || descriptor.thumbnailUrl !== trusted.thumbnailUrl
+    || descriptor.dimensions.width !== trusted.dimensions.width
+    || descriptor.dimensions.height !== trusted.dimensions.height
+  ) {
+    throw new UpstreamError(
+      "MEDIA returned an asset that does not match the saved Idea Packet source.",
+      409,
+      "media",
+    );
+  }
+  return descriptor;
+}
+
+function mediaAssetLookupUrl(imagesUrl, assetId) {
+  let url;
+  try {
+    url = new URL(imagesUrl);
+  } catch {
+    throw new RequestError("MEDIA_ASSETS_URL is invalid.", 500, "server");
+  }
+  if (
+    url.protocol !== "https:"
+    || url.username
+    || url.password
+    || url.search
+    || url.hash
+    || !url.pathname.endsWith("/v1/assets/images")
+  ) {
+    throw new RequestError("MEDIA_ASSETS_URL must end with /v1/assets/images.", 500, "server");
+  }
+  url.pathname = `${url.pathname.slice(0, -"/images".length)}/${encodeURIComponent(assetId)}`;
+  return url.toString();
+}
+
+function imageExtension(mimeType) {
+  if (mimeType === "image/jpeg") return "jpg";
+  if (mimeType === "image/webp") return "webp";
+  return "png";
 }
 
 // Legacy pre-PR8 state (including the migration path above) never carries a MEDIA
@@ -752,14 +941,18 @@ function buildCreateEnvelope({
       url: registration.descriptor.deliveryUrl,
       filename: files[position].filename,
       nameTag,
-      mimeType: "image/png",
+      mimeType: registration.descriptor.mimeType,
+      checksum: registration.descriptor.checksum,
       role: position === 0 ? "cover" : "slide",
       position,
       sourceCardIds,
+      ...(files[position].reused
+        ? { sourceDescriptor: files[position].sourceDescriptor }
+        : {}),
       provenance: {
         origin: "fandom-vibes",
-        sourceKind,
-        sourceId: output.sourceId,
+        sourceKind: files[position].reused ? "packet-output" : sourceKind,
+        sourceId: files[position].reused ? output.outputId : output.sourceId,
         packetId: packet.id,
         deliverableId: "idea-packet-main",
         generatedAt,
@@ -920,14 +1113,16 @@ function validateMediaDescriptor(payload, file) {
     || typeof descriptor.assetId !== "string"
     || !descriptor.assetId
     || descriptor.mediaType !== "image"
-    || descriptor.mimeType !== "image/png"
+    || descriptor.mimeType !== (file.mimeType || "image/png")
     || descriptor.sizeBytes !== file.sizeBytes
     || descriptor.checksum !== file.checksum
     || !isPersistableMediaUrl(descriptor.fileUrl)
     || !isPersistableMediaUrl(descriptor.deliveryUrl)
     || !isPersistableMediaUrl(descriptor.thumbnailUrl)
     || !Number.isInteger(descriptor.dimensions?.width)
+    || descriptor.dimensions.width < 1
     || !Number.isInteger(descriptor.dimensions?.height)
+    || descriptor.dimensions.height < 1
   ) {
     throw new UpstreamError("MEDIA returned an invalid or mismatched image descriptor.", 502, "media");
   }
@@ -985,11 +1180,50 @@ function parseManifest(value) {
         "width",
         "height",
         "textFingerprint",
+        "sourceDescriptor",
       ].includes(key))
       || (output.textFingerprint !== undefined && typeof output.textFingerprint !== "string")
+      || (
+        output.sourceDescriptor !== undefined
+        && (
+          output.kind === "grid"
+          || !validateSourceDescriptor(output.sourceDescriptor)
+        )
+      )
     ) throw new RequestError("Handoff output manifest is invalid.");
   }
   return manifest;
+}
+
+function validateSourceDescriptor(value) {
+  if (
+    !isRecord(value)
+    || value.schemaVersion !== 1
+    || typeof value.assetId !== "string"
+    || !UUID_PATTERN.test(value.assetId)
+    || typeof value.checksum !== "string"
+    || !HEX64_PATTERN.test(value.checksum)
+    || !isRecord(value.association)
+    || value.association.type !== "idea_packet"
+    || typeof value.association.id !== "string"
+    || !value.association.id
+    || typeof value.association.outputId !== "string"
+    || !value.association.outputId
+    || Object.keys(value).some(key => ![
+      "schemaVersion",
+      "assetId",
+      "checksum",
+      "association",
+    ].includes(key))
+    || Object.keys(value.association).some(key => ![
+      "type",
+      "id",
+      "outputId",
+    ].includes(key))
+  ) {
+    throw new RequestError("Handoff MEDIA source descriptor is invalid.");
+  }
+  return true;
 }
 
 async function readManifest(req) {

@@ -128,6 +128,7 @@ function request(
   current,
   outputIds = ["grid-output", "individual-output"],
   { authorization = "Bearer operator-token", cookie } = {},
+  sourceDescriptors = {},
 ) {
   const outputs = outputIds.map(id => {
     const output = current.outputs.find(candidate => candidate.id === id);
@@ -143,6 +144,7 @@ function request(
       width: 1080,
       height: 1350,
       ...(output.textFingerprint ? { textFingerprint: output.textFingerprint } : {}),
+      ...(sourceDescriptors[id] ? { sourceDescriptor: sourceDescriptors[id] } : {}),
     };
   });
   const manifest = {
@@ -159,6 +161,28 @@ function request(
     },
     body: new Blob([JSON.stringify(manifest)], { type: "application/json" }),
   });
+}
+
+function reusableMedia(current = packet()) {
+  const output = current.outputs.find(candidate => candidate.id === "individual-output");
+  const descriptor = {
+    schemaVersion: 1,
+    assetId: "11111111-1111-4111-8111-111111111111",
+    deliveryUrl: "https://media.example/assets/source.png",
+    thumbnailUrl: "https://media.example/assets/source-thumb.png",
+    mimeType: "image/png",
+    sizeBytes: PNG.byteLength,
+    checksum: createHash("sha256").update(PNG).digest("hex"),
+    dimensions: { width: 1080, height: 1350 },
+    association: {
+      type: "idea_packet",
+      id: current.id,
+      outputId: output.id,
+    },
+  };
+  current.media.find(item => item.id === output.sourceId).media = descriptor;
+  current.sourceCards.find(card => card.id === output.sourceId).media = descriptor;
+  return descriptor;
 }
 
 function middleEarthPacket() {
@@ -381,6 +405,142 @@ test("registers exact mixed PNGs in MEDIA and signs one canonical CREATE Draft",
     .digest("hex");
   assert.equal(createCall.init.headers["X-Fandom-Signature"], `v1=${signature}`);
   assert.equal(createCall.init.headers["Idempotency-Key"], idempotencyKey);
+});
+
+test("reuses a backend-resolved MEDIA source without rendering or uploading it again", async () => {
+  const current = packet();
+  current.outputs[0].included = false;
+  const saved = reusableMedia(current);
+  const claim = {
+    schemaVersion: 1,
+    assetId: saved.assetId,
+    checksum: saved.checksum,
+    association: saved.association,
+  };
+  const store = memoryStore(current);
+  let getCalls = 0;
+  let createEnvelope;
+  const handler = createCreateHandoffHandler({
+    env: ENV,
+    getStore: () => store,
+    now: () => new Date("2026-08-05T18:00:00.000Z"),
+    renderOutputImpl: async () => {
+      throw new Error("verified MEDIA sources must not render");
+    },
+    fetchImpl: async (url, init) => {
+      if (url === `${ENV.MEDIA_ASSETS_URL.slice(0, -"/images".length)}/${saved.assetId}`) {
+        getCalls += 1;
+        assert.equal(init.method, "GET");
+        assert.equal(init.headers.Authorization, `Bearer ${ENV.MEDIA_ASSETS_TOKEN}`);
+        return Response.json({
+          data: {
+            ...mediaDescriptor(1),
+            assetId: saved.assetId,
+            fileUrl: saved.deliveryUrl,
+            deliveryUrl: saved.deliveryUrl,
+            thumbnailUrl: saved.thumbnailUrl,
+          },
+        });
+      }
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        throw new Error("verified MEDIA sources must not be uploaded");
+      }
+      createEnvelope = JSON.parse(init.body);
+      return Response.json(createReceipt(), { status: 201 });
+    },
+  });
+
+  const response = await handler(request(
+    current,
+    ["individual-output"],
+    {},
+    { "individual-output": claim },
+  ));
+
+  assert.equal(response.status, 201);
+  assert.equal(getCalls, 1);
+  assert.equal(createEnvelope.mediaAttachments[0].assetId, saved.assetId);
+  assert.equal(createEnvelope.mediaAttachments[0].checksum, saved.checksum);
+  assert.deepEqual(createEnvelope.mediaAttachments[0].sourceDescriptor, claim);
+  assert.equal(createEnvelope.mediaAttachments[0].provenance.sourceKind, "packet-output");
+  assert.equal(createEnvelope.mediaAttachments[0].provenance.sourceId, "individual-output");
+});
+
+test("rejects hostile source identifiers before MEDIA or CREATE is called", async () => {
+  const current = packet();
+  current.outputs[0].included = false;
+  const saved = reusableMedia(current);
+  let calls = 0;
+  const handler = testHandler({
+    env: ENV,
+    getStore: () => memoryStore(current),
+    fetchImpl: async () => {
+      calls += 1;
+      throw new Error("must not call upstream");
+    },
+  });
+  const response = await handler(request(
+    current,
+    ["individual-output"],
+    {},
+    {
+      "individual-output": {
+        schemaVersion: 1,
+        assetId: "22222222-2222-4222-8222-222222222222",
+        checksum: saved.checksum,
+        association: saved.association,
+      },
+    },
+  ));
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).stage, "packet");
+  assert.equal(calls, 0);
+});
+
+test("rejects a MEDIA lookup whose checksum does not match the saved source", async () => {
+  const current = packet();
+  current.outputs[0].included = false;
+  const saved = reusableMedia(current);
+  let createCalls = 0;
+  const handler = createCreateHandoffHandler({
+    env: ENV,
+    getStore: () => memoryStore(current),
+    renderOutputImpl: async () => {
+      throw new Error("verified MEDIA sources must not render");
+    },
+    fetchImpl: async (url) => {
+      if (url.includes(saved.assetId)) {
+        return Response.json({
+          data: {
+            ...mediaDescriptor(1),
+            assetId: saved.assetId,
+            fileUrl: saved.deliveryUrl,
+            deliveryUrl: saved.deliveryUrl,
+            thumbnailUrl: saved.thumbnailUrl,
+            checksum: "f".repeat(64),
+          },
+        });
+      }
+      createCalls += 1;
+      throw new Error("must not call CREATE");
+    },
+  });
+  const response = await handler(request(
+    current,
+    ["individual-output"],
+    {},
+    {
+      "individual-output": {
+        schemaVersion: 1,
+        assetId: saved.assetId,
+        checksum: saved.checksum,
+        association: saved.association,
+      },
+    },
+  ));
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).stage, "media");
+  assert.equal(createCalls, 0);
 });
 
 test("lets a signed-in admin hand off to CREATE without the separate operator token", async () => {
