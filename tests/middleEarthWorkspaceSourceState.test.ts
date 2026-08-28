@@ -630,6 +630,11 @@ test('Middle-earth saves have a separate collection scope from Vibe Atlas', asyn
     'saved cards must expose their recovery status without mutating the record',
   );
   assert.match(
+    collectionSource,
+    /uploadCollectionImage\(dataUrl, isMiddleEarth \? 'middle-earth' : 'vibe-atlas', localId\)[\s\S]*?dbReplaceCardImage\(card\.imageUrl, media\)/,
+    'legacy recovery must register canonical MEDIA before replacing only the dead image reference',
+  );
+  assert.match(
     appSource,
     /if \(showCollection\) return <Collection scope="middle-earth" \/>/,
     'MemeForge must route to its own collection instead of the Vibe Atlas collection view',
