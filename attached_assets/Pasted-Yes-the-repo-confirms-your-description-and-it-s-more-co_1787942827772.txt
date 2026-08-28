@@ -1,0 +1,54 @@
+Yes—the repo confirms your description, and it’s **more complete than the model I inferred from the screenshots**. Meme Forge already has three explicit creative paths:
+
+### 1. Use an existing meme
+
+**Situation → find the already-correct meme → export/save unchanged**
+
+- Search the archive, use the Meme Forge Collection, or upload one.
+- Bypass translation and the editor.
+- Preserve the original dimensions, text, framing, and source.
+- Add **no Meme Forge branding or outer card**.
+
+This is the “civilization has already prepared Gandalf” path.
+
+### 2. Rework an existing meme
+
+**Existing meme → preserve its recognizable comedic structure → add a new joke/overlay**
+
+- Search specifically for finished memes rather than clean stills.
+- The joke assistant is optional.
+- The source meme remains independently exportable/saveable.
+- The reworked version becomes a separate artifact rather than overwriting the original.
+
+So you could select “You Shall Not Pass,” retain the original, or deliberately convert it into something like “You shall not pass this deadline.”
+
+### 3. Forge from a clean still
+
+**Situation → fandom translation → comic mechanism → memeable franchise still → original text**
+
+- Find a clean reaction still whose expression or scene already carries meaning.
+- Generate the verbal joke and visual joke together.
+- Add the setup/punchline/footer through the Meme Forge renderer.
+- Export the newly composed card.
+
+This is where the exhausted-Frodo study memes belong.
+
+## The actual product shape
+
+Meme Forge isn’t merely a meme generator. It is a **fandom-native meme retrieval, remixing, and creation studio**:
+
+> Tell it the moment. Meme Forge can find the meme that already says it, rework a familiar meme for your situation, or forge a new one from a franchise still.
+> 
+
+And the **Collection is operational memory**, not just a gallery. Successful memes become reusable social vocabulary indexed for future situations.
+
+The code and tests already enforce the distinctions we were debating:
+
+- Existing memes default to **as-is**, not overlays.
+- As-is memes bypass translation and editing.
+- Their original bytes export before the 4:5 renderer.
+- Reworking must be chosen explicitly.
+- The original and reworked artifact are stored separately.
+- Clean-still generation uses the full translation and joke-building pipeline.
+
+So the Gandalf result wasn’t supposed to be assessed as a generated card at all. If selected under **Use an existing meme**, the correct output is simply Gandalf, exported untouched. My earlier reading collapsed three products into one renderer. The repo has, quite correctly, already rejected my foolish mortal taxonomy.
