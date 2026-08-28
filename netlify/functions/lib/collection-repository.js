@@ -179,6 +179,7 @@ function validateItem(item) {
     }
   }
   if (item.legendaryMisprint !== undefined) validateLegendaryMisprint(item.legendaryMisprint);
+  if (item.memeRework !== undefined) validateMemeRework(item.memeRework);
 }
 
 function validateMisprintMetadata(metadata) {
@@ -210,6 +211,31 @@ function validateLegendaryMisprint(misprint) {
     || typeof misprint.provenance?.imageUrl !== "string"
     || misprint.provenance.imageUrl.length > 4096
   ) throw new TypeError("Legendary Misprint provenance is invalid.");
+}
+
+function validateMemeRework(rework) {
+  const edit = rework?.edit;
+  const original = rework?.original;
+  if (
+    !rework
+    || rework.schemaVersion !== 1
+    || rework.kind !== "meme-rework"
+    || typeof rework.createdAt !== "string"
+    || typeof original?.resultId !== "string"
+    || original.resultId.length < 1
+    || original.resultId.length > 4096
+    || typeof original.title !== "string"
+    || original.title.length < 1
+    || original.title.length > 500
+    || !["archive", "upload"].includes(original.sourceType)
+    || edit?.type !== "text-overlay"
+    || !["cover-and-replace", "add-overlay"].includes(edit.mode)
+    || typeof edit.layout !== "string"
+    || typeof edit.tone !== "string"
+    || (![edit.line1, edit.line2].some(value => typeof value === "string" && value.trim()))
+    || [edit.line1, edit.line2, edit.footer, original.sourceUrl, original.publisher, original.searchQuery, original.provider]
+      .some(value => value !== undefined && (typeof value !== "string" || value.length > 4096))
+  ) throw new TypeError("MemeForge rework metadata is invalid.");
 }
 
 function validateCollectionMedia(media, localId) {

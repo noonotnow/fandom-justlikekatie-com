@@ -117,6 +117,28 @@ test('saved Middle-earth memes keep attribution and treatment metadata through c
     searchQuery: 'Gandalf Friday meme',
     sourceUrl: 'https://publisher.example/gandalf',
     sourceRoute: '/memeforge/middle-earth',
+    memeRework: {
+      schemaVersion: 1,
+      kind: 'meme-rework',
+      createdAt: '2026-08-28T12:00:00.000Z',
+      original: {
+        resultId: 'gandalf-original',
+        title: 'Gandalf reaction meme',
+        sourceUrl: 'https://publisher.example/gandalf',
+        publisher: 'Example publisher',
+        searchQuery: 'Gandalf Friday meme',
+        provider: 'brave',
+        sourceType: 'archive',
+      },
+      edit: {
+        type: 'text-overlay',
+        mode: 'add-overlay',
+        line1: 'You shall not deploy',
+        line2: 'Without a rollback plan',
+        layout: 'Classic top / bottom',
+        tone: 'Dry',
+      },
+    },
   };
   const operation = buildSyncOperations([meme], state(), 'account-a')
     .find(candidate => candidate.localId === meme.localId);
@@ -129,6 +151,7 @@ test('saved Middle-earth memes keep attribution and treatment metadata through c
   assert.equal(item.sourceUrl, 'https://publisher.example/gandalf');
   assert.equal(item.sourceRoute, '/memeforge/middle-earth');
   assert.equal(item.collectionScope, 'middle-earth');
+  assert.deepEqual(item.memeRework, meme.memeRework);
 });
 
 test('creator-entered Legendary Misprint identity and provenance survive card sync', () => {

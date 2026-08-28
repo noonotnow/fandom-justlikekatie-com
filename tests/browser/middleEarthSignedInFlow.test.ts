@@ -13,6 +13,7 @@ const onePixelPng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
   'base64',
 );
+const largeUploadedPng = Buffer.concat([onePixelPng, Buffer.alloc(300_000)]);
 
 const selectedSource = {
   title: 'Sam carries Frodo',
@@ -195,6 +196,13 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
         await route.fulfill({ contentType: 'image/gif', body: onePixelGif });
       },
     );
+    await page.route('https://media.justlikekatie.com/**', async route => {
+      await route.fulfill({
+        contentType: 'image/png',
+        headers: { 'access-control-allow-origin': '*' },
+        body: onePixelPng,
+      });
+    });
     await page.route('**/api/idea-packets', async route => {
       const request = route.request().postDataJSON() as { packet?: Record<string, unknown> };
       stagedPacket = request.packet;
@@ -207,6 +215,14 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
       collectionMediaUploads += 1;
       const requestUrl = new URL(route.request().url());
       const itemId = requestUrl.searchParams.get('itemId');
+      if (!itemId || !/^[A-Za-z0-9_-]{1,120}$/.test(itemId)) {
+        await route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Invalid collection media association.' }),
+        });
+        return;
+      }
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
@@ -252,9 +268,9 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     });
 
     await page.goto(`${origin}/memeforge/middle-earth`);
-    const newImagePath = page.getByRole('button', { name: /^01 New image/ });
-    const reworkPath = page.getByRole('button', { name: /^02 Rework an existing meme/ });
-    const unchangedPath = page.getByRole('button', { name: /^03 Use an existing meme/ });
+    const newImagePath = page.getByRole('button', { name: /^03 Make reaction card/ });
+    const reworkPath = page.getByRole('button', { name: /^02 Rework meme/ });
+    const unchangedPath = page.getByRole('button', { name: /^01 Keep original/ });
     await newImagePath.waitFor();
     assert.equal(await reworkPath.isVisible(), true, 'the rework pathway should be explicit before translation');
     assert.equal(await unchangedPath.isVisible(), true, 'the unchanged pathway should be explicit before translation');
@@ -274,7 +290,7 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     await ownMemeUpload.setInputFiles({
       name: 'one-page-became-the-whole-trilogy.png',
       mimeType: 'image/png',
-      buffer: onePixelPng,
+      buffer: largeUploadedPng,
     });
     await page.getByText('is ready. The editor is bypassed').waitFor();
     const unchangedPreview = page.getByLabel('Unchanged existing meme preview');
@@ -287,14 +303,74 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     assert.equal(await page.getByText(/Uploaded from your device/).first().isVisible(), true);
     assert.equal(await page.getByRole('link', { name: 'Open original source' }).count(), 0, 'local uploads should not show a fake external source link');
     const originalDownloadPromise = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Export original meme' }).click();
+    await page.getByRole('button', { name: 'Export original' }).click();
     const originalDownload = await originalDownloadPromise;
     assert.equal(originalDownload.suggestedFilename(), 'one-page-became-the-whole-trilogy.png');
     await page.getByRole('button', { name: 'Save to Collection' }).click();
     await page.getByRole('button', { name: 'Saved to Collection' }).waitFor();
+    await page.getByRole('button', { name: 'Switch to rework and open the editor' }).click();
+    await page.getByLabel('Joke line 1').fill('THE ONE-PAGE TASK BECAME THE WHOLE TRILOGY');
+    const uploadedReworkUploadsBeforeSave = collectionMediaUploads;
+    await page.getByRole('button', { name: 'Save linked rework' }).click();
+    await page.getByRole('button', { name: 'Saved to Collection' }).waitFor();
+    assert.equal(
+      collectionMediaUploads,
+      uploadedReworkUploadsBeforeSave,
+      'local-first derivative save must not re-upload or duplicate the original before merge',
+    );
+    const readCollectionRecords = () => page.evaluate(async () => new Promise<Record<string, unknown>[]>((resolve, reject) => {
+      const request = indexedDB.open('vibe-atlas-collection', 3);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const cardsRequest = request.result.transaction('cards', 'readonly').objectStore('cards').getAll();
+        cardsRequest.onerror = () => reject(cardsRequest.error);
+        cardsRequest.onsuccess = () => resolve(cardsRequest.result as Record<string, unknown>[]);
+      };
+    }));
+    const uploadedReworkRecords = await readCollectionRecords();
+    const uploadedOriginals = uploadedReworkRecords.filter(record =>
+      String(record.resultId || '').startsWith('local-upload-one-page-became-the-whole-trilogy.png-'),
+    );
+    assert.equal(uploadedOriginals.length, 1, 'the uploaded original must exist exactly once after saving its rework');
+    const uploadedDerivatives = uploadedReworkRecords.filter(record => {
+      const rework = record.memeRework as { original?: { resultId?: string; sourceUrl?: string } } | undefined;
+      return rework?.original?.resultId === uploadedOriginals[0].resultId;
+    });
+    assert.equal(uploadedDerivatives.length, 1, 'the uploaded source must have exactly one separately saved derivative');
+    assert.equal(uploadedDerivatives[0].sourceUrl, undefined, 'local-only provenance must not embed the original data URL');
+
+    await page.getByRole('button', { name: 'Stage for CREATE' }).click();
+    await page.getByText('Idea packet staged. No publish or schedule action was taken.').waitFor();
+    assert.ok(stagedPacket, 'uploaded rework staging must receive a packet');
+    const uploadedSourceCard = (stagedPacket.sourceCards as Array<Record<string, unknown>>)[0];
+    assert.match(String(uploadedSourceCard.imageUrl), /^https:\/\/media\.justlikekatie\.com\//);
+    assert.ok(uploadedSourceCard.media, 'uploaded rework staging must attach its verified MEDIA descriptor');
+    assert.equal(JSON.stringify(stagedPacket).includes('data:image/'), false);
+    assert.ok(
+      Buffer.byteLength(JSON.stringify(stagedPacket)) < 256 * 1024,
+      'an uploaded rework packet must remain below the packet request limit',
+    );
+    assert.equal(collectionMediaUploads, 1, 'CREATE staging should register the uploaded original exactly once');
+    const canonicalRecords = await readCollectionRecords();
+    const canonicalDerivative = canonicalRecords.find(record =>
+      (record.memeRework as { original?: { resultId?: string } } | undefined)?.original?.resultId
+        === uploadedOriginals[0].resultId,
+    );
+    assert.ok(canonicalDerivative, 'the saved derivative must remain after source canonicalization');
+    assert.match(String(canonicalDerivative.sourceUrl), /^https:\/\/media\.justlikekatie\.com\//);
+    assert.notEqual(
+      canonicalDerivative.sourceUrl,
+      canonicalDerivative.imageUrl,
+      'the derivative source URL must point to the original MEDIA asset, never to itself',
+    );
+    assert.equal(
+      (canonicalDerivative.memeRework as { original: { sourceUrl?: string } }).original.sourceUrl,
+      canonicalDerivative.sourceUrl,
+      'the reversible recipe and card provenance must agree on the canonical original',
+    );
     await page.getByRole('link', { name: 'Open Collection' }).click();
     await page.getByRole('heading', { name: 'Middle-earth Collection' }).waitFor();
-    await page.getByText(/one-page-became-the-whole-trilogy/).waitFor();
+    await page.getByText(/one-page-became-the-whole-trilogy/).first().waitFor();
     assert.equal(
       await page.getByText('No saved Middle-earth memes yet', { exact: true }).count(),
       0,
@@ -306,6 +382,7 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
       true,
       'the Collection itself should expose an obvious upload-and-save action',
     );
+    const uploadsBeforeDirectCollectionSync = collectionMediaUploads;
     await directCollectionUpload.setInputFiles({
       name: 'collection-direct-save.png',
       mimeType: 'image/png',
@@ -315,7 +392,11 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     await page.getByText(/collection-direct-save/).first().waitFor();
     await page.getByRole('button', { name: 'Merge and sync' }).click();
     await page.getByText('This device is now synced.').waitFor();
-    assert.equal(collectionMediaUploads, 1, 'the embedded upload should be persisted before collection sync');
+    assert.equal(
+      collectionMediaUploads,
+      uploadsBeforeDirectCollectionSync + 2,
+      'account sync should persist the derivative and the separate direct Collection upload without re-uploading the original',
+    );
     const syncedOperations = collectionSyncRequests.flatMap(request =>
       request.operations as Array<{ item?: { imageUrl?: string } }>,
     );
@@ -346,14 +427,14 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     await page.getByRole('button', { name: 'Save original to Collection' }).click();
     await page.getByRole('button', { name: 'Original saved' }).waitFor();
     assert.equal(
-      await page.getByRole('button', { name: 'Save reworked card' }).count(),
+      await page.getByRole('button', { name: 'Save linked rework' }).count(),
       0,
       'rework should not force an overlay when the creator only wants the source',
     );
     await page.getByLabel('Joke line 1').fill('YOU SHALL NOT PASS THIS DEADLINE');
-    await page.getByRole('button', { name: 'Save reworked card' }).waitFor();
+    await page.getByRole('button', { name: 'Save linked rework' }).waitFor();
     const reworkUploadsBeforeSave = collectionMediaUploads;
-    await page.getByRole('button', { name: 'Save reworked card' }).click();
+    await page.getByRole('button', { name: 'Save linked rework' }).click();
     await page.getByRole('button', { name: 'Saved to Collection' }).waitFor();
     assert.equal(
       collectionMediaUploads,
@@ -409,13 +490,13 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     assert.equal((visualRequests[0].source as { sourceUrl?: string }).sourceUrl, selectedSource.link);
 
     const downloadPromise = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Export PNG' }).click();
+    await page.getByRole('button', { name: 'Export reaction card' }).click();
     const download = await downloadPromise;
     assert.match(download.suggestedFilename(), /friday-fellowship\.png/i);
     await page.getByText('PNG downloaded. No packet was saved.').waitFor();
 
     const generatedUploadsBeforeSave = collectionMediaUploads;
-    await page.getByRole('button', { name: 'Save generated card' }).click();
+    await page.getByRole('button', { name: 'Save reaction card' }).click();
     await page.getByRole('button', { name: 'Saved to Collection' }).waitFor();
     assert.equal(collectionMediaUploads, generatedUploadsBeforeSave + 1, 'saving a generated card should register its rendered PNG in MEDIA');
 
@@ -424,7 +505,7 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     assert.equal(await punchlineLine.inputValue(), originalPunchline);
     assert.equal(await alternateCandidate.getAttribute('aria-pressed'), 'true');
     assert.equal(
-      await page.getByRole('button', { name: 'Save generated card' }).count(),
+      await page.getByRole('button', { name: 'Save reaction card' }).count(),
       0,
       'changing the source should hide generated-card save until the visual is forged again',
     );

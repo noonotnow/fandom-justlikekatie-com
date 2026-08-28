@@ -26,6 +26,23 @@ test('starting a new archive search invalidates the generated visual before clea
   );
 });
 
+test('offers three outcome-first paths and keeps original and derivative exports separate', async () => {
+  const source = await readFile(
+    new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(source, /<strong>Keep original<\/strong>/);
+  assert.match(source, /<strong>Rework meme<\/strong>/);
+  assert.match(source, /<strong>Make reaction card<\/strong>/);
+  assert.match(source, /onClick=\{\(\) => void exportEditedPng\(\)\}/);
+  assert.match(source, /onClick=\{\(\) => void exportOriginalMeme\(\)\}/);
+  assert.match(source, /<span>Original source<\/span><strong>Locked<\/strong>/);
+  assert.match(source, /<span>Edited derivative<\/span><strong>Editable<\/strong>/);
+  assert.match(source, /await dbSaveCard\(originalMemeCard\(selected\)\);/);
+  assert.match(source, /memeRework \? \{ memeRework \} : \{\}/);
+});
+
 test('changing the moment clears the old source and archive inspiration', async () => {
   const source = await readFile(
     new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
@@ -513,9 +530,9 @@ test('source treatment supports clean-still forging, existing-meme rework, and u
     'utf8',
   );
 
-  assert.match(source, /New card from a clean still/);
-  assert.match(source, /Rework an existing meme/);
-  assert.match(source, /Use an existing meme/);
+  assert.match(source, /<strong>Make reaction card<\/strong><small>Forge an original joke from a clean still<\/small>/);
+  assert.match(source, /<strong>Rework meme<\/strong><small>Edit a linked derivative; preserve the original<\/small>/);
+  assert.match(source, /<strong>Keep original<\/strong><small>Save or export a finished meme unchanged<\/small>/);
   assert.match(
     source,
     /id="existing-meme-upload" type="file" accept="image\/png,image\/jpeg,image\/webp"[\s\S]*?handleExistingMemeUpload/,
@@ -533,7 +550,7 @@ test('source treatment supports clean-still forging, existing-meme rework, and u
   );
   assert.match(
     source,
-    /onClick=\{\(\) => chooseSourcePath\("new-image"\)\}[\s\S]*?onClick=\{\(\) => chooseSourcePath\("rework-existing"\)\}[\s\S]*?onClick=\{\(\) => chooseSourcePath\("existing-meme"\)\}/,
+    /onClick=\{\(\) => chooseSourcePath\("existing-meme"\)\}[\s\S]*?onClick=\{\(\) => chooseSourcePath\("rework-existing"\)\}[\s\S]*?onClick=\{\(\) => chooseSourcePath\("new-image"\)\}/,
     'each visible decision path must route through one explicit source-path controller',
   );
   assert.match(
@@ -573,8 +590,8 @@ test('source treatment supports clean-still forging, existing-meme rework, and u
   );
   assert.match(
     source,
-    /if \(canSaveOriginalMeme && selected\) \{[\s\S]*?await downloadExistingMeme\(selected\);[\s\S]*?return;[\s\S]*?if \(!previewNode\)/,
-    'original export must branch before the generated 4:5 canvas renderer for unchanged and rework paths',
+    /const exportOriginalMeme = async \(\) => \{[\s\S]*?await downloadExistingMeme\(selected\);[\s\S]*?const exportEditedPng = async \(\) => \{[\s\S]*?if \(!previewNode\)/,
+    'original and derivative exports must be separate actions so reworking never mutates the source export',
   );
   assert.match(
     source,
@@ -652,15 +669,15 @@ test('an existing meme can be saved to the shared collection without generated c
     source.indexOf('const savePacket =', source.indexOf('const saveExistingMeme =')),
   );
   assert.match(saveExistingMeme, /if \(!selected \|\| !canSaveOriginalMeme\) return;/);
-  assert.match(saveExistingMeme, /await dbSaveCard\(\{/);
-  assert.match(saveExistingMeme, /contentKind: "middle-earth-meme"/);
-  assert.match(saveExistingMeme, /sourceUrl: selected\.url/);
-  assert.match(saveExistingMeme, /publisher: selected\.publisher/);
-  assert.match(saveExistingMeme, /searchQuery: selected\.query/);
+  assert.match(saveExistingMeme, /await dbSaveCard\(originalMemeCard\(selected\)\);/);
+  assert.match(source, /const originalMemeCard = \(asset: MiddleEarthAsset\): CardRecord => \(\{[\s\S]*?contentKind: "middle-earth-meme"/);
+  assert.match(source, /sourceUrl: asset\.url/);
+  assert.match(source, /publisher: asset\.publisher/);
+  assert.match(source, /searchQuery: asset\.query/);
   assert.match(saveExistingMeme, /schedulePublicCollectionSync\(\)/);
   assert.doesNotMatch(saveExistingMeme, /visualGeneration|text\.trim|secondaryText\.trim/);
   assert.match(source, /"Save original to Collection"/);
-  assert.match(source, /hasReworkOverlay && !visualGeneration \? "Save reworked card"/);
+  assert.match(source, /isReworkExisting \? "Save linked rework" : "Save reaction card"/);
 });
 
 test('a generated MemeForge card can be rendered and saved directly to Collection', async () => {
@@ -672,11 +689,11 @@ test('a generated MemeForge card can be rendered and saved directly to Collectio
     source.indexOf('const saveGeneratedMeme ='),
     source.indexOf('const savePacket =', source.indexOf('const saveGeneratedMeme =')),
   );
-  assert.match(saveGeneratedMeme, /exportMiddleEarthPng\(draft, previewNode, \{ download: false \}\)/);
+  assert.match(saveGeneratedMeme, /exportMiddleEarthPng\(renderedDraft, previewNode, \{ download: false \}\)/);
   assert.match(saveGeneratedMeme, /await dbSaveCard\(\{/);
   assert.match(saveGeneratedMeme, /contentKind: "middle-earth-meme"/);
   assert.match(saveGeneratedMeme, /syncPublicCollection\(session\)/);
-  assert.match(source, /"Save generated card"/);
+  assert.match(source, /"Save reaction card"/);
   assert.match(source, /const hasSavableGeneratedCard = Boolean\(visualGeneration \|\| hasReworkOverlay\)/);
 });
 

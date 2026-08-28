@@ -172,6 +172,65 @@ test('builds typography-only spellbook packets without inventing an external ima
   assert.equal(packet.outputs[0].kind, 'spellbook');
 });
 
+test('carries a non-destructive MemeForge rework recipe and source identity through CREATE', () => {
+  const memeRework = {
+    schemaVersion: 1 as const,
+    kind: 'meme-rework' as const,
+    createdAt: '2026-08-28T12:00:00.000Z',
+    original: {
+      resultId: 'gandalf-original',
+      title: 'Gandalf original meme',
+      sourceUrl: 'https://publisher.example/gandalf',
+      publisher: 'Example publisher',
+      searchQuery: 'Gandalf Friday meme',
+      provider: 'brave',
+      sourceType: 'archive' as const,
+    },
+    edit: {
+      type: 'text-overlay' as const,
+      mode: 'cover-and-replace' as const,
+      line1: 'You shall not deploy',
+      line2: 'Without a rollback plan',
+      footer: 'Friday fellowship',
+      layout: 'Classic top / bottom',
+      tone: 'Dry',
+    },
+  };
+  const packet = packetFromMiddleEarthDraft({
+    kind: 'meme',
+    title: 'Friday fellowship',
+    text: 'You shall not deploy',
+    secondaryText: 'Without a rollback plan',
+    tone: 'Dry',
+    layout: 'Classic top / bottom',
+    character: 'Gandalf',
+    creationPath: 'meme-rework',
+    memeRework,
+    asset: {
+      id: 'gandalf-original',
+      title: 'Gandalf original meme',
+      thumbnail: 'https://images.example/gandalf.jpg',
+      url: 'https://publisher.example/gandalf',
+      publisher: 'Example publisher',
+      query: 'Gandalf Friday meme',
+      provider: 'brave',
+    },
+    createdAt: '2026-08-28T12:00:00.000Z',
+  });
+  const output = packet.outputs[0];
+  const content = packet.middleEarthContent?.[output.id];
+
+  assert.equal(content?.creationPath, 'meme-rework');
+  assert.deepEqual(content?.memeRework, memeRework);
+  assert.match(packet.sourceCards[0].provenance, /"creationPath":"meme-rework"/);
+  assert.match(packet.sourceCards[0].provenance, /"derivativeOf"/);
+  assert.match(packet.notes, /Non-destructive MemeForge rework/);
+  assert.notEqual(
+    middleEarthTextFingerprint({ ...content!, memeRework: { ...memeRework, edit: { ...memeRework.edit, mode: 'add-overlay' } } }),
+    output.textFingerprint,
+  );
+});
+
 test('keeps packet staging authorization failures separate from successful MemeForge generation', () => {
   assert.equal(
     ideaPacketStagingErrorMessage(new IdeaPacketError('Fandom Admin authorization is required.', 401)),

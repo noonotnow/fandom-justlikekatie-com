@@ -840,8 +840,18 @@ export const Collection: React.FC<Props> = ({
               <div>
                 <strong>{card.vibeEmoji} {card.contentKind === 'middle-earth-meme' ? card.title || card.vibe : card.actor}</strong>
                 <span>{card.contentKind === 'middle-earth-meme'
-                  ? `Middle-earth · ${card.actor} · ${card.resultId?.startsWith('generated-') ? 'generated in MemeForge' : 'saved as-is'}`
+                  ? `Middle-earth · ${card.actor} · ${card.memeRework
+                    ? 'reworked in MemeForge · original linked'
+                    : card.resultId?.startsWith('generated-')
+                      ? 'reaction card forged in MemeForge'
+                      : 'saved as-is'}`
                   : card.vibe}</span>
+                {card.memeRework && (
+                  <span>
+                    Non-destructive derivative · {card.memeRework.edit.mode === 'cover-and-replace' ? 'cover & replace' : 'added overlay'}
+                    {' '}· original: {card.memeRework.original.title}
+                  </span>
+                )}
                 {card.legendaryMisprint && (
                   <span>
                     Legendary Misprint · intended {card.legendaryMisprint.intendedIdentity.actor}
@@ -942,7 +952,9 @@ export const Collection: React.FC<Props> = ({
             ? `${expandedArtifact.record.vibeEmoji} ${expandedArtifact.record.title || expandedArtifact.record.vibe}`
             : `${expandedArtifact.record.vibeEmoji} ${expandedArtifact.record.actor}`}
           subtitle={expandedArtifact.record.contentKind === 'middle-earth-meme'
-            ? `Middle-earth · ${expandedArtifact.record.actor} · saved as-is`
+            ? expandedArtifact.record.memeRework
+              ? `Middle-earth · ${expandedArtifact.record.actor} · MemeForge rework · original preserved`
+              : `Middle-earth · ${expandedArtifact.record.actor} · ${expandedArtifact.record.resultId?.startsWith('generated-') ? 'reaction card' : 'saved as-is'}`
             : `${expandedArtifact.record.vibe} · ${expandedArtifact.record.vibeEn}${expandedArtifact.record.legendaryMisprint
               ? ` · Legendary Misprint: unexpected ${expandedArtifact.record.legendaryMisprint.unexpectedImageIdentity.label}`
               : ''}`}
@@ -952,7 +964,9 @@ export const Collection: React.FC<Props> = ({
           }]}
           singleImage
           footer={expandedArtifact.record.contentKind === 'middle-earth-meme'
-            ? `${expandedArtifact.record.publisher || 'Publisher unknown'} · Rights status unknown · ${formatDate(expandedArtifact.record.capturedDate)}`
+            ? `${expandedArtifact.record.publisher || 'Publisher unknown'} · Rights status unknown · ${expandedArtifact.record.memeRework
+              ? `Derivative of “${expandedArtifact.record.memeRework.original.title}” · `
+              : ''}${formatDate(expandedArtifact.record.capturedDate)}`
             : formatDate(expandedArtifact.record.capturedDate)}
           onClose={() => setExpandedArtifact(null)}
         />

@@ -3,6 +3,7 @@ import type {
   CollectionMediaRecovery,
   MediaReference,
 } from './mediaReference';
+import type { MemeReworkMetadata } from './memeRework';
 
 const DB_NAME = 'vibe-atlas-collection';
 const DB_VERSION = 3;
@@ -63,6 +64,8 @@ export interface CardRecord {
   collectionScope?: CollectionScope;
   /** Creator-confirmed only. Never populated by image or metadata inference. */
   legendaryMisprint?: LegendaryMisprint;
+  /** Non-destructive edit recipe and immutable source relationship for MemeForge derivatives. */
+  memeRework?: MemeReworkMetadata;
   gridContext?: {
     batchKey?: string;
     position: number;
@@ -395,15 +398,42 @@ export async function dbReplaceCardImage(
     await transactionDone(tx);
     return;
   }
+  const cards = await requestResult<CardRecord[]>(store.getAll());
   store.delete(oldImageUrl);
   store.put({
     ...existing,
     imageUrl: media.deliveryUrl,
     thumbnailUrl: media.thumbnailUrl,
+    sourceUrl: existing.sourceUrl === oldImageUrl ? media.deliveryUrl : existing.sourceUrl,
     localId: existing.localId || crypto.randomUUID(),
     media,
     ...(mediaRecovery ? { mediaRecovery } : {}),
   });
+  for (const card of cards) {
+    if (
+      card.imageUrl === oldImageUrl
+      || !existing.resultId
+      || card.memeRework?.original.resultId !== existing.resultId
+    ) continue;
+    const original = card.memeRework.original;
+    const sourceUrl = original.sourceType === 'upload'
+      && (!original.sourceUrl || original.sourceUrl.startsWith('data:'))
+      ? media.deliveryUrl
+      : original.sourceUrl;
+    store.put({
+      ...card,
+      sourceUrl: !card.sourceUrl || card.sourceUrl === oldImageUrl
+        ? media.deliveryUrl
+        : card.sourceUrl,
+      memeRework: {
+        ...card.memeRework,
+        original: {
+          ...original,
+          ...(sourceUrl ? { sourceUrl } : {}),
+        },
+      },
+    });
+  }
   await transactionDone(tx);
 }
 
@@ -531,6 +561,7 @@ export function buildSyncOperations(
           mediaRecovery: card.mediaRecovery,
           collectionScope,
           legendaryMisprint: card.legendaryMisprint,
+          memeRework: card.memeRework,
         },
       };
     })

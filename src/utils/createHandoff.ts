@@ -78,6 +78,19 @@ export async function renderMiddleEarthOutputPng(
   ctx.fillStyle = '#0e0e12';
   ctx.fillRect(0, 0, 1080, 1350);
 
+  if (content?.memeRework) {
+    const source = packet.sourceCards.find(card => card.id === output.sourceId);
+    if (!source?.imageUrl) {
+      throw new Error('The MemeForge rework no longer has its preserved original source.');
+    }
+    const image = await loadCanvasImage(source.imageUrl);
+    if (!image) {
+      throw new Error(`The preserved original “${source.title}” could not be loaded for this rework.`);
+    }
+    renderMemeRework(ctx, content, image);
+    return canvasToBlob(canvas);
+  }
+
   if (content) {
     // Title
     ctx.fillStyle = '#c9a96e';
@@ -130,6 +143,101 @@ export async function renderMiddleEarthOutputPng(
   }
 
   return canvasToBlob(canvas);
+}
+
+function renderMemeRework(
+  ctx: CanvasRenderingContext2D,
+  content: NonNullable<IdeaPacket['middleEarthContent']>[string],
+  image: HTMLImageElement,
+): void {
+  const frame = { x: 48, y: 126, width: 984, height: 1080 };
+  const mode = content.memeRework?.edit.mode || 'cover-and-replace';
+  ctx.fillStyle = '#102d2e';
+  ctx.fillRect(0, 0, 1080, 1350);
+  ctx.fillStyle = '#050707';
+  ctx.fillRect(frame.x, frame.y, frame.width, frame.height);
+  drawImageContain(ctx, image, frame.x, frame.y, frame.width, frame.height);
+
+  const drawOverlay = (copy: string, top: number, bottom = false) => {
+    if (!copy.trim()) return;
+    ctx.font = '800 62px Arial';
+    const lines = wrapCanvasLines(ctx, copy.toUpperCase(), 850).slice(0, 2);
+    const lineHeight = 68;
+    const height = Math.max(132, lines.length * lineHeight + 40);
+    const y = bottom ? frame.y + frame.height - height : top;
+    ctx.fillStyle = mode === 'cover-and-replace' ? '#050707' : 'rgba(5,7,7,.84)';
+    ctx.fillRect(frame.x, y, frame.width, height);
+    ctx.fillStyle = '#fffdf8';
+    ctx.textAlign = 'center';
+    const firstBaseline = y + (height - lines.length * lineHeight) / 2 + 55;
+    lines.forEach((line, index) => ctx.fillText(line, 540, firstBaseline + index * lineHeight));
+  };
+
+  drawOverlay(content.text, mode === 'cover-and-replace' ? frame.y : frame.y + 34);
+  drawOverlay(content.secondaryText || '', frame.y, true);
+  ctx.fillStyle = '#d4a951';
+  ctx.textAlign = 'left';
+  ctx.font = '600 18px monospace';
+  ctx.fillText('MEMEFORGE // REWORK', 48, 76);
+  ctx.textAlign = 'right';
+  ctx.fillText(mode === 'cover-and-replace' ? 'COVER + REPLACE' : 'ADDED OVERLAY', 1032, 76);
+  ctx.fillStyle = '#f4eee2';
+  ctx.textAlign = 'center';
+  ctx.font = '500 16px monospace';
+  ctx.fillText('DERIVATIVE EDIT · ORIGINAL SOURCE PRESERVED', 540, 1260);
+  if (content.cardFooter) {
+    ctx.fillStyle = '#d8cdb8';
+    ctx.fillText(content.cardFooter.toUpperCase().slice(0, 70), 540, 1292);
+  }
+  ctx.fillStyle = '#d4a951';
+  ctx.fillRect(0, 1324, 1080, 26);
+}
+
+function loadCanvasImage(url: string): Promise<HTMLImageElement | null> {
+  return new Promise(resolve => {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = url;
+  });
+}
+
+function drawImageContain(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): void {
+  const ratio = Math.min(width / image.width, height / image.height);
+  const renderedWidth = image.width * ratio;
+  const renderedHeight = image.height * ratio;
+  ctx.drawImage(
+    image,
+    x + (width - renderedWidth) / 2,
+    y + (height - renderedHeight) / 2,
+    renderedWidth,
+    renderedHeight,
+  );
+}
+
+function wrapCanvasLines(ctx: CanvasRenderingContext2D, value: string, maxWidth: number): string[] {
+  const words = value.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(candidate).width > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
 }
 
 function requirePacketMedia(packet: IdeaPacket, output: PacketOutput): PacketMedia {

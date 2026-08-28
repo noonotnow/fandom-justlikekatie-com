@@ -451,6 +451,28 @@ test("collection sync preserves attributed Middle-earth meme metadata", async ()
     publisher: "Example publisher",
     searchQuery: "Gandalf Friday meme",
     sourceRoute: "/memeforge/middle-earth",
+    memeRework: {
+      schemaVersion: 1,
+      kind: "meme-rework",
+      createdAt: "2026-08-28T12:00:00.000Z",
+      original: {
+        resultId: "gandalf-original-1",
+        title: "Gandalf original",
+        sourceUrl: "https://publisher.example/gandalf",
+        publisher: "Example publisher",
+        searchQuery: "Gandalf Friday meme",
+        provider: "brave",
+        sourceType: "archive",
+      },
+      edit: {
+        type: "text-overlay",
+        mode: "cover-and-replace",
+        line1: "You shall not deploy",
+        line2: "Without a rollback plan",
+        layout: "Classic top / bottom",
+        tone: "Dry",
+      },
+    },
     media: {
       schemaVersion: 1,
       assetId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
@@ -484,7 +506,43 @@ test("collection sync preserves attributed Middle-earth meme metadata", async ()
   assert.equal(response.items[0].publisher, item.publisher);
   assert.equal(response.items[0].searchQuery, item.searchQuery);
   assert.equal(response.items[0].sourceRoute, item.sourceRoute);
+  assert.deepEqual(response.items[0].memeRework, item.memeRework);
   assert.deepEqual(response.items[0].media, item.media);
+});
+
+test("collection sync rejects rework metadata without a visible edit", async () => {
+  const store = memoryStore();
+  await assert.rejects(() => syncCollection(store, "usr_test", {
+    schemaVersion: 1,
+    clientId: "device-a",
+    cursor: 0,
+    operations: [{
+      type: "upsert",
+      mutationId: "invalid-rework",
+      localId: "invalid-rework-local",
+      item: {
+        kind: "card",
+        contentKind: "middle-earth-meme",
+        imageUrl: "https://media.justlikekatie.com/images/rework.jpg",
+        thumbnailUrl: "https://media.justlikekatie.com/images/rework-thumb.jpg",
+        resultId: "generated-rework",
+        memeRework: {
+          schemaVersion: 1,
+          kind: "meme-rework",
+          createdAt: "2026-08-28T12:00:00.000Z",
+          original: { resultId: "original", title: "Original", sourceType: "archive" },
+          edit: {
+            type: "text-overlay",
+            mode: "add-overlay",
+            line1: " ",
+            line2: "",
+            layout: "Classic top / bottom",
+            tone: "Dry",
+          },
+        },
+      },
+    }],
+  }), /MemeForge rework metadata is invalid/);
 });
 
 test("collection sync replaces an ordinary card with creator-confirmed Misprint metadata", async () => {

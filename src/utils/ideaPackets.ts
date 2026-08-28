@@ -2,6 +2,7 @@ import type { GridItemData } from '../types';
 import type { StarOfDayData } from '../hooks/useStarOfDay';
 import type { CardRecord, GridRecord, LegendaryMisprint } from './collectionDB';
 import type { ReactionImageBrief } from './middleEarthAi';
+import type { MemeForgeCreationPath, MemeReworkMetadata } from './memeRework';
 import {
   associateMediaWithIdeaPacket,
   type MediaReference,
@@ -78,6 +79,10 @@ export interface MiddleEarthOutputContent {
     model?: string;
   };
   rednoteCopy?: MiddleEarthRednoteCopy;
+  /** Distinguishes a finished clean-still card from a derivative of an existing meme. */
+  creationPath?: MemeForgeCreationPath;
+  /** Reversible text-edit recipe plus the immutable original-source relationship. */
+  memeRework?: MemeReworkMetadata;
 }
 
 export interface MiddleEarthRednoteCopy {
@@ -173,6 +178,8 @@ export interface MiddleEarthDraft {
   creativeDirection?: string;
   aiGeneration?: MiddleEarthOutputContent['aiGeneration'];
   rednoteCopy?: MiddleEarthRednoteCopy;
+  creationPath?: MemeForgeCreationPath;
+  memeRework?: MemeReworkMetadata;
   asset?: {
     id: string;
     title: string;
@@ -501,6 +508,8 @@ export function middleEarthTextFingerprint(content: MiddleEarthOutputContent): s
     content.referenceStillFamily ?? '',
     content.referenceStillQuery ?? '',
     content.reactionImageBrief ? JSON.stringify(content.reactionImageBrief) : '',
+    content.creationPath ?? '',
+    content.memeRework ? JSON.stringify(content.memeRework) : '',
   ].join('\x00');
 }
 
@@ -559,6 +568,8 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
     ...(draft.reactionImageBrief ? { reactionImageBrief: draft.reactionImageBrief } : {}),
     ...(draft.aiGeneration ? { aiGeneration: draft.aiGeneration } : {}),
     ...(draft.rednoteCopy ? { rednoteCopy: draft.rednoteCopy } : {}),
+    ...(draft.creationPath ? { creationPath: draft.creationPath } : {}),
+    ...(draft.memeRework ? { memeRework: draft.memeRework } : {}),
   };
 
   // Source card — carries rightsStatus unknown via provenance field
@@ -584,6 +595,11 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
            ...(draft.referenceStillFamily ? { referenceStillFamily: draft.referenceStillFamily } : {}),
            ...(draft.referenceStillQuery ? { referenceStillQuery: draft.referenceStillQuery } : {}),
           ...(draft.reactionImageBrief ? { reactionImageBrief: draft.reactionImageBrief } : {}),
+           ...(draft.creationPath ? { creationPath: draft.creationPath } : {}),
+           ...(draft.memeRework ? {
+             derivativeOf: draft.memeRework.original,
+             editRecipe: draft.memeRework.edit,
+           } : {}),
           ...(draft.asset.query ? { query: draft.asset.query } : {}),
           ...(draft.asset.provider ? { provider: draft.asset.provider } : {}),
         }),
@@ -609,6 +625,11 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
            ...(draft.referenceStillFamily ? { referenceStillFamily: draft.referenceStillFamily } : {}),
            ...(draft.referenceStillQuery ? { referenceStillQuery: draft.referenceStillQuery } : {}),
           ...(draft.reactionImageBrief ? { reactionImageBrief: draft.reactionImageBrief } : {}),
+           ...(draft.creationPath ? { creationPath: draft.creationPath } : {}),
+           ...(draft.memeRework ? {
+             derivativeOf: draft.memeRework.original,
+             editRecipe: draft.memeRework.edit,
+           } : {}),
         }),
       };
 
@@ -654,9 +675,12 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
     sourceCards: [sourceCard],
     media: [],
     outputs: [output],
-    notes: draft.aiGeneration
-      ? `MemeForge visual copy generated with ${draft.aiGeneration.provider}.`
-      : '',
+    notes: [
+      draft.aiGeneration ? `MemeForge visual copy generated with ${draft.aiGeneration.provider}.` : '',
+      draft.memeRework
+        ? `Non-destructive MemeForge rework of “${draft.memeRework.original.title}”. Original result ${draft.memeRework.original.resultId} remains linked and separately recoverable.`
+        : '',
+    ].filter(Boolean).join('\n'),
     workingAngle: draft.creativeDirection?.trim() || draft.text,
     captionSeeds: draft.rednoteCopy?.caption || draft.title,
     outputAngles: draft.rednoteCopy?.tags.join('\n') || draft.secondaryText || '',
