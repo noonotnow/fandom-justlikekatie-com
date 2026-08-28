@@ -299,6 +299,7 @@ export const Collection: React.FC<Props> = ({
         vibeEn: 'Existing meme · saved as-is',
         vibeEmoji: '🧙',
         capturedDate: new Date().toISOString().slice(0, 10),
+        collectionScope: 'middle-earth',
         contentKind: 'middle-earth-meme',
         title,
         publisher: 'Uploaded from your device',

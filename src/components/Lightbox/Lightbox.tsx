@@ -188,6 +188,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
       vibeEn: cardMetadata?.vibeLabelEn ?? 'Unknown',
       vibeEmoji: cardMetadata?.vibeEmoji ?? '✨',
       capturedDate: cardMetadata?.date ?? new Date().toISOString().split('T')[0],
+      collectionScope: 'vibe-atlas' as const,
       gridContext: {
         batchKey: current.batchKey,
         position: current.gridPosition ?? currentIndex,

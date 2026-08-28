@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import {
   activateSyncState,
   buildSyncOperations,
+  collectionScopeForCard,
   queueCardDelete,
   resolveDeleteAccount,
   type CardRecord,
@@ -124,6 +125,23 @@ test('saved Middle-earth memes keep attribution and treatment metadata through c
   assert.equal(item.searchQuery, 'Gandalf Friday meme');
   assert.equal(item.sourceUrl, 'https://publisher.example/gandalf');
   assert.equal(item.sourceRoute, '/memeforge/middle-earth');
+  assert.equal(item.collectionScope, 'middle-earth');
+});
+
+test('collection scope keeps legacy MemeForge records out of Vibe Atlas without guessing from imagery', () => {
+  assert.equal(collectionScopeForCard(card(1)), 'vibe-atlas');
+  assert.equal(collectionScopeForCard({
+    ...card(2),
+    sourceRoute: '/memeforge/middle-earth',
+  }), 'middle-earth');
+  assert.equal(collectionScopeForCard({
+    ...card(3),
+    collectionScope: 'middle-earth',
+  }), 'middle-earth');
+  assert.equal(collectionScopeForCard({
+    ...card(4),
+    sourceRoute: '/vibe-atlas?view=results',
+  }), 'vibe-atlas');
 });
 
 test('Lightbox save and remove schedule account-aware synchronization', async () => {

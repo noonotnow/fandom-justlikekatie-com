@@ -12,7 +12,7 @@ import {
 import { renderPacketOutputs } from '../../utils/createHandoff';
 import { completeIdeaPacketHandoff } from '../../utils/createHandoffClient';
 import { setPlanOperatorToken } from '../../utils/planPosts';
-import { dbGetAllCards, dbGetAllGrids, type CardRecord, type GridRecord } from '../../utils/collectionDB';
+import { dbGetCardsByScope, dbGetAllGrids, type CardRecord, type GridRecord } from '../../utils/collectionDB';
 import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
 import { RACCOON_COURT_RECORD } from '../../data/raccoonCourtRecord';
 import styles from './FandomAdmin.module.css';
@@ -197,7 +197,10 @@ function PacketWorkspace({
         setLoading(true);
         try {
           await migrateLegacyGridHistory();
-          const [savedGrids, savedCards] = await Promise.all([dbGetAllGrids(), dbGetAllCards()]);
+          const [savedGrids, savedCards] = await Promise.all([
+            dbGetAllGrids(),
+            dbGetCardsByScope('vibe-atlas'),
+          ]);
           if (cancelled) return;
           setGrids(savedGrids.sort((a, b) => b.savedAt.localeCompare(a.savedAt)));
           setCards(savedCards.sort((a, b) => (b.savedAt || '').localeCompare(a.savedAt || '')));

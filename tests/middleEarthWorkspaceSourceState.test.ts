@@ -606,8 +606,8 @@ test('Middle-earth saves have a separate collection scope from Vibe Atlas', asyn
 
   assert.match(
     collectionSource,
-    /filter\(card => isMiddleEarth[\s\S]*?card\.contentKind === 'middle-earth-meme'[\s\S]*?card\.contentKind !== 'middle-earth-meme'/,
-    'the shared collection component must keep Middle-earth cards out of the Vibe Atlas scope',
+    /dbGetVisibleCardsByScope\(accountId, scope\)/,
+    'the shared collection component must query the explicit studio scope before rendering cards',
   );
   assert.match(
     collectionSource,

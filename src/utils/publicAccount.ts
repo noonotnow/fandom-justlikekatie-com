@@ -1,7 +1,7 @@
 import {
   dbApplySyncResponse,
   dbBuildSyncRequest,
-  dbGetVisibleCards,
+  dbGetVisibleCardsByScope,
   dbGetSyncState,
   dbReplaceCardImage,
   dbRemoveAccountCache,
@@ -102,9 +102,9 @@ export async function syncPublicCollection(user: PublicUser): Promise<void> {
 }
 
 async function persistEmbeddedCollectionImages(accountId: string): Promise<void> {
-  const cards = await dbGetVisibleCards(accountId);
+  const cards = await dbGetVisibleCardsByScope(accountId, 'middle-earth');
   for (const card of cards) {
-    if (card.contentKind !== 'middle-earth-meme' || !card.imageUrl.startsWith('data:image/')) continue;
+    if (!card.imageUrl.startsWith('data:image/')) continue;
     if (!card.localId) throw new Error('Collection image is missing its local identity.');
     const uploaded = await uploadCollectionImage(card.imageUrl, 'middle-earth', card.localId);
     await dbReplaceCardImage(card.imageUrl, uploaded);
