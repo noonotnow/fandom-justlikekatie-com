@@ -9,5 +9,12 @@ export function resolveFandomProductRoute(pathname: string): FandomProductRoute 
 
 export function initialVibeAtlasView(search: string): 'daily' | 'collection' | 'plan' {
   const view = new URLSearchParams(search).get('view');
-  return view === 'collection' || view === 'plan' ? view : 'daily';
+  if (view === 'collection' || view === 'results' || view === 'builder') return 'collection';
+  return view === 'plan' ? 'plan' : 'daily';
+}
+
+export function initialCollectionType(search: string): 'grids' | 'results' | 'builder' {
+  const view = new URLSearchParams(search).get('view');
+  if (view === 'results' || view === 'builder') return view;
+  return 'grids';
 }

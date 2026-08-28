@@ -35,6 +35,7 @@ import type { CardRecord, GridRecord } from './utils/collectionDB';
 import { consumeMagicLinkFromLocation, requestMagicLink } from './utils/publicAccount';
 import { useIsAdmin } from './hooks/useIsAdmin';
 import {
+  initialCollectionType,
   initialVibeAtlasView,
   resolveFandomProductRoute,
 } from './utils/fandomRoutes';
@@ -72,6 +73,9 @@ function VibeAtlasApp() {
   const [view, setView] = useState<'daily' | 'collection' | 'plan'>(
     () => initialVibeAtlasView(window.location.search),
   );
+  const [collectionTab, setCollectionTab] = useState<'grids' | 'results' | 'builder'>(
+    () => initialCollectionType(window.location.search),
+  );
   const { isAdmin, loading: adminLoading, recheck: recheckAdmin } = useIsAdmin();
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const { items: gridImages, meta, rawData, loading, error } = useStarOfDay();
@@ -107,6 +111,27 @@ function VibeAtlasApp() {
         setView('collection');
       });
   }, []);
+
+  useEffect(() => {
+    const restoreUrlView = () => {
+      setView(initialVibeAtlasView(window.location.search));
+      setCollectionTab(initialCollectionType(window.location.search));
+    };
+    window.addEventListener('popstate', restoreUrlView);
+    return () => window.removeEventListener('popstate', restoreUrlView);
+  }, []);
+
+  const navigateAtlas = (
+    destination: 'daily' | 'collection',
+    tab: 'grids' | 'results' | 'builder' = 'grids',
+  ) => {
+    const search = destination === 'daily'
+      ? ''
+      : `?view=${tab === 'grids' ? 'collection' : tab}`;
+    window.history.pushState({}, '', `/vibe-atlas${search}`);
+    setCollectionTab(tab);
+    setView(destination);
+  };
 
   const loadPackets = async () => {
     setPacketsLoading(true);
@@ -207,20 +232,38 @@ function VibeAtlasApp() {
             <strong>Vibe Atlas</strong><small>C-drama atmosphere</small>
           </a>
         </div>
-        <div className="fandom-atlas-nav">
+        <div className="fandom-atlas-nav" aria-label="Vibe Atlas workspace">
           <button
+            type="button"
             aria-label="今日之星 · Daily"
-            onClick={() => setView('daily')}
+            onClick={() => navigateAtlas('daily')}
             className={view === 'daily' ? 'fandom-atlas-nav__active' : ''}
           >
             <span>Daily edition</span><small>今日之星</small>
           </button>
           <button
+            type="button"
             aria-label="我的收藏 · Collection"
-            onClick={() => setView('collection')}
-            className={view === 'collection' ? 'fandom-atlas-nav__active' : ''}
+            onClick={() => navigateAtlas('collection', 'grids')}
+            className={view === 'collection' && collectionTab === 'grids' ? 'fandom-atlas-nav__active' : ''}
           >
-            <span>Collection</span><small>我的收藏</small>
+            <span>Saved grids</span><small>Collection</small>
+          </button>
+          <button
+            type="button"
+            aria-label="Saved individual Vibe Atlas results"
+            onClick={() => navigateAtlas('collection', 'results')}
+            className={view === 'collection' && collectionTab === 'results' ? 'fandom-atlas-nav__active' : ''}
+          >
+            <span>Saved results</span><small>Individual finds</small>
+          </button>
+          <button
+            type="button"
+            aria-label="Vibe Atlas Grid Builder"
+            onClick={() => navigateAtlas('collection', 'builder')}
+            className={view === 'collection' && collectionTab === 'builder' ? 'fandom-atlas-nav__active' : ''}
+          >
+            <span>Grid Builder</span><small>Build a 3×3</small>
           </button>
         </div>
         {isAdmin && (
@@ -365,6 +408,8 @@ function VibeAtlasApp() {
         </>
             ) : view === 'collection' ? (
         <Collection
+          key={collectionTab}
+          initialType={collectionTab}
           isAdmin={isAdmin}
           packets={packets}
           onCreateFromGrid={async (grid: GridRecord) => {

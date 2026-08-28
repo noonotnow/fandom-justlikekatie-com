@@ -44,6 +44,7 @@ const SUPPORTED_MEME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
 interface Props {
   scope?: 'vibe-atlas' | 'middle-earth';
+  initialType?: 'grids' | 'results' | 'builder';
   isAdmin?: boolean;
   packets?: IdeaPacket[];
   onCreateFromGrid?: (grid: GridRecord) => Promise<IdeaPacket>;
@@ -56,6 +57,7 @@ type ExpandedArtifact =
 
 export const Collection: React.FC<Props> = ({
   scope = 'vibe-atlas',
+  initialType = 'grids',
   isAdmin = false,
   packets = [],
   onCreateFromGrid,
@@ -66,7 +68,7 @@ export const Collection: React.FC<Props> = ({
   const [grids, setGrids] = useState<GridRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeType, setActiveType] = useState<'grids' | 'results' | 'builder'>(
-    isMiddleEarth ? 'results' : 'grids',
+    isMiddleEarth ? 'results' : initialType,
   );
   const [filterActor, setFilterActor] = useState<string | null>(null);
   const [user, setUser] = useState<PublicUser | null>(null);
