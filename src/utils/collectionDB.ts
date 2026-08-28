@@ -109,12 +109,13 @@ function openDB(): Promise<IDBDatabase> {
 
 export async function dbSaveCard(card: CardRecord): Promise<void> {
   const db = await openDB();
-  const existing = await dbGetCard(card.imageUrl);
+  const normalizedCard = normalizeCardForCollection(card);
+  const existing = await dbGetCard(normalizedCard.imageUrl);
   const record = {
-    ...card,
-    collectionScope: collectionScopeForCard(card),
-    localId: card.localId || existing?.localId || crypto.randomUUID(),
-    savedAt: card.savedAt || new Date().toISOString(),
+    ...normalizedCard,
+    collectionScope: collectionScopeForCard(normalizedCard),
+    localId: normalizedCard.localId || existing?.localId || crypto.randomUUID(),
+    savedAt: normalizedCard.savedAt || new Date().toISOString(),
   };
   return new Promise((resolve, reject) => {
     const tx = db.transaction(CARD_STORE, 'readwrite');
@@ -231,6 +232,25 @@ export function collectionScopeForCard(card: CardRecord): CollectionScope {
     )
   ) return 'middle-earth';
   return 'vibe-atlas';
+}
+
+export function normalizeCardForCollection(card: CardRecord): CardRecord {
+  if (
+    collectionScopeForCard(card) !== 'middle-earth'
+    || !card.sourceRoute?.startsWith('/vibe-atlas')
+  ) return card;
+  return {
+    ...card,
+    actor: 'Middle-earth',
+    actorEn: 'Middle-earth',
+    vibe: card.title || 'Existing Middle-earth meme',
+    vibeEn: 'Existing meme · saved as-is',
+    vibeEmoji: '🧙',
+    title: card.title || 'Existing Middle-earth meme',
+    searchQuery: undefined,
+    gridContext: undefined,
+    sourceRoute: '/memeforge/middle-earth?view=collection',
+  };
 }
 
 export async function dbGetCardsByScope(scope: CollectionScope): Promise<CardRecord[]> {

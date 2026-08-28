@@ -5,6 +5,7 @@ import {
   activateSyncState,
   buildSyncOperations,
   collectionScopeForCard,
+  normalizeCardForCollection,
   queueCardDelete,
   resolveDeleteAccount,
   type CardRecord,
@@ -142,6 +143,26 @@ test('collection scope keeps legacy MemeForge records out of Vibe Atlas without 
     ...card(4),
     sourceRoute: '/vibe-atlas?view=results',
   }), 'vibe-atlas');
+});
+
+test('moving an ambiguous Vibe Atlas card to Middle-earth clears C-drama metadata without changing its image identity', () => {
+  const moved = normalizeCardForCollection({
+    ...card(5),
+    collectionScope: 'middle-earth',
+    contentKind: 'middle-earth-meme',
+    sourceRoute: '/vibe-atlas?view=results',
+    title: 'Gandalf reaction meme',
+    gridContext: { batchKey: '刘学义 cold jade', position: 2 },
+    searchQuery: '刘学义 cold jade',
+  });
+  assert.equal(moved.actor, 'Middle-earth');
+  assert.equal(moved.vibe, 'Gandalf reaction meme');
+  assert.equal(moved.vibeEn, 'Existing meme · saved as-is');
+  assert.equal(moved.sourceRoute, '/memeforge/middle-earth?view=collection');
+  assert.equal(moved.resultId, 'result-5');
+  assert.equal(moved.imageUrl, 'https://images.example/5.jpg');
+  assert.equal(moved.gridContext, undefined);
+  assert.equal(moved.searchQuery, undefined);
 });
 
 test('Lightbox save and remove schedule account-aware synchronization', async () => {

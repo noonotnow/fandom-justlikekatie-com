@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   dbGetVisibleCardsByScope,
   dbReplaceCardImage,
+  normalizeCardForCollection,
   dbGetVisibleGrids,
   dbSaveCard,
   type CardRecord,
@@ -96,7 +97,13 @@ export const Collection: React.FC<Props> = ({
       dbGetVisibleCardsByScope(accountId, scope),
       dbGetVisibleGrids(accountId),
     ]);
-    setCards(visibleCards.sort((a, b) => (b.savedAt ?? '').localeCompare(a.savedAt ?? '')));
+    const normalizedCards = visibleCards.map(card => normalizeCardForCollection(card));
+    if (isMiddleEarth) {
+      await Promise.all(normalizedCards
+        .filter((card, index) => card !== visibleCards[index])
+        .map(card => dbSaveCard(card)));
+    }
+    setCards(normalizedCards.sort((a, b) => (b.savedAt ?? '').localeCompare(a.savedAt ?? '')));
     setGrids(isMiddleEarth ? [] : visibleGrids.sort((a, b) => b.savedAt.localeCompare(a.savedAt)));
   }
 
@@ -284,6 +291,9 @@ export const Collection: React.FC<Props> = ({
         ...card,
         collectionScope: targetScope,
         contentKind: targetScope === 'middle-earth' ? 'middle-earth-meme' : undefined,
+        ...(targetScope === 'middle-earth'
+          ? { sourceRoute: '/memeforge/middle-earth?view=collection' }
+          : {}),
       });
       await loadCollection(user?.accountId);
       schedulePublicCollectionSync();
