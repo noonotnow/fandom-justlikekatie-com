@@ -299,9 +299,6 @@ export const Collection: React.FC<Props> = ({
         ...card,
         collectionScope: targetScope,
         contentKind: targetScope === 'middle-earth' ? 'middle-earth-meme' : undefined,
-        ...(targetScope === 'middle-earth'
-          ? { sourceRoute: '/memeforge/middle-earth?view=collection' }
-          : {}),
       });
       await loadCollection(user?.accountId);
       schedulePublicCollectionSync();

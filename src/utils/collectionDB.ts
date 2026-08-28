@@ -244,7 +244,10 @@ export function collectionScopeForCard(card: CardRecord): CollectionScope {
 export function normalizeCardForCollection(card: CardRecord): CardRecord {
   if (
     collectionScopeForCard(card) !== 'middle-earth'
-    || !card.sourceRoute?.startsWith('/vibe-atlas')
+    || (
+      !card.sourceRoute?.startsWith('/vibe-atlas')
+      && !card.gridContext
+    )
   ) return card;
   return {
     ...card,

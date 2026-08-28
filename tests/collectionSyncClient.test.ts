@@ -165,6 +165,23 @@ test('moving an ambiguous Vibe Atlas card to Middle-earth clears C-drama metadat
   assert.equal(moved.searchQuery, undefined);
 });
 
+test('already-moved Middle-earth cards with Vibe grid context are repaired after the route was rewritten', () => {
+  const repaired = normalizeCardForCollection({
+    ...card(6),
+    collectionScope: 'middle-earth',
+    contentKind: 'middle-earth-meme',
+    sourceRoute: '/memeforge/middle-earth?view=collection',
+    actor: '刘学义',
+    actorEn: 'Liu Xueyi',
+    vibe: '仙门冷玉',
+    gridContext: { batchKey: '刘学义 cold jade', position: 1 },
+  });
+  assert.equal(repaired.actor, 'Middle-earth');
+  assert.equal(repaired.vibe, 'Existing Middle-earth meme');
+  assert.equal(repaired.gridContext, undefined);
+  assert.equal(repaired.sourceRoute, '/memeforge/middle-earth?view=collection');
+});
+
 test('Lightbox save and remove schedule account-aware synchronization', async () => {
   const source = await readFile(new URL('../src/components/Lightbox/Lightbox.tsx', import.meta.url), 'utf8');
   assert.match(source, /import \{ schedulePublicCollectionSync \}/);
