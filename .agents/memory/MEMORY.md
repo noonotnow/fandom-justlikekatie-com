@@ -9,3 +9,4 @@
 - [Netlify Function-log verification](netlify-function-log-verification.md) — Real-time can appear empty; verify current Production calls in Last hour with filters cleared.
 - [Collection local-first loading](collection-local-first-loading.md) — render browser saves before account sync; sync failures must never make an existing Collection appear empty.
 - [Vite preview port](vite-preview-port.md) — keep the Vite server and Start application webview workflow aligned on port 5000.
+- [Legendary Misprint scope](legendary-misprint-scope.md) — misprints are member-saved, event-scoped exceptions; they never redefine a universe or ordinary Builder/grid views.
