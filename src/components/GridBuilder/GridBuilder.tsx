@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { dbGetAllCards, dbGetAllGrids, dbGetVisibleCards, dbGetVisibleGrids, dbRemoveGrid, dbSaveGrid, type GridRecord } from '../../utils/collectionDB';
+import { dbGetCardsByScope, dbGetAllGrids, dbGetVisibleCardsByScope, dbGetVisibleGrids, dbRemoveGrid, dbSaveGrid, type GridRecord } from '../../utils/collectionDB';
 import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
 import { saveShareCard, buildExportPayload, classifyEditionTier } from '../../utils/exportCanvas';
@@ -86,7 +86,9 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
       try {
         await migrateLegacyGridHistory();
         const [cards, grids] = await Promise.all([
-          allRecords ? dbGetAllCards() : dbGetVisibleCards(accountId),
+          allRecords
+            ? dbGetCardsByScope('vibe-atlas')
+            : dbGetVisibleCardsByScope(accountId, 'vibe-atlas'),
           allRecords ? dbGetAllGrids() : dbGetVisibleGrids(accountId),
         ]);
         if (!cancelled) setPool(buildPool(cards, grids));

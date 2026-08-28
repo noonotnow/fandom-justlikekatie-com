@@ -7,6 +7,8 @@ const CARD_STORE = 'cards';
 const GRID_STORE = 'grids';
 const SYNC_STORE = 'sync';
 
+export type CollectionScope = 'vibe-atlas' | 'middle-earth';
+
 export interface CardRecord {
   localId?: string;
   serverId?: string;
@@ -28,6 +30,8 @@ export interface CardRecord {
   searchQuery?: string;
   sourceRoute?: string;
   media?: MediaReference;
+  /** Logical collection namespace. Optional only for records saved before namespacing. */
+  collectionScope?: CollectionScope;
   gridContext?: {
     batchKey?: string;
     position: number;
@@ -108,6 +112,7 @@ export async function dbSaveCard(card: CardRecord): Promise<void> {
   const existing = await dbGetCard(card.imageUrl);
   const record = {
     ...card,
+    collectionScope: collectionScopeForCard(card),
     localId: card.localId || existing?.localId || crypto.randomUUID(),
     savedAt: card.savedAt || new Date().toISOString(),
   };
@@ -213,6 +218,34 @@ export async function dbGetVisibleCards(accountId?: string): Promise<CardRecord[
   return cards.filter(card => !card.ownerAccountId || card.ownerAccountId === accountId);
 }
 
+export function collectionScopeForCard(card: CardRecord): CollectionScope {
+  if (card.collectionScope === 'vibe-atlas' || card.collectionScope === 'middle-earth') {
+    return card.collectionScope;
+  }
+  if (
+    card.contentKind === 'middle-earth-meme'
+    || card.sourceRoute?.startsWith('/memeforge/middle-earth')
+    || (
+      card.media?.association.type === 'collection'
+      && card.media.association.id === 'middle-earth'
+    )
+  ) return 'middle-earth';
+  return 'vibe-atlas';
+}
+
+export async function dbGetCardsByScope(scope: CollectionScope): Promise<CardRecord[]> {
+  const cards = await dbGetAllCards();
+  return cards.filter(card => collectionScopeForCard(card) === scope);
+}
+
+export async function dbGetVisibleCardsByScope(
+  accountId: string | undefined,
+  scope: CollectionScope,
+): Promise<CardRecord[]> {
+  const cards = await dbGetVisibleCards(accountId);
+  return cards.filter(card => collectionScopeForCard(card) === scope);
+}
+
 export async function dbReplaceCardImage(
   oldImageUrl: string,
   media: MediaReference,
@@ -315,7 +348,8 @@ export function buildSyncOperations(
     .filter(card => !card.ownerAccountId || card.ownerAccountId === accountId)
     .map(card => {
       const localId = card.localId!;
-      const mutationId = `upsert:${state.clientId}:${localId}:${card.savedAt || card.capturedDate}`;
+      const collectionScope = collectionScopeForCard(card);
+      const mutationId = `upsert:${state.clientId}:${localId}:${card.savedAt || card.capturedDate}:${collectionScope}`;
       return {
         type: 'upsert',
         mutationId,
@@ -340,6 +374,7 @@ export function buildSyncOperations(
           searchQuery: card.searchQuery,
           sourceRoute: card.sourceRoute,
           media: card.media,
+          collectionScope,
         },
       };
     })
@@ -419,6 +454,7 @@ export async function dbApplySyncResponse(
     const existing = byServerId.get(serverId) || byLocalId.get(localId);
     const record = {
       ...(item as unknown as CardRecord),
+      collectionScope: collectionScopeForCard(item as unknown as CardRecord),
       localId: existing?.localId || localId || crypto.randomUUID(),
       serverId,
       // Preserve cards that began as anonymous device data; only cloud-only

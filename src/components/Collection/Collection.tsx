@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  dbGetVisibleCards,
+  dbGetVisibleCardsByScope,
   dbGetVisibleGrids,
   dbSaveCard,
   type CardRecord,
@@ -89,14 +89,10 @@ export const Collection: React.FC<Props> = ({
 
   async function loadCollection(accountId = accountIdRef.current) {
     const [visibleCards, visibleGrids] = await Promise.all([
-      dbGetVisibleCards(accountId),
+      dbGetVisibleCardsByScope(accountId, scope),
       dbGetVisibleGrids(accountId),
     ]);
-    setCards(visibleCards
-      .filter(card => isMiddleEarth
-        ? card.contentKind === 'middle-earth-meme'
-        : card.contentKind !== 'middle-earth-meme')
-      .sort((a, b) => (b.savedAt ?? '').localeCompare(a.savedAt ?? '')));
+    setCards(visibleCards.sort((a, b) => (b.savedAt ?? '').localeCompare(a.savedAt ?? '')));
     setGrids(isMiddleEarth ? [] : visibleGrids.sort((a, b) => b.savedAt.localeCompare(a.savedAt)));
   }
 
