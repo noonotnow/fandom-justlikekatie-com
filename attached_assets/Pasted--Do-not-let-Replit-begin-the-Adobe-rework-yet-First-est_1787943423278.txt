@@ -1,0 +1,61 @@
+**Do not let Replit begin the Adobe rework yet.** First establish that Collection and Grid Builder are accessible *from your actual signed-in account* and that saved data is present. “Anonymous browser showed zero” is not enough verification.
+
+Send this:
+
+```
+Pause the Deep Rework/Adobe feature work. Recovery and regression safety come first.
+
+I need you to preserve Vibe Atlas, Grid Builder, Saved Grids, Saved Results, their existing routes, and all saved-data/account-sync behavior. MemeForge work must be additive and must not replace, hide, rename, migrate, or repurpose those existing surfaces.
+
+First, verify and report the following:
+
+1. These routes remain functional:
+- /vibe-atlas
+- /vibe-atlas?view=collection
+- /vibe-atlas?view=results
+- /vibe-atlas?view=builder
+- /memeforge/middle-earth
+- /memeforge/middle-earth?view=collection
+
+2. The top-level navigation visibly exposes:
+- Daily Vibe Atlas
+- Saved grids
+- Saved results
+- Grid Builder
+- MemeForge
+
+3. Existing saved grids and results still use their original storage records, account identity, merge behavior, and sync paths. Do not create a replacement empty Collection or migrate existing records without explicit approval.
+
+4. Confirm that:
+- Anonymous/local collections remain local as designed.
+- Signed-in collections load the correct account-backed records.
+- Signing in does not replace populated local data with an empty remote state.
+- Merge and sync do not delete or hide existing records.
+- Grid removal behavior remains unchanged.
+- Vibe Atlas and MemeForge collections remain separately scoped.
+
+Add automated regression tests covering those routes, navigation actions, collection scopes, and storage behavior. Run the full existing test suite and build before making any further product changes.
+
+Important: an anonymous verification showing “0 grids · 0 results” does not prove that my signed-in collection is safe. Do not describe the recovery as fully verified until I confirm my saved content from my own signed-in browser.
+
+After you complete the route/navigation safeguards, stop and give me:
+- the deployment URL or commit
+- the exact tests added
+- the full build/test results
+- whether any storage schema, account-sync logic, or collection-loading logic changed
+
+Do not begin the Adobe API or Deep Rework implementation until I personally confirm that I can reach Grid Builder and see my saved Collection.
+```
+
+Then personally open these in the browser/account where you saved things:
+
+- [Saved grids](https://fandom.justlikekatie.com/vibe-atlas?view=collection)
+- [Saved results](https://fandom.justlikekatie.com/vibe-atlas?view=results)
+- [Grid Builder](https://fandom.justlikekatie.com/vibe-atlas?view=builder)
+
+If the routes open but show zero, **don’t merge, clear storage, sign out repeatedly, or create replacements yet**. Tell Replit exactly:
+
+> “The route is reachable, but my signed-in records are missing. Treat this as account-sync visibility. Do not initialize or overwrite any collection state.”
+> 
+
+The agent’s answer otherwise sounds directionally correct: it preserved the three MemeForge paths and claims it exposed the existing Vibe Atlas surfaces. But we are not awarding Gondor’s highest medal based on an anonymous browser seeing three large zeros. Your actual saved records are the acceptance test.
