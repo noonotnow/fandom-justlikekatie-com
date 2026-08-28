@@ -391,7 +391,11 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     assert.equal(await setupLine.inputValue(), originalSetup);
     assert.equal(await punchlineLine.inputValue(), originalPunchline);
     assert.equal(await alternateCandidate.getAttribute('aria-pressed'), 'true');
-    await page.getByRole('button', { name: 'Save generated card' }).waitFor();
+    assert.equal(
+      await page.getByRole('button', { name: 'Save generated card' }).count(),
+      0,
+      'changing the source should hide generated-card save until the visual is forged again',
+    );
 
     await page.getByRole('button', { name: 'Stage for CREATE' }).click();
     await page.getByText('Idea packet staged. No publish or schedule action was taken.').waitFor();

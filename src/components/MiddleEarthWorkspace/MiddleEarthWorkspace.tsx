@@ -1535,9 +1535,9 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
             {isEditorRequired && <button className={styles.export} onClick={() => void exportPng()} disabled={busy}>{busy ? "Working…" : "Export PNG"}</button>}
             {isExistingMemeAsIs && <button className={styles.export} onClick={() => void exportPng()} disabled={busy}>{busy ? "Working…" : "Export original meme"}</button>}
             {isExistingMemeAsIs && <button className={styles.save} onClick={() => void saveExistingMeme()} disabled={busy || collectionSaved}>{collectionSaved ? "Saved to Collection" : "Save to Collection"}</button>}
-            {isEditorRequired && <button className={styles.save} onClick={() => void saveGeneratedMeme()} disabled={busy || collectionSaved}>{collectionSaved ? "Saved to Collection" : "Save generated card"}</button>}
+            {isEditorRequired && visualGeneration && <button className={styles.save} onClick={() => void saveGeneratedMeme()} disabled={busy || collectionSaved}>{collectionSaved ? "Saved to Collection" : "Save generated card"}</button>}
             {isExistingMemeAsIs && collectionSaved && <a className={styles.stagingLink} href="/memeforge/middle-earth?view=collection">Open Collection</a>}
-            {isEditorRequired && collectionSaved && <a className={styles.stagingLink} href="/memeforge/middle-earth?view=collection">Open Collection</a>}
+            {isEditorRequired && visualGeneration && collectionSaved && <a className={styles.stagingLink} href="/memeforge/middle-earth?view=collection">Open Collection</a>}
             {isEditorRequired && (isAdmin
               ? <button className={styles.save} onClick={() => void savePacket()} disabled={busy}>Stage for CREATE</button>
               : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in through packet staging</a>)}
