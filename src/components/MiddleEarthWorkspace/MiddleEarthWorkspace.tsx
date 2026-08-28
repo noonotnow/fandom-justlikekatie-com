@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import {
   generateRednoteCopy,
   generateVisualObject,
@@ -131,6 +131,7 @@ const momentExamples = [
   "Gandalf workplace boundaries",
   "Defending my little treat with my life",
 ];
+const maxUploadedMemeBytes = 8 * 1024 * 1024;
 
 function makeAsset(result: SearchResponse["results"][number], query: string, index: number): MiddleEarthAsset {
   return {
@@ -142,6 +143,18 @@ function makeAsset(result: SearchResponse["results"][number], query: string, ind
     query,
     provider: result.provider,
   };
+}
+
+function readImageFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string" && reader.result.startsWith("data:image/")) resolve(reader.result);
+      else reject(new Error("The selected file could not be read as an image."));
+    };
+    reader.onerror = () => reject(new Error("The selected meme could not be read. Try another image."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function canLoadReactionImage(url: string, timeoutMs = 4000): Promise<boolean> {
@@ -748,6 +761,52 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     }
   };
 
+  const handleExistingMemeUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Choose an image file for your existing meme.");
+      return;
+    }
+    if (file.size > maxUploadedMemeBytes) {
+      setError("That image is larger than 8 MB. Choose a smaller existing meme.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setStatus("Reading your existing meme without changing it…");
+    archiveSearchRequestGate.invalidate();
+    try {
+      const dataUrl = await readImageFileAsDataUrl(file);
+      const titleFromFile = file.name.replace(/\.[^/.]+$/u, "").trim() || "Your uploaded meme";
+      const uploadedAsset: MiddleEarthAsset = {
+        id: `local-upload-${file.name}-${file.lastModified}-${file.size}`,
+        title: titleFromFile,
+        thumbnail: dataUrl,
+        url: dataUrl,
+        publisher: "Uploaded from your device",
+        query: "Your uploaded meme",
+        provider: "local-upload",
+      };
+      setReactionSearchMode("existing-meme");
+      setSourceTreatment("as-is");
+      setComparisonEmotion(undefined);
+      setResults([uploadedAsset]);
+      setSearchedQuery("your uploaded meme");
+      setQuery("your uploaded meme");
+      setSelected(uploadedAsset);
+      setPreviewImageFailed(false);
+      setCollectionSaved(false);
+      invalidateGeneratedVisual();
+      setStatus(`“${file.name}” is ready. The editor is bypassed and the original image will be exported unchanged.`);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "The existing meme could not be loaded.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const chooseSourcePath = (nextPath: MemeSourcePath) => {
     const nextMode: ReactionSearchMode = nextPath === "new-image" ? "clean-still" : "existing-meme";
     if (nextMode !== reactionSearchMode) changeReactionSearchMode(nextMode);
@@ -1087,7 +1146,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
               <span>02</span><strong>Rework an existing meme</strong><small>Rework in MemeForge with a new overlay</small>
             </button>
             <button type="button" className={sourcePath === "existing-meme" ? styles.pathActive : ""} onClick={() => chooseSourcePath("existing-meme")} aria-pressed={sourcePath === "existing-meme"} disabled={busy || searching}>
-              <span>03</span><strong>Use an existing meme</strong><small>Use as-is; keep unchanged with no editor</small>
+               <span>03</span><strong>Use an existing meme</strong><small>Search the archive or upload your own; keep unchanged</small>
             </button>
           </div>
           <div className={styles.pathStatus}>
@@ -1180,6 +1239,13 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
               <small> {activeReferenceStillFamily?.description} Search starts with “{referenceStillSearchQueries(referenceStillFamily, translation.reactionImageBrief.socialUseQuery)[0]}”. Your original moment and joke stay unchanged.</small>
             </div>
             </>}
+            {reactionSearchMode === "existing-meme" && <div className={styles.uploadPanel}>
+              <div><strong>Have your own meme?</strong><p>Upload the image you already made. MemeForge will keep it byte-for-byte unchanged—no translation, overlays, or branding.</p></div>
+              <label className={styles.uploadLabel} htmlFor="existing-meme-upload">
+                Upload image
+                <input id="existing-meme-upload" type="file" accept="image/*" onChange={(event) => void handleExistingMemeUpload(event)} disabled={busy || searching} />
+              </label>
+            </div>}
             <form className={styles.searchForm} onSubmit={search}>
               <label htmlFor="archive-search">{reactionSearchMode === "existing-meme" ? "Search existing memes" : "Search clean reaction stills"}</label>
               <div className={styles.searchBox}>
@@ -1392,7 +1458,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
             </>}
           </div>
           )}
-          {selected && <div className={styles.provenance}><strong>{isExistingMemeAsIs ? "Existing meme · unchanged" : "Source attached"}</strong><span>{selected.title}</span><span>{selected.publisher || "Publisher unknown"} · {selected.provider || "Provider unknown"}</span><a href={selected.url} target="_blank" rel="noreferrer">Open original source</a><small>Rights status: unknown. This is a personal draft; confirm permission before publishing.</small></div>}
+           {selected && <div className={styles.provenance}><strong>{isExistingMemeAsIs ? "Existing meme · unchanged" : "Source attached"}</strong><span>{selected.title}</span><span>{selected.publisher || "Publisher unknown"} · {selected.provider || "Provider unknown"}</span>{selected.provider === "local-upload" ? <small>Your uploaded image is stored in this session for export or Collection save.</small> : <a href={selected.url} target="_blank" rel="noreferrer">Open original source</a>}<small>Rights status: unknown. This is a personal draft; confirm permission before publishing.</small></div>}
            {isEditorRequired && selected && <button className={styles.typeFallback} type="button" onClick={() => { setSelected(undefined); setVisualGeneration(undefined); setPacketSaved(false); setStatus("Typography-only fallback selected. Choose a reaction image any time to restore image-backed rendering."); }} disabled={busy}>Use typography-only fallback</button>}
            {isEditorRequired && !selected && <div className={styles.provenanceMuted}>Typography-only fallback is active. Choose a reaction image to restore image-backed rendering.</div>}
           <p className={styles.handoffNote}>{isEditorRequired

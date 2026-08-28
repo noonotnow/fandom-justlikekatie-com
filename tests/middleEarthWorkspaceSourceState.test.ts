@@ -516,6 +516,21 @@ test('source treatment supports clean-still forging, existing-meme rework, and u
   assert.match(source, /Use an existing meme/);
   assert.match(
     source,
+    /id="existing-meme-upload" type="file" accept="image\/\*"[\s\S]*?handleExistingMemeUpload/,
+    'the unchanged path must accept a user-owned meme in addition to archive search',
+  );
+  assert.match(
+    source,
+    /const handleExistingMemeUpload = async[\s\S]*?readImageFileAsDataUrl\(file\)[\s\S]*?provider: "local-upload"[\s\S]*?setSelected\(uploadedAsset\)/,
+    'an uploaded meme must become the selected unchanged source without entering translation or the editor',
+  );
+  assert.match(
+    source,
+    /selected\.provider === "local-upload" \? <small>Your uploaded image/,
+    'uploaded memes must not pretend to have an external source link',
+  );
+  assert.match(
+    source,
     /onClick=\{\(\) => chooseSourcePath\("new-image"\)\}[\s\S]*?onClick=\{\(\) => chooseSourcePath\("rework-existing"\)\}[\s\S]*?onClick=\{\(\) => chooseSourcePath\("existing-meme"\)\}/,
     'each visible decision path must route through one explicit source-path controller',
   );

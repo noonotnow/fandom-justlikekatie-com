@@ -216,6 +216,29 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
       'Spellbook should be disabled when the selected path has no editor',
     );
     assert.equal(await page.getByLabel('Search existing memes').isVisible(), true);
+    const ownMemeUpload = page.locator('#existing-meme-upload');
+    assert.equal(await ownMemeUpload.isVisible(), true, 'the unchanged path should offer a local upload alongside archive search');
+    await ownMemeUpload.setInputFiles({
+      name: 'one-page-became-the-whole-trilogy.gif',
+      mimeType: 'image/gif',
+      buffer: onePixelGif,
+    });
+    await page.getByText('is ready. The editor is bypassed').waitFor();
+    const unchangedPreview = page.getByLabel('Unchanged existing meme preview');
+    await unchangedPreview.waitFor();
+    assert.match(
+      await unchangedPreview.locator('img').getAttribute('src') ?? '',
+      /^data:image\/gif;base64,/,
+      'the uploaded meme should render from a local data URL',
+    );
+    assert.equal(await page.getByText(/Uploaded from your device/).first().isVisible(), true);
+    assert.equal(await page.getByRole('link', { name: 'Open original source' }).count(), 0, 'local uploads should not show a fake external source link');
+    const originalDownloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export original meme' }).click();
+    const originalDownload = await originalDownloadPromise;
+    assert.equal(originalDownload.suggestedFilename(), 'one-page-became-the-whole-trilogy.gif');
+    await page.getByRole('button', { name: 'Save to Collection' }).click();
+    await page.getByRole('button', { name: 'Saved to Collection' }).waitFor();
 
     await newImagePath.click();
     await page.getByLabel('The moment').fill('Not wanting to go to work on Friday');
