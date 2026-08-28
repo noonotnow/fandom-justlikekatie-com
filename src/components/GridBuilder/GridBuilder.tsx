@@ -6,7 +6,7 @@ import { saveShareCard, buildExportPayload, classifyEditionTier } from '../../ut
 import { deleteGridExports, gridExportEventFromRecord, logGridExport, uploadExportedCard } from '../../utils/gridExportLog';
 import {
   applyLens,
-  buildPool,
+  buildVibeAtlasPool,
   gridRecordFromProposal,
   lensOptions,
   proposeGrid,
@@ -91,7 +91,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
             : dbGetVisibleCardsByScope(accountId, 'vibe-atlas'),
           allRecords ? dbGetAllGrids() : dbGetVisibleGrids(accountId),
         ]);
-        if (!cancelled) setPool(buildPool(cards, grids));
+        if (!cancelled) setPool(buildVibeAtlasPool(cards, grids));
       } catch (caught) {
         if (!cancelled) setLoadError(caught instanceof Error ? caught.message : 'Saved collection could not be loaded.');
       }

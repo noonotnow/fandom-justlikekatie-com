@@ -216,6 +216,17 @@ export function buildPool(cards: CardRecord[], grids: GridRecord[]): BuilderCard
   });
 }
 
+export function isVibeAtlasActorIdentity(value: string): boolean {
+  return (value.match(/\p{Script=Han}/gu)?.length || 0) >= 2;
+}
+
+export function buildVibeAtlasPool(cards: CardRecord[], grids: GridRecord[]): BuilderCard[] {
+  return buildPool(
+    cards.filter(card => isVibeAtlasActorIdentity(card.actor)),
+    grids.filter(grid => isVibeAtlasActorIdentity(grid.actor)),
+  );
+}
+
 // ── Lens options ───────────────────────────────────────────────────
 
 function countBy(pool: BuilderCard[], key: (card: BuilderCard) => string | undefined, label: (card: BuilderCard) => string): LensOption[] {
