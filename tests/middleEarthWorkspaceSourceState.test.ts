@@ -697,6 +697,27 @@ test('a generated MemeForge card can be rendered and saved directly to Collectio
   assert.match(source, /const hasSavableGeneratedCard = Boolean\(visualGeneration \|\| hasReworkOverlay\)/);
 });
 
+test('saved reworks can reopen with their original and complete edit recipe', async () => {
+  const [workspaceSource, collectionSource] = await Promise.all([
+    readFile(new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/Collection/Collection.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(collectionSource, /Open in rework editor/);
+  assert.match(collectionSource, /rework=\$\{encodeURIComponent\(card\.localId \|\| card\.serverId \|\| card\.resultId \|\| ''\)\}/);
+  assert.match(workspaceSource, /dbGetVisibleCardsByScope\(session\?\.accountId, "middle-earth"\)/);
+  assert.match(workspaceSource, /card\.resultId === recipe\.original\.resultId && !card\.memeRework/);
+  assert.match(workspaceSource, /setText\(recipe\.edit\.line1 \|\| ""\)/);
+  assert.match(workspaceSource, /setSecondaryText\(recipe\.edit\.line2 \|\| ""\)/);
+  assert.match(workspaceSource, /setTitle\(recipe\.edit\.footer \|\| ""\)/);
+  assert.match(workspaceSource, /setLayout\(recipe\.edit\.layout\)/);
+  assert.match(workspaceSource, /setTone\(recipe\.edit\.tone\)/);
+  assert.match(workspaceSource, /setReworkEditMode\(recipe\.edit\.mode\)/);
+  assert.match(workspaceSource, /missing or unavailable/);
+  assert.match(workspaceSource, /const localId = crypto\.randomUUID\(\)[\s\S]*?versionMemeDerivativeDataUrl\(renderedImageUrl, localId\)/);
+  assert.match(workspaceSource, /layout, tone, reworkEditMode, selected\?\.id/);
+});
+
 test('resolved comic mechanism survives visual grounding and packet staging', async () => {
   const source = await readFile(
     new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),

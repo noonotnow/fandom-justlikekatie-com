@@ -12,3 +12,4 @@
 - [Legendary Misprint scope](legendary-misprint-scope.md) — misprints are member-saved, event-scoped exceptions; they never redefine a universe or ordinary Builder/grid views.
 - [MemeForge reaction-card format](memeforge-reaction-card.md) — clean-still aesthetic reaction cards are a finished path alongside unchanged memes and future reworks.
 - [MemeForge uploaded-source staging](memeforge-uploaded-source-staging.md) — canonicalize uploads to MEDIA with a stable UUID before creating durable packets.
+- [Distinct data-URL derivatives](distinct-data-url-derivatives.md) — use URL fragments for unique collection keys without changing image bytes or MIME type.

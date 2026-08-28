@@ -27,6 +27,11 @@ export interface MemeReworkMetadata {
   };
 }
 
+export function versionMemeDerivativeDataUrl(dataUrl: string, derivativeId: string): string {
+  if (!dataUrl.startsWith('data:image/') || !derivativeId.trim()) return dataUrl;
+  return `${dataUrl.split('#', 1)[0]}#derivative=${encodeURIComponent(derivativeId)}`;
+}
+
 export function createMemeReworkMetadata(
   source: {
     id: string;

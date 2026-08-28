@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createMemeReworkMetadata } from '../src/utils/memeRework.ts';
+import {
+  createMemeReworkMetadata,
+  versionMemeDerivativeDataUrl,
+} from '../src/utils/memeRework.ts';
 
 test('builds a reversible rework recipe without copying an uploaded data URL into provenance', () => {
   const metadata = createMemeReworkMetadata({
@@ -40,4 +43,14 @@ test('requires at least one visible text edit before creating a rework derivativ
     layout: 'Classic top / bottom',
     tone: 'Dry',
   }), /at least one replacement or overlay line/);
+});
+
+test('gives identical rendered reworks distinct valid image identities', async () => {
+  const rendered = 'data:image/png;base64,aGVsbG8=';
+  const first = versionMemeDerivativeDataUrl(rendered, 'derivative-one');
+  const second = versionMemeDerivativeDataUrl(rendered, 'derivative-two');
+
+  assert.notEqual(first, second);
+  assert.equal((await fetch(first)).headers.get('content-type'), 'image/png');
+  assert.equal(Buffer.from(await (await fetch(first)).arrayBuffer()).toString(), 'hello');
 });

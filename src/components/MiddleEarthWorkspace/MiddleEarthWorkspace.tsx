@@ -38,6 +38,7 @@ import {
 } from "../../utils/reactionImageAssets";
 import { createArchiveSearchRequestGate } from "./archiveSearchRequestGate";
 import {
+  dbGetVisibleCardsByScope,
   dbIsCardSaved,
   dbReplaceCardImage,
   dbSaveCard,
@@ -47,6 +48,7 @@ import { uploadCollectionImage } from "../../utils/collectionMedia";
 import type { MediaReference } from "../../utils/mediaReference";
 import {
   createMemeReworkMetadata,
+  versionMemeDerivativeDataUrl,
   type MemeReworkEditMode,
 } from "../../utils/memeRework";
 import {
@@ -695,7 +697,73 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
 
   useEffect(() => {
     if (isEditorRequired) setCollectionSaved(false);
-  }, [isEditorRequired, title, text, secondaryText, layout, selected?.id, visualGeneration]);
+  }, [isEditorRequired, title, text, secondaryText, layout, tone, reworkEditMode, selected?.id, visualGeneration]);
+
+  useEffect(() => {
+    const reworkId = new URLSearchParams(window.location.search).get("rework");
+    if (!reworkId) return;
+    let current = true;
+
+    void (async () => {
+      setBusy(true);
+      setError("");
+      setStatus("Restoring your saved rework…");
+      try {
+        const session = await getPublicSession();
+        const cards = await dbGetVisibleCardsByScope(session?.accountId, "middle-earth");
+        const derivative = cards.find((card) =>
+          card.localId === reworkId || card.serverId === reworkId || card.resultId === reworkId
+        );
+        const recipe = derivative?.memeRework;
+        if (!recipe) {
+          throw new Error("This saved rework is no longer available. Return to Collection and choose another saved rework.");
+        }
+        const original = cards.find((card) => card.resultId === recipe.original.resultId && !card.memeRework);
+        const thumbnail = original?.media?.thumbnailUrl || original?.thumbnailUrl || original?.imageUrl;
+        if (!original || !thumbnail || !await canLoadReactionImage(thumbnail)) {
+          throw new Error(`The original “${recipe.original.title}” is missing or unavailable. Recover or replace its image in Collection, then open this rework again.`);
+        }
+        if (!current) return;
+        const asset: MiddleEarthAsset = {
+          id: recipe.original.resultId,
+          title: recipe.original.title,
+          thumbnail,
+          url: recipe.original.sourceUrl || original.sourceUrl || original.media?.deliveryUrl || original.imageUrl,
+          publisher: recipe.original.publisher || original.publisher,
+          query: recipe.original.searchQuery || original.searchQuery || "Saved rework original",
+          provider: recipe.original.provider,
+          sourceType: recipe.original.sourceType,
+          media: original.media,
+          collectionLocalId: original.localId,
+        };
+        setReactionSearchMode("existing-meme");
+        setSourceTreatment("new-overlay");
+        setResults([asset]);
+        setSelected(asset);
+        setQuery(asset.query);
+        setSearchedQuery(asset.query);
+        setText(recipe.edit.line1 || "");
+        setSecondaryText(recipe.edit.line2 || "");
+        setTitle(recipe.edit.footer || "");
+        setLayout(recipe.edit.layout);
+        setTone(recipe.edit.tone);
+        setReworkEditMode(recipe.edit.mode);
+        setPreviewImageFailed(false);
+        setCollectionSaved(false);
+        setOriginalCollectionSaved(true);
+        setStatus(`Reopened “${derivative.title || derivative.vibe}”. Saving will create a new derivative and keep both earlier versions.`);
+      } catch (restoreError) {
+        if (current) {
+          setError(restoreError instanceof Error ? restoreError.message : "This saved rework could not be reopened.");
+          setStatus("");
+        }
+      } finally {
+        if (current) setBusy(false);
+      }
+    })();
+
+    return () => { current = false; };
+  }, []);
 
   const clearReactionGrounding = () => {
     archiveSearchRequestGate.invalidate();
@@ -1337,8 +1405,11 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
         ...(sourceAsset ? { asset: sourceAsset } : {}),
         ...(linkedRework ? { memeRework: linkedRework } : {}),
       };
-      const imageUrl = await exportMiddleEarthPng(renderedDraft, previewNode, { download: false });
       const localId = crypto.randomUUID();
+      const renderedImageUrl = await exportMiddleEarthPng(renderedDraft, previewNode, { download: false });
+      const imageUrl = isReworkExisting
+        ? versionMemeDerivativeDataUrl(renderedImageUrl, localId)
+        : renderedImageUrl;
       if (isReworkExisting && sourceAsset && !originalCollectionSaved) {
         await dbSaveCard(originalMemeCard(sourceAsset));
         setOriginalCollectionSaved(true);

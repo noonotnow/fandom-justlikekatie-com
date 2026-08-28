@@ -847,10 +847,15 @@ export const Collection: React.FC<Props> = ({
                       : 'saved as-is'}`
                   : card.vibe}</span>
                 {card.memeRework && (
-                  <span>
-                    Non-destructive derivative · {card.memeRework.edit.mode === 'cover-and-replace' ? 'cover & replace' : 'added overlay'}
-                    {' '}· original: {card.memeRework.original.title}
-                  </span>
+                  <>
+                    <span>
+                      Non-destructive derivative · {card.memeRework.edit.mode === 'cover-and-replace' ? 'cover & replace' : 'added overlay'}
+                      {' '}· original: {card.memeRework.original.title}
+                    </span>
+                    <a href={`/memeforge/middle-earth?rework=${encodeURIComponent(card.localId || card.serverId || card.resultId || '')}`}>
+                      Open in rework editor
+                    </a>
+                  </>
                 )}
                 {card.legendaryMisprint && (
                   <span>
