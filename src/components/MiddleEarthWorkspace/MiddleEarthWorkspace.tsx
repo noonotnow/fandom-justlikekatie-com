@@ -38,7 +38,12 @@ import {
 } from "../../utils/reactionImageAssets";
 import { createArchiveSearchRequestGate } from "./archiveSearchRequestGate";
 import { dbIsCardSaved, dbSaveCard } from "../../utils/collectionDB";
-import { schedulePublicCollectionSync } from "../../utils/publicAccount";
+import {
+  getPublicSession,
+  schedulePublicCollectionSync,
+  shouldSyncCollection,
+  syncPublicCollection,
+} from "../../utils/publicAccount";
 import styles from "./MiddleEarthWorkspace.module.css";
 
 export interface MiddleEarthAsset {
@@ -765,8 +770,8 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setError("Choose an image file for your existing meme.");
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      setError("Upload a PNG, JPEG, or WebP image so it can be stored in MEDIA.");
       return;
     }
     if (file.size > maxUploadedMemeBytes) {
@@ -1087,9 +1092,17 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
         searchQuery: selected.query,
         sourceRoute: "/memeforge/middle-earth",
       });
+      const session = await getPublicSession();
+      const registeredInMedia = Boolean(session && await shouldSyncCollection(session.accountId));
+      if (session && registeredInMedia) {
+        await syncPublicCollection(session);
+      } else {
+        schedulePublicCollectionSync();
+      }
       setCollectionSaved(true);
-      schedulePublicCollectionSync();
-      setStatus("Saved to the Middle-earth Collection as an unchanged, attributed meme.");
+      setStatus(registeredInMedia
+        ? "Saved to the Middle-earth Collection and registered in MEDIA."
+        : "Saved to the Middle-earth Collection on this device. Sign in and merge this device to register it in MEDIA.");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "The meme could not be saved.");
     } finally {
@@ -1244,7 +1257,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
               <div><strong>Have your own meme?</strong><p>Upload the image you already made. MemeForge will keep it byte-for-byte unchanged—no translation, overlays, or branding.</p></div>
               <label className={styles.uploadLabel} htmlFor="existing-meme-upload">
                 Upload image
-                <input id="existing-meme-upload" type="file" accept="image/*" onChange={(event) => void handleExistingMemeUpload(event)} disabled={busy || searching} />
+                <input id="existing-meme-upload" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void handleExistingMemeUpload(event)} disabled={busy || searching} />
               </label>
             </div>}
             <form className={styles.searchForm} onSubmit={search}>

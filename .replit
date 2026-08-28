@@ -36,3 +36,13 @@ waitForPort = 5173
 
 [userenv.shared]
 FANDOM_AUTH_FROM_EMAIL = "Fandom <login@auth.justlikekatie.com>"
+
+[[ports]]
+localPort = 5173
+externalPort = 5173
+exposeLocalhost = true
+
+[[ports]]
+localPort = 5174
+externalPort = 3000
+exposeLocalhost = true

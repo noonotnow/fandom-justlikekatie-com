@@ -443,14 +443,29 @@ test("collection sync preserves attributed Middle-earth meme metadata", async ()
   const item = {
     kind: "card",
     contentKind: "middle-earth-meme",
-    imageUrl: "/.netlify/functions/image-proxy?url=https%3A%2F%2Fimages.example%2Fgandalf.jpg",
-    thumbnailUrl: "/.netlify/functions/image-proxy?url=https%3A%2F%2Fimages.example%2Fgandalf.jpg",
+    imageUrl: "https://media.justlikekatie.com/images/sha256/gandalf.jpg",
+    thumbnailUrl: "https://media.justlikekatie.com/images/sha256/gandalf-thumb.jpg",
     resultId: "gandalf-meme-1",
     sourceUrl: "https://publisher.example/gandalf",
     title: "Gandalf reaction meme",
     publisher: "Example publisher",
     searchQuery: "Gandalf Friday meme",
     sourceRoute: "/memeforge/middle-earth",
+    media: {
+      schemaVersion: 1,
+      assetId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      deliveryUrl: "https://media.justlikekatie.com/images/sha256/gandalf.jpg",
+      thumbnailUrl: "https://media.justlikekatie.com/images/sha256/gandalf-thumb.jpg",
+      mimeType: "image/jpeg",
+      sizeBytes: 1234,
+      checksum: "a".repeat(64),
+      dimensions: { width: 1200, height: 800 },
+      association: {
+        type: "collection",
+        id: "middle-earth",
+        itemId: "middle-earth-meme-local",
+      },
+    },
   };
   const response = await syncCollection(store, "usr_test", {
     schemaVersion: 1,
@@ -469,6 +484,7 @@ test("collection sync preserves attributed Middle-earth meme metadata", async ()
   assert.equal(response.items[0].publisher, item.publisher);
   assert.equal(response.items[0].searchQuery, item.searchQuery);
   assert.equal(response.items[0].sourceRoute, item.sourceRoute);
+  assert.deepEqual(response.items[0].media, item.media);
 });
 
 test("grid sync preserves artifact identity across devices", async () => {

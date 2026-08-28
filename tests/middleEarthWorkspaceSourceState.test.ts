@@ -516,8 +516,8 @@ test('source treatment supports clean-still forging, existing-meme rework, and u
   assert.match(source, /Use an existing meme/);
   assert.match(
     source,
-    /id="existing-meme-upload" type="file" accept="image\/\*"[\s\S]*?handleExistingMemeUpload/,
-    'the unchanged path must accept a user-owned meme in addition to archive search',
+    /id="existing-meme-upload" type="file" accept="image\/png,image\/jpeg,image\/webp"[\s\S]*?handleExistingMemeUpload/,
+    'the unchanged path must accept a MEDIA-compatible user-owned meme in addition to archive search',
   );
   assert.match(
     source,

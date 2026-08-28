@@ -62,6 +62,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/collection/media"
+  to = "/.netlify/functions/collection-media"
+  status = 200
+
+[[redirects]]
   from = "/api/create/collection"
   to = "/.netlify/functions/create-collection"
   status = 200

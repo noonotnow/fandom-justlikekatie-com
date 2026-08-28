@@ -84,8 +84,21 @@ test('deduplicates new saved cards with live results and legacy cards by provena
     vibeEmoji: '✨',
     capturedDate: '2026-08-04',
     gridContext: { batchKey: 'query', position: 2 },
+    media: {
+      schemaVersion: 1 as const,
+      assetId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+      deliveryUrl: 'https://media.justlikekatie.com/images/sha256/asset.jpg',
+      thumbnailUrl: 'https://media.justlikekatie.com/images/sha256/asset.jpg',
+      mimeType: 'image/jpeg' as const,
+      sizeBytes: 1234,
+      checksum: 'a'.repeat(64),
+      dimensions: { width: 1200, height: 800 },
+      association: { type: 'collection' as const, id: 'middle-earth', itemId: 'item-1' },
+    },
   };
-  assert.equal(mediaFromCollectionCard(current).resultId, current.resultId);
+  const packetMedia = mediaFromCollectionCard(current, 'packet-1');
+  assert.equal(packetMedia.resultId, current.resultId);
+  assert.deepEqual(packetMedia.media?.association, { type: 'idea_packet', id: 'packet-1' });
   assert.equal(cardStableResultId(current), current.resultId);
 
   const legacy = { ...current, resultId: undefined, sourceUrl: undefined };

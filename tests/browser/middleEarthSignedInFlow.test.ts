@@ -9,6 +9,10 @@ const onePixelGif = Buffer.from(
   'R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==',
   'base64',
 );
+const onePixelPng = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+);
 
 const selectedSource = {
   title: 'Sam carries Frodo',
@@ -75,6 +79,8 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
   const page = await browser.newPage();
   let stagedPacket: Record<string, unknown> | undefined;
   let imageProxyLoads = 0;
+  let collectionMediaUploads = 0;
+  const collectionSyncRequests: Array<Record<string, unknown>> = [];
   const visualRequests: Array<Record<string, unknown>> = [];
 
   try {
@@ -197,6 +203,53 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
         body: JSON.stringify({ packet: request.packet }),
       });
     });
+    await page.route('**/api/collection/media?*', async route => {
+      collectionMediaUploads += 1;
+      const requestUrl = new URL(route.request().url());
+      const itemId = requestUrl.searchParams.get('itemId');
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          media: {
+            schemaVersion: 1,
+            assetId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+            deliveryUrl: 'https://media.justlikekatie.com/images/sha256/browser-test.png',
+            thumbnailUrl: 'https://media.justlikekatie.com/images/sha256/browser-test.png',
+            mimeType: 'image/png',
+            sizeBytes: onePixelPng.byteLength,
+            checksum: 'a'.repeat(64),
+            dimensions: { width: 1, height: 1 },
+            association: { type: 'collection', id: 'middle-earth', itemId },
+          },
+        }),
+      });
+    });
+    await page.route('**/api/collection/sync', async route => {
+      const request = route.request().postDataJSON() as {
+        operations: Array<{
+          type: string;
+          mutationId: string;
+          localId: string;
+          item?: Record<string, unknown>;
+        }>;
+      };
+      collectionSyncRequests.push(request as unknown as Record<string, unknown>);
+      const upserts = request.operations.filter(operation => operation.type === 'upsert' && operation.item);
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          cursor: upserts.length,
+          items: upserts.map((operation, index) => ({
+            ...operation.item,
+            id: `server-card-${index}`,
+            localId: operation.localId,
+          })),
+          tombstones: [],
+          mappings: Object.fromEntries(upserts.map((operation, index) => [operation.localId, `server-card-${index}`])),
+          acknowledgedMutationIds: request.operations.map(operation => operation.mutationId),
+        }),
+      });
+    });
 
     await page.goto(`${origin}/memeforge/middle-earth`);
     const newImagePath = page.getByRole('button', { name: /^01 New image/ });
@@ -219,16 +272,16 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     const ownMemeUpload = page.locator('#existing-meme-upload');
     assert.equal(await ownMemeUpload.isVisible(), true, 'the unchanged path should offer a local upload alongside archive search');
     await ownMemeUpload.setInputFiles({
-      name: 'one-page-became-the-whole-trilogy.gif',
-      mimeType: 'image/gif',
-      buffer: onePixelGif,
+      name: 'one-page-became-the-whole-trilogy.png',
+      mimeType: 'image/png',
+      buffer: onePixelPng,
     });
     await page.getByText('is ready. The editor is bypassed').waitFor();
     const unchangedPreview = page.getByLabel('Unchanged existing meme preview');
     await unchangedPreview.waitFor();
     assert.match(
       await unchangedPreview.locator('img').getAttribute('src') ?? '',
-      /^data:image\/gif;base64,/,
+      /^data:image\/png;base64,/,
       'the uploaded meme should render from a local data URL',
     );
     assert.equal(await page.getByText(/Uploaded from your device/).first().isVisible(), true);
@@ -236,7 +289,7 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     const originalDownloadPromise = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Export original meme' }).click();
     const originalDownload = await originalDownloadPromise;
-    assert.equal(originalDownload.suggestedFilename(), 'one-page-became-the-whole-trilogy.gif');
+    assert.equal(originalDownload.suggestedFilename(), 'one-page-became-the-whole-trilogy.png');
     await page.getByRole('button', { name: 'Save to Collection' }).click();
     await page.getByRole('button', { name: 'Saved to Collection' }).waitFor();
     await page.getByRole('link', { name: 'Open Collection' }).click();
@@ -246,6 +299,22 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
       await page.getByText('No saved Middle-earth memes yet', { exact: true }).count(),
       0,
       'the separate Middle-earth collection should show the uploaded meme',
+    );
+    await page.getByRole('button', { name: 'Merge and sync' }).click();
+    await page.getByText('This device is now synced.').waitFor();
+    assert.equal(collectionMediaUploads, 1, 'the embedded upload should be persisted before collection sync');
+    const syncedOperations = collectionSyncRequests.flatMap(request =>
+      request.operations as Array<{ item?: { imageUrl?: string } }>,
+    );
+    assert.equal(
+      syncedOperations.some(operation => operation.item?.imageUrl?.startsWith('https://media.justlikekatie.com/')),
+      true,
+      'collection sync should receive a compact authenticated media URL',
+    );
+    assert.equal(
+      syncedOperations.some(operation => operation.item?.imageUrl?.startsWith('data:image/')),
+      false,
+      'collection sync must never receive the embedded base64 image',
     );
 
     await page.goto(`${origin}/memeforge/middle-earth`);

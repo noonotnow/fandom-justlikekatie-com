@@ -1,4 +1,5 @@
 /** IndexedDB persistence for saved cards */
+import type { MediaReference } from './mediaReference';
 
 const DB_NAME = 'vibe-atlas-collection';
 const DB_VERSION = 3;
@@ -26,6 +27,7 @@ export interface CardRecord {
   publisher?: string;
   searchQuery?: string;
   sourceRoute?: string;
+  media?: MediaReference;
   gridContext?: {
     batchKey?: string;
     position: number;
@@ -211,6 +213,28 @@ export async function dbGetVisibleCards(accountId?: string): Promise<CardRecord[
   return cards.filter(card => !card.ownerAccountId || card.ownerAccountId === accountId);
 }
 
+export async function dbReplaceCardImage(
+  oldImageUrl: string,
+  media: MediaReference,
+): Promise<void> {
+  const db = await openDB();
+  const tx = db.transaction(CARD_STORE, 'readwrite');
+  const store = tx.objectStore(CARD_STORE);
+  const existing = await requestResult<CardRecord | undefined>(store.get(oldImageUrl));
+  if (!existing) {
+    await transactionDone(tx);
+    return;
+  }
+  store.delete(oldImageUrl);
+  store.put({
+    ...existing,
+    imageUrl: media.deliveryUrl,
+    thumbnailUrl: media.thumbnailUrl,
+    media,
+  });
+  await transactionDone(tx);
+}
+
 export interface CollectionSyncState {
   key: 'state';
   clientId: string;
@@ -315,6 +339,7 @@ export function buildSyncOperations(
           publisher: card.publisher,
           searchQuery: card.searchQuery,
           sourceRoute: card.sourceRoute,
+          media: card.media,
         },
       };
     })

@@ -102,7 +102,10 @@ export const Collection: React.FC<Props> = ({
       if (session) {
         const decided = await hasMergeDecision(session.accountId);
         setNeedsMergeChoice(!decided);
-        if (decided && await shouldSyncCollection(session.accountId)) await syncPublicCollection(session);
+        if (decided && await shouldSyncCollection(session.accountId)) {
+          await syncPublicCollection(session);
+          setAccountNotice('');
+        }
       } else {
         setNeedsMergeChoice(false);
       }

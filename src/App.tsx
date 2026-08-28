@@ -416,7 +416,10 @@ function VibeAtlasApp() {
           }}
           onAddSavedCard={async (packet: IdeaPacket, card: CardRecord) => {
             try {
-              const updated = await mutateIdeaPacket(packet, { type: 'add_media', media: mediaFromCollectionCard(card) });
+              const updated = await mutateIdeaPacket(packet, {
+                type: 'add_media',
+                media: mediaFromCollectionCard(card, packet.id),
+              });
               replacePacket(updated);
               return updated;
             } catch (caught) {

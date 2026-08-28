@@ -1,11 +1,14 @@
 import {
   dbApplySyncResponse,
   dbBuildSyncRequest,
+  dbGetVisibleCards,
   dbGetSyncState,
+  dbReplaceCardImage,
   dbRemoveAccountCache,
   dbSetActiveAccount,
   dbSetMergeDecision,
 } from './collectionDB';
+import { uploadCollectionImage } from './collectionMedia';
 
 export interface PublicUser {
   accountId: string;
@@ -79,6 +82,7 @@ export async function syncPublicCollection(user: PublicUser): Promise<void> {
   const run = async () => {
     const session = await getPublicSession();
     if (session?.accountId !== user.accountId) throw new Error('The active account changed. Refresh before syncing.');
+    await persistEmbeddedCollectionImages(user.accountId);
     for (let batch = 0; batch < 100; batch += 1) {
       const payload = await dbBuildSyncRequest(user.accountId);
       const response = await postJson('/api/collection/sync', payload);
@@ -94,6 +98,16 @@ export async function syncPublicCollection(user: PublicUser): Promise<void> {
     await navigator.locks.request('fandom-collection-sync', run);
   } else {
     await run();
+  }
+}
+
+async function persistEmbeddedCollectionImages(accountId: string): Promise<void> {
+  const cards = await dbGetVisibleCards(accountId);
+  for (const card of cards) {
+    if (card.contentKind !== 'middle-earth-meme' || !card.imageUrl.startsWith('data:image/')) continue;
+    if (!card.localId) throw new Error('Collection image is missing its local identity.');
+    const uploaded = await uploadCollectionImage(card.imageUrl, 'middle-earth', card.localId);
+    await dbReplaceCardImage(card.imageUrl, uploaded);
   }
 }
 

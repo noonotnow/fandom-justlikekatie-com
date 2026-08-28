@@ -2,6 +2,10 @@ import type { GridItemData } from '../types';
 import type { StarOfDayData } from '../hooks/useStarOfDay';
 import type { CardRecord, GridRecord } from './collectionDB';
 import type { ReactionImageBrief } from './middleEarthAi';
+import {
+  associateMediaWithIdeaPacket,
+  type MediaReference,
+} from './mediaReference';
 
 export type IdeaPacketState = 'collecting' | 'media_compiled';
 export type PacketOutputKind = 'grid' | 'individual' | 'meme' | 'spellbook';
@@ -16,6 +20,7 @@ export interface PacketMedia {
   batchKey?: string;
   gridPosition?: number;
   addedAt: string;
+  media?: MediaReference;
 }
 
 export interface PacketSourceCard {
@@ -28,6 +33,7 @@ export interface PacketSourceCard {
   capturedAt: string;
   resultId: string;
   provenance: string;
+  media?: MediaReference;
 }
 
 export interface PacketOutput {
@@ -174,6 +180,7 @@ export interface MiddleEarthDraft {
     publisher?: string;
     query?: string;
     provider?: string;
+    media?: MediaReference;
   };
   createdAt: string;
 }
@@ -354,7 +361,7 @@ export function packetGridFromCollectionGrid(grid: GridRecord): PacketGrid {
   return packetGrid;
 }
 
-export function mediaFromCollectionCard(card: CardRecord): PacketMedia {
+export function mediaFromCollectionCard(card: CardRecord, packetId?: string): PacketMedia {
   const resultId = collectionCardResultId(card);
   return {
     id: stableMediaId(resultId),
@@ -365,6 +372,11 @@ export function mediaFromCollectionCard(card: CardRecord): PacketMedia {
     resultId,
     ...(card.gridContext?.batchKey ? { batchKey: card.gridContext.batchKey } : {}),
     ...(card.gridContext ? { gridPosition: card.gridContext.position } : {}),
+    ...(card.media && packetId
+      ? { media: associateMediaWithIdeaPacket(card.media, packetId) }
+      : card.media
+        ? { media: card.media }
+        : {}),
     addedAt: new Date().toISOString(),
   };
 }
@@ -559,6 +571,7 @@ export function packetFromMiddleEarthDraft(draft: MiddleEarthDraft): IdeaPacket 
           ...(draft.asset.query ? { query: draft.asset.query } : {}),
           ...(draft.asset.provider ? { provider: draft.asset.provider } : {}),
         }),
+        ...(draft.asset.media ? { media: draft.asset.media } : {}),
       }
     : {
         id: sourceId,

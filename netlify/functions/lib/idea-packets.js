@@ -218,6 +218,7 @@ export function validatePacket(input) {
   const ids = new Set();
   for (const media of packet.media) {
     if (!isRecord(media) || !media.id || !media.imageUrl || !media.resultId) throw new RequestError("Packet media is invalid.");
+    if (media.media !== undefined) validateMediaReference(media.media, "idea_packet", packet.id);
     if (ids.has(media.resultId)) throw new RequestError("That exact media is already in this packet.", 409);
     ids.add(media.resultId);
   }
@@ -278,6 +279,7 @@ export function applyAction(current, action) {
           batchKey: action.media.batchKey,
           gridPosition: action.media.gridPosition,
         }),
+        ...(action.media.media ? { media: action.media.media } : {}),
       });
     }
     next.outputs.push({
@@ -360,6 +362,27 @@ export function applyAction(current, action) {
   next.updatedAt = new Date().toISOString();
   next.version = `${next.updatedAt}-${randomUUID()}`;
   return validatePacket(next);
+}
+
+function validateMediaReference(media, expectedType, expectedId) {
+  if (
+    !isRecord(media)
+    || media.schemaVersion !== 1
+    || typeof media.assetId !== "string"
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(media.assetId)
+    || typeof media.deliveryUrl !== "string"
+    || typeof media.thumbnailUrl !== "string"
+    || !["image/png", "image/jpeg", "image/webp"].includes(media.mimeType)
+    || !Number.isInteger(media.sizeBytes)
+    || media.sizeBytes < 1
+    || typeof media.checksum !== "string"
+    || !/^[0-9a-f]{64}$/.test(media.checksum)
+    || !Number.isInteger(media.dimensions?.width)
+    || !Number.isInteger(media.dimensions?.height)
+    || !isRecord(media.association)
+    || media.association.type !== expectedType
+    || media.association.id !== expectedId
+  ) throw new RequestError("Packet MEDIA reference is invalid.");
 }
 
 async function listPackets(store) {

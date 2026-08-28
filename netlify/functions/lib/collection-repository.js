@@ -148,10 +148,40 @@ function validateItem(item) {
     !item
     || typeof item.imageUrl !== "string"
     || typeof item.thumbnailUrl !== "string"
+    || item.imageUrl.startsWith("data:")
+    || item.thumbnailUrl.startsWith("data:")
     || item.imageUrl.length > 4096
     || item.thumbnailUrl.length > 4096
     || (item.resultId != null && (typeof item.resultId !== "string" || item.resultId.length > 4096))
   ) throw new TypeError("Collection item is invalid.");
+  if (item.media !== undefined) {
+    validateCollectionMedia(item.media, item.localId);
+    if (item.imageUrl !== item.media.deliveryUrl || item.thumbnailUrl !== item.media.thumbnailUrl) {
+      throw new TypeError("Collection MEDIA URLs do not match the saved descriptor.");
+    }
+  }
+}
+
+function validateCollectionMedia(media, localId) {
+  if (
+    !media
+    || media.schemaVersion !== 1
+    || typeof media.assetId !== "string"
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(media.assetId)
+    || typeof media.deliveryUrl !== "string"
+    || typeof media.thumbnailUrl !== "string"
+    || !["image/png", "image/jpeg", "image/webp"].includes(media.mimeType)
+    || !Number.isInteger(media.sizeBytes)
+    || media.sizeBytes < 1
+    || typeof media.checksum !== "string"
+    || !/^[0-9a-f]{64}$/.test(media.checksum)
+    || !Number.isInteger(media.dimensions?.width)
+    || !Number.isInteger(media.dimensions?.height)
+    || media.association?.type !== "collection"
+    || typeof media.association.id !== "string"
+    || typeof media.association.itemId !== "string"
+    || (localId && media.association.itemId !== localId)
+  ) throw new TypeError("Collection MEDIA reference is invalid.");
 }
 
 function operationsPresent(collection, operations) {
