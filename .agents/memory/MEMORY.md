@@ -10,3 +10,4 @@
 - [Collection local-first loading](collection-local-first-loading.md) — render browser saves before account sync; sync failures must never make an existing Collection appear empty.
 - [Vite preview port](vite-preview-port.md) — keep the Vite server and Start application webview workflow aligned on port 5000.
 - [Legendary Misprint scope](legendary-misprint-scope.md) — misprints are member-saved, event-scoped exceptions; they never redefine a universe or ordinary Builder/grid views.
+- [MemeForge reaction-card format](memeforge-reaction-card.md) — clean-still aesthetic reaction cards are a finished path alongside unchanged memes and future reworks.
