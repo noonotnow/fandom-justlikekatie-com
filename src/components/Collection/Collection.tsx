@@ -271,6 +271,30 @@ export const Collection: React.FC<Props> = ({
     }
   }
 
+  async function moveCardToScope(card: CardRecord) {
+    const targetScope = isMiddleEarth ? 'vibe-atlas' : 'middle-earth';
+    const moveKey = `move:${card.localId || card.imageUrl}`;
+    setBusyKey(moveKey);
+    try {
+      await dbSaveCard({
+        ...card,
+        collectionScope: targetScope,
+        contentKind: targetScope === 'middle-earth' ? 'middle-earth-meme' : undefined,
+      });
+      await loadCollection(user?.accountId);
+      schedulePublicCollectionSync();
+      setAccountNotice(
+        targetScope === 'middle-earth'
+          ? 'Saved result moved to the Middle-earth Collection.'
+          : 'Saved result moved to the Vibe Atlas Collection.',
+      );
+    } catch (error) {
+      setAccountNotice(messageFrom(error, 'The saved result could not be moved.'));
+    } finally {
+      setBusyKey('');
+    }
+  }
+
   async function handleMiddleEarthUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -604,6 +628,17 @@ export const Collection: React.FC<Props> = ({
                 {card.contentKind === 'middle-earth-meme' && card.sourceUrl && <a href={card.sourceUrl} target="_blank" rel="noreferrer">{card.publisher ? `Source: ${card.publisher}` : 'Open original source'}</a>}
                 <small>{card.capturedDate}</small>
               </div>
+              <button
+                type="button"
+                disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
+                onClick={() => void moveCardToScope(card)}
+              >
+                {busyKey === `move:${card.localId || card.imageUrl}`
+                  ? 'Moving…'
+                  : isMiddleEarth
+                    ? 'Move to Vibe Atlas'
+                    : 'Move to Middle-earth'}
+              </button>
               <button
                 type="button"
                 disabled={Boolean(pendingRemoval)}

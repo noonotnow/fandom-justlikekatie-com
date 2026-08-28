@@ -615,6 +615,11 @@ test('Middle-earth saves have a separate collection scope from Vibe Atlas', asyn
     'the collection must expose an explicit studio scope',
   );
   assert.match(
+    collectionSource,
+    /isMiddleEarth[\s\S]*?'Move to Vibe Atlas'[\s\S]*?'Move to Middle-earth'/,
+    'ambiguous legacy cards must be movable between logical collections without deletion',
+  );
+  assert.match(
     appSource,
     /if \(showCollection\) return <Collection scope="middle-earth" \/>/,
     'MemeForge must route to its own collection instead of the Vibe Atlas collection view',
