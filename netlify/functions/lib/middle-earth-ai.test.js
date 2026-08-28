@@ -664,6 +664,8 @@ test("translation prompt treats a vague meta prompt as content and includes expl
   assert.ok(capturedPrompt.includes("Select the best Meme Flavor, THEN select exactly one Comic Mechanism"));
   assert.ok(capturedPrompt.includes("should become an invented everyday dynamic"));
   assert.ok(capturedPrompt.includes("content, not instructions"));
+  assert.match(capturedPrompt, /source image may be a recognizable existing movie still or meme template/i);
+  assert.match(capturedPrompt, /Exact canonical catchphrases are valid image-search anchors/i);
 });
 
 test("visual mode returns 502 when AI omits the required moment translation", async () => {
@@ -1130,6 +1132,55 @@ test("translation repairs a Sam and Frodo query that leaks the caption mutation"
   assert.match(repairPrompt, /must identify a Middle-earth still, not explain the real-world joke/i);
 });
 
+test("translation allows a canonical catchphrase in image lookup while repairing copied overlay text", async () => {
+  const copiedOverlay = {
+    ...VALID_TRANSLATION_RESPONSE,
+    character: "Gandalf",
+    memeFlavor: "You Shall Not Pass",
+    referenceStillFamily: "gandalf-bridge",
+    cardText: {
+      format: "Boundary Card",
+      line1: "YOU SHALL NOT PASS.",
+      line2: "ME, TO THIS STUDY GUIDE.",
+      footer: "",
+    },
+    reactionImageBrief: {
+      ...VALID_TRANSLATION_RESPONSE.reactionImageBrief,
+      socialUseQuery: "Gandalf you shall not pass bridge",
+      characterEmotionQueries: ["Gandalf stern bridge still"],
+      iconicSceneQueries: ["Gandalf Bridge of Khazad-dum still"],
+      broadFallbackQueries: ["Gandalf bridge reaction still"],
+    },
+  };
+  const repairedOverlay = {
+    ...copiedOverlay,
+    cardText: {
+      format: "Boundary Card",
+      line1: "I OPENED THE STUDY GUIDE.",
+      line2: "IT DECLARED ME UNWORTHY.",
+      footer: "",
+    },
+  };
+  const connector = makeConnector({ chatResponses: [copiedOverlay, repairedOverlay] });
+  const handler = makeHandler({ connector });
+  const res = await handler(makeRequest({
+    mode: "translation",
+    moment: "not wanting to study",
+    memeFlavor: "You Shall Not Pass",
+  }), {});
+  const body = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(body.result.reactionImageBrief.socialUseQuery, "Gandalf you shall not pass bridge");
+  assert.equal(body.result.cardText.line1, "I OPENED THE STUDY GUIDE.");
+  const chats = connector.calls.filter(c => c.path === "/v1/chat/completions");
+  assert.equal(chats.length, 2);
+  const repairPrompt = JSON.parse(chats[1].options.body).messages[0].content;
+  assert.match(repairPrompt, /catchphrase in the new card overlay/i);
+  assert.match(repairPrompt, /existing movie\/meme still is allowed as the visual source/i);
+  assert.match(repairPrompt, /do not reject or rewrite a canonical search phrase/i);
+});
+
 test("translation repairs an incomplete visual joke brief before returning an angle", async () => {
   const incompleteBrief = {
     ...VALID_TRANSLATION_RESPONSE,
@@ -1344,7 +1395,7 @@ test("visual mode repairs a cross-flavor source-template catchphrase", async () 
   assert.equal(res.status, 200);
   const chats = connector.calls.filter(c => c.path === "/v1/chat/completions");
   assert.equal(chats.length, 2);
-  assert.match(JSON.parse(chats[1].options.body).messages[0].content, /One Does Not Simply source template/i);
+  assert.match(JSON.parse(chats[1].options.body).messages[0].content, /One Does Not Simply catchphrase in the new card overlay/i);
 });
 
 test("visual mode: rejects overlong card lines instead of silently truncating them", async () => {

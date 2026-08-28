@@ -262,6 +262,7 @@ function buildTranslationRepairPrompt(basePrompt, failureMessage) {
     basePrompt,
     ``,
     `Your previous angle failed MemeForge's paired joke contract: ${failureMessage}`,
+    `A recognizable existing movie/meme still is allowed as the visual source. Only the NEW cardText overlay must be an original mutation; do not reject or rewrite a canonical search phrase such as "you shall not pass" when it belongs in reactionImageBrief.`,
     `Repair it now. Keep one comic mechanism, write a compact original two-line joke, and describe the visual reaction needed to make that exact joke land. Return only a new JSON object.`,
   ].join("\n");
 }
@@ -293,7 +294,7 @@ function buildTranslationPrompt({ moment, character, memeFlavor, aesthetic, arti
     `Select the best Meme Flavor, THEN select exactly one Comic Mechanism before writing the angle. Meme Flavor supplies the Middle-earth world and social energy; Comic Mechanism supplies the laugh.`,
     `For “Why did they not take the Eagles?”, choose Delighted fandom-lawyer correction. For Friday work dread, prefer Severity inversion or ceremonial setup / petty punchline. The mechanism must produce a specific setup-to-punchline turn, never merely repeat the flavor or name a feeling.`,
     `Use the selected flavor's default mechanisms as a strong starting point, then use its prototype as the comedy spine. The prototype shows the cleanest version of the bit; mutate it for this user's situation and do not copy its exact wording.`,
-    `Use the selected archetype as original emotional grammar only. Never recreate a movie still, a raw meme template, a direct Tolkien quote, or character-voice imitation.`,
+    `Use the selected archetype as original emotional grammar only. The source image may be a recognizable existing movie still or meme template; do not recreate its wording in NEW cardText, and do not imitate a direct Tolkien quote or character voice.`,
     `Write the text joke and the image joke together. cardText says the joke; reactionImageBrief says what a recognizable still must visibly perform for that exact joke to land.`,
     `The image is a visual punchline carrier, never background atmosphere. Describe a social use, performed emotion, and visual role such as grave authority, overprepared intervention, smug correction, exhausted refusal, or too many people having opinions.`,
     `Build a scene-first Google query ladder: socialUseQuery first, then character-plus-emotion, iconic scene/action, and broad fandom-reaction fallbacks.`,
@@ -301,7 +302,7 @@ function buildTranslationPrompt({ moment, character, memeFlavor, aesthetic, arti
     `Do not include the real-world moment, punchline, intended social use, target behavior, or explanatory phrases in any query. For a Friday email-boundary joke, search "Gandalf you shall not pass bridge" or "Gandalf on bridge" — NEVER "Gandalf on the bridge for blocking work emails".`,
     `For a Sam/Frodo prompt, search "Sam Frodo tired Mordor", "Sam and Frodo Mordor still", "Samwise worried Frodo still", or "Sam carrying Frodo Mount Doom" — NEVER "Sam is overprepared for the journey but make it road trip snacks", "Samwise loyalty friend carries emotional burden meme", or "Sam packs snacks because Frodo forgot second breakfast".`,
     `socialUseQuery is a historical field name: use it as the short canonical scene anchor, not as a social-caption search.`,
-    `Every query must be about a recognizable Middle-earth reaction still. Do not request copied meme captions, watermarks, raw template composites, or generic scenery.`,
+    `Every query must be about a recognizable Middle-earth reaction still. Exact canonical catchphrases are valid image-search anchors (for example, "you shall not pass"); the originality guard applies to the new cardText overlay, not to the source still. Do not request watermarks, raw template composites, or generic scenery.`,
     `After the angle is resolved, choose one curated reaction-still family to guide manual override. The reaction still supports the joke; it never writes or changes the joke.`,
     ``,
     `Respond with ONLY a JSON object matching this exact schema — no markdown, no explanation:`,
@@ -677,7 +678,7 @@ function normalizeCardText(value, memeFlavor) {
         .trim(),
     ));
   if (reusedSourceTemplate) {
-    throw new AppError(`AI reused the ${reusedSourceTemplate.flavor} source template instead of an original mutation.`, 502);
+    throw new AppError(`AI put the ${reusedSourceTemplate.flavor} catchphrase in the new card overlay instead of writing an original mutation. The source still may be an existing recognizable template.`, 502);
   }
   const avoidedLanguage = memeFlavorAvoidPatterns(memeFlavor)
     .filter((phrase) => phrase.split(/\s+/u).length > 1)

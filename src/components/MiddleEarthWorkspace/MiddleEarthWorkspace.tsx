@@ -25,7 +25,6 @@ import {
 import {
   referenceStillFamilies,
   referenceStillFamilyById,
-  referenceStillSearchQuery,
   referenceStillSearchQueries,
   type ReferenceStillFamilyId,
 } from "../../data/middleEarthReferenceStills";
@@ -577,9 +576,22 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     }
   };
 
-  const searchReactionLadder = async (brief: ReactionImageBrief, curatedSceneQuery: string | string[] = "") => {
+  const searchReactionLadder = async (
+    brief: ReactionImageBrief,
+    curatedSceneQuery: string | string[] = "",
+    curatedOnly = false,
+  ) => {
     const requestId = archiveSearchRequestGate.begin();
-    const ladder = reactionQueryLadder(brief, curatedSceneQuery);
+    setComparisonEmotion(undefined);
+    const curatedQueries = Array.isArray(curatedSceneQuery)
+      ? curatedSceneQuery
+      : [curatedSceneQuery];
+    const ladder = curatedOnly
+      ? curatedQueries
+          .map((sceneQuery) => sceneQuery.trim())
+          .filter(Boolean)
+          .map((sceneQuery) => ({ query: sceneQuery, tier: "Iconic scene" as const }))
+      : reactionQueryLadder(brief, curatedSceneQuery);
     if (!ladder.length) return;
     setSelected(undefined); setPreviewImageFailed(false); setVisualGeneration(undefined); setPacketSaved(false);
     setSearching(true); setError(""); setStatus("MemeForge is looking for the reaction face…");
@@ -593,7 +605,9 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
         return payload.results.map((result, resultIndex) => ({
           candidate: makeAsset(result, payload.query || step.query, resultIndex),
           queryTier: step.tier,
-          ...(step.performedEmotion ? { performedEmotion: step.performedEmotion } : {}),
+          ...("performedEmotion" in step && step.performedEmotion
+            ? { performedEmotion: step.performedEmotion }
+            : {}),
           rank: stepIndex * 100 + resultIndex,
         }));
       }));
@@ -953,13 +967,12 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
                 onChange={(event) => {
                   const nextFamily = event.target.value as ReferenceStillFamilyId;
                   if (!nextFamily || nextFamily === referenceStillFamily) return;
-                  const nextQuery = referenceStillSearchQuery(nextFamily);
+                  const curatedQueries = referenceStillSearchQueries(nextFamily);
                   setReferenceStillFamily(nextFamily);
-                  setQuery(nextQuery);
                   setSelected(undefined);
                   setPreviewImageFailed(false);
                   invalidateGeneratedVisual();
-                  void search(undefined, nextQuery);
+                  void searchReactionLadder(translation.reactionImageBrief, curatedQueries, true);
                 }}
                 disabled={busy || searching}
               >
@@ -969,8 +982,8 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
             {activeReferenceStillFamily && <div className={styles.sourceNote}><span className={styles.dot} /> <strong>{activeReferenceStillFamily.label}</strong> · {activeReferenceStillFamily.description}</div>}
             <div className={styles.sourceNote}>
               <span className={styles.dot} />
-              <strong>Visual joke brief</strong> · {translation.reactionImageBrief.visualRole}
-              <small> Looking for: {translation.reactionImageBrief.performedEmotion.join(", ")}. Search starts with “{referenceStillSearchQueries(translation.referenceStillFamily, translation.reactionImageBrief.socialUseQuery)[0]}”.</small>
+              <strong>Selected still family</strong> · {activeReferenceStillFamily?.label ?? "Reaction still"}
+              <small> {activeReferenceStillFamily?.description} Search starts with “{referenceStillSearchQueries(referenceStillFamily, translation.reactionImageBrief.socialUseQuery)[0]}”. Your original moment and joke stay unchanged.</small>
             </div>
             <form className={styles.searchForm} onSubmit={search}>
               <label htmlFor="archive-search">Search reaction images</label>

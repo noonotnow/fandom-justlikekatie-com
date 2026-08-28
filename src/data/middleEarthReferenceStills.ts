@@ -4,6 +4,12 @@ export const referenceStillFamilies = [
     label: 'Boromir at the Council',
     description: 'For impossible tasks delivered with grave sincerity.',
     searchQuery: 'Boromir Council of Elrond reaction still Lord of the Rings',
+    searchQueries: [
+      'Boromir Council of Elrond still',
+      'Boromir at Council of Elrond',
+      'Boromir seated Council of Elrond',
+      'Boromir reaction Lord of the Rings still',
+    ],
   },
   {
     id: 'gandalf-bridge',
@@ -21,6 +27,12 @@ export const referenceStillFamilies = [
     label: 'Frodo under quest burden',
     description: 'For daily dread and carrying too much.',
     searchQuery: 'Frodo exhausted quest burden reaction still Lord of the Rings',
+    searchQueries: [
+      'Frodo exhausted Mordor still',
+      'Frodo carrying the Ring still',
+      'Frodo on the road to Mordor still',
+      'Frodo overwhelmed Lord of the Rings still',
+    ],
   },
   {
     id: 'sam-carrying-frodo',
@@ -39,24 +51,48 @@ export const referenceStillFamilies = [
     label: 'Gollum and Sméagol debate',
     description: 'For arguing with yourself about a bad idea.',
     searchQuery: 'Gollum Smeagol internal debate reaction still Lord of the Rings',
+    searchQueries: [
+      'Gollum Sméagol talking to himself still',
+      'Gollum and Sméagol debate still',
+      'Gollum cave reaction still',
+      'Gollum Lord of the Rings still',
+    ],
   },
   {
     id: 'hobbits-eating',
     label: 'Hobbits eating',
     description: 'For little treats, rest, and deserved snacks.',
     searchQuery: 'Hobbits eating feast reaction still Lord of the Rings',
+    searchQueries: [
+      'Hobbits eating feast still',
+      'Hobbits dinner Fellowship still',
+      'Hobbits food Lord of the Rings still',
+      'Merry Pippin eating still',
+    ],
   },
   {
     id: 'council-wide-shot',
     label: 'Council of Elrond',
     description: 'For group-chat overthinking and too many opinions.',
     searchQuery: 'Council of Elrond wide shot reaction still Lord of the Rings',
+    searchQueries: [
+      'Council of Elrond wide shot still',
+      'Council of Elrond meeting still',
+      'Council of Elrond Fellowship still',
+      'Elrond council reaction still',
+    ],
   },
   {
     id: 'eowyn-triumph',
     label: 'Éowyn triumph',
     description: 'For an underestimated person’s clean reversal.',
     searchQuery: 'Eowyn triumph reaction still Lord of the Rings',
+    searchQueries: [
+      'Eowyn Witch-king still',
+      'Eowyn shieldmaiden still',
+      'Eowyn battle reaction still',
+      'Eowyn Lord of the Rings still',
+    ],
   },
 ] as const;
 

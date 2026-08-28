@@ -94,11 +94,33 @@ test('every ordinary reaction search resets the performed-emotion comparison bef
   );
   assert.match(
     source,
-    /onChange=\{\(event\) => \{[\s\S]*?void search\(undefined, nextQuery\);[\s\S]*?\}\}/,
-    'changing a reaction-still family must use the shared search path',
+    /onChange=\{\(event\) => \{[\s\S]*?const curatedQueries = referenceStillSearchQueries\(nextFamily\);[\s\S]*?void searchReactionLadder\(translation\.reactionImageBrief, curatedQueries, true\);[\s\S]*?\}\}/,
+    'changing a reaction-still family must use the curated shared ladder',
   );
   assert.match(source, /<form className=\{styles\.searchForm\} onSubmit=\{search\}>/);
   assert.match(source, /void search\(undefined, item\)/);
+});
+
+test('switching still families clears an active emotion comparison before curated results arrive', async () => {
+  const source = await readFile(
+    new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
+    'utf8',
+  );
+  const ladderSearch = source.slice(
+    source.indexOf('const searchReactionLadder ='),
+    source.indexOf('const selectStep =', source.indexOf('const searchReactionLadder =')),
+  );
+
+  assert.match(
+    ladderSearch,
+    /const requestId = archiveSearchRequestGate\.begin\(\);\s*setComparisonEmotion\(undefined\);/,
+    'a fresh ladder search must show all newly ranked family candidates instead of retaining a stale emotion filter',
+  );
+  assert.match(
+    source,
+    /void searchReactionLadder\(translation\.reactionImageBrief, curatedQueries, true\);/,
+    'family overrides must flow through the ladder path that resets emotion comparison state',
+  );
 });
 
 test('keeps searching past failed thumbnails and never offers a broken reaction still', async () => {
@@ -193,6 +215,27 @@ test('Sam and Frodo’s curated ladder searches canonical visual evidence before
     'Iconic scene',
     'Iconic scene',
   ]);
+});
+
+test('Boromir at the Council has canonical scene-first query variants', () => {
+  const curatedQueries = referenceStillSearchQueries('boromir-council');
+  assert.deepEqual(curatedQueries, [
+    'Boromir Council of Elrond still',
+    'Boromir at Council of Elrond',
+    'Boromir seated Council of Elrond',
+    'Boromir reaction Lord of the Rings still',
+  ]);
+
+  const ladder = reactionQueryLadder({
+    socialUseQuery: 'not wanting to study',
+    characterEmotionQueries: ['Boromir stern still'],
+    iconicSceneQueries: ['Boromir at the Council meme'],
+    broadFallbackQueries: ['Boromir reaction Lord of the Rings'],
+    performedEmotion: ['stern'],
+  }, curatedQueries);
+
+  assert.deepEqual(ladder.slice(0, 4).map((entry) => entry.query), curatedQueries);
+  assert.ok(curatedQueries.every((query) => !/study|meme/i.test(query)), 'family override queries must not carry the personal moment or meme concept');
 });
 
 test('asset ranking retains performed-emotion intent for comparison views without changing exact queries', () => {
