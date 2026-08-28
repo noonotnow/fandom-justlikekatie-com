@@ -208,6 +208,56 @@ test('Collection commits pending grid and saved-result removals when navigation 
   }
 });
 
+test('Collection shows local records when account sync fails', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+
+  try {
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        user: { accountId: ACCOUNT_ID, email: 'cleanup@example.test', isAdmin: false },
+      }),
+    }));
+    await page.route('**/api/collection/sync', route => route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Collection sync unavailable.' }),
+    }));
+
+    await page.goto(origin);
+    await seedCollection(page);
+    await page.evaluate(async accountId => {
+      const request = indexedDB.open('vibe-atlas-collection', 3);
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const transaction = db.transaction('sync', 'readwrite');
+      const store = transaction.objectStore('sync');
+      const state = await new Promise<Record<string, unknown>>((resolve, reject) => {
+        const read = store.get('state');
+        read.onsuccess = () => resolve(read.result);
+        read.onerror = () => reject(read.error);
+      });
+      state.mergeDecisions = { [accountId]: true };
+      store.put(state);
+      await new Promise<void>((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+      });
+    }, ACCOUNT_ID);
+
+    await page.goto(`${origin}/vibe-atlas?view=collection`);
+    await page.getByText('Grid cleanup actor').first().waitFor();
+    await page.getByRole('status').filter({ hasText: 'account sync failed' }).waitFor();
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
 test('Collection commits a pending removal after the browser page reloads', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();

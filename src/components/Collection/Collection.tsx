@@ -102,28 +102,58 @@ export const Collection: React.FC<Props> = ({
 
   useEffect(() => {
     const refreshSession = async () => {
-      const session = await getPublicSession();
-      accountIdRef.current = session?.accountId;
-      setUser(session);
-      if (session) {
-        const decided = await hasMergeDecision(session.accountId);
-        setNeedsMergeChoice(!decided);
-        if (decided && await shouldSyncCollection(session.accountId)) {
-          await syncPublicCollection(session);
-          setAccountNotice('');
+      try {
+        const session = await getPublicSession();
+        accountIdRef.current = session?.accountId;
+        setUser(session);
+        let shouldSync = false;
+        if (session) {
+          const decided = await hasMergeDecision(session.accountId);
+          setNeedsMergeChoice(!decided);
+          shouldSync = decided && await shouldSyncCollection(session.accountId);
+        } else {
+          setNeedsMergeChoice(false);
         }
-      } else {
+
+        await recoverPendingRemoval();
+        // IndexedDB is the immediate source of truth for this browser. Render it
+        // before attempting remote sync so a network/auth failure can never
+        // make an existing Collection appear empty.
+        await loadCollection(session?.accountId);
+        setLoading(false);
+
+        if (session && shouldSync) {
+          try {
+            await syncPublicCollection(session);
+            await loadCollection(session.accountId);
+            setAccountNotice('');
+          } catch (error) {
+            setAccountNotice(
+              `Saved items on this browser are still shown, but account sync failed: ${messageFrom(error, 'try again after reconnecting')}`,
+            );
+          }
+        }
+
+        // Retry any export cleanups that failed on earlier removals — the grid
+        // records are already gone locally, so this queue is the only path left
+        // to finish deleting their server-side export blobs.  Runs after session
+        // resolution so only the matching account's queue entries are retried.
+        void retryPendingExportCleanups(session?.accountId);
+      } catch (error) {
+        // Session lookup itself may fail while IndexedDB remains healthy. Keep
+        // anonymous/device-owned saves visible and report the account problem.
+        accountIdRef.current = undefined;
+        setUser(null);
         setNeedsMergeChoice(false);
+        await loadCollection();
+        setAccountNotice(
+          `Saved items on this browser are still shown, but account status could not be checked: ${messageFrom(error, 'try again after reconnecting')}`,
+        );
+      } finally {
+        setLoading(false);
       }
-      await recoverPendingRemoval();
-      await loadCollection(session?.accountId);
-      // Retry any export cleanups that failed on earlier removals — the grid
-      // records are already gone locally, so this queue is the only path left
-      // to finish deleting their server-side export blobs.  Runs after session
-      // resolution so only the matching account's queue entries are retried.
-      void retryPendingExportCleanups(session?.accountId);
     };
-    void refreshSession().finally(() => setLoading(false));
+    void refreshSession();
     const channel = 'BroadcastChannel' in window ? new BroadcastChannel('fandom-collection') : null;
     channel?.addEventListener('message', event => {
       if (event.data?.type === 'session-changed') void refreshSession();
