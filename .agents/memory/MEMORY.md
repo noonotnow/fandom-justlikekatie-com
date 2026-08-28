@@ -8,3 +8,4 @@
 - [Replit npm registry in lockfile](replit-npm-registry.md) — lockfiles generated in Replit have internal proxy URLs that break npm ci in GitHub Actions; delete and regenerate with --registry flag then sed-fix stragglers.
 - [Netlify Function-log verification](netlify-function-log-verification.md) — Real-time can appear empty; verify current Production calls in Last hour with filters cleared.
 - [Collection local-first loading](collection-local-first-loading.md) — render browser saves before account sync; sync failures must never make an existing Collection appear empty.
+- [Vite preview port](vite-preview-port.md) — keep the Vite server and Start application webview workflow aligned on port 5000.

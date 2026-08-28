@@ -1,5 +1,8 @@
 /** IndexedDB persistence for saved cards */
-import type { MediaReference } from './mediaReference';
+import type {
+  CollectionMediaRecovery,
+  MediaReference,
+} from './mediaReference';
 
 const DB_NAME = 'vibe-atlas-collection';
 const DB_VERSION = 3;
@@ -30,6 +33,7 @@ export interface CardRecord {
   searchQuery?: string;
   sourceRoute?: string;
   media?: MediaReference;
+  mediaRecovery?: CollectionMediaRecovery;
   /** Logical collection namespace. Optional only for records saved before namespacing. */
   collectionScope?: CollectionScope;
   gridContext?: {
@@ -52,6 +56,7 @@ export interface GridMediaSnapshot {
   publisher?: string;
   batchKey?: string;
   gridPosition: number;
+  media?: MediaReference;
 }
 
 export interface GridRecord {
@@ -85,6 +90,8 @@ export interface GridRecord {
   sourceRoute: string;
   images: GridMediaSnapshot[];
   legacyCompositeUrl?: string;
+  media?: MediaReference;
+  mediaRecovery?: CollectionMediaRecovery;
 }
 
 function openDB(): Promise<IDBDatabase> {
@@ -269,6 +276,7 @@ export async function dbGetVisibleCardsByScope(
 export async function dbReplaceCardImage(
   oldImageUrl: string,
   media: MediaReference,
+  mediaRecovery?: CollectionMediaRecovery,
 ): Promise<void> {
   const db = await openDB();
   const tx = db.transaction(CARD_STORE, 'readwrite');
@@ -283,11 +291,28 @@ export async function dbReplaceCardImage(
     ...existing,
     imageUrl: media.deliveryUrl,
     thumbnailUrl: media.thumbnailUrl,
+    localId: existing.localId || crypto.randomUUID(),
     media,
+    ...(mediaRecovery ? { mediaRecovery } : {}),
   });
   await transactionDone(tx);
 }
 
+export async function dbSaveCardMediaRecovery(
+  imageUrl: string,
+  mediaRecovery: CollectionMediaRecovery,
+): Promise<void> {
+  const db = await openDB();
+  const tx = db.transaction(CARD_STORE, 'readwrite');
+  const store = tx.objectStore(CARD_STORE);
+  const existing = await requestResult<CardRecord | undefined>(store.get(imageUrl));
+  if (!existing) {
+    await transactionDone(tx);
+    return;
+  }
+  store.put({ ...existing, mediaRecovery });
+  await transactionDone(tx);
+}
 export interface CollectionSyncState {
   key: 'state';
   clientId: string;
@@ -394,6 +419,7 @@ export function buildSyncOperations(
           searchQuery: card.searchQuery,
           sourceRoute: card.sourceRoute,
           media: card.media,
+          mediaRecovery: card.mediaRecovery,
           collectionScope,
         },
       };
@@ -569,6 +595,8 @@ export function normalizeGridRecord(grid: Partial<GridRecord>): GridRecord {
     ...(grid.generationPrompt ? { generationPrompt: grid.generationPrompt } : {}),
     ...(grid.ctaSeed ? { ctaSeed: grid.ctaSeed } : {}),
     ...(grid.legacyCompositeUrl ? { legacyCompositeUrl: grid.legacyCompositeUrl } : {}),
+    ...(grid.media ? { media: grid.media } : {}),
+    ...(grid.mediaRecovery ? { mediaRecovery: grid.mediaRecovery } : {}),
   };
 }
 
@@ -719,4 +747,75 @@ function transactionDone(tx: IDBTransaction): Promise<void> {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
+}
+
+export async function dbEnsureCardLocalId(imageUrl: string): Promise<string | undefined> {
+  const db = await openDB();
+  const tx = db.transaction(CARD_STORE, 'readwrite');
+  const store = tx.objectStore(CARD_STORE);
+  const existing = await requestResult<CardRecord | undefined>(store.get(imageUrl));
+  if (!existing) {
+    await transactionDone(tx);
+    return undefined;
+  }
+  const localId = existing.localId || crypto.randomUUID();
+  if (!existing.localId) store.put({ ...existing, localId });
+  await transactionDone(tx);
+  return localId;
+}
+
+export async function dbEnsureGridLocalId(gridId: string): Promise<string | undefined> {
+  const db = await openDB();
+  const tx = db.transaction(GRID_STORE, 'readwrite');
+  const store = tx.objectStore(GRID_STORE);
+  const existing = await requestResult<GridRecord | undefined>(store.get(gridId));
+  if (!existing) {
+    await transactionDone(tx);
+    return undefined;
+  }
+  const localId = existing.localId || crypto.randomUUID();
+  if (!existing.localId) store.put({ ...existing, localId });
+  await transactionDone(tx);
+  return localId;
+}
+
+export async function dbSaveGridMediaRecovery(
+  gridId: string,
+  mediaRecovery: CollectionMediaRecovery,
+): Promise<void> {
+  const db = await openDB();
+  const tx = db.transaction(GRID_STORE, 'readwrite');
+  const store = tx.objectStore(GRID_STORE);
+  const existing = await requestResult<GridRecord | undefined>(store.get(gridId));
+  if (!existing) {
+    await transactionDone(tx);
+    return;
+  }
+  store.put({ ...existing, mediaRecovery });
+  await transactionDone(tx);
+}
+
+export async function dbReplaceGridImage(
+  gridId: string,
+  media: MediaReference,
+  mediaRecovery?: CollectionMediaRecovery,
+): Promise<void> {
+  const db = await openDB();
+  const tx = db.transaction(GRID_STORE, 'readwrite');
+  const store = tx.objectStore(GRID_STORE);
+  const existing = await requestResult<GridRecord | undefined>(store.get(gridId));
+  if (!existing) {
+    await transactionDone(tx);
+    return;
+  }
+  const images = existing.images.map((image, index) => index === 0
+    ? { ...image, imageUrl: media.deliveryUrl, media }
+    : image);
+  store.put({
+    ...existing,
+    images,
+    media,
+    ...(mediaRecovery ? { mediaRecovery } : {}),
+  });
+  await transactionDone(tx);
 }

@@ -189,6 +189,30 @@
 }
 .subtitle { max-width: 65ch; margin: 16px 0 0; color: color-mix(in srgb, currentColor 72%, transparent); line-height: 1.55; }
 .provenance { margin: 16px 0 0; color: color-mix(in srgb, currentColor 50%, transparent); font-size: .72rem; }
+.mediaRecovery {
+  display: grid;
+  gap: 5px;
+  margin-top: 14px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, #c9a96e 48%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, #c9a96e 9%, transparent);
+  font-size: .76rem;
+}
+.mediaRecovery strong { color: #9b762e; }
+.mediaRecovery span { color: color-mix(in srgb, currentColor 68%, transparent); line-height: 1.4; }
+.mediaRecovery button {
+  width: fit-content;
+  min-height: 32px;
+  margin-top: 3px;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, #c9a96e 48%, transparent);
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font-size: .74rem;
+  font-weight: 700;
+}
 .gridActions { display: flex; flex-wrap: wrap; gap: 8px; align-self: start; }
 .packetAction {
   display: flex;

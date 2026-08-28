@@ -142,6 +142,20 @@ function validateItem(item) {
         || image.imageUrl.length > 4096
       ))
     ) throw new TypeError("Collection grid is invalid.");
+    if (item.media !== undefined) validateCollectionMedia(item.media);
+    if (item.images.some(image => image.media !== undefined)) {
+      for (const image of item.images) {
+        if (image.media !== undefined) {
+          validateCollectionMedia(image.media);
+          if (image.imageUrl !== image.media.deliveryUrl) {
+            throw new TypeError("Collection MEDIA URLs do not match the saved descriptor.");
+          }
+        }
+      }
+    }
+    if (item.media !== undefined && item.images[0].imageUrl !== item.media.deliveryUrl) {
+      throw new TypeError("Collection MEDIA URLs do not match the saved descriptor.");
+    }
     return;
   }
   if (
@@ -177,6 +191,8 @@ function validateCollectionMedia(media, localId) {
     || !/^[0-9a-f]{64}$/.test(media.checksum)
     || !Number.isInteger(media.dimensions?.width)
     || !Number.isInteger(media.dimensions?.height)
+    || media.dimensions.width < 1
+    || media.dimensions.height < 1
     || media.association?.type !== "collection"
     || typeof media.association.id !== "string"
     || typeof media.association.itemId !== "string"

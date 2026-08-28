@@ -16,6 +16,13 @@ import {
   type PendingRemoval,
 } from '../../utils/collectionRemoval';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
+import {
+  classifyCollectionMedia,
+  collectionMediaCandidatesFromPackets,
+  recoverCollectionCard,
+  recoverCollectionGrid,
+  uploadCollectionImage,
+} from '../../utils/collectionMedia';
 import { buildExportPayload, classifyEditionTier, saveShareCard } from '../../utils/exportCanvas';
 import {
   exportDownloadUrl,
@@ -27,7 +34,6 @@ import {
 import type { IdeaPacket } from '../../utils/ideaPackets';
 import { ArtifactZoomDialog } from '../ArtifactZoomDialog/ArtifactZoomDialog';
 import { GridBuilder } from '../GridBuilder/GridBuilder';
-import { uploadCollectionImage } from '../../utils/collectionMedia';
 import {
   getPublicSession,
   hasMergeDecision,
@@ -88,6 +94,8 @@ export const Collection: React.FC<Props> = ({
   const [packetSelections, setPacketSelections] = useState<Record<string, string>>({});
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
   const [expandedArtifact, setExpandedArtifact] = useState<ExpandedArtifact | null>(null);
+  const [failedCardImages, setFailedCardImages] = useState<Record<string, boolean>>({});
+  const [failedGridImages, setFailedGridImages] = useState<Record<string, boolean>>({});
   const accountIdRef = useRef<string | undefined>(undefined);
   const pendingRemovalRef = useRef<PendingRemoval | null>(null);
   const collectingPackets = packets.filter(packet => packet.state === 'collecting');
@@ -337,6 +345,58 @@ export const Collection: React.FC<Props> = ({
     }
   }
 
+  async function recoverCardMedia(card: CardRecord) {
+    const recoveryKey = `recover:${card.localId || card.imageUrl}`;
+    setBusyKey(recoveryKey);
+    try {
+      const result = await recoverCollectionCard(
+        card,
+        collectionMediaCandidatesFromPackets(packets),
+      );
+      await loadCollection(user?.accountId);
+      setFailedCardImages(current => {
+        const next = { ...current };
+        delete next[card.imageUrl];
+        return next;
+      });
+      setAccountNotice(result.recovery.status === 'recovered'
+        ? result.reusedExistingMedia
+          ? 'The saved result now uses its verified MEDIA asset.'
+          : 'The saved result was recovered into permanent MEDIA storage.'
+        : `This saved result remains visible, but its ${mediaClassificationLabel(result.recovery.classification)} could not be recovered: ${result.recovery.message || 'original unavailable.'}`);
+    } catch (error) {
+      setAccountNotice(messageFrom(error, 'The saved result could not be recovered.'));
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  async function recoverGridMedia(grid: GridRecord) {
+    const recoveryKey = `recover-grid:${grid.id}`;
+    setBusyKey(recoveryKey);
+    try {
+      const result = await recoverCollectionGrid(
+        grid,
+        collectionMediaCandidatesFromPackets(packets),
+      );
+      await loadCollection(user?.accountId);
+      setFailedGridImages(current => {
+        const next = { ...current };
+        delete next[grid.id];
+        return next;
+      });
+      setAccountNotice(result.recovery.status === 'recovered'
+        ? result.reusedExistingMedia
+          ? 'The legacy grid now uses its verified MEDIA asset.'
+          : 'The legacy grid was recovered into permanent MEDIA storage.'
+        : `This grid remains visible, but its ${mediaClassificationLabel(result.recovery.classification)} could not be recovered: ${result.recovery.message || 'original unavailable.'}`);
+    } catch (error) {
+      setAccountNotice(messageFrom(error, 'The saved grid could not be recovered.'));
+    } finally {
+      setBusyKey('');
+    }
+  }
+
   async function handleMiddleEarthUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -523,7 +583,10 @@ export const Collection: React.FC<Props> = ({
                   aria-label={`View ${grid.actor} ${grid.vibe} grid larger`}
                   onClick={() => setExpandedArtifact({ kind: 'grid', record: grid })}
                 >
-                  <GridVisual grid={grid} />
+                   <GridVisual
+                     grid={grid}
+                     onImageError={() => setFailedGridImages(current => ({ ...current, [grid.id]: true }))}
+                   />
                   <span>View larger</span>
                 </button>
                 <div className={styles.gridStory}>
@@ -540,6 +603,22 @@ export const Collection: React.FC<Props> = ({
                     {grid.images.length} source results · {grid.rendererVersion}
                     {grid.edition.legendary ? ' · Legendary' : grid.edition.misprint ? ' · Misprint' : ''}
                   </p>
+                  {grid.legacyCompositeUrl
+                    && (failedGridImages[grid.id] || grid.mediaRecovery?.status === 'unrecoverable') && (
+                    <div className={styles.mediaRecovery} role="status">
+                      <strong>
+                        Image status: {mediaClassificationLabel(grid.mediaRecovery?.classification || classifyCollectionMedia(grid))}
+                      </strong>
+                      <span>{grid.mediaRecovery?.message || 'This older image is not backed by permanent MEDIA yet.'}</span>
+                      <button
+                        type="button"
+                        disabled={Boolean(busyKey)}
+                        onClick={() => void recoverGridMedia(grid)}
+                      >
+                        {busyKey === `recover-grid:${grid.id}` ? 'Recovering…' : 'Recover in MEDIA'}
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className={styles.gridActions}>
                   <button
@@ -660,7 +739,11 @@ export const Collection: React.FC<Props> = ({
                 aria-label={card.contentKind === 'middle-earth-meme' ? `View ${card.title || card.vibe} meme larger` : `View ${card.actor} ${card.vibe} result larger`}
                 onClick={() => setExpandedArtifact({ kind: 'card', record: card })}
               >
-                <img src={card.media?.thumbnailUrl || card.thumbnailUrl} alt="" />
+                 <img
+                   src={card.media?.thumbnailUrl || card.thumbnailUrl}
+                   alt=""
+                   onError={() => setFailedCardImages(current => ({ ...current, [card.imageUrl]: true }))}
+                 />
                 <span>View larger</span>
               </button>
               <div>
@@ -670,6 +753,21 @@ export const Collection: React.FC<Props> = ({
                   : card.vibe}</span>
                 {card.contentKind === 'middle-earth-meme' && card.sourceUrl && <a href={card.sourceUrl} target="_blank" rel="noreferrer">{card.publisher ? `Source: ${card.publisher}` : 'Open original source'}</a>}
                 <small>{card.capturedDate}</small>
+                {(!card.thumbnailUrl || failedCardImages[card.imageUrl] || card.mediaRecovery?.status === 'unrecoverable') && (
+                  <div className={styles.mediaRecovery} role="status">
+                    <strong>
+                      Image status: {mediaClassificationLabel(card.mediaRecovery?.classification || classifyCollectionMedia(card))}
+                    </strong>
+                    <span>{card.mediaRecovery?.message || 'This older image is not backed by permanent MEDIA yet.'}</span>
+                    <button
+                      type="button"
+                      disabled={Boolean(busyKey)}
+                      onClick={() => void recoverCardMedia(card)}
+                    >
+                      {busyKey === `recover:${card.localId || card.imageUrl}` ? 'Recovering…' : 'Recover in MEDIA'}
+                    </button>
+                  </div>
+                )}
                 <small>{card.media ? 'MEDIA-backed' : 'Legacy URL'}</small>
               </div>
               {!card.media && (
@@ -733,9 +831,7 @@ export const Collection: React.FC<Props> = ({
             ? `Middle-earth · ${expandedArtifact.record.actor} · saved as-is`
             : `${expandedArtifact.record.vibe} · ${expandedArtifact.record.vibeEn}`}
           images={[{
-            src: expandedArtifact.record.media?.deliveryUrl
-              || expandedArtifact.record.imageUrl
-              || expandedArtifact.record.thumbnailUrl,
+            src: expandedArtifact.record.imageUrl || expandedArtifact.record.thumbnailUrl,
             alt: expandedArtifact.record.title || `${expandedArtifact.record.actor} · ${expandedArtifact.record.vibe}`,
           }]}
           singleImage
@@ -807,7 +903,13 @@ function GridExportHistory({ gridId, signedIn }: { gridId: string; signedIn: boo
   );
 }
 
-function GridVisual({ grid }: { grid: GridRecord }) {
+function GridVisual({
+  grid,
+  onImageError,
+}: {
+  grid: GridRecord;
+  onImageError?: () => void;
+}) {
   const isLegacy = Boolean(grid.legacyCompositeUrl);
   const compositionClass = grid.images.length === 4
     ? styles.gridTwoByTwo
@@ -823,8 +925,8 @@ function GridVisual({ grid }: { grid: GridRecord }) {
       ].filter(Boolean).join(' ')}
       aria-hidden="true"
     >
-      {grid.images.slice(0, 9).map(image => (
-        <img key={image.resultId} src={image.imageUrl} alt="" />
+       {grid.images.slice(0, 9).map(image => (
+         <img key={image.resultId} src={image.imageUrl} alt="" onError={onImageError} />
       ))}
     </span>
   );
@@ -866,4 +968,12 @@ function formatDate(value: string): string {
 
 function messageFrom(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+function mediaClassificationLabel(
+  classification: ReturnType<typeof classifyCollectionMedia>,
+): string {
+  if (classification === 'legacy-composite') return 'legacy composite';
+  if (classification === 'media-backed') return 'MEDIA-backed asset';
+  return 'URL-only image';
 }

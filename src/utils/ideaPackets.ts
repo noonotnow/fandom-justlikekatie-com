@@ -331,6 +331,7 @@ export function packetFromCollectionGrid(grid: GridRecord): IdeaPacket {
       ...(image.publisher ? { creator: image.publisher } : {}),
       capturedAt: grid.generatedAt,
       resultId: image.resultId,
+      ...(image.media ? { media: image.media } : {}),
       provenance: JSON.stringify({
         collection: 'saved-grid-history',
         gridId: grid.id,
