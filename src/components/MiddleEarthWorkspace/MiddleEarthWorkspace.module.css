@@ -3,6 +3,7 @@
 .workspace { --ink:#173a3a; --ink-deep:#102d2e; --cream:#f4eee2; --paper:#fbf8f1; --gold:#d4a951; --rust:#a55439; --muted:#746d62; min-height:100dvh; background:var(--cream); color:var(--ink); font-family:"Manrope",sans-serif; padding:clamp(22px,5vw,76px) clamp(18px,5vw,72px); }
 .workspace * { box-sizing:border-box; }
 .header { max-width:760px; margin:0 auto 36px; text-align:center; }
+.collectionLink { display:inline-block; margin-top:14px; color:var(--rust); font:600 10px "DM Mono"; text-decoration-color:var(--gold); text-underline-offset:4px; }
 .eyebrow,.sectionKicker,.liveMark,.count { font:500 10px/1 "DM Mono",monospace; letter-spacing:.14em; text-transform:uppercase; }
 .eyebrow { display:flex; align-items:center; justify-content:center; gap:10px; color:var(--rust); }
 .rune { color:var(--gold); font-size:18px; }.rule { width:58px; height:1px; background:var(--gold); }

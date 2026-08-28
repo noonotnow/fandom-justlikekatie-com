@@ -52,6 +52,10 @@
 :global(.dark) .notice { color: #e0c171; }
 
 .typeTabs { display: flex; gap: 28px; border-bottom: 1px solid color-mix(in srgb, currentColor 16%, transparent); }
+.collectionScopeNav { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid color-mix(in srgb, currentColor 16%, transparent); }
+.collectionScopeNav strong { color: #c9a96e; font-size: .9rem; }
+.collectionScopeNav strong span { margin-left: 6px; font-size: .75rem; font-weight: 400; }
+.collectionScopeNav a { color: #9b762e; font-size: .8rem; font-weight: 700; text-underline-offset: 3px; }
 .typeTabs button {
   display: flex;
   align-items: center;

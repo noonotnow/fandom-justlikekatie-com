@@ -52,7 +52,9 @@ function App() {
 
 function MiddleEarthApp() {
   const { isAdmin } = useIsAdmin();
+  const showCollection = new URLSearchParams(window.location.search).get('view') === 'collection';
 
+  if (showCollection) return <Collection scope="middle-earth" />;
   return (
     <MiddleEarthWorkspace
       isAdmin={isAdmin}

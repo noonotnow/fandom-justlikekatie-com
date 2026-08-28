@@ -591,6 +591,29 @@ test('source treatment supports clean-still forging, existing-meme rework, and u
   );
 });
 
+test('Middle-earth saves have a separate collection scope from Vibe Atlas', async () => {
+  const [collectionSource, appSource] = await Promise.all([
+    readFile(new URL('../src/components/Collection/Collection.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(
+    collectionSource,
+    /filter\(card => isMiddleEarth[\s\S]*?card\.contentKind === 'middle-earth-meme'[\s\S]*?card\.contentKind !== 'middle-earth-meme'/,
+    'the shared collection component must keep Middle-earth cards out of the Vibe Atlas scope',
+  );
+  assert.match(
+    collectionSource,
+    /scope\?: 'vibe-atlas' \| 'middle-earth'/,
+    'the collection must expose an explicit studio scope',
+  );
+  assert.match(
+    appSource,
+    /if \(showCollection\) return <Collection scope="middle-earth" \/>/,
+    'MemeForge must route to its own collection instead of the Vibe Atlas collection view',
+  );
+});
+
 test('an existing meme can be saved to the shared collection without generated copy', async () => {
   const source = await readFile(
     new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),

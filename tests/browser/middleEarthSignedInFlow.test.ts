@@ -239,7 +239,17 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     assert.equal(originalDownload.suggestedFilename(), 'one-page-became-the-whole-trilogy.gif');
     await page.getByRole('button', { name: 'Save to Collection' }).click();
     await page.getByRole('button', { name: 'Saved to Collection' }).waitFor();
+    await page.getByRole('link', { name: 'Open Collection' }).click();
+    await page.getByRole('heading', { name: 'Middle-earth Collection' }).waitFor();
+    await page.getByText(/one-page-became-the-whole-trilogy/).waitFor();
+    assert.equal(
+      await page.getByText('No saved Middle-earth memes yet', { exact: true }).count(),
+      0,
+      'the separate Middle-earth collection should show the uploaded meme',
+    );
 
+    await page.goto(`${origin}/memeforge/middle-earth`);
+    await newImagePath.waitFor();
     await newImagePath.click();
     await page.getByLabel('The moment').fill('Not wanting to go to work on Friday');
     await page.getByRole('button', { name: 'Translate moment' }).click();

@@ -39,6 +39,7 @@ import styles from './Collection.module.css';
 const UNDO_WINDOW_MS = 8_000;
 
 interface Props {
+  scope?: 'vibe-atlas' | 'middle-earth';
   isAdmin?: boolean;
   packets?: IdeaPacket[];
   onCreateFromGrid?: (grid: GridRecord) => Promise<IdeaPacket>;
@@ -50,15 +51,19 @@ type ExpandedArtifact =
   | { kind: 'card'; record: CardRecord };
 
 export const Collection: React.FC<Props> = ({
+  scope = 'vibe-atlas',
   isAdmin = false,
   packets = [],
   onCreateFromGrid,
   onAddGridToPacket,
 }) => {
+  const isMiddleEarth = scope === 'middle-earth';
   const [cards, setCards] = useState<CardRecord[]>([]);
   const [grids, setGrids] = useState<GridRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeType, setActiveType] = useState<'grids' | 'results' | 'builder'>('grids');
+  const [activeType, setActiveType] = useState<'grids' | 'results' | 'builder'>(
+    isMiddleEarth ? 'results' : 'grids',
+  );
   const [filterActor, setFilterActor] = useState<string | null>(null);
   const [user, setUser] = useState<PublicUser | null>(null);
   const [email, setEmail] = useState('');
@@ -81,8 +86,12 @@ export const Collection: React.FC<Props> = ({
       dbGetVisibleCards(accountId),
       dbGetVisibleGrids(accountId),
     ]);
-    setCards(visibleCards.sort((a, b) => (b.savedAt ?? '').localeCompare(a.savedAt ?? '')));
-    setGrids(visibleGrids.sort((a, b) => b.savedAt.localeCompare(a.savedAt)));
+    setCards(visibleCards
+      .filter(card => isMiddleEarth
+        ? card.contentKind === 'middle-earth-meme'
+        : card.contentKind !== 'middle-earth-meme')
+      .sort((a, b) => (b.savedAt ?? '').localeCompare(a.savedAt ?? '')));
+    setGrids(isMiddleEarth ? [] : visibleGrids.sort((a, b) => b.savedAt.localeCompare(a.savedAt)));
   }
 
   useEffect(() => {
@@ -240,21 +249,25 @@ export const Collection: React.FC<Props> = ({
     <main className={styles.collection}>
       <header className={styles.hero}>
         <div>
-          <h2>我的收藏 · My Collection</h2>
-          <p>Keep complete visual worlds and individual finds ready for their next form.</p>
+          <h2>{isMiddleEarth ? 'Middle-earth Collection' : '我的收藏 · My Collection'}</h2>
+          <p>{isMiddleEarth
+            ? 'Your separate MemeForge shelf for finished Middle-earth memes.'
+            : 'Keep complete visual worlds and individual finds ready for their next form.'}</p>
         </div>
-        <span>{grids.length} grids · {cards.length} results</span>
+        <span>{isMiddleEarth ? `${cards.length} memes` : `${grids.length} grids · ${cards.length} results`}</span>
       </header>
 
       <section className={styles.account}>
         {user ? (
           <div className={styles.signedIn}>
-            <p>Synced as <strong>{user.email}</strong></p>
+            <p>{isMiddleEarth ? 'Middle-earth memes synced as' : 'Synced as'} <strong>{user.email}</strong></p>
             <button type="button" onClick={() => void handleLogout()}>Sign out</button>
           </div>
         ) : (
           <form onSubmit={handleMagicLink}>
-            <label htmlFor="collection-email">Sync grids and saved results across devices</label>
+            <label htmlFor="collection-email">{isMiddleEarth
+              ? 'Sync Middle-earth memes across devices'
+              : 'Sync grids and saved results across devices'}</label>
             <div>
               <input
                 id="collection-email"
@@ -278,17 +291,24 @@ export const Collection: React.FC<Props> = ({
         {accountNotice && <p className={styles.notice} role="status">{accountNotice}</p>}
       </section>
 
-      <nav className={styles.typeTabs} aria-label="Collection artifact type">
-        <button type="button" aria-current={activeType === 'grids'} onClick={() => setActiveType('grids')}>
-          Grids <span>{grids.length}</span>
-        </button>
-        <button type="button" aria-current={activeType === 'results'} onClick={() => setActiveType('results')}>
-          Saved results <span>{cards.length}</span>
-        </button>
-        <button type="button" aria-current={activeType === 'builder'} onClick={() => setActiveType('builder')}>
-          Build a grid
-        </button>
-      </nav>
+      {isMiddleEarth ? (
+        <div className={styles.collectionScopeNav}>
+          <strong>Saved memes <span>{cards.length}</span></strong>
+          <a href="/memeforge/middle-earth">Back to MemeForge</a>
+        </div>
+      ) : (
+        <nav className={styles.typeTabs} aria-label="Collection artifact type">
+          <button type="button" aria-current={activeType === 'grids'} onClick={() => setActiveType('grids')}>
+            Grids <span>{grids.length}</span>
+          </button>
+          <button type="button" aria-current={activeType === 'results'} onClick={() => setActiveType('results')}>
+            Saved results <span>{cards.length}</span>
+          </button>
+          <button type="button" aria-current={activeType === 'builder'} onClick={() => setActiveType('builder')}>
+            Build a grid
+          </button>
+        </nav>
+      )}
 
       {activeType !== 'builder' && allActors.length > 1 && (
         <div className={styles.filters} aria-label="Filter collection by actor">
@@ -455,8 +475,10 @@ export const Collection: React.FC<Props> = ({
       ) : displayedCards.length === 0 ? (
         <EmptyState
           symbol="☆"
-          title="No saved results yet"
-          body="Tap ☆ in the lightbox to collect individual images without duplicating their full grid."
+          title={isMiddleEarth ? 'No saved Middle-earth memes yet' : 'No saved results yet'}
+          body={isMiddleEarth
+            ? 'Save an existing meme from MemeForge and it will appear here, separate from your Vibe Atlas collection.'
+            : 'Tap ☆ in the lightbox to collect individual images without duplicating their full grid.'}
         />
       ) : (
         <section className={styles.savedResults} aria-label="Saved results">

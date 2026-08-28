@@ -1068,7 +1068,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
 
   const saveExistingMeme = async () => {
     if (!selected || !isExistingMemeAsIs) return;
-    setBusy(true); setStatus("Saving the attributed meme to your collection…"); setError("");
+    setBusy(true); setStatus("Saving the attributed meme to your Middle-earth Collection…"); setError("");
     try {
       await dbSaveCard({
         imageUrl: selected.thumbnail,
@@ -1089,7 +1089,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       });
       setCollectionSaved(true);
       schedulePublicCollectionSync();
-      setStatus("Saved to Collection as an unchanged, attributed Middle-earth meme.");
+      setStatus("Saved to the Middle-earth Collection as an unchanged, attributed meme.");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "The meme could not be saved.");
     } finally {
@@ -1123,6 +1123,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     <main className={styles.workspace}>
       <header className={styles.header}>
         <a className={styles.backLink} href="/">Fandom / launchpad</a>
+        <a className={styles.collectionLink} href="/memeforge/middle-earth?view=collection">Middle-earth Collection</a>
         <div className={styles.eyebrow}><span className={styles.rune} aria-hidden="true">—</span> MemeForge / separate workbench <span className={styles.rule} /></div>
         <h1><small>Middle-earth</small><br /><em>MemeForge</em></h1>
         <p className={styles.intro}>A Middle-earth fandom angle generator, separate from C-drama Vibe Atlas and its CREATE handoff. Say the moment badly. MemeForge finds the bit, then grounds it in a recognizable reaction image. Captions stay original.</p>
@@ -1468,7 +1469,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
             {isEditorRequired && <button className={styles.export} onClick={() => void exportPng()} disabled={busy}>{busy ? "Working…" : "Export PNG"}</button>}
             {isExistingMemeAsIs && <button className={styles.export} onClick={() => void exportPng()} disabled={busy}>{busy ? "Working…" : "Export original meme"}</button>}
             {isExistingMemeAsIs && <button className={styles.save} onClick={() => void saveExistingMeme()} disabled={busy || collectionSaved}>{collectionSaved ? "Saved to Collection" : "Save to Collection"}</button>}
-            {isExistingMemeAsIs && collectionSaved && <a className={styles.stagingLink} href="/vibe-atlas?view=collection">Open Collection</a>}
+            {isExistingMemeAsIs && collectionSaved && <a className={styles.stagingLink} href="/memeforge/middle-earth?view=collection">Open Collection</a>}
             {isEditorRequired && (isAdmin
               ? <button className={styles.save} onClick={() => void savePacket()} disabled={busy}>Stage for CREATE</button>
               : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in through packet staging</a>)}
