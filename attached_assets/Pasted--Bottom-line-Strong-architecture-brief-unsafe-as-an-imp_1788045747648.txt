@@ -1,0 +1,201 @@
+## Bottom line
+
+**Strong architecture brief; unsafe as an “implement exactly as written” blueprint.** It covers the right domains and gives engineers a useful target shape, but several examples contradict the security model or omit schema required by later sections.
+
+My rating:
+
+- **Product/architecture direction:** 8/10
+- **Engineering handoff completeness:** 6/10
+- **Production readiness as written:** 3–4/10
+
+I’d relabel this **“Architecture Proposal / RFC v0.8”** until the critical issues below are resolved. The sentence “all specifications are implementable as written” is doing extremely confident little cartwheels near several trapdoors.
+
+## What’s good
+
+- Clear tenant boundary: workspace-scoped content, connections, jobs, media, and memberships.
+- Defense-in-depth intent: application authorization plus PostgreSQL RLS.
+- Sensible separation of API, queue workers, object storage, and platform adapters.
+- Good migration principle: additive changes, backfills, feature flags, and rollback planning.
+- Helpful endpoint map, permissions matrix, state-machine framing, and test layers.
+- Correct emphasis on token encryption, refresh-token rotation, OAuth state, webhook verification, auditability, and direct-to-object-storage uploads.
+- The phased rollout is much better than attempting a heroic rewrite.
+
+## Critical blockers
+
+### 1. The RLS implementation does not work safely with Prisma pooling
+
+`SET LOCAL` only lasts for the current transaction. The middleware executes it and then calls `next()`, but subsequent Prisma queries are not guaranteed to use the same transaction or connection.
+
+That produces two possible outcomes:
+
+- the setting disappears and queries return nothing; or
+- someone “fixes” it using session-level `SET`, creating a cross-tenant leakage risk through pooled connections.
+
+**Required redesign:** wrap the entire request’s database work in one interactive transaction and pass its transaction client through request context. Set the tenant with parameterized `set_config()` inside that transaction. Workers need an equally explicit tenant-context strategy.
+
+### 2. Membership lookup conflicts with membership RLS
+
+`resolveWorkspace` queries `workspace_members` **before** setting the workspace context, yet the blueprint later places `workspace_members` behind workspace-context RLS.
+
+That is a bootstrap loop: you need membership access to establish the context needed to read membership.
+
+**Fix options:**
+
+- a narrowly scoped `SECURITY DEFINER` membership-resolution function;
+- a separate non-bypass authentication role with a dedicated membership policy based on authenticated user context;
+- or carefully separated control-plane and tenant-data access.
+
+Do not simply grant the API broad RLS bypass.
+
+### 3. WebSocket room authorization is missing
+
+The code says “verify membership server-side” but immediately executes:
+
+```tsx
+socket.join(`workspace:${workspaceId}`);
+```
+
+That permits any authenticated user to request another workspace’s room unless authorization is added elsewhere. This is a direct cross-tenant data-leak path.
+
+Membership must be checked on every join, and rooms should be removed when membership changes. Consider putting authorized workspace IDs in short-lived server-side session state—not trusting client-supplied IDs.
+
+### 4. The scheduler is not tenant-safe or concurrency-safe
+
+The scheduler queries all scheduled posts without establishing tenant context. If it uses the RLS-protected application role, it will see no rows. If it bypasses RLS, the document needs an explicit privileged-worker threat model.
+
+It can also double-enqueue when multiple scheduler instances overlap.
+
+**Required controls:**
+
+- transactional claim with `FOR UPDATE SKIP LOCKED`, lease fields, or an outbox;
+- a database uniqueness constraint for the logical publish job;
+- reconciliation for “DB row created, queue insertion failed” and the inverse;
+- a documented privileged scheduler role with minimal grants.
+
+BullMQ `jobId` alone is not sufficient transactional idempotency.
+
+### 5. Posts are marked `published` before publishing succeeds
+
+The scheduler changes the post to `published` immediately after enqueueing jobs. At that moment, nothing may have reached any platform.
+
+For multi-platform posts, some child jobs may succeed while others fail.
+
+Add states such as:
+
+- `scheduled`
+- `publishing`
+- `partially_published`
+- `published`
+- `publish_failed`
+
+Derive the aggregate post state from its platform jobs. Only set `published_at` when the defined success condition is met.
+
+### 6. Authorization requires more than minimum-role middleware
+
+The permissions matrix says Creators can manage **their own** content, but the route map allows any Creator to update a post by ID. `enforceRole('creator')` cannot enforce ownership.
+
+Similar target-object checks are needed to prevent a Manager from:
+
+- removing an Owner;
+- assigning roles above Manager’s authority;
+- editing protected settings;
+- acting on resources from a different workspace despite a valid route workspace.
+
+Use centralized policy functions combining **role + resource ownership + target role + lifecycle state**.
+
+### 7. Notification RLS leaks notifications inside a workspace
+
+The notification policy filters only by `workspace_id`, while notifications are user-specific. A query bug could expose every member’s notifications to another member in the same workspace.
+
+The policy should normally include both:
+
+- current workspace; and
+- current user, except for narrowly authorized administrative operations.
+
+## Missing or contradictory schema
+
+Several later features rely on structures absent from the core DDL:
+
+- `invites`
+- `feature_flags`
+- `workspaces.webhook_url`
+- media processing `status`
+- email-verification tokens
+- OAuth state/PKCE storage
+- token family/session metadata for refresh-token replay detection
+- platform publication result URLs and sanitized/public errors
+- reliable outbox or queue-dispatch records
+
+Additional design problems:
+
+- `media_asset_ids UUID[]` provides no foreign-key integrity. Use a `content_post_media` join table with ordering and placement metadata.
+- `target_platforms TEXT[]` and `publish_jobs.platform TEXT` bypass the declared platform enum.
+- Workspace creation/seed ordering is contradictory: `workspaces.owner_user_id` is required, but parts of Phase 1 create the workspace before creating or locating the user.
+- `audit_logs ... ON DELETE CASCADE` undermines the claim that audit logs are immutable. Deleting a workspace deletes its audit history.
+- An append-only audit table also needs database permissions or triggers that actually prevent application-role updates and deletes—not merely a comment.
+
+## Authentication and security revisions
+
+### Refresh tokens
+
+Bcrypt-hashing random 32-byte tokens makes lookup awkward and expensive unless another indexed identifier is stored.
+
+A more operational model:
+
+- public token/session ID for indexed lookup;
+- cryptographically random secret;
+- SHA-256 or keyed HMAC hash of that high-entropy secret;
+- token-family ID;
+- previous/replaced token linkage;
+- rotation timestamp and reuse-detection state.
+
+### Invite tokens
+
+Do not sign invites as ordinary access tokens with an indistinguishable shared secret. Use a separate key or, at minimum, strict `typ`, `aud`, `iss`, purpose, and token-ID validation.
+
+The missing `invites` table also needs normalized email handling, role constraints, revocation, expiry, and single-use enforcement inside one transaction.
+
+### OAuth tokens
+
+AES-256-GCM is reasonable, but include authenticated associated data such as workspace ID, platform, connection ID, and key version. That prevents valid ciphertext from being moved between rows.
+
+For a mature production system, prefer a managed KMS/envelope-encryption design over indefinitely storing root encryption keys directly in application secrets.
+
+### Error storage
+
+The blueprint says to store a “full error stack” in `error_message`, while that field is returned by a Viewer-accessible endpoint. Stack traces may expose tokens, request bodies, internal URLs, or platform responses.
+
+Separate:
+
+- sanitized user-facing error code/message;
+- restricted diagnostic metadata;
+- external trace/log reference.
+
+## Operational concerns
+
+- **Node.js 20 is not an appropriate 2026 target.** It reached end of life in April 2026. Use a supported LTS release.
+- The dependency manifest will already be stale on the document date. Versions and platform limits should be validated during implementation rather than treated as timeless specifications.
+- The claim “caret ranges permit patch-level updates only” is incorrect. For packages at version 1+, `^` permits minor releases; use `~` for patch-only ranges.
+- Running production migrations from `postinstall` on every deploying instance risks concurrent migration attempts and couples package installation to schema mutation. Use a single release/pre-deploy migration job with locking and explicit failure handling.
+- API and worker processes should be separate production deployments from the beginning. `concurrently` is acceptable for local development or a tiny prototype, not a resilient production topology.
+- Long-running PDF and full-workspace exports should generally be asynchronous jobs written to object storage, not 30–120-second HTTP requests.
+- Public R2 URLs conflict with strong tenant isolation unless every asset is intentionally public. Prefer private buckets with authorized, short-lived download URLs.
+- Upload confirmation must inspect the stored object’s actual size, checksum, and MIME signature; client-declared metadata is not trustworthy.
+- Platform scopes, limits, approval requirements, and publishing capabilities change frequently. The platform table should be an implementation-time verification checklist, not an authoritative contract.
+
+## Recommended next move
+
+Before implementation, add a short **v1.1 correction pass** with five concrete deliverables:
+
+1. **Threat model and tenant-context design**
+Document exactly how API requests, schedulers, workers, WebSockets, exports, and callbacks establish tenant and user context.
+2. **Executable schema**
+Produce one internally consistent Prisma schema plus raw SQL migrations containing every referenced table, constraint, RLS policy, and index.
+3. **State-transition specification**
+Define allowed post and job transitions, multi-platform partial success, cancellation races, retries, and idempotency.
+4. **Authorization policy suite**
+Replace role-only assumptions with tested resource policies, including creator ownership and member-role administration.
+5. **Acceptance tests before feature work**
+First tests should attempt cross-tenant access through REST, WebSockets, workers, exports, media URLs, OAuth callbacks, and notifications.
+
+**Verdict:** keep it—it is a useful north-star document. But give engineers a corrected security/data-model addendum before anyone starts translating the snippets directly into production code.
