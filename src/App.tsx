@@ -273,46 +273,20 @@ function VibeAtlasApp() {
           </button>
           <button
             type="button"
-            aria-label="我的收藏 · Collection"
+            aria-label="Studio Operations · Collection and Grid Builder"
             onClick={() => navigateAtlas('collection', 'grids')}
-            className={view === 'collection' && collectionTab === 'grids' ? 'fandom-atlas-nav__active' : ''}
+            className={view === 'collection' ? 'fandom-atlas-nav__active' : ''}
           >
-            <span>Saved grids</span><small>Collection</small>
-          </button>
-          <button
-            type="button"
-            aria-label="Saved individual Vibe Atlas results"
-            onClick={() => navigateAtlas('collection', 'results')}
-            className={view === 'collection' && collectionTab === 'results' ? 'fandom-atlas-nav__active' : ''}
-          >
-            <span>Saved results</span><small>Individual finds</small>
-          </button>
-          <button
-            type="button"
-            aria-label="Vibe Atlas Grid Builder"
-            onClick={() => navigateAtlas('collection', 'builder')}
-            className={view === 'collection' && collectionTab === 'builder' ? 'fandom-atlas-nav__active' : ''}
-          >
-            <span>Grid Builder</span><small>Build a 3×3</small>
+            <span>Studio Operations</span><small>Collection · Grid Builder</small>
           </button>
         </div>
-        {isAdmin && (
-          <button
-            onClick={() => setView('plan')}
-            className={`fandom-atlas-admin-link ${view === 'plan' ? 'fandom-atlas-admin-link--active' : ''}`}
-          >
-            <span>Admin</span><small>Packets</small>
-          </button>
-        )}
-        {isAdmin && (
-          <a
-            className="memeforge-workbench-link"
-            href="/memeforge/middle-earth"
-          >
-            <span>Middle-earth MemeForge</span>
-            <small>Separate workbench · not Vibe Atlas or CREATE</small>
-          </a>
-        )}
+        <a
+          className="memeforge-workbench-link"
+          href="/memeforge/middle-earth"
+        >
+          <span>Middle-earth MemeForge</span>
+          <small>Reaction studio</small>
+        </a>
       </nav>
 
       {view === 'daily' ? (

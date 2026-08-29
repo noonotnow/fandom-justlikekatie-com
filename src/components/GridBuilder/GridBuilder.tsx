@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { dbGetCardsByScope, dbGetAllGrids, dbGetVisibleCardsByScope, dbGetVisibleGrids, dbRemoveGrid, dbSaveGrid, type CardRecord, type GridRecord } from '../../utils/collectionDB';
+import { dbGetVisibleCardsByScope, dbGetVisibleGrids, dbRemoveGrid, dbSaveGrid, type CardRecord, type GridRecord } from '../../utils/collectionDB';
 import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
 import { saveShareCard, buildExportPayload, classifyEditionTier } from '../../utils/exportCanvas';
@@ -21,12 +21,6 @@ import styles from './GridBuilder.module.css';
 interface Props {
   /** Account id of the signed-in user; scopes the pool to that account's visible records. */
   accountId?: string;
-  /**
-   * When true, load ALL local records regardless of ownerAccountId.
-   * Use only in admin contexts that have always had full local access (FandomAdmin).
-   * Defaults to false; Collection always scopes to the signed-in account.
-   */
-  allRecords?: boolean;
   /** When true, "Start Idea Packet" is shown and wired. Omit (or false) to hide it. */
   isAdmin?: boolean;
   /** Required when isAdmin is true; called to create the Idea Packet from the grid. */
@@ -38,11 +32,10 @@ interface Props {
 }
 
 /**
- * Collection Grid Builder — the studio. Saved collection → lens →
- * proposed 3×3 → slot swaps → export → Idea Packet with the curation
- * rationale attached as a creative brief for CREATE.
+ * Vibe Atlas Grid Builder — the core studio workflow. Saved collection →
+ * lens → proposed 3×3 → slot swaps → save and export.
  */
-export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, isAdmin = false, onCreateFromGrid, onPacketCreated, onExported }) => {
+export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCreateFromGrid, onPacketCreated, onExported }) => {
   const [pool, setPool] = useState<BuilderCard[] | null>(null);
   const [sourceRecords, setSourceRecords] = useState<{ cards: CardRecord[]; grids: GridRecord[] } | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -87,10 +80,8 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
       try {
         await migrateLegacyGridHistory();
         const [cards, grids] = await Promise.all([
-          allRecords
-            ? dbGetCardsByScope('vibe-atlas')
-            : dbGetVisibleCardsByScope(accountId, 'vibe-atlas'),
-          allRecords ? dbGetAllGrids() : dbGetVisibleGrids(accountId),
+          dbGetVisibleCardsByScope(accountId, 'vibe-atlas'),
+          dbGetVisibleGrids(accountId),
         ]);
         if (!cancelled) {
           setSourceRecords({ cards, grids });
@@ -101,7 +92,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
       }
     })();
     return () => { cancelled = true; };
-  }, [accountId, allRecords]);
+  }, [accountId]);
 
   const options = useMemo(() => (pool ? lensOptions(pool) : null), [pool]);
   const lensedCount = useMemo(() => (pool ? applyLens(pool, lens).length : 0), [pool, lens]);
@@ -316,8 +307,8 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
     <section className={styles.builder}>
       <header className={styles.header}>
         <div>
-          <h3>Collection Grid Builder</h3>
-          <p>Pick a lens, propose a 3×3, swap what feels off, export. The “why” travels to CREATE.</p>
+          <h3>Vibe Atlas Grid Builder</h3>
+          <p>Pick a lens, propose a 3×3, swap what feels off, then save or export the finished world.</p>
         </div>
         <span>{lensedCount} of {pool.length} cards in lens</span>
       </header>
@@ -401,7 +392,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, allRecords = false, is
           <aside className={styles.rationale} aria-label="Curation rationale">
             <h4>Creative brief</h4>
             {lens.mode === 'misprints' && (
-              <p><strong>Legendary Misprint lens</strong> · Only creator-marked mismatches are included. Exports and CREATE packets retain both identities and provenance.</p>
+              <p><strong>Legendary Misprint lens</strong> · Only creator-marked mismatches are included. Saved grids and exports retain both identities and provenance.</p>
             )}
             <pre>{rationaleBrief(proposal.rationale)}</pre>
             <div className={styles.actions}>

@@ -339,7 +339,7 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     assert.equal(uploadedDerivatives.length, 1, 'the uploaded source must have exactly one separately saved derivative');
     assert.equal(uploadedDerivatives[0].sourceUrl, undefined, 'local-only provenance must not embed the original data URL');
 
-    await page.getByRole('button', { name: 'Stage for CREATE' }).click();
+    await page.getByRole('button', { name: 'Stage in Operator Console' }).click();
     await page.getByText('Idea packet staged. No publish or schedule action was taken.').waitFor();
     assert.ok(stagedPacket, 'uploaded rework staging must receive a packet');
     const uploadedSourceCard = (stagedPacket.sourceCards as Array<Record<string, unknown>>)[0];
@@ -510,7 +510,7 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
       'changing the source should hide generated-card save until the visual is forged again',
     );
 
-    await page.getByRole('button', { name: 'Stage for CREATE' }).click();
+    await page.getByRole('button', { name: 'Stage in Operator Console' }).click();
     await page.getByText('Idea packet staged. No publish or schedule action was taken.').waitFor();
     assert.ok(stagedPacket, 'packet staging must receive a packet');
     const sourceCard = (stagedPacket.sourceCards as Array<Record<string, unknown>>)[0];

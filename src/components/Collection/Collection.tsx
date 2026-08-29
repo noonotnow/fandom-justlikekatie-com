@@ -534,10 +534,10 @@ export const Collection: React.FC<Props> = ({
     <main className={styles.collection}>
       <header className={styles.hero}>
         <div>
-          <h2>{isMiddleEarth ? 'Middle-earth Collection' : '我的收藏 · My Collection'}</h2>
+          <h2>{isMiddleEarth ? 'Middle-earth Collection' : 'Studio Operations'}</h2>
           <p>{isMiddleEarth
             ? 'Your separate MemeForge shelf for finished Middle-earth memes.'
-            : 'Keep complete visual worlds and individual finds ready for their next form.'}</p>
+            : 'Collect individual finds, keep finished worlds, and compose new 3×3 grids.'}</p>
         </div>
         <span>{isMiddleEarth ? `${cards.length} memes` : `${grids.length} grids · ${cards.length} results`}</span>
       </header>
@@ -602,7 +602,7 @@ export const Collection: React.FC<Props> = ({
             Saved results <span>{cards.length}</span>
           </button>
           <button type="button" aria-current={activeType === 'builder'} onClick={() => setActiveType('builder')}>
-            Build a grid
+            Grid Builder
           </button>
         </nav>
       )}

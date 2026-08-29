@@ -9,6 +9,8 @@ Curated 3×3 image grids of CDRAMA actors filtered by "vibe spells" (aesthetic s
 - AI-varied caption/template families for export share cards (Rednote)
 - Saved Collections (user-authenticated, passwordless via Resend magic links)
 - Saved Grids (save favorite algorithm results)
+- Studio Operations is the public Collection + Grid Builder workspace
+- Grid Builder is a core MVP product flow, not an admin-only or later feature
 - Public grid history
 
 ## Stack

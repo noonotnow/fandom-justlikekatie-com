@@ -1031,7 +1031,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
 
   const translateMoment = async () => {
     if (!isAdmin) {
-      setError("Sign in through packet staging to translate a moment.");
+      setError("Sign in to translate a moment.");
       return;
     }
     if (!moment.trim()) {
@@ -1154,7 +1154,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
 
   const generateVisual = async () => {
     if (!isAdmin) {
-      setError("Sign in through packet staging to use AI generation.");
+      setError("Sign in to use AI generation.");
       return;
     }
     if (!moment.trim() || !translation) {
@@ -1211,7 +1211,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
 
   const generateCopy = async () => {
     if (!isAdmin) {
-      setError("Sign in through packet staging to use AI generation.");
+      setError("Sign in to use AI generation.");
       return;
     }
     if (!visualGeneration) {
@@ -1498,7 +1498,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
         <a className={styles.collectionLink} href="/memeforge/middle-earth?view=collection">Middle-earth Collection</a>
         <div className={styles.eyebrow}><span className={styles.rune} aria-hidden="true">—</span> MemeForge / separate workbench <span className={styles.rule} /></div>
         <h1><small>Middle-earth</small><br /><em>MemeForge</em></h1>
-        <p className={styles.intro}>A Middle-earth fandom angle generator, separate from C-drama Vibe Atlas and its CREATE handoff. Say the moment badly. MemeForge finds the bit, then grounds it in a recognizable reaction image. Captions stay original.</p>
+        <p className={styles.intro}>A Middle-earth fandom angle generator with its own reaction-card craft. Say the moment badly. MemeForge finds the bit, then grounds it in a recognizable reaction image. Captions stay original.</p>
       </header>
 
       <section className={styles.modeSwitch} aria-label="Creation mode">
@@ -1903,8 +1903,8 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
            {isEditorRequired && !selected && <div className={styles.provenanceMuted}>Typography-only fallback is active. Choose a reaction image to restore image-backed rendering.</div>}
           <p className={styles.handoffNote}>{isEditorRequired
              ? isReworkExisting
-               ? <><strong>Your source and rework stay separate.</strong> Save the original at any time, or save a reworked card after adding at least one joke line. Translation, AI, and CREATE are optional.</>
-               : <><strong>Your generated draft stays here.</strong> PNG export is independent. Packet staging is an optional handoff to the CREATE workflow.</>
+              ? <><strong>Your source and rework stay separate.</strong> Save the original at any time, or save a reworked card after adding at least one joke line. Translation and AI are optional.</>
+              : <><strong>Your generated draft stays here.</strong> PNG export and Collection save remain independent.</>
             : <><strong>The original stays original.</strong> Export and Collection save use the selected source image without MemeForge overlays or branding.</>}</p>
           <div className={styles.actions}>
              {isEditorRequired && <button className={styles.export} onClick={() => void exportEditedPng()} disabled={busy || (isReworkExisting && !hasReworkOverlay)}>{busy ? "Working…" : isReworkExisting ? "Export rework" : "Export reaction card"}</button>}
@@ -1912,9 +1912,9 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
              {canSaveOriginalMeme && <button className={styles.save} onClick={() => void saveExistingMeme()} disabled={busy || originalCollectionSaved}>{originalCollectionSaved ? isExistingMemeAsIs ? "Saved to Collection" : "Original saved" : isExistingMemeAsIs ? "Save to Collection" : "Save original to Collection"}</button>}
               {isEditorRequired && hasSavableGeneratedCard && <button className={styles.save} onClick={() => void saveGeneratedMeme()} disabled={busy || collectionSaved}>{collectionSaved ? "Saved to Collection" : isReworkExisting ? "Save linked rework" : "Save reaction card"}</button>}
              {(canSaveOriginalMeme && originalCollectionSaved || isEditorRequired && hasSavableGeneratedCard && collectionSaved) && <a className={styles.stagingLink} href="/memeforge/middle-earth?view=collection">Open Collection</a>}
-            {isEditorRequired && (isAdmin
-              ? <button className={styles.save} onClick={() => void savePacket()} disabled={busy}>Stage for CREATE</button>
-              : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in through packet staging</a>)}
+            {isEditorRequired && isAdmin && (
+              <button className={styles.save} onClick={() => void savePacket()} disabled={busy}>Stage in Operator Console</button>
+            )}
             {!isEditorRequired && !selected && <span className={styles.actionHint}>Choose a source to unlock export and Collection save.</span>}
             {packetSaved && <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Open packet staging</a>}
           </div>

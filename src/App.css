@@ -12,9 +12,9 @@
 
 .fandom-universe-nav {
   display: grid;
-  grid-template-columns: minmax(190px, 1fr) auto minmax(300px, 1.4fr) auto;
+  grid-template-columns: minmax(180px, 1fr) auto minmax(260px, 1.2fr) minmax(170px, auto);
   align-items: center;
-  gap: 1.4rem;
+  gap: 1rem;
   min-height: 58px;
   border-bottom: 1px solid rgba(36, 45, 52, .16);
 }
@@ -254,6 +254,7 @@
   .fandom-universe-tools { grid-column: 1 / -1; grid-row: 2; }
   .fandom-universe-current { display: none; }
   .fandom-atlas-nav { grid-column: 1 / -1; grid-row: 3; justify-content: flex-start; }
+  .memeforge-workbench-link { grid-column: 1 / -1; grid-row: 4; justify-self: start; }
   .fandom-atlas-admin-link { position: absolute; top: 1.25rem; right: 1rem; }
   .fandom-universe-nav:has(.fandom-atlas-admin-link) .fandom-atlas-nav { padding-right: 4.5rem; }
   .atlas-hero__title-row { display: block; }
@@ -292,6 +293,8 @@
 
 .memeforge-workbench-link {
   align-self: center;
+  justify-self: end;
+  min-width: 0;
   display: inline-flex;
   flex-direction: column;
   gap: 0.15rem;

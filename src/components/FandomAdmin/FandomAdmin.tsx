@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { Plan } from '../Plan/Plan';
-import { GridBuilder } from '../GridBuilder/GridBuilder';
 import {
   downloadPacketHandoff,
   includedPacketOutputs,
@@ -36,29 +35,26 @@ interface Props {
 }
 
 export const FandomAdmin: React.FC<Props> = props => {
-  const [view, setView] = useState<'packets' | 'library' | 'builder' | 'plan' | 'court'>('packets');
+  const [view, setView] = useState<'packets' | 'library' | 'plan' | 'court'>('packets');
 
   return (
     <section className={styles.admin}>
-      {/* THESIS: Fandom Admin is a collection workbench, not a second PLAN.
+      {/* THESIS: Operator Console is the private packet and publishing workbench, not the public Studio Operations product.
           OWN-WORLD: incumbent charcoal/Canvas surfaces, gold state and action accents, compact native controls.
           STORY: collect visual signals, shape packet context, compile media, then create one canonical Draft.
           FIRST VIEWPORT: packet list and active workspace share one scan line; primary work stays visible without a modal.
           FORM: established Operate surface extended as a master-detail workbench. */}
       <header className={styles.header}>
         <div>
-          <h2>Fandom Admin</h2>
-          <p>Collect signals → shape systems → move mountains.</p>
+          <h2>Operator Console</h2>
+          <p>Private packet, publishing, and policy tools.</p>
         </div>
-        <div className={styles.tabs} role="tablist" aria-label="Fandom Admin view">
+        <div className={styles.tabs} role="tablist" aria-label="Operator Console view">
           <button type="button" role="tab" aria-selected={view === 'packets'} onClick={() => setView('packets')}>
             Idea Packets
           </button>
           <button type="button" role="tab" aria-selected={view === 'library'} onClick={() => setView('library')}>
             Packet staging
-          </button>
-          <button type="button" role="tab" aria-selected={view === 'builder'} onClick={() => setView('builder')}>
-            Grid Builder
           </button>
           <button type="button" role="tab" aria-selected={view === 'plan'} onClick={() => setView('plan')}>
             PLAN schedule
@@ -76,13 +72,6 @@ export const FandomAdmin: React.FC<Props> = props => {
           setPlanOperatorToken(token);
           await props.onRefresh();
         }} />
-      ) : view === 'builder' ? (
-        <GridBuilder
-          allRecords={true}
-          isAdmin={true}
-          onCreateFromGrid={props.onCreateFromGrid}
-          onPacketCreated={() => setView('packets')}
-        />
       ) : (
         <PacketWorkspace
           {...props}
@@ -745,7 +734,7 @@ function AdminAccess({ onUnlock }: { onUnlock: (token: string) => Promise<void> 
       setBusy(true);
       try { await onUnlock(token.trim()); } finally { setBusy(false); }
     }}>
-      <h3>Unlock Fandom Admin</h3>
+      <h3>Unlock Operator Console</h3>
       <p>Enter the operator key for this browser session.</p>
       <label><span>Operator key</span><input type="password" value={token} onChange={event => setToken(event.target.value)} required /></label>
       <button type="submit" disabled={busy || !token.trim()}>{busy ? 'Unlocking…' : 'Unlock workspace'}</button>
