@@ -139,6 +139,11 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
           product: typeof record.product === "string" ? "present" : "expanded",
         });
       }
+      if (new URL(req.url).searchParams.get("health") === "billing-stripe-account") {
+        const stripe = await atStage("stripe-client", () => billing.stripe());
+        const account = await atStage("account-read", () => stripe.accounts.retrieve());
+        return json(200, { ok: true, livemode: Boolean(account.livemode) });
+      }
       const session = await auth.authenticate(req, context);
       await atStage("initialize", () => billing.initialize(context));
       const repository = await atStage("repository", () => billing.repository(context));
