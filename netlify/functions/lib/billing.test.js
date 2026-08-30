@@ -51,6 +51,40 @@ test("checkout and portal are bound to the authenticated account", async () => {
   assert.equal(calls[1][1].line_items[0].price, "price_real123");
 });
 
+test("checkout retries without a stale customer when Stripe reports a missing resource", async () => {
+  const inputs = [];
+  const repository = {
+    customerForAccount: async () => "cus_old_account",
+    linkCustomer: async () => "cus_new_account",
+    membershipForAccount: async () => ({ status: "inactive" }),
+  };
+  const billing = {
+    initialize: async () => {},
+    repository: () => repository,
+    stripe: async () => ({
+      customers: { retrieve: async () => ({ id: "cus_old_account", deleted: false }) },
+      checkout: {
+        sessions: {
+          create: async input => {
+            inputs.push(input);
+            if (inputs.length === 1) {
+              const error = new Error("No such customer");
+              error.code = "resource_missing";
+              throw error;
+            }
+            return { url: "https://checkout.test" };
+          },
+        },
+      },
+    }),
+  };
+  const handlers = createBillingHandlers({ auth, billing, env: { FANDOM_STRIPE_MEMBERSHIP_PRICE_ID: "price_real123" } });
+  assert.equal((await handlers.checkout(request("/api/billing/checkout"), {})).status, 200);
+  assert.equal(inputs[0].customer, "cus_old_account");
+  assert.equal(inputs[1].customer_email, user.email);
+  assert.equal("customer" in inputs[1], false);
+});
+
 test("webhook delegates the exact raw body and signature to Stripe sync", async () => {
   let processed;
   const handlers = createBillingHandlers({

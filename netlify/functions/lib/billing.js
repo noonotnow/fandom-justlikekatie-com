@@ -130,24 +130,6 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
   return {
     status: guarded(async (req, context) => {
       if (req.method !== "GET") return json(405, { error: "Method not allowed." }, { Allow: "GET" });
-      if (new URL(req.url).searchParams.get("health") === "billing-stripe-product") {
-        const price = await atStage("price-config", () => {
-          const configured = env.FANDOM_STRIPE_MEMBERSHIP_PRICE_ID;
-          if (!/^price_[A-Za-z0-9]+$/.test(configured || "")) {
-            throw new Error("FANDOM_STRIPE_MEMBERSHIP_PRICE_ID must be a Stripe Price ID.");
-          }
-          return configured;
-        });
-        const stripe = await atStage("stripe-client", () => billing.stripe());
-        const record = await atStage("price-read", () => stripe.prices.retrieve(price, { expand: ["product"] }));
-        return json(200, {
-          ok: true,
-          active: Boolean(record.active),
-          livemode: Boolean(record.livemode),
-          recurring: Boolean(record.recurring),
-          productAvailable: Boolean(record.product && typeof record.product === "object" && !record.product.deleted),
-        });
-      }
       const session = await auth.authenticate(req, context);
       await atStage("initialize", () => billing.initialize(context));
       const repository = await atStage("repository", () => billing.repository(context));
@@ -187,13 +169,24 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
         customer = await atStage("customer-link", () => repository.linkCustomer(session.user.accountId, created.id));
       }
       const origin = new URL(req.url).origin;
-      const checkout = await atStage("checkout-session", () => stripe.checkout.sessions.create({
+      const checkoutInput = {
         mode: "subscription", customer, line_items: [{ price, quantity: 1 }],
         success_url: `${origin}/vibe-atlas?view=membership&membership=success`,
         cancel_url: `${origin}/vibe-atlas?view=membership&membership=cancelled`,
         metadata: { fandom_account_id: session.user.accountId },
         subscription_data: { metadata: { fandom_account_id: session.user.accountId } },
-      }));
+      };
+      let checkout;
+      try {
+        checkout = await atStage("checkout-session", () => stripe.checkout.sessions.create(checkoutInput));
+      } catch (error) {
+        const resourceMissing = error?.code === "resource_missing" || error?.raw?.code === "resource_missing";
+        if (!customer || !resourceMissing) throw error;
+        const { customer: ignoredCustomer, ...emailCheckoutInput } = checkoutInput;
+        checkout = await atStage("checkout-session-retry", () => stripe.checkout.sessions.create({
+          ...emailCheckoutInput, customer_email: session.user.email,
+        }));
+      }
       return json(200, { url: checkout.url });
     }),
     portal: guarded(async (req, context) => {
