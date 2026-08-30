@@ -516,6 +516,32 @@ export async function dbBuildSyncRequest(accountId: string): Promise<CollectionS
   };
 }
 
+/**
+ * Builds an explicit, single-grid upsert. This intentionally bypasses the
+ * device merge preference: a creator has selected this one artifact to hand
+ * off, rather than opting the account into merging its whole device cache.
+ */
+export async function dbBuildGridSyncRequest(
+  accountId: string,
+  gridId: string,
+): Promise<CollectionSyncRequest> {
+  const localId = await dbEnsureGridLocalId(gridId);
+  if (!localId) throw new Error('The selected grid is no longer saved on this device.');
+  const [grid, state] = await Promise.all([dbGetGrid(gridId), dbGetSyncState()]);
+  if (!grid) throw new Error('The selected grid is no longer saved on this device.');
+  if (grid.ownerAccountId && grid.ownerAccountId !== accountId) {
+    throw new Error('The selected grid belongs to a different account.');
+  }
+  const identifiedGrid = { ...grid, localId };
+  return {
+    schemaVersion: 1,
+    clientId: state.clientId,
+    expectedAccountId: accountId,
+    cursor: state.cursors[accountId] || 0,
+    operations: [gridUpsertOperation(identifiedGrid, state)],
+  };
+}
+
 export function buildSyncOperations(
   cards: CardRecord[],
   state: CollectionSyncState,
@@ -568,16 +594,7 @@ export function buildSyncOperations(
     .filter(operation => acknowledged[operation.localId] !== operation.mutationId);
   const gridUpserts = grids
     .filter(grid => !grid.ownerAccountId || grid.ownerAccountId === accountId)
-    .map(grid => {
-      const localId = grid.localId!;
-      const mutationId = `upsert:${state.clientId}:${localId}:${grid.legendaryMisprint?.markedAt || grid.savedAt}`;
-      return {
-        type: 'upsert',
-        mutationId,
-        localId,
-        item: collectionGridSyncItem(grid),
-      };
-    })
+    .map(grid => gridUpsertOperation(grid, state))
     .filter(operation => acknowledged[operation.localId] !== operation.mutationId);
   return [...deletes, ...upserts, ...gridUpserts];
 }
@@ -822,6 +839,20 @@ function collectionGridSyncItem(grid: GridRecord): Record<string, unknown> {
   delete item.serverId;
   delete item.ownerAccountId;
   return item;
+}
+
+function gridUpsertOperation(
+  grid: GridRecord,
+  state: CollectionSyncState,
+): Record<string, unknown> & { localId: string; mutationId: string } {
+  const localId = grid.localId;
+  if (!localId) throw new Error('A grid must have a local identity before syncing.');
+  return {
+    type: 'upsert',
+    mutationId: `upsert:${state.clientId}:${localId}:${grid.legendaryMisprint?.markedAt || grid.savedAt}`,
+    localId,
+    item: collectionGridSyncItem(grid),
+  };
 }
 
 type LegacyCollectionSyncState = Partial<CollectionSyncState> & {

@@ -21,7 +21,6 @@ import {
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
 import {
   classifyCollectionMedia,
-  collectionMediaCandidatesFromPackets,
   recoverCollectionCard,
   recoverCollectionGrid,
   uploadCollectionImage,
@@ -34,7 +33,6 @@ import {
   uploadExportedCard,
   type PersistedExportEntry,
 } from '../../utils/gridExportLog';
-import type { IdeaPacket } from '../../utils/ideaPackets';
 import { ArtifactZoomDialog } from '../ArtifactZoomDialog/ArtifactZoomDialog';
 import { GridBuilder } from '../GridBuilder/GridBuilder';
 import {
@@ -61,10 +59,7 @@ interface Props {
   isAdmin?: boolean;
   isMember?: boolean;
   onUpgrade?: () => void;
-  packets?: IdeaPacket[];
   onCreateFromGrid?: (grid: GridRecord) => Promise<CreatorDraftResult>;
-  onPacketCreated?: () => void;
-  onAddGridToPacket?: (packet: IdeaPacket, grid: GridRecord) => Promise<IdeaPacket>;
 }
 
 type ExpandedArtifact =
@@ -79,10 +74,7 @@ export const Collection: React.FC<Props> = ({
   isAdmin = false,
   isMember = false,
   onUpgrade,
-  packets = [],
   onCreateFromGrid,
-  onPacketCreated,
-  onAddGridToPacket,
 }) => {
   const isMiddleEarth = scope === 'middle-earth';
   // Membership is a Vibe Atlas offer; the separate MemeForge collection is not paywalled.
@@ -103,14 +95,12 @@ export const Collection: React.FC<Props> = ({
   });
   const [needsMergeChoice, setNeedsMergeChoice] = useState(false);
   const [busyKey, setBusyKey] = useState('');
-  const [packetSelections, setPacketSelections] = useState<Record<string, string>>({});
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
   const [expandedArtifact, setExpandedArtifact] = useState<ExpandedArtifact | null>(null);
   const [failedCardImages, setFailedCardImages] = useState<Record<string, boolean>>({});
   const [failedGridImages, setFailedGridImages] = useState<Record<string, boolean>>({});
   const accountIdRef = useRef<string | undefined>(undefined);
   const pendingRemovalRef = useRef<PendingRemoval | null>(null);
-  const collectingPackets = packets.filter(packet => packet.state === 'collecting');
 
   async function loadCollection(accountId = accountIdRef.current) {
     const [visibleCards, visibleGrids] = await Promise.all([
@@ -415,7 +405,7 @@ export const Collection: React.FC<Props> = ({
     try {
       const result = await recoverCollectionCard(
         card,
-        collectionMediaCandidatesFromPackets(packets),
+        [],
       );
       await loadCollection(user?.accountId);
       setFailedCardImages(current => {
@@ -441,7 +431,7 @@ export const Collection: React.FC<Props> = ({
     try {
       const result = await recoverCollectionGrid(
         grid,
-        collectionMediaCandidatesFromPackets(packets),
+        [],
       );
       await loadCollection(user?.accountId);
       setFailedGridImages(current => {
@@ -756,7 +746,6 @@ export const Collection: React.FC<Props> = ({
                           const result = await onCreateFromGrid(grid);
                           setAccountNotice('Creator OS draft created. Opening the composer…');
                           window.location.assign(result.receipt.createUrl);
-                          onPacketCreated?.();
                         } catch (error) {
                           setAccountNotice(messageFrom(error, 'The Creator OS draft could not be created.'));
                         } finally {
@@ -786,50 +775,6 @@ export const Collection: React.FC<Props> = ({
                   </button>
                 </div>
                 <GridExportHistory gridId={grid.id} signedIn={Boolean(user)} />
-                {isAdmin && onAddGridToPacket && (
-                  <div className={styles.packetAction}>
-                    {collectingPackets.length === 0 ? (
-                      <span>Start a packet to add this grid as an output.</span>
-                    ) : (
-                      <>
-                        <select
-                          aria-label={`Packet for ${grid.actor} ${grid.vibe} grid`}
-                          value={packetSelections[grid.id] || ''}
-                          onChange={event => setPacketSelections(current => ({
-                            ...current,
-                            [grid.id]: event.target.value,
-                          }))}
-                        >
-                          <option value="">Choose an existing packet…</option>
-                          {collectingPackets.map(packet => (
-                            <option key={packet.id} value={packet.id}>
-                              {packet.actor.name} · {packet.vibe.labelEn}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          disabled={Boolean(busyKey) || !packetSelections[grid.id]}
-                          onClick={async () => {
-                            const packet = collectingPackets.find(candidate => candidate.id === packetSelections[grid.id]);
-                            if (!packet) return;
-                            setBusyKey(`add:${grid.id}`);
-                            try {
-                              await onAddGridToPacket(packet, grid);
-                              setAccountNotice('Grid added to the Idea Packet as a complete output.');
-                            } catch (error) {
-                              setAccountNotice(messageFrom(error, 'The grid could not be added to that packet.'));
-                            } finally {
-                              setBusyKey('');
-                            }
-                          }}
-                        >
-                          {busyKey === `add:${grid.id}` ? 'Adding…' : 'Add grid to packet'}
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
               </article>
             ))}
           </section>

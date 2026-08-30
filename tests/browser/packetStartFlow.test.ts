@@ -108,12 +108,50 @@ async function openSavedGrid(page: Page, origin: string): Promise<void> {
   await page.getByText('Packet flow actor').first().waitFor();
 }
 
+async function mockSelectedGridSync(page: Page): Promise<() => number> {
+  let syncRequests = 0;
+  await page.route('**/api/collection/sync', async route => {
+    const request = route.request().postDataJSON() as {
+      expectedAccountId: string;
+      operations: Array<{
+        type: string;
+        mutationId: string;
+        localId: string;
+        item?: { kind?: string; id?: string };
+      }>;
+    };
+    syncRequests += 1;
+
+    assert.equal(request.expectedAccountId, ACCOUNT_ID);
+    assert.equal(request.operations.length, 1, 'only the selected grid should be synced');
+    const [operation] = request.operations;
+    assert.equal(operation.type, 'upsert');
+    assert.equal(operation.item?.kind, 'grid');
+    assert.equal(operation.item?.id, GRID_ID);
+
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        cursor: syncRequests,
+        items: [{
+          ...operation.item,
+          id: 'packet-start-grid-server',
+          localId: operation.localId,
+        }],
+        tombstones: [],
+        mappings: { [operation.localId]: 'packet-start-grid-server' },
+        acknowledgedMutationIds: [operation.mutationId],
+      }),
+    });
+  });
+  return () => syncRequests;
+}
+
 test('Make a post sends one direct grid source and opens the Creator OS draft', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();
   const page = await browser.newPage();
   let createRequests = 0;
-  let packetReads = 0;
 
   try {
     await page.route('**/api/auth/session', route => route.fulfill({
@@ -122,19 +160,9 @@ test('Make a post sends one direct grid source and opens the Creator OS draft', 
         user: { accountId: ACCOUNT_ID, email: 'packet@example.test', isAdmin: true },
       }),
     }));
-    await page.route('**/api/idea-packets', async route => {
-      if (route.request().method() === 'GET') {
-        packetReads += 1;
-        if (packetReads === 1) await new Promise(resolve => setTimeout(resolve, 500));
-        await route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify({ packets: [] }),
-        });
-        return;
-      }
-      await route.fulfill({ status: 405, contentType: 'application/json', body: JSON.stringify({ error: 'archive is read-only' }) });
-    });
+    const getSyncRequests = await mockSelectedGridSync(page);
     await page.route('**/api/create-handoff', async route => {
+      assert.equal(getSyncRequests(), 1, 'the selected grid must sync before its handoff is created');
       createRequests += 1;
       const request = route.request().postDataJSON() as { source: { sourceId: string; sourceVersion: string } };
       await route.fulfill({
@@ -167,6 +195,7 @@ test('Make a post sends one direct grid source and opens the Creator OS draft', 
     await page.waitForURL('https://create.justlikekatie.com/compose?postId=creator-draft-1');
     await page.waitForTimeout(600);
     assert.equal(createRequests, 1);
+    assert.equal(getSyncRequests(), 1);
   } finally {
     await browser.close();
     await server.close();
@@ -190,13 +219,9 @@ for (const failure of [
           user: { accountId: ACCOUNT_ID, email: 'packet@example.test', isAdmin: true },
         }),
       }));
-      await page.route('**/api/idea-packets', route => {
-        if (route.request().method() === 'GET') {
-          return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ packets: [] }) });
-        }
-        return route.fulfill({ status: 405, contentType: 'application/json', body: JSON.stringify({ error: 'archive is read-only' }) });
-      });
+      const getSyncRequests = await mockSelectedGridSync(page);
       await page.route('**/api/create-handoff', route => {
+        assert.equal(getSyncRequests(), 1, 'the selected grid must sync before its handoff is created');
         createRequests += 1;
         return route.fulfill({
           status: failure.status,
@@ -210,6 +235,7 @@ for (const failure of [
       await page.getByRole('status').filter({ hasText: failure.message }).waitFor();
       assert.equal(new URL(page.url()).search, '?view=collection');
       assert.equal(createRequests, 1);
+      assert.equal(getSyncRequests(), 1);
       await page.getByText('Packet flow actor').first().waitFor();
     } finally {
       await browser.close();

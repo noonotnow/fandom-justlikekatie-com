@@ -16,4 +16,4 @@
 - [Vibe Atlas billing boundary](vibe-atlas-billing-boundary.md) — Stripe membership gates Vibe Atlas cloud sync, Grid Builder, and premium exports; existing content storage and MemeForge remain separate.
 - [External Netlify deployment](external-netlify-deployment.md) — verify the custom domain’s bundle and function routes before production-only tests; Replit deployment metadata is separate.
 - [Stripe account alignment](stripe-account-alignment.md) — Netlify credentials, Price IDs, and webhook secrets must share one Stripe account and mode; Replit can be connected to another.
-- [Creator OS packet retirement](creator-os-packet-retirement.md) — hide packets behind direct post actions now; keep them as a trusted archive/adapter until Creator OS accepts draft sources directly.
+- [Creator OS packet retirement](creator-os-packet-retirement.md) — legacy packets are retired; CREATE holds migrated history, while selected grids sync directly through Collection.

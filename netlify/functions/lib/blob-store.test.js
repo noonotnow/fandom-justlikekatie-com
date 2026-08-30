@@ -5,7 +5,7 @@ import { getBlobStore } from "./blob-store.js";
 test("uses the store name with the V2 function context", () => {
   let input;
   const expected = {};
-  const actual = getBlobStore("idea-packets", {
+  const actual = getBlobStore("test-blob-store", {
     blobs: {
       getStore(value) {
         input = value;
@@ -14,5 +14,5 @@ test("uses the store name with the V2 function context", () => {
     },
   }, { consistency: "strong" });
   assert.equal(actual, expected);
-  assert.equal(input, "idea-packets");
+  assert.equal(input, "test-blob-store");
 });

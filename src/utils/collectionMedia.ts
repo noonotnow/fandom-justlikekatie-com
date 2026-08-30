@@ -8,7 +8,6 @@ import {
   dbSaveCardMediaRecovery,
   dbSaveGridMediaRecovery,
 } from './collectionDB';
-import type { IdeaPacket } from './ideaPackets';
 import type {
   CollectionMediaClassification,
   CollectionMediaRecovery,
@@ -41,49 +40,6 @@ export function classifyCollectionMedia(
   if (record.media && isVerifiedMediaReference(record.media)) return 'media-backed';
   if ('legacyCompositeUrl' in record && record.legacyCompositeUrl) return 'legacy-composite';
   return 'url-only';
-}
-
-export function collectionMediaCandidatesFromPackets(
-  packets: IdeaPacket[],
-): CollectionMediaCandidate[] {
-  const candidates: CollectionMediaCandidate[] = [];
-  for (const packet of packets) {
-    for (const media of packet.media || []) {
-      if (media.media) candidates.push({
-        media: media.media,
-        resultId: media.resultId,
-        imageUrl: media.imageUrl,
-        collectionScope: packetScope(packet, media.media),
-      });
-    }
-    for (const card of packet.sourceCards || []) {
-      if (card.media) candidates.push({
-        media: card.media,
-        resultId: card.resultId,
-        imageUrl: card.imageUrl,
-        collectionScope: packetScope(packet, card.media),
-      });
-    }
-    for (const grid of packet.grids || []) {
-      for (const image of grid.images || []) {
-        if (image.media) candidates.push({
-          media: image.media,
-          resultId: image.resultId,
-          imageUrl: image.imageUrl,
-          collectionScope: packetScope(packet, image.media),
-        });
-      }
-    }
-  }
-  return candidates;
-}
-
-function packetScope(packet: IdeaPacket, media: MediaReference): CollectionScope {
-  if (media.association.type === 'collection') {
-    if (media.association.id === 'middle-earth') return 'middle-earth';
-    if (media.association.id === 'vibe-atlas') return 'vibe-atlas';
-  }
-  return packet.workspace === 'middle-earth' ? 'middle-earth' : 'vibe-atlas';
 }
 
 export async function recoverCollectionCard(

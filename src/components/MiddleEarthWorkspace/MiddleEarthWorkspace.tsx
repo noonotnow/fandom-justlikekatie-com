@@ -10,10 +10,6 @@ import {
   type ReactionImageBrief,
 } from "../../utils/middleEarthAi";
 import {
-  ideaPacketStagingErrorMessage,
-  type MiddleEarthRednoteCopy,
-} from "../../utils/ideaPackets";
-import {
   aesthetics,
   artifactTypes,
   memeFlavors,
@@ -103,7 +99,6 @@ export interface MiddleEarthDraft {
     generatedAt: string;
     model?: string;
   };
-  rednoteCopy?: MiddleEarthRednoteCopy;
   creationPath?: "reaction-card" | "meme-rework";
   memeRework?: ReturnType<typeof createMemeReworkMetadata>;
   asset?: MiddleEarthAsset;
@@ -575,10 +570,7 @@ function parseTagList(value: string): string[] {
     .map((tag) => `#${tag.slice(0, 49)}`);
 }
 
-export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
-  isAdmin: boolean;
-  onCreatePacket: (draft: MiddleEarthDraft) => Promise<void>;
-}) {
+export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
   const kind: MiddleEarthContentKind = "meme";
   const [activeStep, setActiveStep] = useState<"forge" | "spellbook">("forge");
   const [archiveSearchRequestGate] = useState(createArchiveSearchRequestGate);
@@ -612,13 +604,12 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
   const [rednoteTitle, setRednoteTitle] = useState("");
   const [rednoteCaption, setRednoteCaption] = useState("");
   const [rednoteTags, setRednoteTags] = useState<string[]>([]);
-  const [rednoteGeneratedAt, setRednoteGeneratedAt] = useState("");
-  const [rednoteModel, setRednoteModel] = useState("");
-  const [rednoteCharacter, setRednoteCharacter] = useState("");
+  const [, setRednoteGeneratedAt] = useState("");
+  const [, setRednoteModel] = useState("");
+  const [, setRednoteCharacter] = useState("");
   const [rednoteGroundingFingerprint, setRednoteGroundingFingerprint] = useState("");
   const [previewImageFailed, setPreviewImageFailed] = useState(false);
   const [previewNode, setPreviewNode] = useState<HTMLElement | null>(null);
-  const [packetSaved, setPacketSaved] = useState(false);
   const [collectionSaved, setCollectionSaved] = useState(false);
   const [originalCollectionSaved, setOriginalCollectionSaved] = useState(false);
   const [reworkEditMode, setReworkEditMode] = useState<MemeReworkEditMode>("cover-and-replace");
@@ -678,7 +669,6 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
 
   const invalidateGeneratedVisual = () => {
     setVisualGeneration(undefined);
-    setPacketSaved(false);
   };
 
   useEffect(() => {
@@ -824,7 +814,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     if (clean !== query) setQuery(clean);
     const requestId = archiveSearchRequestGate.begin();
     setComparisonEmotion(undefined);
-    setSelected(undefined); setPreviewImageFailed(false); setVisualGeneration(undefined); setPacketSaved(false);
+    setSelected(undefined); setPreviewImageFailed(false); setVisualGeneration(undefined);
     setSourceTreatment(sourcePath === "existing-meme" ? "as-is" : "new-overlay");
     setSearching(true); setError(""); setStatus("");
     try {
@@ -876,7 +866,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           .map((sceneQuery) => ({ query: sceneQuery, tier: "Iconic scene" as const }))
       : reactionQueryLadder(brief, curatedSceneQuery);
     if (!ladder.length) return;
-    setSelected(undefined); setPreviewImageFailed(false); setVisualGeneration(undefined); setPacketSaved(false);
+    setSelected(undefined); setPreviewImageFailed(false); setVisualGeneration(undefined);
     setSearching(true); setError(""); setStatus("MemeForge is looking for the reaction face…");
     try {
       const responses = await Promise.allSettled(ladder.map(async (step, stepIndex) => {
@@ -929,7 +919,6 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     if (next === "spellbook" && !isEditorRequired) return;
     setActiveStep(next);
     setStatus("");
-    setPacketSaved(false);
   };
 
   const compareReactionEmotion = (nextEmotion?: string) => {
@@ -1019,7 +1008,6 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     if (nextMode !== reactionSearchMode) changeReactionSearchMode(nextMode);
     setSourceTreatment(nextPath === "existing-meme" ? "as-is" : "new-overlay");
     setActiveStep("forge");
-    setPacketSaved(false);
     if (nextPath === "existing-meme") {
       setStatus("Unchanged export selected. Find a finished meme, then export or save its original bytes without opening the editor.");
     } else if (nextPath === "rework-existing") {
@@ -1041,7 +1029,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     const translatingRework = isReworkExisting;
     const requestId = translationRequestGate.begin();
     if (!translatingRework) setSelected(undefined);
-    setPreviewImageFailed(false); setVisualGeneration(undefined); setPacketSaved(false);
+    setPreviewImageFailed(false); setVisualGeneration(undefined);
     setBusy(true); setError(""); setStatus("MemeForge is finding the fandom angle…");
     try {
       const generated = await translateMemeMoment({
@@ -1114,19 +1102,6 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     rednoteGroundingFingerprint
     && rednoteGroundingFingerprint === currentGroundingFingerprint
   );
-  const rednoteCopy = useMemo<MiddleEarthRednoteCopy | undefined>(() => {
-    if (!rednoteIsCurrent || !rednoteTitle.trim() || !rednoteCaption.trim() || rednoteTags.length < 3) return undefined;
-    return {
-      title: rednoteTitle.trim(),
-      caption: rednoteCaption.trim(),
-      tags: rednoteTags,
-      character: rednoteCharacter,
-      generatedAt: rednoteGeneratedAt || new Date().toISOString(),
-      provider: "xai",
-      ...(rednoteModel ? { model: rednoteModel } : {}),
-    };
-  }, [rednoteIsCurrent, rednoteTitle, rednoteCaption, rednoteTags, rednoteCharacter, rednoteGeneratedAt, rednoteModel]);
-
   const draft = useMemo<MiddleEarthDraft>(() => ({
     kind, title: title.trim() || cardFormat || "Untitled Middle-earth idea", text: text.trim(),
     secondaryText: secondaryText.trim() || undefined, tone, layout,
@@ -1138,12 +1113,11 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     ...(translation?.reactionImageBrief ? { reactionImageBrief: translation.reactionImageBrief } : {}),
     creativeDirection: generationGuidance || undefined,
     aiGeneration: visualGeneration,
-    rednoteCopy,
     creationPath: isReworkExisting ? "meme-rework" : "reaction-card",
     ...(memeRework ? { memeRework } : {}),
     asset: selected,
     createdAt: new Date().toISOString(),
-  }), [title, text, secondaryText, tone, layout, cardFormat, resolvedCharacter, resolvedMemeFlavor, resolvedComicMechanism, resolvedAesthetic, resolvedArtifactType, referenceStillFamily, activeReferenceStillFamily, translation, generationGuidance, visualGeneration, rednoteCopy, isReworkExisting, memeRework, selected]);
+  }), [title, text, secondaryText, tone, layout, cardFormat, resolvedCharacter, resolvedMemeFlavor, resolvedComicMechanism, resolvedAesthetic, resolvedArtifactType, referenceStillFamily, activeReferenceStillFamily, translation, generationGuidance, visualGeneration, isReworkExisting, memeRework, selected]);
 
   const sourceContext = useMemo<MiddleEarthAiSource | undefined>(() => selected ? {
     title: selected.title,
@@ -1200,7 +1174,6 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
         generatedAt: new Date().toISOString(),
         ...(generated.model ? { model: generated.model } : {}),
       });
-      setPacketSaved(false);
       setStatus(`Visual object generated${generated.rationale ? ` — ${generated.rationale}` : "."}`);
     } catch (generationError) {
       setError(generationError instanceof Error ? generationError.message : "MemeForge could not generate the visual object.");
@@ -1255,7 +1228,6 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       setRednoteModel(generated.model || "");
       setRednoteCharacter(resolvedCharacter.trim());
       setRednoteGroundingFingerprint(currentGroundingFingerprint);
-      setPacketSaved(false);
       setStatus("Rednote title, caption, and tags generated. Edit anything before saving.");
     } catch (generationError) {
       setError(generationError instanceof Error ? generationError.message : "Spellbook could not generate the Rednote copy.");
@@ -1291,7 +1263,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
       await exportMiddleEarthPng(draft, previewNode);
       setStatus(isReworkExisting
         ? "Reworked derivative downloaded. The original source was not changed."
-        : "PNG downloaded. No packet was saved.");
+        : "PNG downloaded. No publish or schedule action was taken.");
     }
     catch (exportError) { setError(exportError instanceof Error ? exportError.message : "Export failed."); }
     finally { setBusy(false); }
@@ -1454,41 +1426,6 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
     } finally {
       setBusy(false);
     }
-  };
-
-  const savePacket = async () => {
-    if (!isAdmin) return;
-    if ((!isReworkExisting && (!text.trim() || !secondaryText.trim())) || (isReworkExisting && !hasReworkOverlay)) {
-      setError(isReworkExisting
-        ? "Add at least one replacement or overlay line before staging this rework."
-        : "The reaction card needs both its setup and punchline before it can be saved.");
-      return;
-    }
-    if (rednoteTouched && !rednoteCopy) {
-      setError(rednoteGroundingFingerprint && !rednoteIsCurrent
-        ? "The visual, character, or source changed after Spellbook wrote this copy. Regenerate it before saving."
-        : "Finish the Rednote title, caption, and at least three tags before saving the packet.");
-      return;
-    }
-    setBusy(true); setStatus("Staging your idea packet…"); setError("");
-    try {
-      let packetDraft = draft;
-      if (selected?.thumbnail.startsWith("data:image/")) {
-        setStatus("Registering the original source in MEDIA before staging…");
-        const durableAsset = await registerUploadedAssetInMedia(selected);
-        packetDraft = {
-          ...draft,
-          asset: durableAsset,
-          ...(draft.memeRework ? { memeRework: reworkMetadataForAsset(durableAsset) } : {}),
-        };
-        setSelected(durableAsset);
-      }
-      await onCreatePacket(packetDraft);
-      setPacketSaved(true);
-      setStatus("Idea packet staged. No publish or schedule action was taken.");
-    }
-    catch (saveError) { setError(ideaPacketStagingErrorMessage(saveError)); }
-    finally { setBusy(false); }
   };
 
   return (
@@ -1659,7 +1596,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
             {selected && comparisonEmotion && !filterReactionCandidates([selected], comparisonEmotion).length && <p>Selected source remains attached from “{selected.query}”. Switch back to all reactions to compare it alongside this view.</p>}
           </div>}
           {!searching && results.length > 0 && !visibleResults.length && <div className={styles.empty}><span>Comparison note</span><strong>No loaded candidates perform “{comparisonEmotion}” yet.</strong><p>Your selected source and its rights-status labeling remain attached. Try another emotion or view all reactions.</p></div>}
-          {!searching && visibleResults.length > 0 && <div className={styles.gallery}>{visibleResults.map((asset) => <button key={asset.id} className={`${styles.result} ${selected?.id === asset.id ? styles.resultSelected : ""}`} onClick={() => { setSelected(asset); setVisualGeneration(undefined); setSourceTreatment(sourcePath === "existing-meme" ? "as-is" : "new-overlay"); setPreviewImageFailed(false); setPacketSaved(false); setStatus(sourcePath === "existing-meme" ? `Selected “${asset.title}”. The editor is bypassed; export or save the unchanged meme below.` : sourcePath === "rework-existing" ? `Selected “${asset.title}”. The editor is ready for a fresh rework.` : `Selected “${asset.title}”. Generate the visual object with this source.`); }} aria-pressed={selected?.id === asset.id} disabled={busy}><span className={styles.imageWrap}><img src={asset.thumbnail} alt="" onError={(event) => { event.currentTarget.style.display = "none"; const fallback = event.currentTarget.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.visibility = "visible"; }} /><span className={styles.imageFallback}>Image<br />unavailable</span></span><span className={styles.resultTitle}>{asset.title}</span>{asset.reactionEmotion && <span className={styles.resultEmotion}>{(asset.reactionEmotions ?? [asset.reactionEmotion]).join(" · ")} reaction</span>}<span className={styles.publisher}>{reactionSearchMode === "existing-meme" ? "Existing meme · " : asset.reactionQueryTier ? `${asset.reactionQueryTier} match · ` : ""}{asset.publisher || "Unknown publisher"}</span></button>)}</div>}
+          {!searching && visibleResults.length > 0 && <div className={styles.gallery}>{visibleResults.map((asset) => <button key={asset.id} className={`${styles.result} ${selected?.id === asset.id ? styles.resultSelected : ""}`} onClick={() => { setSelected(asset); setVisualGeneration(undefined); setSourceTreatment(sourcePath === "existing-meme" ? "as-is" : "new-overlay"); setPreviewImageFailed(false); setStatus(sourcePath === "existing-meme" ? `Selected “${asset.title}”. The editor is bypassed; export or save the unchanged meme below.` : sourcePath === "rework-existing" ? `Selected “${asset.title}”. The editor is ready for a fresh rework.` : `Selected “${asset.title}”. Generate the visual object with this source.`); }} aria-pressed={selected?.id === asset.id} disabled={busy}><span className={styles.imageWrap}><img src={asset.thumbnail} alt="" onError={(event) => { event.currentTarget.style.display = "none"; const fallback = event.currentTarget.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.visibility = "visible"; }} /><span className={styles.imageFallback}>Image<br />unavailable</span></span><span className={styles.resultTitle}>{asset.title}</span>{asset.reactionEmotion && <span className={styles.resultEmotion}>{(asset.reactionEmotions ?? [asset.reactionEmotion]).join(" · ")} reaction</span>}<span className={styles.publisher}>{reactionSearchMode === "existing-meme" ? "Existing meme · " : asset.reactionQueryTier ? `${asset.reactionQueryTier} match · ` : ""}{asset.publisher || "Unknown publisher"}</span></button>)}</div>}
         </section>
 
         <section className={styles.forge}>
@@ -1803,9 +1740,9 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
                 : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in to generate</a>}
             </div>
             {cardFormat && <div className={styles.cardFormat}><span>Reaction format</span><strong>{cardFormat}</strong><p>Two lines only: setup, then punchline. Keep longer interpretation in “Translated as.”</p></div>}
-            <label>Tiny footer <small className={styles.optional}>optional</small><input value={title} onChange={(event) => { setTitle(event.target.value); setPacketSaved(false); }} maxLength={45} disabled={busy} /></label>
-            <label>{isReworkExisting ? "Joke line 1" : "Setup line"}{isReworkExisting && <small className={styles.optional}> optional</small>}<textarea value={text} onChange={(event) => { setText(event.target.value); setPacketSaved(false); }} rows={2} maxLength={36} disabled={busy} /></label>
-            <label>{isReworkExisting ? "Joke line 2" : "Punchline / reaction line"}{isReworkExisting && <small className={styles.optional}> optional</small>}<input value={secondaryText} onChange={(event) => { setSecondaryText(event.target.value); setPacketSaved(false); }} maxLength={36} disabled={busy} /></label>
+            <label>Tiny footer <small className={styles.optional}>optional</small><input value={title} onChange={(event) => { setTitle(event.target.value); }} maxLength={45} disabled={busy} /></label>
+            <label>{isReworkExisting ? "Joke line 1" : "Setup line"}{isReworkExisting && <small className={styles.optional}> optional</small>}<textarea value={text} onChange={(event) => { setText(event.target.value); }} rows={2} maxLength={36} disabled={busy} /></label>
+            <label>{isReworkExisting ? "Joke line 2" : "Punchline / reaction line"}{isReworkExisting && <small className={styles.optional}> optional</small>}<input value={secondaryText} onChange={(event) => { setSecondaryText(event.target.value); }} maxLength={36} disabled={busy} /></label>
             <div className={styles.choiceGroup}><span>Tone</span><div>{memeTones.map((option) => <button key={option} className={tone === option ? styles.choiceActive : ""} onClick={() => { if (tone === option) return; setTone(option); invalidateGeneratedVisual(); }} disabled={busy}>{option}</button>)}</div></div>
             <div className={styles.choiceGroup}><span>Layout</span><div>{memeLayouts.map((option) => <button key={option} className={layout === option ? styles.choiceActive : ""} onClick={() => { if (layout === option) return; setLayout(option); invalidateGeneratedVisual(); }} disabled={busy}>{option}</button>)}</div></div>
           </> : <>
@@ -1822,15 +1759,14 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
                 ? <button className={styles.aiAction} onClick={() => void generateCopy()} disabled={busy || !visualGeneration || !text.trim()}>{busy ? "Writing…" : rednoteIsCurrent ? "Refine copy" : "Generate copy"}</button>
                 : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in to generate</a>}
             </div>
-            <label>Rednote title<input value={rednoteTitle} onChange={(event) => { setRednoteTitle(event.target.value); setPacketSaved(false); }} maxLength={120} placeholder="A scroll-stopping title" disabled={busy} /></label>
-            <label>Rednote caption<textarea value={rednoteCaption} onChange={(event) => { setRednoteCaption(event.target.value); setPacketSaved(false); }} rows={8} maxLength={2200} placeholder="The editable caption draft will appear here." disabled={busy} /></label>
+            <label>Rednote title<input value={rednoteTitle} onChange={(event) => { setRednoteTitle(event.target.value); }} maxLength={120} placeholder="A scroll-stopping title" disabled={busy} /></label>
+            <label>Rednote caption<textarea value={rednoteCaption} onChange={(event) => { setRednoteCaption(event.target.value); }} rows={8} maxLength={2200} placeholder="The editable caption draft will appear here." disabled={busy} /></label>
             <label>
               Rednote tags
               <input
                 value={rednoteTags.join(" ")}
                 onChange={(event) => {
                   setRednoteTags(parseTagList(event.target.value));
-                  setPacketSaved(false);
                 }}
                 placeholder="#MiddleEarth #Gandalf #Fandom"
                 disabled={busy}
@@ -1899,7 +1835,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
           </div>
           )}
            {selected && <div className={styles.provenance}><strong>{isExistingMemeAsIs ? "Existing meme · unchanged" : isReworkExisting ? "Original source · locked and linked" : "Source attached"}</strong><span>{selected.title}</span><span>{selected.publisher || "Publisher unknown"} · {selected.provider || "Provider unknown"}</span>{selected.provider === "local-upload" ? <small>Your uploaded image is stored locally and will be registered in MEDIA when your Collection syncs.</small> : <a href={selected.url} target="_blank" rel="noreferrer">Open original source</a>}<small>Rights status: unknown. This is a personal draft; confirm permission before publishing.</small></div>}
-           {isEditorRequired && selected && <button className={styles.typeFallback} type="button" onClick={() => { setSelected(undefined); setVisualGeneration(undefined); setPacketSaved(false); setStatus("Typography-only fallback selected. Choose a reaction image any time to restore image-backed rendering."); }} disabled={busy}>Use typography-only fallback</button>}
+          {isEditorRequired && selected && <button className={styles.typeFallback} type="button" onClick={() => { setSelected(undefined); setVisualGeneration(undefined); setStatus("Typography-only fallback selected. Choose a reaction image any time to restore image-backed rendering."); }} disabled={busy}>Use typography-only fallback</button>}
            {isEditorRequired && !selected && <div className={styles.provenanceMuted}>Typography-only fallback is active. Choose a reaction image to restore image-backed rendering.</div>}
           <p className={styles.handoffNote}>{isEditorRequired
              ? isReworkExisting
@@ -1912,11 +1848,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
              {canSaveOriginalMeme && <button className={styles.save} onClick={() => void saveExistingMeme()} disabled={busy || originalCollectionSaved}>{originalCollectionSaved ? isExistingMemeAsIs ? "Saved to Collection" : "Original saved" : isExistingMemeAsIs ? "Save to Collection" : "Save original to Collection"}</button>}
               {isEditorRequired && hasSavableGeneratedCard && <button className={styles.save} onClick={() => void saveGeneratedMeme()} disabled={busy || collectionSaved}>{collectionSaved ? "Saved to Collection" : isReworkExisting ? "Save linked rework" : "Save reaction card"}</button>}
              {(canSaveOriginalMeme && originalCollectionSaved || isEditorRequired && hasSavableGeneratedCard && collectionSaved) && <a className={styles.stagingLink} href="/memeforge/middle-earth?view=collection">Open Collection</a>}
-            {isEditorRequired && isAdmin && (
-              <button className={styles.save} onClick={() => void savePacket()} disabled={busy}>Stage in Operator Console</button>
-            )}
             {!isEditorRequired && !selected && <span className={styles.actionHint}>Choose a source to unlock export and Collection save.</span>}
-            {isAdmin && packetSaved && <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Open packet staging</a>}
           </div>
           <div className={styles.status} role="status">{error && <span className={styles.statusError}>{error}</span>}{!error && status}</div>
         </section>

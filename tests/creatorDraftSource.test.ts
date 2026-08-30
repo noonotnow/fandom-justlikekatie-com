@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { BuilderCard } from '../src/utils/gridBuilder.ts';
 import { gridRecordFromProposal, manualGridRationale } from '../src/utils/gridBuilder.ts';
 import { CREATOR_DRAFT_SOURCE_SCHEMA, creatorDraftSourceFromGrid } from '../src/utils/creatorDraft.ts';
+import { sourceVersionForGrid } from '../netlify/functions/lib/creator-grid-handoff.js';
 
 function card(position: number): BuilderCard {
   return {
@@ -48,18 +49,47 @@ test('manual grids preserve the creator-selected order without fabricating a mis
   assert.notEqual(grid.id, smartGrid.id, 'manual composition must not overwrite a smart proposal with the same images');
 });
 
-test('Creator Draft source carries stable ordered provenance and creative context', () => {
+test('Creator Draft source carries stable ordered provenance and creative context', async () => {
   const slots = [3, 1, 2, 4, 5, 6, 7, 8, 9].map(card);
   const grid = gridRecordFromProposal(
     slots,
     manualGridRationale(slots, '赵露思'),
     new Date('2026-08-30T12:00:00.000Z'),
   );
-  const first = creatorDraftSourceFromGrid(grid);
-  const second = creatorDraftSourceFromGrid(grid);
+  const first = await creatorDraftSourceFromGrid(grid);
+  const second = await creatorDraftSourceFromGrid(grid);
 
   assert.equal(first.schema, CREATOR_DRAFT_SOURCE_SCHEMA);
+  assert.equal(first.sourceVersion, sourceVersionForGrid(grid));
   assert.equal(first.idempotencyKey, second.idempotencyKey);
   assert.deepEqual(first.orderedImages.map(image => image.resultId), slots.map(item => item.resultId));
   assert.match(first.creativeContext.brief, /Build Your Own/);
+});
+
+test('Creator Draft source version changes for every mutable render and envelope input', async () => {
+  const slots = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(card);
+  const grid = gridRecordFromProposal(
+    slots,
+    manualGridRationale(slots, '赵露思'),
+    new Date('2026-08-30T12:00:00.000Z'),
+  );
+  const original = await creatorDraftSourceFromGrid(grid);
+  const changedImage = await creatorDraftSourceFromGrid({
+    ...grid,
+    images: grid.images.map((image, index) => (
+      index === 0 ? { ...image, imageUrl: 'https://media.example/replacement.jpg' } : image
+    )),
+  });
+  const changedContext = await creatorDraftSourceFromGrid({
+    ...grid,
+    actor: '不同演员',
+    vibe: '不同氛围',
+    generationPrompt: 'A materially different creative brief.',
+  });
+
+  assert.match(original.sourceVersion, /^sha256:[a-f0-9]{64}$/);
+  assert.notEqual(changedImage.sourceVersion, original.sourceVersion);
+  assert.notEqual(changedImage.idempotencyKey, original.idempotencyKey);
+  assert.notEqual(changedContext.sourceVersion, original.sourceVersion);
+  assert.notEqual(changedContext.idempotencyKey, original.idempotencyKey);
 });

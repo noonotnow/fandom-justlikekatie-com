@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
+import { isIP } from "node:net";
 import { renderCanonicalOutput } from "./canonical-render.js";
 
 export const CREATOR_DRAFT_SOURCE_SCHEMA = "fandom.creator-draft-source.v1";
@@ -45,16 +46,24 @@ export function createCreatorGridHandoffHandler({
       }
       validateSource(source);
       requireConfiguration(env);
+      const accountScope = accountScopeFor(accountId);
 
-      const collectionStore = getStore(COLLECTION_STORE, context);
-      const receiptStore = getStore(RECEIPT_STORE, context);
-      return await withLock(source.sourceId, async () => {
+      let collectionStore;
+      let receiptStore;
+      try {
+        collectionStore = getStore(COLLECTION_STORE, context);
+        receiptStore = getStore(RECEIPT_STORE, context);
+      } catch {
+        throw storageError();
+      }
+      return await withLock(receiptKey(accountScope, source), async () => {
         const grid = await resolveSavedGrid(collectionStore, accountId, source.sourceId);
         if (!grid) throw requestError("This saved grid is not available in the active account.", 404);
         const resolvedSource = validateSourceAgainstGrid(source, grid);
-        const priorEntry = await getBlob(receiptStore, receiptKey(source));
+        const key = receiptKey(accountScope, resolvedSource);
+        const priorEntry = await getBlob(receiptStore, key);
         const prior = priorEntry?.data || priorEntry;
-        if (prior?.sourceVersion === resolvedSource.sourceVersion && prior.receipt) {
+        if (isCompletedRecord(prior, resolvedSource)) {
           return jsonResponse(200, {
             source: resolvedSource,
             receipt: { ...prior.receipt, disposition: "replayed" },
@@ -62,16 +71,35 @@ export function createCreatorGridHandoffHandler({
           });
         }
 
-        const bytes = await renderGrid(grid, resolvedSource, {
-          requestUrl: req.url,
-          renderOutputImpl,
-        });
-        const registration = await registerMedia(bytes, grid, resolvedSource, {
-          env,
-          fetchImpl,
-          requestUrl: req.url,
-        });
-        const envelope = buildCreateEnvelope(grid, resolvedSource, registration, now());
+        let pending = storedPendingHandoff(prior, resolvedSource, grid);
+        if (!pending) {
+          const bytes = await renderGrid(grid, resolvedSource, {
+            requestUrl: req.url,
+            renderOutputImpl,
+          });
+          const registration = await registerMedia(bytes, grid, resolvedSource, {
+            env,
+            fetchImpl,
+            requestUrl: req.url,
+          });
+          pending = {
+            registration,
+            createGeneratedAt: now().toISOString(),
+          };
+          await persistHandoffRecord(receiptStore, key, {
+            state: "pending",
+            sourceVersion: resolvedSource.sourceVersion,
+            media: [registration],
+            createGeneratedAt: pending.createGeneratedAt,
+          });
+        }
+        const envelope = buildCreateEnvelope(
+          grid,
+          resolvedSource,
+          pending.registration,
+          new Date(pending.createGeneratedAt),
+          createIdempotencyKey(accountScope, resolvedSource),
+        );
         const upstreamReceipt = await sendToCreate(envelope, {
           env,
           fetchImpl,
@@ -82,8 +110,13 @@ export function createCreatorGridHandoffHandler({
           resolvedSource,
           env.CREATE_APP_URL || DEFAULT_CREATE_APP_URL,
         );
-        const record = { sourceVersion: resolvedSource.sourceVersion, receipt, media: [registration] };
-        await receiptStore.setJSON(receiptKey(resolvedSource), record);
+        const record = {
+          state: "completed",
+          sourceVersion: resolvedSource.sourceVersion,
+          receipt,
+          media: [pending.registration],
+        };
+        await persistHandoffRecord(receiptStore, key, record);
         return jsonResponse(receipt.disposition === "created" ? 201 : 200, {
           source: resolvedSource,
           receipt,
@@ -156,10 +189,15 @@ function validateSource(source) {
 }
 
 async function resolveSavedGrid(store, accountId, sourceId) {
-  const collection = await store.get(`users/${accountId}`, {
-    type: "json",
-    consistency: "strong",
-  });
+  let collection;
+  try {
+    collection = await store.get(`users/${accountId}`, {
+      type: "json",
+      consistency: "strong",
+    });
+  } catch {
+    throw storageError();
+  }
   const items = isRecord(collection?.items) ? Object.values(collection.items) : [];
   return items.find(item => (
     isRecord(item)
@@ -178,7 +216,7 @@ function validateSourceAgainstGrid(source, grid) {
   ) throw requestError("The saved grid is invalid or incomplete.", 409);
 
   const ordered = [...grid.images].sort((a, b) => a.gridPosition - b.gridPosition);
-  const sourceVersion = `${grid.schemaVersion}:${grid.generatedAt}:${ordered.map(image => image.resultId).join("|")}`;
+  const sourceVersion = sourceVersionForGrid(grid);
   if (source.sourceVersion !== sourceVersion) {
     throw requestError("This saved grid changed. Refresh the Collection before creating a Draft.", 409);
   }
@@ -210,12 +248,57 @@ function validateSourceAgainstGrid(source, grid) {
   return expected;
 }
 
+export function sourceVersionForGrid(grid) {
+  return `sha256:${sha256(canonicalJson(sourceVersionMaterial(grid)))}`;
+}
+
+function sourceVersionMaterial(grid) {
+  const ordered = [...grid.images].sort((a, b) => a.gridPosition - b.gridPosition);
+  return {
+    schemaVersion: grid.schemaVersion,
+    rendererVersion: grid.rendererVersion,
+    sourceId: grid.artifactId || grid.id,
+    actorId: grid.actorId,
+    actor: grid.actor,
+    actorEn: grid.actorEn,
+    actorAccentColor: grid.actorAccentColor,
+    vibe: grid.vibe,
+    vibeEn: grid.vibeEn,
+    vibeEmoji: grid.vibeEmoji,
+    vibeSubtitle: grid.vibeSubtitle,
+    searchSpell: grid.searchSpell,
+    generationPrompt: grid.generationPrompt || "",
+    ctaSeed: grid.ctaSeed || "",
+    edition: {
+      provider: grid.edition?.provider ?? null,
+      misprint: Boolean(grid.edition?.misprint),
+      legendary: Boolean(grid.edition?.legendary),
+    },
+    capturedDate: grid.capturedDate,
+    generatedAt: grid.generatedAt,
+    sourceRoute: grid.sourceRoute || "/vibe-atlas",
+    images: ordered.map(image => ({
+      position: image.gridPosition,
+      resultId: image.resultId,
+      imageUrl: image.imageUrl,
+      sourceUrl: image.sourceUrl,
+      title: image.title,
+      publisher: image.publisher || "",
+      batchKey: image.batchKey || "",
+      media: image.media || null,
+    })),
+  };
+}
+
 async function renderGrid(grid, source, { requestUrl, renderOutputImpl }) {
   const renderGridRecord = {
     ...grid,
+    id: source.sourceId,
     images: grid.images.map(image => ({
       ...image,
-      ...(image.media ? { imageUrl: trustedMediaProxyUrl(image, requestUrl) } : {}),
+      imageUrl: image.media
+        ? trustedMediaProxyUrl(image, requestUrl)
+        : normalizedThumbnailProxyUrl(image.imageUrl, requestUrl),
     })),
   };
   const packet = {
@@ -253,6 +336,49 @@ async function renderGrid(grid, source, { requestUrl, renderOutputImpl }) {
     throw requestError("The saved grid renderer did not produce a valid PNG.", 502, "render");
   }
   return bytes;
+}
+
+function normalizedThumbnailProxyUrl(value, requestUrl) {
+  let imageUrl;
+  try {
+    if (typeof value !== "string") throw new TypeError("Image URL must be a string.");
+    imageUrl = new URL(value, requestUrl);
+  } catch {
+    throw requestError("The saved grid contains an invalid public image URL.", 409);
+  }
+
+  const requestOrigin = new URL(requestUrl).origin;
+  if (
+    imageUrl.origin === requestOrigin
+    && ["/.netlify/functions/image-proxy", "/api/image-proxy"].includes(imageUrl.pathname)
+  ) {
+    if (!isOrdinaryPublicHttpsUrl(imageUrl.searchParams.get("url"))) {
+      throw requestError("The saved grid contains an invalid public image URL.", 409);
+    }
+    return value;
+  }
+
+  if (!isOrdinaryPublicHttpsUrl(value)) {
+    throw requestError("The saved grid contains an invalid public image URL.", 409);
+  }
+  const proxy = new URL("/.netlify/functions/image-proxy", requestUrl);
+  proxy.searchParams.set("url", imageUrl.toString());
+  return proxy.toString();
+}
+
+function isOrdinaryPublicHttpsUrl(value) {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.replace(/^\[|\]$/g, "").replace(/\.+$/, "").toLowerCase();
+    return url.protocol === "https:"
+      && !url.username
+      && !url.password
+      && !isIP(hostname)
+      && hostname !== "localhost"
+      && !hostname.endsWith(".localhost");
+  } catch {
+    return false;
+  }
 }
 
 function trustedMediaProxyUrl(image, requestUrl) {
@@ -326,7 +452,7 @@ async function registerMedia(bytes, grid, source, { env, fetchImpl, requestUrl }
   };
 }
 
-function buildCreateEnvelope(grid, source, registration, generatedAt) {
+function buildCreateEnvelope(grid, source, registration, generatedAt, idempotencyKey) {
   const title = `${source.actor.name} · ${source.creativeContext.vibeEn}`;
   const caption = source.creativeContext.captionSeed || source.creativeContext.brief || title;
   return {
@@ -336,7 +462,7 @@ function buildCreateEnvelope(grid, source, registration, generatedAt) {
     source,
     sourceId: source.sourceId,
     sourceVersion: source.sourceVersion,
-    idempotencyKey: source.idempotencyKey,
+    idempotencyKey,
     outputId: "creator-grid-main",
     outputKind: "creator_grid",
     renderContract: RENDER_CONTRACT,
@@ -464,16 +590,133 @@ function requireConfiguration(env) {
   }
 }
 
-async function getBlob(store, key) {
-  if (typeof store.getWithMetadata === "function") {
-    return store.getWithMetadata(key, { type: "json", consistency: "strong" });
-  }
-  const data = await store.get(key, { type: "json", consistency: "strong" });
-  return data ? { data } : null;
+function isCompletedRecord(record, source) {
+  return isRecord(record)
+    && (record.state === "completed" || record.state === undefined)
+    && record.sourceVersion === source.sourceVersion
+    && isRecord(record.receipt);
 }
 
-function receiptKey(source) {
-  return `${safeSegment(source.sourceId)}/${stableHash(source.idempotencyKey)}`;
+function storedPendingHandoff(record, source, grid) {
+  if (
+    !isRecord(record)
+    || record.state !== "pending"
+    || record.sourceVersion !== source.sourceVersion
+    || !Array.isArray(record.media)
+    || record.media.length !== 1
+    || typeof record.createGeneratedAt !== "string"
+    || !isCanonicalIsoDate(record.createGeneratedAt)
+  ) return null;
+
+  const registration = record.media[0];
+  const metadata = registration?.metadata;
+  const expectedCardIds = grid.images.map(image => image.resultId);
+  if (
+    !isRecord(registration)
+    || typeof registration.assetId !== "string"
+    || !UUID_PATTERN.test(registration.assetId)
+    || !isStableMediaUrl(registration.url)
+    || typeof registration.filename !== "string"
+    || registration.mimeType !== "image/png"
+    || typeof registration.checksum !== "string"
+    || !/^[a-f0-9]{64}$/i.test(registration.checksum)
+    || registration.role !== "cover"
+    || registration.position !== 0
+    || !sameStrings(registration.sourceCardIds, expectedCardIds)
+    || !isRecord(registration.provenance)
+    || registration.provenance.origin !== "fandom-vibes"
+    || registration.provenance.sourceKind !== "ordered-grid"
+    || registration.provenance.sourceId !== source.sourceId
+    || registration.provenance.sourceVersion !== source.sourceVersion
+    || registration.provenance.generatedAt !== grid.generatedAt
+    || !isRecord(metadata)
+    || metadata.sourceType !== "fandom-creator-draft-grid"
+    || !isHttpsUrl(metadata.sourceUrl)
+    || metadata.origin !== "fandom-vibes"
+    || metadata.rightsStatus !== "unknown"
+    || typeof metadata.rightsNotes !== "string"
+    || !sameStrings(metadata.actor, [grid.actor, grid.actorEn].filter(Boolean))
+    || !sameStrings(metadata.seriesTags, ["Fandom", "Creator OS", "Vibe Atlas", `grid:${source.sourceId}`])
+    || !sameStrings(metadata.linkedPostIdentifiers, [
+      `fandom/grid/${source.sourceId}`,
+      `fandom/draft/${source.idempotencyKey}`,
+    ])
+  ) return null;
+
+  // Normalize the persisted value so unrecognized stored fields never enter CREATE.
+  return {
+    createGeneratedAt: record.createGeneratedAt,
+    registration: {
+      assetId: registration.assetId,
+      url: registration.url,
+      filename: registration.filename,
+      mimeType: registration.mimeType,
+      checksum: registration.checksum,
+      role: "cover",
+      position: 0,
+      sourceCardIds: [...registration.sourceCardIds],
+      provenance: {
+        origin: "fandom-vibes",
+        sourceKind: "ordered-grid",
+        sourceId: source.sourceId,
+        sourceVersion: source.sourceVersion,
+        generatedAt: grid.generatedAt,
+      },
+      metadata: {
+        sourceType: "fandom-creator-draft-grid",
+        sourceUrl: metadata.sourceUrl,
+        origin: "fandom-vibes",
+        rightsStatus: "unknown",
+        rightsNotes: metadata.rightsNotes,
+        actor: [...metadata.actor],
+        seriesTags: [...metadata.seriesTags],
+        linkedPostIdentifiers: [...metadata.linkedPostIdentifiers],
+      },
+    },
+  };
+}
+
+function isCanonicalIsoDate(value) {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) && date.toISOString() === value;
+}
+
+function sameStrings(value, expected) {
+  return Array.isArray(value)
+    && value.length === expected.length
+    && value.every((item, index) => typeof item === "string" && item === expected[index]);
+}
+
+async function persistHandoffRecord(store, key, record) {
+  try {
+    await store.setJSON(key, record);
+  } catch {
+    throw requestError("Creator Draft handoff state could not be persisted.", 502, "storage");
+  }
+}
+
+async function getBlob(store, key) {
+  try {
+    if (typeof store.getWithMetadata === "function") {
+      return await store.getWithMetadata(key, { type: "json", consistency: "strong" });
+    }
+    const data = await store.get(key, { type: "json", consistency: "strong" });
+    return data ? { data } : null;
+  } catch {
+    throw storageError();
+  }
+}
+
+function accountScopeFor(accountId) {
+  return sha256(`creator-grid-handoff-account-v1\0${accountId}`);
+}
+
+function receiptKey(accountScope, source) {
+  return `v1/${accountScope}/${sha256(`source-id\0${source.sourceId}`)}/${sha256(`source-key\0${source.idempotencyKey}`)}`;
+}
+
+function createIdempotencyKey(accountScope, source) {
+  return `creator-grid-v1:${accountScope}:${sha256(`source-key\0${source.idempotencyKey}`)}`;
 }
 
 async function withLock(key, work) {
@@ -543,6 +786,10 @@ function requestError(message, status, stage) {
   return error;
 }
 
+function storageError() {
+  return requestError("Creator Draft handoff storage could not be read.", 502, "storage");
+}
+
 function safeSegment(value) {
   return String(value).replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "grid";
 }
@@ -562,6 +809,17 @@ function stableHash(value) {
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (isRecord(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function isRecord(value) {

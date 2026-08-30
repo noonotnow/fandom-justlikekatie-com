@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import type { ImageTier } from './types';
 import FandomLaunchpad from './components/FandomLaunchpad/FandomLaunchpad';
 import { MiddleEarthWorkspace } from './components/MiddleEarthWorkspace/MiddleEarthWorkspace';
@@ -18,25 +18,14 @@ import { applyWholeCardTierOverride, boardIdentity } from './utils/wholeCardTier
 import { useDarkMode } from './hooks/useDarkMode';
 import { useStarOfDay } from './hooks/useStarOfDay';
 import { useWholeCardTier } from './hooks/useWholeCardTier';
-import {
-  createIdeaPacket,
-  fetchIdeaPackets,
-  mediaFromResult,
-  mutateIdeaPacket,
-  packetFromMiddleEarthDraft,
-  packetFromGrid,
-  type IdeaPacket,
-  IdeaPacketError,
-} from './utils/ideaPackets';
-import type { GridRecord } from './utils/collectionDB';
+import { collectionGridFromStar } from './utils/collectionHistoryModel';
 import { consumeMagicLinkFromLocation, requestMagicLink } from './utils/publicAccount';
 import { getMembershipStatus } from './utils/membership';
 import { Membership } from './components/Membership/Membership';
-import { makeCreatorPostFromGrid, makeCreatorPostFromPacket } from './utils/creatorDraft';
+import { makeCreatorPostFromGrid } from './utils/creatorDraft';
 import { useIsAdmin } from './hooks/useIsAdmin';
 import {
   initialCollectionType,
-  initialVibeAtlasPacketId,
   initialVibeAtlasView,
   resolveFandomProductRoute,
 } from './utils/fandomRoutes';
@@ -57,14 +46,7 @@ function MiddleEarthApp() {
   const showCollection = new URLSearchParams(window.location.search).get('view') === 'collection';
 
   if (showCollection) return <Collection scope="middle-earth" />;
-  return (
-    <MiddleEarthWorkspace
-      isAdmin={isAdmin}
-      onCreatePacket={async draft => {
-        await createIdeaPacket(packetFromMiddleEarthDraft(draft));
-      }}
-    />
-  );
+  return <MiddleEarthWorkspace isAdmin={isAdmin} />;
 }
 
 function VibeAtlasApp() {
@@ -77,19 +59,11 @@ function VibeAtlasApp() {
   const [collectionTab, setCollectionTab] = useState<'grids' | 'results' | 'builder'>(
     () => initialCollectionType(window.location.search),
   );
-  const [openPacketId, setOpenPacketId] = useState<string | null>(
-    () => initialVibeAtlasPacketId(window.location.search),
-  );
-  const [packetNotice, setPacketNotice] = useState('');
-  const openPacketIdRef = useRef(openPacketId);
   const { isAdmin, loading: adminLoading, recheck: recheckAdmin } = useIsAdmin();
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const { items: gridImages, meta, rawData, loading, error } = useStarOfDay();
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
-  const [packets, setPackets] = useState<IdeaPacket[]>([]);
-  const [packetsLoading, setPacketsLoading] = useState(false);
-  const [packetsError, setPacketsError] = useState('');
-  const [packetsUnauthorized, setPacketsUnauthorized] = useState(false);
+  const [creatorError, setCreatorError] = useState('');
   const [isMember, setIsMember] = useState(false);
 
   // Whole-board (share-card) manual tier override — distinct from per-image
@@ -127,9 +101,6 @@ function VibeAtlasApp() {
     const restoreUrlView = () => {
       setView(initialVibeAtlasView(window.location.search));
       setCollectionTab(initialCollectionType(window.location.search));
-      const packetId = initialVibeAtlasPacketId(window.location.search);
-      openPacketIdRef.current = packetId;
-      setOpenPacketId(packetId);
     };
     window.addEventListener('popstate', restoreUrlView);
     return () => window.removeEventListener('popstate', restoreUrlView);
@@ -145,46 +116,8 @@ function VibeAtlasApp() {
         ? '?view=membership'
       : `?view=${tab === 'grids' ? 'collection' : tab}`;
     window.history.pushState({}, '', `/vibe-atlas${search}`);
-    openPacketIdRef.current = null;
-    setOpenPacketId(null);
-    setPacketNotice('');
     setCollectionTab(tab);
     setView(destination);
-  };
-
-  const loadPackets = async () => {
-    setPacketsLoading(true);
-    setPacketsError('');
-    try {
-      const loadedPackets = await fetchIdeaPackets();
-      setPackets(current => {
-        const openedPacket = openPacketIdRef.current
-          ? current.find(packet => packet.id === openPacketIdRef.current)
-          : undefined;
-        return openedPacket && !loadedPackets.some(packet => packet.id === openedPacket.id)
-          ? [openedPacket, ...loadedPackets]
-          : loadedPackets;
-      });
-      setPacketsUnauthorized(false);
-    } catch (caught) {
-      const is401 = caught instanceof IdeaPacketError && caught.status === 401;
-      setPacketsUnauthorized(is401);
-      setPacketsError(caught instanceof Error ? caught.message : 'Idea Packets could not be loaded.');
-      // A 401 from a protected API means the session cookie may have expired.
-      // Re-check so that if isAdmin was true, it transitions to false and shows
-      // the sign-in gate rather than leaving a stale admin view on screen.
-      if (is401) recheckAdmin();
-    } finally {
-      setPacketsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isAdmin) void loadPackets();
-  }, [isAdmin]);
-
-  const replacePacket = (packet: IdeaPacket) => {
-    setPackets(current => [packet, ...current.filter(candidate => candidate.id !== packet.id)]);
   };
 
   const handleItemClick = (itemId: string) => {
@@ -328,28 +261,20 @@ function VibeAtlasApp() {
                   <button
                     type="button"
                     onClick={async () => {
-                      if (packetsUnauthorized) {
-                        setView('plan');
-                        return;
-                      }
                       try {
-                        const result = await makeCreatorPostFromPacket(packetFromGrid(rawData, gridImages));
-                        replacePacket(result.compatibilityPacket);
-                        window.location.assign(result.receipt.createUrl);
+                        setCreatorError('');
+                        const grid = collectionGridFromStar(rawData);
+                        const { receipt } = await makeCreatorPostFromGrid(grid);
+                        window.location.assign(receipt.createUrl);
                       } catch (caught) {
-                        if (caught instanceof IdeaPacketError && caught.status === 401) {
-                          setPacketsUnauthorized(true);
-                          recheckAdmin();
-                          setView('plan');
-                        } else {
-                          setPacketsError(caught instanceof Error ? caught.message : 'The Creator OS draft could not be created.');
-                        }
+                        setCreatorError(caught instanceof Error ? caught.message : 'The Creator OS draft could not be created.');
                       }
                     }}
                   >
                     Make a post in Creator OS
                   </button>
                 )}
+                {creatorError && <p role="alert">{creatorError}</p>}
               </div>
             </div>
             )}
@@ -389,7 +314,6 @@ function VibeAtlasApp() {
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={setLightboxIndex}
-            canManagePackets={isAdmin}
           planData={rawData ?? undefined}
           tier={imageTiers[gridImages[lightboxIndex]?.id] ?? null}
           onTierChange={(tier) => {
@@ -403,15 +327,6 @@ function VibeAtlasApp() {
             vibeLabelEn: meta.vibeLabelEn,
             date: meta.date,
           } : undefined}
-          packets={packets}
-          onAddToPacket={async (packet, image) => {
-            try {
-              replacePacket(await mutateIdeaPacket(packet, { type: 'add_media', media: mediaFromResult(image) }));
-            } catch (caught) {
-              if (caught instanceof IdeaPacketError && caught.status === 401) recheckAdmin();
-              throw caught;
-            }
-          }}
         />
       )}
         </>
@@ -422,16 +337,7 @@ function VibeAtlasApp() {
           isAdmin={isAdmin}
           isMember={isMember}
           onUpgrade={() => navigateAtlas('membership')}
-          packets={packets}
-          onCreateFromGrid={async (grid: GridRecord) => {
-            try {
-              const result = await makeCreatorPostFromGrid(grid);
-              return result;
-            } catch (caught) {
-              if (caught instanceof IdeaPacketError && caught.status === 401) recheckAdmin();
-              throw caught;
-            }
-          }}
+          onCreateFromGrid={makeCreatorPostFromGrid}
         />
       ) : view === 'membership' ? (
         <Membership onStatusChange={status => setIsMember(status.isMember)} />
@@ -441,14 +347,6 @@ function VibeAtlasApp() {
         <AdminSignIn />
       ) : (
         <FandomAdmin
-          packets={packets}
-          loading={packetsLoading}
-          error={packetsError}
-          unauthorized={packetsUnauthorized}
-          onRefresh={loadPackets}
-          onSessionExpired={recheckAdmin}
-          initialPacketId={openPacketId}
-          initialNotice={packetNotice}
         />
       )}
     </div>

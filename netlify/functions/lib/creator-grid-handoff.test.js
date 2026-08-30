@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createCreatorGridHandoffHandler,
   CREATOR_DRAFT_SOURCE_SCHEMA,
+  sourceVersionForGrid,
 } from "./creator-grid-handoff.js";
 import { createCreateHandoffHandler } from "./create-handoff.js";
 
@@ -59,7 +60,8 @@ function grid() {
 }
 
 function sourceFor(savedGrid = grid()) {
-  const sourceVersion = `${savedGrid.schemaVersion}:${savedGrid.generatedAt}:${savedGrid.images.map(image => image.resultId).join("|")}`;
+  const sourceVersion = sourceVersionForGrid(savedGrid);
+  const orderedImages = [...savedGrid.images].sort((a, b) => a.gridPosition - b.gridPosition);
   return {
     schema: CREATOR_DRAFT_SOURCE_SCHEMA,
     kind: "ordered-grid",
@@ -67,8 +69,13 @@ function sourceFor(savedGrid = grid()) {
     sourceVersion,
     idempotencyKey: `grid:${savedGrid.artifactId}:${stableHash(sourceVersion)}`,
     actor: { id: savedGrid.actorId, name: savedGrid.actor, nameEn: savedGrid.actorEn },
-    creativeContext: { vibe: savedGrid.vibe, vibeEn: savedGrid.vibeEn, brief: "" },
-    orderedImages: savedGrid.images.map(image => ({
+    creativeContext: {
+      vibe: savedGrid.vibe,
+      vibeEn: savedGrid.vibeEn,
+      brief: savedGrid.generationPrompt || "",
+      ...(savedGrid.ctaSeed ? { captionSeed: savedGrid.ctaSeed } : {}),
+    },
+    orderedImages: orderedImages.map(image => ({
       position: image.gridPosition,
       resultId: image.resultId,
       sourceUrl: image.sourceUrl,
@@ -100,7 +107,7 @@ function request(source) {
   });
 }
 
-function directHandler({ collection, receipts, fetchImpl, renderOutputImpl } = {}) {
+function directHandler({ collection, receipts, fetchImpl, renderOutputImpl, now } = {}) {
   return createCreatorGridHandoffHandler({
     env: ENV,
     getStore(name) {
@@ -109,6 +116,7 @@ function directHandler({ collection, receipts, fetchImpl, renderOutputImpl } = {
       throw new Error(`unexpected store: ${name}`);
     },
     fetchImpl,
+    ...(now ? { now } : {}),
     renderOutputImpl: renderOutputImpl || (async () => PNG),
   });
 }
@@ -171,6 +179,372 @@ test("direct handoff authenticates, resolves the account grid, and replays witho
   assert.equal((await second.json()).receipt.disposition, "replayed");
   assert.equal(mediaCalls, 1);
   assert.equal(createCalls, 1);
+});
+
+test("direct handoff scopes CREATE idempotency and receipt reuse to the authenticated account", async () => {
+  const savedGrid = grid();
+  const collection = memoryStore({
+    schemaVersion: 1,
+    accountId: "account-1",
+    items: { "server-grid-1": savedGrid },
+  });
+  // Both accounts intentionally have byte-for-byte identical deterministic grid sources.
+  collection.records.set("users/account-2", structuredClone({
+    schemaVersion: 1,
+    accountId: "account-2",
+    items: { "server-grid-1": savedGrid },
+  }));
+  const receipts = memoryStore();
+  const createKeys = [];
+  let mediaCalls = 0;
+  let createCalls = 0;
+  const handler = directHandler({
+    collection,
+    receipts,
+    fetchImpl: async (url, options) => {
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        mediaCalls += 1;
+        const bytes = new Uint8Array(await options.body.get("file").arrayBuffer());
+        return Response.json({
+          data: {
+            version: 1,
+            assetId: "11111111-1111-4111-8111-111111111111",
+            fileUrl: "https://media.example/assets/grid.png",
+            deliveryUrl: "https://media.example/assets/grid.png",
+            thumbnailUrl: "https://media.example/assets/grid-thumb.png",
+            mediaType: "image",
+            mimeType: "image/png",
+            sizeBytes: bytes.byteLength,
+            checksum: createHash("sha256").update(bytes).digest("hex"),
+            dimensions: { width: 1080, height: 1350 },
+          },
+        });
+      }
+      createCalls += 1;
+      createKeys.push(options.headers["Idempotency-Key"]);
+      const body = JSON.parse(options.body);
+      return Response.json({
+        receipt: {
+          postId: `draft-${createCalls}`,
+          postUrl: `https://create.example/drafts/draft-${createCalls}`,
+          status: "Draft",
+          sourceVersion: body.sourceVersion,
+          workflow: "creator-draft",
+          disposition: "created",
+          mediaSyncState: "synced",
+          warnings: [],
+        },
+      });
+    },
+  });
+  const source = sourceFor(savedGrid);
+  const accountOne = { user: { accountId: "account-1" } };
+  const accountTwo = { user: { accountId: "account-2" } };
+
+  const first = await handler(request(source), {}, source, accountOne);
+  const second = await handler(request(source), {}, source, accountTwo);
+  const firstReceipt = (await first.json()).receipt;
+  const secondReceipt = (await second.json()).receipt;
+
+  assert.equal(first.status, 201);
+  assert.equal(second.status, 201);
+  assert.equal(createCalls, 2);
+  assert.equal(mediaCalls, 2);
+  assert.notEqual(createKeys[0], createKeys[1]);
+  assert.notEqual(firstReceipt.postId, secondReceipt.postId);
+  assert.notEqual(firstReceipt.postUrl, secondReceipt.postUrl);
+  assert.notEqual(firstReceipt.createUrl, secondReceipt.createUrl);
+  assert.equal(receipts.records.size, 2);
+  assert.ok([...receipts.records.keys()].every(key => !key.includes("account-1") && !key.includes("account-2")));
+
+  const replay = await handler(request(source), {}, source, accountOne);
+  const replayReceipt = (await replay.json()).receipt;
+  assert.equal(replay.status, 200);
+  assert.equal(replayReceipt.disposition, "replayed");
+  assert.equal(replayReceipt.postId, firstReceipt.postId);
+  assert.equal(replayReceipt.postUrl, firstReceipt.postUrl);
+  assert.equal(createCalls, 2);
+  assert.equal(mediaCalls, 2);
+});
+
+test("a receipt storage failure retries CREATE with the pending MEDIA registration", async () => {
+  const savedGrid = grid();
+  const collection = memoryStore({
+    schemaVersion: 1,
+    accountId: "account-1",
+    items: { "server-grid-1": savedGrid },
+  });
+  const receipts = memoryStore();
+  const setJSON = receipts.setJSON.bind(receipts);
+  let writes = 0;
+  receipts.setJSON = async (key, value) => {
+    writes += 1;
+    if (writes === 2) throw new Error("receipt store unavailable");
+    await setJSON(key, value);
+  };
+  let mediaCalls = 0;
+  let createCalls = 0;
+  const createBodies = [];
+  const bodyByIdempotencyKey = new Map();
+  const fetchImpl = async (url, options) => {
+    if (url === ENV.MEDIA_ASSETS_URL) {
+      mediaCalls += 1;
+      const bytes = new Uint8Array(await options.body.get("file").arrayBuffer());
+      return Response.json({
+        data: {
+          version: 1,
+          assetId: "11111111-1111-4111-8111-111111111111",
+          fileUrl: "https://media.example/assets/grid.png",
+          deliveryUrl: "https://media.example/assets/grid.png",
+          thumbnailUrl: "https://media.example/assets/grid-thumb.png",
+          mediaType: "image",
+          mimeType: "image/png",
+          sizeBytes: bytes.byteLength,
+          checksum: createHash("sha256").update(bytes).digest("hex"),
+          dimensions: { width: 1080, height: 1350 },
+        },
+      });
+    }
+    createCalls += 1;
+    createBodies.push(options.body);
+    const idempotencyKey = options.headers["Idempotency-Key"];
+    const acceptedBody = bodyByIdempotencyKey.get(idempotencyKey);
+    if (acceptedBody && acceptedBody !== options.body) {
+      return Response.json({ error: "idempotency body mismatch" }, { status: 409 });
+    }
+    bodyByIdempotencyKey.set(idempotencyKey, options.body);
+    const body = JSON.parse(options.body);
+    return Response.json({
+      receipt: {
+        postId: "draft-1",
+        postUrl: "https://create.example/drafts/draft-1",
+        status: "Draft",
+        sourceVersion: body.sourceVersion,
+        workflow: "creator-draft",
+        disposition: createCalls === 1 ? "created" : "replayed",
+        mediaSyncState: "synced",
+        warnings: [],
+      },
+    });
+  };
+  let nowCalls = 0;
+  const handler = directHandler({
+    collection,
+    receipts,
+    fetchImpl,
+    now: () => new Date(`2026-08-30T12:00:0${nowCalls++}.000Z`),
+  });
+  const source = sourceFor(savedGrid);
+  const operator = { user: { accountId: "account-1" } };
+
+  const first = await handler(request(source), {}, source, operator);
+  assert.equal(first.status, 502);
+  assert.equal((await first.json()).stage, "storage");
+  assert.equal(mediaCalls, 1);
+  assert.equal(createCalls, 1);
+
+  const retry = await handler(request(source), {}, source, operator);
+  assert.equal(retry.status, 200);
+  assert.equal((await retry.json()).receipt.disposition, "replayed");
+  assert.equal(mediaCalls, 1);
+  assert.equal(createCalls, 2);
+  assert.equal(createBodies[1], createBodies[0]);
+});
+
+test("mutable grid content gets a new source version instead of replaying a stale receipt", async () => {
+  const savedGrid = grid();
+  const collection = memoryStore({
+    schemaVersion: 1,
+    accountId: "account-1",
+    items: { "server-grid-1": savedGrid },
+  });
+  const receipts = memoryStore();
+  let mediaCalls = 0;
+  let createCalls = 0;
+  const handler = directHandler({
+    collection,
+    receipts,
+    fetchImpl: async (url, options) => {
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        mediaCalls += 1;
+        const bytes = new Uint8Array(await options.body.get("file").arrayBuffer());
+        const suffix = String(mediaCalls).padStart(12, "0");
+        return Response.json({
+          data: {
+            version: 1,
+            assetId: `11111111-1111-4111-8111-${suffix}`,
+            fileUrl: `https://media.example/assets/grid-${mediaCalls}.png`,
+            deliveryUrl: `https://media.example/assets/grid-${mediaCalls}.png`,
+            thumbnailUrl: `https://media.example/assets/grid-${mediaCalls}-thumb.png`,
+            mediaType: "image",
+            mimeType: "image/png",
+            sizeBytes: bytes.byteLength,
+            checksum: createHash("sha256").update(bytes).digest("hex"),
+            dimensions: { width: 1080, height: 1350 },
+          },
+        });
+      }
+      createCalls += 1;
+      const body = JSON.parse(options.body);
+      return Response.json({
+        receipt: {
+          postId: `draft-${createCalls}`,
+          postUrl: `https://create.example/drafts/draft-${createCalls}`,
+          status: "Draft",
+          sourceVersion: body.sourceVersion,
+          workflow: "creator-draft",
+          disposition: "created",
+          mediaSyncState: "synced",
+          warnings: [],
+        },
+      });
+    },
+  });
+  const operator = { user: { accountId: "account-1" } };
+  const originalSource = sourceFor(savedGrid);
+  const first = await handler(request(originalSource), {}, originalSource, operator);
+  assert.equal(first.status, 201);
+
+  const changedGrid = {
+    ...savedGrid,
+    actor: "Different Actor",
+    vibe: "Different Vibe",
+    generationPrompt: "A different creative context.",
+    images: savedGrid.images.map(image => ({
+      ...image,
+      imageUrl: "/.netlify/functions/image-proxy?url=https%3A%2F%2Fimages.example%2Freplacement.jpg",
+      sourceUrl: "https://publisher.example/replacement",
+      title: "Replacement",
+    })),
+  };
+  collection.records.set("users/account-1", {
+    schemaVersion: 1,
+    accountId: "account-1",
+    items: { "server-grid-1": changedGrid },
+  });
+  const changedSource = sourceFor(changedGrid);
+  assert.notEqual(changedSource.sourceVersion, originalSource.sourceVersion);
+  assert.notEqual(changedSource.idempotencyKey, originalSource.idempotencyKey);
+
+  const second = await handler(request(changedSource), {}, changedSource, operator);
+  const secondBody = await second.json();
+  assert.equal(second.status, 201, JSON.stringify(secondBody));
+  assert.equal(secondBody.receipt.postId, "draft-2");
+  assert.equal(mediaCalls, 2);
+  assert.equal(createCalls, 2);
+});
+
+test("a pending storage failure prevents CREATE acceptance", async () => {
+  const savedGrid = grid();
+  const collection = memoryStore({
+    schemaVersion: 1,
+    accountId: "account-1",
+    items: { "server-grid-1": savedGrid },
+  });
+  const receipts = memoryStore();
+  receipts.setJSON = async () => { throw new Error("pending store unavailable"); };
+  let mediaCalls = 0;
+  let createCalls = 0;
+  const handler = directHandler({
+    collection,
+    receipts,
+    fetchImpl: async (url, options) => {
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        mediaCalls += 1;
+        const bytes = new Uint8Array(await options.body.get("file").arrayBuffer());
+        return Response.json({
+          data: {
+            version: 1,
+            assetId: "11111111-1111-4111-8111-111111111111",
+            fileUrl: "https://media.example/assets/grid.png",
+            deliveryUrl: "https://media.example/assets/grid.png",
+            thumbnailUrl: "https://media.example/assets/grid-thumb.png",
+            mediaType: "image",
+            mimeType: "image/png",
+            sizeBytes: bytes.byteLength,
+            checksum: createHash("sha256").update(bytes).digest("hex"),
+            dimensions: { width: 1080, height: 1350 },
+          },
+        });
+      }
+      createCalls += 1;
+      throw new Error("CREATE must not be called");
+    },
+  });
+  const source = sourceFor(savedGrid);
+  const response = await handler(request(source), {}, source, { user: { accountId: "account-1" } });
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).stage, "storage");
+  assert.equal(mediaCalls, 1);
+  assert.equal(createCalls, 0);
+});
+
+test("a collection grid read failure returns storage 502 before render or upstream work", async () => {
+  const collection = memoryStore();
+  collection.get = async () => { throw new Error("collection store unavailable"); };
+  const receipts = memoryStore();
+  let renderCalls = 0;
+  let upstreamCalls = 0;
+  const savedGrid = grid();
+  const handler = directHandler({
+    collection,
+    receipts,
+    renderOutputImpl: async () => {
+      renderCalls += 1;
+      return PNG;
+    },
+    fetchImpl: async () => {
+      upstreamCalls += 1;
+      throw new Error("upstream must not be called");
+    },
+  });
+
+  const response = await handler(
+    request(sourceFor(savedGrid)),
+    {},
+    sourceFor(savedGrid),
+    { user: { accountId: "account-1" } },
+  );
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).stage, "storage");
+  assert.equal(renderCalls, 0);
+  assert.equal(upstreamCalls, 0);
+});
+
+test("a receipt read failure returns storage 502 before render or upstream work", async () => {
+  const savedGrid = grid();
+  const collection = memoryStore({
+    schemaVersion: 1,
+    accountId: "account-1",
+    items: { "server-grid-1": savedGrid },
+  });
+  const receipts = memoryStore();
+  receipts.get = async () => { throw new Error("receipt store unavailable"); };
+  let renderCalls = 0;
+  let upstreamCalls = 0;
+  const handler = directHandler({
+    collection,
+    receipts,
+    renderOutputImpl: async () => {
+      renderCalls += 1;
+      return PNG;
+    },
+    fetchImpl: async () => {
+      upstreamCalls += 1;
+      throw new Error("upstream must not be called");
+    },
+  });
+
+  const response = await handler(
+    request(sourceFor(savedGrid)),
+    {},
+    sourceFor(savedGrid),
+    { user: { accountId: "account-1" } },
+  );
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).stage, "storage");
+  assert.equal(renderCalls, 0);
+  assert.equal(upstreamCalls, 0);
 });
 
 test("direct handoff rejects stale versions and other accounts before upstream work", async () => {
@@ -336,4 +710,109 @@ test("server-side rendering accepts a trusted collection MEDIA image through the
   assert.equal(response.status, 201);
   assert.equal(new URL(renderedGridUrl).pathname, "/.netlify/functions/image-proxy");
   assert.equal(new URL(renderedGridUrl).searchParams.get("url"), mediaUrl);
+});
+
+test("direct handoff proxies raw Lightbox-style grid thumbnails before rendering and completes MEDIA and CREATE", async () => {
+  const savedGrid = grid();
+  const thumbnailUrl = "https://images.example/lightbox-card.jpg?width=1200&quality=85";
+  savedGrid.images[0].imageUrl = thumbnailUrl;
+  let renderPacket;
+  let mediaCalls = 0;
+  let createCalls = 0;
+  const handler = directHandler({
+    collection: memoryStore({
+      schemaVersion: 1,
+      accountId: "account-1",
+      items: { "server-grid-1": savedGrid },
+    }),
+    receipts: memoryStore(),
+    renderOutputImpl: async packet => {
+      renderPacket = packet;
+      return PNG;
+    },
+    fetchImpl: async (url, options) => {
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        mediaCalls += 1;
+        const bytes = new Uint8Array(await options.body.get("file").arrayBuffer());
+        return Response.json({
+          data: {
+            version: 1,
+            assetId: "33333333-3333-4333-8333-333333333333",
+            fileUrl: "https://media.example/assets/draft.png",
+            deliveryUrl: "https://media.example/assets/draft.png",
+            thumbnailUrl: "https://media.example/assets/draft-thumb.png",
+            mediaType: "image",
+            mimeType: "image/png",
+            sizeBytes: bytes.byteLength,
+            checksum: createHash("sha256").update(bytes).digest("hex"),
+            dimensions: { width: 1080, height: 1350 },
+          },
+        });
+      }
+      createCalls += 1;
+      const body = JSON.parse(options.body);
+      return Response.json({
+        receipt: {
+          postId: "draft-lightbox-1",
+          postUrl: "https://create.example/drafts/draft-lightbox-1",
+          status: "Draft",
+          sourceVersion: body.sourceVersion,
+          workflow: "creator-draft",
+          disposition: "created",
+          mediaSyncState: "synced",
+          warnings: [],
+        },
+      });
+    },
+  });
+  const source = sourceFor(savedGrid);
+  const response = await handler(request(source), {}, source, { user: { accountId: "account-1" } });
+
+  const expectedProxy = new URL("/.netlify/functions/image-proxy", ORIGIN);
+  expectedProxy.searchParams.set("url", thumbnailUrl);
+  assert.equal(response.status, 201);
+  assert.equal(renderPacket.grids[0].images[0].imageUrl, expectedProxy.toString());
+  assert.equal(renderPacket.sourceCards[0].imageUrl, expectedProxy.toString());
+  assert.equal(mediaCalls, 1);
+  assert.equal(createCalls, 1);
+});
+
+test("direct handoff rejects unsafe raw grid thumbnails before rendering or upstream work", async () => {
+  for (const imageUrl of [
+    "http://images.example/card.jpg",
+    "https://user:password@images.example/card.jpg",
+    "data:image/png;base64,AAAA",
+    "blob:https://fandom.justlikekatie.com/card",
+    "https://127.0.0.1/card.jpg",
+    "https://[::1]/card.jpg",
+    "https://localhost/card.jpg",
+    "not a URL",
+  ]) {
+    const savedGrid = grid();
+    savedGrid.images[0].imageUrl = imageUrl;
+    let renderCalls = 0;
+    let upstreamCalls = 0;
+    const handler = directHandler({
+      collection: memoryStore({
+        schemaVersion: 1,
+        accountId: "account-1",
+        items: { "server-grid-1": savedGrid },
+      }),
+      receipts: memoryStore(),
+      renderOutputImpl: async () => {
+        renderCalls += 1;
+        return PNG;
+      },
+      fetchImpl: async () => {
+        upstreamCalls += 1;
+        throw new Error("upstream must not be called");
+      },
+    });
+    const source = sourceFor(savedGrid);
+    const response = await handler(request(source), {}, source, { user: { accountId: "account-1" } });
+    assert.equal(response.status, 409, imageUrl);
+    assert.match((await response.json()).error, /invalid public image URL/i);
+    assert.equal(renderCalls, 0, imageUrl);
+    assert.equal(upstreamCalls, 0, imageUrl);
+  }
 });

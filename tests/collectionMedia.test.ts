@@ -1,16 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  classifyCollectionMedia,
-  collectionMediaCandidatesFromPackets,
-} from '../src/utils/collectionMedia.ts';
+import { classifyCollectionMedia } from '../src/utils/collectionMedia.ts';
 import {
   isVerifiedMediaReference,
   reassignMediaToCollection,
   type MediaReference,
 } from '../src/utils/mediaReference.ts';
 import type { CardRecord, GridRecord } from '../src/utils/collectionDB.ts';
-import type { IdeaPacket } from '../src/utils/ideaPackets.ts';
 
 const media: MediaReference = {
   schemaVersion: 1,
@@ -21,7 +17,7 @@ const media: MediaReference = {
   sizeBytes: 1234,
   checksum: 'a'.repeat(64),
   dimensions: { width: 1200, height: 800 },
-  association: { type: 'idea_packet', id: 'packet-1', outputId: 'individual-1' },
+  association: { type: 'collection', id: 'vibe-atlas', itemId: 'local-1' },
 };
 
 function card(overrides: Partial<CardRecord> = {}): CardRecord {
@@ -85,25 +81,4 @@ test('accepts only complete stable MEDIA provenance and re-associates the same a
     id: 'middle-earth',
     itemId: 'local-1',
   });
-});
-
-test('packet MEDIA candidates retain their studio scope for recovery', () => {
-  const packet = {
-    workspace: 'middle-earth',
-    media: [{
-      id: 'media-1',
-      imageUrl: 'https://images.example/result.jpg',
-      sourceUrl: 'https://publisher.example/story',
-      title: 'Result',
-      resultId: 'https://images.example/result.jpg',
-      addedAt: '2026-08-28T00:00:00Z',
-      media,
-    }],
-    sourceCards: [],
-    grids: [],
-  } as unknown as IdeaPacket;
-  const candidates = collectionMediaCandidatesFromPackets([packet]);
-  assert.equal(candidates.length, 1);
-  assert.equal(candidates[0].collectionScope, 'middle-earth');
-  assert.equal(candidates[0].media.assetId, media.assetId);
 });

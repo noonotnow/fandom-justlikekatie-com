@@ -1,6 +1,4 @@
-export type MediaAssociation =
-  | { type: 'collection'; id: string; itemId: string }
-  | { type: 'idea_packet'; id: string; outputId?: string };
+export type MediaAssociation = { type: 'collection'; id: string; itemId: string };
 
 export interface MediaReference {
   schemaVersion: 1;
@@ -58,63 +56,12 @@ export function reassignMediaToCollection(
   };
 }
 
-export interface IdeaPacketMediaSourceDescriptor {
-  schemaVersion: 1;
-  assetId: string;
-  checksum: string;
-  association: {
-    type: 'idea_packet';
-    id: string;
-    outputId: string;
-  };
-}
-
-export function associateMediaWithIdeaPacket(
-  media: MediaReference,
-  packetId: string,
-  outputId?: string,
-): MediaReference {
-  return {
-    ...media,
-    association: {
-      type: 'idea_packet',
-      id: packetId,
-      ...(outputId ? { outputId } : {}),
-    },
-  };
-}
-
-export function mediaSourceDescriptor(
-  media: MediaReference,
-  packetId: string,
-  outputId: string,
-): IdeaPacketMediaSourceDescriptor | undefined {
-  if (
-    media.association.type !== 'idea_packet'
-    || media.association.id !== packetId
-    || media.association.outputId !== outputId
-  ) return undefined;
-  return {
-    schemaVersion: 1,
-    assetId: media.assetId,
-    checksum: media.checksum,
-    association: {
-      type: 'idea_packet',
-      id: packetId,
-      outputId,
-    },
-  };
-}
-
 function isMediaAssociation(value: unknown): value is MediaAssociation {
   if (!value || typeof value !== 'object') return false;
   const association = value as Partial<MediaAssociation>;
-  if (association.type === 'collection') {
-    return typeof association.id === 'string' && typeof association.itemId === 'string';
-  }
-  return association.type === 'idea_packet'
+  return association.type === 'collection'
     && typeof association.id === 'string'
-    && (association.outputId === undefined || typeof association.outputId === 'string');
+    && typeof association.itemId === 'string';
 }
 
 function isStableMediaUrl(value: unknown): value is string {

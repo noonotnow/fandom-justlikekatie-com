@@ -456,7 +456,7 @@ test('new cards require translation while reworks and unchanged memes can search
   );
   assert.match(
     source,
-    /setSelected\(undefined\); setPreviewImageFailed\(false\); setVisualGeneration\(undefined\); setPacketSaved\(false\);/,
+    /setSelected\(undefined\); setPreviewImageFailed\(false\); setVisualGeneration\(undefined\);/,
     'a new reaction search or translation must invalidate any prior source before async results return',
   );
   assert.match(
@@ -666,7 +666,7 @@ test('an existing meme can be saved to the shared collection without generated c
 
   const saveExistingMeme = source.slice(
     source.indexOf('const saveExistingMeme ='),
-    source.indexOf('const savePacket =', source.indexOf('const saveExistingMeme =')),
+    source.indexOf('const saveGeneratedMeme =', source.indexOf('const saveExistingMeme =')),
   );
   assert.match(saveExistingMeme, /if \(!selected \|\| !canSaveOriginalMeme\) return;/);
   assert.match(saveExistingMeme, /await dbSaveCard\(originalMemeCard\(selected\)\);/);
@@ -687,7 +687,7 @@ test('a generated MemeForge card can be rendered and saved directly to Collectio
   );
   const saveGeneratedMeme = source.slice(
     source.indexOf('const saveGeneratedMeme ='),
-    source.indexOf('const savePacket =', source.indexOf('const saveGeneratedMeme =')),
+    source.indexOf('\n  return (', source.indexOf('const saveGeneratedMeme =')),
   );
   assert.match(saveGeneratedMeme, /exportMiddleEarthPng\(renderedDraft, previewNode, \{ download: false \}\)/);
   assert.match(saveGeneratedMeme, /await dbSaveCard\(\{/);
@@ -728,7 +728,7 @@ test('resolved comic mechanism survives visual grounding and packet staging', as
   assert.match(source, /Comic mechanism: \$\{translation\.comicMechanism\}/);
   assert.match(source, /\.\.\.\(resolvedComicMechanism \? \{ comicMechanism: resolvedComicMechanism \} : \{\}\)/);
   assert.match(source, /<span>Comic mechanism<\/span><p>\{translation\.comicMechanism\}<\/p>/);
-  assert.match(source, /reactionImageBrief: translation\?\.reactionImageBrief,/);
+  assert.match(source, /\.\.\.\(translation\?\.reactionImageBrief \? \{ reactionImageBrief: translation\.reactionImageBrief \} : \{\}\)/);
   assert.match(source, /Visual joke role<\/span><p>\{translation\.reactionImageBrief\.visualRole\}<\/p>/);
   assert.match(source, /Performed reaction<\/span><p>\{translation\.reactionImageBrief\.performedEmotion\.join\(" · "\)\}<\/p>/);
 });
@@ -756,7 +756,8 @@ test('the forge editor keeps reaction cards to a setup line, punchline line, and
   assert.match(source, /MEMEFORGE \/\/ \{\(cardFormat \|\| resolvedArtifactType \|\| "Reaction"\)\.toUpperCase\(\)\}/);
   assert.match(
     source,
-    /The reaction card needs both its setup and punchline before it can be saved\./,
+    /const hasSavableGeneratedCard = Boolean\(visualGeneration \|\| hasReworkOverlay\);/,
+    'only forged reaction cards or explicit reworks should expose the Collection save action',
   );
   assert.match(
     source,

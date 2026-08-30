@@ -9,7 +9,6 @@ import {
 import { markGridAsLegendaryMisprint, type CardRecord, type GridRecord } from '../src/utils/collectionDB';
 import { starDataFromCollectionGrid } from '../src/utils/collectionHistoryModel';
 import { classifyEditionTier } from '../src/utils/exportCanvas';
-import { packetFromCollectionGrid } from '../src/utils/ideaPackets';
 
 function card(actor: string, id: string): CardRecord {
   return {
@@ -176,7 +175,4 @@ test('a creator-marked Gandalf grid can round-trip through the Misprints builder
 
   const exportData = starDataFromCollectionGrid(rebuilt);
   assert.equal(classifyEditionTier(exportData.rankedBatches[0]), 'legendary-misprint');
-  const packet = packetFromCollectionGrid(rebuilt);
-  assert.match(packet.notes, /Intentional Legendary Misprint/);
-  assert.match(packet.sourceCards[0].provenance, /"unexpectedImageIdentity":\{"label":"Gandalf"\}/);
 });

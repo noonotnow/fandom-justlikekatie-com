@@ -6,10 +6,6 @@ import {
   legacyGridFromPlan,
   starDataFromCollectionGrid,
 } from '../src/utils/collectionHistoryModel.ts';
-import {
-  mediaFromCollectionCard,
-  packetFromCollectionGrid,
-} from '../src/utils/ideaPackets.ts';
 
 test('captures exported grids as reusable collection snapshots', () => {
   const grid = collectionGridFromStar({
@@ -46,10 +42,6 @@ test('captures exported grids as reusable collection snapshots', () => {
   assert.equal(grid.vibeSubtitle, 'Seed');
   assert.equal(grid.rendererVersion, 'vibe-atlas-v1');
   assert.equal(starDataFromCollectionGrid(grid).rankedBatches[0].query, 'editorial query');
-  const packet = packetFromCollectionGrid(grid);
-  assert.equal(packet.provenance.gridId, grid.id);
-  assert.deepEqual(packet.anchor.imageUrls, grid.images.map(image => image.imageUrl));
-  assert.equal(packet.grids[0].searchSpell, 'editorial query');
 });
 
 test('adapts legacy grid exports from the existing plan store', () => {
@@ -96,13 +88,6 @@ test('deduplicates new saved cards with live results and legacy cards by provena
       association: { type: 'collection' as const, id: 'middle-earth', itemId: 'item-1' },
     },
   };
-  const packetMedia = mediaFromCollectionCard(current, 'packet-1');
-  assert.equal(packetMedia.resultId, current.resultId);
-  assert.deepEqual(packetMedia.media?.association, {
-    type: 'idea_packet',
-    id: 'packet-1',
-    outputId: `individual-${packetMedia.id}`,
-  });
   assert.equal(cardStableResultId(current), current.resultId);
 
   const legacy = { ...current, resultId: undefined, sourceUrl: undefined };
@@ -164,10 +149,6 @@ test('intentional Legendary Misprint metadata survives export and CREATE packet 
 
   const starData = starDataFromCollectionGrid(grid);
   assert.equal(starData.rankedBatches[0].intentionalMisprint, true);
-  const packet = packetFromCollectionGrid(grid);
-  assert.equal(packet.grids[0].intent, 'legendary-misprint');
-  assert.match(packet.notes, /Intentional Legendary Misprint/);
-  assert.match(packet.sourceCards[0].provenance, /"unexpectedImageIdentity":\{"label":"Gandalf"\}/);
 });
 
 test('an individual Misprint keeps its intentional label and dual identity in packet media', () => {
@@ -200,8 +181,4 @@ test('an individual Misprint keeps its intentional label and dual identity in pa
       },
     },
   };
-  const media = mediaFromCollectionCard(card);
-  assert.match(media.title, /Intentional Legendary Misprint/);
-  assert.equal(media.legendaryMisprint?.intendedIdentity.actor, '刘学义');
-  assert.equal(media.legendaryMisprint?.unexpectedImageIdentity.label, 'Gandalf');
 });

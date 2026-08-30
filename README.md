@@ -12,9 +12,9 @@ paths, what was and wasn't carried over).
 ## What this is
 
 A React + TypeScript + Vite "Vibe Atlas" front end, plus its Netlify
-Functions backend (`netlify/functions/`) — including the canonical Fandom
-Idea Packet handoff to MEDIA and CREATE, the legacy Send-to-PLAN adapter, and
-image-search/ranking helpers. CREATE and PLAN remain separate repositories.
+Functions backend (`netlify/functions/`) — including Saved Collection sync,
+the direct Creator OS handoff, and image-search/ranking helpers. Creator OS
+and the Operator Console remain separate systems.
 
 ## Build & run
 
@@ -33,51 +33,22 @@ Netlify build config (`netlify.toml`): `command = "npm install && npm run
 build"`, `publish = "dist"`, functions directory `netlify/functions`. No
 `cd` into a subdirectory is required — repo root is the deploy root.
 
-## Idea Packet → CREATE deployment
+## Saved Collection → Creator OS
 
-The primary Idea Packet completion action posts only the authenticated packet
-ID, version, selected output IDs, and the fixed render contract to the
-same-origin `/api/create-handoff` Netlify Function. Browser PNG bytes, URLs,
-filenames, and provenance labels are never accepted. The function renders each
-PNG deterministically from the persisted packet selection, registers it through
-canonical MEDIA, and signs the existing `fandom.static-deliverable.v1` CREATE
-intake envelope. Before any upstream call it checkpoints an immutable attempt in
-the `idea-packet-handoff-attempts` Blob store; retries reuse its exact render
-bytes, checksums, MEDIA descriptors, generated time, and source CAS until a
-receipt succeeds or a packet mutation supersedes it. Persisted MEDIA URLs must
-be stable HTTPS URLs without query strings or fragments, so signed URLs are
-never written into retry state. Configure these server-only environment
-variables in Netlify:
+Saved Vibe Atlas grids are synced through Collection and handed directly to
+Creator OS through the same-origin `/api/create-handoff` endpoint. The
+handoff is a Creator Draft workflow, not a packet workflow: Creator Draft
+receipts are retained in `creator-draft-handoffs` and Creator OS is the place
+to read and continue the resulting drafts.
 
-Pre-PR8 retry pointers (recorded before the attempt-artifact schema existed)
-are migrated only when their packet version and source CAS chain still match
-the persisted packet exactly — never by trusting identifiers or provenance
-alone, since those don't prove an asset's bytes are still intact upstream. A
-matching legacy pointer is rendered exactly once, checkpointed as a normal
-PR8 attempt artifact, and only then swapped in via an atomic CAS against the
-packet entry's ETag; a stale pointer (packet version has since changed) is
-simply superseded by a fresh attempt, and any pointer that is malformed or
-whose source CAS no longer matches is rejected before any render or upstream
-call. Because legacy pointers never persisted per-output bytes, checksums, or
-MEDIA descriptors, migration never infers or reuses a historical descriptor —
-identifiers and provenance alone are not sufficient, since they cannot verify
-that an asset's bytes are still intact upstream. Migration always re-registers
-with MEDIA, which deduplicates by checksum and returns the canonical
-descriptor for identical bytes, producing at most one final canonical asset
-set even if re-rendered bytes differ. As with every other retry record, no
-signed URLs are ever persisted for a migrated attempt, only stable canonical
-HTTPS descriptor URLs.
+The browser never receives Creator OS credentials. Deployment must preserve
+the same-origin redirect for `/api/create-handoff`; do not expose server
+credentials as `VITE_` variables.
 
-- `MEDIA_ASSETS_URL` — canonical MEDIA `POST /v1/assets/images` endpoint
-- `MEDIA_ASSETS_TOKEN` — scoped MEDIA bearer credential with `assets:write`
-- `CREATE_FANDOM_INTAKE_URL` — authenticated CREATE Fandom deliverable intake
-- `CREATE_FANDOM_HMAC_KEY_ID` — active Fandom signing key ID
-- `CREATE_FANDOM_HMAC_SECRET` — matching server-only HMAC secret
-- `CREATE_APP_URL` — optional; defaults to `https://create.justlikekatie.com`
-- `PLAN_OPERATOR_TOKEN` — existing operator-entered bearer key for Fandom admin requests
-- `XAI_API_KEY` — server-only xAI key used by the Netlify MemeForge/Spellbook
-  generation function. The attached Replit xAI connector is used only inside
-  Replit runtimes; it is not a Netlify deployment credential.
+Historical Idea Packet records and their receipts were migrated to CREATE.
+They remain historical provenance there, rather than an active Fandom API,
+archive, staging area, or handoff path. Middle-earth records remain readable
+through their scoped Collection access.
 
 ### Stripe billing on the external Netlify deployment
 
@@ -97,135 +68,9 @@ The Replit connector and Postgres Stripe Sync remain the local/development
 fallback. Never prefix these secrets with `VITE_`, commit them, or expose them
 in browser responses.
 
-The browser never receives MEDIA or CREATE credentials. Do not add them as
-`VITE_` variables. Deployment must preserve the same-origin redirect for
-`/api/create-handoff`.
-
 The browser also never receives `XAI_API_KEY`. Configure it directly in the
 Netlify site's environment variables before deploying AI generation; Replit
 development uses the attached xAI connector without exposing a provider key.
-
-### One-time Idea Packet migration to CREATE
-
-The temporary `GET /api/internal/idea-packet-migration` endpoint supports the
-one-time move of private Idea Packets into CREATE. It is not a public or
-browser-authenticated API. The endpoint is available only after Fandom is
-frozen with:
-
-- `FANDOM_IDEA_PACKETS_MODE=read-only`
-- `CREATE_FANDOM_PACKET_MIGRATION_KEY_ID` — a migration-only key ID
-- `CREATE_FANDOM_PACKET_MIGRATION_SECRET` — its migration-only HMAC secret
-
-Do not reuse `PLAN_OPERATOR_TOKEN`, the public collection read key, or the
-CREATE intake signing key. CREATE signs the empty-body GET with:
-
-```text
-<X-Fandom-Timestamp>
-GET
-/api/internal/idea-packet-migration
-<sha256 of empty body>
-```
-
-and sends the result as `X-Fandom-Signature: v1=<hex hmac-sha256>`, along with
-`X-Fandom-Key-Id`. Timestamps have a five-minute validity window. The endpoint
-accepts no query parameters, returns `Cache-Control: private, no-store`, and
-never calls MEDIA or CREATE.
-
-The `fandom.idea-packet-migration.v1` response contains exact stored packets,
-legacy-normalized packets, ordered selected media/output IDs, completed CREATE
-receipts and validated source-version CAS identity, the stable
-`fandom/deliverable/<packetId>/idea-packet-main` idempotency key, deterministic
-per-record and top-level SHA-256 checksums, and inventory counts. Incomplete,
-stale, legacy, malformed, missing, and orphan handoff attempts are exported
-only as `replayAllowed: false` quarantine records. Retry `bytesBase64` is never
-exported; file checksums, sizes, MEDIA descriptors, and provenance remain for
-audit. The migration function opens both Blob stores with strong consistency,
-including paginated key listing. It inventories both stores in parallel, reads
-each packet and handoff Blob body exactly once with bounded concurrency, then
-revalidates both stores in one parallel key/ETag inventory wave. A successful
-response therefore pins both body snapshots across the same interval without
-serializing repeated full-store scans. The response includes `Server-Timing`
-phase durations, and the function logs phase durations, Blob counts, and final
-response size without logging packet data or credentials. Successful exports
-send the raw snapshot checksum in `X-Fandom-Snapshot-Checksum` as the stable
-server-to-server transport integrity header while retaining the quoted `ETag`
-for backward compatibility. Any active lease or packet/lease change rejects the
-snapshot for retry. A
-malformed persisted completion is quarantined as `invalid-handoff` and is not
-exported as completed. A valid prior completion remains completed after later
-packet edits: its receipt/source CAS is historical identity while the export
-still carries the packet's current version and state. Any Blob read/list failure
-returns an error rather than a partial snapshot.
-
-When `FANDOM_IDEA_PACKETS_MODE` is absent it defaults to `active`, so deploying
-migration support does not freeze the site. An explicitly configured empty,
-whitespace, or unknown value is invalid. In `read-only`, authenticated
-`GET /api/idea-packets` continues to work with deprecation headers, while packet
-`POST`/`PATCH` and `POST /api/create-handoff` return
-`423 FANDOM_IDEA_PACKETS_READ_ONLY` before Blob writes, rendering, MEDIA
-registration, or CREATE intake. An invalid mode fails those mutation paths
-closed with `503`.
-
-Cutover runbook:
-
-1. Deploy the Fandom migration-support release while mode remains `active`.
-2. Deploy CREATE's packet persistence/worktable and server-only importer.
-3. Provision the same dedicated migration HMAC pair in Fandom and CREATE.
-4. Have Katie stop packet edits and sends, set mode to `read-only`, and deploy
-   the configuration.
-5. Wait at least five minutes for existing handoff leases plus deployment drain.
-   If export reports an active lease, wait and retry; never delete the lease.
-6. CREATE fetches the snapshot, verifies every count/checksum, and imports
-   packets plus completed receipt/idempotency identity in one all-or-nothing
-   operation. Quarantine records stay non-executable and must not enter CREATE's
-   handoff/retry path.
-7. Compare the Fandom export checksum/counts with CREATE's import receipt. Katie
-   spot-checks collecting and compiled packets, selected media/order,
-   provenance, timestamps/versions, and completed CREATE receipts.
-8. Enable CREATE as packet source of truth. Keep Fandom read-only and retain
-   both Netlify Blob stores and migration credentials for 14 days.
-
-Before CREATE packet writes are enabled, rollback by disabling the CREATE
-importer/UI and redeploying Fandom with mode `active`; the Blob data remains
-untouched. After CREATE writes begin, do not reactivate Fandom blindly because
-the stores have diverged. Pause CREATE writes and reconcile from the captured
-import/export checksums instead. A checksum mismatch or failed import leaves
-Fandom read-only and can be retried idempotently.
-
-Admin, embedded PLAN, operator-token routes, and Blob data are deliberately not
-removed by the migration-support release. A separate destructive PR after the
-14-day window removes those private surfaces, the temporary endpoint/keys, and
-only then schedules Blob deletion under a separately reviewed retention step.
-
-The server accepts source images only through persisted same-origin proxy
-descriptors whose target is a public HTTPS hostname. DNS is pinned to a
-validated public address, redirects are revalidated, and private/link-local/IP
-literal targets fail before MEDIA. The ordered tray uses the first output as
-the CREATE cover and creates or idempotently recovers exactly one canonical
-Posts DB Draft. It sends no schedule or publish action. CREATE owns source
-version CAS, exact replay, Draft-only recovery, and later-lifecycle fail-closed
-behavior. Only `mediaSyncState=synced` is successful; operator divergence stays
-a visible conflict and never stores or presents an Open-in-CREATE success link.
-
-### Legacy Send to PLAN deployment
-
-The historical `/api/plan-handoff` adapter remains for compatibility but is
-not the primary Idea Packet action. Its existing server-only variables are:
-
-- `MEDIA_UPLOAD_TOKEN` — credential for the legacy media upload service
-- `PLAN_REGISTRATION_TOKEN` — credential for legacy PLAN draft registration
-- `MEDIA_UPLOAD_URL` — optional legacy media endpoint override
-- `PLAN_DRAFT_URL` — optional legacy PLAN endpoint override
-- `NOTION_API_KEY` — server-only integration token with access to the Posts DB
-- `NOTION_POSTS_DB_ID` — Notion Posts database used by the embedded PLAN view
-
-The handoff function derives `nextAction` only after the media upload
-outcome is known. Missing media takes precedence over required copy,
-followed by packet review and the current manual XHS-admin paste step.
-Every Vibe Atlas handoff explicitly sends the canonical Posts DB
-`Type` value `Static`; these generated share cards never register as video.
-Series labels are display only; the existing series values sent to PLAN
-remain unchanged.
 
 ## PLAN editorial scheduling
 
@@ -266,26 +111,13 @@ shown as unavailable and ready posts are removed from the dispatchable lane.
 The public URL follow-up links to the XHS Admin root because no exact supported
 reconciliation deep link exists.
 
-## Fandom Admin and Idea Packets
+## Operator Console and Saved Collection
 
-The existing admin entry point (`?admin=true`, persisted for the browser session)
-is labeled **Fandom Admin**. Its default workspace is the media-first Idea Packet
-workflow; the existing PLAN schedule remains available as a secondary admin tab.
-Deep links and the existing admin query parameter remain compatible.
+The Operator Console contains PLAN and Court rulings. It is separate from the
+Creator Draft handoff and does not provide an Idea Packet archive or staging
+workflow.
 
-Idea Packets are stored durably in the `idea-packets` Netlify Blobs store through
-same-origin `/api/idea-packets` requests. Reads and mutations require the existing
-`PLAN_OPERATOR_TOKEN`; no additional client-side secret or database migration is
-needed. Packets retain their exact source-card provenance, grid anchor, source
-route and result identifiers, actor/vibe metadata, ordered curated media, ordered
-selected outputs, working context, stored CREATE receipt, and reversible
-`collecting`/`media_compiled` state.
-
-The primary action is **Send to CREATE**. An explicit versioned
-`fandom.idea-packet.handoff.v1` JSON download remains available as a fallback;
-it is not a success receipt and does not write PLAN.
-
-### Saved collection and history adapter
+### Saved collection and history
 
 The existing `vibe-atlas-collection` IndexedDB database remains the anonymous
 and offline-first browser collection. Schema version 3 preserves the existing
@@ -295,10 +127,8 @@ ordered 3×3 media set before the browser share/download completes. Lightbox
 bookmarks continue to write to `cards`, now retaining the original result ID and
 source URL when available.
 
-Fandom Admin’s **Saved collection** view reads both stores. Exported grids can
-anchor a new packet and saved individual results can be added to any collecting
-packet. Packet creation copies the identifying metadata and media references, so
-later collection edits do not erase packet context.
+Saved collection views read both stores. Saved grids are the source for
+Collection sync and the direct Creator OS handoff.
 
 On startup, an idempotent adapter scans the existing `vibe-atlas-plan` store for
 legacy whole-grid records (`gridContext.position === -1`) and exposes them in

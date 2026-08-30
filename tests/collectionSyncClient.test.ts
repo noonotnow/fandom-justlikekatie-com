@@ -108,6 +108,21 @@ test('saved grids sync as first-class artifacts without flattening their source 
   assert.equal(operations.filter(operation => operation.type === 'upsert').length, 2);
 });
 
+test('an explicitly selected grid builds one upsert even when device merging is declined', async () => {
+  const source = await readFile(new URL('../src/utils/collectionDB.ts', import.meta.url), 'utf8');
+  const body = source.match(
+    /export async function dbBuildGridSyncRequest[\s\S]*?\n}\n\nexport function buildSyncOperations/,
+  )?.[0] || '';
+  assert.match(body, /dbEnsureGridLocalId\(gridId\)/);
+  assert.match(body, /operations: \[gridUpsertOperation\(identifiedGrid, state\)\]/);
+  assert.doesNotMatch(body, /mergeDecisions/);
+
+  const declined = state();
+  declined.mergeDecisions['account-a'] = false;
+  const fullSync = buildSyncOperations([card(1)], declined, 'account-a', [grid()]);
+  assert.equal(fullSync.some(operation => operation.localId === 'grid-local-1'), false);
+});
+
 test('saved Middle-earth memes keep attribution and treatment metadata through card sync', () => {
   const meme: CardRecord = {
     ...card(2),

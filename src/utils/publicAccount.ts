@@ -1,5 +1,6 @@
 import {
   dbApplySyncResponse,
+  dbBuildGridSyncRequest,
   dbBuildSyncRequest,
   dbGetVisibleCardsByScope,
   dbGetSyncState,
@@ -93,6 +94,25 @@ export async function syncPublicCollection(user: PublicUser): Promise<void> {
       if (payload.operations.length < 100) break;
       if (batch === 99) throw new Error('Collection sync exceeded the safe batch limit.');
     }
+    notifyCollection('synced');
+  };
+  if (navigator.locks) {
+    await navigator.locks.request('fandom-collection-sync', run);
+  } else {
+    await run();
+  }
+}
+
+/** Sync only the grid a creator explicitly selected, regardless of merge preference. */
+export async function syncPublicGrid(user: PublicUser, gridId: string): Promise<void> {
+  const run = async () => {
+    const session = await getPublicSession();
+    if (session?.accountId !== user.accountId) throw new Error('The active account changed. Refresh before syncing.');
+    const payload = await dbBuildGridSyncRequest(user.accountId, gridId);
+    const response = await postJson('/api/collection/sync', payload);
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || 'Selected grid sync failed.');
+    await dbApplySyncResponse(user.accountId, body, payload.operations);
     notifyCollection('synced');
   };
   if (navigator.locks) {

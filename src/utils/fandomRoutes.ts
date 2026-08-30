@@ -18,12 +18,3 @@ export function initialCollectionType(search: string): 'grids' | 'results' | 'bu
   if (view === 'results' || view === 'builder') return view;
   return 'grids';
 }
-
-export function initialVibeAtlasPacketId(search: string): string | null {
-  const packetId = new URLSearchParams(search).get('packet')?.trim();
-  return packetId || null;
-}
-
-export function vibeAtlasPacketPath(packetId: string): string {
-  return `/vibe-atlas?view=plan&packet=${encodeURIComponent(packetId)}`;
-}

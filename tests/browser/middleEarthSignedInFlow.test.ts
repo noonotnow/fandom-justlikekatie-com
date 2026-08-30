@@ -74,11 +74,10 @@ async function launchBrowser(): Promise<Browser> {
   }
 }
 
-test('a signed-in creator can translate, swap reaction stills, export, and stage preserved provenance', { timeout: 60_000 }, async () => {
+test('a signed-in creator can translate, swap reaction stills, export, and preserve provenance', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();
   const page = await browser.newPage();
-  let stagedPacket: Record<string, unknown> | undefined;
   let imageProxyLoads = 0;
   let collectionMediaUploads = 0;
   const collectionSyncRequests: Array<Record<string, unknown>> = [];
@@ -203,14 +202,6 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
         body: onePixelPng,
       });
     });
-    await page.route('**/api/idea-packets', async route => {
-      const request = route.request().postDataJSON() as { packet?: Record<string, unknown> };
-      stagedPacket = request.packet;
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({ packet: request.packet }),
-      });
-    });
     await page.route('**/api/collection/media?*', async route => {
       collectionMediaUploads += 1;
       const requestUrl = new URL(route.request().url());
@@ -223,14 +214,15 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
         });
         return;
       }
+      const mediaUrl = `https://media.justlikekatie.com/images/sha256/browser-test-${itemId}.png`;
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
           media: {
             schemaVersion: 1,
             assetId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
-            deliveryUrl: 'https://media.justlikekatie.com/images/sha256/browser-test.png',
-            thumbnailUrl: 'https://media.justlikekatie.com/images/sha256/browser-test.png',
+            deliveryUrl: mediaUrl,
+            thumbnailUrl: mediaUrl,
             mimeType: 'image/png',
             sizeBytes: onePixelPng.byteLength,
             checksum: 'a'.repeat(64),
@@ -339,35 +331,6 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     assert.equal(uploadedDerivatives.length, 1, 'the uploaded source must have exactly one separately saved derivative');
     assert.equal(uploadedDerivatives[0].sourceUrl, undefined, 'local-only provenance must not embed the original data URL');
 
-    await page.getByRole('button', { name: 'Stage in Operator Console' }).click();
-    await page.getByText('Idea packet staged. No publish or schedule action was taken.').waitFor();
-    assert.ok(stagedPacket, 'uploaded rework staging must receive a packet');
-    const uploadedSourceCard = (stagedPacket.sourceCards as Array<Record<string, unknown>>)[0];
-    assert.match(String(uploadedSourceCard.imageUrl), /^https:\/\/media\.justlikekatie\.com\//);
-    assert.ok(uploadedSourceCard.media, 'uploaded rework staging must attach its verified MEDIA descriptor');
-    assert.equal(JSON.stringify(stagedPacket).includes('data:image/'), false);
-    assert.ok(
-      Buffer.byteLength(JSON.stringify(stagedPacket)) < 256 * 1024,
-      'an uploaded rework packet must remain below the packet request limit',
-    );
-    assert.equal(collectionMediaUploads, 1, 'CREATE staging should register the uploaded original exactly once');
-    const canonicalRecords = await readCollectionRecords();
-    const canonicalDerivative = canonicalRecords.find(record =>
-      (record.memeRework as { original?: { resultId?: string } } | undefined)?.original?.resultId
-        === uploadedOriginals[0].resultId,
-    );
-    assert.ok(canonicalDerivative, 'the saved derivative must remain after source canonicalization');
-    assert.match(String(canonicalDerivative.sourceUrl), /^https:\/\/media\.justlikekatie\.com\//);
-    assert.notEqual(
-      canonicalDerivative.sourceUrl,
-      canonicalDerivative.imageUrl,
-      'the derivative source URL must point to the original MEDIA asset, never to itself',
-    );
-    assert.equal(
-      (canonicalDerivative.memeRework as { original: { sourceUrl?: string } }).original.sourceUrl,
-      canonicalDerivative.sourceUrl,
-      'the reversible recipe and card provenance must agree on the canonical original',
-    );
     await page.getByRole('link', { name: 'Open Collection' }).click();
     await page.getByRole('heading', { name: 'Middle-earth Collection' }).waitFor();
     await page.getByText(/one-page-became-the-whole-trilogy/).first().waitFor();
@@ -394,8 +357,25 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     await page.getByText('This device is now synced.').waitFor();
     assert.equal(
       collectionMediaUploads,
-      uploadsBeforeDirectCollectionSync + 2,
-      'account sync should persist the derivative and the separate direct Collection upload without re-uploading the original',
+      uploadsBeforeDirectCollectionSync + 3,
+      'account sync should persist the original, derivative, and separate direct Collection upload',
+    );
+    const canonicalRecords = await readCollectionRecords();
+    const canonicalDerivative = canonicalRecords.find(record =>
+      (record.memeRework as { original?: { resultId?: string } } | undefined)?.original?.resultId
+        === uploadedOriginals[0].resultId,
+    );
+    assert.ok(canonicalDerivative, 'the saved derivative must remain after source canonicalization');
+    assert.match(String(canonicalDerivative.sourceUrl), /^https:\/\/media\.justlikekatie\.com\//);
+    assert.notEqual(
+      canonicalDerivative.sourceUrl,
+      canonicalDerivative.imageUrl,
+      'the derivative source URL must point to the original MEDIA asset, never to itself',
+    );
+    assert.equal(
+      (canonicalDerivative.memeRework as { original: { sourceUrl?: string } }).original.sourceUrl,
+      canonicalDerivative.sourceUrl,
+      'the reversible recipe and card provenance must agree on the canonical original',
     );
     const syncedOperations = collectionSyncRequests.flatMap(request =>
       request.operations as Array<{ item?: { imageUrl?: string } }>,
@@ -493,7 +473,7 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     await page.getByRole('button', { name: 'Export reaction card' }).click();
     const download = await downloadPromise;
     assert.match(download.suggestedFilename(), /friday-fellowship\.png/i);
-    await page.getByText('PNG downloaded. No packet was saved.').waitFor();
+    await page.getByText('PNG downloaded. No publish or schedule action was taken.').waitFor();
 
     const generatedUploadsBeforeSave = collectionMediaUploads;
     await page.getByRole('button', { name: 'Save reaction card' }).click();
@@ -504,23 +484,18 @@ test('a signed-in creator can translate, swap reaction stills, export, and stage
     assert.equal(await setupLine.inputValue(), originalSetup);
     assert.equal(await punchlineLine.inputValue(), originalPunchline);
     assert.equal(await alternateCandidate.getAttribute('aria-pressed'), 'true');
+    const alternateSourceLink = page.getByRole('link', { name: 'Open original source' });
+    assert.equal(await alternateSourceLink.getAttribute('href'), alternateSource.link);
+    assert.equal(
+      await page.getByText('Rights status: unknown. This is a personal draft; confirm permission before publishing.').isVisible(),
+      true,
+      'the selected source should retain its rights-status provenance',
+    );
     assert.equal(
       await page.getByRole('button', { name: 'Save reaction card' }).count(),
       0,
       'changing the source should hide generated-card save until the visual is forged again',
     );
-
-    await page.getByRole('button', { name: 'Stage in Operator Console' }).click();
-    await page.getByText('Idea packet staged. No publish or schedule action was taken.').waitFor();
-    assert.ok(stagedPacket, 'packet staging must receive a packet');
-    const sourceCard = (stagedPacket.sourceCards as Array<Record<string, unknown>>)[0];
-    const provenance = JSON.parse(String(sourceCard.provenance));
-    assert.equal(sourceCard.sourceUrl, alternateSource.link);
-    assert.equal(sourceCard.title, alternateSource.title);
-    assert.match(String(sourceCard.imageUrl), /^\/\.netlify\/functions\/image-proxy\?url=/);
-    assert.equal(provenance.query, 'Sam carrying Frodo reaction still Lord of the Rings');
-    assert.equal(provenance.referenceStillFamily, 'sam-carrying-frodo');
-    assert.equal(provenance.rightsStatus, 'unknown');
 
     await page.getByRole('button', { name: 'Use typography-only fallback' }).click();
     await page.getByText('Typography-only fallback is active.').waitFor();
