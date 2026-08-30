@@ -84,10 +84,17 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
     }
   };
   const safeErrorDetails = error => {
+    const providerCode = typeof error?.code === "string"
+      ? error.code
+      : typeof error?.raw?.code === "string" ? error.raw.code : undefined;
+    const providerStatus = Number.isInteger(error?.statusCode)
+      ? error.statusCode
+      : Number.isInteger(error?.raw?.statusCode) ? error.raw.statusCode : undefined;
     const details = {
       name: typeof error?.name === "string" ? error.name : "Error",
-      code: typeof error?.code === "string" ? error.code : undefined,
+      code: providerCode,
       status: Number.isInteger(error?.status) ? error.status : undefined,
+      providerStatus,
       stage: typeof error?.billingStage === "string" ? error.billingStage : undefined,
     };
     if (typeof error?.message === "string" && !String(error?.type || "").startsWith("Stripe")) {
