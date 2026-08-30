@@ -106,10 +106,11 @@ export interface CreateReceipt {
   postUrl: string;
   createUrl: string;
   status: 'Draft';
-  sourceVersion: number;
-  workflow: 'packet';
+  sourceVersion: number | string;
+  workflow: 'packet' | 'creator-draft';
   disposition: 'created' | 'replayed' | 'updated';
-  packetReceipt: { packetId: string; deliverableId: string; accepted: true };
+  packetReceipt?: { packetId: string; deliverableId: string; accepted: true };
+  sourceId?: string;
   mediaSyncState: 'synced' | 'operator-diverged';
   warnings: Array<{ code: string; retryable: boolean; assetId?: string }>;
 }

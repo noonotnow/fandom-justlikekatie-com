@@ -27,11 +27,8 @@ import {
   packetFromGrid,
   type IdeaPacket,
   IdeaPacketError,
-  mediaFromCollectionCard,
-  packetGridFromCollectionGrid,
-  packetFromCollectionGrid,
 } from './utils/ideaPackets';
-import type { CardRecord, GridRecord } from './utils/collectionDB';
+import type { GridRecord } from './utils/collectionDB';
 import { consumeMagicLinkFromLocation, requestMagicLink } from './utils/publicAccount';
 import { getMembershipStatus } from './utils/membership';
 import { Membership } from './components/Membership/Membership';
@@ -429,22 +426,7 @@ function VibeAtlasApp() {
           onCreateFromGrid={async (grid: GridRecord) => {
             try {
               const result = await makeCreatorPostFromGrid(grid);
-              replacePacket(result.compatibilityPacket);
               return result;
-            } catch (caught) {
-              if (caught instanceof IdeaPacketError && caught.status === 401) recheckAdmin();
-              throw caught;
-            }
-          }}
-          onPacketCreated={() => {}}
-          onAddGridToPacket={async (packet: IdeaPacket, grid: GridRecord) => {
-            try {
-              const updated = await mutateIdeaPacket(packet, {
-                type: 'add_grid',
-                grid: packetGridFromCollectionGrid(grid),
-              });
-              replacePacket(updated);
-              return updated;
             } catch (caught) {
               if (caught instanceof IdeaPacketError && caught.status === 401) recheckAdmin();
               throw caught;
@@ -464,46 +446,9 @@ function VibeAtlasApp() {
           error={packetsError}
           unauthorized={packetsUnauthorized}
           onRefresh={loadPackets}
-          onPacketChange={replacePacket}
           onSessionExpired={recheckAdmin}
           initialPacketId={openPacketId}
           initialNotice={packetNotice}
-          onCreateFromGrid={async (grid: GridRecord) => {
-            try {
-              const packet = await createIdeaPacket(packetFromCollectionGrid(grid));
-              replacePacket(packet);
-              return packet;
-            } catch (caught) {
-              if (caught instanceof IdeaPacketError && caught.status === 401) recheckAdmin();
-              throw caught;
-            }
-          }}
-          onAddSavedCard={async (packet: IdeaPacket, card: CardRecord) => {
-            try {
-              const updated = await mutateIdeaPacket(packet, {
-                type: 'add_media',
-                media: mediaFromCollectionCard(card, packet.id),
-              });
-              replacePacket(updated);
-              return updated;
-            } catch (caught) {
-              if (caught instanceof IdeaPacketError && caught.status === 401) recheckAdmin();
-              throw caught;
-            }
-          }}
-          onAddSavedGrid={async (packet: IdeaPacket, grid: GridRecord) => {
-            try {
-              const updated = await mutateIdeaPacket(packet, {
-                type: 'add_grid',
-                grid: packetGridFromCollectionGrid(grid),
-              });
-              replacePacket(updated);
-              return updated;
-            } catch (caught) {
-              if (caught instanceof IdeaPacketError && caught.status === 401) recheckAdmin();
-              throw caught;
-            }
-          }}
         />
       )}
     </div>

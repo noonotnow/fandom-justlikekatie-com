@@ -3,13 +3,9 @@ import { Plan } from '../Plan/Plan';
 import {
   downloadPacketHandoff,
   includedPacketOutputs,
-  mutateIdeaPacket,
-  IdeaPacketError,
   type CreateReceipt,
   type IdeaPacket,
 } from '../../utils/ideaPackets';
-import { renderPacketOutputs } from '../../utils/createHandoff';
-import { completeIdeaPacketHandoff } from '../../utils/createHandoffClient';
 import { setPlanOperatorToken } from '../../utils/planPosts';
 import { dbGetCardsByScope, dbGetAllGrids, type CardRecord, type GridRecord } from '../../utils/collectionDB';
 import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
@@ -24,10 +20,11 @@ interface Props {
   error: string;
   unauthorized: boolean;
   onRefresh: () => Promise<void>;
-  onPacketChange: (packet: IdeaPacket) => void;
-  onCreateFromGrid: (grid: GridRecord) => Promise<IdeaPacket>;
-  onAddSavedCard: (packet: IdeaPacket, card: CardRecord) => Promise<IdeaPacket>;
-  onAddSavedGrid: (packet: IdeaPacket, grid: GridRecord) => Promise<IdeaPacket>;
+  /** Deprecated packet controls remain optional so this surface cannot create new records. */
+  onPacketChange?: (packet: IdeaPacket) => void;
+  onCreateFromGrid?: (grid: GridRecord) => Promise<IdeaPacket>;
+  onAddSavedCard?: (packet: IdeaPacket, card: CardRecord) => Promise<IdeaPacket>;
+  onAddSavedGrid?: (packet: IdeaPacket, grid: GridRecord) => Promise<IdeaPacket>;
   initialPacketId?: string | null;
   initialNotice?: string;
   /** Called when any admin API request returns 401, so the session can be re-checked. */
@@ -78,8 +75,6 @@ export const FandomAdmin: React.FC<Props> = props => {
           showLibrary={view === 'library'}
           initialPacketId={props.initialPacketId}
           initialNotice={props.initialNotice}
-          onLibraryPacketCreated={() => setView('packets')}
-          onSessionExpired={props.onSessionExpired}
         />
       )}
     </section>
@@ -91,23 +86,19 @@ function PacketWorkspace({
   loading,
   error,
   onRefresh,
-  onPacketChange,
   onCreateFromGrid,
   onAddSavedCard,
   onAddSavedGrid,
-  onSessionExpired,
   showLibrary,
-  onLibraryPacketCreated,
   initialPacketId,
   initialNotice,
 }: Omit<Props, 'unauthorized'> & {
   showLibrary: boolean;
-  onLibraryPacketCreated: () => void;
   initialPacketId?: string | null;
   initialNotice?: string;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(initialPacketId ?? null);
-  const [busy, setBusy] = useState(false);
+  const busy = false;
   const [notice, setNotice] = useState(initialNotice ?? '');
   const [createReceipt, setCreateReceipt] = useState<CreateReceipt | null>(null);
   const selected = packets.find(packet => packet.id === selectedId) ?? packets[0] ?? null;
@@ -126,40 +117,13 @@ function PacketWorkspace({
     setCreateReceipt(selected?.handoff?.receipt ?? null);
   }, [selected?.id, selected?.handoff?.receipt]);
 
-  async function mutate(action: Record<string, unknown>, success?: string) {
-    if (!selected || busy) return;
-    setBusy(true);
-    setNotice('');
-    try {
-      onPacketChange(await mutateIdeaPacket(selected, action));
-      if (success) setNotice(success);
-    } catch (caught) {
-      if (caught instanceof IdeaPacketError && caught.status === 401) onSessionExpired?.();
-      setNotice(caught instanceof Error ? caught.message : 'That packet edit could not be saved.');
-    } finally {
-      setBusy(false);
-    }
+  function mutate(_action: Record<string, unknown>, _success?: string) {
+    if (!selected) return;
+    setNotice('Legacy packet archive is read-only. Start new posts from a saved grid in Collection.');
   }
 
   async function sendToCreate() {
-    if (!selected || busy) return;
-    setBusy(true);
-    setNotice('');
-    try {
-      const receipt = await completeIdeaPacketHandoff(selected, renderPacketOutputs);
-      setCreateReceipt(receipt);
-      setNotice(
-        receipt.disposition === 'replayed'
-          ? 'CREATE confirmed the existing Draft. No duplicate was created.'
-          : 'Idea Packet sent to CREATE as one canonical Draft.',
-      );
-      await onRefresh();
-    } catch (caught) {
-      if (caught instanceof IdeaPacketError && caught.status === 401) onSessionExpired?.();
-      setNotice(caught instanceof Error ? caught.message : 'The Idea Packet could not be sent to CREATE.');
-    } finally {
-      setBusy(false);
-    }
+    setNotice('Legacy packet archive is read-only. Existing receipts remain available below.');
   }
 
   function selectPacket(packetId: string) {
@@ -171,10 +135,7 @@ function PacketWorkspace({
     return (
       <SavedCollection
         packets={packets}
-        onCreateFromGrid={async grid => {
-          await onCreateFromGrid(grid);
-          onLibraryPacketCreated();
-        }}
+        onCreateFromGrid={onCreateFromGrid}
         onAddSavedCard={onAddSavedCard}
         onAddSavedGrid={onAddSavedGrid}
       />
@@ -188,9 +149,9 @@ function PacketWorkspace({
     onAddSavedGrid,
   }: {
     packets: IdeaPacket[];
-    onCreateFromGrid: (grid: GridRecord) => Promise<void>;
-    onAddSavedCard: (packet: IdeaPacket, card: CardRecord) => Promise<IdeaPacket>;
-    onAddSavedGrid: (packet: IdeaPacket, grid: GridRecord) => Promise<IdeaPacket>;
+    onCreateFromGrid?: (grid: GridRecord) => Promise<IdeaPacket>;
+    onAddSavedCard?: (packet: IdeaPacket, card: CardRecord) => Promise<IdeaPacket>;
+    onAddSavedGrid?: (packet: IdeaPacket, grid: GridRecord) => Promise<IdeaPacket>;
   }) {
     const [grids, setGrids] = useState<GridRecord[]>([]);
     const [cards, setCards] = useState<CardRecord[]>([]);
@@ -230,8 +191,8 @@ function PacketWorkspace({
         {notice && <div className={styles.notice} role="status">{notice}</div>}
         <header className={styles.libraryHeader}>
           <div>
-            <h3>Packet staging</h3>
-            <p>Compatibility archive for older packet-based drafts. New grid posts start from the Collection.</p>
+            <h3>Archived packet sources</h3>
+            <p>Read-only compatibility archive for older packet-based drafts. New grid posts start from the Collection.</p>
           </div>
           <span>
             {grids.length} {grids.length === 1 ? 'grid' : 'grids'} · {cards.length} {cards.length === 1 ? 'item' : 'items'}
@@ -258,11 +219,11 @@ function PacketWorkspace({
                   </div>
                   <button
                     type="button"
-                    disabled={Boolean(busyKey)}
+                    disabled
                     onClick={async () => {
                       setBusyKey(grid.id);
                       setNotice('');
-                      try { await onCreateFromGrid(grid); } catch (caught) {
+                      try { await onCreateFromGrid?.(grid); } catch (caught) {
                         setNotice(caught instanceof Error ? caught.message : 'Idea Packet could not be started.');
                       } finally { setBusyKey(''); }
                     }}
@@ -274,6 +235,7 @@ function PacketWorkspace({
                   ) : (
                     <div className={styles.addSaved}>
                       <select
+                        disabled
                         aria-label={`Idea Packet for ${grid.actor} ${grid.vibe} grid`}
                         value={packetSelections[grid.id] || ''}
                         onChange={event => setPacketSelections(current => ({ ...current, [grid.id]: event.target.value }))}
@@ -290,7 +252,7 @@ function PacketWorkspace({
                           setBusyKey(`grid:${grid.id}`);
                           setNotice('');
                           try {
-                            await onAddSavedGrid(packet, grid);
+                            await onAddSavedGrid?.(packet, grid);
                             setNotice('Complete grid added to the Idea Packet.');
                           } catch (caught) {
                             setNotice(caught instanceof Error ? caught.message : 'Saved grid could not be added.');
@@ -328,6 +290,7 @@ function PacketWorkspace({
                   ) : (
                     <div className={styles.addSaved}>
                       <select
+                        disabled
                         aria-label={`Idea Packet for ${card.actor} ${card.vibe}`}
                         value={packetSelections[card.imageUrl] || ''}
                         onChange={event => setPacketSelections(current => ({ ...current, [card.imageUrl]: event.target.value }))}
@@ -337,14 +300,14 @@ function PacketWorkspace({
                       </select>
                       <button
                         type="button"
-                        disabled={Boolean(busyKey) || !packetSelections[card.imageUrl]}
+                        disabled
                         onClick={async () => {
                           const packet = collecting.find(item => item.id === packetSelections[card.imageUrl]);
                           if (!packet) return;
                           setBusyKey(card.imageUrl);
                           setNotice('');
                           try {
-                            await onAddSavedCard(packet, card);
+                            await onAddSavedCard?.(packet, card);
                             setNotice('Saved result added to the Idea Packet.');
                           } catch (caught) {
                             setNotice(caught instanceof Error ? caught.message : 'Saved result could not be added.');
@@ -425,11 +388,11 @@ function PacketWorkspace({
             <div className={styles.sectionHeading}>
               <div><h4>Curated media</h4><p>{selected.media.length} individual {selected.media.length === 1 ? 'image' : 'images'} available to the packet</p></div>
               {selected.state === 'media_compiled' ? (
-                <button type="button" onClick={() => mutate({ type: 'set_state', state: 'collecting' }, 'Collection resumed.')} disabled={busy}>
+                <button type="button" onClick={() => mutate({ type: 'set_state', state: 'collecting' }, 'Collection resumed.')} disabled>
                   Resume collection
                 </button>
               ) : (
-                <button type="button" onClick={() => mutate({ type: 'set_state', state: 'media_compiled' }, 'Media compiled. Nothing was scheduled or published.')} disabled={busy || includedPacketOutputs(selected).length === 0}>
+                <button type="button" onClick={() => mutate({ type: 'set_state', state: 'media_compiled' }, 'Media compiled. Nothing was scheduled or published.')} disabled>
                   Mark media compiled
                 </button>
               )}
@@ -442,14 +405,14 @@ function PacketWorkspace({
               </div>
             ) : (
               <ol className={styles.mediaList}>
-                {selected.media.map((media, index) => (
+              {selected.media.map((media) => (
                   <li key={media.id}>
                     <img src={media.imageUrl} alt="" onError={event => event.currentTarget.dataset.stale = 'true'} />
                     <span><strong>{media.title}</strong><small>{media.publisher || media.sourceUrl}</small></span>
                     <div>
-                      <button type="button" aria-label={`Move ${media.title} earlier`} disabled={busy || index === 0} onClick={() => mutate({ type: 'move_media', mediaId: media.id, direction: -1 })}>↑</button>
-                      <button type="button" aria-label={`Move ${media.title} later`} disabled={busy || index === selected.media.length - 1} onClick={() => mutate({ type: 'move_media', mediaId: media.id, direction: 1 })}>↓</button>
-                      <button type="button" aria-label={`Remove ${media.title}`} disabled={busy} onClick={() => mutate({ type: 'remove_media', mediaId: media.id })}>Remove</button>
+                      <button type="button" aria-label={`Move ${media.title} earlier`} disabled onClick={() => mutate({ type: 'move_media', mediaId: media.id, direction: -1 })}>↑</button>
+                      <button type="button" aria-label={`Move ${media.title} later`} disabled onClick={() => mutate({ type: 'move_media', mediaId: media.id, direction: 1 })}>↓</button>
+                      <button type="button" aria-label={`Remove ${media.title}`} disabled onClick={() => mutate({ type: 'remove_media', mediaId: media.id })}>Remove</button>
                     </div>
                   </li>
                 ))}
@@ -466,7 +429,7 @@ function PacketWorkspace({
               <span>{includedPacketOutputs(selected).length} included</span>
             </div>
             <ol className={styles.outputTray}>
-              {selected.outputs.map((output, index) => {
+              {selected.outputs.map((output) => {
                 const media = output.kind === 'individual'
                   ? selected.media.find(item => item.id === output.sourceId)
                   : null;
@@ -495,7 +458,7 @@ function PacketWorkspace({
                       <input
                         type="checkbox"
                         checked={output.included}
-                        disabled={busy || selected.state === 'media_compiled'}
+                        disabled
                         onChange={event => mutate({ type: 'toggle_output', outputId: output.id, included: event.target.checked })}
                       />
                       <span>
@@ -513,8 +476,8 @@ function PacketWorkspace({
                     </label>
                     {primary && <span className={styles.primaryLabel}>Primary preview</span>}
                     <div className={styles.outputActions}>
-                      <button type="button" aria-label={`Move ${output.label} earlier`} disabled={busy || selected.state === 'media_compiled' || index === 0} onClick={() => mutate({ type: 'move_output', outputId: output.id, direction: -1 })}>↑</button>
-                      <button type="button" aria-label={`Move ${output.label} later`} disabled={busy || selected.state === 'media_compiled' || index === selected.outputs.length - 1} onClick={() => mutate({ type: 'move_output', outputId: output.id, direction: 1 })}>↓</button>
+                      <button type="button" aria-label={`Move ${output.label} earlier`} disabled onClick={() => mutate({ type: 'move_output', outputId: output.id, direction: -1 })}>↑</button>
+                      <button type="button" aria-label={`Move ${output.label} later`} disabled onClick={() => mutate({ type: 'move_output', outputId: output.id, direction: 1 })}>↓</button>
                     </div>
                   </li>
                 );
@@ -522,7 +485,7 @@ function PacketWorkspace({
             </ol>
           </section>
 
-          <PacketContext key={selected.id} packet={selected} busy={busy} onSave={values => mutate({ type: 'update_context', ...values }, 'Packet context saved.')} />
+          <PacketContext key={selected.id} packet={selected} busy={busy} readOnly onSave={values => mutate({ type: 'update_context', ...values }, 'Packet context saved.')} />
 
           <footer className={styles.handoff}>
             <div>
@@ -543,8 +506,8 @@ function PacketWorkspace({
                   Open in CREATE
                 </a>
               )}
-              <button type="button" disabled={busy || selected.state !== 'media_compiled'} onClick={sendToCreate}>
-                {busy ? 'Sending…' : 'Send to CREATE'}
+              <button type="button" disabled onClick={sendToCreate}>
+                Send to CREATE (archived)
               </button>
             </div>
           </footer>
@@ -554,9 +517,10 @@ function PacketWorkspace({
   );
 }
 
-function PacketContext({ packet, busy, onSave }: {
+function PacketContext({ packet, busy, readOnly = false, onSave }: {
   packet: IdeaPacket;
   busy: boolean;
+  readOnly?: boolean;
   onSave: (values: Pick<IdeaPacket, 'notes' | 'workingAngle' | 'captionSeeds' | 'outputAngles'>) => void;
 }) {
   const [values, setValues] = useState(() => ({
@@ -567,11 +531,11 @@ function PacketContext({ packet, busy, onSave }: {
   }));
   return (
     <form className={styles.context} onSubmit={event => { event.preventDefault(); onSave(values); }}>
-      <label><span>Collection notes</span><textarea value={values.notes} onChange={event => setValues({ ...values, notes: event.target.value })} /></label>
-      <label><span>Working angle</span><textarea value={values.workingAngle} onChange={event => setValues({ ...values, workingAngle: event.target.value })} /></label>
-      <label><span>Caption seeds</span><textarea value={values.captionSeeds} onChange={event => setValues({ ...values, captionSeeds: event.target.value })} /></label>
-      <label><span>Possible output angles</span><textarea value={values.outputAngles} onChange={event => setValues({ ...values, outputAngles: event.target.value })} placeholder="Carousel, lore, comparison, legendary entry…" /></label>
-      <button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save packet context'}</button>
+      <label><span>Collection notes</span><textarea readOnly={readOnly} value={values.notes} onChange={event => setValues({ ...values, notes: event.target.value })} /></label>
+      <label><span>Working angle</span><textarea readOnly={readOnly} value={values.workingAngle} onChange={event => setValues({ ...values, workingAngle: event.target.value })} /></label>
+      <label><span>Caption seeds</span><textarea readOnly={readOnly} value={values.captionSeeds} onChange={event => setValues({ ...values, captionSeeds: event.target.value })} /></label>
+      <label><span>Possible output angles</span><textarea readOnly={readOnly} value={values.outputAngles} onChange={event => setValues({ ...values, outputAngles: event.target.value })} placeholder="Carousel, lore, comparison, legendary entry…" /></label>
+      <button type="submit" disabled={busy || readOnly}>{readOnly ? 'Archived · context is read-only' : busy ? 'Saving…' : 'Save packet context'}</button>
     </form>
   );
 }

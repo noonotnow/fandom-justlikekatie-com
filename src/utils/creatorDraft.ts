@@ -1,12 +1,9 @@
 import type { GridRecord } from './collectionDB';
-import { completeIdeaPacketHandoff } from './createHandoffClient';
+import { completeCreatorDraftHandoff, completeIdeaPacketHandoff } from './createHandoffClient';
 import { renderPacketOutputs } from './createHandoff';
 import {
   createIdeaPacket,
-  fetchIdeaPackets,
-  IdeaPacketError,
   mutateIdeaPacket,
-  packetFromCollectionGrid,
   type CreateReceipt,
   type IdeaPacket,
 } from './ideaPackets';
@@ -42,13 +39,13 @@ export interface CreatorDraftSource {
 
 export interface CreatorDraftResult {
   source: CreatorDraftSource;
-  compatibilityPacket: IdeaPacket;
   receipt: CreateReceipt;
 }
 
 /** Future-facing source contract; no arbitrary client URL is sent to CREATE from it. */
 export function creatorDraftSourceFromGrid(grid: GridRecord): CreatorDraftSource {
-  const sourceVersion = `${grid.schemaVersion}:${grid.generatedAt}:${grid.images.map(image => image.resultId).join('|')}`;
+  const orderedImages = [...grid.images].sort((a, b) => a.gridPosition - b.gridPosition);
+  const sourceVersion = `${grid.schemaVersion}:${grid.generatedAt}:${orderedImages.map(image => image.resultId).join('|')}`;
   return {
     schema: CREATOR_DRAFT_SOURCE_SCHEMA,
     kind: 'ordered-grid',
@@ -66,8 +63,7 @@ export function creatorDraftSourceFromGrid(grid: GridRecord): CreatorDraftSource
       brief: grid.generationPrompt || '',
       ...(grid.ctaSeed ? { captionSeed: grid.ctaSeed } : {}),
     },
-    orderedImages: [...grid.images]
-      .sort((a, b) => a.gridPosition - b.gridPosition)
+    orderedImages: orderedImages
       .map(image => ({
         position: image.gridPosition,
         resultId: image.resultId,
@@ -79,33 +75,11 @@ export function creatorDraftSourceFromGrid(grid: GridRecord): CreatorDraftSource
   };
 }
 
-/**
- * One-click Creator OS crossover. Idea Packets remain the trusted server-side
- * compatibility adapter until CREATE accepts CreatorDraftSource directly.
- */
+/** Send the saved grid source directly to Creator OS; no Idea Packet is created. */
 export async function makeCreatorPostFromGrid(grid: GridRecord): Promise<CreatorDraftResult> {
   const source = creatorDraftSourceFromGrid(grid);
-  const draft = packetFromCollectionGrid(grid);
-  draft.id = `creator-grid-${stableHash(source.idempotencyKey)}`;
-  let compatibilityPacket: IdeaPacket;
-  try {
-    compatibilityPacket = await createIdeaPacket(draft);
-  } catch (error) {
-    if (!(error instanceof IdeaPacketError) || error.status !== 409) throw error;
-    const existing = (await fetchIdeaPackets()).find(packet => packet.id === draft.id);
-    if (!existing || existing.provenance.gridId !== grid.id) {
-      throw new Error('The existing Creator OS draft source does not match this saved grid.');
-    }
-    compatibilityPacket = existing;
-  }
-  if (compatibilityPacket.handoff?.receipt) {
-    return { source, compatibilityPacket, receipt: compatibilityPacket.handoff.receipt };
-  }
-  const compiled = compatibilityPacket.state === 'media_compiled'
-    ? compatibilityPacket
-    : await mutateIdeaPacket(compatibilityPacket, { type: 'set_state', state: 'media_compiled' });
-  const receipt = await completeIdeaPacketHandoff(compiled, renderPacketOutputs);
-  return { source, compatibilityPacket: compiled, receipt };
+  const receipt = await completeCreatorDraftHandoff(source);
+  return { source, receipt };
 }
 
 export async function makeCreatorPostFromPacket(

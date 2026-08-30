@@ -108,13 +108,12 @@ async function openSavedGrid(page: Page, origin: string): Promise<void> {
   await page.getByText('Packet flow actor').first().waitFor();
 }
 
-test('Make a post creates one compatibility record and opens the Creator OS draft', { timeout: 60_000 }, async () => {
+test('Make a post sends one direct grid source and opens the Creator OS draft', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();
   const page = await browser.newPage();
   let createRequests = 0;
   let packetReads = 0;
-  let savedPacket: Record<string, unknown> | null = null;
 
   try {
     await page.route('**/api/auth/session', route => route.fulfill({
@@ -129,41 +128,32 @@ test('Make a post creates one compatibility record and opens the Creator OS draf
         if (packetReads === 1) await new Promise(resolve => setTimeout(resolve, 500));
         await route.fulfill({
           contentType: 'application/json',
-          body: JSON.stringify({ packets: savedPacket ? [savedPacket] : [] }),
+          body: JSON.stringify({ packets: [] }),
         });
         return;
       }
-      if (route.request().method() === 'PATCH') {
-        const compiled = { ...savedPacket, state: 'media_compiled', version: 'created-v2' };
-        savedPacket = compiled;
-        await route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify({ packet: compiled }),
-        });
-        return;
-      }
+      await route.fulfill({ status: 405, contentType: 'application/json', body: JSON.stringify({ error: 'archive is read-only' }) });
+    });
+    await page.route('**/api/create-handoff', async route => {
       createRequests += 1;
-      await new Promise(resolve => setTimeout(resolve, 150));
-      const request = route.request().postDataJSON() as { packet: Record<string, unknown> };
-      savedPacket = { ...request.packet, id: 'created-packet', version: 'created-v1' };
+      const request = route.request().postDataJSON() as { source: { sourceId: string; sourceVersion: string } };
       await route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ packet: savedPacket }),
+        body: JSON.stringify({
+          source: request.source,
+          receipt: {
+            disposition: 'created',
+            createUrl: 'https://create.justlikekatie.com/compose?postId=creator-draft-1',
+            postId: 'creator-draft-1',
+            sourceId: request.source.sourceId,
+            sourceVersion: request.source.sourceVersion,
+            status: 'Draft',
+            workflow: 'creator-draft',
+            mediaSyncState: 'synced',
+          },
+        }),
       });
     });
-    await page.route('**/api/create-handoff', route => route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        receipt: {
-          disposition: 'created',
-          createUrl: 'https://create.justlikekatie.com/compose?postId=creator-draft-1',
-          postId: 'creator-draft-1',
-          status: 'Draft',
-          workflow: 'packet',
-          packetReceipt: { packetId: 'created-packet', deliverableId: 'idea-packet-main', accepted: true },
-        },
-      }),
-    }));
     await page.route('https://create.justlikekatie.com/compose**', route => route.fulfill({
       contentType: 'text/html',
       body: '<title>Creator OS draft</title>',
@@ -185,7 +175,7 @@ test('Make a post creates one compatibility record and opens the Creator OS draf
 
 for (const failure of [
   { name: 'expired authorization', status: 401, message: 'Admin session expired. Sign in again.' },
-  { name: 'persistence failure', status: 503, message: 'Packet storage is temporarily unavailable.' },
+  { name: 'persistence failure', status: 503, message: 'Saved grid handoff is temporarily unavailable.' },
 ]) {
   test(`Make a post keeps results visible after ${failure.name}`, { timeout: 60_000 }, async () => {
     const { server, origin } = await startApp();
@@ -204,6 +194,9 @@ for (const failure of [
         if (route.request().method() === 'GET') {
           return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ packets: [] }) });
         }
+        return route.fulfill({ status: 405, contentType: 'application/json', body: JSON.stringify({ error: 'archive is read-only' }) });
+      });
+      await page.route('**/api/create-handoff', route => {
         createRequests += 1;
         return route.fulfill({
           status: failure.status,

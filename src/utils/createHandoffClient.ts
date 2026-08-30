@@ -1,4 +1,5 @@
 import type { CreateReceipt, IdeaPacket, PacketMedia, PacketOutput, PacketOutputKind } from './ideaPackets.ts';
+import type { CreatorDraftSource } from './creatorDraft.ts';
 import { mediaSourceDescriptor } from './mediaReference.ts';
 
 export const CREATE_HANDOFF_URL = '/api/create-handoff';
@@ -98,6 +99,28 @@ export async function sendIdeaPacketToCreate(
   return validateReceipt(body, packet.id);
 }
 
+/** Send the versioned saved-grid source directly; the server resolves its media. */
+export async function completeCreatorDraftHandoff(
+  source: CreatorDraftSource,
+  fetchImpl: Fetch = fetch,
+): Promise<CreateReceipt> {
+  const response = await fetchImpl(CREATE_HANDOFF_URL, {
+    method: 'POST',
+    credentials: 'same-origin',
+    // Direct grid handoffs are account-scoped and must authenticate via the
+    // same-origin admin session, not the legacy packet operator token.
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source }),
+  });
+  const body = await readJson(response);
+  if (!response.ok) {
+    const error = stringField(body, 'error') || `CREATE handoff failed (HTTP ${response.status})`;
+    const stage = stringField(body, 'stage');
+    throw new Error(stage ? `${error} (${stage} stage)` : error);
+  }
+  return validateCreatorDraftReceipt(body, source);
+}
+
 function sourceDescriptorForOutput(packet: IdeaPacket, output: PacketOutput) {
   if (output.kind === 'grid') return {};
   const reference = output.kind === 'individual'
@@ -151,6 +174,34 @@ function validateReceipt(value: unknown, packetId: string): CreateReceipt {
     || Reflect.get(receipt, 'packetReceipt')?.packetId !== packetId
   ) {
     throw new Error('CREATE handoff returned an invalid receipt.');
+  }
+  return receipt as CreateReceipt;
+}
+
+function validateCreatorDraftReceipt(value: unknown, source: CreatorDraftSource): CreateReceipt {
+  if (!value || typeof value !== 'object') throw new Error('CREATE handoff returned an invalid receipt.');
+  const receipt = Reflect.get(value, 'receipt');
+  if (!receipt || typeof receipt !== 'object') throw new Error('CREATE handoff returned an invalid receipt.');
+  const createUrl = stringField(receipt, 'createUrl');
+  const postId = stringField(receipt, 'postId');
+  let parsed: URL;
+  try {
+    parsed = new URL(createUrl);
+  } catch {
+    throw new Error('CREATE handoff returned an invalid Open in CREATE URL.');
+  }
+  if (
+    parsed.protocol !== 'https:'
+    || parsed.hostname !== 'create.justlikekatie.com'
+    || parsed.pathname !== '/compose'
+    || parsed.searchParams.get('postId') !== postId
+    || stringField(receipt, 'status') !== 'Draft'
+    || stringField(receipt, 'workflow') !== 'creator-draft'
+    || stringField(receipt, 'sourceVersion') !== source.sourceVersion
+    || stringField(receipt, 'sourceId') !== source.sourceId
+    || stringField(receipt, 'mediaSyncState') !== 'synced'
+  ) {
+    throw new Error('CREATE handoff returned an invalid Creator Draft receipt.');
   }
   return receipt as CreateReceipt;
 }

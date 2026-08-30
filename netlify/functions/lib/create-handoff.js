@@ -15,6 +15,10 @@ import {
   ideaPacketReadOnlyResponse,
   isIdeaPacketReadOnly,
 } from "./idea-packet-cutover.js";
+import {
+  createCreatorGridHandoffHandler,
+  isCreatorDraftRequest,
+} from "./creator-grid-handoff.js";
 
 const PACKET_STORE = "idea-packets";
 const ATTEMPT_SCHEMA_VERSION = 1;
@@ -72,7 +76,17 @@ export function createCreateHandoffHandler({
     }
     try {
       validateSameOrigin(req);
-      await validateAuthorization(req, env.PLAN_OPERATOR_TOKEN, auth, context);
+      const operator = await validateAuthorization(req, env.PLAN_OPERATOR_TOKEN, auth, context);
+      const input = await readHandoffInput(req);
+      if (isCreatorDraftRequest(input)) {
+        return await createCreatorGridHandoffHandler({
+          env,
+          fetchImpl,
+          getStore,
+          now,
+          renderOutputImpl,
+        })(req, context, input.source, operator);
+      }
       try {
         if (isIdeaPacketReadOnly(env)) return ideaPacketReadOnlyResponse();
       } catch (error) {
@@ -80,7 +94,7 @@ export function createCreateHandoffHandler({
         throw error;
       }
       requireConfiguration(env);
-      const manifest = await readManifest(req);
+      const manifest = parseManifest(input);
       const store = getStore(PACKET_STORE, context);
       const attemptStore = getStore(HANDOFF_ATTEMPT_STORE, context);
       const result = await withIdeaPacketLock(manifest.packetId, async () => {
@@ -1226,15 +1240,14 @@ function validateSourceDescriptor(value) {
   return true;
 }
 
-async function readManifest(req) {
+async function readHandoffInput(req) {
   const contentType = req.headers.get("content-type") || "";
   if (!contentType.toLowerCase().startsWith("application/json")) {
     throw new RequestError("Content-Type must be application/json.");
   }
   const text = await req.text();
   if (Buffer.byteLength(text) > MAX_RESPONSE_BYTES) throw new RequestError("Handoff request is too large.", 413);
-  try { return parseManifest(JSON.parse(text)); } catch (error) {
-    if (error instanceof RequestError) throw error;
+  try { return JSON.parse(text); } catch {
     throw new RequestError("Handoff manifest must be valid JSON.");
   }
 }
@@ -1264,11 +1277,14 @@ function validateSameOrigin(req) {
 async function validateAuthorization(req, expectedToken, auth, context) {
   const header = req.headers.get("authorization") || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-  if (expectedToken && secureEqual(token, expectedToken)) return;
+  if (expectedToken && secureEqual(token, expectedToken)) return { method: "operator-token" };
   if (auth) {
     try {
-      await auth.authenticateAdmin(req, context);
-      return;
+      const authenticated = await auth.authenticateAdmin(req, context);
+      return {
+        method: "admin-session",
+        user: authenticated?.user || authenticated,
+      };
     } catch (error) {
       if (error?.status === 401) {
         throw new RequestError("Sign in to packet staging again before sending to CREATE.", 401);
