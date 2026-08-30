@@ -122,6 +122,69 @@ to = "/c-drama-fandom/fandom-games/index.html"
 status = 200
 
 [[redirects]]
+  from = "/c-drama-fandom/fandom-games/"
+  to = "/c-drama-fandom/fandom-games/previews/moonlit-strategist/index.html"
+  status = 200
+  force = true
+  query = { fate = "moonlit-strategist" }
+
+[[redirects]]
+  from = "/c-drama-fandom/fandom-games/"
+  to = "/c-drama-fandom/fandom-games/previews/exiled-immortal/index.html"
+  status = 200
+  force = true
+  query = { fate = "exiled-immortal" }
+
+[[redirects]]
+  from = "/c-drama-fandom/fandom-games/"
+  to = "/c-drama-fandom/fandom-games/previews/chaos-prince/index.html"
+  status = 200
+  force = true
+  query = { fate = "chaos-prince" }
+
+[[redirects]]
+  from = "/c-drama-fandom/fandom-games/"
+  to = "/c-drama-fandom/fandom-games/previews/lotus-healer/index.html"
+  status = 200
+  force = true
+  query = { fate = "lotus-healer" }
+
+[[redirects]]
+  from = "/c-drama-fandom/fandom-games/"
+  to = "/c-drama-fandom/fandom-games/previews/silent-sword/index.html"
+  status = 200
+  force = true
+  query = { fate = "silent-sword" }
+
+[[redirects]]
+  from = "/c-drama-fandom/fandom-games/"
+  to = "/c-drama-fandom/fandom-games/previews/fox-spirit/index.html"
+  status = 200
+  force = true
+  query = { fate = "fox-spirit" }
+
+[[redirects]]
+  from = "/c-drama-fandom/fandom-games/"
+  to = "/c-drama-fandom/fandom-games/previews/celestial-guardian/index.html"
+  status = 200
+  force = true
+  query = { fate = "celestial-guardian" }
+
+[[redirects]]
+  from = "/c-drama-fandom/fandom-games/"
+  to = "/c-drama-fandom/fandom-games/previews/bamboo-recluse/index.html"
+  status = 200
+  force = true
+  query = { fate = "bamboo-recluse" }
+
+[[redirects]]
+  from = "/c-drama-fandom/fandom-games/"
+  to = "/c-drama-fandom/fandom-games/previews/fated-romantic/index.html"
+  status = 200
+  force = true
+  query = { fate = "fated-romantic" }
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

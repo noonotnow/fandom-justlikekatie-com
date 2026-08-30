@@ -4,7 +4,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
-import { preparePublicPages, REQUIRED_PUBLIC_PAGES } from "./generate-public-pages.js";
+import {
+  LG01_OUTCOMES,
+  preparePublicPages,
+  REQUIRED_PUBLIC_PAGES,
+} from "./generate-public-pages.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -81,4 +85,40 @@ test("asset preparation produces optimized content and social images", async () 
   assert.equal(socialMeta.format, "jpeg");
   assert.equal(socialMeta.width, 1200);
   assert.equal(socialMeta.height, 630);
+});
+
+test("each allowlisted LG01 fate has a static social preview and exact query rewrite", async () => {
+  await preparePublicPages();
+  const netlify = read("netlify.toml");
+
+  for (const outcome of LG01_OUTCOMES) {
+    const previewPath = `public/c-drama-fandom/fandom-games/previews/${outcome.id}/index.html`;
+    const html = read(previewPath);
+    const title = `Your Xianxia Fate: ${outcome.name} | Fandom Vibes`;
+    const imageUrl = `https://fandom.justlikekatie.com/assets/c-drama-fandom/lg01-${outcome.id}-og.jpg`;
+    const openGraphUrl = `https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/?fate=${outcome.id}`;
+
+    assert.match(html, new RegExp(`<title>${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}<\\/title>`));
+    assert.match(html, new RegExp(`name="description" content="${outcome.description.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+    assert.match(html, new RegExp(`property="og:image" content="${imageUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+    assert.match(html, /property="og:image:width" content="1200"/);
+    assert.match(html, /property="og:image:height" content="630"/);
+    assert.match(html, /name="robots" content="noindex,follow,max-image-preview:large"/);
+    assert.match(html, /<link rel="canonical" href="https:\/\/fandom\.justlikekatie\.com\/c-drama-fandom\/fandom-games\/">/);
+    assert.match(html, new RegExp(`property="og:url" content="${openGraphUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+    assert.doesNotMatch(html, /property="og:url" content="[^"]*utm_/);
+    assert.match(
+      netlify,
+      new RegExp(
+        `to = "/c-drama-fandom/fandom-games/previews/${outcome.id}/index\\.html"[\\s\\S]*?query = \\{ fate = "${outcome.id}" \\}`,
+      ),
+    );
+
+    const socialMeta = await sharp(resolve(root, `public/assets/c-drama-fandom/lg01-${outcome.id}-og.jpg`)).metadata();
+    assert.equal(socialMeta.format, "jpeg");
+    assert.equal(socialMeta.width, 1200);
+    assert.equal(socialMeta.height, 630);
+  }
+
+  assert.doesNotMatch(netlify, /query = \{ fate = ":fate" \}/);
 });
