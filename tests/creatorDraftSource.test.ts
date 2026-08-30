@@ -70,6 +70,24 @@ test('Creator Draft source carries stable ordered provenance and creative contex
   assert.match(first.creativeContext.brief, /Build Your Own/);
 });
 
+test('Creator Draft source uses the server artifact identity when a synced record carries both ids', async () => {
+  const slots = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(card);
+  const grid = {
+    ...gridRecordFromProposal(
+      slots,
+      manualGridRationale(slots, '赵露思'),
+      new Date('2026-08-30T12:00:00.000Z'),
+    ),
+    artifactId: 'server-grid-1',
+  };
+
+  const source = await creatorDraftSourceFromGrid(grid, ['instagram', 'rednote']);
+
+  assert.equal(source.sourceId, 'server-grid-1');
+  assert.equal(source.sourceVersion, sourceVersionForGrid(grid));
+  assert.match(source.idempotencyKey, /^grid:server-grid-1:/);
+});
+
 test('Creator Draft source version changes for every mutable render and envelope input', async () => {
   const slots = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(card);
   const grid = gridRecordFromProposal(

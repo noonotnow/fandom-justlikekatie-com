@@ -9,6 +9,12 @@ The production site is deployed outside Replit. Replit deployment status and log
 
 **How to apply:** Treat a stale live bundle or missing function route as a deployment blocker, not as evidence of an application billing failure. Publish the intended repository revision through the external Netlify pipeline before testing hosted Checkout or webhooks.
 
+Replit-hosted Project Analytics does not observe this production site because its tracker is injected only into Replit-published apps. Production interaction events must use the site's configured Google Analytics tag and be verified in a Netlify deploy preview or live bundle.
+
+**Why:** Replit analytics can be authorized yet return zero rows while the externally deployed Netlify site is receiving real traffic.
+
+**How to apply:** Do not ask for a Replit publish solely to enable analytics. Send bounded custom events through the existing browser Google tag, merge through the Git repository, and use the Google Analytics property for production aggregates.
+
 External Netlify Functions cannot resolve the Replit-managed PostgreSQL hostname
 `helium`, even when the Replit `DATABASE_URL` is copied into Netlify. External
 billing therefore uses the existing Netlify Blobs service for its minimal

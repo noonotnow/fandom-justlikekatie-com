@@ -157,7 +157,7 @@ function classifyHandoffFailure(value: unknown): HandoffFailureCategory {
   if (/sign in|auth|session|unauthorized|forbidden/i.test(message)) {
     return 'authentication';
   }
-  if (/invalid json|unreadable|invalid receipt|composer url|different post destinations|protocol|html/i.test(message)) {
+  if (/invalid json|unreadable|invalid(?: Creator Draft)? receipt|composer url|different post destinations|protocol|html/i.test(message)) {
     return 'invalid_response';
   }
   if (/rejected|returned http|intake failed|handoff failed/i.test(message)) {

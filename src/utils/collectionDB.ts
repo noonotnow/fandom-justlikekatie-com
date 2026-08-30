@@ -93,6 +93,7 @@ export interface GridMediaSnapshot {
 export interface GridRecord {
   localId?: string;
   serverId?: string;
+  artifactId?: string;
   ownerAccountId?: string;
   kind: 'grid';
   schemaVersion: 1;
