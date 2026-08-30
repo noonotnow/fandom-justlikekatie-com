@@ -110,23 +110,12 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
     catch (error) {
       const status = error?.status || 503;
       if (status >= 500) console.error("[billing] request failed", safeErrorDetails(error));
-      const diagnostic = status >= 500 && typeof error?.billingStage === "string" ? ` [${error.billingStage}]` : "";
-      return json(status, { error: status >= 500 ? `Billing is temporarily unavailable.${diagnostic}` : error.message });
+      return json(status, { error: status >= 500 ? "Billing is temporarily unavailable." : error.message });
     }
   };
   return {
     status: guarded(async (req, context) => {
       if (req.method !== "GET") return json(405, { error: "Method not allowed." }, { Allow: "GET" });
-      if (new URL(req.url).searchParams.get("health") === "billing") {
-        await atStage("initialize", () => billing.initialize(context));
-        const repository = await atStage("repository", () => billing.repository(context));
-        await atStage("membership-read", () => repository.membershipForAccount("health-check"));
-        return json(200, { ok: true });
-      }
-      if (new URL(req.url).searchParams.get("health") === "billing-stripe") {
-        await atStage("stripe-client", () => billing.stripe());
-        return json(200, { ok: true });
-      }
       const session = await auth.authenticate(req, context);
       await atStage("initialize", () => billing.initialize(context));
       const repository = await atStage("repository", () => billing.repository(context));
@@ -141,8 +130,13 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
       if (req.method !== "POST") return json(405, { error: "Method not allowed." }, { Allow: "POST" });
       sameOrigin(req);
       const session = await atStage("auth", () => auth.authenticate(req, context));
-      const price = env.FANDOM_STRIPE_MEMBERSHIP_PRICE_ID;
-      if (!/^price_[A-Za-z0-9]+$/.test(price || "")) throw new Error("FANDOM_STRIPE_MEMBERSHIP_PRICE_ID must be a Stripe Price ID.");
+      const price = await atStage("price-config", () => {
+        const configured = env.FANDOM_STRIPE_MEMBERSHIP_PRICE_ID;
+        if (!/^price_[A-Za-z0-9]+$/.test(configured || "")) {
+          throw new Error("FANDOM_STRIPE_MEMBERSHIP_PRICE_ID must be a Stripe Price ID.");
+        }
+        return configured;
+      });
       await atStage("initialize", () => billing.initialize(context));
       const repository = await atStage("repository", () => billing.repository(context));
       let customer = await atStage("customer-read", () => repository.customerForAccount(session.user.accountId));
