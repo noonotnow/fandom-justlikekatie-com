@@ -9,6 +9,12 @@ Filed entries advance contiguously from Episode 1; gaps, overlaps, and backfille
 
 **How to apply:** Enforce these rules server-side in every future public page, share artifact, veteran-submission flow, export, or alternate client. Client-side hiding is supplementary, never the spoiler boundary. When a route names an episode range, cap both automatic restoration and manual changes at that route's endpoint; navigating to a later range must be explicit.
 
+The campaign has two lanes: ordinary Vibe Atlas and Nian Wushuang posts may continue while the journal is unfinished, but production readiness gates the bridge, profile conversion, announcement, and any links into the first-watch experiment.
+
+**Why:** Normalization posts establish voice and account activity without promising an unfinished destination; holding them would waste the runway, while premature launch traffic would create a broken conversion path.
+
+**How to apply:** Keep the normal posting lane moving. Quietly build and test the journal, then deploy and verify production before publishing the bridge post, switching the profile CTA, or announcing the experiment; begin Episode 1 immediately after announcement.
+
 Public delayed-contribution flows must use opaque, operator-scoped journal identities and keep unmoderated text in a separate archive. Source-IP and anonymous-owner abuse limits are independent. Approval becomes durable before evidence publication, and publication retries reconcile idempotently.
 
 **Why:** Shared target keys can route spoilers to the wrong operator, cookie resets can evade combined rate keys, and a cross-store partial failure can otherwise strand or prematurely expose commentary.
