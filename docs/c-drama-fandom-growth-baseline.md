@@ -6,7 +6,7 @@ Recorded August 30, 2026, before making any ranking or conversion claims about t
 
 A public search sample for `site:fandom.justlikekatie.com` and `site:fandom.justlikekatie.com c-drama` did not return a confirmed Fandom Vibes result. The returned pages were unrelated sites that happened to contain similar words. This should be treated as **no verified indexed footprint**, not as proof that Google has indexed zero pages.
 
-The production routes and Search Console performance baseline were verified and recorded on August 30, 2026. The aggregate Pages baseline still requires an operator with Search Console access. Future measurement should record:
+The production routes and the operator-supplied Search Console baseline were verified and recorded on August 30, 2026. A later review still requires an operator with access to the Google property because Search Console is not connected to this workspace. Future measurement should record:
 
 - Valid indexed pages
 - Excluded pages and reasons
@@ -99,9 +99,22 @@ Leave unavailable values as **Not available**, rather than entering zero. Zero m
 | Top queries | `katie hendley` (1 impression, position 10); `劉學義` (1 impression, position 43) | No target C-drama query terms appeared in the exported query rows |
 | Top landing pages | `https://justlikekatie.com/` (3 impressions, position 4); `https://fandom.justlikekatie.com/` (2, position 23); `https://fandom.justlikekatie.com/memeforge/middle-earth` (1, position 4) | No new editorial route appeared in the exported page rows |
 
+### Four editorial route performance baseline
+
+The page-dimension export reported no impressions for any of the four new editorial landing pages. That is recorded as a verified zero for impressions. The export did not provide a route-level row for clicks, CTR, or average position, so those fields remain **Not available** rather than being inferred from the aggregate report.
+
+| Editorial URL | Impressions | Clicks | CTR | Average position |
+| --- | ---: | ---: | ---: | ---: |
+| `https://fandom.justlikekatie.com/c-drama-fandom/` | 0 | Not available | Not available | Not available |
+| `https://fandom.justlikekatie.com/c-drama-fandom/getting-started/` | 0 | Not available | Not available | Not available |
+| `https://fandom.justlikekatie.com/c-drama-fandom/glossary/` | 0 | Not available | Not available | Not available |
+| `https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/` | 0 | Not available | Not available | Not available |
+
+Source: the August 30, 2026 Web / Last 6 months export covering May 6–August 28, 2026. The export’s page total of six impressions does not include any of these four routes.
+
 ### Four editorial discovery checklist
 
-These are the four intended editorial URLs. The following values were recorded from operator-provided URL Inspection screenshots on August 30, 2026. “Not available” means the inspection did not expose a value, not that Google returned zero.
+These are the four intended editorial URLs. The following discovery values were recorded from operator-provided URL Inspection screenshots on August 30, 2026; route-level performance values are recorded in the table above. “Not available” means the inspection or export did not expose a value, not that Google returned zero.
 
 | Editorial URL | Sitemap discovered | Crawl status | Indexing status | Exclusion reason | Canonical selected by Google | Inspection date |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -120,7 +133,7 @@ These are the four intended editorial URLs. The following values were recorded f
 ### Remaining Search Console and growth review steps
 
 1. Request indexing for the four live, canonical, materially complete editorial pages if desired. Do not use repeated requests as a substitute for content quality.
-2. Recheck the recorded metrics at approximately 30, 60, and 90 days as listed below.
+2. Recheck the recorded metrics at approximately 30, 60, and 90 days as listed below. The 30-day review is not yet due as of this baseline and cannot be completed from this workspace without Search Console access.
 
 ## Live result sample
 
@@ -169,12 +182,12 @@ Membership activation must continue to come from verified synchronized subscript
 
 Do not judge ranking performance immediately after publishing. Record the Search Console baseline after property verification and sitemap submission, then review at approximately 30, 60, and 90 days.
 
-| Review | Target date from August 30 baseline | Record |
-| --- | --- | --- |
-| Baseline | After property verification and successful sitemap submission | Indexing status, exclusion reasons, impressions, clicks, CTR, average position, top queries, and top landing pages |
-| 30 days | September 29, 2026 | Compare query and page totals with baseline; note newly discovered query language and material indexing changes |
-| 60 days | October 29, 2026 | Compare query clusters and landing pages; identify pages with impressions but weak CTR or position |
-| 90 days | November 28, 2026 | Compare all periods; decide which existing pages merit revision based on repeated query evidence and engaged visits |
+| Review | Target date from August 30 baseline | Status as of August 30, 2026 | Record |
+| --- | --- | --- | --- |
+| Baseline | After property verification and successful sitemap submission | Complete — recorded above from operator-supplied evidence | Indexing status, exclusion reasons, impressions, clicks, CTR, average position, top queries, and top landing pages |
+| 30 days | September 29, 2026 | Pending — review date has not arrived; do not treat unavailable values as zero | Compare query and page totals with baseline; note newly discovered query language and material indexing changes |
+| 60 days | October 29, 2026 | Scheduled | Compare query clusters and landing pages; identify pages with impressions but weak CTR or position |
+| 90 days | November 28, 2026 | Scheduled | Compare all periods; decide which existing pages merit revision based on repeated query evidence and engaged visits |
 
 At each review, export or record:
 
