@@ -19,7 +19,8 @@ export function createBillingServices({
 } = {}) {
   const useBlobBilling = env.NETLIFY === "true"
     || Boolean(env.AWS_LAMBDA_FUNCTION_NAME)
-    || Boolean(env.STRIPE_SECRET_KEY || env.FANDOM_STRIPE_SECRET_KEY);
+    || Boolean(env.STRIPE_SECRET_KEY || env.FANDOM_STRIPE_SECRET_KEY)
+    || !env.REPLIT_CONNECTORS_HOSTNAME;
   let pool;
   let ready;
   const database = () => {
