@@ -22,7 +22,18 @@ const VALID_EVENTS = [
   "save", "share", "click", "export", "grid-export", "grid_export",
   "collection_save", "plan_add", "membership_view", "upgrade_click",
   "checkout_started", "membership_activated", "paid_feature_used",
+  "fandom_game_start", "fandom_game_reveal", "fandom_game_share",
+  "fandom_share_open",
 ];
+const PUBLIC_GAME_EVENTS = new Set([
+  "fandom_game_start", "fandom_game_reveal", "fandom_game_share",
+  "fandom_share_open",
+]);
+const LG01_OUTCOMES = new Set([
+  "moonlit-strategist", "exiled-immortal", "chaos-prince",
+  "lotus-healer", "silent-sword", "fox-spirit",
+  "celestial-guardian", "bamboo-recluse", "fated-romantic",
+]);
 const STORE_NAME = "engagement";
 
 export default async (req, context) => {
@@ -43,7 +54,10 @@ export default async (req, context) => {
     });
   }
 
-  const { event, batchKey, imageUrl, actor, vibe, editionTier, resultPositions, grid } = body;
+  const {
+    event, batchKey, imageUrl, actor, vibe, editionTier, resultPositions, grid,
+    contentId, outcomeId, source,
+  } = body;
 
   if (!event || !VALID_EVENTS.includes(event)) {
     return new Response(
@@ -69,6 +83,24 @@ export default async (req, context) => {
     );
   }
 
+  if (PUBLIC_GAME_EVENTS.has(event)) {
+    const requiresOutcome = event !== "fandom_game_start";
+    const validOutcome = outcomeId === undefined || LG01_OUTCOMES.has(outcomeId);
+    const validSource = source === undefined || source === "direct" || source === "share";
+    if (
+      batchKey !== "c-drama-fandom-lg01"
+      || contentId !== "lg01-v1"
+      || (requiresOutcome && outcomeId === undefined)
+      || !validOutcome
+      || !validSource
+    ) {
+      return new Response(
+        JSON.stringify({ error: "Invalid public fandom game payload" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+  }
+
   try {
     const store = getBlobStore(STORE_NAME, context);
 
@@ -89,6 +121,10 @@ export default async (req, context) => {
       if (vibe !== undefined) entry.vibe = vibe;
       if (editionTier !== undefined) entry.editionTier = editionTier;
       if (Array.isArray(resultPositions)) entry.resultPositions = resultPositions;
+    } else if (PUBLIC_GAME_EVENTS.has(event)) {
+      entry.contentId = contentId;
+      if (outcomeId !== undefined) entry.outcomeId = outcomeId;
+      if (source !== undefined) entry.source = source;
     } else {
       entry.imageUrl = imageUrl || null;
     }

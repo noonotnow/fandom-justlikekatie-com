@@ -98,6 +98,28 @@ function VibeAtlasApp() {
   }, [view]);
 
   useEffect(() => {
+    const privateView = view === 'collection' || view === 'plan' || view === 'membership';
+    const title = view === 'daily'
+      ? 'Vibe Atlas | Free Daily C-Drama Atmosphere Grid'
+      : view === 'membership'
+        ? 'Vibe Atlas Founding Member | Fandom Vibes'
+        : view === 'collection'
+          ? 'Your Vibe Atlas Studio | Fandom Vibes'
+          : 'Private Studio Plan | Fandom Vibes';
+    document.title = title;
+
+    const robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]')
+      ?? document.head.appendChild(document.createElement('meta'));
+    robots.name = 'robots';
+    robots.content = privateView ? 'noindex,follow' : 'index,follow,max-image-preview:large';
+
+    const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')
+      ?? document.head.appendChild(document.createElement('link'));
+    canonical.rel = 'canonical';
+    canonical.href = 'https://fandom.justlikekatie.com/vibe-atlas';
+  }, [view]);
+
+  useEffect(() => {
     const restoreUrlView = () => {
       setView(initialVibeAtlasView(window.location.search));
       setCollectionTab(initialCollectionType(window.location.search));

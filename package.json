@@ -5,7 +5,10 @@
   "type": "module",
   "description": "Fandom Vibe Atlas — React app + Netlify Functions, deployed at fandom.justlikekatie.com",
   "scripts": {
+    "prepare:public": "node scripts/generate-public-pages.js",
+    "predev": "npm run prepare:public",
     "dev": "vite",
+    "prebuild": "npm run prepare:public",
     "build": "node scripts/check-court-record.js && tsc -b && vite build",
     "preview": "vite preview",
     "lint": "oxlint && node scripts/check-court-record.js",

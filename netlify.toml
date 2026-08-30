@@ -102,6 +102,26 @@ to = "/.netlify/functions/billing-portal"
 status = 200
 
 [[redirects]]
+from = "/c-drama-fandom"
+to = "/c-drama-fandom/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/getting-started"
+to = "/c-drama-fandom/getting-started/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/glossary"
+to = "/c-drama-fandom/glossary/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/fandom-games"
+to = "/c-drama-fandom/fandom-games/index.html"
+status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

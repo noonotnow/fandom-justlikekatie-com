@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /.netlify/
+Disallow: /auth/
+Disallow: /vibe-atlas?view=plan
+
+Sitemap: https://fandom.justlikekatie.com/sitemap.xml

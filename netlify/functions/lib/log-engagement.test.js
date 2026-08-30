@@ -183,6 +183,79 @@ test("save event: valid payload returns 200 and stores imageUrl", async () => {
   assert.equal(stored[0].imageUrl, "https://images.example/card.png");
 });
 
+test("public fandom game event stores only its bounded content fields", async () => {
+  const { store, context } = makeStoreContext();
+  const res = await handler(
+    req({
+      event: "fandom_game_share",
+      batchKey: "c-drama-fandom-lg01",
+      contentId: "lg01-v1",
+      outcomeId: "bamboo-recluse",
+      source: "direct",
+      email: "must-not-be-stored@example.com",
+      collectionId: "private-collection",
+    }),
+    context,
+  );
+
+  assert.equal(res.status, 200);
+  const [stored] = store._read("c-drama-fandom-lg01:fandom_game_share");
+  assert.equal(stored.contentId, "lg01-v1");
+  assert.equal(stored.outcomeId, "bamboo-recluse");
+  assert.equal(stored.source, "direct");
+  assert.equal(stored.email, undefined);
+  assert.equal(stored.collectionId, undefined);
+});
+
+test("public fandom game events reject unbounded outcomes and batch keys", async () => {
+  const { context } = makeStoreContext();
+  const wrongOutcome = await handler(
+    req({
+      event: "fandom_game_reveal",
+      batchKey: "c-drama-fandom-lg01",
+      contentId: "lg01-v1",
+      outcomeId: "arbitrary-user-data",
+    }),
+    context,
+  );
+  const wrongBatch = await handler(
+    req({
+      event: "fandom_game_start",
+      batchKey: "user-controlled-key",
+      contentId: "lg01-v1",
+    }),
+    context,
+  );
+
+  assert.equal(wrongOutcome.status, 400);
+  assert.equal(wrongBatch.status, 400);
+});
+
+test("public fandom outcome events require a selected fate while start does not", async () => {
+  const { context } = makeStoreContext();
+  const missingOutcome = await handler(
+    req({
+      event: "fandom_game_share",
+      batchKey: "c-drama-fandom-lg01",
+      contentId: "lg01-v1",
+      source: "direct",
+    }),
+    context,
+  );
+  const startWithoutOutcome = await handler(
+    req({
+      event: "fandom_game_start",
+      batchKey: "c-drama-fandom-lg01",
+      contentId: "lg01-v1",
+      source: "direct",
+    }),
+    context,
+  );
+
+  assert.equal(missingOutcome.status, 400);
+  assert.equal(startWithoutOutcome.status, 200);
+});
+
 // ---------------------------------------------------------------------------
 // Validation short-circuits (no store interaction needed)
 // ---------------------------------------------------------------------------
