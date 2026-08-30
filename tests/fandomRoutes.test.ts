@@ -12,6 +12,8 @@ test('resolves the three Fandom product routes and keeps magic-link verification
   assert.equal(resolveFandomProductRoute('/vibe-atlas/'), 'vibe-atlas');
   assert.equal(resolveFandomProductRoute('/memeforge/middle-earth'), 'middle-earth');
   assert.equal(resolveFandomProductRoute('/auth/verify'), 'vibe-atlas');
+  assert.equal(resolveFandomProductRoute('/vibe-atlas/veteran-journal'), 'veteran-journal');
+  assert.equal(resolveFandomProductRoute('/vibe-atlas/veteran-journal/'), 'veteran-journal');
   assert.equal(resolveFandomProductRoute('/unknown'), 'launchpad');
 });
 

@@ -46,6 +46,7 @@ export interface WatchJournalPrediction {
 export interface SealedEvidence {
   schemaVersion: 1;
   id: string;
+  sourceSubmissionId?: string;
   entryId: string | null;
   predictionId: string | null;
   unlockEpisode: number;
@@ -61,6 +62,7 @@ export interface WatchJournal {
   evidence: SealedEvidence[];
 }
 
+export type VeteranSubmissionStatus = 'pending' | 'approved' | 'rejected';
 export class WatchJournalError extends Error {
   status: number;
 
@@ -118,6 +120,24 @@ export async function addWatchJournalEvidence(input: {
   return result.journal;
 }
 
+export async function fetchVeteranSubmissionTargets(publicJournalId: string): Promise<{
+  series: WatchJournal['series'];
+  targets: {
+    entries: VeteranSubmissionTarget[];
+    predictions: VeteranSubmissionTarget[];
+  };
+}> {
+  const params = new URLSearchParams({ audience: 'targets', journal: publicJournalId });
+  const response = await fetch(`${ENDPOINT}?${params}`, { credentials: 'same-origin' });
+  return parseSubmissionResponse<{
+    series: WatchJournal['series'];
+    targets: {
+      entries: VeteranSubmissionTarget[];
+      predictions: VeteranSubmissionTarget[];
+    };
+  }>(response);
+}
+
 export async function publishWatchJournal(input: {
   approvedThroughEpisode: number;
 }): Promise<{ journal: WatchJournal; publishedThroughEpisode: number }> {
@@ -136,6 +156,19 @@ async function post(input: Record<string, unknown>): Promise<{ journal: WatchJou
   }));
 }
 
+async function parseSubmissionResponse<T extends object>(response: Response): Promise<T> {
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string'
+      ? (body as { error: string }).error
+      : 'The veteran submission service could not be reached.';
+    throw new WatchJournalError(message, response.status);
+  }
+  if (!body || typeof body !== 'object') {
+    throw new WatchJournalError('The veteran submission response was invalid.', 500);
+  }
+  return body as T;
+}
 async function parseResponse(response: Response): Promise<{ journal: WatchJournal; safeThroughEpisode?: number }> {
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {
@@ -148,4 +181,90 @@ async function parseResponse(response: Response): Promise<{ journal: WatchJourna
     throw new WatchJournalError('The watch journal response was invalid.', 500);
   }
   return body as { journal: WatchJournal; safeThroughEpisode?: number };
+}
+
+export async function fetchMyVeteranSubmissions(publicJournalId: string): Promise<VeteranSubmission[]> {
+  const params = new URLSearchParams({ audience: 'submissions', journal: publicJournalId });
+  const response = await fetch(`${ENDPOINT}?${params}`, { credentials: 'same-origin' });
+  const body = await parseSubmissionResponse<{ submissions: VeteranSubmission[] }>(response);
+  return body.submissions;
+}
+
+export async function fetchVeteranModeration(): Promise<{
+  journal: WatchJournal;
+  watchBoundary: number;
+  submissions: VeteranSubmission[];
+}> {
+  const response = await fetch(`${ENDPOINT}?audience=moderation`, { credentials: 'same-origin' });
+  return parseSubmissionResponse<{
+    journal: WatchJournal;
+    watchBoundary: number;
+    submissions: VeteranSubmission[];
+  }>(response);
+}
+
+export interface VeteranSubmission {
+  id: string;
+  entryId: string | null;
+  predictionId: string | null;
+  unlockEpisode: number;
+  interpretation: string;
+  submittedAt: string;
+  status: VeteranSubmissionStatus;
+  eligible?: boolean;
+  relation?: string;
+  moderatedAt?: string | null;
+  moderationNote?: string | null;
+}
+
+export interface VeteranSubmissionTarget {
+  id: string;
+  entryId?: string;
+  episodeStart?: number;
+  episodeEnd?: number;
+  filedAfterEpisode?: number;
+}
+
+export async function moderateVeteranSubmission(input: {
+  submissionId: string;
+  decision: 'approve' | 'reject' | 'correct-unlock';
+  unlockEpisode?: number;
+  moderationNote?: string;
+}): Promise<VeteranSubmission> {
+  const response = await fetch(ENDPOINT, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ action: 'moderate-veteran-submission', ...input }),
+  });
+  const body = await parseSubmissionResponse<{ submission: VeteranSubmission }>(response);
+  return body.submission;
+}
+
+export async function fetchVeteranPublicJournalId(): Promise<string> {
+  const response = await fetch(`${ENDPOINT}?audience=public-link`, { credentials: 'same-origin' });
+  const body = await parseSubmissionResponse<{ publicJournalId: string }>(response);
+  if (typeof body.publicJournalId !== 'string') {
+    throw new WatchJournalError('The public journal link response was invalid.', 500);
+  }
+  return body.publicJournalId;
+}
+
+export async function submitVeteranInterpretation(input: {
+  journalId: string;
+  entryId?: string;
+  predictionId?: string;
+  unlockEpisode: number;
+  interpretation: string;
+  consent: true;
+  website?: string;
+}): Promise<VeteranSubmission> {
+  const response = await fetch(ENDPOINT, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ action: 'submit-veteran', ...input }),
+  });
+  const body = await parseSubmissionResponse<{ submission: VeteranSubmission }>(response);
+  return body.submission;
 }

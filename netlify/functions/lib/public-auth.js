@@ -11,6 +11,8 @@ const MAGIC_TTL_MS = 15 * 60 * 1000;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 8 * 1024;
 const COOKIE = "__Host-fandom_session";
+const PUBLIC_ACTOR_COOKIE = "__Host-fandom_veteran_actor";
+const PUBLIC_ACTOR_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
 class PublicError extends Error {
   constructor(message, status = 400) {
@@ -200,6 +202,27 @@ export function createPublicAuth({
       }
       return auth;
     },
+
+    // Public submissions may be made without an account. Signed-in users are
+    // still isolated by their account, while anonymous users receive a
+    // tamper-resistant browser identity cookie.
+    getPublicActor: async (req, context) => {
+      const authenticated = await authenticateSession(req, stores(context), now());
+      if (authenticated) return { ownerId: authenticated.user.accountId, setCookie: null };
+      const secret = env.FANDOM_AUTH_ID_SECRET || env.SESSION_SECRET;
+      if (!secret) throw new Error("Public submission identity is not configured.");
+      const cookies = parseCookies(req.headers.get("cookie") || "");
+      let token = cookies[PUBLIC_ACTOR_COOKIE];
+      let setCookie = null;
+      if (!token || !/^[A-Za-z0-9_-]{32,200}$/.test(token)) {
+        token = randomToken();
+        setCookie = publicActorCookie(token);
+      }
+      return {
+        ownerId: `anon_${hmac(token, secret).slice(0, 32)}`,
+        setCookie,
+      };
+    },
   };
 }
 
@@ -344,6 +367,10 @@ function parseCookies(header) {
 
 function sessionCookie(token, ttlMs) {
   return `${COOKIE}=${token}; Path=/; Max-Age=${Math.floor(ttlMs / 1000)}; HttpOnly; Secure; SameSite=Lax`;
+}
+
+function publicActorCookie(token) {
+  return `${PUBLIC_ACTOR_COOKIE}=${token}; Path=/; Max-Age=${Math.floor(PUBLIC_ACTOR_TTL_MS / 1000)}; HttpOnly; Secure; SameSite=Lax`;
 }
 
 function clearSessionCookie() {

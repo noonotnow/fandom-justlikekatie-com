@@ -96,6 +96,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 .journalBoundary strong { color: #c9a96e; font-size: 21px; }
 .journalBoundary small { display: block; margin-top: 5px; color: var(--admin-muted); font-size: 10px; }
+.journalPublicLink { display: inline-block; margin-top: 10px; color: #c9a96e; font-size: 11px; font-weight: 700; }
 .journalForm, .journalSection {
   padding: 22px;
   border: 1px solid var(--admin-border);
@@ -189,6 +190,24 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .journalRecordBody p, .evidenceRecord p { margin: 0; font-size: 13px; line-height: 1.55; }
 .evidenceRecord p { padding: 0 14px 15px; }
 .predictionRecord { padding: 15px; }
+.submissionRecord {
+  display: grid;
+  gap: 13px;
+  margin-top: 10px;
+  padding: 15px;
+  border: 1px solid var(--admin-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, Canvas 96%, currentColor 4%);
+}
+.submissionRecord p { margin: 0; font-size: 13px; line-height: 1.55; }
+.submissionMeta, .submissionActions, .submissionCorrection {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.submissionMeta { justify-content: space-between; color: var(--admin-muted); font-size: 11px; text-transform: capitalize; }
+.submissionCorrection { align-items: end; padding-top: 12px; border-top: 1px solid var(--admin-border); }
+.submissionCorrection .journalLabel { width: min(220px, 100%); }
 .predictionText { margin: 0; font-family: Georgia, serif; font-size: 16px; line-height: 1.5; }
 .recordMeta { margin: 5px 0 0; }
 .resolution {
@@ -247,6 +266,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .journalFieldGrid, .resolutionForm, .evidenceForm { grid-template-columns: 1fr; }
   .journalFieldWide, .resolutionForm .journalLabel:nth-child(3), .resolutionForm button, .evidenceForm .journalFieldWide, .evidenceForm button { grid-column: 1; }
   .journalRecord summary, .evidenceRecord summary { align-items: start; flex-direction: column; }
+  .submissionMeta, .submissionCorrection { align-items: stretch; flex-direction: column; }
   .previewForm { align-items: stretch; flex-direction: column; }
 }
 

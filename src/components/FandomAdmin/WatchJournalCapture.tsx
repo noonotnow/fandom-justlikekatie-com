@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   addWatchJournalEvidence,
+  fetchVeteranModeration,
+  fetchVeteranPublicJournalId,
   fetchWatchJournal,
   fileWatchJournalEntry,
+  moderateVeteranSubmission,
   publishWatchJournal,
   resolveWatchJournalPrediction,
   type PredictionVerdict,
+  type VeteranSubmission,
   type WatchJournal,
   type WatchJournalPrediction,
 } from '../../utils/watchJournal';
@@ -63,15 +67,33 @@ export const WatchJournalCapture: React.FC = () => {
   const [evidenceText, setEvidenceText] = useState('');
   const [safeThroughEpisode, setSafeThroughEpisode] = useState('');
   const [readerJournal, setReaderJournal] = useState<WatchJournal | null>(null);
+  const [moderation, setModeration] = useState<VeteranSubmission[]>([]);
+  const [moderationLoading, setModerationLoading] = useState(true);
+  const [correctionDrafts, setCorrectionDrafts] = useState<Record<string, string>>({});
+  const [publicJournalId, setPublicJournalId] = useState('');
   const [publishThroughEpisode, setPublishThroughEpisode] = useState('');
   const [publishedThroughEpisode, setPublishedThroughEpisode] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    void fetchWatchJournal()
-      .then(result => { if (!cancelled) setJournal(result.journal); })
+    void Promise.all([fetchWatchJournal(), fetchVeteranPublicJournalId()])
+      .then(([result, nextPublicJournalId]) => {
+        if (!cancelled) {
+          setJournal(result.journal);
+          setPublicJournalId(nextPublicJournalId);
+        }
+      })
       .catch(error => { if (!cancelled) setNotice(errorMessage(error, 'The private watch journal could not be loaded.')); })
       .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchVeteranModeration()
+      .then(result => { if (!cancelled) setModeration(result.submissions); })
+      .catch(() => { /* The journal remains usable if the queue is unavailable. */ })
+      .finally(() => { if (!cancelled) setModerationLoading(false); });
     return () => { cancelled = true; };
   }, []);
 
@@ -193,6 +215,32 @@ export const WatchJournalCapture: React.FC = () => {
     }
   }
 
+  async function moderate(submission: VeteranSubmission, decision: 'approve' | 'reject' | 'correct-unlock') {
+    if (busy) return;
+    const unlockEpisode = correctionDrafts[submission.id];
+    if (decision === 'correct-unlock' && !unlockEpisode) return;
+    setBusy(`moderation:${submission.id}`);
+    setNotice('');
+    try {
+      await moderateVeteranSubmission({
+        submissionId: submission.id,
+        decision,
+        ...(decision === 'correct-unlock' ? { unlockEpisode: Number(unlockEpisode) } : {}),
+      });
+      const [nextJournal, nextModeration] = await Promise.all([
+        fetchWatchJournal(),
+        fetchVeteranModeration(),
+      ]);
+      setJournal(nextJournal.journal);
+      setModeration(nextModeration.submissions);
+      setNotice(decision === 'approve' ? 'Veteran interpretation approved and sealed.' : 'Veteran submission updated.');
+    } catch (error) {
+      setNotice(errorMessage(error, 'That moderation decision was not saved.'));
+    } finally {
+      setBusy('');
+    }
+  }
+
   async function publishJournal(event: React.FormEvent) {
     event.preventDefault();
     if (busy) return;
@@ -226,6 +274,7 @@ export const WatchJournalCapture: React.FC = () => {
           <span>Latest filed boundary</span>
           <div>Katie has watched through Episode <strong>{filedThroughEpisode || '—'}</strong>.</div>
           {draft.episodeEnd && <small>Unfiled draft: through Episode {draft.episodeEnd}</small>}
+          {publicJournalId && <a className={styles.journalPublicLink} href={`/vibe-atlas/veteran-journal?journal=${encodeURIComponent(publicJournalId)}`}>Open public veteran form</a>}
         </div>
       </header>
       {notice && <div className={styles.notice} role="status">{notice}</div>}
@@ -292,8 +341,28 @@ export const WatchJournalCapture: React.FC = () => {
         }) : <p className={styles.emptyState}>Predictions filed with an entry will appear here, unchanged.</p>}
       </section>
 
+      <section className={styles.journalSection} aria-labelledby="moderation-title">
+        <div className={styles.journalSectionHeader}><div><h4 id="moderation-title">3. Veteran submission review</h4><p>Only submissions whose unlock episode has reached the first-watch boundary appear here. Their text stays in a separate pending archive until approved.</p></div><span className={styles.journalCount}>{moderation.length}</span></div>
+        {moderationLoading ? <p className={styles.emptyState}>Loading eligible submissions…</p> : moderation.length ? moderation.map(submission => (
+          <article className={styles.submissionRecord} key={submission.id}>
+            <div className={styles.submissionMeta}><strong>{submission.status}</strong><span>{submission.relation} · Unlock Episode {submission.unlockEpisode}</span></div>
+            <p>{submission.interpretation}</p>
+            {submission.status === 'pending' ? (
+              <div className={styles.submissionActions}>
+                <button className={styles.secondaryButton} type="button" disabled={busy !== ''} onClick={() => void moderate(submission, 'approve')}>Approve</button>
+                <button className={styles.secondaryButton} type="button" disabled={busy !== ''} onClick={() => void moderate(submission, 'reject')}>Reject</button>
+              </div>
+            ) : null}
+            <div className={styles.submissionCorrection}>
+              <label className={styles.journalLabel}><span>Correct unlock episode only</span><input type="number" min="1" max="999" value={correctionDrafts[submission.id] ?? ''} onChange={event => setCorrectionDrafts(current => ({ ...current, [submission.id]: event.target.value }))} /></label>
+              <button className={styles.secondaryButton} type="button" disabled={busy !== '' || !correctionDrafts[submission.id]} onClick={() => void moderate(submission, 'correct-unlock')}>Save unlock correction</button>
+            </div>
+          </article>
+        )) : <p className={styles.emptyState}>No eligible veteran submissions. Future unlocks remain hidden.</p>}
+      </section>
+
       <section className={styles.journalSection} aria-labelledby="evidence-title">
-        <div className={styles.journalSectionHeader}><div><h4 id="evidence-title">3. Sealed veteran evidence</h4><p>Keep veteran interpretations separate. They unlock only at their explicit episode boundary.</p></div><span className={styles.journalCount}>{journal?.evidence.length ?? 0}</span></div>
+        <div className={styles.journalSectionHeader}><div><h4 id="evidence-title">4. Sealed veteran evidence</h4><p>Keep veteran interpretations separate. They unlock only at their explicit episode boundary.</p></div><span className={styles.journalCount}>{journal?.evidence.length ?? 0}</span></div>
         <form className={styles.evidenceForm} onSubmit={submitEvidence}>
           <label className={styles.journalLabel}><span>Related entry</span><select value={evidenceEntryId} onChange={event => setEvidenceEntryId(event.target.value)}><option value="">No entry relation</option>{journal?.entries.map(entry => <option key={entry.id} value={entry.id}>Episodes {entry.episodeStart}–{entry.episodeEnd}</option>)}</select></label>
           <label className={styles.journalLabel}><span>Related prediction</span><select value={evidencePredictionId} onChange={event => setEvidencePredictionId(event.target.value)}><option value="">No prediction relation</option>{journal?.predictions.map(prediction => <option key={prediction.id} value={prediction.id}>{prediction.originalText.slice(0, 70)}</option>)}</select></label>
@@ -310,7 +379,7 @@ export const WatchJournalCapture: React.FC = () => {
       </section>
 
       <section className={styles.journalSection} aria-labelledby="reader-preview-title">
-        <div className={styles.journalSectionHeader}><div><h4 id="reader-preview-title">4. Reader spoiler preview</h4><p>This calls the server-filtered reader projection. Missing or malformed safe-through settings fail closed.</p></div></div>
+        <div className={styles.journalSectionHeader}><div><h4 id="reader-preview-title">5. Reader spoiler preview</h4><p>This calls the server-filtered published reader projection. Missing or malformed safe-through settings fail closed.</p></div></div>
         <form className={styles.previewForm} onSubmit={loadReaderPreview}>
           <label className={styles.journalLabel}><span>Reader is safe through Episode</span><input type="number" min="1" max="999" required value={safeThroughEpisode} onChange={event => setSafeThroughEpisode(event.target.value)} /></label>
           <button className={styles.secondaryButton} type="submit" disabled={busy !== ''}>Preview safe view</button>
@@ -324,7 +393,7 @@ export const WatchJournalCapture: React.FC = () => {
       </section>
 
       <section className={styles.journalSection} aria-labelledby="publish-title">
-        <div className={styles.journalSectionHeader}><div><h4 id="publish-title">5. Publish an approved boundary</h4><p>Publishing creates a sanitized public snapshot through one filed boundary. Private account details, drafts, and later unapproved entries never enter it.</p></div>{publishedThroughEpisode && <span className={styles.journalCount}>Through Episode {publishedThroughEpisode}</span>}</div>
+        <div className={styles.journalSectionHeader}><div><h4 id="publish-title">6. Publish an approved boundary</h4><p>Publishing creates a sanitized public snapshot through one filed boundary. Private account details, drafts, unmoderated veteran submissions, and later entries never enter it.</p></div>{publishedThroughEpisode && <span className={styles.journalCount}>Through Episode {publishedThroughEpisode}</span>}</div>
         <form className={styles.previewForm} onSubmit={publishJournal}>
           <label className={styles.journalLabel}><span>Approved records through Episode</span><input type="number" min="1" max={filedThroughEpisode || 1} required value={publishThroughEpisode} onChange={event => setPublishThroughEpisode(event.target.value)} /></label>
           <button className={styles.secondaryButton} type="submit" disabled={busy !== '' || filedThroughEpisode === 0}>Publish public snapshot</button>

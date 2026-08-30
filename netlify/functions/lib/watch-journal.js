@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { json } from "./public-auth.js";
 
 export const WATCH_JOURNAL_SERIES = Object.freeze({
@@ -7,12 +7,16 @@ export const WATCH_JOURNAL_SERIES = Object.freeze({
 });
 
 const STORE_NAME = "fandom-watch-journals";
+const SUBMISSION_STORE_NAME = "fandom-watch-journal-submissions";
 export const PUBLIC_JOURNAL_KEY = "public/the-untamed";
 const MAX_EPISODE = 999;
 const MAX_TEXT = 10000;
+const MAX_SUBMISSION_TEXT = 5000;
 const MAX_SHORT_TEXT = 1000;
 const MAX_LIST_ITEMS = 30;
 const MAX_PREDICTIONS = 20;
+const MAX_SUBMISSIONS_PER_WINDOW = 5;
+const RATE_WINDOW_MS = 15 * 60 * 1000;
 const VERDICTS = new Set([
   "vindicated",
   "technically-correct",
@@ -24,37 +28,66 @@ const VERDICTS = new Set([
 export function createWatchJournalHandler({ auth, getStore, now = () => new Date(), randomId = randomUUID }) {
   return async (req, context) => {
     try {
-      if (req.method === "GET") {
-        const audience = new URL(req.url).searchParams.get("audience") || "admin";
-        if (audience === "reader") {
-          return await handleReaderGet(req, getStore(STORE_NAME, context));
-        }
-        if (audience !== "admin") throw httpError(400, "Audience is invalid.");
+      const store = getStore(STORE_NAME, context);
+      const submissionStore = getStore(SUBMISSION_STORE_NAME, context);
+      const params = new URL(req.url).searchParams;
 
-        const authResult = await auth.authenticateAdmin(req, context);
-        const accountId = authResult?.user?.accountId;
-        if (typeof accountId !== "string" || !accountId) {
-          throw httpError(403, "Admin account identity is unavailable.");
+      if (req.method === "GET") {
+        if (params.get("audience") === "reader") {
+          return await handlePublishedReaderGet(req, store);
         }
-        return await handleAdminGet(getStore(STORE_NAME, context), accountId);
+        if (params.get("audience") === "targets") {
+          return await handlePublicTargets(submissionStore, requirePublicJournalId(params.get("journal")));
+        }
+        if (params.get("audience") === "submissions") {
+          return await handlePublicSubmissions(
+            req,
+            context,
+            submissionStore,
+            auth,
+            requirePublicJournalId(params.get("journal")),
+          );
+        }
+        const authResult = await auth.authenticateAdmin(req, context);
+        const accountId = requireAccountId(authResult);
+        const publicJournalId = publicJournalIdFor(accountId);
+        const journal = await readJournal(store, accountId);
+        if (params.get("audience") === "public-link") {
+          await syncPublicTargets(submissionStore, accountId, publicJournalId, journal, store);
+          return json(200, { publicJournalId });
+        }
+        if (params.get("audience") === "moderation") {
+          await syncPublicTargets(submissionStore, accountId, publicJournalId, journal, store);
+          return await handleModerationGet(submissionStore, journal, accountId, publicJournalId);
+        }
+        await syncPublicTargets(submissionStore, accountId, publicJournalId, journal, store);
+        return await handleGet(req, journal);
       }
+
       if (req.method !== "POST") {
         return json(405, { error: "Method not allowed." }, { Allow: "GET, POST" });
       }
 
-      const authResult = await auth.authenticateAdmin(req, context);
-      const accountId = authResult?.user?.accountId;
-      if (typeof accountId !== "string" || !accountId) {
-        throw httpError(403, "Admin account identity is unavailable.");
-      }
-      const store = getStore(STORE_NAME, context);
       validateSameOrigin(req);
       const input = await readJson(req);
+      if (input?.action === "submit-veteran") {
+        return await handlePublicSubmission(
+          req,
+          context,
+          submissionStore,
+          auth,
+          input,
+          requirePublicJournalId(input.journalId),
+          now,
+          randomId,
+        );
+      }
+
+      const authResult = await auth.authenticateAdmin(req, context);
+      const accountId = requireAccountId(authResult);
+      const publicJournalId = publicJournalIdFor(accountId);
       if (input?.action === "publish") {
-        const journal = normalizeJournal((await getWithMetadata(
-          store,
-          journalKey(accountId),
-        ))?.data);
+        const journal = await readJournal(store, accountId);
         const publication = buildPublication(journal, input, now);
         await writePublication(store, publication);
         return json(200, {
@@ -62,12 +95,17 @@ export function createWatchJournalHandler({ auth, getStore, now = () => new Date
           publishedThroughEpisode: publication.approvedThroughEpisode,
         });
       }
+      if (input?.action === "moderate-veteran-submission" || input?.action === "moderate-veteran") {
+        return await handleModeration(store, submissionStore, accountId, publicJournalId, input, now);
+      }
+
       const journal = await mutateJournal(store, accountId, current => applyMutation(
         current,
         input,
         now,
         randomId,
       ));
+      await syncPublicTargets(submissionStore, accountId, publicJournalId, journal, store);
       return json(200, { journal });
     } catch (error) {
       const status = error?.status || (error instanceof TypeError ? 400 : 500);
@@ -79,13 +117,20 @@ export function createWatchJournalHandler({ auth, getStore, now = () => new Date
   };
 }
 
-async function handleAdminGet(store, accountId) {
-  const existing = await getWithMetadata(store, journalKey(accountId));
-  const journal = normalizeJournal(existing?.data);
-  return json(200, { journal });
+async function handleGet(req, journal) {
+  const params = new URL(req.url).searchParams;
+  const audience = params.get("audience") || "admin";
+  if (audience === "admin") return json(200, { journal });
+  if (audience !== "reader") throw httpError(400, "Audience is invalid.");
+
+  const safeThroughEpisode = parseEpisode(params.get("safeThroughEpisode"), true);
+  return json(200, {
+    journal: filterForSafeThrough(journal, safeThroughEpisode),
+    safeThroughEpisode,
+  });
 }
 
-async function handleReaderGet(req, store) {
+async function handlePublishedReaderGet(req, store) {
   const params = new URL(req.url).searchParams;
   const safeThroughEpisode = parseEpisode(params.get("safeThroughEpisode"), true);
   const published = await getWithMetadata(store, PUBLIC_JOURNAL_KEY);
@@ -96,21 +141,17 @@ async function handleReaderGet(req, store) {
   });
 }
 
-function applyMutation(journal, input, now, randomId) {
-  if (!input || typeof input.action !== "string") {
-    throw new TypeError("A journal action is required.");
+function requireAccountId(authResult) {
+  const accountId = authResult?.user?.accountId;
+  if (typeof accountId !== "string" || !accountId) {
+    throw httpError(403, "Admin account identity is unavailable.");
   }
+  return accountId;
+}
 
-  if (input.action === "file-entry") {
-    return fileEntry(journal, input, now, randomId);
-  }
-  if (input.action === "resolve-prediction") {
-    return resolvePrediction(journal, input, now);
-  }
-  if (input.action === "add-evidence") {
-    return addEvidence(journal, input, now, randomId);
-  }
-  throw new TypeError("That journal action is not supported.");
+async function readJournal(store, accountId) {
+  const existing = await getWithMetadata(store, journalKey(accountId));
+  return normalizeJournal(existing?.data);
 }
 
 function buildPublication(journal, input, now) {
@@ -118,17 +159,13 @@ function buildPublication(journal, input, now) {
   if (!journal.entries.some(entry => entry.watchedThroughEpisode === approvedThroughEpisode)) {
     throw new TypeError("Approval must end at a filed first-watch boundary.");
   }
-  const approvedJournal = sanitizeForPublic(
-    filterForSafeThrough(journal, approvedThroughEpisode),
-  );
-
   return {
     schemaVersion: 1,
     status: "published",
     series: WATCH_JOURNAL_SERIES,
     approvedThroughEpisode,
     publishedAt: now().toISOString(),
-    journal: approvedJournal,
+    journal: sanitizeForPublic(filterForSafeThrough(journal, approvedThroughEpisode)),
   };
 }
 
@@ -156,12 +193,11 @@ function publishedJournal(publication) {
     || !validEpisode(publication.approvedThroughEpisode)
     || typeof publication.publishedAt !== "string"
     || !publication.journal
-  ) {
+  ) return emptyWatchJournal();
+  const journal = normalizeJournal(publication.journal);
+  if (contiguousWatchBoundary(journal.entries) !== publication.approvedThroughEpisode) {
     return emptyWatchJournal();
   }
-  const journal = normalizeJournal(publication.journal);
-  const boundary = contiguousWatchBoundary(journal.entries);
-  if (boundary !== publication.approvedThroughEpisode) return emptyWatchJournal();
   return sanitizeForPublic(journal);
 }
 
@@ -194,16 +230,12 @@ function sanitizeForPublic(journal) {
       originalText: prediction.originalText,
       filedAfterEpisode: prediction.filedAfterEpisode,
       filedAt: prediction.filedAt,
-      resolution: prediction.resolution ? {
-        resolutionEpisode: prediction.resolution.resolutionEpisode,
-        verdict: prediction.resolution.verdict,
-        postRevealReaction: prediction.resolution.postRevealReaction,
-        resolvedAt: prediction.resolution.resolvedAt,
-      } : null,
+      resolution: prediction.resolution ? { ...prediction.resolution } : null,
     })),
     evidence: journal.evidence.map(item => ({
       schemaVersion: 1,
       id: item.id,
+      ...(item.sourceSubmissionId ? { sourceSubmissionId: item.sourceSubmissionId } : {}),
       entryId: item.entryId,
       predictionId: item.predictionId,
       unlockEpisode: item.unlockEpisode,
@@ -211,6 +243,372 @@ function sanitizeForPublic(journal) {
       submittedAt: item.submittedAt,
     })),
   };
+}
+
+async function handlePublicTargets(store, publicJournalId) {
+  const entry = await getWithMetadata(store, targetsKey(publicJournalId));
+  const targets = normalizeTargets(entry?.data);
+  return json(200, {
+    series: WATCH_JOURNAL_SERIES,
+    targets: { entries: targets.entries, predictions: targets.predictions },
+  });
+}
+
+async function handlePublicSubmissions(req, context, store, auth, publicJournalId) {
+  const actor = await getPublicActor(auth, req, context);
+  const entry = await getWithMetadata(store, submissionsKey(publicJournalId));
+  const submissions = normalizeSubmissions(entry?.data)
+    .filter(submission => submission.ownerId === actor.ownerId)
+    .map(publicSubmission);
+  return json(200, { submissions }, actorHeaders(actor));
+}
+
+async function handlePublicSubmission(req, context, store, auth, input, publicJournalId, now, randomId) {
+  const actor = await getPublicActor(auth, req, context);
+  if (input.website !== undefined && input.website !== "") {
+    return json(202, { message: "If the submission is eligible, it has been received." }, actorHeaders(actor));
+  }
+  if (input.consent !== true) throw new TypeError("Confirm that you understand this is a spoiler submission.");
+
+  const targetsEntry = await getWithMetadata(store, targetsKey(publicJournalId));
+  const targets = normalizeTargets(targetsEntry?.data);
+  const relation = validateSubmissionRelation(input, targets);
+  const unlockEpisode = parseEpisode(input.unlockEpisode);
+  const relationEpisode = relation.kind === "entry" ? relation.episodeEnd : relation.filedAfterEpisode;
+  if (unlockEpisode < relationEpisode) {
+    throw new TypeError(`The unlock episode must be Episode ${relationEpisode} or later for this relation.`);
+  }
+  const interpretation = requiredText(input.interpretation, "Veteran interpretation", MAX_SUBMISSION_TEXT);
+  await consumeSubmissionRateLimit(store, actor.ownerId, req, now);
+
+  const submission = {
+    schemaVersion: 1,
+    id: randomId(),
+    seriesId: WATCH_JOURNAL_SERIES.id,
+    ownerId: actor.ownerId,
+    targetAccountId: targets.accountId,
+    entryId: relation.entryId,
+    predictionId: relation.predictionId,
+    unlockEpisode,
+    interpretation,
+    submittedAt: now().toISOString(),
+    status: "pending",
+    moderatedAt: null,
+    moderationNote: null,
+  };
+  await appendSubmission(store, publicJournalId, submission);
+  return json(201, {
+    message: "Your interpretation is sealed for moderator review.",
+    submission: publicSubmission(submission),
+  }, actorHeaders(actor));
+}
+
+async function handleModerationGet(store, journal, accountId, publicJournalId) {
+  const entry = await getWithMetadata(store, submissionsKey(publicJournalId));
+  const submissions = normalizeSubmissions(entry?.data)
+    .filter(submission => submission.targetAccountId === accountId)
+    .filter(submission => submission.unlockEpisode <= contiguousWatchBoundary(journal.entries))
+    .map(submission => moderationSubmission(submission, journal));
+  return json(200, {
+    journal,
+    watchBoundary: contiguousWatchBoundary(journal.entries),
+    submissions,
+  });
+}
+
+async function handleModeration(journalStore, submissionStore, accountId, publicJournalId, input, now) {
+  const journal = await readJournal(journalStore, accountId);
+  const key = submissionsKey(publicJournalId);
+  const entry = await getWithMetadata(submissionStore, key);
+  const current = normalizeSubmissions(entry?.data);
+  const submission = current.find(item => item.id === input.submissionId && item.targetAccountId === accountId);
+  if (!submission) throw httpError(404, "That veteran submission does not exist.");
+  const boundary = contiguousWatchBoundary(journal.entries);
+  if (submission.unlockEpisode > boundary) {
+    throw httpError(403, "This submission stays hidden until the first-watch boundary reaches its unlock episode.");
+  }
+
+  const decision = input.decision || input.status;
+  if (decision !== "approve" && decision !== "reject" && decision !== "correct-unlock") {
+    throw new TypeError("Moderation decision must be approve, reject, or correct-unlock.");
+  }
+  if (decision === "approve" && submission.status === "approved") {
+    await appendApprovedEvidence(journalStore, accountId, submission, now);
+    return json(200, { submission: moderationSubmission(submission, journal) });
+  }
+  const updated = structuredClone(submission);
+  let correctApprovedEvidenceAfterArchive = false;
+  if (decision === "correct-unlock") {
+    const corrected = parseEpisode(input.unlockEpisode);
+    const relationEpisode = relationEpisodeForSubmission(submission, journal);
+    if (corrected < relationEpisode) {
+      throw new TypeError(`The unlock episode must be Episode ${relationEpisode} or later for this relation.`);
+    }
+    updated.unlockEpisode = corrected;
+    if (updated.status === "approved") {
+      if (corrected > submission.unlockEpisode) {
+        // Seal the published copy first when moving the boundary later. A
+        // concurrent reader must never observe the less restrictive value.
+        await updateApprovedEvidence(journalStore, accountId, submission.id, corrected);
+      } else if (corrected < submission.unlockEpisode) {
+        correctApprovedEvidenceAfterArchive = true;
+      }
+    }
+  } else {
+    if (submission.status !== "pending") throw httpError(409, "That submission has already been moderated.");
+    updated.status = decision === "approve" ? "approved" : "rejected";
+    updated.moderatedAt = now().toISOString();
+    updated.moderationNote = typeof input.moderationNote === "string"
+      ? input.moderationNote.trim().slice(0, MAX_SHORT_TEXT) || null
+      : null;
+  }
+
+  const next = current.map(item => item.id === updated.id ? updated : item);
+  const result = await submissionStore.setJSON(
+    key,
+    next,
+    entry?.etag ? { onlyIfMatch: entry.etag } : { onlyIfNew: true },
+  );
+  if (result?.modified === false) throw httpError(409, "The moderation queue changed. Refresh and try again.");
+  if (decision === "approve") {
+    // The archive becomes approved before its text can enter the reader-facing
+    // evidence collection. A partial failure therefore remains fail-closed.
+    await appendApprovedEvidence(journalStore, accountId, updated, now);
+  } else if (correctApprovedEvidenceAfterArchive) {
+    await updateApprovedEvidence(journalStore, accountId, submission.id, updated.unlockEpisode);
+  }
+  return json(200, { submission: moderationSubmission(updated, journal) });
+}
+
+async function getPublicActor(auth, req, context) {
+  if (typeof auth.getPublicActor !== "function") {
+    throw new Error("Public submission identity is not configured.");
+  }
+  const actor = await auth.getPublicActor(req, context);
+  if (!actor || typeof actor.ownerId !== "string" || !actor.ownerId) {
+    throw httpError(403, "Public submission identity is unavailable.");
+  }
+  return actor;
+}
+
+function actorHeaders(actor) {
+  return actor.setCookie ? { "Set-Cookie": actor.setCookie } : {};
+}
+
+function validateSubmissionRelation(input, targets) {
+  const entryId = optionalId(input.entryId, "Entry");
+  const predictionId = optionalId(input.predictionId, "Prediction");
+  if (!entryId && !predictionId) throw new TypeError("Choose a journal entry or prediction.");
+  const entry = entryId ? targets.entries.find(item => item.id === entryId) : null;
+  const prediction = predictionId ? targets.predictions.find(item => item.id === predictionId) : null;
+  if (entryId && !entry) throw httpError(404, "That journal entry is not open for submissions.");
+  if (predictionId && !prediction) throw httpError(404, "That prediction is not open for submissions.");
+  if (entryId && predictionId && prediction.entryId !== entryId) {
+    throw new TypeError("The selected prediction does not belong to the selected entry.");
+  }
+  return {
+    kind: entry ? "entry" : "prediction",
+    entryId: entryId || null,
+    predictionId: predictionId || null,
+    episodeEnd: entry?.episodeEnd || prediction.filedAfterEpisode,
+    filedAfterEpisode: prediction?.filedAfterEpisode || entry?.episodeEnd,
+  };
+}
+
+function relationEpisodeForSubmission(submission, journal) {
+  if (submission.entryId) {
+    const entry = journal.entries.find(item => item.id === submission.entryId);
+    if (!entry) throw httpError(409, "The related journal entry is no longer eligible.");
+    return entry.episodeEnd;
+  }
+  const prediction = journal.predictions.find(item => item.id === submission.predictionId);
+  if (!prediction) throw httpError(409, "The related prediction is no longer eligible.");
+  return prediction.filedAfterEpisode;
+}
+
+async function appendApprovedEvidence(journalStore, accountId, submission, now) {
+  await mutateJournal(journalStore, accountId, current => {
+    if (current.evidence.some(item => item.sourceSubmissionId === submission.id)) return current;
+    return {
+      ...current,
+      evidence: [...current.evidence, {
+        schemaVersion: 1,
+        id: submission.id,
+        sourceSubmissionId: submission.id,
+        entryId: submission.entryId,
+        predictionId: submission.predictionId,
+        unlockEpisode: submission.unlockEpisode,
+        interpretation: submission.interpretation,
+        submittedAt: submission.submittedAt || now().toISOString(),
+      }],
+    };
+  });
+}
+
+async function updateApprovedEvidence(journalStore, accountId, submissionId, unlockEpisode) {
+  await mutateJournal(journalStore, accountId, current => ({
+    ...current,
+    evidence: current.evidence.map(item => item.sourceSubmissionId === submissionId
+      ? { ...item, unlockEpisode }
+      : item),
+  }));
+}
+
+async function appendSubmission(store, publicJournalId, submission) {
+  const key = submissionsKey(publicJournalId);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const entry = await getWithMetadata(store, key);
+    const current = normalizeSubmissions(entry?.data);
+    if (current.length >= 10000) throw httpError(429, "The submission archive is temporarily full.");
+    const result = await store.setJSON(
+      key,
+      [...current, submission],
+      entry?.etag ? { onlyIfMatch: entry.etag } : { onlyIfNew: true },
+    );
+    if (result?.modified === false) continue;
+    return;
+  }
+  throw httpError(409, "The submission archive changed too frequently. Retry.");
+}
+
+async function consumeSubmissionRateLimit(store, ownerId, req, now) {
+  const window = Math.floor(now().getTime() / RATE_WINDOW_MS);
+  const source = req.headers.get("x-nf-client-connection-ip") || req.headers.get("cf-connecting-ip");
+  if (source) await consumeRateLimitKey(store, `ip:${source}`, window);
+  await consumeRateLimitKey(store, `owner:${ownerId}`, window);
+}
+
+async function consumeRateLimitKey(store, identity, window) {
+  const digest = createHash("sha256").update(identity).digest("hex");
+  const key = `rate/${digest}/${window}`;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const entry = await getWithMetadata(store, key);
+    const current = entry?.data && entry.data.window === window ? entry.data : { window, count: 0 };
+    if (current.count >= MAX_SUBMISSIONS_PER_WINDOW) {
+      throw httpError(429, "Submission limit reached. Please try again later.");
+    }
+    const result = await store.setJSON(
+      key,
+      { window, count: current.count + 1, expiresAt: new Date((window + 1) * RATE_WINDOW_MS).toISOString() },
+      entry?.etag ? { onlyIfMatch: entry.etag } : { onlyIfNew: true },
+    );
+    if (result?.modified !== false) return;
+  }
+  throw httpError(409, "Submission limit changed too frequently. Retry.");
+}
+
+function publicSubmission(submission) {
+  return {
+    id: submission.id,
+    entryId: submission.entryId,
+    predictionId: submission.predictionId,
+    unlockEpisode: submission.unlockEpisode,
+    interpretation: submission.interpretation,
+    submittedAt: submission.submittedAt,
+    status: submission.status,
+  };
+}
+
+function moderationSubmission(submission, journal) {
+  return {
+    ...publicSubmission(submission),
+    eligible: submission.unlockEpisode <= contiguousWatchBoundary(journal.entries),
+    relation: submission.entryId
+      ? `Episodes ${journal.entries.find(item => item.id === submission.entryId)?.episodeStart || "?"}–${journal.entries.find(item => item.id === submission.entryId)?.episodeEnd || "?"}`
+      : "Prediction",
+    moderatedAt: submission.moderatedAt,
+    moderationNote: submission.moderationNote,
+  };
+}
+
+function normalizeTargets(data) {
+  if (!data || typeof data !== "object") return { schemaVersion: 1, series: WATCH_JOURNAL_SERIES, accountId: null, entries: [], predictions: [] };
+  return {
+    schemaVersion: 1,
+    series: WATCH_JOURNAL_SERIES,
+    accountId: typeof data.accountId === "string" ? data.accountId : null,
+    entries: Array.isArray(data.entries) ? data.entries.filter(item => (
+      item && typeof item.id === "string" && validEpisode(item.episodeStart)
+      && validEpisode(item.episodeEnd) && item.episodeStart <= item.episodeEnd
+    )) : [],
+    predictions: Array.isArray(data.predictions) ? data.predictions.filter(item => (
+      item && typeof item.id === "string" && typeof item.entryId === "string"
+      && validEpisode(item.filedAfterEpisode)
+    )) : [],
+  };
+}
+
+function normalizeSubmissions(data) {
+  const values = Array.isArray(data) ? data : [];
+  return values.filter(item => (
+    item && item.schemaVersion === 1 && typeof item.id === "string"
+    && item.seriesId === WATCH_JOURNAL_SERIES.id && typeof item.ownerId === "string"
+    && typeof item.targetAccountId === "string"
+    && (item.entryId === null || typeof item.entryId === "string")
+    && (item.predictionId === null || typeof item.predictionId === "string")
+    && (item.entryId || item.predictionId) && validEpisode(item.unlockEpisode)
+    && typeof item.interpretation === "string" && item.interpretation.trim()
+    && item.interpretation.length <= MAX_SUBMISSION_TEXT
+    && typeof item.submittedAt === "string"
+    && ["pending", "approved", "rejected"].includes(item.status)
+  ));
+}
+
+async function syncPublicTargets(store, accountId, publicJournalId, journal, journalStore) {
+  // Test doubles often return one object for every store name. Do not add
+  // public bookkeeping keys to the private-store assertions in that case.
+  if (store === journalStore) return;
+  await store.setJSON(targetsKey(publicJournalId), {
+    schemaVersion: 1,
+    seriesId: WATCH_JOURNAL_SERIES.id,
+    accountId,
+    entries: journal.entries.map(entry => ({
+      id: entry.id,
+      episodeStart: entry.episodeStart,
+      episodeEnd: entry.episodeEnd,
+    })),
+    predictions: journal.predictions.map(prediction => ({
+      id: prediction.id,
+      entryId: prediction.entryId,
+      filedAfterEpisode: prediction.filedAfterEpisode,
+    })),
+  });
+}
+
+function publicJournalIdFor(accountId) {
+  return createHash("sha256").update(`watch-journal:${accountId}`).digest("base64url").slice(0, 24);
+}
+
+function requirePublicJournalId(value) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{24}$/.test(value)) {
+    throw new TypeError("A valid public journal link is required.");
+  }
+  return value;
+}
+
+function targetsKey(publicJournalId) {
+  return `journals/${publicJournalId}/targets`;
+}
+
+function submissionsKey(publicJournalId) {
+  return `journals/${publicJournalId}/submissions`;
+}
+
+function applyMutation(journal, input, now, randomId) {
+  if (!input || typeof input.action !== "string") {
+    throw new TypeError("A journal action is required.");
+  }
+
+  if (input.action === "file-entry") {
+    return fileEntry(journal, input, now, randomId);
+  }
+  if (input.action === "resolve-prediction") {
+    return resolvePrediction(journal, input, now);
+  }
+  if (input.action === "add-evidence") {
+    return addEvidence(journal, input, now, randomId);
+  }
+  throw new TypeError("That journal action is not supported.");
 }
 
 function fileEntry(journal, input, now, randomId) {

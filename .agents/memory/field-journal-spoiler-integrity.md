@@ -8,3 +8,9 @@ Filed entries advance contiguously from Episode 1; gaps, overlaps, and backfille
 **Why:** The changing state of knowledge is the Field Journal's core asset. A single future-resolution leak or rewritten receipt would contaminate both the first-watch experiment and reader trust.
 
 **How to apply:** Enforce these rules server-side in every future public page, share artifact, veteran-submission flow, export, or alternate client. Client-side hiding is supplementary, never the spoiler boundary. When a route names an episode range, cap both automatic restoration and manual changes at that route's endpoint; navigating to a later range must be explicit.
+
+Public delayed-contribution flows must use opaque, operator-scoped journal identities and keep unmoderated text in a separate archive. Source-IP and anonymous-owner abuse limits are independent. Approval becomes durable before evidence publication, and publication retries reconcile idempotently.
+
+**Why:** Shared target keys can route spoilers to the wrong operator, cookie resets can evade combined rate keys, and a cross-store partial failure can otherwise strand or prematurely expose commentary.
+
+**How to apply:** Namespace public targets and queues by the operator's opaque journal identity; reveal pending text to moderators only after the contiguous boundary; publish approved evidence by a stable source ID with fail-closed retry behavior.

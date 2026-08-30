@@ -31,6 +31,7 @@ import {
   resolveFandomProductRoute,
 } from './utils/fandomRoutes';
 import './App.css';
+import { VeteranSubmissionForm } from './components/VeteranSubmissionForm/VeteranSubmissionForm';
 
 /** Number of columns in the grid — used to calculate preview row insertion */
 const GRID_COLS = 3;
@@ -39,6 +40,7 @@ function App() {
   const route = resolveFandomProductRoute(window.location.pathname);
   if (route === 'vibe-atlas') return <VibeAtlasApp />;
   if (route === 'middle-earth') return <MiddleEarthApp />;
+  if (route === 'veteran-journal') return <VeteranSubmissionForm />;
   return <FandomLaunchpad />;
 }
 

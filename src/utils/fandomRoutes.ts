@@ -1,8 +1,9 @@
-export type FandomProductRoute = 'launchpad' | 'vibe-atlas' | 'middle-earth';
+export type FandomProductRoute = 'launchpad' | 'vibe-atlas' | 'middle-earth' | 'veteran-journal';
 
 export function resolveFandomProductRoute(pathname: string): FandomProductRoute {
   const normalized = pathname.replace(/\/+$/, '') || '/';
   if (normalized === '/vibe-atlas' || normalized === '/auth/verify') return 'vibe-atlas';
+  if (normalized === '/vibe-atlas/veteran-journal') return 'veteran-journal';
   if (normalized === '/memeforge/middle-earth') return 'middle-earth';
   return 'launchpad';
 }
