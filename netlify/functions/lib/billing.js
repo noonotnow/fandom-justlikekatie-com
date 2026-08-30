@@ -110,7 +110,12 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
     catch (error) {
       const status = error?.status || 503;
       if (status >= 500) console.error("[billing] request failed", safeErrorDetails(error));
-      return json(status, { error: status >= 500 ? "Billing is temporarily unavailable." : error.message });
+      const diagnostic = new URL(req.url).searchParams.has("health")
+        && status >= 500
+        && typeof error?.billingStage === "string"
+        ? ` [${error.billingStage}]`
+        : "";
+      return json(status, { error: status >= 500 ? `Billing is temporarily unavailable.${diagnostic}` : error.message });
     }
   };
   return {
