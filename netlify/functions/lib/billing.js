@@ -17,7 +17,9 @@ export function createBillingServices({
   runStripeMigrations = runMigrations,
   getStore = getBlobStore,
 } = {}) {
-  const useBlobBilling = env.NETLIFY === "true" || Boolean(env.AWS_LAMBDA_FUNCTION_NAME);
+  const useBlobBilling = env.NETLIFY === "true"
+    || Boolean(env.AWS_LAMBDA_FUNCTION_NAME)
+    || Boolean(env.STRIPE_SECRET_KEY || env.FANDOM_STRIPE_SECRET_KEY);
   let pool;
   let ready;
   const database = () => {
