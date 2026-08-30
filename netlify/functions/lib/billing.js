@@ -123,6 +123,10 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
         await atStage("membership-read", () => repository.membershipForAccount("health-check"));
         return json(200, { ok: true });
       }
+      if (new URL(req.url).searchParams.get("health") === "billing-stripe") {
+        await atStage("stripe-client", () => billing.stripe());
+        return json(200, { ok: true });
+      }
       const session = await auth.authenticate(req, context);
       await atStage("initialize", () => billing.initialize(context));
       const repository = await atStage("repository", () => billing.repository(context));
@@ -136,37 +140,38 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
     checkout: guarded(async (req, context) => {
       if (req.method !== "POST") return json(405, { error: "Method not allowed." }, { Allow: "POST" });
       sameOrigin(req);
-      const session = await auth.authenticate(req, context);
+      const session = await atStage("auth", () => auth.authenticate(req, context));
       const price = env.FANDOM_STRIPE_MEMBERSHIP_PRICE_ID;
       if (!/^price_[A-Za-z0-9]+$/.test(price || "")) throw new Error("FANDOM_STRIPE_MEMBERSHIP_PRICE_ID must be a Stripe Price ID.");
-      await billing.initialize(context);
-      const repository = billing.repository(context);
-      let customer = await repository.customerForAccount(session.user.accountId);
-      const stripe = await billing.stripe();
+      await atStage("initialize", () => billing.initialize(context));
+      const repository = await atStage("repository", () => billing.repository(context));
+      let customer = await atStage("customer-read", () => repository.customerForAccount(session.user.accountId));
+      const stripe = await atStage("stripe-client", () => billing.stripe());
       if (!customer) {
-        const created = await stripe.customers.create({ email: session.user.email, metadata: { fandom_account_id: session.user.accountId } });
-        customer = await repository.linkCustomer(session.user.accountId, created.id);
+        const created = await atStage("customer-create", () => stripe.customers.create({ email: session.user.email, metadata: { fandom_account_id: session.user.accountId } }));
+        customer = await atStage("customer-link", () => repository.linkCustomer(session.user.accountId, created.id));
       }
       const origin = new URL(req.url).origin;
-      const checkout = await stripe.checkout.sessions.create({
+      const checkout = await atStage("checkout-session", () => stripe.checkout.sessions.create({
         mode: "subscription", customer, line_items: [{ price, quantity: 1 }],
         success_url: `${origin}/vibe-atlas?view=membership&membership=success`,
         cancel_url: `${origin}/vibe-atlas?view=membership&membership=cancelled`,
         metadata: { fandom_account_id: session.user.accountId },
         subscription_data: { metadata: { fandom_account_id: session.user.accountId } },
-      });
+      }));
       return json(200, { url: checkout.url });
     }),
     portal: guarded(async (req, context) => {
       if (req.method !== "POST") return json(405, { error: "Method not allowed." }, { Allow: "POST" });
       sameOrigin(req);
-      const session = await auth.authenticate(req, context);
-      await billing.initialize(context);
-      const customer = await billing.repository(context).customerForAccount(session.user.accountId);
+      const session = await atStage("auth", () => auth.authenticate(req, context));
+      await atStage("initialize", () => billing.initialize(context));
+      const customer = await atStage("customer-read", () => billing.repository(context).customerForAccount(session.user.accountId));
       if (!customer) { const error = new Error("No billing account exists."); error.status = 404; throw error; }
-      const portal = await (await billing.stripe()).billingPortal.sessions.create({
+      const stripe = await atStage("stripe-client", () => billing.stripe());
+      const portal = await atStage("portal-session", () => stripe.billingPortal.sessions.create({
         customer, return_url: `${new URL(req.url).origin}/vibe-atlas?view=membership`,
-      });
+      }));
       return json(200, { url: portal.url });
     }),
     webhook: guarded(async (req, context) => {
