@@ -365,6 +365,35 @@ button { font: inherit; }
 .fate-result__description { color: #c6d1d7; margin: 0; }
 .share-status { color: var(--jade); font-size: 14px; min-height: 24px; }
 .privacy-note { color: #8297a5; font-size: 12px; }
+.hero--journal { padding-bottom: 70px; }
+.journal-boundary {
+  background: rgba(16, 37, 55, .78);
+  border: 1px solid var(--line);
+  display: flex;
+  gap: 34px;
+  justify-content: space-between;
+  margin-top: 38px;
+  max-width: 920px;
+  padding: 24px;
+}
+.journal-boundary label { color: var(--paper); display: block; font: 500 22px Georgia, "Times New Roman", serif; margin: 8px 0 13px; }
+.journal-boundary__form { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; }
+.journal-boundary input { background: var(--night); border: 1px solid var(--line); color: var(--paper); font: 600 18px ui-monospace, SFMono-Regular, Menlo, monospace; min-height: 46px; padding: 10px 12px; width: 180px; }
+.journal-boundary__note { color: var(--mist); font-size: 12px; margin: 13px 0 0; max-width: 560px; }
+.journal-status { color: var(--mist); font-size: 14px; margin: 28px 0 0; max-width: 260px; }
+.journal-status[data-error="true"] { color: var(--coral); }
+.journal-locked { border: 1px solid var(--line); margin-top: 0; padding: 30px; }
+.journal-entry { border-top: 1px solid var(--line); padding: 52px 0; }
+.journal-entry:first-child { border-top: 0; padding-top: 0; }
+.journal-entry > p { color: #bdcad2; }
+.journal-entry > p strong { color: var(--paper); }
+.journal-predictions, .journal-evidence { border-left: 2px solid var(--jade); margin-top: 30px; padding: 5px 0 5px 20px; }
+.journal-evidence { border-color: var(--coral); }
+.journal-predictions h3, .journal-evidence h3 { color: var(--paper); font: 500 25px/1.2 Georgia, "Times New Roman", serif; margin: 0 0 12px; }
+.journal-predictions p, .journal-evidence p { color: #bdcad2; margin: 8px 0; }
+.journal-predictions strong { color: var(--paper); display: block; }
+.journal-predictions span { color: var(--gold); display: block; font: 600 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; margin-top: 5px; text-transform: uppercase; }
+.journal-range-links a { color: var(--paper); display: block; font-size: 14px; padding: 6px 0; }
 .continuity-card {
   border-top: 1px solid var(--line);
   margin-top: 34px;
@@ -397,6 +426,8 @@ button { font: inherit; }
   .content-shell, .game-layout { grid-template-columns: 1fr; }
   .side-rail { position: static; }
   .game-layout .master-frame { margin: auto; max-width: 520px; }
+  .journal-boundary { display: block; }
+  .journal-status { margin-top: 22px; max-width: none; }
 }
 @media (max-width: 620px) {
   body { font-size: 16px; }

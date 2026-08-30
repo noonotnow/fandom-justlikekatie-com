@@ -147,6 +147,76 @@ to = "/c-drama-fandom/fandom-games/index.html"
 status = 200
 
 [[redirects]]
+  from = "/c-drama-fandom/watch-journal"
+  to = "/c-drama-fandom/watch-journal/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/c-drama-fandom/watch-journal/episodes-1-4"
+  to = "/c-drama-fandom/watch-journal/episodes-1-4/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/c-drama-fandom/watch-journal/episodes-5-8"
+  to = "/c-drama-fandom/watch-journal/episodes-5-8/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/c-drama-fandom/watch-journal/episodes-9-12"
+  to = "/c-drama-fandom/watch-journal/episodes-9-12/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/c-drama-fandom/watch-journal/episodes-13-16"
+  to = "/c-drama-fandom/watch-journal/episodes-13-16/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/c-drama-fandom/watch-journal/episodes-17-20"
+  to = "/c-drama-fandom/watch-journal/episodes-17-20/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/c-drama-fandom/watch-journal/episodes-21-24"
+  to = "/c-drama-fandom/watch-journal/episodes-21-24/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/c-drama-fandom/watch-journal/episodes-25-28"
+  to = "/c-drama-fandom/watch-journal/episodes-25-28/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/c-drama-fandom/watch-journal/episodes-29-32"
+  to = "/c-drama-fandom/watch-journal/episodes-29-32/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/c-drama-fandom/watch-journal/episodes-33-36"
+  to = "/c-drama-fandom/watch-journal/episodes-33-36/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/c-drama-fandom/watch-journal/episodes-37-40"
+  to = "/c-drama-fandom/watch-journal/episodes-37-40/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/c-drama-fandom/watch-journal/episodes-41-44"
+  to = "/c-drama-fandom/watch-journal/episodes-41-44/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/c-drama-fandom/watch-journal/episodes-45-48"
+  to = "/c-drama-fandom/watch-journal/episodes-45-48/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/c-drama-fandom/watch-journal/episodes-49-50"
+  to = "/c-drama-fandom/watch-journal/episodes-49-50/index.html"
+  status = 200
+
+[[redirects]]
   from = "/c-drama-fandom/fandom-games/"
   to = "/c-drama-fandom/fandom-games/previews/moonlit-strategist/index.html"
   status = 200

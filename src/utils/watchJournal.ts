@@ -118,6 +118,15 @@ export async function addWatchJournalEvidence(input: {
   return result.journal;
 }
 
+export async function publishWatchJournal(input: {
+  approvedThroughEpisode: number;
+}): Promise<{ journal: WatchJournal; publishedThroughEpisode: number }> {
+  return post({ action: 'publish', ...input }) as Promise<{
+    journal: WatchJournal;
+    publishedThroughEpisode: number;
+  }>;
+}
+
 async function post(input: Record<string, unknown>): Promise<{ journal: WatchJournal }> {
   return parseResponse(await fetch(ENDPOINT, {
     method: 'POST',

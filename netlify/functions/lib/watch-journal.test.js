@@ -81,6 +81,15 @@ async function body(response) {
   return response.json();
 }
 
+async function publish(handler, approvedThroughEpisode) {
+  const response = await handler(request("POST", {
+    action: "publish",
+    approvedThroughEpisode,
+  }));
+  assert.equal(response.status, 200);
+  return body(response);
+}
+
 test("watch journal requires an authenticated admin for every operation", async () => {
   const { handler } = makeHandler({
     authenticateAdmin: async () => {
@@ -252,6 +261,7 @@ test("a prediction resolution remains sealed until the reader reaches its resolu
     verdict: "vindicated",
     postRevealReaction: "The theory survived.",
   }));
+  await publish(handler, 9);
 
   const throughEight = await body(await handler(request("GET", undefined, "?audience=reader&safeThroughEpisode=8")));
   assert.equal(throughEight.journal.predictions[0].resolution, null);
@@ -281,6 +291,7 @@ test("prediction-linked evidence cannot reveal a still-hidden resolution", async
     verdict: "vindicated",
     postRevealReaction: "The theory survived.",
   }));
+  await publish(handler, 9);
 
   const throughEight = await body(await handler(request("GET", undefined, "?audience=reader&safeThroughEpisode=8")));
   assert.equal(throughEight.journal.evidence.length, 0);
@@ -322,6 +333,7 @@ test("sealed evidence is returned only when both its unlock and related record a
     unlockEpisode: 5,
     interpretation: "Linked to a future entry.",
   }));
+  await publish(handler, 10);
 
   const throughFour = await body(await handler(request("GET", undefined, "?audience=reader&safeThroughEpisode=4")));
   assert.equal(throughFour.journal.entries.length, 1);
@@ -349,6 +361,110 @@ test("reader delivery fails closed for missing or malformed safe-through setting
   }
 });
 
+test("public readers use only the approved snapshot and never require an account session", async () => {
+  const store = memoryStore();
+  const admin = makeHandler({ store });
+  const first = (await body(await admin.handler(request("POST", entryInput())))).journal;
+  const prediction = first.predictions[0];
+  await admin.handler(request("POST", entryInput({
+    episodeStart: 5,
+    episodeEnd: 9,
+    emotionalCondition: "A private later condition",
+    predictions: [],
+  })));
+  await admin.handler(request("POST", {
+    action: "resolve-prediction",
+    predictionId: prediction.id,
+    resolutionEpisode: 9,
+    verdict: "vindicated",
+    postRevealReaction: "A private later resolution.",
+  }));
+  await admin.handler(request("POST", {
+    action: "add-evidence",
+    predictionId: prediction.id,
+    unlockEpisode: 9,
+    interpretation: "Private later evidence.",
+  }));
+  await publish(admin.handler, 4);
+
+  const publicReader = makeHandler({
+    store,
+    authenticateAdmin: async () => {
+      throw new Error("Public reader requests must not authenticate.");
+    },
+  });
+  const response = await publicReader.handler(
+    request("GET", undefined, "?audience=reader&safeThroughEpisode=999"),
+  );
+  assert.equal(response.status, 200);
+  const result = await body(response);
+  assert.equal(result.journal.entries.length, 1);
+  assert.equal(result.journal.entries[0].watchedThroughEpisode, 4);
+  assert.equal(result.journal.predictions[0].resolution, null);
+  assert.equal(result.journal.evidence.length, 0);
+  assert.doesNotMatch(JSON.stringify(result), /private later/i);
+});
+
+test("publication requires an exact filed boundary and private changes stay private until republished", async () => {
+  const { handler } = makeHandler();
+  await handler(request("POST", entryInput()));
+  assert.equal((await handler(request("POST", {
+    action: "publish",
+    approvedThroughEpisode: 3,
+  }))).status, 400);
+  await publish(handler, 4);
+  await handler(request("POST", entryInput({
+    episodeStart: 5,
+    episodeEnd: 8,
+    currentTheory: "This is not approved yet.",
+    predictions: [],
+  })));
+
+  const beforeRepublish = await body(await handler(
+    request("GET", undefined, "?audience=reader&safeThroughEpisode=999"),
+  ));
+  assert.equal(beforeRepublish.journal.entries.length, 1);
+  assert.doesNotMatch(JSON.stringify(beforeRepublish), /not approved yet/i);
+
+  await publish(handler, 8);
+  const afterRepublish = await body(await handler(
+    request("GET", undefined, "?audience=reader&safeThroughEpisode=999"),
+  ));
+  assert.equal(afterRepublish.journal.entries.length, 2);
+  assert.match(JSON.stringify(afterRepublish), /not approved yet/i);
+});
+
+test("public responses discard unknown private fields and malformed publication settings", async () => {
+  const { handler, store } = makeHandler();
+  await handler(request("POST", entryInput()));
+  const privateKey = "accounts/account-a/the-untamed";
+  const stored = structuredClone(store.records.get(privateKey).data);
+  stored.accountId = "account-a";
+  stored.email = "admin@example.com";
+  stored.entries[0].privateDraft = "must not escape";
+  store.records.set(privateKey, { data: stored, etag: store.records.get(privateKey).etag });
+  await publish(handler, 4);
+
+  const publicResult = await body(await handler(
+    request("GET", undefined, "?audience=reader&safeThroughEpisode=4"),
+  ));
+  assert.equal("accountId" in publicResult.journal, false);
+  assert.equal("email" in publicResult.journal, false);
+  assert.equal("privateDraft" in publicResult.journal.entries[0], false);
+  assert.doesNotMatch(JSON.stringify(publicResult), /admin@example|privateDraft|must not escape/);
+
+  const publication = structuredClone(store.records.get("public/the-untamed").data);
+  publication.approvedThroughEpisode = "4";
+  store.records.set("public/the-untamed", {
+    data: publication,
+    etag: store.records.get("public/the-untamed").etag,
+  });
+  const locked = await body(await handler(
+    request("GET", undefined, "?audience=reader&safeThroughEpisode=999"),
+  ));
+  assert.deepEqual(locked.journal, emptyWatchJournal());
+});
+
 test("missing or malformed evidence unlocks are rejected or filtered rather than revealed", async () => {
   const { handler, store } = makeHandler();
   const journal = (await body(await handler(request("POST", entryInput())))).journal;
@@ -369,6 +485,7 @@ test("missing or malformed evidence unlocks are rejected or filtered rather than
     submittedAt: "2026-08-30T18:00:00.000Z",
   });
   store.records.set(key, { data: stored, etag: store.records.get(key).etag });
+  await publish(handler, 4);
 
   const reader = await body(await handler(request("GET", undefined, "?audience=reader&safeThroughEpisode=999")));
   assert.equal(reader.journal.evidence.length, 0);

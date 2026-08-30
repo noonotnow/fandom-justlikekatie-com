@@ -7,6 +7,7 @@ export const WATCH_JOURNAL_SERIES = Object.freeze({
 });
 
 const STORE_NAME = "fandom-watch-journals";
+export const PUBLIC_JOURNAL_KEY = "public/the-untamed";
 const MAX_EPISODE = 999;
 const MAX_TEXT = 10000;
 const MAX_SHORT_TEXT = 1000;
@@ -23,22 +24,44 @@ const VERDICTS = new Set([
 export function createWatchJournalHandler({ auth, getStore, now = () => new Date(), randomId = randomUUID }) {
   return async (req, context) => {
     try {
+      if (req.method === "GET") {
+        const audience = new URL(req.url).searchParams.get("audience") || "admin";
+        if (audience === "reader") {
+          return await handleReaderGet(req, getStore(STORE_NAME, context));
+        }
+        if (audience !== "admin") throw httpError(400, "Audience is invalid.");
+
+        const authResult = await auth.authenticateAdmin(req, context);
+        const accountId = authResult?.user?.accountId;
+        if (typeof accountId !== "string" || !accountId) {
+          throw httpError(403, "Admin account identity is unavailable.");
+        }
+        return await handleAdminGet(getStore(STORE_NAME, context), accountId);
+      }
+      if (req.method !== "POST") {
+        return json(405, { error: "Method not allowed." }, { Allow: "GET, POST" });
+      }
+
       const authResult = await auth.authenticateAdmin(req, context);
       const accountId = authResult?.user?.accountId;
       if (typeof accountId !== "string" || !accountId) {
         throw httpError(403, "Admin account identity is unavailable.");
       }
       const store = getStore(STORE_NAME, context);
-
-      if (req.method === "GET") {
-        return await handleGet(req, store, accountId);
-      }
-      if (req.method !== "POST") {
-        return json(405, { error: "Method not allowed." }, { Allow: "GET, POST" });
-      }
-
       validateSameOrigin(req);
       const input = await readJson(req);
+      if (input?.action === "publish") {
+        const journal = normalizeJournal((await getWithMetadata(
+          store,
+          journalKey(accountId),
+        ))?.data);
+        const publication = buildPublication(journal, input, now);
+        await writePublication(store, publication);
+        return json(200, {
+          journal,
+          publishedThroughEpisode: publication.approvedThroughEpisode,
+        });
+      }
       const journal = await mutateJournal(store, accountId, current => applyMutation(
         current,
         input,
@@ -56,15 +79,17 @@ export function createWatchJournalHandler({ auth, getStore, now = () => new Date
   };
 }
 
-async function handleGet(req, store, accountId) {
+async function handleAdminGet(store, accountId) {
   const existing = await getWithMetadata(store, journalKey(accountId));
   const journal = normalizeJournal(existing?.data);
-  const params = new URL(req.url).searchParams;
-  const audience = params.get("audience") || "admin";
-  if (audience === "admin") return json(200, { journal });
-  if (audience !== "reader") throw httpError(400, "Audience is invalid.");
+  return json(200, { journal });
+}
 
+async function handleReaderGet(req, store) {
+  const params = new URL(req.url).searchParams;
   const safeThroughEpisode = parseEpisode(params.get("safeThroughEpisode"), true);
+  const published = await getWithMetadata(store, PUBLIC_JOURNAL_KEY);
+  const journal = publishedJournal(published?.data);
   return json(200, {
     journal: filterForSafeThrough(journal, safeThroughEpisode),
     safeThroughEpisode,
@@ -86,6 +111,106 @@ function applyMutation(journal, input, now, randomId) {
     return addEvidence(journal, input, now, randomId);
   }
   throw new TypeError("That journal action is not supported.");
+}
+
+function buildPublication(journal, input, now) {
+  const approvedThroughEpisode = parseEpisode(input.approvedThroughEpisode);
+  if (!journal.entries.some(entry => entry.watchedThroughEpisode === approvedThroughEpisode)) {
+    throw new TypeError("Approval must end at a filed first-watch boundary.");
+  }
+  const approvedJournal = sanitizeForPublic(
+    filterForSafeThrough(journal, approvedThroughEpisode),
+  );
+
+  return {
+    schemaVersion: 1,
+    status: "published",
+    series: WATCH_JOURNAL_SERIES,
+    approvedThroughEpisode,
+    publishedAt: now().toISOString(),
+    journal: approvedJournal,
+  };
+}
+
+async function writePublication(store, publication) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const existing = await getWithMetadata(store, PUBLIC_JOURNAL_KEY);
+    const result = await store.setJSON(
+      PUBLIC_JOURNAL_KEY,
+      publication,
+      existing?.etag ? { onlyIfMatch: existing.etag } : { onlyIfNew: true },
+    );
+    if (result?.modified !== false) return;
+  }
+  throw httpError(409, "The public journal changed too frequently. Retry.");
+}
+
+function publishedJournal(publication) {
+  if (
+    !publication
+    || typeof publication !== "object"
+    || publication.schemaVersion !== 1
+    || publication.status !== "published"
+    || publication.series?.id !== WATCH_JOURNAL_SERIES.id
+    || publication.series?.title !== WATCH_JOURNAL_SERIES.title
+    || !validEpisode(publication.approvedThroughEpisode)
+    || typeof publication.publishedAt !== "string"
+    || !publication.journal
+  ) {
+    return emptyWatchJournal();
+  }
+  const journal = normalizeJournal(publication.journal);
+  const boundary = contiguousWatchBoundary(journal.entries);
+  if (boundary !== publication.approvedThroughEpisode) return emptyWatchJournal();
+  return sanitizeForPublic(journal);
+}
+
+function sanitizeForPublic(journal) {
+  return {
+    schemaVersion: 1,
+    series: WATCH_JOURNAL_SERIES,
+    entries: journal.entries.map(entry => ({
+      schemaVersion: 1,
+      id: entry.id,
+      seriesId: WATCH_JOURNAL_SERIES.id,
+      seriesTitle: WATCH_JOURNAL_SERIES.title,
+      episodeStart: entry.episodeStart,
+      episodeEnd: entry.episodeEnd,
+      watchedThroughEpisode: entry.watchedThroughEpisode,
+      recordedAt: entry.recordedAt,
+      fields: {
+        emotionalCondition: entry.fields.emotionalCondition,
+        trustedPeople: [...entry.fields.trustedPeople],
+        distrustedPeople: [...entry.fields.distrustedPeople],
+        relationshipMonitored: entry.fields.relationshipMonitored,
+        recurringSuspects: [...entry.fields.recurringSuspects],
+        currentTheory: entry.fields.currentTheory,
+      },
+    })),
+    predictions: journal.predictions.map(prediction => ({
+      schemaVersion: 1,
+      id: prediction.id,
+      entryId: prediction.entryId,
+      originalText: prediction.originalText,
+      filedAfterEpisode: prediction.filedAfterEpisode,
+      filedAt: prediction.filedAt,
+      resolution: prediction.resolution ? {
+        resolutionEpisode: prediction.resolution.resolutionEpisode,
+        verdict: prediction.resolution.verdict,
+        postRevealReaction: prediction.resolution.postRevealReaction,
+        resolvedAt: prediction.resolution.resolvedAt,
+      } : null,
+    })),
+    evidence: journal.evidence.map(item => ({
+      schemaVersion: 1,
+      id: item.id,
+      entryId: item.entryId,
+      predictionId: item.predictionId,
+      unlockEpisode: item.unlockEpisode,
+      interpretation: item.interpretation,
+      submittedAt: item.submittedAt,
+    })),
+  };
 }
 
 function fileEntry(journal, input, now, randomId) {

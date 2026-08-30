@@ -3,6 +3,7 @@ import {
   addWatchJournalEvidence,
   fetchWatchJournal,
   fileWatchJournalEntry,
+  publishWatchJournal,
   resolveWatchJournalPrediction,
   type PredictionVerdict,
   type WatchJournal,
@@ -62,6 +63,8 @@ export const WatchJournalCapture: React.FC = () => {
   const [evidenceText, setEvidenceText] = useState('');
   const [safeThroughEpisode, setSafeThroughEpisode] = useState('');
   const [readerJournal, setReaderJournal] = useState<WatchJournal | null>(null);
+  const [publishThroughEpisode, setPublishThroughEpisode] = useState('');
+  const [publishedThroughEpisode, setPublishedThroughEpisode] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -190,6 +193,25 @@ export const WatchJournalCapture: React.FC = () => {
     }
   }
 
+  async function publishJournal(event: React.FormEvent) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy('publish');
+    setNotice('');
+    try {
+      const result = await publishWatchJournal({
+        approvedThroughEpisode: Number(publishThroughEpisode),
+      });
+      setJournal(result.journal);
+      setPublishedThroughEpisode(result.publishedThroughEpisode);
+      setNotice(`Approved records through Episode ${result.publishedThroughEpisode} are now available in the public journal.`);
+    } catch (error) {
+      setNotice(errorMessage(error, 'The approved journal records were not published.'));
+    } finally {
+      setBusy('');
+    }
+  }
+
   if (loading) return <div className={styles.loading} aria-label="Loading watch journal"><span /><span /></div>;
 
   return (
@@ -299,6 +321,14 @@ export const WatchJournalCapture: React.FC = () => {
             {readerJournal.evidence.map(item => <p key={item.id}>{item.interpretation}</p>)}
           </div>
         )}
+      </section>
+
+      <section className={styles.journalSection} aria-labelledby="publish-title">
+        <div className={styles.journalSectionHeader}><div><h4 id="publish-title">5. Publish an approved boundary</h4><p>Publishing creates a sanitized public snapshot through one filed boundary. Private account details, drafts, and later unapproved entries never enter it.</p></div>{publishedThroughEpisode && <span className={styles.journalCount}>Through Episode {publishedThroughEpisode}</span>}</div>
+        <form className={styles.previewForm} onSubmit={publishJournal}>
+          <label className={styles.journalLabel}><span>Approved records through Episode</span><input type="number" min="1" max={filedThroughEpisode || 1} required value={publishThroughEpisode} onChange={event => setPublishThroughEpisode(event.target.value)} /></label>
+          <button className={styles.secondaryButton} type="submit" disabled={busy !== '' || filedThroughEpisode === 0}>Publish public snapshot</button>
+        </form>
       </section>
     </section>
   );

@@ -9,6 +9,7 @@ import {
   LG01_OUTCOMES,
   preparePublicPages,
   REQUIRED_PUBLIC_PAGES,
+  WATCH_JOURNAL_PUBLIC_PAGES,
 } from "./generate-public-pages.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -54,6 +55,11 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/trope-decoder/",
     "https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/",
   ];
+  const journalUrls = WATCH_JOURNAL_PUBLIC_PAGES.map((path) => (
+    `https://fandom.justlikekatie.com/${path
+      .replace(/^public\//, "")
+      .replace(/index\.html$/, "")}`
+  ));
 
   assert.match(robots, /^User-agent: \*/m);
   assert.match(robots, /^Sitemap: https:\/\/fandom\.justlikekatie\.com\/sitemap\.xml$/m);
@@ -69,16 +75,82 @@ test("robots and sitemap expose only intended public surfaces", () => {
       `${url} must appear in the sitemap exactly once`,
     );
   }
+  for (const url of journalUrls) {
+    assert.equal(
+      sitemapUrls.filter((sitemapUrl) => sitemapUrl === url).length,
+      1,
+      `${url} must appear in the sitemap exactly once`,
+    );
+  }
   assert.equal(
     sitemapUrls.filter((url) => url.startsWith("https://fandom.justlikekatie.com/c-drama-fandom/")).length,
-    editorialUrls.length,
-    "sitemap must expose exactly five editorial C-drama routes",
+    editorialUrls.length + journalUrls.length,
+    "sitemap must expose only the intended editorial and journal routes",
   );
   assert.ok(sitemapUrls.includes("https://fandom.justlikekatie.com/vibe-atlas"));
   assert.doesNotMatch(sitemap, /view=(?:collection|builder|plan|membership)/);
   assert.doesNotMatch(sitemap, /\/api\/|\/auth\/|create-handoff|idea-packet/);
   assert.match(viteConfig, /['"]\/c-drama-fandom\/trope-decoder['"]\s*,\s*['"]\/c-drama-fandom\/trope-decoder\/index\.html['"]/);
   assert.match(netlify, /from = "\/c-drama-fandom\/trope-decoder"[\s\S]*?to = "\/c-drama-fandom\/trope-decoder\/index\.html"/);
+});
+
+test("the public field journal has crawlable direct routes with spoiler-safe metadata", () => {
+  const netlify = read("netlify.toml");
+  const viteConfig = read("vite.config.ts");
+  const canonicals = new Set();
+  const titles = new Set();
+
+  for (const path of WATCH_JOURNAL_PUBLIC_PAGES) {
+    const html = read(path);
+    const title = html.match(/<title>([^<]+)<\/title>/i)?.[1];
+    const canonical = html.match(/<link rel="canonical" href="([^"]+)"/i)?.[1];
+    assert.ok(title, `${path} must have a title`);
+    assert.ok(canonical, `${path} must have a canonical`);
+    titles.add(title);
+    canonicals.add(canonical);
+    assert.match(html, /<!doctype html>/i);
+    assert.match(html, /<h1[\s>]/i);
+    assert.match(html, /<script type="application\/ld\+json">/i);
+    assert.match(html, /name="robots" content="index,follow,max-image-preview:large"/i);
+    assert.match(html, /property="og:image" content="https:\/\/fandom\.justlikekatie\.com\/assets\/c-drama-fandom\/watch-journal-og\.jpg"/);
+    assert.doesNotMatch(html, /accountId|admin controls|privateDraft|audience=admin/i);
+    assert.doesNotMatch(canonical, /[?&](?:safeThroughEpisode|account|email)=/i);
+  }
+
+  assert.equal(titles.size, WATCH_JOURNAL_PUBLIC_PAGES.length);
+  assert.equal(canonicals.size, WATCH_JOURNAL_PUBLIC_PAGES.length);
+  assert.match(
+    netlify,
+    /from = "\/c-drama-fandom\/watch-journal\/episodes-1-4"[\s\S]*?to = "\/c-drama-fandom\/watch-journal\/episodes-1-4\/index\.html"/,
+  );
+  assert.match(
+    viteConfig,
+    /`\/c-drama-fandom\/watch-journal\/episodes-\$\{start\}-\$\{end\}`/,
+  );
+});
+
+test("the field journal source persists a strict boundary and fetches no unfiltered payload", () => {
+  const index = read("public/c-drama-fandom/watch-journal/index.html");
+  const range = read("public/c-drama-fandom/watch-journal/episodes-1-4/index.html");
+
+  assert.match(index, /data-default-safe-through=""/);
+  assert.match(range, /data-default-safe-through="4"/);
+  assert.match(index, /fandom-watch-journal-safe-through:the-untamed/);
+  assert.match(index, /\/\^\[1-9\]\[0-9\]\{0,2\}\$\//);
+  assert.match(index, /Number\(value\) <= 999/);
+  assert.match(index, /safeThroughEpisode=" \+ encodeURIComponent\(boundary\)/);
+  assert.match(index, /credentials: "omit", cache: "no-store"/);
+  assert.match(index, /payload\.safeThroughEpisode !== boundary/);
+  assert.match(range, /const routeMaximum = validBoundary\(defaultBoundary\) \? Number\(defaultBoundary\) : null/);
+  assert.match(range, /routeMaximum === null \|\| Number\(value\) <= routeMaximum/);
+  assert.match(range, /if \(!allowedOnRoute\(stored\)\) return defaultBoundary \|\| null/);
+  assert.match(index, /content\.replaceChildren\(\)/);
+  assert.match(index, /node\.textContent = value/);
+  assert.doesNotMatch(index, /innerHTML|dangerouslySetInnerHTML/);
+  assert.doesNotMatch(index, /journal\s*=\s*\{\s*"entries"/);
+  assert.doesNotMatch(index, /fetch\("[^"]*audience=reader"\)/);
+  assert.match(index, /The journal stayed locked because the boundary is malformed/);
+  assert.match(index, /new URL\(window\.location\.pathname, window\.location\.origin\)\.href/);
 });
 
 test("the trope decoder is searchable, shareable, and spoiler-light", () => {
@@ -138,16 +210,22 @@ test("asset preparation produces optimized content and social images", async () 
   await preparePublicPages();
   const contentPath = resolve(root, "public/assets/c-drama-fandom/which-xianxia-fate-chose-you-lg01.webp");
   const socialPath = resolve(root, "public/assets/c-drama-fandom/lg01-master-og.jpg");
+  const journalSocialPath = resolve(root, "public/assets/c-drama-fandom/watch-journal-og.jpg");
   assert.equal(existsSync(contentPath), true);
   assert.equal(existsSync(socialPath), true);
+  assert.equal(existsSync(journalSocialPath), true);
 
   const contentMeta = await sharp(contentPath).metadata();
   const socialMeta = await sharp(socialPath).metadata();
+  const journalSocialMeta = await sharp(journalSocialPath).metadata();
   assert.equal(contentMeta.format, "webp");
   assert.ok((contentMeta.width ?? 0) <= 1100);
   assert.equal(socialMeta.format, "jpeg");
   assert.equal(socialMeta.width, 1200);
   assert.equal(socialMeta.height, 630);
+  assert.equal(journalSocialMeta.format, "jpeg");
+  assert.equal(journalSocialMeta.width, 1200);
+  assert.equal(journalSocialMeta.height, 630);
 });
 
 test("each allowlisted LG01 fate has a static social preview and exact query rewrite", async () => {
