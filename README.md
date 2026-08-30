@@ -90,10 +90,12 @@ these as server-only Netlify environment variables before testing membership:
   `https://fandom.justlikekatie.com/api/billing/webhook` endpoint
 - `FANDOM_STRIPE_MEMBERSHIP_PRICE_ID` — the active test-mode membership Price ID
 - `FANDOM_PUBLIC_ORIGIN` — `https://fandom.justlikekatie.com`
-- `DATABASE_URL` — the Postgres URL used by `stripe-replit-sync`
 
-The Replit connector remains the local/development fallback. Never prefix these
-secrets with `VITE_`, commit them, or expose them in browser responses.
+External Netlify billing stores its account-to-membership mapping in the
+existing Netlify Blobs setup, so it does not need the Replit `DATABASE_URL`.
+The Replit connector and Postgres Stripe Sync remain the local/development
+fallback. Never prefix these secrets with `VITE_`, commit them, or expose them
+in browser responses.
 
 The browser never receives MEDIA or CREATE credentials. Do not add them as
 `VITE_` variables. Deployment must preserve the same-origin redirect for

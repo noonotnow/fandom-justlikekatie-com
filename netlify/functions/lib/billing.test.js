@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createBillingHandlers, createEntitlementChecker } from "./billing.js";
+import { createBillingHandlers, createBillingServices, createEntitlementChecker } from "./billing.js";
 import { membershipStatus } from "./billing-repository.js";
 import { createGridExportHandlers } from "./grid-exports.js";
 
@@ -77,4 +77,41 @@ test("grid export enforcement is injected and can reject inactive accounts", asy
   }).handler;
   const res = await handler(request("/grid-exports?gridId=grid"), {});
   assert.equal(res.status, 403);
+});
+
+test("external Netlify billing does not require the internal Replit database host", async () => {
+  const values = new Map();
+  const event = {
+    created: 50,
+    type: "customer.subscription.created",
+    data: {
+      object: {
+        id: "sub_external",
+        customer: "cus_external",
+        status: "active",
+        current_period_end: 1790726400,
+        cancel_at_period_end: false,
+        metadata: { fandom_account_id: user.accountId },
+      },
+    },
+  };
+  const billing = createBillingServices({
+    env: {
+      NETLIFY: "true",
+      STRIPE_SECRET_KEY: "sk_test_external",
+      STRIPE_WEBHOOK_SECRET: "whsec_external",
+    },
+    stripeClient: async () => ({
+      webhooks: { constructEvent: () => event },
+    }),
+    getStore: () => ({
+      async get(key) { return values.get(key) || null; },
+      async setJSON(key, value) { values.set(key, value); },
+    }),
+    runStripeMigrations: async () => { throw new Error("Postgres migrations must not run on Netlify."); },
+  });
+
+  await billing.initialize();
+  await billing.processWebhook(Buffer.from('{"id":"evt_external"}'), "t=1,v1=signed", {});
+  assert.equal((await billing.repository({}).membershipForAccount(user.accountId)).status, "active");
 });

@@ -1,7 +1,10 @@
 import pg from "pg";
 import { runMigrations } from "stripe-replit-sync";
 import { createBillingRepository } from "./billing-repository.js";
-import { getStripeSync, getUncachableStripeClient } from "./stripe-client.js";
+import { createBlobBillingRepository } from "./billing-blob-repository.js";
+import { applyBlobBillingEvent } from "./billing-blob-webhook.js";
+import { getBlobStore } from "./blob-store.js";
+import { getStripeCredentials, getStripeSync, getUncachableStripeClient } from "./stripe-client.js";
 import { json } from "./public-auth.js";
 
 let initialized;
@@ -12,7 +15,9 @@ export function createBillingServices({
   stripeSync = getStripeSync,
   poolFactory = config => new pg.Pool(config),
   runStripeMigrations = runMigrations,
+  getStore = getBlobStore,
 } = {}) {
+  const useBlobBilling = env.NETLIFY === "true" || Boolean(env.AWS_LAMBDA_FUNCTION_NAME);
   let pool;
   let ready;
   const database = () => {
@@ -21,6 +26,7 @@ export function createBillingServices({
     return pool;
   };
   const initialize = async () => {
+    if (useBlobBilling) return null;
     ready ||= (async () => {
       await runStripeMigrations({ databaseUrl: env.DATABASE_URL });
       const sync = await stripeSync({ env });
@@ -33,17 +39,32 @@ export function createBillingServices({
     })().catch(error => { ready = undefined; throw error; });
     return ready;
   };
+  const repository = context => useBlobBilling
+    ? createBlobBillingRepository({ getStore, context })
+    : createBillingRepository({ query: (...args) => database().query(...args) });
+  const processWebhook = async (body, signature, context) => {
+    if (!useBlobBilling) {
+      const sync = await initialize(context);
+      await sync.processWebhook(body, signature);
+      return;
+    }
+    const { webhookSecret } = await getStripeCredentials({ env });
+    const stripe = await stripeClient({ env });
+    const event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+    await applyBlobBillingEvent({ event, repository: repository(context) });
+  };
   return {
     initialize,
-    repository: () => createBillingRepository({ query: (...args) => database().query(...args) }),
+    repository,
     stripe: () => stripeClient({ env }),
+    processWebhook,
   };
 }
 
 export function createEntitlementChecker({ billing }) {
-  return async (session) => {
-    await billing.initialize();
-    const membership = await billing.repository().membershipForAccount(session.user.accountId);
+  return async (session, context) => {
+    await billing.initialize(context);
+    const membership = await billing.repository(context).membershipForAccount(session.user.accountId);
     if (membership.status !== "active") {
       const error = new Error("An active membership is required.");
       error.status = 403;
@@ -59,11 +80,24 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
       const error = new Error("Cross-origin requests are not allowed."); error.status = 403; throw error;
     }
   };
+  const safeErrorDetails = error => {
+    const details = {
+      name: typeof error?.name === "string" ? error.name : "Error",
+      code: typeof error?.code === "string" ? error.code : undefined,
+      status: Number.isInteger(error?.status) ? error.status : undefined,
+    };
+    if (typeof error?.message === "string" && !String(error?.type || "").startsWith("Stripe")) {
+      details.message = error.message
+        .replace(/\b[A-Za-z][A-Za-z0-9]{1,12}_[A-Za-z0-9]+\b/g, "[redacted]")
+        .replace(/https?:\/\/[^/\s]*:[^@\s]+@/gi, "[redacted-url]@");
+    }
+    return Object.fromEntries(Object.entries(details).filter(([, value]) => value !== undefined));
+  };
   const guarded = handler => async (req, context) => {
     try { return await handler(req, context); }
     catch (error) {
       const status = error?.status || 503;
-      if (status >= 500) console.error("[billing] request failed", error);
+      if (status >= 500) console.error("[billing] request failed", safeErrorDetails(error));
       return json(status, { error: status >= 500 ? "Billing is temporarily unavailable." : error.message });
     }
   };
@@ -71,8 +105,8 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
     status: guarded(async (req, context) => {
       if (req.method !== "GET") return json(405, { error: "Method not allowed." }, { Allow: "GET" });
       const session = await auth.authenticate(req, context);
-      await billing.initialize();
-      const membership = await billing.repository().membershipForAccount(session.user.accountId);
+      await billing.initialize(context);
+      const membership = await billing.repository(context).membershipForAccount(session.user.accountId);
       return json(200, {
         state: membership.status,
         isMember: membership.status === "active",
@@ -85,8 +119,8 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
       const session = await auth.authenticate(req, context);
       const price = env.FANDOM_STRIPE_MEMBERSHIP_PRICE_ID;
       if (!/^price_[A-Za-z0-9]+$/.test(price || "")) throw new Error("FANDOM_STRIPE_MEMBERSHIP_PRICE_ID must be a Stripe Price ID.");
-      await billing.initialize();
-      const repository = billing.repository();
+      await billing.initialize(context);
+      const repository = billing.repository(context);
       let customer = await repository.customerForAccount(session.user.accountId);
       const stripe = await billing.stripe();
       if (!customer) {
@@ -107,20 +141,25 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
       if (req.method !== "POST") return json(405, { error: "Method not allowed." }, { Allow: "POST" });
       sameOrigin(req);
       const session = await auth.authenticate(req, context);
-      await billing.initialize();
-      const customer = await billing.repository().customerForAccount(session.user.accountId);
+      await billing.initialize(context);
+      const customer = await billing.repository(context).customerForAccount(session.user.accountId);
       if (!customer) { const error = new Error("No billing account exists."); error.status = 404; throw error; }
       const portal = await (await billing.stripe()).billingPortal.sessions.create({
         customer, return_url: `${new URL(req.url).origin}/vibe-atlas?view=membership`,
       });
       return json(200, { url: portal.url });
     }),
-    webhook: guarded(async req => {
+    webhook: guarded(async (req, context) => {
       if (req.method !== "POST") return json(405, { error: "Method not allowed." }, { Allow: "POST" });
       const signature = req.headers.get("stripe-signature");
       if (!signature) { const error = new Error("Missing Stripe signature."); error.status = 400; throw error; }
-      const sync = await billing.initialize();
-      await sync.processWebhook(Buffer.from(await req.arrayBuffer()), signature);
+      const body = Buffer.from(await req.arrayBuffer());
+      if (typeof billing.processWebhook === "function") {
+        await billing.processWebhook(body, signature, context);
+      } else {
+        const sync = await billing.initialize(context);
+        await sync.processWebhook(body, signature);
+      }
       return json(200, { received: true });
     }),
   };
