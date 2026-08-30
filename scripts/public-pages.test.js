@@ -153,6 +153,37 @@ test("the field journal source persists a strict boundary and fetches no unfilte
   assert.match(index, /new URL\(window\.location\.pathname, window\.location\.origin\)\.href/);
 });
 
+test("the field journal analytics track outcomes without journal content or private values", () => {
+  const index = read("public/c-drama-fandom/watch-journal/index.html");
+  const range = read("public/c-drama-fandom/watch-journal/episodes-1-4/index.html");
+  const eventNames = [...index.matchAll(/trackJournalEvent\("([^"]+)"/g)].map((match) => match[1]);
+  const trackedData = [...index.matchAll(/trackJournalEvent\("[^"]+", \{([\s\S]*?)\}\);/g)].map((match) => match[1]);
+
+  assert.deepEqual([...new Set(eventNames)].sort(), [
+    "watch_journal_boundary_changed",
+    "watch_journal_safe_view_loaded",
+    "watch_journal_shared",
+  ]);
+  assert.match(index, /const trackEvent = \(name, data\) => \{\s*try \{\s*window\.umami\?\.track\(name, data\);\s*\} catch \{/);
+  assert.match(index, /route_end_episode: routeMaximum/);
+  assert.match(index, /safe_through_episode: boundary/);
+  assert.match(index, /from_episode: previousBoundary/);
+  assert.match(index, /to_episode: boundary/);
+  assert.match(index, /outcome: "failed"/);
+  assert.match(index, /failure_reason: "invalid_boundary"/);
+  assert.match(index, /loadFailureReason = "invalid_response"/);
+  assert.match(index, /safe_through_episode: boundary/);
+  assert.match(index, /outcome: "failed"/);
+  assert.match(index, /trackShareOutcome\(error && error\.name === "AbortError" \? "cancelled" : "failed"/);
+  assert.match(index, /trackShareOutcome\("success", "native"\)/);
+  assert.match(index, /trackShareOutcome\("success", "copy"\)/);
+  assert.doesNotMatch(index, /trackJournalEvent\([^)]*(?:originalText|interpretation|publicUrl|error\.message|accountId|email)/i);
+  for (const data of trackedData) {
+    assert.doesNotMatch(data, /text|evidence|prediction|entry|url|account|email|error/i);
+  }
+  assert.match(range, /route_end_episode: routeMaximum/);
+});
+
 test("the trope decoder is searchable, shareable, and spoiler-light", () => {
   const html = read("public/c-drama-fandom/trope-decoder/index.html");
   const entryIds = [...html.matchAll(/class="trope-card" id="([^"]+)"/g)].map((match) => match[1]);

@@ -193,6 +193,16 @@ function journalPageHtml({ start = null, end = null } = {}) {
     const validBoundary = (value) => /^[1-9][0-9]{0,2}$/.test(String(value)) && Number(value) <= 999;
     const routeMaximum = validBoundary(defaultBoundary) ? Number(defaultBoundary) : null;
     const allowedOnRoute = (value) => validBoundary(value) && (routeMaximum === null || Number(value) <= routeMaximum);
+    const trackEvent = (name, data) => {
+      try {
+        window.umami?.track(name, data);
+      } catch {
+        // Analytics must never interrupt the journal.
+      }
+    };
+    const trackJournalEvent = (name, data) => {
+      trackEvent(name, routeMaximum === null ? data : { route_end_episode: routeMaximum, ...data });
+    };
     const announce = (message, isError = false) => {
       status.textContent = message;
       status.dataset.error = isError ? "true" : "false";
@@ -244,6 +254,7 @@ function journalPageHtml({ start = null, end = null } = {}) {
         content.append(section);
       });
     };
+    let lastLoadedBoundary = null;
     const readStoredBoundary = () => {
       let stored;
       try { stored = localStorage.getItem(settingKey); } catch { return null; }
@@ -260,22 +271,61 @@ function journalPageHtml({ start = null, end = null } = {}) {
           : "This shared page is capped at Episode " + routeMaximum + ". Choose a later episode page before raising the boundary.";
         content.append(text("section", guidance, "journal-locked"));
         announce("The journal stayed locked because the boundary is malformed.", true);
+        trackJournalEvent("watch_journal_safe_view_loaded", {
+          outcome: "failed",
+          failure_reason: "invalid_boundary",
+        });
+        if (lastLoadedBoundary !== null) {
+          trackJournalEvent("watch_journal_boundary_changed", {
+            from_episode: lastLoadedBoundary,
+            outcome: "failed",
+            failure_reason: "invalid_boundary",
+          });
+        }
         return;
       }
       const boundary = Number(value);
+      const previousBoundary = lastLoadedBoundary;
       try { localStorage.setItem(settingKey, String(boundary)); } catch {}
       loadButton.disabled = true;
       announce("Checking the server-safe view…");
+      let loadFailureReason = "request";
       try {
         const response = await fetch("/.netlify/functions/watch-journal?audience=reader&safeThroughEpisode=" + encodeURIComponent(boundary), { credentials: "omit", cache: "no-store" });
         const payload = await response.json().catch(() => null);
         if (!response.ok) throw new Error(payload && payload.error ? payload.error : "The journal stayed locked.");
+        loadFailureReason = "invalid_response";
         render(payload, boundary);
+        lastLoadedBoundary = boundary;
+        trackJournalEvent("watch_journal_safe_view_loaded", {
+          outcome: "success",
+          safe_through_episode: boundary,
+        });
+        if (previousBoundary !== null && previousBoundary !== boundary) {
+          trackJournalEvent("watch_journal_boundary_changed", {
+            from_episode: previousBoundary,
+            to_episode: boundary,
+            outcome: "success",
+          });
+        }
         announce("Showing only approved records safe through Episode " + boundary + ".");
       } catch (error) {
         clearContent();
         content.append(text("section", "The journal stayed locked. " + (error && error.message ? error.message : "Try again later."), "journal-locked"));
         announce("No safe journal view was loaded.", true);
+        trackJournalEvent("watch_journal_safe_view_loaded", {
+          outcome: "failed",
+          failure_reason: loadFailureReason,
+          safe_through_episode: boundary,
+        });
+        if (previousBoundary !== null && previousBoundary !== boundary) {
+          trackJournalEvent("watch_journal_boundary_changed", {
+            from_episode: previousBoundary,
+            to_episode: boundary,
+            outcome: "failed",
+            failure_reason: loadFailureReason,
+          });
+        }
       } finally { loadButton.disabled = false; }
     };
     const initial = readStoredBoundary();
@@ -283,10 +333,23 @@ function journalPageHtml({ start = null, end = null } = {}) {
     loadButton.addEventListener("click", () => void load());
     shareButton.addEventListener("click", async () => {
       const publicUrl = new URL(window.location.pathname, window.location.origin).href;
+      const trackShareOutcome = (outcome, method) => {
+        const data = { outcome, method };
+        if (lastLoadedBoundary !== null) data.safe_through_episode = lastLoadedBoundary;
+        trackJournalEvent("watch_journal_shared", data);
+      };
       try {
-        if (navigator.share) { await navigator.share({ title: document.title, text: "A spoiler-safe first-watch journal", url: publicUrl }); shareStatus.textContent = "Safe public page ready to share."; }
-        else { await navigator.clipboard.writeText(publicUrl); shareStatus.textContent = "Safe public page link copied."; }
+        if (navigator.share) {
+          await navigator.share({ title: document.title, text: "A spoiler-safe first-watch journal", url: publicUrl });
+          trackShareOutcome("success", "native");
+          shareStatus.textContent = "Safe public page ready to share.";
+        } else {
+          await navigator.clipboard.writeText(publicUrl);
+          trackShareOutcome("success", "copy");
+          shareStatus.textContent = "Safe public page link copied.";
+        }
       } catch (error) {
+        trackShareOutcome(error && error.name === "AbortError" ? "cancelled" : "failed", navigator.share ? "native" : "copy");
         if (error && error.name !== "AbortError") shareStatus.textContent = "Copy the public page URL from your browser.";
       }
     });

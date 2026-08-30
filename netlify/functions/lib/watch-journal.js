@@ -347,8 +347,9 @@ async function handleModeration(journalStore, submissionStore, accountId, public
     updated.unlockEpisode = corrected;
     if (updated.status === "approved") {
       if (corrected > submission.unlockEpisode) {
-        // Seal the published copy first when moving the boundary later. A
-        // concurrent reader must never observe the less restrictive value.
+        // Retract the approved public projection before moving its private
+        // boundary later. A future publish can reintroduce it safely.
+        await retractPublishedEvidence(journalStore, submission.id);
         await updateApprovedEvidence(journalStore, accountId, submission.id, corrected);
       } else if (corrected < submission.unlockEpisode) {
         correctApprovedEvidenceAfterArchive = true;
@@ -452,6 +453,24 @@ async function updateApprovedEvidence(journalStore, accountId, submissionId, unl
       ? { ...item, unlockEpisode }
       : item),
   }));
+}
+
+async function retractPublishedEvidence(store, submissionId) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const existing = await getWithMetadata(store, PUBLIC_JOURNAL_KEY);
+    const evidence = existing?.data?.journal?.evidence;
+    if (!Array.isArray(evidence) || !evidence.some(item => item?.sourceSubmissionId === submissionId)) return;
+    const publication = structuredClone(existing.data);
+    publication.journal.evidence = evidence.filter(item => item?.sourceSubmissionId !== submissionId);
+    const result = await store.setJSON(
+      PUBLIC_JOURNAL_KEY,
+      publication,
+      { onlyIfMatch: existing.etag },
+    );
+    if (result?.modified === false) continue;
+    return;
+  }
+  throw httpError(409, "The public journal changed too frequently. Retry.");
 }
 
 async function appendSubmission(store, publicJournalId, submission) {

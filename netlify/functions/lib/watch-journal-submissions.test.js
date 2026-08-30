@@ -417,3 +417,99 @@ test("moderators can correct only unlock metadata and prediction evidence remain
   assert.equal(throughEight.journal.evidence.length, 0);
   assert.equal(throughNine.journal.evidence.length, 1);
 });
+
+test("raising approved evidence unlock retracts the old public projection before succeeding", async () => {
+  const { handler, getStore } = environment();
+  const { journal, publicJournalId } = await fileFirstEntry(handler);
+  const submitted = await json(await handler(request("POST", {
+    action: "submit-veteran",
+    journalId: publicJournalId,
+    entryId: journal.entries[0].id,
+    unlockEpisode: 4,
+    interpretation: "Visible only at the approved boundary.",
+    consent: true,
+  })));
+  assert.equal((await handler(request("POST", {
+    action: "moderate-veteran-submission",
+    submissionId: submitted.submission.id,
+    decision: "approve",
+  }, "", { admin: true }))).status, 200);
+  assert.equal((await handler(request("POST", {
+    action: "publish",
+    approvedThroughEpisode: 4,
+  }, "", { admin: true }))).status, 200);
+
+  const before = await json(await handler(request("GET", undefined, "?audience=reader&safeThroughEpisode=4")));
+  assert.equal(before.journal.evidence.length, 1);
+
+  const journalStore = getStore("fandom-watch-journals");
+  const setJSON = journalStore.setJSON.bind(journalStore);
+  let publicConflictOnce = true;
+  journalStore.setJSON = async (key, value, options) => {
+    if (publicConflictOnce && key === "public/the-untamed") {
+      publicConflictOnce = false;
+      return { modified: false };
+    }
+    return setJSON(key, value, options);
+  };
+  const corrected = await handler(request("POST", {
+    action: "moderate-veteran-submission",
+    submissionId: submitted.submission.id,
+    decision: "correct-unlock",
+    unlockEpisode: 8,
+  }, "", { admin: true }));
+  assert.equal(corrected.status, 200);
+
+  const throughFour = await json(await handler(request("GET", undefined, "?audience=reader&safeThroughEpisode=4")));
+  const throughEight = await json(await handler(request("GET", undefined, "?audience=reader&safeThroughEpisode=8")));
+  assert.equal(throughFour.journal.evidence.length, 0);
+  assert.equal(throughEight.journal.evidence.length, 0);
+});
+
+test("a failed private unlock correction leaves the public projection retracted", async () => {
+  const { handler, getStore } = environment();
+  const { journal, publicJournalId } = await fileFirstEntry(handler);
+  const submitted = await json(await handler(request("POST", {
+    action: "submit-veteran",
+    journalId: publicJournalId,
+    entryId: journal.entries[0].id,
+    unlockEpisode: 4,
+    interpretation: "A correction failure must stay sealed.",
+    consent: true,
+  })));
+  await handler(request("POST", {
+    action: "moderate-veteran-submission",
+    submissionId: submitted.submission.id,
+    decision: "approve",
+  }, "", { admin: true }));
+  await handler(request("POST", {
+    action: "publish",
+    approvedThroughEpisode: 4,
+  }, "", { admin: true }));
+
+  const journalStore = getStore("fandom-watch-journals");
+  const setJSON = journalStore.setJSON.bind(journalStore);
+  let failPrivateCorrectionOnce = true;
+  journalStore.setJSON = async (key, value, options) => {
+    if (
+      failPrivateCorrectionOnce
+      && key === "accounts/operator-a/the-untamed"
+      && value.evidence?.some(item => item.sourceSubmissionId === submitted.submission.id && item.unlockEpisode === 8)
+    ) {
+      failPrivateCorrectionOnce = false;
+      throw new Error("Simulated private correction failure.");
+    }
+    return setJSON(key, value, options);
+  };
+  const failed = await handler(request("POST", {
+    action: "moderate-veteran-submission",
+    submissionId: submitted.submission.id,
+    decision: "correct-unlock",
+    unlockEpisode: 8,
+  }, "", { admin: true }));
+  assert.equal(failed.status, 500);
+
+  const reader = await json(await handler(request("GET", undefined, "?audience=reader&safeThroughEpisode=4")));
+  assert.equal(reader.journal.evidence.length, 0);
+  assert.doesNotMatch(JSON.stringify(reader), /correction failure must stay sealed/i);
+});
