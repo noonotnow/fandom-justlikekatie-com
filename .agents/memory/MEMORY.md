@@ -14,3 +14,5 @@
 - [MemeForge uploaded-source staging](memeforge-uploaded-source-staging.md) — canonicalize uploads to MEDIA with a stable UUID before creating durable packets.
 - [Distinct data-URL derivatives](distinct-data-url-derivatives.md) — use URL fragments for unique collection keys without changing image bytes or MIME type.
 - [Vibe Atlas billing boundary](vibe-atlas-billing-boundary.md) — Stripe membership gates Vibe Atlas cloud sync, Grid Builder, and premium exports; existing content storage and MemeForge remain separate.
+- [External Netlify deployment](external-netlify-deployment.md) — verify the custom domain’s bundle and function routes before production-only tests; Replit deployment metadata is separate.
+- [Stripe account alignment](stripe-account-alignment.md) — Netlify credentials, Price IDs, and webhook secrets must share one Stripe account and mode; Replit can be connected to another.

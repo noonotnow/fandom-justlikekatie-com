@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createBillingHandlers, createEntitlementChecker } from "./billing.js";
+import { createBillingHandlers, createBillingServices, createEntitlementChecker } from "./billing.js";
 import { membershipStatus } from "./billing-repository.js";
 import { createGridExportHandlers } from "./grid-exports.js";
 
@@ -38,6 +38,7 @@ test("checkout and portal are bound to the authenticated account", async () => {
     initialize: async () => {},
     repository: () => repository,
     stripe: async () => ({
+      customers: { retrieve: async customer => ({ id: customer, deleted: false }) },
       checkout: { sessions: { create: async input => { calls.push(["checkout", input]); return { url: "https://checkout.test" }; } } },
       billingPortal: { sessions: { create: async input => { calls.push(["portal", input]); return { url: "https://portal.test" }; } } },
     }),
@@ -48,6 +49,41 @@ test("checkout and portal are bound to the authenticated account", async () => {
   assert.equal(calls[1][1].customer, "cus_saved");
   assert.equal(calls[3][1].customer, "cus_saved");
   assert.equal(calls[1][1].line_items[0].price, "price_real123");
+  assert.deepEqual(calls[1][1].managed_payments, { enabled: false });
+});
+
+test("checkout retries without a stale customer when Stripe reports a missing resource", async () => {
+  const inputs = [];
+  const repository = {
+    customerForAccount: async () => "cus_old_account",
+    linkCustomer: async () => "cus_new_account",
+    membershipForAccount: async () => ({ status: "inactive" }),
+  };
+  const billing = {
+    initialize: async () => {},
+    repository: () => repository,
+    stripe: async () => ({
+      customers: { retrieve: async () => ({ id: "cus_old_account", deleted: false }) },
+      checkout: {
+        sessions: {
+          create: async input => {
+            inputs.push(input);
+            if (inputs.length === 1) {
+              const error = new Error("No such customer");
+              error.code = "resource_missing";
+              throw error;
+            }
+            return { url: "https://checkout.test" };
+          },
+        },
+      },
+    }),
+  };
+  const handlers = createBillingHandlers({ auth, billing, env: { FANDOM_STRIPE_MEMBERSHIP_PRICE_ID: "price_real123" } });
+  assert.equal((await handlers.checkout(request("/api/billing/checkout"), {})).status, 200);
+  assert.equal(inputs[0].customer, "cus_old_account");
+  assert.equal(inputs[1].customer_email, user.email);
+  assert.equal("customer" in inputs[1], false);
 });
 
 test("webhook delegates the exact raw body and signature to Stripe sync", async () => {
@@ -77,4 +113,41 @@ test("grid export enforcement is injected and can reject inactive accounts", asy
   }).handler;
   const res = await handler(request("/grid-exports?gridId=grid"), {});
   assert.equal(res.status, 403);
+});
+
+test("external Netlify billing does not require the internal Replit database host", async () => {
+  const values = new Map();
+  const event = {
+    created: 50,
+    type: "customer.subscription.created",
+    data: {
+      object: {
+        id: "sub_external",
+        customer: "cus_external",
+        status: "active",
+        current_period_end: 1790726400,
+        cancel_at_period_end: false,
+        metadata: { fandom_account_id: user.accountId },
+      },
+    },
+  };
+  const billing = createBillingServices({
+    env: {
+      NETLIFY: "true",
+      STRIPE_SECRET_KEY: "sk_test_external",
+      STRIPE_WEBHOOK_SECRET: "whsec_external",
+    },
+    stripeClient: async () => ({
+      webhooks: { constructEvent: () => event },
+    }),
+    getStore: () => ({
+      async get(key) { return values.get(key) || null; },
+      async setJSON(key, value) { values.set(key, value); },
+    }),
+    runStripeMigrations: async () => { throw new Error("Postgres migrations must not run on Netlify."); },
+  });
+
+  await billing.initialize();
+  await billing.processWebhook(Buffer.from('{"id":"evt_external"}'), "t=1,v1=signed", {});
+  assert.equal((await billing.repository({}).membershipForAccount(user.accountId)).status, "active");
 });

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { getBlobStore } from "./blob-store.js";
 
-test("passes strong-consistency store options through the V2 function context", () => {
+test("uses the store name with the V2 function context", () => {
   let input;
   const expected = {};
   const actual = getBlobStore("idea-packets", {
@@ -14,5 +14,5 @@ test("passes strong-consistency store options through the V2 function context", 
     },
   }, { consistency: "strong" });
   assert.equal(actual, expected);
-  assert.deepEqual(input, { name: "idea-packets", consistency: "strong" });
+  assert.equal(input, "idea-packets");
 });

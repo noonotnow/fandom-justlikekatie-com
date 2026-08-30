@@ -1916,7 +1916,7 @@ export function MiddleEarthWorkspace({ isAdmin, onCreatePacket }: {
               <button className={styles.save} onClick={() => void savePacket()} disabled={busy}>Stage in Operator Console</button>
             )}
             {!isEditorRequired && !selected && <span className={styles.actionHint}>Choose a source to unlock export and Collection save.</span>}
-            {packetSaved && <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Open packet staging</a>}
+            {isAdmin && packetSaved && <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Open packet staging</a>}
           </div>
           <div className={styles.status} role="status">{error && <span className={styles.statusError}>{error}</span>}{!error && status}</div>
         </section>

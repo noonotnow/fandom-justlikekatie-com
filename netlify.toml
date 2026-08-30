@@ -102,6 +102,21 @@ to = "/.netlify/functions/billing-webhook"
 status = 200
 
 [[redirects]]
+from = "/api/membership/status"
+to = "/.netlify/functions/billing-status"
+status = 200
+
+[[redirects]]
+from = "/api/membership/checkout"
+to = "/.netlify/functions/billing-checkout"
+status = 200
+
+[[redirects]]
+from = "/api/membership/portal"
+to = "/.netlify/functions/billing-portal"
+status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

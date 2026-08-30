@@ -19,6 +19,8 @@ interface LightboxProps {
   /** Metadata for individual card export */
   cardMetadata?: ExportCardMetadata;
   planData?: StarOfDayData;
+  /** Packet controls belong to the private Fandom Admin workflow. */
+  canManagePackets?: boolean;
   tier: ImageTier;
   onTierChange: (tier: ImageTier) => void;
   packets?: IdeaPacket[];
@@ -32,6 +34,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
   onNavigate,
   cardMetadata,
   planData,
+  canManagePackets = false,
   tier,
   onTierChange,
   packets = [],
@@ -324,7 +327,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
                   </span>
                 )}
               </div>
-              {onAddToPacket && packets.length > 0 && (
+              {canManagePackets && onAddToPacket && packets.length > 0 && (
                 <div className={styles.packetAction}>
                   <label>
                     <span>Idea Packet</span>
