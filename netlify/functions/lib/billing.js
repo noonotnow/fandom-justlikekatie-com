@@ -117,6 +117,12 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
   return {
     status: guarded(async (req, context) => {
       if (req.method !== "GET") return json(405, { error: "Method not allowed." }, { Allow: "GET" });
+      if (new URL(req.url).searchParams.get("health") === "billing") {
+        await atStage("initialize", () => billing.initialize(context));
+        const repository = await atStage("repository", () => billing.repository(context));
+        await atStage("membership-read", () => repository.membershipForAccount("health-check"));
+        return json(200, { ok: true });
+      }
       const session = await auth.authenticate(req, context);
       await atStage("initialize", () => billing.initialize(context));
       const repository = await atStage("repository", () => billing.repository(context));
