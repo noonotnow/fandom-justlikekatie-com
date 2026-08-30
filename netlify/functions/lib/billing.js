@@ -141,6 +141,15 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
       const repository = await atStage("repository", () => billing.repository(context));
       let customer = await atStage("customer-read", () => repository.customerForAccount(session.user.accountId));
       const stripe = await atStage("stripe-client", () => billing.stripe());
+      if (customer) {
+        try {
+          const existing = await atStage("customer-verify", () => stripe.customers.retrieve(customer));
+          if (existing.deleted) customer = null;
+        } catch (error) {
+          if (error?.code === "resource_missing") customer = null;
+          else throw error;
+        }
+      }
       if (!customer) {
         const created = await atStage("customer-create", () => stripe.customers.create({ email: session.user.email, metadata: { fandom_account_id: session.user.accountId } }));
         customer = await atStage("customer-link", () => repository.linkCustomer(session.user.accountId, created.id));

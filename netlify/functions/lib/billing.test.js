@@ -38,6 +38,7 @@ test("checkout and portal are bound to the authenticated account", async () => {
     initialize: async () => {},
     repository: () => repository,
     stripe: async () => ({
+      customers: { retrieve: async customer => ({ id: customer, deleted: false }) },
       checkout: { sessions: { create: async input => { calls.push(["checkout", input]); return { url: "https://checkout.test" }; } } },
       billingPortal: { sessions: { create: async input => { calls.push(["portal", input]); return { url: "https://portal.test" }; } } },
     }),
