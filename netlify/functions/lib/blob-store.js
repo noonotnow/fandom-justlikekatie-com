@@ -17,7 +17,10 @@ import { getStore } from "@netlify/blobs";
 export function getBlobStore(name, context, options = {}) {
   const input = Object.keys(options).length > 0 ? { name, ...options } : name;
   if (context && context.blobs && typeof context.blobs.getStore === "function") {
-    return context.blobs.getStore(input);
+    // Netlify's injected context API accepts the store name, while the
+    // package-level helper also accepts an options object. Store-operation
+    // options such as consistency belong on get/set/list calls.
+    return context.blobs.getStore(name);
   }
   return getStore(input);
 }
