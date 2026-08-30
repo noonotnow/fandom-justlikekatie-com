@@ -35,6 +35,12 @@ The production response layer is therefore ready for Google to crawl. The exact 
 
 Google Search Console is not connected to this workspace, so property verification, sitemap submission, URL Inspection, and Search Console reporting still require an operator with access to the Google property and its verification method. No Search Console credentials or metrics are being inferred.
 
+### Operator-provided Search Console evidence
+
+An August 30, 2026 screenshot of a Live Test for `https://fandom.justlikekatie.com/` shows **“URL is available”** and **“Page can be indexed,”** but the inspection dialog says **“URL not in property.”** This confirms live-test availability only; it does not confirm that Google has indexed the page, that the property is verified, or that the selected property covers the `fandom.justlikekatie.com` subdomain. The screenshot also says discovery was not checked in the live test.
+
+To continue, select or verify either the URL-prefix property `https://fandom.justlikekatie.com/` or the Domain property `justlikekatie.com` (with DNS verification), then submit the sitemap and inspect each editorial URL from that property. The two uploaded PDFs were duplicate Stripe billing pages, not Search Console evidence, and were not used for this baseline.
+
 ### Baseline recording worksheet
 
 Leave unavailable values as **Not available**, rather than entering zero. Zero means Search Console returned a verified zero; “Not available” means the property or report could not be queried.
