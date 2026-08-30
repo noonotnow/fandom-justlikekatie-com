@@ -5,6 +5,10 @@ import {
   trackCreatorHandoffAttempt,
   trackCreatorHandoffFailure,
   trackCreatorHandoffSuccess,
+  trackVeteranFormStarted,
+  trackVeteranRelationSelected,
+  trackVeteranSubmissionFailure,
+  trackVeteranSubmissionSuccess,
 } from '../src/utils/analytics.ts';
 
 const productionDocument = await readFile(new URL('../index.html', import.meta.url), 'utf8');
@@ -109,6 +113,93 @@ test('queued dataLayer events cover the brief gap before gtag is available', () 
       entry_point: 'builder',
       destination_set: 'weibo+instagram',
     }]);
+  } finally {
+    Reflect.deleteProperty(globalThis, 'window');
+  }
+});
+
+test('veteran submission analytics uses only coarse, non-identifying payloads', () => {
+  const events: Array<{
+    command: string;
+    name: string;
+    data?: Record<string, string | number | boolean>;
+  }> = [];
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      location: { origin: 'https://fandom.example.test' },
+      gtag(
+        command: string,
+        name: string,
+        data?: Record<string, string | number | boolean>,
+      ) {
+        events.push({ command, name, data });
+      },
+    },
+  });
+
+  try {
+    trackVeteranFormStarted();
+    trackVeteranRelationSelected('prediction');
+    trackVeteranSubmissionSuccess('prediction');
+    trackVeteranSubmissionFailure('entry', { status: 400, message: 'private interpretation' });
+    trackVeteranSubmissionFailure('entry', { status: 429 });
+    trackVeteranSubmissionFailure('entry', new TypeError('fetch failed'));
+
+    assert.deepEqual(events, [
+      {
+        command: 'event',
+        name: 'veteran_form_started',
+        data: {
+          surface: 'public_veteran_form',
+          page_location: 'https://fandom.example.test/vibe-atlas/veteran-journal',
+        },
+      },
+      {
+        command: 'event',
+        name: 'veteran_relation_selected',
+        data: {
+          relation_kind: 'prediction',
+          page_location: 'https://fandom.example.test/vibe-atlas/veteran-journal',
+        },
+      },
+      {
+        command: 'event',
+        name: 'veteran_submission_succeeded',
+        data: {
+          relation_kind: 'prediction',
+          page_location: 'https://fandom.example.test/vibe-atlas/veteran-journal',
+        },
+      },
+      {
+        command: 'event',
+        name: 'veteran_submission_failed',
+        data: {
+          relation_kind: 'entry',
+          failure_category: 'validation',
+          page_location: 'https://fandom.example.test/vibe-atlas/veteran-journal',
+        },
+      },
+      {
+        command: 'event',
+        name: 'veteran_submission_failed',
+        data: {
+          relation_kind: 'entry',
+          failure_category: 'rate_limit',
+          page_location: 'https://fandom.example.test/vibe-atlas/veteran-journal',
+        },
+      },
+      {
+        command: 'event',
+        name: 'veteran_submission_failed',
+        data: {
+          relation_kind: 'entry',
+          failure_category: 'network',
+          page_location: 'https://fandom.example.test/vibe-atlas/veteran-journal',
+        },
+      },
+    ]);
+    assert.doesNotMatch(JSON.stringify(events), /private interpretation/);
   } finally {
     Reflect.deleteProperty(globalThis, 'window');
   }

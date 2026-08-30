@@ -6,6 +6,13 @@ import {
   type VeteranSubmission,
   type VeteranSubmissionTarget,
 } from '../../utils/watchJournal';
+import {
+  trackVeteranFormStarted,
+  trackVeteranRelationSelected,
+  trackVeteranSubmissionFailure,
+  trackVeteranSubmissionSuccess,
+  type VeteranSubmissionRelation,
+} from '../../utils/analytics';
 import styles from './VeteranSubmissionForm.module.css';
 
 type Targets = {
@@ -14,7 +21,7 @@ type Targets = {
 };
 
 export function VeteranSubmissionForm() {
-  const publicJournalId = new URLSearchParams(window.location.search).get('journal') ?? '';
+  const publicJournalId = veteranJournalId();
   const [targets, setTargets] = useState<Targets>({ entries: [], predictions: [] });
   const [submissions, setSubmissions] = useState<VeteranSubmission[]>([]);
   const [relation, setRelation] = useState('');
@@ -36,6 +43,7 @@ export function VeteranSubmissionForm() {
         const targetResult = await fetchVeteranSubmissionTargets(publicJournalId);
         if (cancelled) return;
         setTargets(targetResult.targets);
+        trackVeteranFormStarted();
         const mine = await fetchMyVeteranSubmissions(publicJournalId);
         if (!cancelled) setSubmissions(mine);
       } catch (error) {
@@ -57,6 +65,8 @@ export function VeteranSubmissionForm() {
     event.preventDefault();
     const [kind, id] = relation.split(':');
     if (!id || busy) return;
+    const relationKind = veteranRelationKind(kind);
+    if (!relationKind) return;
     setBusy(true);
     setNotice('');
     try {
@@ -68,6 +78,7 @@ export function VeteranSubmissionForm() {
         consent: true,
         website,
       });
+       trackVeteranSubmissionSuccess(relationKind);
       setSubmissions(current => [submission, ...current]);
       setRelation('');
       setUnlockEpisode('');
@@ -76,6 +87,7 @@ export function VeteranSubmissionForm() {
       setWebsite('');
       setNotice('Submitted. Your interpretation is sealed until its episode boundary and moderation review.');
     } catch (error) {
+      trackVeteranSubmissionFailure(relationKind, error);
       setNotice(message(error, 'Your interpretation was not submitted.'));
     } finally {
       setBusy(false);
@@ -97,8 +109,12 @@ export function VeteranSubmissionForm() {
             <label>
               <span>Related journal moment</span>
               <select required value={relation} onChange={event => {
-                setRelation(event.target.value);
+                const nextRelation = event.target.value;
+                setRelation(nextRelation);
                 setUnlockEpisode('');
+                const [kind] = nextRelation.split(':');
+                const relationKind = veteranRelationKind(kind);
+                if (relationKind) trackVeteranRelationSelected(relationKind);
               }}>
                 <option value="">Choose an entry or prediction</option>
                 <optgroup label="Journal entries">
@@ -153,4 +169,17 @@ export function VeteranSubmissionForm() {
 
 function message(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function veteranRelationKind(value: string): VeteranSubmissionRelation | null {
+  if (value === 'entry' || value === 'prediction') return value;
+  return null;
+}
+
+function veteranJournalId(): string {
+  const queryId = new URLSearchParams(window.location.search).get('journal')?.trim();
+  if (queryId) return queryId;
+
+  const state = window.history.state as { veteranJournalId?: unknown } | null;
+  return typeof state?.veteranJournalId === 'string' ? state.veteranJournalId.trim() : '';
 }

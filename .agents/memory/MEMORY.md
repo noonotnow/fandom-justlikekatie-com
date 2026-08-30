@@ -21,3 +21,4 @@
 - [Netlify query indexing](netlify-query-indexing.md) — query-string privacy directives require edge handling because robots.txt cannot disallow query parameters.
 - [Xianxia decoder joke engine](xianxia-decoder-voice.md) — veteran lines explain the absurd narrative necessity behind events; never stop at naming or predicting the trope.
 - [Field Journal spoiler integrity](field-journal-spoiler-integrity.md) — filed watch boundaries govern verdicts, linked evidence, and all reader-safe delivery; fail closed on uncertainty.
+- [Capability-link analytics](capability-link-analytics.md) — remove public capability values from browser URLs before trackers initialize; canonicalize pageview and event locations.

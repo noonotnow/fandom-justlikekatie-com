@@ -3,6 +3,13 @@ import type { CreatorPlatform } from './creatorDraft';
 type AnalyticsData = Record<string, string | number | boolean>;
 
 export type CreatorHandoffEntryPoint = 'daily' | 'saved_grid' | 'builder';
+export type VeteranSubmissionRelation = 'entry' | 'prediction';
+type VeteranSubmissionFailureCategory =
+  | 'validation'
+  | 'rate_limit'
+  | 'network'
+  | 'server'
+  | 'unknown';
 type HandoffFailureCategory =
   | 'network'
   | 'authentication'
@@ -79,11 +86,67 @@ export function trackCreatorHandoffFailure(
   });
 }
 
+export function trackVeteranFormStarted(): void {
+  trackEvent('veteran_form_started', {
+    surface: 'public_veteran_form',
+    page_location: veteranAnalyticsPageLocation(),
+  });
+}
+
+export function trackVeteranRelationSelected(relation: VeteranSubmissionRelation): void {
+  trackEvent('veteran_relation_selected', {
+    relation_kind: relation,
+    page_location: veteranAnalyticsPageLocation(),
+  });
+}
+
+/** Call only after the sealed-submission response has been accepted. */
+export function trackVeteranSubmissionSuccess(relation: VeteranSubmissionRelation): void {
+  trackEvent('veteran_submission_succeeded', {
+    relation_kind: relation,
+    page_location: veteranAnalyticsPageLocation(),
+  });
+}
+
+export function trackVeteranSubmissionFailure(
+  relation: VeteranSubmissionRelation,
+  error: unknown,
+): void {
+  trackEvent('veteran_submission_failed', {
+    relation_kind: relation,
+    failure_category: classifyVeteranSubmissionFailure(error),
+    page_location: veteranAnalyticsPageLocation(),
+  });
+}
+
 function destinationSet(platforms: readonly CreatorPlatform[]): string {
   const allowed = new Set(platforms);
   return (['rednote', 'weibo', 'instagram'] as const)
     .filter(platform => allowed.has(platform))
     .join('+') || 'unknown';
+}
+
+function classifyVeteranSubmissionFailure(value: unknown): VeteranSubmissionFailureCategory {
+  const status = value && typeof value === 'object' && 'status' in value
+    ? (value as { status?: unknown }).status
+    : undefined;
+  if (status === 429) return 'rate_limit';
+  if (typeof status === 'number' && status >= 400 && status < 500) return 'validation';
+  if (typeof status === 'number' && status >= 500) return 'server';
+
+  const message = value instanceof Error ? value.message : '';
+  if (/network|fetch|timeout|timed out|abort|could not be reached/i.test(message)) {
+    return 'network';
+  }
+  return 'unknown';
+}
+
+function veteranAnalyticsPageLocation(): string {
+  const path = '/vibe-atlas/veteran-journal';
+  const origin = typeof window !== 'undefined' && typeof window.location?.origin === 'string'
+    ? window.location.origin
+    : '';
+  return `${origin}${path}`;
 }
 
 function classifyHandoffFailure(value: unknown): HandoffFailureCategory {

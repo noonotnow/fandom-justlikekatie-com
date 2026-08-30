@@ -1,6 +1,24 @@
 <!doctype html>
 <html lang="en" class="dark">
   <head>
+    <script>
+      // Capability-bearing veteran links must be sanitized before any analytics
+      // bootstrap can inspect the browser URL.
+      (function() {
+        var veteranPath = '/vibe-atlas/veteran-journal';
+        var normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/';
+        var params = new URLSearchParams(window.location.search);
+        if (normalizedPath !== veteranPath || !params.has('journal')) return;
+
+        var journalId = (params.get('journal') || '').trim();
+        var currentState = window.history.state;
+        var nextState = currentState && typeof currentState === 'object'
+          ? Object.assign({}, currentState)
+          : {};
+        if (journalId) nextState.veteranJournalId = journalId;
+        window.history.replaceState(nextState, '', veteranPath);
+      })();
+    </script>
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-CGWB67360Q"></script>
     <script>
@@ -8,7 +26,13 @@
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
 
-      gtag('config', 'G-CGWB67360Q');
+      var analyticsPath = window.location.pathname.replace(/\/+$/, '') || '/';
+      var analyticsLocation = analyticsPath === '/vibe-atlas/veteran-journal'
+        ? window.location.origin + '/vibe-atlas/veteran-journal'
+        : window.location.href;
+      gtag('config', 'G-CGWB67360Q', {
+        page_location: analyticsLocation
+      });
     </script>
     <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
