@@ -8,6 +8,10 @@ export interface CreateReceipt {
   sourceId: string;
   sourceVersion: string;
   mediaSyncState: 'synced';
+  distribution?: {
+    primaryPlatform: 'rednote' | 'weibo';
+    platforms: Array<'rednote' | 'weibo'>;
+  };
   disposition?: string;
 }
 
@@ -19,14 +23,20 @@ export async function completeCreatorDraftHandoff(
   source: CreatorDraftSource,
   fetchImpl: Fetch = fetch,
 ): Promise<CreateReceipt> {
-  const response = await fetchImpl(CREATE_HANDOFF_URL, {
-    method: 'POST',
-    credentials: 'same-origin',
-    // Direct grid handoffs are account-scoped and must authenticate via the
-    // same-origin admin session, not the legacy packet operator token.
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source }),
-  });
+  let response: Response;
+  try {
+    response = await fetchImpl(CREATE_HANDOFF_URL, {
+      method: 'POST',
+      credentials: 'same-origin',
+      // Direct grid handoffs are account-scoped and must authenticate via the
+      // same-origin admin session, not the legacy packet operator token.
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source }),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch {
+    throw new Error('Workstation handoff timed out or could not be reached.');
+  }
   const body = await readJson(response);
   if (!response.ok) {
     const error = stringField(body, 'error') || `CREATE handoff failed (HTTP ${response.status})`;
@@ -42,7 +52,7 @@ async function readJson(response: Response): Promise<unknown> {
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error(`CREATE handoff returned invalid JSON (HTTP ${response.status})`);
+    throw new Error('Workstation handoff returned invalid JSON.');
   }
 }
 
@@ -57,12 +67,17 @@ function validateCreatorDraftReceipt(value: unknown, source: CreatorDraftSource)
   try {
     parsed = new URL(createUrl);
   } catch {
-    throw new Error('CREATE handoff returned an invalid Open in CREATE URL.');
+    throw new Error('Workstation returned an invalid composer URL.');
   }
   if (
     parsed.protocol !== 'https:'
-    || parsed.hostname !== 'create.justlikekatie.com'
+    || !['https://create.justlikekatie.com', 'https://workstation.justlikekatie.com'].includes(parsed.origin)
+    || Boolean(parsed.username)
+    || Boolean(parsed.password)
+    || Boolean(parsed.hash)
     || parsed.pathname !== '/compose'
+    || [...parsed.searchParams.keys()].some(key => key !== 'postId')
+    || parsed.searchParams.getAll('postId').length !== 1
     || parsed.searchParams.get('postId') !== postId
     || stringField(receipt, 'status') !== 'Draft'
     || stringField(receipt, 'workflow') !== 'creator-draft'
@@ -70,7 +85,17 @@ function validateCreatorDraftReceipt(value: unknown, source: CreatorDraftSource)
     || stringField(receipt, 'sourceId') !== source.sourceId
     || stringField(receipt, 'mediaSyncState') !== 'synced'
   ) {
-    throw new Error('CREATE handoff returned an invalid Creator Draft receipt.');
+    throw new Error('Workstation returned an invalid Creator Draft receipt.');
+  }
+  const distribution = Reflect.get(receipt, 'distribution');
+  if (
+    !distribution
+    || typeof distribution !== 'object'
+    || !Array.isArray(Reflect.get(distribution, 'platforms'))
+    || Reflect.get(distribution, 'platforms').join(',') !== source.platforms.join(',')
+    || stringField(distribution, 'primaryPlatform') !== source.platforms[0]
+  ) {
+    throw new Error('Workstation returned a receipt for different post destinations.');
   }
   return receipt as CreateReceipt;
 }
