@@ -14,6 +14,64 @@ The next reliable measurement step is to verify the production property in Googl
 - Queries containing `c-drama`, `cdrama`, `Chinese drama`, `xianxia`, and `wuxia`
 - Landing-page performance for the four new editorial routes
 
+## Search Console readiness and current blocker
+
+**Checked August 30, 2026.** Google Search Console is not connected to this workspace, so property verification, sitemap submission, URL Inspection, and Search Console reporting cannot be performed or claimed from here. No Search Console credentials or metrics are being inferred.
+
+The source build is ready for submission:
+
+- `npm run build` completes successfully.
+- The generated `dist/` contains `sitemap.xml`, `robots.txt`, and all four full editorial HTML documents.
+- `public/sitemap.xml` lists the four editorial routes alongside the home page and Vibe Atlas.
+
+The production domain is **not ready for Search Console submission yet**. A direct production check returned `200 text/html` with the React app shell for each of these URLs, including the XML and plain-text files:
+
+- `https://fandom.justlikekatie.com/sitemap.xml`
+- `https://fandom.justlikekatie.com/robots.txt`
+- `/c-drama-fandom/`
+- `/c-drama-fandom/getting-started/`
+- `/c-drama-fandom/glossary/`
+- `/c-drama-fandom/fandom-games/`
+
+Until the current build is published through the external Netlify deployment, Google cannot reliably read the sitemap or discover the intended static documents. This is a deployment-state observation, not evidence that Google has indexed zero pages.
+
+### Baseline recording worksheet
+
+Leave unavailable values as **Not available**, rather than entering zero. Zero means Search Console returned a verified zero; “Not available” means the property or report could not be queried.
+
+| Measurement | Search Console baseline | Notes |
+| --- | --- | --- |
+| Property | `https://fandom.justlikekatie.com` | Verify the Domain property if DNS access is available; otherwise verify the URL-prefix property |
+| Property verification | Not completed | Requires Search Console access and the production verification method |
+| Sitemap submitted | Not submitted | Submit `https://fandom.justlikekatie.com/sitemap.xml` after the production response is fixed |
+| Sitemap status | Not available | Confirm “Success” and the discovered URL count after submission |
+| Valid/indexed pages | Not available | Use Page indexing → Pages |
+| Excluded pages | Not available | Record the count and each material exclusion reason |
+| Impressions | Not available | Search results → Web, date range beginning at the verified baseline |
+| Clicks | Not available | Same report and date range |
+| CTR | Not available | Same report and date range |
+| Average position | Not available | Same report and date range |
+
+### Four editorial discovery checklist
+
+These are the four intended editorial URLs. Confirm each under Search Console’s sitemap details and URL Inspection after the production deployment is corrected:
+
+1. `https://fandom.justlikekatie.com/c-drama-fandom/`
+2. `https://fandom.justlikekatie.com/c-drama-fandom/getting-started/`
+3. `https://fandom.justlikekatie.com/c-drama-fandom/glossary/`
+4. `https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/`
+
+For each URL, record: sitemap discovered (`Yes`/`No`), crawl status, indexing status (`Indexed`/`Excluded`/`Not processed`), exclusion reason when applicable, canonical selected by Google, and the inspection date.
+
+### Operator steps to unlock the baseline
+
+1. Publish the current repository revision through the external Netlify pipeline.
+2. Recheck the six production URLs above. The sitemap must be XML, robots must be plain text, and each editorial URL must return its own HTML document rather than the app shell.
+3. In Google Search Console, add and verify `https://fandom.justlikekatie.com`. Prefer the Domain property when DNS access is available.
+4. Submit `https://fandom.justlikekatie.com/sitemap.xml` under **Sitemaps** and record the submitted URL, status, discovered URL count, and last-read date.
+5. Inspect all four editorial URLs. Request indexing only when a page is live, canonical, and materially complete; do not use repeated requests as a substitute for content quality.
+6. Save the baseline values above with the report date and Search type set to **Web**.
+
 ## Live result sample
 
 A broad English-language search sample around `C-drama fandom`, `Chinese drama fandom guide`, and `C-drama fandom glossary` surfaced:
@@ -59,4 +117,21 @@ Membership activation must continue to come from verified synchronized subscript
 
 ## Review cadence
 
-Do not judge ranking performance immediately after publishing. Record the Search Console baseline after property verification and sitemap submission, then review at approximately 30, 60, and 90 days. Improve pages in response to real query gaps and engaged visits; do not manufacture thin pages merely to increase URL count.
+Do not judge ranking performance immediately after publishing. Record the Search Console baseline after property verification and sitemap submission, then review at approximately 30, 60, and 90 days.
+
+| Review | Target date from August 30 baseline | Record |
+| --- | --- | --- |
+| Baseline | After property verification and successful sitemap submission | Indexing status, exclusion reasons, impressions, clicks, CTR, average position, top queries, and top landing pages |
+| 30 days | September 29, 2026 | Compare query and page totals with baseline; note newly discovered query language and material indexing changes |
+| 60 days | October 29, 2026 | Compare query clusters and landing pages; identify pages with impressions but weak CTR or position |
+| 90 days | November 28, 2026 | Compare all periods; decide which existing pages merit revision based on repeated query evidence and engaged visits |
+
+At each review, export or record:
+
+- Queries containing `c-drama`, `cdrama`, `Chinese drama`, `xianxia`, or `wuxia`
+- The top queries for each of the four editorial landing pages, including unexpected wording
+- Landing pages with impressions but no clicks
+- Queries where the page ranks but does not fully answer the apparent intent
+- Indexing exclusions that require a technical correction
+
+Use repeated, relevant query gaps to revise the closest substantial page. Improve titles, introductions, definitions, internal links, or examples when the data supports the change. Do not manufacture thin pages merely to increase URL count.

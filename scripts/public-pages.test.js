@@ -44,11 +44,24 @@ test("the four C-drama fandom routes are substantial static HTML documents", () 
 test("robots and sitemap expose only intended public surfaces", () => {
   const robots = read("public/robots.txt");
   const sitemap = read("public/sitemap.xml");
+  const editorialUrls = [
+    "https://fandom.justlikekatie.com/c-drama-fandom/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/getting-started/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/glossary/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/",
+  ];
 
   assert.match(robots, /^User-agent: \*/m);
   assert.match(robots, /Sitemap: https:\/\/fandom\.justlikekatie\.com\/sitemap\.xml/);
   assert.match(sitemap, /^<\?xml version="1.0"/);
-  assert.match(sitemap, /https:\/\/fandom\.justlikekatie\.com\/c-drama-fandom\//);
+  for (const url of editorialUrls) {
+    assert.match(sitemap, new RegExp(`<loc>${url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</loc>`));
+  }
+  assert.equal(
+    (sitemap.match(/<loc>https:\/\/fandom\.justlikekatie\.com\/c-drama-fandom\//g) || []).length,
+    editorialUrls.length,
+    "sitemap must expose exactly four editorial C-drama routes",
+  );
   assert.match(sitemap, /https:\/\/fandom\.justlikekatie\.com\/vibe-atlas/);
   assert.doesNotMatch(sitemap, /view=(?:collection|builder|plan|membership)/);
   assert.doesNotMatch(sitemap, /\/api\/|\/auth\/|create-handoff|idea-packet/);
