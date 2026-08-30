@@ -18,3 +18,4 @@
 - [Stripe account alignment](stripe-account-alignment.md) — Netlify credentials, Price IDs, and webhook secrets must share one Stripe account and mode; Replit can be connected to another.
 - [Creator OS packet retirement](creator-os-packet-retirement.md) — legacy packets are retired; CREATE holds migrated history, while selected grids sync directly through Collection.
 - [Public result preview routing](public-result-preview-routing.md) — query-based share previews use exact public allowlists, one canonical, and no dynamic reflection of arbitrary values.
+- [Netlify query indexing](netlify-query-indexing.md) — query-string privacy directives require edge handling because robots.txt cannot disallow query parameters.

@@ -14,26 +14,32 @@ The next reliable measurement step is to verify the production property in Googl
 - Queries containing `c-drama`, `cdrama`, `Chinese drama`, `xianxia`, and `wuxia`
 - Landing-page performance for the four new editorial routes
 
-## Search Console readiness and current blocker
+## Production launch verification and Search Console blocker
 
-**Checked August 30, 2026.** Google Search Console is not connected to this workspace, so property verification, sitemap submission, URL Inspection, and Search Console reporting cannot be performed or claimed from here. No Search Console credentials or metrics are being inferred.
+**Production verified August 30, 2026 at 18:36 UTC.** The current repository revision was published through the external Netlify pipeline. Direct checks of the production domain confirmed:
 
-The source build is ready for submission:
+- `https://fandom.justlikekatie.com/sitemap.xml` returns `200 application/xml` with six URLs, including all four editorial routes.
+- `https://fandom.justlikekatie.com/robots.txt` returns `200 text/plain` and names the production sitemap.
+- Each of the four editorial routes returns `200 text/html`, its own title and canonical URL, and a distinct document body rather than the React app shell.
 
-- `npm run build` completes successfully.
-- The generated `dist/` contains `sitemap.xml`, `robots.txt`, and all four full editorial HTML documents.
-- `public/sitemap.xml` lists the four editorial routes alongside the home page and Vibe Atlas.
+The production response layer is therefore ready for Google to crawl. The exact route checks were:
 
-The production domain is **not ready for Search Console submission yet**. A direct production check returned `200 text/html` with the React app shell for each of these URLs, including the XML and plain-text files:
+| Production URL | Verified response |
+| --- | --- |
+| `/sitemap.xml` | `200 application/xml`; valid sitemap with six URL entries |
+| `/robots.txt` | `200 text/plain`; one production sitemap declaration |
+| `/c-drama-fandom/` | Distinct HTML; canonical `https://fandom.justlikekatie.com/c-drama-fandom/` |
+| `/c-drama-fandom/getting-started/` | Distinct HTML; canonical `https://fandom.justlikekatie.com/c-drama-fandom/getting-started/` |
+| `/c-drama-fandom/glossary/` | Distinct HTML; canonical `https://fandom.justlikekatie.com/c-drama-fandom/glossary/` |
+| `/c-drama-fandom/fandom-games/` | Distinct HTML; canonical `https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/` |
 
-- `https://fandom.justlikekatie.com/sitemap.xml`
-- `https://fandom.justlikekatie.com/robots.txt`
-- `/c-drama-fandom/`
-- `/c-drama-fandom/getting-started/`
-- `/c-drama-fandom/glossary/`
-- `/c-drama-fandom/fandom-games/`
+Google Search Console is not connected to this workspace, so property verification, sitemap submission, URL Inspection, and Search Console reporting still require an operator with access to the Google property and its verification method. No Search Console credentials or metrics are being inferred.
 
-Until the current build is published through the external Netlify deployment, Google cannot reliably read the sitemap or discover the intended static documents. This is a deployment-state observation, not evidence that Google has indexed zero pages.
+### Operator-provided Search Console evidence
+
+An August 30, 2026 screenshot of a Live Test for `https://fandom.justlikekatie.com/` shows **“URL is available”** and **“Page can be indexed,”** but the inspection dialog says **“URL not in property.”** This confirms live-test availability only; it does not confirm that Google has indexed the page, that the property is verified, or that the selected property covers the `fandom.justlikekatie.com` subdomain. The screenshot also says discovery was not checked in the live test.
+
+To continue, select or verify either the URL-prefix property `https://fandom.justlikekatie.com/` or the Domain property `justlikekatie.com` (with DNS verification), then submit the sitemap and inspect each editorial URL from that property. The two uploaded PDFs were duplicate Stripe billing pages, not Search Console evidence, and were not used for this baseline.
 
 ### Baseline recording worksheet
 
@@ -43,7 +49,7 @@ Leave unavailable values as **Not available**, rather than entering zero. Zero m
 | --- | --- | --- |
 | Property | `https://fandom.justlikekatie.com` | Verify the Domain property if DNS access is available; otherwise verify the URL-prefix property |
 | Property verification | Not completed | Requires Search Console access and the production verification method |
-| Sitemap submitted | Not submitted | Submit `https://fandom.justlikekatie.com/sitemap.xml` after the production response is fixed |
+| Sitemap submitted | Not submitted | Production response is verified; submit `https://fandom.justlikekatie.com/sitemap.xml` in Search Console |
 | Sitemap status | Not available | Confirm “Success” and the discovered URL count after submission |
 | Valid/indexed pages | Not available | Use Page indexing → Pages |
 | Excluded pages | Not available | Record the count and each material exclusion reason |
@@ -63,14 +69,12 @@ These are the four intended editorial URLs. Confirm each under Search Console’
 
 For each URL, record: sitemap discovered (`Yes`/`No`), crawl status, indexing status (`Indexed`/`Excluded`/`Not processed`), exclusion reason when applicable, canonical selected by Google, and the inspection date.
 
-### Operator steps to unlock the baseline
+### Search Console operator steps to complete the baseline
 
-1. Publish the current repository revision through the external Netlify pipeline.
-2. Recheck the six production URLs above. The sitemap must be XML, robots must be plain text, and each editorial URL must return its own HTML document rather than the app shell.
-3. In Google Search Console, add and verify `https://fandom.justlikekatie.com`. Prefer the Domain property when DNS access is available.
-4. Submit `https://fandom.justlikekatie.com/sitemap.xml` under **Sitemaps** and record the submitted URL, status, discovered URL count, and last-read date.
-5. Inspect all four editorial URLs. Request indexing only when a page is live, canonical, and materially complete; do not use repeated requests as a substitute for content quality.
-6. Save the baseline values above with the report date and Search type set to **Web**.
+1. In Google Search Console, add and verify `https://fandom.justlikekatie.com`. Prefer the Domain property when DNS access is available.
+2. Submit `https://fandom.justlikekatie.com/sitemap.xml` under **Sitemaps** and record the submitted URL, status, discovered URL count, and last-read date.
+3. Inspect all four editorial URLs. Request indexing only when a page is live, canonical, and materially complete; do not use repeated requests as a substitute for content quality.
+4. Save the baseline values above with the report date and Search type set to **Web**.
 
 ## Live result sample
 
