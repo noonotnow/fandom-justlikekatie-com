@@ -20,6 +20,7 @@ export const REQUIRED_PUBLIC_PAGES = [
   "public/c-drama-fandom/index.html",
   "public/c-drama-fandom/getting-started/index.html",
   "public/c-drama-fandom/glossary/index.html",
+  "public/c-drama-fandom/trope-decoder/index.html",
   "public/c-drama-fandom/fandom-games/index.html",
 ];
 

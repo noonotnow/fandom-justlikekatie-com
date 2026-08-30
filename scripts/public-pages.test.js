@@ -17,7 +17,7 @@ function read(path) {
   return readFileSync(resolve(root, path), "utf8");
 }
 
-test("the four C-drama fandom routes are substantial static HTML documents", () => {
+test("the five C-drama fandom routes are substantial static HTML documents", () => {
   const titles = new Set();
   const canonicals = new Set();
 
@@ -49,6 +49,7 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/",
     "https://fandom.justlikekatie.com/c-drama-fandom/getting-started/",
     "https://fandom.justlikekatie.com/c-drama-fandom/glossary/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/trope-decoder/",
     "https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/",
   ];
 
@@ -69,11 +70,28 @@ test("robots and sitemap expose only intended public surfaces", () => {
   assert.equal(
     sitemapUrls.filter((url) => url.startsWith("https://fandom.justlikekatie.com/c-drama-fandom/")).length,
     editorialUrls.length,
-    "sitemap must expose exactly four editorial C-drama routes",
+    "sitemap must expose exactly five editorial C-drama routes",
   );
   assert.ok(sitemapUrls.includes("https://fandom.justlikekatie.com/vibe-atlas"));
   assert.doesNotMatch(sitemap, /view=(?:collection|builder|plan|membership)/);
   assert.doesNotMatch(sitemap, /\/api\/|\/auth\/|create-handoff|idea-packet/);
+});
+
+test("the trope decoder is searchable, shareable, and spoiler-light", () => {
+  const html = read("public/c-drama-fandom/trope-decoder/index.html");
+  const entryIds = [...html.matchAll(/class="trope-card" id="([^"]+)"/g)].map((match) => match[1]);
+
+  assert.equal(entryIds.length, 14);
+  assert.equal(new Set(entryIds).size, 14);
+  assert.match(html, /It’s never a cliff of death\. <em>It’s a cliff of amnesia\.<\/em>/);
+  assert.match(html, /id="trope-search"/);
+  assert.match(html, /data-search="[^"]+"/);
+  assert.match(html, /id="share-decoder"/);
+  assert.match(html, /publicUrl = "https:\/\/fandom\.justlikekatie\.com\/c-drama-fandom\/trope-decoder\/"/);
+  assert.match(html, /no account, Collection, name, or browsing information/i);
+  assert.match(html, /original descriptions—not dialogue, scripts, or episode transcripts/i);
+  assert.match(html, /"@type": "ItemList"/);
+  assert.match(html, /"numberOfItems": 14/);
 });
 
 test("LG01 has nine bounded outcomes and a privacy-safe share contract", () => {

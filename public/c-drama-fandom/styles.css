@@ -216,6 +216,43 @@ button { font: inherit; }
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 28px;
 }
+.decoder-tools {
+  align-items: end;
+  background: rgba(16, 37, 55, 0.5);
+  border: 1px solid var(--line);
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  margin: 32px 0 18px;
+  padding: 18px;
+}
+.decoder-search { color: var(--paper); display: block; flex: 1; font: 600 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.decoder-search input {
+  background: var(--night);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  color: var(--paper);
+  display: block;
+  font: 16px/1.3 inherit;
+  letter-spacing: 0;
+  margin-top: 9px;
+  min-height: 46px;
+  padding: 10px 13px;
+  text-transform: none;
+  width: 100%;
+}
+.decoder-search input::placeholder { color: #8297a5; }
+.decoder-search input:focus { border-color: var(--gold); outline: 2px solid rgba(213, 172, 88, .25); outline-offset: 2px; }
+.decoder-count { color: var(--mist); font: 600 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 0 0 14px; white-space: nowrap; }
+.trope-grid { display: grid; gap: 1px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.trope-card { background: rgba(16, 37, 55, 0.66); outline: 1px solid var(--line); padding: 25px; }
+.trope-card[hidden] { display: none; }
+.trope-card__number { color: var(--gold) !important; font: 600 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .12em; margin: 0 0 11px; text-transform: uppercase; }
+.trope-card h3 { font-size: 26px; margin: 0 0 15px; }
+.trope-card p { font-size: 15px; margin: 0 0 13px; }
+.trope-card p:last-child { margin-bottom: 0; }
+.trope-card__example { border-left: 2px solid var(--jade); color: #c9d4db !important; margin-top: 18px !important; padding-left: 14px; }
+.decoder-empty { color: var(--mist); font-style: italic; margin: 22px 0 0; }
 .term {
   background: rgba(16, 37, 55, 0.66);
   outline: 1px solid var(--line);
@@ -319,6 +356,9 @@ button { font: inherit; }
   .hero { padding-top: 54px; }
   .hero h1 { font-size: clamp(46px, 16vw, 72px); }
   .topic-grid, .path-grid, .glossary { grid-template-columns: 1fr; }
+  .decoder-tools, .trope-grid { grid-template-columns: 1fr; }
+  .decoder-tools { align-items: stretch; display: grid; gap: 8px; }
+  .decoder-count { margin: 8px 0 0; }
   .fate-grid { gap: 7px; }
   .fate-choice { min-height: 88px; padding: 11px 8px; }
   .fate-choice__name { font-size: 13px; }
