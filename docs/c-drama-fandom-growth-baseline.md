@@ -53,6 +53,15 @@ The production response layer is therefore ready for Google to crawl. The exact 
 
 Google Search Console is not connected to this workspace, so property verification, sitemap submission, URL Inspection, and Search Console reporting still require an operator with access to the Google property and its verification method. No Search Console credentials or metrics are being inferred.
 
+### Post-deployment crawler recheck
+
+**Production rechecked August 30, 2026 at 20:38 UTC.** A direct request to the external Netlify production domain confirmed that the crawler files remain discoverable after deployment:
+
+- `https://fandom.justlikekatie.com/sitemap.xml` returns `200` with `Content-Type: application/xml`, follows zero redirects, and contains six URLs. Each of the four C-drama guide URLs appears exactly once.
+- `https://fandom.justlikekatie.com/robots.txt` returns `200` with `Content-Type: text/plain; charset=UTF-8`, follows zero redirects, and contains one `Sitemap` declaration pointing to `https://fandom.justlikekatie.com/sitemap.xml`.
+
+No serving or redirect differences were found compared with the committed `public/sitemap.xml` and `public/robots.txt`. The Replit deployment metadata has no active Replit-hosted deployment; this check therefore targets the documented external Netlify production pipeline.
+
 ### Operator-provided Search Console evidence
 
 An August 30, 2026 screenshot of a Live Test for `https://fandom.justlikekatie.com/` shows **“URL is available”** and **“Page can be indexed,”** but the inspection dialog says **“URL not in property.”** This confirms live-test availability only; it does not confirm that Google has indexed the page, that the property is verified, or that the selected property covers the `fandom.justlikekatie.com` subdomain. The screenshot also says discovery was not checked in the live test.
