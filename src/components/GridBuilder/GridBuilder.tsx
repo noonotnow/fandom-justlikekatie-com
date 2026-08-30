@@ -559,6 +559,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
               )}
               {isAdmin && onCreateFromGrid && (
                 <CreatorPostAction
+                  entryPoint="builder"
                   disabled={Boolean(busy) || proposal.slots.length !== 9}
                   onSubmit={startPacket}
                 />
