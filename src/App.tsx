@@ -98,7 +98,11 @@ function VibeAtlasApp() {
   }, [view]);
 
   useEffect(() => {
-    const privateView = view === 'collection' || view === 'plan' || view === 'membership';
+    const privateView = window.location.pathname === '/auth/verify'
+      || window.location.search.length > 0
+      || view === 'collection'
+      || view === 'plan'
+      || view === 'membership';
     const title = view === 'daily'
       ? 'Vibe Atlas | Free Daily C-Drama Atmosphere Grid'
       : view === 'membership'
