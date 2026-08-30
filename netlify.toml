@@ -6,6 +6,26 @@
   command = "npm install && npm run build"
   publish = "dist"
 
+[[edge_functions]]
+  function = "seo-indexing"
+  path = "/vibe-atlas"
+
+[[edge_functions]]
+  function = "seo-indexing"
+  path = "/vibe-atlas/*"
+
+[[edge_functions]]
+  function = "seo-indexing"
+  path = "/auth/*"
+
+[[edge_functions]]
+  function = "seo-indexing"
+  path = "/memeforge/middle-earth"
+
+[[edge_functions]]
+  function = "seo-indexing"
+  path = "/memeforge/middle-earth/*"
+
 [[redirects]]
   from = "/api/plan-handoff"
   to = "/.netlify/functions/plan-handoff"
