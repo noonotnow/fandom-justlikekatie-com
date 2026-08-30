@@ -49,6 +49,7 @@ test("checkout and portal are bound to the authenticated account", async () => {
   assert.equal(calls[1][1].customer, "cus_saved");
   assert.equal(calls[3][1].customer, "cus_saved");
   assert.equal(calls[1][1].line_items[0].price, "price_real123");
+  assert.deepEqual(calls[1][1].managed_payments, { enabled: false });
 });
 
 test("checkout retries without a stale customer when Stripe reports a missing resource", async () => {
