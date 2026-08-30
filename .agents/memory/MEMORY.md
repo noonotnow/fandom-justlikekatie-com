@@ -20,3 +20,4 @@
 - [Public result preview routing](public-result-preview-routing.md) — query-based share previews use exact public allowlists, one canonical, and no dynamic reflection of arbitrary values.
 - [Netlify query indexing](netlify-query-indexing.md) — query-string privacy directives require edge handling because robots.txt cannot disallow query parameters.
 - [Xianxia decoder joke engine](xianxia-decoder-voice.md) — veteran lines explain the absurd narrative necessity behind events; never stop at naming or predicting the trope.
+- [Field Journal spoiler integrity](field-journal-spoiler-integrity.md) — filed watch boundaries govern verdicts, linked evidence, and all reader-safe delivery; fail closed on uncertainty.

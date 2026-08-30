@@ -7,20 +7,22 @@ import {
   migrateLegacyRulings,
   removeCustomRuling,
 } from '../../utils/courtRulings';
+import { WatchJournalCapture } from './WatchJournalCapture';
 import styles from './FandomAdmin.module.css';
 
 export const FandomAdmin: React.FC = () => {
-  const [view, setView] = useState<'plan' | 'court'>('plan');
+  const [view, setView] = useState<'plan' | 'court' | 'watch-journal'>('plan');
   return (
     <section className={styles.admin}>
       <header className={styles.header}>
-        <div><h2>Operator Console</h2><p>Private publishing and policy tools.</p></div>
+        <div><h2>Operator Console</h2><p>Private publishing, policy, and first-watch tools.</p></div>
         <div className={styles.tabs} role="tablist" aria-label="Operator Console view">
           <button type="button" role="tab" aria-selected={view === 'plan'} onClick={() => setView('plan')}>PLAN schedule</button>
           <button type="button" role="tab" aria-selected={view === 'court'} onClick={() => setView('court')}>Court rulings</button>
+          <button type="button" role="tab" aria-selected={view === 'watch-journal'} onClick={() => setView('watch-journal')}>Field Journal</button>
         </div>
       </header>
-      {view === 'plan' ? <Plan /> : <CourtRulingsEditor />}
+      {view === 'plan' ? <Plan /> : view === 'court' ? <CourtRulingsEditor /> : <WatchJournalCapture />}
     </section>
   );
 };
