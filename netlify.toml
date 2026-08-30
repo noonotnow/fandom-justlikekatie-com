@@ -137,6 +137,11 @@ to = "/c-drama-fandom/glossary/index.html"
 status = 200
 
 [[redirects]]
+from = "/c-drama-fandom/trope-decoder"
+to = "/c-drama-fandom/trope-decoder/index.html"
+status = 200
+
+[[redirects]]
 from = "/c-drama-fandom/fandom-games"
 to = "/c-drama-fandom/fandom-games/index.html"
 status = 200

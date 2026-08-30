@@ -45,6 +45,8 @@ test("the five C-drama fandom routes are substantial static HTML documents", () 
 test("robots and sitemap expose only intended public surfaces", () => {
   const robots = read("public/robots.txt");
   const sitemap = read("public/sitemap.xml");
+  const viteConfig = read("vite.config.ts");
+  const netlify = read("netlify.toml");
   const editorialUrls = [
     "https://fandom.justlikekatie.com/c-drama-fandom/",
     "https://fandom.justlikekatie.com/c-drama-fandom/getting-started/",
@@ -75,19 +77,40 @@ test("robots and sitemap expose only intended public surfaces", () => {
   assert.ok(sitemapUrls.includes("https://fandom.justlikekatie.com/vibe-atlas"));
   assert.doesNotMatch(sitemap, /view=(?:collection|builder|plan|membership)/);
   assert.doesNotMatch(sitemap, /\/api\/|\/auth\/|create-handoff|idea-packet/);
+  assert.match(viteConfig, /['"]\/c-drama-fandom\/trope-decoder['"]\s*,\s*['"]\/c-drama-fandom\/trope-decoder\/index\.html['"]/);
+  assert.match(netlify, /from = "\/c-drama-fandom\/trope-decoder"[\s\S]*?to = "\/c-drama-fandom\/trope-decoder\/index\.html"/);
 });
 
 test("the trope decoder is searchable, shareable, and spoiler-light", () => {
   const html = read("public/c-drama-fandom/trope-decoder/index.html");
   const entryIds = [...html.matchAll(/class="trope-card" id="([^"]+)"/g)].map((match) => match[1]);
+  const categoryIds = [...html.matchAll(/class="trope-card"[^>]+data-category="([^"]+)"/g)].map((match) => match[1]);
+  const filterIds = [...html.matchAll(/class="decoder-filter[^"]*"[^>]+data-filter="([^"]+)"/g)].map((match) => match[1]);
 
   assert.equal(entryIds.length, 14);
   assert.equal(new Set(entryIds).size, 14);
-  assert.match(html, /It’s never a cliff of death\. <em>It’s a cliff of amnesia\.<\/em>/);
+  assert.equal((html.match(/class="trope-card__newcomer"/g) ?? []).length, 14);
+  assert.equal((html.match(/class="trope-card__veteran"/g) ?? []).length, 14);
+  assert.deepEqual([...new Set(categoryIds)].sort(), ["love", "realm", "signs"]);
+  assert.deepEqual(
+    categoryIds.reduce((counts, category) => ({ ...counts, [category]: (counts[category] ?? 0) + 1 }), {}),
+    { love: 5, realm: 5, signs: 4 },
+  );
+  assert.deepEqual(filterIds, ["all", "love", "realm", "signs"]);
+  assert.match(html, /Newcomers see:<\/span> Certain death\./);
+  assert.match(html, /Veterans know:<\/span> She’d need amnesia to fall for him in this enemies-to-lovers arc\./);
+  assert.doesNotMatch(html, /It’s never a cliff of death\. It’s a cliff of amnesia\./);
   assert.match(html, /id="trope-search"/);
   assert.match(html, /data-search="[^"]+"/);
+  assert.match(html, /matchesCategory = activeFilter === "all" \|\| card\.dataset\.category === activeFilter/);
   assert.match(html, /id="share-decoder"/);
   assert.match(html, /publicUrl = "https:\/\/fandom\.justlikekatie\.com\/c-drama-fandom\/trope-decoder\/"/);
+  assert.match(html, /window\.umami\?\.track/);
+  assert.match(html, /trackEvent\("trope_filter_used", \{\s*category: activeFilter,\s*query_present: Boolean\(query\),\s*result_count: visible\s*\}\)/);
+  assert.match(html, /trackEvent\("trope_decoder_shared", \{ method: "native" \}\)/);
+  assert.match(html, /trackEvent\("trope_decoder_shared", \{ method: "copy" \}\)/);
+  assert.doesNotMatch(html, /trackEvent\("trope_filter_used"[\s\S]*?search\.value/);
+  assert.doesNotMatch(html, /trackEvent\("trope_decoder_shared", \{[^}]*publicUrl/);
   assert.match(html, /no account, Collection, name, or browsing information/i);
   assert.match(html, /original descriptions—not dialogue, scripts, or episode transcripts/i);
   assert.match(html, /"@type": "ItemList"/);

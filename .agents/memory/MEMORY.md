@@ -19,3 +19,4 @@
 - [Creator OS packet retirement](creator-os-packet-retirement.md) — legacy packets are retired; CREATE holds migrated history, while selected grids sync directly through Collection.
 - [Public result preview routing](public-result-preview-routing.md) — query-based share previews use exact public allowlists, one canonical, and no dynamic reflection of arbitrary values.
 - [Netlify query indexing](netlify-query-indexing.md) — query-string privacy directives require edge handling because robots.txt cannot disallow query parameters.
+- [Xianxia decoder joke engine](xianxia-decoder-voice.md) — veteran lines explain the absurd narrative necessity behind events; never stop at naming or predicting the trope.

@@ -5,6 +5,7 @@ const editorialRouteFiles = new Map([
   ['/c-drama-fandom', '/c-drama-fandom/index.html'],
   ['/c-drama-fandom/getting-started', '/c-drama-fandom/getting-started/index.html'],
   ['/c-drama-fandom/glossary', '/c-drama-fandom/glossary/index.html'],
+  ['/c-drama-fandom/trope-decoder', '/c-drama-fandom/trope-decoder/index.html'],
   ['/c-drama-fandom/fandom-games', '/c-drama-fandom/fandom-games/index.html'],
 ])
 
