@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "IF7RCqAvHEC4_-5J89mZm"
+uri = "file://exports/fandom-vibes-latest-source.zip"
+type = "unspecified"
+title = "Fandom Vibes — latest source snapshot"
+description = "Clean source/config/test archive from the latest committed Fandom Vibes project state. Excludes dependencies, build output, Replit workspace internals, screenshots, uploaded assets, caches, and environment files."
+logical_id = "3d7ba1e3-31c5-42d4-b564-9a700772a618"
+content_hash = "sha256:ab91f815e6c92bfb4ed9e2b3b3b67a2725235d91f9261d5462f288c244678644"
+size = 1662433
+mtime_ms = 1788127889992
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:5c4c6624-d8e1-40e7-9334-39a9fdafb6de/3d7ba1e3-31c5-42d4-b564-9a700772a618/3413b69c-de15-4bbe-9e32-4bdf0746e90d"
+storage_version_token = "1788127894904706"
+content_type = "application/octet-stream"
