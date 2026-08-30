@@ -58,6 +58,8 @@ interface Props {
   scope?: 'vibe-atlas' | 'middle-earth';
   initialType?: 'grids' | 'results' | 'builder';
   isAdmin?: boolean;
+  isMember?: boolean;
+  onUpgrade?: () => void;
   packets?: IdeaPacket[];
   onCreateFromGrid?: (grid: GridRecord) => Promise<IdeaPacket>;
   onPacketCreated?: (packet: IdeaPacket) => void;
@@ -74,12 +76,16 @@ export const Collection: React.FC<Props> = ({
   scope = 'vibe-atlas',
   initialType = 'grids',
   isAdmin = false,
+  isMember = false,
+  onUpgrade,
   packets = [],
   onCreateFromGrid,
   onPacketCreated,
   onAddGridToPacket,
 }) => {
   const isMiddleEarth = scope === 'middle-earth';
+  // Membership is a Vibe Atlas offer; the separate MemeForge collection is not paywalled.
+  const hasPaidAccess = isMiddleEarth || isMember;
   const [cards, setCards] = useState<CardRecord[]>([]);
   const [grids, setGrids] = useState<GridRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -130,7 +136,7 @@ export const Collection: React.FC<Props> = ({
         if (session) {
           const decided = await hasMergeDecision(session.accountId);
           setNeedsMergeChoice(!decided);
-          shouldSync = decided && await shouldSyncCollection(session.accountId);
+          shouldSync = hasPaidAccess && decided && await shouldSyncCollection(session.accountId);
         } else {
           setNeedsMergeChoice(false);
         }
@@ -189,7 +195,7 @@ export const Collection: React.FC<Props> = ({
       channel?.close();
       window.removeEventListener('storage', handleStorage);
     };
-  }, []);
+  }, [hasPaidAccess]);
 
   async function recoverPendingRemoval() {
     const stored = readPendingRemoval();
@@ -270,7 +276,7 @@ export const Collection: React.FC<Props> = ({
   }
 
   async function handleMerge(merge: boolean) {
-    if (!user) return;
+    if (!user || !hasPaidAccess) return;
     try {
       await setDeviceMerge(user.accountId, merge);
       setNeedsMergeChoice(false);
@@ -543,10 +549,15 @@ export const Collection: React.FC<Props> = ({
       </header>
 
       <section className={styles.account}>
-        {user ? (
+        {user && hasPaidAccess ? (
           <div className={styles.signedIn}>
             <p>{isMiddleEarth ? 'Middle-earth memes synced as' : 'Synced as'} <strong>{user.email}</strong></p>
             <button type="button" onClick={() => void handleLogout()}>Sign out</button>
+          </div>
+        ) : user ? (
+          <div className={styles.syncUpgrade}>
+            <p><strong>Local saves are safe on this device.</strong> Cloud sync is available with Founding Member.</p>
+            <button type="button" onClick={onUpgrade}>View membership</button>
           </div>
         ) : (
           <form onSubmit={handleMagicLink}>
@@ -566,7 +577,7 @@ export const Collection: React.FC<Props> = ({
             </div>
           </form>
         )}
-        {needsMergeChoice && (
+        {needsMergeChoice && hasPaidAccess && (
           <div className={styles.mergeChoice}>
             <p>Merge this browser’s grids and saved results into your account?</p>
             <button onClick={() => void handleMerge(true)}>Merge and sync</button>
@@ -623,10 +634,19 @@ export const Collection: React.FC<Props> = ({
         </div>
       )}
 
-      {activeType === 'builder' ? (
+      {activeType === 'builder' && !isMember ? (
+        <section className={styles.upgradeGate}>
+          <span>✦ Founding Member</span>
+          <h3>Build a new world from your saved finds.</h3>
+          <p>Your local saves remain here. Upgrade to use Grid Builder and make premium exports.</p>
+          <button type="button" onClick={onUpgrade}>Explore membership</button>
+        </section>
+      ) : activeType === 'builder' ? (
         <GridBuilder
           accountId={user?.accountId}
           isAdmin={isAdmin}
+          isMember={isMember}
+          onUpgrade={onUpgrade}
           onCreateFromGrid={onCreateFromGrid}
           onPacketCreated={() => setActiveType('grids')}
           onExported={() => {

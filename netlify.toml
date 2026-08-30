@@ -1,6 +1,6 @@
 [functions]
   directory = "netlify/functions"
-  external_node_modules = ["sharp"]
+  external_node_modules = ["sharp", "stripe", "stripe-replit-sync", "pg"]
 
 [build]
   command = "npm install && npm run build"
@@ -80,6 +80,26 @@
   from = "/api/middle-earth-ai"
   to = "/.netlify/functions/middle-earth-ai"
   status = 200
+
+[[redirects]]
+from = "/api/billing/status"
+to = "/.netlify/functions/billing-status"
+status = 200
+
+[[redirects]]
+from = "/api/billing/checkout"
+to = "/.netlify/functions/billing-checkout"
+status = 200
+
+[[redirects]]
+from = "/api/billing/portal"
+to = "/.netlify/functions/billing-portal"
+status = 200
+
+[[redirects]]
+from = "/api/billing/webhook"
+to = "/.netlify/functions/billing-webhook"
+status = 200
 
 [[redirects]]
   from = "/*"

@@ -79,7 +79,7 @@ export function createPublicAuth({
       const { email, next } = await readJson(req);
       const normalizedEmail = normalizeEmail(email);
       // Only a strict allowlist of destinations is honoured; anything else is ignored.
-      const nextView = next === "plan" ? "plan" : null;
+      const nextView = next === "plan" || next === "membership" ? next : null;
       const current = now();
       const { magic, limits } = stores(context);
       const limited = await isRateLimited(limits, req, normalizedEmail, env.FANDOM_AUTH_ID_SECRET, current);

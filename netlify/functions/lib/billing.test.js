@@ -1,0 +1,80 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createBillingHandlers, createEntitlementChecker } from "./billing.js";
+import { membershipStatus } from "./billing-repository.js";
+import { createGridExportHandlers } from "./grid-exports.js";
+
+const user = { accountId: "usr_member", email: "member@example.test" };
+const auth = { authenticate: async () => ({ user }) };
+const request = (path, options = {}) => new Request(`https://example.test${path}`, {
+  method: options.method || "POST",
+  headers: { Origin: "https://example.test", ...(options.headers || {}) },
+  body: options.body,
+});
+
+test("membership maps only active and trialing subscriptions to entitlement", () => {
+  assert.equal(membershipStatus("active"), "active");
+  assert.equal(membershipStatus("trialing"), "active");
+  assert.equal(membershipStatus("past_due"), "past_due");
+  assert.equal(membershipStatus("canceled"), "inactive");
+  assert.equal(membershipStatus(null), "inactive");
+});
+
+test("billing status requires passwordless authentication", async () => {
+  const handlers = createBillingHandlers({
+    auth: { authenticate: async () => { const e = new Error("Sign in is required."); e.status = 401; throw e; } },
+    billing: { initialize: async () => {}, repository: () => ({ membershipForAccount: async () => ({ status: "active" }) }) },
+  });
+  assert.equal((await handlers.status(request("/api/billing/status", { method: "GET" }), {})).status, 401);
+});
+
+test("checkout and portal are bound to the authenticated account", async () => {
+  const calls = [];
+  const repository = {
+    customerForAccount: async id => { calls.push(["lookup", id]); return id === user.accountId ? "cus_saved" : null; },
+    membershipForAccount: async () => ({ status: "inactive" }),
+  };
+  const billing = {
+    initialize: async () => {},
+    repository: () => repository,
+    stripe: async () => ({
+      checkout: { sessions: { create: async input => { calls.push(["checkout", input]); return { url: "https://checkout.test" }; } } },
+      billingPortal: { sessions: { create: async input => { calls.push(["portal", input]); return { url: "https://portal.test" }; } } },
+    }),
+  };
+  const handlers = createBillingHandlers({ auth, billing, env: { FANDOM_STRIPE_MEMBERSHIP_PRICE_ID: "price_real123" } });
+  assert.equal((await handlers.checkout(request("/api/billing/checkout"), {})).status, 200);
+  assert.equal((await handlers.portal(request("/api/billing/portal"), {})).status, 200);
+  assert.equal(calls[1][1].customer, "cus_saved");
+  assert.equal(calls[3][1].customer, "cus_saved");
+  assert.equal(calls[1][1].line_items[0].price, "price_real123");
+});
+
+test("webhook delegates the exact raw body and signature to Stripe sync", async () => {
+  let processed;
+  const handlers = createBillingHandlers({
+    billing: {
+      initialize: async () => ({ processWebhook: async (body, signature) => { processed = { body, signature }; } }),
+    },
+  });
+  const res = await handlers.webhook(request("/api/billing/webhook", {
+    body: '{"id":"evt_1"}', headers: { "stripe-signature": "t=1,v1=signed" },
+  }));
+  assert.equal(res.status, 200);
+  assert.equal(processed.body.toString(), '{"id":"evt_1"}');
+  assert.equal(processed.signature, "t=1,v1=signed");
+});
+
+test("grid export enforcement is injected and can reject inactive accounts", async () => {
+  const checker = createEntitlementChecker({
+    billing: {
+      initialize: async () => {},
+      repository: () => ({ membershipForAccount: async () => ({ status: "inactive" }) }),
+    },
+  });
+  const handler = createGridExportHandlers({
+    auth, getStore: () => { throw new Error("storage must not be accessed"); }, requireMembership: checker,
+  }).handler;
+  const res = await handler(request("/grid-exports?gridId=grid"), {});
+  assert.equal(res.status, 403);
+});

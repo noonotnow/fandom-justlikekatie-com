@@ -18,7 +18,11 @@ import { validateGridPayload } from "./lib/grid-export-validation.js";
  *   so exported grids can inform future curation.
  */
 
-const VALID_EVENTS = ["save", "share", "click", "export", "grid-export", "grid_export"];
+const VALID_EVENTS = [
+  "save", "share", "click", "export", "grid-export", "grid_export",
+  "collection_save", "plan_add", "membership_view", "upgrade_click",
+  "checkout_started", "membership_activated", "paid_feature_used",
+];
 const STORE_NAME = "engagement";
 
 export default async (req, context) => {

@@ -2,13 +2,16 @@ import { createHash, createHmac } from "node:crypto";
 import { readCollection, syncCollection } from "./collection-repository.js";
 import { json, secureEqual } from "./public-auth.js";
 
-export function createCollectionHandlers({ auth, getStore, env = process.env, now = () => new Date() }) {
+export function createCollectionHandlers({
+  auth, getStore, env = process.env, now = () => new Date(), requireMembership = async () => {},
+}) {
   return {
     sync: async (req, context) => {
       try {
         if (req.method !== "POST") return json(405, { error: "Method not allowed." });
         validateSameOrigin(req);
         const session = await auth.authenticate(req, context);
+        await requireMembership(session, context);
         const input = await readJson(req);
         if (input.expectedAccountId !== session.user.accountId) {
           const error = new Error("The active account changed. Refresh before syncing.");

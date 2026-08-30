@@ -13,3 +13,4 @@
 - [MemeForge reaction-card format](memeforge-reaction-card.md) — clean-still aesthetic reaction cards are a finished path alongside unchanged memes and future reworks.
 - [MemeForge uploaded-source staging](memeforge-uploaded-source-staging.md) — canonicalize uploads to MEDIA with a stable UUID before creating durable packets.
 - [Distinct data-URL derivatives](distinct-data-url-derivatives.md) — use URL fragments for unique collection keys without changing image bytes or MIME type.
+- [Vibe Atlas billing boundary](vibe-atlas-billing-boundary.md) — Stripe membership gates Vibe Atlas cloud sync, Grid Builder, and premium exports; existing content storage and MemeForge remain separate.

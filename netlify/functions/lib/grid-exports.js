@@ -79,11 +79,14 @@ function tombstoneUploadState(record, now) {
   return withinWindow ? "blocked" : "open";
 }
 
-export function createGridExportHandlers({ auth, getStore, now = () => new Date() }) {
+export function createGridExportHandlers({
+  auth, getStore, now = () => new Date(), requireMembership = async () => {},
+}) {
   return {
     handler: async (req, context) => {
       try {
         const session = await auth.authenticate(req, context);
+          await requireMembership(session, context);
         const accountId = session.user.accountId;
         const store = getStore(STORE_NAME, context);
         const url = new URL(req.url);

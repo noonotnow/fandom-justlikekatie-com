@@ -4,6 +4,7 @@ import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
 import { saveShareCard, buildExportPayload, classifyEditionTier } from '../../utils/exportCanvas';
 import { deleteGridExports, gridExportEventFromRecord, logGridExport, uploadExportedCard } from '../../utils/gridExportLog';
+import { logMembershipEvent } from '../../utils/membership';
 import {
   applyLens,
   buildVibeAtlasPool,
@@ -29,13 +30,16 @@ interface Props {
   onPacketCreated?: () => void;
   /** Called after a successful export so the parent can navigate to the Grids tab. */
   onExported?: () => void;
+  /** Premium export is a membership capability; server enforcement remains authoritative. */
+  isMember?: boolean;
+  onUpgrade?: () => void;
 }
 
 /**
  * Vibe Atlas Grid Builder — the core studio workflow. Saved collection →
  * lens → proposed 3×3 → slot swaps → save and export.
  */
-export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCreateFromGrid, onPacketCreated, onExported }) => {
+export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCreateFromGrid, onPacketCreated, onExported, isMember = false, onUpgrade }) => {
   const [pool, setPool] = useState<BuilderCard[] | null>(null);
   const [sourceRecords, setSourceRecords] = useState<{ cards: CardRecord[]; grids: GridRecord[] } | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -211,6 +215,10 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
    * the notice area nudges the user to save if they haven't yet.
    */
   async function exportGrid() {
+    if (!isMember) {
+      setNotice('Premium exports are available with Founding Member.');
+      return;
+    }
     if (!proposal || proposal.slots.length !== 9 || busy) return;
     // Synchronous re-entrant guard: setBusy schedules a React update but does
     // not mutate the captured closure value until the next render.  A second
@@ -219,6 +227,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
     // barrier — identical to the pattern used in startPacket.
     if (exportInFlight.current) return;
     exportInFlight.current = true;
+    logMembershipEvent('paid_feature_used');
     const wasGridSaved = isGridSaved;
     setBusy('export');
     setNotice('正在生成分享卡……');
@@ -414,9 +423,15 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
                   {busy === 'remove' ? 'Removing…' : 'Remove from collection'}
                 </button>
               )}
-              <button type="button" onClick={exportGrid} disabled={Boolean(busy) || proposal.slots.length !== 9}>
-                {busy === 'export' ? 'Exporting…' : '📤 Export share card'}
-              </button>
+              {isMember ? (
+                <button type="button" onClick={exportGrid} disabled={Boolean(busy) || proposal.slots.length !== 9}>
+                  {busy === 'export' ? 'Exporting…' : '📤 Export share card'}
+                </button>
+              ) : (
+                <button type="button" onClick={onUpgrade} disabled={Boolean(busy)}>
+                  ✦ Upgrade for premium exports
+                </button>
+              )}
               {isAdmin && onCreateFromGrid && (
                 <button type="button" onClick={startPacket} disabled={Boolean(busy) || proposal.slots.length !== 9}>
                   {busy === 'packet' ? 'Starting…' : 'Start Idea Packet'}

@@ -33,6 +33,8 @@ import {
 } from './utils/ideaPackets';
 import type { CardRecord, GridRecord } from './utils/collectionDB';
 import { consumeMagicLinkFromLocation, requestMagicLink } from './utils/publicAccount';
+import { getMembershipStatus } from './utils/membership';
+import { Membership } from './components/Membership/Membership';
 import { useIsAdmin } from './hooks/useIsAdmin';
 import {
   initialCollectionType,
@@ -72,7 +74,7 @@ function VibeAtlasApp() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [dailyGridZoomOpen, setDailyGridZoomOpen] = useState(false);
-  const [view, setView] = useState<'daily' | 'collection' | 'plan'>(
+  const [view, setView] = useState<'daily' | 'collection' | 'plan' | 'membership'>(
     () => initialVibeAtlasView(window.location.search),
   );
   const [collectionTab, setCollectionTab] = useState<'grids' | 'results' | 'builder'>(
@@ -91,6 +93,7 @@ function VibeAtlasApp() {
   const [packetsLoading, setPacketsLoading] = useState(false);
   const [packetsError, setPacketsError] = useState('');
   const [packetsUnauthorized, setPacketsUnauthorized] = useState(false);
+  const [isMember, setIsMember] = useState(false);
 
   // Whole-board (share-card) manual tier override — distinct from per-image
   // `imageTiers` above. Resets automatically whenever a new board (new
@@ -120,6 +123,10 @@ function VibeAtlasApp() {
   }, []);
 
   useEffect(() => {
+    void getMembershipStatus().then(status => setIsMember(status.isMember)).catch(() => setIsMember(false));
+  }, [view]);
+
+  useEffect(() => {
     const restoreUrlView = () => {
       setView(initialVibeAtlasView(window.location.search));
       setCollectionTab(initialCollectionType(window.location.search));
@@ -132,11 +139,13 @@ function VibeAtlasApp() {
   }, []);
 
   const navigateAtlas = (
-    destination: 'daily' | 'collection',
+    destination: 'daily' | 'collection' | 'membership',
     tab: 'grids' | 'results' | 'builder' = 'grids',
   ) => {
     const search = destination === 'daily'
       ? ''
+      : destination === 'membership'
+        ? '?view=membership'
       : `?view=${tab === 'grids' ? 'collection' : tab}`;
     window.history.pushState({}, '', `/vibe-atlas${search}`);
     openPacketIdRef.current = null;
@@ -279,6 +288,13 @@ function VibeAtlasApp() {
           >
             <span>Studio Operations</span><small>Collection · Grid Builder</small>
           </button>
+          <button
+            type="button"
+            onClick={() => navigateAtlas('membership')}
+            className={view === 'membership' ? 'fandom-atlas-nav__active' : ''}
+          >
+            <span>Membership</span><small>Founding Member</small>
+          </button>
         </div>
         <a
           className="memeforge-workbench-link"
@@ -415,6 +431,8 @@ function VibeAtlasApp() {
           key={collectionTab}
           initialType={collectionTab}
           isAdmin={isAdmin}
+          isMember={isMember}
+          onUpgrade={() => navigateAtlas('membership')}
           packets={packets}
           onCreateFromGrid={async (grid: GridRecord) => {
             try {
@@ -441,6 +459,8 @@ function VibeAtlasApp() {
             }
           }}
         />
+      ) : view === 'membership' ? (
+        <Membership onStatusChange={status => setIsMember(status.isMember)} />
       ) : adminLoading ? (
         <div className="admin-gate-loading" aria-label="Checking admin session…" />
       ) : !isAdmin ? (

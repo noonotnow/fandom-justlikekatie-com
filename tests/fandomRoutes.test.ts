@@ -18,6 +18,7 @@ test('resolves the three Fandom product routes and keeps magic-link verification
 });
 
 test('reads the requested Vibe Atlas section without allowing arbitrary views', () => {
+  assert.equal(initialVibeAtlasView('?view=membership'), 'membership');
   assert.equal(initialVibeAtlasView('?view=plan'), 'plan');
   assert.equal(initialVibeAtlasView('?view=collection'), 'collection');
   assert.equal(initialVibeAtlasView('?view=results'), 'collection');

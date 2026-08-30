@@ -99,11 +99,10 @@ test('recheckAdmin is called on success before navigating', () => {
 // ---------------------------------------------------------------------------
 
 test('consumeMagicLinkFromLocation returns collection when next param is absent', () => {
-  // The return statement must not default to 'plan' — only an explicit next=plan
-  // triggers the plan route.
-  assert.ok(
-    accountSource.includes("next === 'plan' ? 'plan' : 'collection'"),
-    "consumeMagicLinkFromLocation must return 'collection' when next !== 'plan'",
+  assert.match(
+    accountSource,
+    /next === 'plan' \? 'plan' : next === 'membership' \? 'membership' : 'collection'/,
+    "consumeMagicLinkFromLocation must preserve plan and membership while defaulting to collection",
   );
 });
 

@@ -7,10 +7,10 @@ export function resolveFandomProductRoute(pathname: string): FandomProductRoute 
   return 'launchpad';
 }
 
-export function initialVibeAtlasView(search: string): 'daily' | 'collection' | 'plan' {
+export function initialVibeAtlasView(search: string): 'daily' | 'collection' | 'plan' | 'membership' {
   const view = new URLSearchParams(search).get('view');
   if (view === 'collection' || view === 'results' || view === 'builder') return 'collection';
-  return view === 'plan' ? 'plan' : 'daily';
+  return view === 'plan' || view === 'membership' ? view : 'daily';
 }
 
 export function initialCollectionType(search: string): 'grids' | 'results' | 'builder' {
