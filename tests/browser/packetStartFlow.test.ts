@@ -108,7 +108,7 @@ async function openSavedGrid(page: Page, origin: string): Promise<void> {
   await page.getByText('Packet flow actor').first().waitFor();
 }
 
-test('Start packet creates once, updates history, and keeps the created grid selected', { timeout: 60_000 }, async () => {
+test('Make a post creates one compatibility record and opens the Creator OS draft', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();
   const page = await browser.newPage();
@@ -133,6 +133,15 @@ test('Start packet creates once, updates history, and keeps the created grid sel
         });
         return;
       }
+      if (route.request().method() === 'PATCH') {
+        const compiled = { ...savedPacket, state: 'media_compiled', version: 'created-v2' };
+        savedPacket = compiled;
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ packet: compiled }),
+        });
+        return;
+      }
       createRequests += 1;
       await new Promise(resolve => setTimeout(resolve, 150));
       const request = route.request().postDataJSON() as { packet: Record<string, unknown> };
@@ -142,23 +151,32 @@ test('Start packet creates once, updates history, and keeps the created grid sel
         body: JSON.stringify({ packet: savedPacket }),
       });
     });
+    await page.route('**/api/create-handoff', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        receipt: {
+          disposition: 'created',
+          createUrl: 'https://create.justlikekatie.com/compose?postId=creator-draft-1',
+          postId: 'creator-draft-1',
+          status: 'Draft',
+          workflow: 'packet',
+          packetReceipt: { packetId: 'created-packet', deliverableId: 'idea-packet-main', accepted: true },
+        },
+      }),
+    }));
+    await page.route('https://create.justlikekatie.com/compose**', route => route.fulfill({
+      contentType: 'text/html',
+      body: '<title>Creator OS draft</title>',
+    }));
 
     await openSavedGrid(page, origin);
-    const startButton = page.getByRole('button', { name: 'Start packet' });
+    const startButton = page.getByRole('button', { name: 'Make a post in Creator OS' });
     await startButton.click();
     await startButton.click({ force: true }).catch(() => undefined);
 
-    await page.waitForURL('**/vibe-atlas?view=plan&packet=created-packet');
-    await page.getByRole('status').filter({ hasText: 'created from the saved grid' }).waitFor();
-    await page.getByRole('heading', { name: 'Packet flow actor · Visible source grid' }).waitFor();
-    await page.getByText(GRID_ID, { exact: true }).waitFor();
+    await page.waitForURL('https://create.justlikekatie.com/compose?postId=creator-draft-1');
     await page.waitForTimeout(600);
     assert.equal(createRequests, 1);
-
-    await page.reload();
-    await page.getByRole('heading', { name: 'Packet flow actor · Visible source grid' }).waitFor();
-    await page.goBack();
-    await page.waitForURL('**/vibe-atlas?view=collection');
   } finally {
     await browser.close();
     await server.close();
@@ -169,7 +187,7 @@ for (const failure of [
   { name: 'expired authorization', status: 401, message: 'Admin session expired. Sign in again.' },
   { name: 'persistence failure', status: 503, message: 'Packet storage is temporarily unavailable.' },
 ]) {
-  test(`Start packet keeps results visible after ${failure.name}`, { timeout: 60_000 }, async () => {
+  test(`Make a post keeps results visible after ${failure.name}`, { timeout: 60_000 }, async () => {
     const { server, origin } = await startApp();
     const browser = await launchBrowser();
     const page = await browser.newPage();
@@ -195,7 +213,7 @@ for (const failure of [
       });
 
       await openSavedGrid(page, origin);
-      await page.getByRole('button', { name: 'Start packet' }).click();
+      await page.getByRole('button', { name: 'Make a post in Creator OS' }).click();
       await page.getByRole('status').filter({ hasText: failure.message }).waitFor();
       assert.equal(new URL(page.url()).search, '?view=collection');
       assert.equal(createRequests, 1);

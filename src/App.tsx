@@ -35,13 +35,13 @@ import type { CardRecord, GridRecord } from './utils/collectionDB';
 import { consumeMagicLinkFromLocation, requestMagicLink } from './utils/publicAccount';
 import { getMembershipStatus } from './utils/membership';
 import { Membership } from './components/Membership/Membership';
+import { makeCreatorPostFromGrid, makeCreatorPostFromPacket } from './utils/creatorDraft';
 import { useIsAdmin } from './hooks/useIsAdmin';
 import {
   initialCollectionType,
   initialVibeAtlasPacketId,
   initialVibeAtlasView,
   resolveFandomProductRoute,
-  vibeAtlasPacketPath,
 } from './utils/fandomRoutes';
 import './App.css';
 
@@ -153,15 +153,6 @@ function VibeAtlasApp() {
     setPacketNotice('');
     setCollectionTab(tab);
     setView(destination);
-  };
-
-  const openCreatedPacket = (packet: IdeaPacket) => {
-    replacePacket(packet);
-    openPacketIdRef.current = packet.id;
-    setOpenPacketId(packet.id);
-    setPacketNotice('Idea Packet created from the saved grid and opened here.');
-    window.history.pushState({}, '', vibeAtlasPacketPath(packet.id));
-    setView('plan');
   };
 
   const loadPackets = async () => {
@@ -345,21 +336,21 @@ function VibeAtlasApp() {
                         return;
                       }
                       try {
-                        const packet = await createIdeaPacket(packetFromGrid(rawData, gridImages));
-                        replacePacket(packet);
-                        setView('plan');
+                        const result = await makeCreatorPostFromPacket(packetFromGrid(rawData, gridImages));
+                        replacePacket(result.compatibilityPacket);
+                        window.location.assign(result.receipt.createUrl);
                       } catch (caught) {
                         if (caught instanceof IdeaPacketError && caught.status === 401) {
                           setPacketsUnauthorized(true);
                           recheckAdmin();
                           setView('plan');
                         } else {
-                          setPacketsError(caught instanceof Error ? caught.message : 'Idea Packet could not be started.');
+                          setPacketsError(caught instanceof Error ? caught.message : 'The Creator OS draft could not be created.');
                         }
                       }
                     }}
                   >
-                    Start Idea Packet
+                    Make a post in Creator OS
                   </button>
                 )}
               </div>
@@ -437,15 +428,15 @@ function VibeAtlasApp() {
           packets={packets}
           onCreateFromGrid={async (grid: GridRecord) => {
             try {
-              const packet = await createIdeaPacket(packetFromCollectionGrid(grid));
-              replacePacket(packet);
-              return packet;
+              const result = await makeCreatorPostFromGrid(grid);
+              replacePacket(result.compatibilityPacket);
+              return result;
             } catch (caught) {
               if (caught instanceof IdeaPacketError && caught.status === 401) recheckAdmin();
               throw caught;
             }
           }}
-          onPacketCreated={openCreatedPacket}
+          onPacketCreated={() => {}}
           onAddGridToPacket={async (packet: IdeaPacket, grid: GridRecord) => {
             try {
               const updated = await mutateIdeaPacket(packet, {

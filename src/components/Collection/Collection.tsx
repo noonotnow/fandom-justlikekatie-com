@@ -49,6 +49,7 @@ import {
   type PublicUser,
 } from '../../utils/publicAccount';
 import styles from './Collection.module.css';
+import type { CreatorDraftResult } from '../../utils/creatorDraft';
 
 const UNDO_WINDOW_MS = 8_000;
 const MAX_UPLOADED_MEME_BYTES = 8 * 1024 * 1024;
@@ -61,8 +62,8 @@ interface Props {
   isMember?: boolean;
   onUpgrade?: () => void;
   packets?: IdeaPacket[];
-  onCreateFromGrid?: (grid: GridRecord) => Promise<IdeaPacket>;
-  onPacketCreated?: (packet: IdeaPacket) => void;
+  onCreateFromGrid?: (grid: GridRecord) => Promise<CreatorDraftResult>;
+  onPacketCreated?: () => void;
   onAddGridToPacket?: (packet: IdeaPacket, grid: GridRecord) => Promise<IdeaPacket>;
 }
 
@@ -752,17 +753,18 @@ export const Collection: React.FC<Props> = ({
                       onClick={async () => {
                         setBusyKey(`create:${grid.id}`);
                         try {
-                          const packet = await onCreateFromGrid(grid);
-                          setAccountNotice('Idea Packet created. Opening the packet workspace…');
-                          onPacketCreated?.(packet);
+                          const result = await onCreateFromGrid(grid);
+                          setAccountNotice('Creator OS draft created. Opening the composer…');
+                          window.location.assign(result.receipt.createUrl);
+                          onPacketCreated?.();
                         } catch (error) {
-                          setAccountNotice(messageFrom(error, 'The Idea Packet could not be started.'));
+                          setAccountNotice(messageFrom(error, 'The Creator OS draft could not be created.'));
                         } finally {
                           setBusyKey('');
                         }
                       }}
                     >
-                      {busyKey === `create:${grid.id}` ? 'Starting…' : 'Start packet'}
+                      {busyKey === `create:${grid.id}` ? 'Creating draft…' : 'Make a post in Creator OS'}
                     </button>
                   )}
                   {!grid.legendaryMisprint && (

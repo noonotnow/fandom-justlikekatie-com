@@ -12,24 +12,23 @@ const adminSource = await readFile(
   'utf8',
 );
 
-test('saved-grid packet creation opens the exact created packet workspace', () => {
-  assert.match(collectionSource, /const packet = await onCreateFromGrid\(grid\)/);
-  assert.match(collectionSource, /onPacketCreated\?\.\(packet\)/);
-  assert.match(appSource, /onPacketCreated={openCreatedPacket}/);
-  assert.match(appSource, /setOpenPacketId\(packet\.id\)/);
-  assert.match(appSource, /window\.history\.pushState\(\{\}, '', vibeAtlasPacketPath\(packet\.id\)\)/);
+test('saved-grid post creation opens the exact Creator OS draft without packet navigation', () => {
+  assert.match(collectionSource, /const result = await onCreateFromGrid\(grid\)/);
+  assert.match(collectionSource, /window\.location\.assign\(result\.receipt\.createUrl\)/);
+  assert.doesNotMatch(appSource, /onPacketCreated={openCreatedPacket}/);
+  assert.match(appSource, /makeCreatorPostFromGrid\(grid\)/);
   assert.match(adminSource, /useState<string \| null>\(initialPacketId \?\? null\)/);
   assert.match(adminSource, /setSelectedId\(initialPacketId\)/);
 });
 
-test('packet creation cannot navigate before the durable create resolves', () => {
-  const createStart = collectionSource.indexOf('const packet = await onCreateFromGrid(grid);');
-  const openStart = collectionSource.indexOf('onPacketCreated?.(packet);', createStart);
+test('Creator OS navigation cannot occur before the durable handoff resolves', () => {
+  const createStart = collectionSource.indexOf('const result = await onCreateFromGrid(grid);');
+  const openStart = collectionSource.indexOf('window.location.assign(result.receipt.createUrl);', createStart);
   const failureStart = collectionSource.indexOf('catch (error)', createStart);
   assert.notEqual(createStart, -1);
   assert.notEqual(openStart, -1);
   assert.notEqual(failureStart, -1);
-  assert.ok(openStart > createStart, 'navigation must follow the create response');
-  assert.ok(openStart < failureStart, 'only the successful create branch may open a packet');
-  assert.match(collectionSource, /catch \(error\) \{\s*setAccountNotice\(messageFrom\(error, 'The Idea Packet could not be started\.'\)\)/);
+  assert.ok(openStart > createStart, 'navigation must follow the handoff response');
+  assert.ok(openStart < failureStart, 'only the successful handoff branch may open Creator OS');
+  assert.match(collectionSource, /catch \(error\) \{\s*setAccountNotice\(messageFrom\(error, 'The Creator OS draft could not be created\.'\)\)/);
 });

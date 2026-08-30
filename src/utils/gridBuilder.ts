@@ -430,6 +430,23 @@ export function rationaleBrief(rationale: GridRationale): string {
   ].filter(Boolean).join('\n');
 }
 
+/** Build an honest brief for a grid whose selection and order came from the creator. */
+export function manualGridRationale(slots: BuilderCard[], actor: string): GridRationale {
+  const motifs = [...new Set(slots.map(card => card.familyLabel).filter(Boolean))].slice(0, 4);
+  const vibes = [...new Set(slots.map(card => card.vibeEn || card.vibe).filter(Boolean))];
+  return {
+    aestheticRead: `A creator-arranged portrait of ${actor}.`,
+    whyTogether: 'All nine images and their exact positions were deliberately chosen by the creator.',
+    motifs: motifs.length ? motifs : ['creator-selected saved images'],
+    suggestedStance: vibes.length
+      ? `Lead with the creator’s arrangement and the ${vibes.join(' + ')} mood.`
+      : 'Lead with the creator’s arrangement rather than an automated curation claim.',
+    lens: `Build Your Own · Star: ${actor}`,
+    slotReasons: slots.map((_, index) => `Creator-selected position ${index + 1}`),
+    manualSwaps: ['All nine images and their positions were chosen manually'],
+  };
+}
+
 // ── GridRecord assembly ────────────────────────────────────────────
 
 function stableHash(value: string): string {
@@ -455,7 +472,8 @@ export function gridRecordFromProposal(
   const date = now.toISOString().slice(0, 10);
   const anchor = slots[0];
   const vibes = [...new Set(slots.map(card => card.vibe))];
-  const id = `builder-${date}-${stableHash(slots.map(card => card.key).join('|'))}`;
+  const creatorDirected = rationale.lens.startsWith('Build Your Own');
+  const id = `builder-${date}-${stableHash(`${creatorDirected ? 'manual' : 'smart'}|${slots.map(card => card.key).join('|')}`)}`;
   const misprints = slots.flatMap(card => card.legendaryMisprint ? [card.legendaryMisprint] : []);
   const intentionalMisprint = misprints.length > 0;
   return {
@@ -475,7 +493,7 @@ export function gridRecordFromProposal(
     searchSpell: rationale.lens,
     generationPrompt: rationaleBrief(rationale),
     edition: {
-      provider: 'collection-grid-builder',
+      provider: creatorDirected ? 'collection-grid-builder-manual' : 'collection-grid-builder',
       misprint: intentionalMisprint,
       legendary: intentionalMisprint,
     },

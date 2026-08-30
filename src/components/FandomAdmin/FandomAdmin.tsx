@@ -51,10 +51,10 @@ export const FandomAdmin: React.FC<Props> = props => {
         </div>
         <div className={styles.tabs} role="tablist" aria-label="Operator Console view">
           <button type="button" role="tab" aria-selected={view === 'packets'} onClick={() => setView('packets')}>
-            Idea Packets
+            Legacy packet archive
           </button>
           <button type="button" role="tab" aria-selected={view === 'library'} onClick={() => setView('library')}>
-            Packet staging
+            Legacy packet staging
           </button>
           <button type="button" role="tab" aria-selected={view === 'plan'} onClick={() => setView('plan')}>
             PLAN schedule
@@ -231,7 +231,7 @@ function PacketWorkspace({
         <header className={styles.libraryHeader}>
           <div>
             <h3>Packet staging</h3>
-            <p>Pull saved grids and results into Idea Packets — browsing and sharing live in the Collection view.</p>
+            <p>Compatibility archive for older packet-based drafts. New grid posts start from the Collection.</p>
           </div>
           <span>
             {grids.length} {grids.length === 1 ? 'grid' : 'grids'} · {cards.length} {cards.length === 1 ? 'item' : 'items'}
@@ -267,7 +267,7 @@ function PacketWorkspace({
                       } finally { setBusyKey(''); }
                     }}
                   >
-                    {busyKey === grid.id ? 'Starting…' : 'Start Idea Packet'}
+                    {busyKey === grid.id ? 'Creating…' : 'Create legacy packet'}
                   </button>
                   {collecting.length === 0 ? (
                     <span className={styles.noPacket}>Start a packet first</span>
@@ -369,7 +369,7 @@ function PacketWorkspace({
     return <div className={styles.error} role="alert"><strong>Idea Packets could not be loaded.</strong><span>{error}</span><button onClick={onRefresh}>Try again</button></div>;
   }
   if (!selected) {
-    return <div className={styles.empty}><strong>No Idea Packets yet.</strong><span>Open today’s Vibe Atlas and choose “Start Idea Packet.”</span></div>;
+    return <div className={styles.empty}><strong>No legacy packets.</strong><span>New posts can go directly from a saved grid to Creator OS.</span></div>;
   }
 
   return (

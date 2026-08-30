@@ -10,6 +10,7 @@ import {
   buildVibeAtlasPool,
   gridRecordFromProposal,
   lensOptions,
+  manualGridRationale,
   proposeGrid,
   rationaleBrief,
   rebuildRationale,
@@ -18,15 +19,16 @@ import {
   type GridProposal,
 } from '../../utils/gridBuilder';
 import styles from './GridBuilder.module.css';
+import type { CreatorDraftResult } from '../../utils/creatorDraft';
 
 interface Props {
   /** Account id of the signed-in user; scopes the pool to that account's visible records. */
   accountId?: string;
-  /** When true, "Start Idea Packet" is shown and wired. Omit (or false) to hide it. */
+  /** When true, the private Creator OS handoff is shown. Omit (or false) to hide it. */
   isAdmin?: boolean;
-  /** Required when isAdmin is true; called to create the Idea Packet from the grid. */
-  onCreateFromGrid?: (grid: GridRecord) => Promise<unknown>;
-  /** Called after a successful packet creation so the parent can navigate away. */
+  /** Required when isAdmin is true; compatibility-backed Creator OS handoff. */
+  onCreateFromGrid?: (grid: GridRecord) => Promise<CreatorDraftResult>;
+  /** Called after a successful Creator OS handoff. */
   onPacketCreated?: () => void;
   /** Called after a successful export so the parent can navigate to the Grids tab. */
   onExported?: () => void;
@@ -44,6 +46,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
   const [sourceRecords, setSourceRecords] = useState<{ cards: CardRecord[]; grids: GridRecord[] } | null>(null);
   const [loadError, setLoadError] = useState('');
   const [lens, setLens] = useState<CollectionLens>({});
+  const [builderMode, setBuilderMode] = useState<'smart' | 'manual'>('smart');
   const [proposal, setProposal] = useState<GridProposal | null>(null);
   const [swapSlot, setSwapSlot] = useState<number | null>(null);
   const [busy, setBusy] = useState('');
@@ -100,6 +103,10 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
 
   const options = useMemo(() => (pool ? lensOptions(pool) : null), [pool]);
   const lensedCount = useMemo(() => (pool ? applyLens(pool, lens).length : 0), [pool, lens]);
+  const manualCandidates = useMemo(
+    () => pool && lens.actor ? applyLens(pool, { mode: lens.mode, actor: lens.actor }) : [],
+    [pool, lens.actor, lens.mode],
+  );
 
   function setMode(mode: 'standard' | 'misprints') {
     if (!sourceRecords) return;
@@ -122,6 +129,66 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
     setPriorSavedGridId(null);
     setShowSaveNudge(false);
     setPendingNavAfterSave(false);
+  }
+
+  function chooseBuilderMode(mode: 'smart' | 'manual') {
+    setBuilderMode(mode);
+    setProposal(null);
+    setSwapSlot(null);
+    setIsGridSaved(false);
+    setSavedGridId(null);
+    setPriorSavedGridId(null);
+    setShowSaveNudge(false);
+    setPendingNavAfterSave(false);
+    setNotice('');
+  }
+
+  function toggleManualCard(card: BuilderCard) {
+    setProposal(current => {
+      const slots = current?.slots || [];
+      const selected = slots.some(item => item.key === card.key);
+      const nextSlots = selected
+        ? slots.filter(item => item.key !== card.key)
+        : slots.length < 9 ? [...slots, card] : slots;
+      if (!selected && slots.length >= 9) {
+        setNotice('Your grid already has nine images. Remove one before adding another.');
+        return current;
+      }
+      setNotice('');
+      return {
+        slots: nextSlots,
+        alternates: [],
+        rationale: manualGridRationale(nextSlots, lens.actor || card.actor),
+      };
+    });
+    setSwapSlot(null);
+    setIsGridSaved(false);
+    setSavedGridId(null);
+    setShowSaveNudge(false);
+  }
+
+  function swapManualSlots(first: number, second: number) {
+    if (first === second) {
+      setSwapSlot(null);
+      return;
+    }
+    setProposal(current => {
+      if (!current) return current;
+      const slots = [...current.slots];
+      [slots[first], slots[second]] = [slots[second], slots[first]];
+      return { ...current, slots, rationale: manualGridRationale(slots, lens.actor || slots[0]?.actor || 'this star') };
+    });
+    if (isGridSaved && savedGridId) setPriorSavedGridId(savedGridId);
+    setSwapSlot(null);
+    setIsGridSaved(false);
+    setSavedGridId(null);
+    setShowSaveNudge(false);
+  }
+
+  function moveManualSlot(index: number, direction: -1 | 1) {
+    const target = index + direction;
+    if (!proposal || target < 0 || target >= proposal.slots.length) return;
+    swapManualSlots(index, target);
   }
 
   function propose() {
@@ -288,11 +355,12 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
       await dbSaveGrid(grid);
       setIsGridSaved(true);
       setSavedGridId(grid.id);
-      await onCreateFromGrid(grid);
-      setNotice('Idea Packet started with the curation brief attached.');
+      const result = await onCreateFromGrid(grid);
+      setNotice('Creator OS draft created with the exact grid and curation brief.');
+      window.location.assign(result.receipt.createUrl);
       onPacketCreated?.();
     } catch (caught) {
-      setNotice(caught instanceof Error ? caught.message : 'Idea Packet could not be started.');
+      setNotice(caught instanceof Error ? caught.message : 'The Creator OS draft could not be created.');
     } finally {
       packetInFlight.current = false;
       setBusy('');
@@ -317,10 +385,19 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
       <header className={styles.header}>
         <div>
           <h3>Vibe Atlas Grid Builder</h3>
-          <p>Pick a lens, propose a 3×3, swap what feels off, then save or export the finished world.</p>
+          <p>Start with a smart proposal or choose and arrange every image yourself.</p>
         </div>
-        <span>{lensedCount} of {pool.length} cards in lens</span>
+        <span>{builderMode === 'manual' ? manualCandidates.length : lensedCount} of {pool.length} cards in lens</span>
       </header>
+
+      <div className={styles.modeTabs} role="tablist" aria-label="Grid building method">
+        <button type="button" role="tab" aria-selected={builderMode === 'smart'} onClick={() => chooseBuilderMode('smart')}>
+          Smart Proposal
+        </button>
+        <button type="button" role="tab" aria-selected={builderMode === 'manual'} onClick={() => chooseBuilderMode('manual')}>
+          Build Your Own
+        </button>
+      </div>
 
       {(notice || showSaveNudge) && (
         <div className={styles.notice} role="status">
@@ -352,20 +429,50 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
           onToggle={value => setMode(value as 'standard' | 'misprints')}
         />
         <LensRow label="Star" options={options.actors} active={lens.actor} onToggle={value => toggle('actor', value)} />
-        <LensRow label="Vibe" options={options.vibes} active={lens.vibe} onToggle={value => toggle('vibe', value)} />
-        {options.families.length > 0 && (
+        {builderMode === 'smart' && <LensRow label="Vibe" options={options.vibes} active={lens.vibe} onToggle={value => toggle('vibe', value)} />}
+        {builderMode === 'smart' && options.families.length > 0 && (
           <LensRow label="Visual family" options={options.families} active={lens.familyId} onToggle={value => toggle('familyId', value)} />
         )}
       </div>
 
-      <button type="button" className={styles.propose} onClick={propose} disabled={lensedCount === 0}>
+      {builderMode === 'smart' && <button type="button" className={styles.propose} onClick={propose} disabled={lensedCount === 0}>
         {proposal ? 'Re-propose 3×3' : 'Propose 3×3'}
-      </button>
+      </button>}
+
+      {builderMode === 'manual' && (
+        <section className={styles.manualPicker} aria-label="Choose nine saved images">
+          <div className={styles.manualPickerHeader}>
+            <strong>{lens.actor ? `${proposal?.slots.length || 0} of 9 selected` : 'Choose a star to begin'}</strong>
+            <span>Only saved images for the selected actor appear here.</span>
+          </div>
+          {lens.actor && manualCandidates.length < 9 ? (
+            <div className={styles.notice}>Save at least nine distinct images for {lens.actor} to build a custom grid.</div>
+          ) : lens.actor ? (
+            <div className={styles.candidateGrid}>
+              {manualCandidates.map(card => {
+                const selectedIndex = proposal?.slots.findIndex(item => item.key === card.key) ?? -1;
+                return (
+                  <button
+                    key={card.key}
+                    type="button"
+                    aria-pressed={selectedIndex >= 0}
+                    aria-label={`${selectedIndex >= 0 ? `Remove position ${selectedIndex + 1}` : 'Select'} ${card.title}`}
+                    onClick={() => toggleManualCard(card)}
+                  >
+                    <img src={card.imageUrl} alt="" loading="lazy" />
+                    {selectedIndex >= 0 && <span>{selectedIndex + 1}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </section>
+      )}
 
       {proposal && (
         <div className={styles.workspace}>
           <div>
-            <div className={styles.grid} role="group" aria-label="Proposed 3×3 grid">
+            <div className={styles.grid} role="group" aria-label={builderMode === 'manual' ? 'Custom 3×3 grid' : 'Proposed 3×3 grid'}>
               {proposal.slots.map((card, index) => (
                 <button
                   key={card.key}
@@ -373,14 +480,31 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
                   className={styles.slot}
                   aria-pressed={swapSlot === index}
                   title={proposal.rationale.slotReasons[index]}
-                  onClick={() => setSwapSlot(current => (current === index ? null : index))}
+                  onClick={() => {
+                    if (builderMode === 'manual' && swapSlot !== null) swapManualSlots(swapSlot, index);
+                    else setSwapSlot(current => (current === index ? null : index));
+                  }}
                 >
                   <img src={card.imageUrl} alt={card.title} loading="lazy" />
                   <span>{proposal.rationale.slotReasons[index]}</span>
                 </button>
               ))}
+              {builderMode === 'manual' && Array.from({ length: Math.max(0, 9 - proposal.slots.length) }).map((_, index) => (
+                <div className={styles.emptySlot} key={`empty-${index}`}>{proposal.slots.length + index + 1}</div>
+              ))}
             </div>
-            {swapSlot !== null && (
+            {builderMode === 'manual' && proposal.slots.length > 0 && (
+              <div className={styles.arrangeHelp}>
+                <span>{swapSlot === null ? 'Select a filled slot to move or swap it.' : `Position ${swapSlot + 1} selected. Choose another slot to swap.`}</span>
+                {swapSlot !== null && (
+                  <span>
+                    <button type="button" onClick={() => moveManualSlot(swapSlot, -1)} disabled={swapSlot === 0}>Move earlier</button>
+                    <button type="button" onClick={() => moveManualSlot(swapSlot, 1)} disabled={swapSlot === proposal.slots.length - 1}>Move later</button>
+                  </span>
+                )}
+              </div>
+            )}
+            {builderMode === 'smart' && swapSlot !== null && (
               <div className={styles.alternates}>
                 <strong>Swap slot {swapSlot + 1} with:</strong>
                 {proposal.alternates.length === 0 ? (
@@ -434,7 +558,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
               )}
               {isAdmin && onCreateFromGrid && (
                 <button type="button" onClick={startPacket} disabled={Boolean(busy) || proposal.slots.length !== 9}>
-                  {busy === 'packet' ? 'Starting…' : 'Start Idea Packet'}
+                  {busy === 'packet' ? 'Creating draft…' : 'Make a post in Creator OS'}
                 </button>
               )}
             </div>
