@@ -322,7 +322,7 @@ test("platform selection is canonical, reaches the publication brief, and separa
   });
   const operator = { user: { accountId: "account-1" } };
   const rednote = sourceFor(savedGrid, ["rednote"]);
-  const both = sourceFor(savedGrid, ["rednote", "weibo"]);
+  const both = sourceFor(savedGrid, ["rednote", "weibo", "instagram"]);
 
   const first = await handler(request(rednote), {}, rednote, operator);
   const replay = await handler(request(rednote), {}, rednote, operator);
@@ -333,11 +333,11 @@ test("platform selection is canonical, reaches the publication brief, and separa
   assert.equal(crossPost.status, 201);
   assert.deepEqual(distributions, [
     { primaryPlatform: "rednote", platforms: ["rednote"] },
-    { primaryPlatform: "rednote", platforms: ["rednote", "weibo"] },
+    { primaryPlatform: "rednote", platforms: ["rednote", "weibo", "instagram"] },
   ]);
   assert.equal(createCalls, 2);
   assert.equal(mediaCalls, 2);
-  assert.deepEqual((await crossPost.json()).receipt.distribution.platforms, ["rednote", "weibo"]);
+  assert.deepEqual((await crossPost.json()).receipt.distribution.platforms, ["rednote", "weibo", "instagram"]);
 
   const duplicate = sourceFor(savedGrid, ["rednote", "rednote"]);
   const invalid = await handler(request(duplicate), {}, duplicate, operator);

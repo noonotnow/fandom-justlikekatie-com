@@ -9,8 +9,8 @@ export interface CreateReceipt {
   sourceVersion: string;
   mediaSyncState: 'synced';
   distribution?: {
-    primaryPlatform: 'rednote' | 'weibo';
-    platforms: Array<'rednote' | 'weibo'>;
+    primaryPlatform: 'rednote' | 'weibo' | 'instagram';
+    platforms: Array<'rednote' | 'weibo' | 'instagram'>;
   };
   disposition?: string;
 }

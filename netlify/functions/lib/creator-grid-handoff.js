@@ -4,7 +4,7 @@ import { renderCanonicalOutput } from "./canonical-render.js";
 
 export const CREATOR_DRAFT_SOURCE_SCHEMA = "fandom.creator-draft-source.v1";
 export const CREATOR_DRAFT_WORKFLOW = "creator-draft";
-export const CREATOR_PLATFORMS = ["rednote", "weibo"];
+export const CREATOR_PLATFORMS = ["rednote", "weibo", "instagram"];
 const COLLECTION_STORE = "fandom-user-collections";
 const RECEIPT_STORE = "creator-draft-handoffs";
 const MAX_RESPONSE_BYTES = 256 * 1024;
@@ -826,7 +826,7 @@ function storageError() {
 
 export function normalizePlatforms(value) {
   if (!Array.isArray(value) || value.length < 1 || value.length > CREATOR_PLATFORMS.length) {
-    throw requestError("Creator Draft destinations must include Rednote, Weibo, or both.", 400);
+    throw requestError("Creator Draft destinations must include Rednote, Weibo, Instagram, or a combination.", 400);
   }
   const unique = new Set(value);
   if (

@@ -3,7 +3,7 @@ import { completeCreatorDraftHandoff, type CreateReceipt } from './createHandoff
 import { getPublicSession, syncPublicGrid } from './publicAccount';
 
 export const CREATOR_DRAFT_SOURCE_SCHEMA = 'fandom.creator-draft-source.v1';
-export const CREATOR_PLATFORMS = ['rednote', 'weibo'] as const;
+export const CREATOR_PLATFORMS = ['rednote', 'weibo', 'instagram'] as const;
 export type CreatorPlatform = typeof CREATOR_PLATFORMS[number];
 
 export interface CreatorDraftSource {
@@ -94,7 +94,7 @@ export async function makeCreatorPostFromGrid(
 export function normalizeCreatorPlatforms(value: readonly CreatorPlatform[]): CreatorPlatform[] {
   const unique = new Set(value);
   if (unique.size === 0 || unique.size !== value.length || [...unique].some(platform => !CREATOR_PLATFORMS.includes(platform))) {
-    throw new Error('Select Rednote, Weibo, or both before continuing.');
+    throw new Error('Select Rednote, Weibo, Instagram, or any combination before continuing.');
   }
   return CREATOR_PLATFORMS.filter(platform => unique.has(platform));
 }

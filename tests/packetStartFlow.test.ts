@@ -29,6 +29,7 @@ test('Daily, saved grids, and Builder share one platform chooser and direct sour
   assert.match(builderSource, /onCreateFromGrid\(grid, platforms\)/);
   assert.match(actionSource, /Rednote/);
   assert.match(actionSource, /Weibo/);
+  assert.match(actionSource, /Instagram/);
   assert.match(actionSource, /selected\.length === 0/);
   assert.doesNotMatch(appSource, /IdeaPacket|makeCreatorPostFromPacket/);
 });

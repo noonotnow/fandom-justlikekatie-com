@@ -107,12 +107,15 @@ test('Creator Draft platform selections are canonical and part of handoff identi
   );
   const rednote = await creatorDraftSourceFromGrid(grid, ['rednote']);
   const weibo = await creatorDraftSourceFromGrid(grid, ['weibo']);
-  const both = await creatorDraftSourceFromGrid(grid, ['weibo', 'rednote']);
+  const both = await creatorDraftSourceFromGrid(grid, ['weibo', 'rednote', 'instagram']);
 
-  assert.deepEqual(both.platforms, ['rednote', 'weibo']);
+  assert.deepEqual(both.platforms, ['rednote', 'weibo', 'instagram']);
   assert.equal(rednote.sourceVersion, both.sourceVersion, 'the grid version is independent of distribution');
   assert.notEqual(rednote.idempotencyKey, weibo.idempotencyKey);
   assert.notEqual(rednote.idempotencyKey, both.idempotencyKey);
+  const instagram = await creatorDraftSourceFromGrid(grid, ['instagram']);
+  assert.deepEqual(instagram.platforms, ['instagram']);
+  assert.notEqual(instagram.idempotencyKey, rednote.idempotencyKey);
   assert.throws(() => normalizeCreatorPlatforms([]), /Select Rednote/i);
   assert.throws(() => normalizeCreatorPlatforms(['rednote', 'rednote']), /Select Rednote/i);
 });

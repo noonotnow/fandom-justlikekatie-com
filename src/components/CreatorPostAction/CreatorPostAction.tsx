@@ -5,6 +5,7 @@ import styles from './CreatorPostAction.module.css';
 const PLATFORMS: Array<{ value: CreatorPlatform; label: string; detail: string }> = [
   { value: 'rednote', label: 'Rednote', detail: '小红书' },
   { value: 'weibo', label: 'Weibo', detail: '微博' },
+  { value: 'instagram', label: 'Instagram', detail: 'Instagram' },
 ];
 
 interface Props {
@@ -41,7 +42,7 @@ export function CreatorPostAction({
   async function submit() {
     if (inFlight.current || busy || disabled) return;
     if (selected.length === 0) {
-      setError('Select Rednote, Weibo, or both before continuing.');
+      setError('Select Rednote, Weibo, Instagram, or any combination before continuing.');
       return;
     }
     inFlight.current = true;
@@ -109,7 +110,8 @@ export function CreatorPostAction({
 }
 
 function canonicalPlatforms(platforms: CreatorPlatform[]): CreatorPlatform[] {
-  return ['rednote', 'weibo'].filter(platform => platforms.includes(platform as CreatorPlatform)) as CreatorPlatform[];
+  return ['rednote', 'weibo', 'instagram']
+    .filter(platform => platforms.includes(platform as CreatorPlatform)) as CreatorPlatform[];
 }
 
 function recoveryMessage(value: unknown): string {

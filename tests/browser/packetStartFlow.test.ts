@@ -167,7 +167,7 @@ test('Make a post sends one direct grid source and opens the Workstation draft',
       const request = route.request().postDataJSON() as {
         source: { sourceId: string; sourceVersion: string; platforms: string[] };
       };
-      assert.deepEqual(request.source.platforms, ['rednote', 'weibo']);
+      assert.deepEqual(request.source.platforms, ['rednote', 'weibo', 'instagram']);
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
@@ -196,7 +196,8 @@ test('Make a post sends one direct grid source and opens the Workstation draft',
 
     await openSavedGrid(page, origin);
     await page.getByRole('checkbox', { name: /Weibo/ }).check();
-    await page.getByText('Selected for this draft: Rednote + Weibo').waitFor();
+    await page.getByRole('checkbox', { name: /Instagram/ }).check();
+    await page.getByText('Selected for this draft: Rednote + Weibo + Instagram').waitFor();
     const startButton = page.getByRole('button', { name: 'Make a post in Workstation' });
     await startButton.click();
     await startButton.click({ force: true }).catch(() => undefined);
