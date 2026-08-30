@@ -1,0 +1,48 @@
+**Exactly. And the product’s core asset is not *The Untamed*—it’s your changing state of knowledge.**
+
+Every entry needs an explicit epistemic boundary:
+
+> **Katie has watched through Episode 4.**
+Everything recorded below reflects only what was knowable at that point.
+> 
+
+That preserves the experiment and lets readers safely follow at their own pace.
+
+## Build order
+
+Replit should **not write the journal content yet**. First it should build the capture system:
+
+1. **First-watch entry**
+    - Episode range
+    - Timestamp
+    - What I see
+    - Who I trust
+    - What I think is happening
+    - Current emotional condition
+    - Recurring suspects/objects
+    - Predictions
+2. **Sealed evidence archive**
+    - Veteran submission
+    - Spoiler-through episode
+    - Related prediction or journal entry
+    - Hidden until Katie reaches the unlock episode
+3. **Prediction ledger**
+    - Original prediction preserved verbatim
+    - Filed-after episode
+    - Resolution episode
+    - Final verdict
+    - Post-reveal reaction
+4. **Reader spoiler setting**
+    - Safe through Episode X
+    - Never reveal gated material above that point
+
+## The critical integrity rule
+
+No AI-generated “helpful context.” No character descriptions imported from search. No cast relationship diagrams. No autocomplete based on fandom knowledge. Even interface copy must avoid revealing that a seemingly minor person or object becomes important.
+
+Send Replit:
+
+> Treat this as a longitudinal first-watch experiment, not a recap site. Build the capture interface and spoiler-gating architecture before generating any editorial content. The system must preserve exactly what Katie knew after each episode range. Do not research or prepopulate plot details, relationships, character significance, ending information, fandom interpretations, or veteran commentary. Store veteran submissions separately with explicit unlock episodes. Predictions must remain immutable after filing and receive a later verdict plus post-reveal reaction.
+> 
+
+That’s the moat: **a serialized record of one person acquiring fandom literacy while veteran viewers scream silently behind glass.**
