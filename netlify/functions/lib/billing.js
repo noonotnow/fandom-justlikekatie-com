@@ -130,6 +130,24 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
   return {
     status: guarded(async (req, context) => {
       if (req.method !== "GET") return json(405, { error: "Method not allowed." }, { Allow: "GET" });
+      if (new URL(req.url).searchParams.get("health") === "billing-stripe-product") {
+        const price = await atStage("price-config", () => {
+          const configured = env.FANDOM_STRIPE_MEMBERSHIP_PRICE_ID;
+          if (!/^price_[A-Za-z0-9]+$/.test(configured || "")) {
+            throw new Error("FANDOM_STRIPE_MEMBERSHIP_PRICE_ID must be a Stripe Price ID.");
+          }
+          return configured;
+        });
+        const stripe = await atStage("stripe-client", () => billing.stripe());
+        const record = await atStage("price-read", () => stripe.prices.retrieve(price, { expand: ["product"] }));
+        return json(200, {
+          ok: true,
+          active: Boolean(record.active),
+          livemode: Boolean(record.livemode),
+          recurring: Boolean(record.recurring),
+          productAvailable: Boolean(record.product && typeof record.product === "object" && !record.product.deleted),
+        });
+      }
       const session = await auth.authenticate(req, context);
       await atStage("initialize", () => billing.initialize(context));
       const repository = await atStage("repository", () => billing.repository(context));
