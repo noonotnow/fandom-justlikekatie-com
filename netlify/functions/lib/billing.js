@@ -88,6 +88,7 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
       name: typeof error?.name === "string" ? error.name : "Error",
       code: typeof error?.code === "string" ? error.code : undefined,
       status: Number.isInteger(error?.status) ? error.status : undefined,
+      stage: typeof error?.billingStage === "string" ? error.billingStage : undefined,
     };
     if (typeof error?.message === "string" && !String(error?.type || "").startsWith("Stripe")) {
       details.message = error.message
@@ -96,20 +97,30 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
     }
     return Object.fromEntries(Object.entries(details).filter(([, value]) => value !== undefined));
   };
+  const atStage = async (stage, callback) => {
+    try {
+      return await callback();
+    } catch (error) {
+      if (error && typeof error === "object") error.billingStage ||= stage;
+      throw error;
+    }
+  };
   const guarded = handler => async (req, context) => {
     try { return await handler(req, context); }
     catch (error) {
       const status = error?.status || 503;
       if (status >= 500) console.error("[billing] request failed", safeErrorDetails(error));
-      return json(status, { error: status >= 500 ? "Billing is temporarily unavailable." : error.message });
+      const diagnostic = status >= 500 && typeof error?.billingStage === "string" ? ` [${error.billingStage}]` : "";
+      return json(status, { error: status >= 500 ? `Billing is temporarily unavailable.${diagnostic}` : error.message });
     }
   };
   return {
     status: guarded(async (req, context) => {
       if (req.method !== "GET") return json(405, { error: "Method not allowed." }, { Allow: "GET" });
       const session = await auth.authenticate(req, context);
-      await billing.initialize(context);
-      const membership = await billing.repository(context).membershipForAccount(session.user.accountId);
+      await atStage("initialize", () => billing.initialize(context));
+      const repository = await atStage("repository", () => billing.repository(context));
+      const membership = await atStage("membership-read", () => repository.membershipForAccount(session.user.accountId));
       return json(200, {
         state: membership.status,
         isMember: membership.status === "active",
