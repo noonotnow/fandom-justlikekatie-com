@@ -285,6 +285,7 @@ function VibeAtlasApp() {
                 <ExportButton rawData={exportData} />
                 {isAdmin && (
                   <CreatorPostAction
+                    entryPoint="daily"
                     onSubmit={platforms => makeCreatorPostFromGrid(collectionGridFromStar(rawData), platforms)}
                   />
                 )}

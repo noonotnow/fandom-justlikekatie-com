@@ -740,6 +740,7 @@ export const Collection: React.FC<Props> = ({
                   </button>
                   {isAdmin && onCreateFromGrid && (
                     <CreatorPostAction
+                      entryPoint="saved_grid"
                       disabled={Boolean(busyKey)}
                       onSubmit={async platforms => {
                         setBusyKey(`create:${grid.id}`);

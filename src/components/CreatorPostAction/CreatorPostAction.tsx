@@ -1,5 +1,11 @@
 import { useRef, useState } from 'react';
 import type { CreatorDraftResult, CreatorPlatform } from '../../utils/creatorDraft';
+import {
+  trackCreatorHandoffAttempt,
+  trackCreatorHandoffFailure,
+  trackCreatorHandoffSuccess,
+  type CreatorHandoffEntryPoint,
+} from '../../utils/analytics';
 import styles from './CreatorPostAction.module.css';
 
 const PLATFORMS: Array<{ value: CreatorPlatform; label: string; detail: string }> = [
@@ -10,6 +16,7 @@ const PLATFORMS: Array<{ value: CreatorPlatform; label: string; detail: string }
 
 interface Props {
   onSubmit: (platforms: CreatorPlatform[]) => Promise<CreatorDraftResult>;
+  entryPoint: CreatorHandoffEntryPoint;
   disabled?: boolean;
   label?: string;
   onSuccess?: () => void;
@@ -22,6 +29,7 @@ interface Props {
  */
 export function CreatorPostAction({
   onSubmit,
+  entryPoint,
   disabled = false,
   label = 'Make a post in Workstation',
   onSuccess,
@@ -48,13 +56,19 @@ export function CreatorPostAction({
     inFlight.current = true;
     setBusy(true);
     setError('');
+    const destinations = canonicalPlatforms(selected);
+    trackCreatorHandoffAttempt(entryPoint, destinations);
     try {
-      const result = await onSubmit(canonicalPlatforms(selected));
+      const result = await onSubmit(destinations);
+      // completeCreatorDraftHandoff has validated this receipt before the
+      // result reaches this shared action boundary.
+      trackCreatorHandoffSuccess(entryPoint, result.source.platforms);
       onSuccess?.();
       // The receipt has already been validated against the canonical
       // Workstation/Creator composer host by the handoff client.
       window.location.assign(result.receipt.createUrl);
     } catch (caught) {
+      trackCreatorHandoffFailure(entryPoint, destinations, caught);
       setError(recoveryMessage(caught));
     } finally {
       inFlight.current = false;
