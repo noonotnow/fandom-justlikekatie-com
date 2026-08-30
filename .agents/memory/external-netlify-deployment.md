@@ -8,3 +8,16 @@ The production site is deployed outside Replit. Replit deployment status and log
 **Why:** The custom domain can continue serving an older Netlify build while the workspace and GitHub main branch contain newer code, making live payment checks invalid unless the deployed revision is checked first.
 
 **How to apply:** Treat a stale live bundle or missing function route as a deployment blocker, not as evidence of an application billing failure. Publish the intended repository revision through the external Netlify pipeline before testing hosted Checkout or webhooks.
+
+External Netlify Functions cannot resolve the Replit-managed PostgreSQL hostname
+`helium`, even when the Replit `DATABASE_URL` is copied into Netlify. External
+billing therefore uses the existing Netlify Blobs service for its minimal
+account/customer/subscription mapping; the Replit Postgres + Stripe Sync path
+remains a development fallback.
+
+**Why:** Replit’s managed database URL is valid inside the Replit runtime but
+does not provide DNS reachability from this separate Netlify deployment.
+
+**How to apply:** Do not spend time re-entering the same Replit database URL in
+Netlify. Keep it only if another function needs it; external billing needs the
+server-side Stripe key and webhook secret plus the normal Netlify Blobs context.
