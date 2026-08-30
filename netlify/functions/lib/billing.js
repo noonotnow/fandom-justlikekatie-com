@@ -90,12 +90,19 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
     const providerStatus = Number.isInteger(error?.statusCode)
       ? error.statusCode
       : Number.isInteger(error?.raw?.statusCode) ? error.raw.statusCode : undefined;
+    const providerMessage = String(error?.type || "").startsWith("Stripe")
+      && typeof error?.message === "string"
+      ? error.message.replace(/\b[A-Za-z][A-Za-z0-9]{1,12}_[A-Za-z0-9]+\b/g, "[redacted]")
+        .replace(/https?:\/\/[^/\s]*:[^@\s]+@/gi, "[redacted-url]@")
+      : undefined;
     const details = {
       name: typeof error?.name === "string" ? error.name : "Error",
       code: providerCode,
       status: Number.isInteger(error?.status) ? error.status : undefined,
       providerStatus,
       stage: typeof error?.billingStage === "string" ? error.billingStage : undefined,
+      param: typeof error?.param === "string" ? error.param : typeof error?.raw?.param === "string" ? error.raw.param : undefined,
+      message: providerMessage,
     };
     if (typeof error?.message === "string" && !String(error?.type || "").startsWith("Stripe")) {
       details.message = error.message
