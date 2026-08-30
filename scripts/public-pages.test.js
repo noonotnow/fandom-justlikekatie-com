@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { XMLParser, XMLValidator } from "fast-xml-parser";
 import sharp from "sharp";
 import {
   LG01_OUTCOMES,
@@ -52,17 +53,25 @@ test("robots and sitemap expose only intended public surfaces", () => {
   ];
 
   assert.match(robots, /^User-agent: \*/m);
-  assert.match(robots, /Sitemap: https:\/\/fandom\.justlikekatie\.com\/sitemap\.xml/);
-  assert.match(sitemap, /^<\?xml version="1.0"/);
+  assert.match(robots, /^Sitemap: https:\/\/fandom\.justlikekatie\.com\/sitemap\.xml$/m);
+  assert.equal(XMLValidator.validate(sitemap), true, "sitemap must be valid XML");
+
+  const sitemapDocument = new XMLParser({ ignoreAttributes: true }).parse(sitemap);
+  const sitemapUrls = sitemapDocument.urlset?.url?.map((entry) => entry.loc);
+  assert.ok(Array.isArray(sitemapUrls), "sitemap must contain a urlset with url entries");
   for (const url of editorialUrls) {
-    assert.match(sitemap, new RegExp(`<loc>${url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</loc>`));
+    assert.equal(
+      sitemapUrls.filter((sitemapUrl) => sitemapUrl === url).length,
+      1,
+      `${url} must appear in the sitemap exactly once`,
+    );
   }
   assert.equal(
-    (sitemap.match(/<loc>https:\/\/fandom\.justlikekatie\.com\/c-drama-fandom\//g) || []).length,
+    sitemapUrls.filter((url) => url.startsWith("https://fandom.justlikekatie.com/c-drama-fandom/")).length,
     editorialUrls.length,
     "sitemap must expose exactly four editorial C-drama routes",
   );
-  assert.match(sitemap, /https:\/\/fandom\.justlikekatie\.com\/vibe-atlas/);
+  assert.ok(sitemapUrls.includes("https://fandom.justlikekatie.com/vibe-atlas"));
   assert.doesNotMatch(sitemap, /view=(?:collection|builder|plan|membership)/);
   assert.doesNotMatch(sitemap, /\/api\/|\/auth\/|create-handoff|idea-packet/);
 });
