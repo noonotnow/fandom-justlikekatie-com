@@ -401,6 +401,7 @@ function VibeAtlasApp() {
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={setLightboxIndex}
+            canManagePackets={isAdmin}
           planData={rawData ?? undefined}
           tier={imageTiers[gridImages[lightboxIndex]?.id] ?? null}
           onTierChange={(tier) => {
