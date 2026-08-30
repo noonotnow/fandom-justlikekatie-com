@@ -1,0 +1,31 @@
+9:17:43 PM: build-image version: 969defd95f3977f8de9cb1f48802a7e6f3d8c0b3 (noble-new-builds)
+9:17:43 PM: buildbot version: c5548c5cf2d730dc5d77e402d8df0759cb17c1f9
+9:17:43 PM: Fetching cached dependencies
+9:17:43 PM: Starting to download cache of 120.4MB (Last modified: 2026-08-28 19:45:49 +0000 UTC)
+9:17:43 PM: Downloaded cache in 356ms
+9:17:44 PM: Extracted cache in 636ms
+9:17:44 PM: Fetched cache in 1.051s
+9:17:44 PM: Starting to prepare the repo for build
+9:17:44 PM: Preparing Git Reference refs/heads/main
+9:17:46 PM: Custom publish path detected. Proceeding with the specified path: 'dist'
+9:17:46 PM: Installing dependencies
+9:17:46 PM: mise ~/.config/mise/config.toml tools: python@3.14.3
+9:17:46 PM: mise ~/.config/mise/config.toml tools: ruby@3.4.8
+9:17:46 PM: mise ~/.config/mise/config.toml tools: go@1.26.2
+9:17:47 PM: Downloading and installing node v24.20.0...
+9:17:47 PM: Downloading https://nodejs.org/dist/v24.20.0/node-v24.20.0-linux-x64.tar.xz...
+9:17:47 PM: Computing checksum with sha256sum
+9:17:47 PM: Checksums matched!
+9:17:49 PM: Now using node v24.20.0 (npm v11.19.0)
+9:17:49 PM: Enabling Node.js Corepack
+9:17:50 PM: No pnpm workspaces detected
+9:17:50 PM: Installing npm packages using pnpm version 10.30.3
+9:17:51 PM:  ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with <ROOT>/package.json
+9:17:51 PM: Note that in CI environments this setting is true by default. If you still need to run install in such cases, use "pnpm install --no-frozen-lockfile"
+9:17:51 PM:   Failure reason:
+9:17:51 PM:   specifiers in the lockfile don't match specifiers in package.json:
+9:17:51 PM: * 7 dependencies were added: @replit/vite-plugin-cartographer@^0.6.1, @replit/vite-plugin-runtime-error-modal@^0.0.6, @tailwindcss/vite@^4.3.3, fast-glob@^3.3.3, pg@^8.23.0, stripe@^22.6.0, stripe-replit-sync@^1.0.0
+9:17:51 PM: Error during pnpm install
+9:17:51 PM: Failing build: Failed to install dependencies
+9:17:51 PM: Finished processing build request in 8.377s
+9:17:51 PM: Failed during stage 'Install dependencies': dependency_installation script returned non-zero exit code: 1
