@@ -123,6 +123,19 @@ These are the four intended editorial URLs. The following discovery values were 
 | `https://fandom.justlikekatie.com/c-drama-fandom/glossary/` | `https://fandom.justlikekatie.com/sitemap.xml` | Not crawled (`Last crawl: N/A`) | Excluded | Discovered — currently not indexed | Not available | August 30, 2026 |
 | `https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/` | `https://fandom.justlikekatie.com/sitemap.xml` | Not crawled (`Last crawl: N/A`) | Excluded | Discovered — currently not indexed | Not available | August 30, 2026 |
 
+### September 29, 2026 30-day review worksheet
+
+This review cannot be completed before September 29, 2026. Search Console is not connected to this workspace, so the cells below intentionally remain **Not available** until an operator reviews the `justlikekatie.com` Domain property. Do not infer discovery, indexing, or search performance from the public sitemap, a live URL test, or the August 30 baseline.
+
+For each route, use Search Console URL Inspection and a Performance report filtered to the exact page and the review period. Record the sitemap status, last-read date, and discovered URL count from the Sitemaps report; record indexing outcomes from URL Inspection or Pages; and record newly appearing query wording and page-level landing results from Performance.
+
+| Editorial URL | Sitemap status | Sitemap last read | Sitemap discovered URLs | Indexing outcome / exclusion reason | Impressions | Clicks | CTR | Average position | Newly appearing query language | Page-level landing result | Review date |
+| --- | --- | --- | ---: | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
+| `https://fandom.justlikekatie.com/c-drama-fandom/` | Not available | Not available | Not available | Not available | Not available | Not available | Not available | Not available | Not available | Not available | Not available |
+| `https://fandom.justlikekatie.com/c-drama-fandom/getting-started/` | Not available | Not available | Not available | Not available | Not available | Not available | Not available | Not available | Not available | Not available | Not available |
+| `https://fandom.justlikekatie.com/c-drama-fandom/glossary/` | Not available | Not available | Not available | Not available | Not available | Not available | Not available | Not available | Not available | Not available | Not available |
+| `https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/` | Not available | Not available | Not available | Not available | Not available | Not available | Not available | Not available | Not available | Not available | Not available |
+
 ### Search Console operator steps completed
 
 1. Verify or select the Domain property `justlikekatie.com`.
@@ -133,7 +146,8 @@ These are the four intended editorial URLs. The following discovery values were 
 ### Remaining Search Console and growth review steps
 
 1. Request indexing for the four live, canonical, materially complete editorial pages if desired. Do not use repeated requests as a substitute for content quality.
-2. Recheck the recorded metrics at approximately 30, 60, and 90 days as listed below. The 30-day review is not yet due as of this baseline and cannot be completed from this workspace without Search Console access.
+2. On or around September 29, 2026, complete the 30-day worksheet above from the `justlikekatie.com` Domain property. Replace each `Not available` cell only with a value exposed by Search Console, and keep `Not available` where the selected report does not expose a route-level value.
+3. Recheck the recorded metrics at approximately 60 and 90 days as listed below. The 30-day review is not yet due as of this baseline and cannot be completed from this workspace without Search Console access.
 
 ## Live result sample
 
