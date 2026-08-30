@@ -3,6 +3,8 @@ import { completeCreatorDraftHandoff, type CreateReceipt } from './createHandoff
 import { getPublicSession, syncPublicGrid } from './publicAccount';
 
 export const CREATOR_DRAFT_SOURCE_SCHEMA = 'fandom.creator-draft-source.v1';
+export const CREATOR_PLATFORMS = ['rednote', 'weibo', 'instagram'] as const;
+export type CreatorPlatform = typeof CREATOR_PLATFORMS[number];
 
 export interface CreatorDraftSource {
   schema: typeof CREATOR_DRAFT_SOURCE_SCHEMA;
@@ -10,6 +12,7 @@ export interface CreatorDraftSource {
   sourceId: string;
   sourceVersion: string;
   idempotencyKey: string;
+  platforms: CreatorPlatform[];
   actor: {
     id: string;
     name: string;
@@ -37,7 +40,11 @@ export interface CreatorDraftResult {
 }
 
 /** Future-facing source contract; no arbitrary client URL is sent to CREATE from it. */
-export async function creatorDraftSourceFromGrid(grid: GridRecord): Promise<CreatorDraftSource> {
+export async function creatorDraftSourceFromGrid(
+  grid: GridRecord,
+  platforms: CreatorPlatform[] = ['rednote'],
+): Promise<CreatorDraftSource> {
+  const normalizedPlatforms = normalizeCreatorPlatforms(platforms);
   const orderedImages = [...grid.images].sort((a, b) => a.gridPosition - b.gridPosition);
   const sourceVersion = `sha256:${await sha256(canonicalJson(sourceVersionMaterial(grid)))}`;
   return {
@@ -45,7 +52,8 @@ export async function creatorDraftSourceFromGrid(grid: GridRecord): Promise<Crea
     kind: 'ordered-grid',
     sourceId: grid.id,
     sourceVersion,
-    idempotencyKey: `grid:${grid.id}:${stableHash(sourceVersion)}`,
+    idempotencyKey: `grid:${grid.id}:${stableHash(sourceVersion)}:${normalizedPlatforms.join('+')}`,
+    platforms: normalizedPlatforms,
     actor: {
       id: grid.actorId,
       name: grid.actor,
@@ -69,15 +77,26 @@ export async function creatorDraftSourceFromGrid(grid: GridRecord): Promise<Crea
   };
 }
 
-/** Send the saved grid source directly to Creator OS; no Idea Packet is created. */
-export async function makeCreatorPostFromGrid(grid: GridRecord): Promise<CreatorDraftResult> {
+/** Send the saved grid source directly to Workstation; no Idea Packet is created. */
+export async function makeCreatorPostFromGrid(
+  grid: GridRecord,
+  platforms: CreatorPlatform[] = ['rednote'],
+): Promise<CreatorDraftResult> {
   await dbSaveGrid(grid);
   const user = await getPublicSession();
-  if (!user) throw new Error('Sign in before creating a Creator OS post.');
+  if (!user) throw new Error('Sign in before creating a Workstation post.');
   await syncPublicGrid(user, grid.id);
-  const source = await creatorDraftSourceFromGrid(grid);
+  const source = await creatorDraftSourceFromGrid(grid, platforms);
   const receipt = await completeCreatorDraftHandoff(source);
   return { source, receipt };
+}
+
+export function normalizeCreatorPlatforms(value: readonly CreatorPlatform[]): CreatorPlatform[] {
+  const unique = new Set(value);
+  if (unique.size === 0 || unique.size !== value.length || [...unique].some(platform => !CREATOR_PLATFORMS.includes(platform))) {
+    throw new Error('Select Rednote, Weibo, Instagram, or any combination before continuing.');
+  }
+  return CREATOR_PLATFORMS.filter(platform => unique.has(platform));
 }
 
 function sourceVersionMaterial(grid: GridRecord) {

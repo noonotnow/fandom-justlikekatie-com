@@ -23,6 +23,7 @@ import { consumeMagicLinkFromLocation, requestMagicLink } from './utils/publicAc
 import { getMembershipStatus } from './utils/membership';
 import { Membership } from './components/Membership/Membership';
 import { makeCreatorPostFromGrid } from './utils/creatorDraft';
+import { CreatorPostAction } from './components/CreatorPostAction/CreatorPostAction';
 import { useIsAdmin } from './hooks/useIsAdmin';
 import {
   initialCollectionType,
@@ -63,7 +64,6 @@ function VibeAtlasApp() {
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const { items: gridImages, meta, rawData, loading, error } = useStarOfDay();
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
-  const [creatorError, setCreatorError] = useState('');
   const [isMember, setIsMember] = useState(false);
 
   // Whole-board (share-card) manual tier override — distinct from per-image
@@ -284,23 +284,10 @@ function VibeAtlasApp() {
               <div className="daily-actions__primary">
                 <ExportButton rawData={exportData} />
                 {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        setCreatorError('');
-                        const grid = collectionGridFromStar(rawData);
-                        const { receipt } = await makeCreatorPostFromGrid(grid);
-                        window.location.assign(receipt.createUrl);
-                      } catch (caught) {
-                        setCreatorError(caught instanceof Error ? caught.message : 'The Creator OS draft could not be created.');
-                      }
-                    }}
-                  >
-                    Make a post in Creator OS
-                  </button>
+                  <CreatorPostAction
+                    onSubmit={platforms => makeCreatorPostFromGrid(collectionGridFromStar(rawData), platforms)}
+                  />
                 )}
-                {creatorError && <p role="alert">{creatorError}</p>}
               </div>
             </div>
             )}
