@@ -46,13 +46,14 @@ export async function creatorDraftSourceFromGrid(
 ): Promise<CreatorDraftSource> {
   const normalizedPlatforms = normalizeCreatorPlatforms(platforms);
   const orderedImages = [...grid.images].sort((a, b) => a.gridPosition - b.gridPosition);
+  const sourceId = grid.artifactId || grid.id;
   const sourceVersion = `sha256:${await sha256(canonicalJson(sourceVersionMaterial(grid)))}`;
   return {
     schema: CREATOR_DRAFT_SOURCE_SCHEMA,
     kind: 'ordered-grid',
-    sourceId: grid.id,
+    sourceId,
     sourceVersion,
-    idempotencyKey: `grid:${grid.id}:${stableHash(sourceVersion)}:${normalizedPlatforms.join('+')}`,
+    idempotencyKey: `grid:${sourceId}:${stableHash(sourceVersion)}:${normalizedPlatforms.join('+')}`,
     platforms: normalizedPlatforms,
     actor: {
       id: grid.actorId,
@@ -104,7 +105,7 @@ function sourceVersionMaterial(grid: GridRecord) {
   return {
     schemaVersion: grid.schemaVersion,
     rendererVersion: grid.rendererVersion,
-    sourceId: grid.id,
+    sourceId: grid.artifactId || grid.id,
     actorId: grid.actorId,
     actor: grid.actor,
     actorEn: grid.actorEn,

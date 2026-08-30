@@ -95,6 +95,40 @@ test('a broken analytics tracker cannot interrupt the handoff flow', () => {
   }
 });
 
+test('invalid Creator Draft receipts use the bounded invalid_response failure category', () => {
+  const events: Array<{ name: string; data?: Record<string, string | number | boolean> }> = [];
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      gtag(
+        _command: string,
+        name: string,
+        data?: Record<string, string | number | boolean>,
+      ) {
+        events.push({ name, data });
+      },
+    },
+  });
+
+  try {
+    trackCreatorHandoffFailure(
+      'saved_grid',
+      ['rednote'],
+      new Error('Workstation returned an invalid Creator Draft receipt.'),
+    );
+    assert.deepEqual(events, [{
+      name: 'creator_handoff_failed',
+      data: {
+        entry_point: 'saved_grid',
+        destination_set: 'rednote',
+        failure_category: 'invalid_response',
+      },
+    }]);
+  } finally {
+    Reflect.deleteProperty(globalThis, 'window');
+  }
+});
+
 test('queued dataLayer events cover the brief gap before gtag is available', () => {
   const dataLayer: unknown[] = [];
   Object.defineProperty(globalThis, 'window', {
