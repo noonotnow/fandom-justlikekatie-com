@@ -1,0 +1,54 @@
+.action {
+  display: grid;
+  gap: 9px;
+  min-width: min(100%, 320px);
+}
+
+.action fieldset {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 8px;
+}
+
+.action legend {
+  padding: 0 5px;
+  color: color-mix(in srgb, currentColor 62%, transparent);
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.options { display: flex; flex-wrap: wrap; gap: 8px; }
+.option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 112px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, #c9a96e 40%, transparent);
+  border-radius: 7px;
+  cursor: pointer;
+}
+.option:has(input:checked) { background: color-mix(in srgb, #c9a96e 17%, transparent); border-color: #c9a96e; }
+.option input { accent-color: #9b762e; }
+.option span { display: grid; gap: 1px; }
+.option small { color: color-mix(in srgb, currentColor 58%, transparent); font-size: .7rem; }
+.confirmation { margin: 0; color: #9b762e; font-size: .78rem; font-weight: 650; }
+.action > button { min-height: 42px; padding: 8px 14px; border-radius: 7px; font-size: .85rem; }
+.action button:disabled, .action fieldset:disabled { cursor: not-allowed; opacity: .55; }
+.recovery {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, #c9a96e 48%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, #c9a96e 9%, transparent);
+  font-size: .78rem;
+}
+.recovery p, .recovery span { margin: 0; line-height: 1.4; }
+.recovery nav { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.recovery a { color: #9b762e; font-weight: 700; text-underline-offset: 3px; }

@@ -4,6 +4,7 @@ import { renderCanonicalOutput } from "./canonical-render.js";
 
 export const CREATOR_DRAFT_SOURCE_SCHEMA = "fandom.creator-draft-source.v1";
 export const CREATOR_DRAFT_WORKFLOW = "creator-draft";
+export const CREATOR_PLATFORMS = ["rednote", "weibo", "instagram"];
 const COLLECTION_STORE = "fandom-user-collections";
 const RECEIPT_STORE = "creator-draft-handoffs";
 const MAX_RESPONSE_BYTES = 256 * 1024;
@@ -156,12 +157,17 @@ function validateSource(source) {
     || source.orderedImages.length < 1
     || source.orderedImages.length > MAX_IMAGES
     || Object.keys(source).some(key => ![
-      "schema", "kind", "sourceId", "sourceVersion", "idempotencyKey",
+      "schema", "kind", "sourceId", "sourceVersion", "idempotencyKey", "platforms",
       "actor", "creativeContext", "orderedImages",
     ].includes(key))
     || Object.keys(source.actor).some(key => !["id", "name", "nameEn"].includes(key))
     || Object.keys(source.creativeContext).some(key => !["vibe", "vibeEn", "brief", "captionSeed"].includes(key))
   ) throw requestError("Creator Draft source is invalid.", 400);
+
+  const platforms = normalizePlatforms(source.platforms === undefined ? ["rednote"] : source.platforms);
+  if (source.platforms !== undefined && JSON.stringify(platforms) !== JSON.stringify(source.platforms)) {
+    throw requestError("Creator Draft destinations must be a unique canonical platform list.", 400);
+  }
 
   const positions = new Set();
   for (const image of source.orderedImages) {
@@ -217,6 +223,8 @@ function validateSourceAgainstGrid(source, grid) {
 
   const ordered = [...grid.images].sort((a, b) => a.gridPosition - b.gridPosition);
   const sourceVersion = sourceVersionForGrid(grid);
+  const platforms = normalizePlatforms(source.platforms === undefined ? ["rednote"] : source.platforms);
+  const legacySource = source.platforms === undefined;
   if (source.sourceVersion !== sourceVersion) {
     throw requestError("This saved grid changed. Refresh the Collection before creating a Draft.", 409);
   }
@@ -225,7 +233,8 @@ function validateSourceAgainstGrid(source, grid) {
     kind: "ordered-grid",
     sourceId: grid.artifactId || grid.id,
     sourceVersion,
-    idempotencyKey: `grid:${grid.artifactId || grid.id}:${stableHash(sourceVersion)}`,
+    idempotencyKey: `grid:${grid.artifactId || grid.id}:${stableHash(sourceVersion)}${legacySource ? "" : `:${platforms.join("+")}`}`,
+    ...(legacySource ? {} : { platforms }),
     actor: { id: grid.actorId, name: grid.actor, nameEn: grid.actorEn },
     creativeContext: {
       vibe: grid.vibe,
@@ -497,7 +506,10 @@ function buildCreateEnvelope(grid, source, registration, generatedAt, idempotenc
       format: "static-card",
       template: "Vibe Atlas Creator Draft",
       series: ["A·Vibe"],
-      distribution: { primaryPlatform: "rednote", platforms: ["rednote"] },
+      distribution: {
+        primaryPlatform: normalizePlatforms(source.platforms === undefined ? ["rednote"] : source.platforms)[0],
+        platforms: normalizePlatforms(source.platforms === undefined ? ["rednote"] : source.platforms),
+      },
       requiredAssets: [registration.assetId],
       captionBrief: caption,
       tags: [],
@@ -536,12 +548,23 @@ async function sendToCreate(envelope, { env, fetchImpl, timestampDate }) {
     throw requestError(publicError(error, "CREATE intake failed."), 502, "create");
   }
   const payload = await readJson(response, "CREATE");
-  if (!response.ok) throw requestError(errorMessage(payload, `CREATE returned HTTP ${response.status}`), response.status === 409 ? 409 : 502, "create");
+  if (!response.ok) {
+    throw requestError(
+      response.status === 409
+        ? "Workstation already has a different draft for this request."
+        : `Workstation rejected the draft handoff (HTTP ${response.status}).`,
+      response.status === 409 ? 409 : 502,
+      "create",
+    );
+  }
   return payload;
 }
 
 function validateReceipt(value, source, createAppUrl) {
   const receipt = isRecord(value) && isRecord(value.receipt) ? value.receipt : value;
+  const platforms = normalizePlatforms(source.platforms === undefined ? ["rednote"] : source.platforms);
+  const returnedDistribution = receipt?.distribution;
+  const requiresDistribution = source.platforms !== undefined;
   if (
     !isRecord(receipt)
     || typeof receipt.postId !== "string"
@@ -553,11 +576,26 @@ function validateReceipt(value, source, createAppUrl) {
     || !["created", "replayed", "updated"].includes(receipt.disposition)
     || receipt.mediaSyncState !== "synced"
     || !Array.isArray(receipt.warnings)
+    || (requiresDistribution && !isRecord(returnedDistribution))
+    || (returnedDistribution !== undefined && (
+      !isRecord(returnedDistribution)
+      || !Array.isArray(returnedDistribution.platforms)
+      || JSON.stringify(normalizePlatforms(returnedDistribution.platforms)) !== JSON.stringify(platforms)
+      || JSON.stringify(returnedDistribution.platforms) !== JSON.stringify(platforms)
+      || returnedDistribution.primaryPlatform !== platforms[0]
+    ))
   ) throw requestError("CREATE returned an invalid Creator Draft receipt.", 502, "create");
+  const returnedComposerUrl = typeof receipt.createUrl === "string"
+    ? receipt.createUrl
+    : typeof receipt.composerUrl === "string" ? receipt.composerUrl : "";
+  const createUrl = returnedComposerUrl
+    ? trustedComposerUrl(returnedComposerUrl, receipt.postId)
+    : buildCreateDeepLink(receipt.postId, createAppUrl);
   return {
     ...receipt,
     sourceId: source.sourceId,
-    createUrl: buildCreateDeepLink(receipt.postId, createAppUrl),
+    createUrl,
+    ...(returnedDistribution === undefined ? {} : { distribution: returnedDistribution }),
   };
 }
 
@@ -771,12 +809,8 @@ async function readJson(response, label) {
   try { return JSON.parse(text); } catch { throw requestError(`${label} returned invalid JSON.`, 502, label.toLowerCase()); }
 }
 
-function errorMessage(value, fallback) {
-  return isRecord(value) && typeof value.error === "string" ? value.error : fallback;
-}
-
 function publicError(error, fallback = "The upstream service could not complete the request.") {
-  return error instanceof Error && error.message ? error.message.slice(0, 500) : fallback;
+  return fallback;
 }
 
 function requestError(message, status, stage) {
@@ -788,6 +822,46 @@ function requestError(message, status, stage) {
 
 function storageError() {
   return requestError("Creator Draft handoff storage could not be read.", 502, "storage");
+}
+
+export function normalizePlatforms(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > CREATOR_PLATFORMS.length) {
+    throw requestError("Creator Draft destinations must include Rednote, Weibo, Instagram, or a combination.", 400);
+  }
+  const unique = new Set(value);
+  if (
+    unique.size !== value.length
+    || [...unique].some(platform => !CREATOR_PLATFORMS.includes(platform))
+  ) {
+    throw requestError("Creator Draft destinations must be a unique canonical platform list.", 400);
+  }
+  const normalized = CREATOR_PLATFORMS.filter(platform => unique.has(platform));
+  if (JSON.stringify(normalized) !== JSON.stringify(value)) {
+    throw requestError("Creator Draft destinations must be a unique canonical platform list.", 400);
+  }
+  return normalized;
+}
+
+function trustedComposerUrl(value, postId) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw requestError("CREATE returned an invalid composer URL.", 502, "create");
+  }
+  if (
+    !["https://create.justlikekatie.com", "https://workstation.justlikekatie.com"].includes(url.origin)
+    || url.username
+    || url.password
+    || url.hash
+    || url.pathname !== "/compose"
+    || [...url.searchParams.keys()].some(key => key !== "postId")
+    || url.searchParams.getAll("postId").length !== 1
+    || url.searchParams.get("postId") !== postId
+  ) {
+    throw requestError("CREATE returned an invalid composer URL.", 502, "create");
+  }
+  return url.toString();
 }
 
 function safeSegment(value) {

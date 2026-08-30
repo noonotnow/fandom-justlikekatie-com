@@ -147,7 +147,7 @@ async function mockSelectedGridSync(page: Page): Promise<() => number> {
   return () => syncRequests;
 }
 
-test('Make a post sends one direct grid source and opens the Creator OS draft', { timeout: 60_000 }, async () => {
+test('Make a post sends one direct grid source and opens the Workstation draft', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();
   const page = await browser.newPage();
@@ -164,7 +164,10 @@ test('Make a post sends one direct grid source and opens the Creator OS draft', 
     await page.route('**/api/create-handoff', async route => {
       assert.equal(getSyncRequests(), 1, 'the selected grid must sync before its handoff is created');
       createRequests += 1;
-      const request = route.request().postDataJSON() as { source: { sourceId: string; sourceVersion: string } };
+      const request = route.request().postDataJSON() as {
+        source: { sourceId: string; sourceVersion: string; platforms: string[] };
+      };
+      assert.deepEqual(request.source.platforms, ['rednote', 'weibo', 'instagram']);
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
@@ -178,6 +181,10 @@ test('Make a post sends one direct grid source and opens the Creator OS draft', 
             status: 'Draft',
             workflow: 'creator-draft',
             mediaSyncState: 'synced',
+            distribution: {
+              primaryPlatform: request.source.platforms[0],
+              platforms: request.source.platforms,
+            },
           },
         }),
       });
@@ -188,7 +195,10 @@ test('Make a post sends one direct grid source and opens the Creator OS draft', 
     }));
 
     await openSavedGrid(page, origin);
-    const startButton = page.getByRole('button', { name: 'Make a post in Creator OS' });
+    await page.getByRole('checkbox', { name: /Weibo/ }).check();
+    await page.getByRole('checkbox', { name: /Instagram/ }).check();
+    await page.getByText('Selected for this draft: Rednote + Weibo + Instagram').waitFor();
+    const startButton = page.getByRole('button', { name: 'Make a post in Workstation' });
     await startButton.click();
     await startButton.click({ force: true }).catch(() => undefined);
 
@@ -203,8 +213,27 @@ test('Make a post sends one direct grid source and opens the Creator OS draft', 
 });
 
 for (const failure of [
-  { name: 'expired authorization', status: 401, message: 'Admin session expired. Sign in again.' },
-  { name: 'persistence failure', status: 503, message: 'Saved grid handoff is temporarily unavailable.' },
+  {
+    name: 'expired authorization',
+    status: 401,
+    responseBody: JSON.stringify({ error: 'Admin session expired. Sign in again.' }),
+    contentType: 'application/json',
+    visibleMessage: 'Admin session expired. Sign in again.',
+  },
+  {
+    name: 'persistence failure',
+    status: 503,
+    responseBody: JSON.stringify({ error: 'Saved grid handoff is temporarily unavailable.' }),
+    contentType: 'application/json',
+    visibleMessage: 'Saved grid handoff is temporarily unavailable.',
+  },
+  {
+    name: 'malformed HTML response',
+    status: 502,
+    responseBody: '<html><body>private upstream failure</body></html>',
+    contentType: 'text/html',
+    visibleMessage: 'Workstation returned an unreadable draft receipt.',
+  },
 ]) {
   test(`Make a post keeps results visible after ${failure.name}`, { timeout: 60_000 }, async () => {
     const { server, origin } = await startApp();
@@ -225,14 +254,16 @@ for (const failure of [
         createRequests += 1;
         return route.fulfill({
           status: failure.status,
-          contentType: 'application/json',
-          body: JSON.stringify({ error: failure.message }),
+          contentType: failure.contentType,
+          body: failure.responseBody,
         });
       });
 
       await openSavedGrid(page, origin);
-      await page.getByRole('button', { name: 'Make a post in Creator OS' }).click();
-      await page.getByRole('status').filter({ hasText: failure.message }).waitFor();
+      await page.getByRole('button', { name: 'Make a post in Workstation' }).click();
+      await page.getByRole('alert').filter({ hasText: failure.visibleMessage }).waitFor();
+      await page.getByRole('link', { name: 'Open Studio Operations' }).waitFor();
+      await page.getByRole('link', { name: 'Open Workstation' }).waitFor();
       assert.equal(new URL(page.url()).search, '?view=collection');
       assert.equal(createRequests, 1);
       assert.equal(getSyncRequests(), 1);

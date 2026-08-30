@@ -19,16 +19,17 @@ import {
   type GridProposal,
 } from '../../utils/gridBuilder';
 import styles from './GridBuilder.module.css';
-import type { CreatorDraftResult } from '../../utils/creatorDraft';
+import type { CreatorDraftResult, CreatorPlatform } from '../../utils/creatorDraft';
+import { CreatorPostAction } from '../CreatorPostAction/CreatorPostAction';
 
 interface Props {
   /** Account id of the signed-in user; scopes the pool to that account's visible records. */
   accountId?: string;
-  /** When true, the private Creator OS handoff is shown. Omit (or false) to hide it. */
+  /** When true, the private Workstation handoff is shown. Omit (or false) to hide it. */
   isAdmin?: boolean;
-  /** Required when isAdmin is true; compatibility-backed Creator OS handoff. */
-  onCreateFromGrid?: (grid: GridRecord) => Promise<CreatorDraftResult>;
-  /** Called after a successful Creator OS handoff. */
+  /** Required when isAdmin is true; compatibility-backed Workstation handoff. */
+  onCreateFromGrid?: (grid: GridRecord, platforms: CreatorPlatform[]) => Promise<CreatorDraftResult>;
+  /** Called after a successful Workstation handoff. */
   onPacketCreated?: () => void;
   /** Called after a successful export so the parent can navigate to the Grids tab. */
   onExported?: () => void;
@@ -333,12 +334,14 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
     }
   }
 
-  async function startPacket() {
-    if (!proposal || proposal.slots.length !== 9 || busy || !onCreateFromGrid) return;
+  async function startPacket(platforms: CreatorPlatform[]): Promise<CreatorDraftResult> {
+    if (!proposal || proposal.slots.length !== 9 || busy || !onCreateFromGrid) {
+      throw new Error('Complete a nine-image grid before creating a post.');
+    }
     // Synchronous re-entrant guard: the ref is set before any await, so a second
     // call that arrives in the same event-loop tick (before React re-renders and
     // the button disables) exits here without touching dbSaveGrid or onCreateFromGrid.
-    if (packetInFlight.current) return;
+    if (packetInFlight.current) throw new Error('A post draft is already being created.');
     packetInFlight.current = true;
     setBusy('packet');
     setNotice('');
@@ -355,12 +358,10 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
       await dbSaveGrid(grid);
       setIsGridSaved(true);
       setSavedGridId(grid.id);
-      const result = await onCreateFromGrid(grid);
-      setNotice('Creator OS draft created with the exact grid and curation brief.');
-      window.location.assign(result.receipt.createUrl);
+      const result = await onCreateFromGrid(grid, platforms);
+      setNotice('Workstation draft created with the exact grid and curation brief.');
       onPacketCreated?.();
-    } catch (caught) {
-      setNotice(caught instanceof Error ? caught.message : 'The Creator OS draft could not be created.');
+      return result;
     } finally {
       packetInFlight.current = false;
       setBusy('');
@@ -557,9 +558,11 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
                 </button>
               )}
               {isAdmin && onCreateFromGrid && (
-                <button type="button" onClick={startPacket} disabled={Boolean(busy) || proposal.slots.length !== 9}>
-                  {busy === 'packet' ? 'Creating draft…' : 'Make a post in Creator OS'}
-                </button>
+                <CreatorPostAction
+                  entryPoint="builder"
+                  disabled={Boolean(busy) || proposal.slots.length !== 9}
+                  onSubmit={startPacket}
+                />
               )}
             </div>
           </aside>

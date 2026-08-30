@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { BuilderCard } from '../src/utils/gridBuilder.ts';
 import { gridRecordFromProposal, manualGridRationale } from '../src/utils/gridBuilder.ts';
-import { CREATOR_DRAFT_SOURCE_SCHEMA, creatorDraftSourceFromGrid } from '../src/utils/creatorDraft.ts';
+import {
+  CREATOR_DRAFT_SOURCE_SCHEMA,
+  creatorDraftSourceFromGrid,
+  normalizeCreatorPlatforms,
+} from '../src/utils/creatorDraft.ts';
 import { sourceVersionForGrid } from '../netlify/functions/lib/creator-grid-handoff.js';
 
 function card(position: number): BuilderCard {
@@ -66,6 +70,24 @@ test('Creator Draft source carries stable ordered provenance and creative contex
   assert.match(first.creativeContext.brief, /Build Your Own/);
 });
 
+test('Creator Draft source uses the server artifact identity when a synced record carries both ids', async () => {
+  const slots = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(card);
+  const grid = {
+    ...gridRecordFromProposal(
+      slots,
+      manualGridRationale(slots, '赵露思'),
+      new Date('2026-08-30T12:00:00.000Z'),
+    ),
+    artifactId: 'server-grid-1',
+  };
+
+  const source = await creatorDraftSourceFromGrid(grid, ['instagram', 'rednote']);
+
+  assert.equal(source.sourceId, 'server-grid-1');
+  assert.equal(source.sourceVersion, sourceVersionForGrid(grid));
+  assert.match(source.idempotencyKey, /^grid:server-grid-1:/);
+});
+
 test('Creator Draft source version changes for every mutable render and envelope input', async () => {
   const slots = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(card);
   const grid = gridRecordFromProposal(
@@ -92,4 +114,26 @@ test('Creator Draft source version changes for every mutable render and envelope
   assert.notEqual(changedImage.idempotencyKey, original.idempotencyKey);
   assert.notEqual(changedContext.sourceVersion, original.sourceVersion);
   assert.notEqual(changedContext.idempotencyKey, original.idempotencyKey);
+});
+
+test('Creator Draft platform selections are canonical and part of handoff identity', async () => {
+  const slots = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(card);
+  const grid = gridRecordFromProposal(
+    slots,
+    manualGridRationale(slots, '赵露思'),
+    new Date('2026-08-30T12:00:00.000Z'),
+  );
+  const rednote = await creatorDraftSourceFromGrid(grid, ['rednote']);
+  const weibo = await creatorDraftSourceFromGrid(grid, ['weibo']);
+  const both = await creatorDraftSourceFromGrid(grid, ['weibo', 'rednote', 'instagram']);
+
+  assert.deepEqual(both.platforms, ['rednote', 'weibo', 'instagram']);
+  assert.equal(rednote.sourceVersion, both.sourceVersion, 'the grid version is independent of distribution');
+  assert.notEqual(rednote.idempotencyKey, weibo.idempotencyKey);
+  assert.notEqual(rednote.idempotencyKey, both.idempotencyKey);
+  const instagram = await creatorDraftSourceFromGrid(grid, ['instagram']);
+  assert.deepEqual(instagram.platforms, ['instagram']);
+  assert.notEqual(instagram.idempotencyKey, rednote.idempotencyKey);
+  assert.throws(() => normalizeCreatorPlatforms([]), /Select Rednote/i);
+  assert.throws(() => normalizeCreatorPlatforms(['rednote', 'rednote']), /Select Rednote/i);
 });

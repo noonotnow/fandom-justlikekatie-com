@@ -59,7 +59,7 @@ function grid() {
   };
 }
 
-function sourceFor(savedGrid = grid()) {
+function sourceFor(savedGrid = grid(), platforms) {
   const sourceVersion = sourceVersionForGrid(savedGrid);
   const orderedImages = [...savedGrid.images].sort((a, b) => a.gridPosition - b.gridPosition);
   return {
@@ -67,7 +67,8 @@ function sourceFor(savedGrid = grid()) {
     kind: "ordered-grid",
     sourceId: savedGrid.artifactId,
     sourceVersion,
-    idempotencyKey: `grid:${savedGrid.artifactId}:${stableHash(sourceVersion)}`,
+    idempotencyKey: `grid:${savedGrid.artifactId}:${stableHash(sourceVersion)}${platforms ? `:${platforms.join("+")}` : ""}`,
+    ...(platforms ? { platforms } : {}),
     actor: { id: savedGrid.actorId, name: savedGrid.actor, nameEn: savedGrid.actorEn },
     creativeContext: {
       vibe: savedGrid.vibe,
@@ -233,6 +234,7 @@ test("direct handoff scopes CREATE idempotency and receipt reuse to the authenti
           disposition: "created",
           mediaSyncState: "synced",
           warnings: [],
+          distribution: body.publicationBrief.distribution,
         },
       });
     },
@@ -265,6 +267,124 @@ test("direct handoff scopes CREATE idempotency and receipt reuse to the authenti
   assert.equal(replayReceipt.postUrl, firstReceipt.postUrl);
   assert.equal(createCalls, 2);
   assert.equal(mediaCalls, 2);
+});
+
+test("platform selection is canonical, reaches the publication brief, and separates replay identity", async () => {
+  const savedGrid = grid();
+  const collection = memoryStore({
+    schemaVersion: 1,
+    accountId: "account-1",
+    items: { "server-grid-1": savedGrid },
+  });
+  const receipts = memoryStore();
+  const distributions = [];
+  let mediaCalls = 0;
+  let createCalls = 0;
+  const handler = directHandler({
+    collection,
+    receipts,
+    fetchImpl: async (url, options) => {
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        mediaCalls += 1;
+        const bytes = new Uint8Array(await options.body.get("file").arrayBuffer());
+        return Response.json({
+          data: {
+            version: 1,
+            assetId: `11111111-1111-4111-8111-${String(mediaCalls).padStart(12, "0")}`,
+            fileUrl: `https://media.example/assets/grid-${mediaCalls}.png`,
+            deliveryUrl: `https://media.example/assets/grid-${mediaCalls}.png`,
+            thumbnailUrl: `https://media.example/assets/grid-${mediaCalls}-thumb.png`,
+            mediaType: "image",
+            mimeType: "image/png",
+            sizeBytes: bytes.byteLength,
+            checksum: createHash("sha256").update(bytes).digest("hex"),
+            dimensions: { width: 1080, height: 1350 },
+          },
+        });
+      }
+      createCalls += 1;
+      const body = JSON.parse(options.body);
+      distributions.push(body.publicationBrief.distribution);
+      return Response.json({
+        receipt: {
+          postId: `draft-${createCalls}`,
+          postUrl: `https://create.example/drafts/draft-${createCalls}`,
+          status: "Draft",
+          sourceVersion: body.sourceVersion,
+          workflow: "creator-draft",
+          disposition: "created",
+          mediaSyncState: "synced",
+          warnings: [],
+          distribution: body.publicationBrief.distribution,
+        },
+      });
+    },
+  });
+  const operator = { user: { accountId: "account-1" } };
+  const rednote = sourceFor(savedGrid, ["rednote"]);
+  const both = sourceFor(savedGrid, ["rednote", "weibo", "instagram"]);
+
+  const first = await handler(request(rednote), {}, rednote, operator);
+  const replay = await handler(request(rednote), {}, rednote, operator);
+  const crossPost = await handler(request(both), {}, both, operator);
+
+  assert.equal(first.status, 201);
+  assert.equal(replay.status, 200);
+  assert.equal(crossPost.status, 201);
+  assert.deepEqual(distributions, [
+    { primaryPlatform: "rednote", platforms: ["rednote"] },
+    { primaryPlatform: "rednote", platforms: ["rednote", "weibo", "instagram"] },
+  ]);
+  assert.equal(createCalls, 2);
+  assert.equal(mediaCalls, 2);
+  assert.deepEqual((await crossPost.json()).receipt.distribution.platforms, ["rednote", "weibo", "instagram"]);
+
+  const duplicate = sourceFor(savedGrid, ["rednote", "rednote"]);
+  const invalid = await handler(request(duplicate), {}, duplicate, operator);
+  assert.equal(invalid.status, 400);
+  assert.match((await invalid.json()).error, /unique canonical/i);
+});
+
+test("malformed Workstation responses stay bounded and do not leak upstream HTML", async () => {
+  const savedGrid = grid();
+  const handler = directHandler({
+    collection: memoryStore({
+      schemaVersion: 1,
+      accountId: "account-1",
+      items: { "server-grid-1": savedGrid },
+    }),
+    receipts: memoryStore(),
+    fetchImpl: async (url, options) => {
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        const bytes = new Uint8Array(await options.body.get("file").arrayBuffer());
+        return Response.json({
+          data: {
+            version: 1,
+            assetId: "11111111-1111-4111-8111-111111111111",
+            fileUrl: "https://media.example/assets/grid.png",
+            deliveryUrl: "https://media.example/assets/grid.png",
+            thumbnailUrl: "https://media.example/assets/grid-thumb.png",
+            mediaType: "image",
+            mimeType: "image/png",
+            sizeBytes: bytes.byteLength,
+            checksum: createHash("sha256").update(bytes).digest("hex"),
+            dimensions: { width: 1080, height: 1350 },
+          },
+        });
+      }
+      return new Response("<html><body>private proxy failure</body></html>", {
+        status: 502,
+        headers: { "Content-Type": "text/html" },
+      });
+    },
+  });
+  const source = sourceFor(savedGrid, ["weibo"]);
+  const response = await handler(request(source), {}, source, { user: { accountId: "account-1" } });
+  const body = await response.json();
+
+  assert.equal(response.status, 502);
+  assert.equal(body.error, "CREATE returned invalid JSON.");
+  assert.doesNotMatch(JSON.stringify(body), /private proxy failure/);
 });
 
 test("a receipt storage failure retries CREATE with the pending MEDIA registration", async () => {

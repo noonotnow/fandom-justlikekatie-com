@@ -589,7 +589,7 @@ test('startPacket cleans up priorSavedGridId before saving — source-level asse
   );
 
   // Locate the startPacket function body so assertions are scoped to it.
-  const startPacketIdx = source.indexOf('async function startPacket()');
+  const startPacketIdx = source.indexOf('async function startPacket(');
   assert.ok(startPacketIdx !== -1, 'startPacket function must exist in GridBuilder.tsx');
 
   // Find the closing brace of startPacket by grabbing from its start to the
@@ -730,18 +730,18 @@ test('startPacket source uses packetInFlight ref for synchronous re-entrant guar
   );
 
   // Locate the startPacket function body.
-  const startPacketIdx = source.indexOf('async function startPacket()');
+  const startPacketIdx = source.indexOf('async function startPacket(');
   assert.ok(startPacketIdx !== -1, 'startPacket function must exist in GridBuilder.tsx');
   const bodyAfter = source.slice(startPacketIdx);
   const nextFnIdx = bodyAfter.indexOf('\n  if (loadError)');
   const startPacketBody = nextFnIdx !== -1 ? bodyAfter.slice(0, nextFnIdx) : bodyAfter.slice(0, 800);
 
   // The ref guard must appear before the first await.
-  const refGuardPos = startPacketBody.indexOf('if (packetInFlight.current) return');
+  const refGuardPos = startPacketBody.indexOf('if (packetInFlight.current)');
   const setRefPos   = startPacketBody.indexOf('packetInFlight.current = true');
   const firstAwait  = startPacketBody.indexOf('await ');
 
-  assert.ok(refGuardPos !== -1, 'startPacket must guard with `if (packetInFlight.current) return`');
+  assert.ok(refGuardPos !== -1, 'startPacket must guard synchronously with packetInFlight.current');
   assert.ok(setRefPos   !== -1, 'startPacket must set packetInFlight.current = true');
   assert.ok(
     refGuardPos < firstAwait && setRefPos < firstAwait,
@@ -859,7 +859,7 @@ test('exportGrid source uses exportInFlight ref for synchronous re-entrant guard
   const exportGridIdx = source.indexOf('async function exportGrid()');
   assert.ok(exportGridIdx !== -1, 'exportGrid function must exist in GridBuilder.tsx');
   const bodyAfter = source.slice(exportGridIdx);
-  const nextFnIdx = bodyAfter.indexOf('\n  async function startPacket()');
+  const nextFnIdx = bodyAfter.indexOf('\n  async function startPacket(');
   const exportGridBody = nextFnIdx !== -1 ? bodyAfter.slice(0, nextFnIdx) : bodyAfter.slice(0, 800);
 
   // The ref guard must appear before the first await.
