@@ -30,4 +30,4 @@
 - [Private operator console](private-operator-console.md) — keep admin tools private for preflight, audits, and controlled publishing; do not make them part of the public product.
 - [Actor image-query ladders](actor-image-query-ladders.md) — start broad, then add light role/style anchors; stacked show, character, mood, and wardrobe terms can erase a popular actor’s evidence.
 - [Long audit result handoff](long-audit-result-handoff.md) — after a long audit mutation, reload and validate the stored run before announcing that an editorial review is ready.
-- [Actor image feedback](actor-image-feedback.md) — treat picks as weak next-run preferences; preserve hard gates, frozen evidence, and one canonical identity per image.
+- [Actor image feedback](actor-image-feedback.md) — automated picks stay weak; rescue boards are exact operator overrides from frozen displayable evidence without changing eligibility.
