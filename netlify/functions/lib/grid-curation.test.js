@@ -189,7 +189,7 @@ test("near-similar event frames survive until editorial mode is selected", async
   assert.equal(curated.displayResults.length, 9);
 });
 
-test("a strong compiled set wins when no coherent event exists", async () => {
+test("a strong compiled set wins with a frozen component score breakdown", async () => {
   const compiled = Array.from({ length: 12 }, (_, index) => result(`compiled-${index}`, {
     source: `publication-${index % 6}.test`,
     link: `https://publication-${index % 6}.test/story/${index}`,
@@ -202,6 +202,15 @@ test("a strong compiled set wins when no coherent event exists", async () => {
   assert.equal(curated.curation.mode, "compiled");
   assert.equal(curated.displayResults.length, 9);
   assert.match(curated.curation.rationale, /varied set/i);
+
+  const diagnostic = await curate(compiled, { diagnostics: true });
+  const breakdown = diagnostic.diagnostics.strongestCompiled.scoreBreakdown;
+  assert.deepEqual(Object.keys(breakdown), [
+    "quality", "completeness", "sourceRange", "queryRange", "familyRange", "visualVariation",
+  ]);
+  const contributionTotal = Object.values(breakdown)
+    .reduce((total, component) => total + component.contribution, 0);
+  assert.ok(Math.abs(contributionTotal - diagnostic.diagnostics.strongestCompiled.score) < 0.001);
 });
 
 test("same publisher with unrelated shoots does not become an event", async () => {

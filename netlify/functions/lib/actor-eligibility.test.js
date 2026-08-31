@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { getRandomForDate } from "./date-seed.js";
 import {
   auditHeadKey,
+  auditCalibrationKey,
   auditRunKey,
   auditVerdictKey,
   eligibilityKey,
@@ -20,13 +22,73 @@ function storeWith(entries = {}) {
     async get(key) {
       return entries[key] || null;
     },
+    async list({ prefix } = {}) {
+      return {
+        blobs: Object.keys(entries)
+          .filter(key => !prefix || key.startsWith(prefix))
+          .map(key => ({ key })),
+      };
+    },
   };
 }
 
 function approved(actor, vibeIdx) {
   const actorId = actor.id;
   const runId = `${actorId}-${vibeIdx}-run`;
+  const vibeKey = `${actorId}:${vibeIdx}`;
   const pairingFingerprint = pairingFingerprintFor(actor, vibeIdx);
+  const candidates = Array.from({ length: 9 }, (_, index) => ({
+    thumbnail: `https://images.test/${actorId}-${vibeIdx}-${index}.jpg`,
+    title: `Frame ${index}`,
+    source: `source-${index}.test`,
+    batchRank: index,
+  }));
+  const eventBoard = boardSnapshot({ candidates }, "event");
+  const compiledBoard = boardSnapshot({ candidates: [...candidates].reverse() }, "compiled");
+  const presentationOrder = ["event", "compiled"];
+  const chosenAt = "2026-08-31T12:00:00.000Z";
+  const decidedAt = "2026-08-31T12:01:00.000Z";
+  const calibration = {
+    schemaVersion: 1,
+    runId,
+    actorId,
+    vibeKey,
+    presentationOrder,
+    choice: "compiled",
+    chosenAt,
+    chosenBy: "operator-1",
+    systemWinner: "compiled",
+    agreement: true,
+    experiment: {
+      auditRunId: runId,
+      curationVersion: 1,
+      eventBoard,
+      compiledBoard,
+    },
+  };
+  const finalCalibration = {
+    schemaVersion: 1,
+    auditRunId: runId,
+    actorId,
+    vibeKey,
+    eventBoard,
+    compiledBoard,
+    presentationOrder,
+    curationVersion: 1,
+    humanChoice: "compiled",
+    humanChoiceAt: chosenAt,
+    humanChoiceBy: "operator-1",
+    systemWinner: "compiled",
+    agreement: true,
+    reasonCodes: [],
+    disagreementNote: "",
+    disagreementAnnotatedAt: null,
+    disagreementAnnotatedBy: null,
+    finalSchedulingVerdict: "approved",
+    finalSchedulingNotes: "Approved fixture.",
+    finalSchedulingAt: decidedAt,
+    finalSchedulingBy: "operator-1",
+  };
   return {
     [eligibilityKey(actorId, vibeIdx)]: {
       eligible: true,
@@ -34,11 +96,44 @@ function approved(actor, vibeIdx) {
       runId,
       profileVersion: 1,
       pairingFingerprint,
+      calibrationVersion: 1,
+      calibrationHash: recordHash(finalCalibration),
     },
     [auditHeadKey(actorId, vibeIdx)]: { currentRunId: runId },
-    [auditRunKey(actorId, vibeIdx, runId)]: { runId, profileVersion: 1, pairingFingerprint },
-    [auditVerdictKey(actorId, vibeIdx, runId)]: { verdict: "approved" },
+    [auditRunKey(actorId, vibeIdx, runId)]: {
+      runId,
+      profileVersion: 1,
+      pairingFingerprint,
+      strongestEvent: { candidates },
+      strongestCompiled: { candidates: [...candidates].reverse() },
+      winner: { mode: "compiled" },
+      curationReceipt: { curationVersion: 1 },
+    },
+    [auditVerdictKey(actorId, vibeIdx, runId)]: {
+      verdict: "approved",
+      notes: "Approved fixture.",
+      decidedAt,
+      decidedBy: "operator-1",
+      calibration: finalCalibration,
+    },
+    [auditCalibrationKey(actorId, vibeIdx, runId)]: calibration,
   };
+}
+
+function boardSnapshot(board, mode) {
+  const boardHash = createHash("sha256").update(JSON.stringify(
+    board.candidates.map(candidate => ({
+      thumbnail: candidate.thumbnail || "",
+      title: candidate.title || "",
+      source: candidate.source || "",
+      batchRank: candidate.batchRank ?? null,
+    })),
+  )).digest("hex");
+  return { mode, boardId: `${mode}-${boardHash.slice(0, 16)}`, boardHash };
+}
+
+function recordHash(value) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 test("the legacy date pair stays selected when its current audit is approved", async () => {

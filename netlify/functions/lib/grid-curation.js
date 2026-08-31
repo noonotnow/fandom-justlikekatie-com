@@ -186,31 +186,54 @@ function uniqueCount(board, key) {
   return new Set(board.map(candidate => key(candidate)).filter(Boolean)).size;
 }
 
-function eventScore(board, familyStrength) {
-  const variation = boardVisualVariation(board);
-  const quality = boardQuality(board);
-  return (
-    quality * 0.15
-    + (board.length / DEFAULT_CURATION_LIMIT) * 0.15
-    + familyStrength * 0.55
-    + variation * 0.15
-  );
+function weightedBreakdown(parts) {
+  const breakdown = {};
+  let total = 0;
+  for (const [key, value, weight] of parts) {
+    const contribution = value * weight;
+    total += contribution;
+    breakdown[key] = {
+      value: Number(value.toFixed(4)),
+      weight,
+      contribution: Number(contribution.toFixed(4)),
+    };
+  }
+  return { total, breakdown };
 }
 
-function compiledScore(board) {
+function eventScoreParts(board, familyStrength) {
+  const variation = boardVisualVariation(board);
+  const quality = boardQuality(board);
+  return weightedBreakdown([
+    ["quality", quality, 0.15],
+    ["completeness", board.length / DEFAULT_CURATION_LIMIT, 0.15],
+    ["familyStrength", familyStrength, 0.55],
+    ["visualVariation", variation, 0.15],
+  ]);
+}
+
+function eventScore(board, familyStrength) {
+  return eventScoreParts(board, familyStrength).total;
+}
+
+function compiledScoreParts(board) {
   const quality = boardQuality(board);
   const sources = clamp(uniqueCount(board, candidate => sourceKey(candidate.result)) / 5);
   const batches = clamp(uniqueCount(board, candidate => batchKey(candidate.result)) / 3);
   const families = clamp(uniqueCount(board, candidate => candidate.familyId) / 4);
   const variation = boardVisualVariation(board);
-  return (
-    quality * 0.2
-    + (board.length / DEFAULT_CURATION_LIMIT) * 0.15
-    + sources * 0.2
-    + batches * 0.15
-    + families * 0.15
-    + variation * 0.15
-  );
+  return weightedBreakdown([
+    ["quality", quality, 0.2],
+    ["completeness", board.length / DEFAULT_CURATION_LIMIT, 0.15],
+    ["sourceRange", sources, 0.2],
+    ["queryRange", batches, 0.15],
+    ["familyRange", families, 0.15],
+    ["visualVariation", variation, 0.15],
+  ]);
+}
+
+function compiledScore(board) {
+  return compiledScoreParts(board).total;
 }
 
 function stableSerialize(value) {
@@ -499,8 +522,11 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
     source: String(candidate.result.source || "").slice(0, 120),
     batchRank: candidate.batchRank,
   });
-  const board = selection => selection ? {
+  const board = (selection, mode) => selection ? {
     score: Number(selection.score.toFixed(4)),
+    scoreBreakdown: (mode === "event"
+      ? eventScoreParts(selection.board, selection.familyStrength)
+      : compiledScoreParts(selection.board)).breakdown,
     candidates: selection.board.slice(0, DEFAULT_CURATION_LIMIT).map(summarize),
   } : null;
   return {
@@ -520,8 +546,8 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
       id: `event-family-${index + 1}`, strength: Number(family.familyStrength.toFixed(4)),
       size: family.candidates.length, candidates: family.candidates.slice(0, 9).map(summarize),
     })),
-    strongestEvent: board(eventCandidate),
-    strongestCompiled: board(compiledCandidate),
+    strongestEvent: board(eventCandidate, "event"),
+    strongestCompiled: board(compiledCandidate, "compiled"),
     winner,
     alternate: winner === "event" ? "compiled" : winner === "compiled" ? "event" : null,
     receipt: { rawCount: rawCandidates.length, analyzedCount: states.filter(state => !state.dropReason).length, curationVersion: CURATION_VERSION },

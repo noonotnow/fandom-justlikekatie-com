@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import starOfDay, {
   buildPayloadForDate,
   cachedPairIsEligible,
 } from "../star-of-day.js";
 import {
   auditHeadKey,
+  auditCalibrationKey,
   auditRunKey,
   auditVerdictKey,
   eligibilityKey,
@@ -48,18 +50,105 @@ function contextFor(store) {
 function approvedEligibility(actor, vibeIdx) {
   const runId = `${actor.id}-${vibeIdx}-run`;
   const pairingFingerprint = pairingFingerprintFor(actor, vibeIdx);
+  const actorId = actor.id;
+  const vibeKey = `${actorId}:${vibeIdx}`;
+  const candidates = Array.from({ length: 9 }, (_, index) => ({
+    thumbnail: `https://images.test/${actorId}-${vibeIdx}-${index}.jpg`,
+    title: `Frame ${index}`,
+    source: `source-${index}.test`,
+    batchRank: index,
+  }));
+  const eventBoard = boardSnapshot({ candidates }, "event");
+  const compiledBoard = boardSnapshot({ candidates: [...candidates].reverse() }, "compiled");
+  const presentationOrder = ["event", "compiled"];
+  const chosenAt = "2026-08-31T12:00:00.000Z";
+  const decidedAt = "2026-08-31T12:01:00.000Z";
+  const calibration = {
+    schemaVersion: 1,
+    runId,
+    actorId,
+    vibeKey,
+    presentationOrder,
+    choice: "compiled",
+    chosenAt,
+    chosenBy: "operator-1",
+    systemWinner: "compiled",
+    agreement: true,
+    experiment: {
+      auditRunId: runId,
+      curationVersion: 1,
+      eventBoard,
+      compiledBoard,
+    },
+  };
+  const finalCalibration = {
+    schemaVersion: 1,
+    auditRunId: runId,
+    actorId,
+    vibeKey,
+    eventBoard,
+    compiledBoard,
+    presentationOrder,
+    curationVersion: 1,
+    humanChoice: "compiled",
+    humanChoiceAt: chosenAt,
+    humanChoiceBy: "operator-1",
+    systemWinner: "compiled",
+    agreement: true,
+    reasonCodes: [],
+    disagreementNote: "",
+    disagreementAnnotatedAt: null,
+    disagreementAnnotatedBy: null,
+    finalSchedulingVerdict: "approved",
+    finalSchedulingNotes: "Approved fixture.",
+    finalSchedulingAt: decidedAt,
+    finalSchedulingBy: "operator-1",
+  };
   return {
-    [eligibilityKey(actor.id, vibeIdx)]: {
+    [eligibilityKey(actorId, vibeIdx)]: {
       eligible: true,
       verdict: "approved",
       runId,
       profileVersion: 1,
       pairingFingerprint,
+      calibrationVersion: 1,
+      calibrationHash: recordHash(finalCalibration),
     },
-    [auditHeadKey(actor.id, vibeIdx)]: { currentRunId: runId },
-    [auditRunKey(actor.id, vibeIdx, runId)]: { runId, profileVersion: 1, pairingFingerprint },
-    [auditVerdictKey(actor.id, vibeIdx, runId)]: { verdict: "approved" },
+    [auditHeadKey(actorId, vibeIdx)]: { currentRunId: runId },
+    [auditRunKey(actorId, vibeIdx, runId)]: {
+      runId,
+      profileVersion: 1,
+      pairingFingerprint,
+      strongestEvent: { candidates },
+      strongestCompiled: { candidates: [...candidates].reverse() },
+      winner: { mode: "compiled" },
+      curationReceipt: { curationVersion: 1 },
+    },
+    [auditVerdictKey(actorId, vibeIdx, runId)]: {
+      verdict: "approved",
+      notes: "Approved fixture.",
+      decidedAt,
+      decidedBy: "operator-1",
+      calibration: finalCalibration,
+    },
+    [auditCalibrationKey(actorId, vibeIdx, runId)]: calibration,
   };
+}
+
+function boardSnapshot(board, mode) {
+  const boardHash = createHash("sha256").update(JSON.stringify(
+    board.candidates.map(candidate => ({
+      thumbnail: candidate.thumbnail || "",
+      title: candidate.title || "",
+      source: candidate.source || "",
+      batchRank: candidate.batchRank ?? null,
+    })),
+  )).digest("hex");
+  return { mode, boardId: `${mode}-${boardHash.slice(0, 16)}`, boardHash };
+}
+
+function recordHash(value) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 function archivePayload(date, actorName = `Actor ${date}`) {
@@ -141,7 +230,7 @@ test("historical reads reject missing and future dates without touching cache lo
     contextFor(store),
   );
   const future = await starOfDay(
-    { method: "GET", url: "https://example.test/star-of-day?date=2026-09-01" },
+    { method: "GET", url: "https://example.test/star-of-day?date=2099-01-01" },
     contextFor(store),
   );
 

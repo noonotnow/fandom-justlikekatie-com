@@ -9,7 +9,12 @@ export const auditVibeKey = (actorId, vibeIdx) => `${actorId}:${vibeIdx}`;
 export const auditHeadKey = (actorId, vibeIdx) => `heads/${actorId}/${vibeIdx}`;
 export const auditRunPrefix = (actorId, vibeIdx) => `runs/${actorId}/${vibeIdx}/`;
 export const auditRunKey = (actorId, vibeIdx, runId) => `${auditRunPrefix(actorId, vibeIdx)}${encodeURIComponent(runId)}`;
-export const auditVerdictKey = (actorId, vibeIdx, runId) => `verdicts/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}`;
+export const auditVerdictPrefix = (actorId, vibeIdx, runId) => `verdicts/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
+export const auditVerdictKey = (actorId, vibeIdx, runId, receiptId = "canonical") => `${auditVerdictPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
+export const auditCalibrationPrefix = (actorId, vibeIdx, runId) => `calibrations/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
+export const auditCalibrationKey = (actorId, vibeIdx, runId, receiptId = "canonical") => `${auditCalibrationPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
+export const auditCalibrationReasonsPrefix = (actorId, vibeIdx, runId) => `calibration-reasons/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
+export const auditCalibrationReasonsKey = (actorId, vibeIdx, runId, receiptId = "canonical") => `${auditCalibrationReasonsPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
 
 export function pairingFingerprintFor(actor, vibeIdx) {
   return createHash("sha256").update(JSON.stringify({
@@ -28,14 +33,31 @@ export async function getEligibility(store, actor, vibeIdx) {
   ]);
   if (!snapshot || !head?.currentRunId || snapshot.runId !== head.currentRunId) return null;
 
-  const [run, verdict] = await Promise.all([
+  const [run, verdict, calibration, reasons] = await Promise.all([
     store.get(auditRunKey(actorId, vibeIdx, head.currentRunId), { type: "json", consistency: "strong" }),
-    store.get(auditVerdictKey(actorId, vibeIdx, head.currentRunId), { type: "json", consistency: "strong" }),
+    readFirstReceipt(store, auditVerdictPrefix(actorId, vibeIdx, head.currentRunId), "decidedAt"),
+    readFirstReceipt(store, auditCalibrationPrefix(actorId, vibeIdx, head.currentRunId), "chosenAt"),
+    readFirstReceipt(store, auditCalibrationReasonsPrefix(actorId, vibeIdx, head.currentRunId), "annotatedAt"),
   ]);
+  const disagreement = calibration?.choice !== run?.winner?.mode;
   const expectedFingerprint = pairingFingerprintFor(actor, vibeIdx);
   if (
     !run
     || !verdict
+    || !calibration
+    || calibration.runId !== run.runId
+    || !["event", "compiled", "neither"].includes(calibration.choice)
+    || (disagreement && !reasons?.reasonCodes?.length)
+    || !validFinalCalibration({
+      actor,
+      vibeIdx,
+      run,
+      verdict,
+      calibration,
+      reasons,
+      snapshot,
+    })
+    || snapshot.calibrationVersion !== 1
     || run.profileVersion !== IDENTITY_PROFILE_VERSION
     || run.pairingFingerprint !== expectedFingerprint
     || snapshot.profileVersion !== IDENTITY_PROFILE_VERSION
@@ -43,6 +65,108 @@ export async function getEligibility(store, actor, vibeIdx) {
     || snapshot.verdict !== verdict.verdict
   ) return null;
   return snapshot;
+}
+
+function validFinalCalibration({ actor, vibeIdx, run, verdict, calibration, reasons, snapshot }) {
+  const final = verdict?.calibration;
+  const winner = run?.winner?.mode || null;
+  const expectedAgreement = calibration?.choice !== "neither" && calibration?.choice === winner;
+  const expectedVersion = run?.curationReceipt?.curationVersion
+    ?? run?.curationReceipt?.version
+    ?? null;
+  const eventBoard = boardSnapshot(run?.strongestEvent, "event");
+  const compiledBoard = boardSnapshot(run?.strongestCompiled, "compiled");
+  const expectedReasons = reasons?.reasonCodes || [];
+  const expectedNote = reasons?.note || "";
+  return Boolean(
+    comparableBoards(run)
+    && final
+    && calibration.schemaVersion === 1
+    && calibration.actorId === actor.id
+    && calibration.vibeKey === auditVibeKey(actor.id, vibeIdx)
+    && calibration.systemWinner === winner
+    && calibration.agreement === expectedAgreement
+    && calibration.experiment?.auditRunId === run.runId
+    && calibration.experiment?.curationVersion === expectedVersion
+    && expectedVersion !== null
+    && sameRecord(calibration.experiment?.eventBoard, eventBoard)
+    && sameRecord(calibration.experiment?.compiledBoard, compiledBoard)
+    && validPresentationOrder(calibration.presentationOrder)
+    && (!reasons || reasons.runId === run.runId)
+    && final.schemaVersion === 1
+    && final.auditRunId === run.runId
+    && final.actorId === actor.id
+    && final.vibeKey === auditVibeKey(actor.id, vibeIdx)
+    && sameRecord(final.eventBoard, eventBoard)
+    && sameRecord(final.compiledBoard, compiledBoard)
+    && sameRecord(final.presentationOrder, calibration.presentationOrder)
+    && final.curationVersion === expectedVersion
+    && final.humanChoice === calibration.choice
+    && final.humanChoiceAt === calibration.chosenAt
+    && final.humanChoiceBy === calibration.chosenBy
+    && final.systemWinner === winner
+    && final.agreement === expectedAgreement
+    && sameRecord(final.reasonCodes, expectedReasons)
+    && final.disagreementNote === expectedNote
+    && final.disagreementAnnotatedAt === (reasons?.annotatedAt || null)
+    && final.disagreementAnnotatedBy === (reasons?.annotatedBy || null)
+    && final.finalSchedulingVerdict === verdict.verdict
+    && final.finalSchedulingNotes === verdict.notes
+    && final.finalSchedulingAt === verdict.decidedAt
+    && final.finalSchedulingBy === verdict.decidedBy
+    && snapshot.calibrationHash === recordHash(final)
+  );
+}
+
+function comparableBoards(run) {
+  return [run?.strongestEvent, run?.strongestCompiled]
+    .every(board => Array.isArray(board?.candidates) && board.candidates.length >= 9);
+}
+
+function boardHash(board) {
+  return createHash("sha256").update(JSON.stringify(
+    (board?.candidates || []).map(candidate => ({
+      thumbnail: candidate.thumbnail || "",
+      title: candidate.title || "",
+      source: candidate.source || "",
+      batchRank: candidate.batchRank ?? null,
+    })),
+  )).digest("hex");
+}
+
+function boardSnapshot(board, mode) {
+  if (!board) return null;
+  const hash = boardHash(board);
+  return { mode, boardId: `${mode}-${hash.slice(0, 16)}`, boardHash: hash };
+}
+
+function validPresentationOrder(order) {
+  return Array.isArray(order)
+    && order.length === 2
+    && new Set(order).size === 2
+    && order.includes("event")
+    && order.includes("compiled");
+}
+
+function sameRecord(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function recordHash(value) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+async function readFirstReceipt(store, prefix, timestampField) {
+  const listing = await store.list({ prefix });
+  const receipts = (await Promise.all((listing?.blobs || []).map(async blob => {
+    if (typeof blob?.key !== "string") return null;
+    const value = await store.get(blob.key, { type: "json", consistency: "strong" });
+    return value ? { key: blob.key, value } : null;
+  }))).filter(Boolean);
+  receipts.sort((left, right) =>
+    String(left.value[timestampField] || "").localeCompare(String(right.value[timestampField] || ""))
+    || left.key.localeCompare(right.key));
+  return receipts[0]?.value || null;
 }
 
 export function isApproved(snapshot) {

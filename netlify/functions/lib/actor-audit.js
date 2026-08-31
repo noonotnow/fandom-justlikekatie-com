@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { json } from "./public-auth.js";
 import {
   ACTOR_IDENTITY_PROFILES,
@@ -8,9 +8,14 @@ import {
   APPROVED_VERDICTS,
   ELIGIBILITY_STORE,
   auditHeadKey,
+  auditCalibrationKey,
+  auditCalibrationPrefix,
+  auditCalibrationReasonsKey,
+  auditCalibrationReasonsPrefix,
   auditRunKey,
   auditRunPrefix,
   auditVerdictKey,
+  auditVerdictPrefix,
   auditVibeKey,
   eligibilityKey,
   pairingFingerprintFor,
@@ -25,6 +30,7 @@ import { curateDisplayResults } from "./grid-curation.js";
 
 const MAX_BODY_BYTES = 48 * 1024;
 const MAX_NOTE_LENGTH = 2000;
+const MAX_CALIBRATION_NOTE_LENGTH = 1000;
 const MAX_RETAINED_RUNS = 12;
 const MAX_RAW_RESULTS = 36;
 const MAX_IDENTITY_ITEMS = 36;
@@ -35,6 +41,19 @@ const VERDICTS = new Set([
   "insufficient_material",
   "identity_risk",
   "do_not_schedule",
+]);
+const BLIND_CHOICES = new Set(["event", "compiled", "neither"]);
+const DISAGREEMENT_REASONS = new Set([
+  "better_individual_cards",
+  "stronger_overall_cohesion",
+  "event_repetition_intentional",
+  "event_repetition_redundant",
+  "compiled_board_varied",
+  "compiled_board_random",
+  "wrong_vibe",
+  "wrong_actor",
+  "bad_arrangement",
+  "other_editorial_instinct",
 ]);
 
 export function createActorAuditHandler({
@@ -68,7 +87,7 @@ export function createActorAuditHandler({
         const runId = url.searchParams.get("runId");
         if (runId) {
           const run = await readRun(store, pair, runId);
-          return run ? json(200, { run }) : json(404, { error: "Audit run not found." });
+          return run ? json(200, { run: clientRun(run, pair) }) : json(404, { error: "Audit run not found." });
         }
         return json(200, detailResponse(pair, report));
       }
@@ -111,6 +130,29 @@ export function createActorAuditHandler({
         if (!report?.currentRun || input.runId !== report.currentRun.runId) {
           return json(409, { error: "This verdict is not for the current audit run. Refresh and try again." });
         }
+        const hasComparableBoards = comparableBoards(report.currentRun);
+        const blindReview = report.currentRun.blindReview;
+        const existingVerdict = report.currentRun.operatorVerdict;
+        if (existingVerdict) {
+          if (existingVerdict.verdict !== input.verdict || existingVerdict.notes !== notes) {
+            return json(409, { error: "The final scheduling verdict for this audit run is immutable." });
+          }
+          return json(200, {
+            actor: await actorSummary(store, actorPacks, pair.actor),
+            pairing: pairingSummary(pair, report),
+            ...detailResponse(pair, report),
+          });
+        }
+        if (hasComparableBoards && !blindReview?.choice) {
+          return json(409, { error: "Choose the more compelling board before recording a scheduling verdict." });
+        }
+        if (hasComparableBoards && isDisagreement(report.currentRun, blindReview)
+          && !blindReview?.reasonCodes?.length) {
+          return json(409, { error: "Capture at least one disagreement reason before recording a scheduling verdict." });
+        }
+        if (!hasComparableBoards && APPROVED_VERDICTS.has(input.verdict)) {
+          return json(409, { error: "A pairing without two complete boards cannot be approved." });
+        }
         if (input.verdict === "approved" && !report.currentRun.materialSufficient) {
           return json(409, { error: "Insufficient material cannot be approved without an override." });
         }
@@ -120,17 +162,29 @@ export function createActorAuditHandler({
           notes,
           decidedAt: stamp,
           decidedBy: operator.user.accountId,
+          calibration: blindReview
+            ? calibrationSnapshot(blindReview, input.verdict, notes, stamp, operator.user.accountId)
+            : null,
         };
-        await store.setJSON(
+        const verdictWrite = await store.setJSON(
           auditVerdictKey(pair.actor.id, pair.vibeIdx, report.currentRun.runId),
           operatorVerdict,
+          { onlyIfNew: true },
         );
+        if (verdictWrite?.modified === false) {
+          return json(409, { error: "Another operator finalized this audit run first." });
+        }
         const currentHead = await store.get(auditHeadKey(pair.actor.id, pair.vibeIdx), {
           type: "json",
           consistency: "strong",
         });
         if (currentHead?.currentRunId !== report.currentRun.runId) {
           return json(409, { error: "A newer audit run became current. Review that run before scheduling." });
+        }
+        const next = await readReport(store, pair);
+        if (next.currentRun?.operatorVerdict?.verdict !== input.verdict
+          || next.currentRun?.operatorVerdict?.notes !== notes) {
+          return json(409, { error: "Another operator finalized this audit run first." });
         }
         await writeEligibility(store, pair, {
           schemaVersion: 1,
@@ -141,11 +195,118 @@ export function createActorAuditHandler({
           runId: report.currentRun.runId,
           pairingFingerprint: report.currentRun.pairingFingerprint,
           verdict: input.verdict,
+          calibrationVersion: 1,
+          calibrationHash: recordHash(operatorVerdict.calibration),
           materialSufficient: report.currentRun.materialSufficient,
           eligible: APPROVED_VERDICTS.has(input.verdict),
           decidedAt: stamp,
         });
+        return json(200, {
+          actor: await actorSummary(store, actorPacks, pair.actor),
+          pairing: pairingSummary(pair, next),
+          ...detailResponse(pair, next),
+        });
+      }
+
+      if (input.action === "blind_choice") {
+        const report = await readReport(store, pair);
+        if (!report?.currentRun || input.runId !== report.currentRun.runId) {
+          return json(409, { error: "This review is not for the current audit run. Refresh and try again." });
+        }
+        if (!comparableBoards(report.currentRun)) {
+          return json(409, { error: "A blinded comparison requires two complete Event and Compiled boards." });
+        }
+        if (!BLIND_CHOICES.has(input.choice)) {
+          return json(400, { error: "Choose Event, Compiled, or Neither." });
+        }
+        if (report.currentRun.blindReview?.choice) {
+          if (report.currentRun.blindReview.choice !== input.choice) {
+            return json(409, { error: "The independent board choice is immutable." });
+          }
+          return json(200, {
+            actor: await actorSummary(store, actorPacks, pair.actor),
+            pairing: pairingSummary(pair, report),
+            ...detailResponse(pair, report),
+          });
+        }
+        const calibration = createCalibration(pair, report.currentRun, input.choice, operator, now);
+        const calibrationWrite = await store.setJSON(
+          auditCalibrationKey(pair.actor.id, pair.vibeIdx, report.currentRun.runId),
+          calibration,
+          { onlyIfNew: true },
+        );
+        if (calibrationWrite?.modified === false) {
+          return json(409, { error: "Another operator recorded the independent choice first." });
+        }
         const next = await readReport(store, pair);
+        if (next.currentRun?.blindReview?.choice !== input.choice) {
+          return json(409, { error: "Another operator recorded the independent choice first." });
+        }
+        return json(200, {
+          actor: await actorSummary(store, actorPacks, pair.actor),
+          pairing: pairingSummary(pair, next),
+          ...detailResponse(pair, next),
+        });
+      }
+
+      if (input.action === "blind_reasons") {
+        const report = await readReport(store, pair);
+        if (!report?.currentRun || input.runId !== report.currentRun.runId) {
+          return json(409, { error: "This review is not for the current audit run. Refresh and try again." });
+        }
+        if (report.currentRun.operatorVerdict) {
+          return json(409, { error: "This audit run is finalized; its calibration receipt is immutable." });
+        }
+        const blindReview = report.currentRun.blindReview;
+        if (!blindReview?.choice) {
+          return json(409, { error: "Record the independent board choice before adding disagreement reasons." });
+        }
+        const reasonCodes = parseReasons(input.reasonCodes);
+        if (reasonCodes === null) {
+          return json(400, { error: "Choose only the listed disagreement reasons." });
+        }
+        const note = boundedText(input.note, MAX_CALIBRATION_NOTE_LENGTH);
+        if (note === null) {
+          return json(400, { error: "The editorial instinct note must be text under 1000 characters." });
+        }
+        const disagreement = isDisagreement(report.currentRun, blindReview);
+        if (disagreement && !reasonCodes.length) {
+          return json(400, { error: "Choose at least one reason when your board choice disagrees with the system." });
+        }
+        if (reasonCodes.includes("other_editorial_instinct") && !note) {
+          return json(400, { error: "Explain the other editorial instinct in a short note." });
+        }
+        if (blindReview.reasonCodes) {
+          if (JSON.stringify(blindReview.reasonCodes) !== JSON.stringify(reasonCodes)
+            || blindReview.note !== note) {
+            return json(409, { error: "The disagreement annotation for this audit run is immutable." });
+          }
+          return json(200, {
+            actor: await actorSummary(store, actorPacks, pair.actor),
+            pairing: pairingSummary(pair, report),
+            ...detailResponse(pair, report),
+          });
+        }
+        const annotatedAt = now().toISOString();
+        const reasonsWrite = await store.setJSON(
+          auditCalibrationReasonsKey(pair.actor.id, pair.vibeIdx, report.currentRun.runId),
+          {
+            runId: report.currentRun.runId,
+            reasonCodes,
+            note,
+            annotatedAt,
+            annotatedBy: operator.user.accountId,
+          },
+          { onlyIfNew: true },
+        );
+        if (reasonsWrite?.modified === false) {
+          return json(409, { error: "Another operator recorded the disagreement annotation first." });
+        }
+        const next = await readReport(store, pair);
+        if (JSON.stringify(next.currentRun?.blindReview?.reasonCodes) !== JSON.stringify(reasonCodes)
+          || next.currentRun?.blindReview?.note !== note) {
+          return json(409, { error: "Another operator recorded the disagreement annotation first." });
+        }
         return json(200, {
           actor: await actorSummary(store, actorPacks, pair.actor),
           pairing: pairingSummary(pair, next),
@@ -375,11 +536,15 @@ async function actorSummary(store, actorPacks, actor) {
 function pairingSummary(pair, report) {
   const current = report?.currentRun || null;
   const currentVerdict = current && report?.verdictRunId === current.runId ? report.verdict : null;
+  const reviewPending = Boolean(current && comparableBoards(current) && !current.blindReview?.choice);
+  const comparisonUnavailable = Boolean(current && !comparableBoards(current) && !currentVerdict);
   const eligible = Boolean(
     current
     && current.profileVersion === IDENTITY_PROFILE_VERSION
     && current.pairingFingerprint === pairingFingerprintFor(pair.actor, pair.vibeIdx)
     && currentVerdict
+    && current.blindReview?.choice
+    && (!isDisagreement(current, current.blindReview) || current.blindReview.reasonCodes?.length)
     && APPROVED_VERDICTS.has(currentVerdict),
   );
   return {
@@ -387,25 +552,30 @@ function pairingSummary(pair, report) {
     vibeIdx: pair.vibeIdx,
     labels: [pair.vibe.label, pair.vibe.label_en].filter(Boolean),
     queryCount: pair.vibe.queries.length,
-    auditState: currentVerdict || current?.suggestedState || "not_run",
+    auditState: reviewPending
+      ? "blind_review_pending"
+      : comparisonUnavailable
+        ? "comparison_unavailable"
+        : currentVerdict || current?.suggestedState || "not_run",
     lastRunAt: current?.completedAt || null,
     currentRunId: current?.runId || null,
     verdict: currentVerdict,
     notes: currentVerdict ? report.notes : "",
     verdictAt: currentVerdict ? report.verdictAt : null,
-    eligible,
+    eligible: reviewPending ? null : eligible,
   };
 }
 
 function detailResponse(pair, report) {
+  const revealed = Boolean(report?.currentRun?.blindReview?.choice);
   return {
     actorId: pair.actor.id,
     vibeKey: pair.vibeKey,
-    currentRun: report?.currentRun || null,
-    priorRuns: report?.priorRuns || [],
-    verdict: report?.verdict || null,
-    notes: report?.notes || "",
-    verdictAt: report?.verdictAt || null,
+    currentRun: clientRun(report?.currentRun, pair),
+    priorRuns: (report?.priorRuns || []).map(run => clientRun(run, pair)),
+    verdict: revealed ? report?.verdict || null : null,
+    notes: revealed ? report?.notes || "" : "",
+    verdictAt: revealed ? report?.verdictAt || null : null,
   };
 }
 
@@ -474,11 +644,172 @@ async function readRun(store, pair, runId) {
 }
 
 async function attachVerdict(store, pair, run) {
-  const operatorVerdict = await store.get(
-    auditVerdictKey(pair.actor.id, pair.vibeIdx, run.runId),
-    { type: "json", consistency: "strong" },
-  );
-  return { ...run, operatorVerdict: operatorVerdict || null };
+  const [operatorVerdict, calibration, reasons] = await Promise.all([
+    readFirstReceipt(store, auditVerdictPrefix(pair.actor.id, pair.vibeIdx, run.runId), "decidedAt"),
+    readFirstReceipt(store, auditCalibrationPrefix(pair.actor.id, pair.vibeIdx, run.runId), "chosenAt"),
+    readFirstReceipt(store, auditCalibrationReasonsPrefix(pair.actor.id, pair.vibeIdx, run.runId), "annotatedAt"),
+  ]);
+  return {
+    ...run,
+    operatorVerdict: operatorVerdict || null,
+    blindReview: calibration
+      ? { ...calibration, ...(reasons || {}) }
+      : {
+        status: comparableBoards(run) ? "pending" : "unavailable",
+        presentationOrder: presentationOrderFor(run.runId),
+        boards: blindBoards(run, presentationOrderFor(run.runId)),
+      },
+  };
+}
+
+function comparableBoards(run) {
+  return [run?.strongestEvent, run?.strongestCompiled]
+    .every(board => Array.isArray(board?.candidates) && board.candidates.length >= 9);
+}
+
+function presentationOrderFor(runId) {
+  const bit = Number.parseInt(createHash("sha256").update(`blind:${runId}`).digest("hex").slice(0, 8), 16) % 2;
+  return bit === 0 ? ["event", "compiled"] : ["compiled", "event"];
+}
+
+function boardHash(board) {
+  return createHash("sha256").update(JSON.stringify(
+    (board?.candidates || []).map(candidate => ({
+      thumbnail: candidate.thumbnail || "",
+      title: candidate.title || "",
+      source: candidate.source || "",
+      batchRank: candidate.batchRank ?? null,
+    })),
+  )).digest("hex");
+}
+
+function boardSnapshot(board, mode) {
+  return board ? {
+    mode,
+    boardId: `${mode}-${boardHash(board).slice(0, 16)}`,
+    boardHash: boardHash(board),
+  } : null;
+}
+
+function blindBoards(run, order) {
+  return order.map(mode => ({
+    mode,
+    label: mode === "event" ? "Event" : "Compiled",
+    board: run?.[mode === "event" ? "strongestEvent" : "strongestCompiled"]
+      ? {
+        candidates: run[mode === "event" ? "strongestEvent" : "strongestCompiled"].candidates || [],
+      }
+      : null,
+  }));
+}
+
+function createCalibration(pair, run, choice, operator, now) {
+  const presentationOrder = presentationOrderFor(run.runId);
+  return {
+    schemaVersion: 1,
+    status: "revealed",
+    runId: run.runId,
+    actorId: pair.actor.id,
+    actorName: pair.actor.name,
+    vibeKey: pair.vibeKey,
+    vibeLabel: pair.vibe.label_en || pair.vibe.label || pair.vibeKey,
+    presentationOrder,
+    experiment: {
+      auditRunId: run.runId,
+      actorId: pair.actor.id,
+      actorName: pair.actor.name,
+      vibeKey: pair.vibeKey,
+      vibeLabel: pair.vibe.label_en || pair.vibe.label || pair.vibeKey,
+      eventBoard: boardSnapshot(run.strongestEvent, "event"),
+      compiledBoard: boardSnapshot(run.strongestCompiled, "compiled"),
+      curationVersion: run.curationReceipt?.curationVersion || run.curationReceipt?.version || null,
+      systemWinner: run.winner?.mode || null,
+    },
+    choice,
+    chosenAt: now().toISOString(),
+    chosenBy: operator.user.accountId,
+    agreement: choice !== "neither" && choice === run.winner?.mode,
+    systemWinner: run.winner?.mode || null,
+    boards: blindBoards(run, presentationOrder),
+  };
+}
+
+function isDisagreement(run, review) {
+  return Boolean(review?.choice && review.choice !== run?.winner?.mode);
+}
+
+function calibrationSnapshot(review, verdict, notes, decidedAt, decidedBy) {
+  return {
+    schemaVersion: review.schemaVersion || 1,
+    auditRunId: review.experiment?.auditRunId || review.runId,
+    actorId: review.experiment?.actorId || review.actorId,
+    vibeKey: review.experiment?.vibeKey || review.vibeKey,
+    eventBoard: review.experiment?.eventBoard || null,
+    compiledBoard: review.experiment?.compiledBoard || null,
+    presentationOrder: review.presentationOrder || [],
+    curationVersion: review.experiment?.curationVersion || null,
+    humanChoice: review.choice,
+    humanChoiceAt: review.chosenAt,
+    humanChoiceBy: review.chosenBy,
+    systemWinner: review.systemWinner || null,
+    agreement: review.agreement === true,
+    reasonCodes: review.reasonCodes || [],
+    disagreementNote: review.note || "",
+    disagreementAnnotatedAt: review.annotatedAt || null,
+    disagreementAnnotatedBy: review.annotatedBy || null,
+    finalSchedulingVerdict: verdict,
+    finalSchedulingNotes: notes,
+    finalSchedulingAt: decidedAt,
+    finalSchedulingBy: decidedBy,
+  };
+}
+
+function parseReasons(value) {
+  if (!Array.isArray(value) || value.length > DISAGREEMENT_REASONS.size) return null;
+  const reasons = [...new Set(value)];
+  return reasons.every(reason => typeof reason === "string" && DISAGREEMENT_REASONS.has(reason))
+    ? reasons
+    : null;
+}
+
+function clientRun(run, pair) {
+  if (!run) return null;
+  const review = run.blindReview || {
+    status: comparableBoards(run) ? "pending" : "unavailable",
+    presentationOrder: presentationOrderFor(run.runId),
+    boards: blindBoards(run, presentationOrderFor(run.runId)),
+  };
+  if (review.choice) return run;
+  return {
+    runId: run.runId,
+    schemaVersion: run.schemaVersion,
+    profileVersion: run.profileVersion,
+    pairingFingerprint: run.pairingFingerprint,
+    scope: run.scope,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
+    queryCount: run.queryCount,
+    blindReview: review,
+    actorId: pair.actor.id,
+    vibeKey: pair.vibeKey,
+  };
+}
+
+async function readFirstReceipt(store, prefix, timestampField) {
+  const listing = await store.list({ prefix });
+  const receipts = (await Promise.all((listing?.blobs || []).map(async blob => {
+    if (typeof blob?.key !== "string") return null;
+    const value = await store.get(blob.key, { type: "json", consistency: "strong" });
+    return value ? { key: blob.key, value } : null;
+  }))).filter(Boolean);
+  receipts.sort((left, right) =>
+    String(left.value[timestampField] || "").localeCompare(String(right.value[timestampField] || ""))
+    || left.key.localeCompare(right.key));
+  return receipts[0]?.value || null;
+}
+
+function recordHash(value) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 async function writeEligibility(store, pair, snapshot) {
