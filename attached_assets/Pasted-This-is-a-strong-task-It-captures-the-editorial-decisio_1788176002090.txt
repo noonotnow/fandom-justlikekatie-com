@@ -1,0 +1,75 @@
+This is a strong task. It captures the editorial decision correctly and protects the surrounding systems. After checking the current implementation, I’d make five surgical corrections before Build mode.
+1. Mode selection must happen before near-duplicate removal
+Right now, image-dedup.js globally removes anything below one perceptual-distance threshold. That would destroy an Event candidate before the system gets a chance to evaluate it.
+The pipeline needs to become:
+Reject exact duplicates and universally unusable files.
+Calculate perceptual relationships.
+Preserve near-similar candidates as a visual family.
+Generate Event and Compiled boards.
+Apply mode-specific repetition rules.
+In other words, perceptual similarity becomes evidence, not an automatic conviction.
+Add:
+Near-similar candidates must remain available through event-family detection. The system may remove them from a Compiled candidate while preserving meaningfully different frames in an Event candidate.
+2. Current editorial detection has two serious limitations
+editorialDetection.ts currently:
+Groups primarily by publisher
+Removes all Chinese characters during normalization
+Can group missing publishers together under unknown
+Infers “pose variety” from English title-word differences
+That is too fragile for Chinese entertainment imagery. Same publisher does not necessarily mean same editorial, and Chinese titles cannot become empty strings during analysis.
+Add:
+Event-family normalization must preserve Han characters. Missing or generic publishers must never form an event family by themselves. Publisher identity is supporting evidence, not sufficient evidence. Title similarity, source URL structure, batch/query provenance, and perceptual relationships should corroborate the cluster.
+3. Narrow claims the available signals cannot prove
+Without face recognition or stronger computer vision, the system cannot reliably detect:
+Every wrong actor
+Severe facial obstruction
+Actual pose progression
+Emotional range from pixels
+It can reject clearly wrong textual identities, malformed images, bad dimensions/aspect ratios, and obvious low-quality results. Everything else is heuristic.
+Change “pose progression” to:
+Meaningful frame variation, using available title, provenance, composition, and perceptual-distance proxies.
+And clarify:
+“Clearly wrong actor” means contradictions detectable through existing query, title, source, and actor-relevance safeguards—not visual identity recognition.
+Otherwise Replit may quietly invent certainty the system does not possess.
+4. Make the decision deterministic
+ranking.js currently uses Math.random() to break ties. That conflicts with deterministic fixtures and can make identical inputs produce different winning modes.
+Add:
+Event-versus-Compiled selection and all score ties must be deterministic for the same actor, Vibe Pack, date, generation version, and candidate pool. Use the existing date-seeded behavior or a stable tie-break—not unseeded Math.random().
+Random is still allowed for flavor, but only after editorial quality cannot distinguish the candidates—and it must be reproducible for that edition.
+5. The server needs its own curation module
+The Daily Drop is selected in the Netlify backend. src/utils/editorialDetection.ts and src/utils/gridBuilder.ts are client-side utilities; they should not become the hidden authority for server-generated daily boards.
+I’d add a server-side module such as:
+netlify/functions/lib/grid-curation.js
+​
+It should own:
+Universal hard filtering
+Event-family construction
+Event candidate scoring
+Compiled candidate scoring
+Winning-board selection
+Deterministic rationale
+Mode/version metadata
+Then client-side types can consume the result without independently re-deciding what kind of grid it is.
+Recommended metadata
+Keep it small and auditable:
+curation: {
+  mode: "event" | "compiled";
+  version: number;
+  rationale: string;
+  signals: string[];
+}
+​
+Examples:
+mode: "event"
+rationale: "One coherent editorial produced the strongest board."
+signals: ["shared editorial family", "consistent styling", "meaningful frame variation"]
+Avoid fake precision like “87.4% pose progression confidence.”
+One additional test fixture
+The listed fixtures are good. Add this one:
+Same publisher, unrelated shoots: multiple images from one publisher with different dates, costumes, or editorial contexts must not automatically become an Event Grid.
+That directly protects against the current publisher-grouping behavior.
+Verdict
+Approve after those amendments. The product logic is right; the main technical danger is letting the existing global near-duplicate filter execute before the new editorial judgment exists.
+The foundational rule should be written directly into the task:
+Exact duplicates are always rejected. Near-similarity is classified by editorial intent: it may be redundancy in a Compiled Grid or rhythm in an Event Grid.
+That gives Replit enough precision to build the actual idea rather than merely renaming its diversity score “mode-aware” and sending us home with the same nine random handsome men.

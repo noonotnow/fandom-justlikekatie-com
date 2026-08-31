@@ -1,0 +1,149 @@
+**#222 is conceptually excellent and correctly depends on #221.** It translates the editorial distinction into a real creator tool rather than leaving it buried in ranking metadata.
+
+After checking the current Grid Builder, I’d add **six implementation guardrails** before assignment.
+
+## 1. Keep the three decisions separate
+
+The builder already has two unrelated mode concepts:
+
+- **Collection boundary:** Ordinary Vibe Atlas / Legendary Misprints
+- **Building method:** Smart Proposal / Build Your Own
+
+Event versus Compiled is a third axis:
+
+- **Editorial contract:** Event / Compiled
+
+Do not collapse or overload them into one `mode` field. Use distinct names such as:
+
+```tsx
+collectionKind: "standard" | "misprints"
+buildMethod: "automatic" | "manual"
+editorialContract: "event" | "compiled"
+```
+
+That prevents “Event” from accidentally replacing “Build Your Own” or colliding with the existing misprint lens.
+
+## 2. Larger Event sets require an explicit layout contract
+
+The current component hardcodes nine in many places:
+
+- Manual selection stops at 9
+- Save requires exactly 9
+- Export requires exactly 9
+- Workstation handoff requires exactly 9
+- Record creation throws unless there are 9 slots
+- The renderer is identified as `vibe-atlas-v1`
+
+“Intentional larger size” is therefore not a small UI adjustment. Add a real layout model:
+
+```tsx
+layout: {
+  preset: "grid-3x3" | "event-4x5";
+  columns: 3 | 4;
+  rows: 3 | 5;
+  slotCount: 9 | 20;
+}
+```
+
+For the first release, I would support **exactly one larger Event preset**, probably a portrait **4×5 / 20-image editorial sheet**. Don’t launch with arbitrary row and column controls; that is how the collectible studio becomes Excel in a silk robe.
+
+## 3. Don’t retroactively label old grids “Compiled”
+
+Existing records have no editorial contract. Some could already resemble Event sets.
+
+Backward-compatible normalization should preserve them as:
+
+```tsx
+editorialContract: "legacy"
+```
+
+or leave the field absent and display **“Earlier grid · mode not recorded.”**
+
+Do not manufacture historical intent.
+
+## 4. Record how much the creator intervened
+
+The current rationale records manual swaps, but only as family labels. The saved record should distinguish:
+
+```tsx
+selectionMethod:
+  | "automatic"
+  | "automatic-edited"
+  | "manual"
+```
+
+And retain:
+
+- Original proposed card IDs
+- Final ordered card IDs
+- Replaced card IDs
+- Chosen editorial contract
+- Layout preset
+- Family/event identity
+- Human-readable rationale
+
+The record ID must include the **editorial contract and layout**, not only the slot URLs. The same images arranged under different editorial arguments should not silently become the same artifact.
+
+## 5. Event fallback must remain honest
+
+If Event mode has only seven coherent images, it must not quietly add thirteen unrelated pictures to complete a 20-image layout.
+
+Offer explicit choices:
+
+- Build the 3×3 Event set with the available family
+- Save more images from this appearance
+- Switch to Compiled
+- Choose another detected event family
+
+The empty state should say what is missing:
+
+> **This editorial has 13 usable frames. The 20-card Event layout needs seven more. Build a compact 3×3 or keep collecting.**
+> 
+
+## 6. Expand the relevant-file and test list
+
+The listed files cover the builder itself, but larger grids will also affect:
+
+- Share-card rendering/export
+- Saved-grid-to-renderer conversion
+- Collection synchronization and server validation
+- Archive/history reopening
+- Creator OS handoff serialization
+- Grid identity generation
+
+Add the applicable equivalents of:
+
+```
+src/utils/exportCanvas.ts
+src/utils/collectionHistoryModel.ts
+src/utils/creatorDraft.ts
+netlify/functions/*collection-sync*
+netlify/functions/*create-handoff*
+```
+
+The new tests should be behavioral—not only source-string assertions—and prove:
+
+- Legacy 3×3 grids reopen and export unchanged
+- Event 4×5 survives save → sync → reload → export
+- Event 4×5 survives Workstation handoff with order intact
+- Mode/layout changes produce distinct IDs
+- Automatic edits become `automatic-edited`
+- Insufficient Event material never receives unrelated backfill
+- Manual keyboard reordering works across more than nine positions
+- An Event family remains one family after synchronization
+
+## Recommended addition to “Done looks like”
+
+> Event/Compiled, automatic/manual, and ordinary/misprint remain independent dimensions. Larger Event records use a versioned layout contract; existing grids remain valid and are never retroactively assigned an editorial mode. Insufficient Event material produces an explicit compact-layout or keep-collecting choice rather than unrelated backfill.
+> 
+
+## Verdict
+
+**Approve after those additions.**
+
+The concept is right:
+
+- **Event:** *No, look closer.*
+- **Compiled:** *Look at the range.*
+
+The only danger is treating a 20-image Event set as “the existing nine-slot object, but longer.” It needs to become a first-class editorial artifact—with its own layout, identity, provenance, and honest history—rather than nine cards wearing a trench coat.

@@ -1,0 +1,114 @@
+**Yes. The Star of the Day route should become the production showcase—not the first time we discover whether an actor’s queries work.**
+
+Auditing actors beforehand would produce much faster progress because we could test deliberately instead of waiting for the calendar to randomly surface the next failure.
+
+But I would separate two ideas:
+
+- **Yes:** audit one actor at a time.
+- **No:** manually write a bespoke query for every possible actor × Vibe Pack combination.
+
+That second path becomes an infinite artisanal query farm.
+
+## Build an Actor × Vibe preflight lab
+
+For each actor, the lab should run the actor through the existing Vibe Packs before that actor enters the Daily Drop rotation.
+
+### Actor identity profile
+
+Record:
+
+- Canonical Chinese name
+- English/romanized name
+- Useful aliases
+- Common name collisions
+- Representative drama titles
+- Known wrong-person contamination
+- Product/stock meanings that pollute results
+- Trusted and problematic source patterns
+
+### Vibe Pack audit
+
+For each tested Vibe Pack, show:
+
+- Candidate query ladder
+- Raw provider results
+- Results rejected and why
+- Actor-identity confidence
+- Event families detected
+- Best Event candidate
+- Best Compiled candidate
+- Winning board and rationale
+- Alternate board
+- Human verdict
+
+The operator can then mark the pairing:
+
+- **Approved**
+- **Approved with override**
+- **Needs query work**
+- **Insufficient material**
+- **Identity risk**
+- **Do not schedule**
+
+## Daily Drop eligibility
+
+The scheduler should prefer only:
+
+1. Audited actors
+2. Vibe Packs that passed for that actor
+3. Pairings with enough clean material to form a strong board
+
+If an actor is approved generally but one Vibe Pack performs badly, that pairing stays out of rotation without excluding the actor entirely.
+
+The Daily Drop then becomes:
+
+> Select an eligible actor × Vibe Pack → rerun current search → apply #221 curation → publish the winner.
+> 
+
+It should still rerun the live search because results change, but it begins from a **known-good query strategy**.
+
+## Preserve generalization
+
+Use three levels of configuration:
+
+### 1. Global Vibe Pack queries
+
+Reusable across all actors.
+
+### 2. Actor identity profile
+
+Aliases, representative works, exclusions, and collision handling.
+
+### 3. Pair-specific override
+
+Only when an actor and Vibe Pack genuinely need special treatment.
+
+For example, we should not manually rewrite “moonlit aura farmer” for 40 actors. The global pack should work with their identity profile. A pair override exists only when the standard combination produces tractors, the wrong Liu, or nine screenshots of a financial chart.
+
+## Suggested audit order
+
+Start with:
+
+1. Actors already in the rotation
+2. Actors most likely to generate search traffic or social engagement
+3. Actors with known identity contamination
+4. Actors with rich editorial/event coverage
+5. The long-tail roster later
+
+For each actor, test a representative cross-section first:
+
+- One costume/xianxia Vibe Pack
+- One modern/editorial Vibe Pack
+- One emotional/behavioral pack
+- One deliberately difficult or metaphorical pack
+
+If those expose systemic weaknesses, fix the reusable logic before running every remaining pack.
+
+## The key product rule
+
+> **No actor should debut through the Daily Drop before at least one actor-level identity audit and one approved Vibe Pack pairing.**
+> 
+
+This lets us make progress whenever we want, build a bank of launch-ready combinations, and prevent the Daily Drop from serving as a public QA séance.
+
+So yes: **actor-by-actor preflight is the smarter next operating model.** We cultivate the actors privately; Star of the Day is graduation.
