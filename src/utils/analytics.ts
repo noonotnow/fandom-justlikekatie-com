@@ -52,6 +52,20 @@ export function trackEvent(name: string, data?: AnalyticsData): void {
   }
 }
 
+export function trackDailyArchiveOpened(): void {
+  trackEvent('daily_archive_opened');
+}
+
+export function trackDailyArchiveEditionSelected(
+  editionDate: string,
+  isLatest: boolean,
+): void {
+  trackEvent('daily_archive_edition_selected', {
+    edition_date: editionDate,
+    is_latest: isLatest,
+  });
+}
+
 export function trackCreatorHandoffAttempt(
   entryPoint: CreatorHandoffEntryPoint,
   platforms: readonly CreatorPlatform[],

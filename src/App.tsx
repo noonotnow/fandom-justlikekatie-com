@@ -32,6 +32,10 @@ import {
 } from './utils/fandomRoutes';
 import './App.css';
 import { VeteranSubmissionForm } from './components/VeteranSubmissionForm/VeteranSubmissionForm';
+import {
+  trackDailyArchiveEditionSelected,
+  trackDailyArchiveOpened,
+} from './utils/analytics';
 
 /** Number of columns in the grid — used to calculate preview row insertion */
 const GRID_COLS = 3;
@@ -182,6 +186,7 @@ function VibeAtlasApp() {
 
   const toggleArchive = () => {
     const nextOpen = !archiveOpen;
+    if (nextOpen) trackDailyArchiveOpened();
     setArchiveOpen(nextOpen);
     if (nextOpen && !archive.length && !archiveLoading) void loadArchive();
   };
@@ -338,7 +343,10 @@ function VibeAtlasApp() {
                       edition={edition}
                       isSelected={selectedEditionDate === edition.date}
                       isLatest={index === 0}
-                      onSelect={() => selectEdition(edition.date)}
+                      onSelect={() => {
+                        trackDailyArchiveEditionSelected(edition.date, index === 0);
+                        selectEdition(edition.date);
+                      }}
                     />
                   ))}
                 </div>
