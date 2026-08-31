@@ -55,3 +55,24 @@ test('an unavailable comparison is not described as ready for a blind choice', (
   assert.match(source, /board missing/);
   assert.match(source, /diagnostic\?\.summary/);
 });
+
+test('retained evidence exposes image-level editorial intents after review', () => {
+  assert.match(source, /action:'flag_candidate'/);
+  assert.match(source, /Pin for board/);
+  assert.match(source, /Hero candidate/);
+  assert.match(source, /Good supporting card/);
+  assert.match(source, /Exclude/);
+  assert.match(source, /Challenge rejection/);
+  assert.match(source, /Why challenge this rejection/);
+  assert.match(source, /flag\?\.reasons/);
+});
+
+test('the rescue board explains hard blocks and preserves the frozen audit boundary', () => {
+  assert.match(source, /Operator rescue board/);
+  assert.match(source, /find a usable equivalent/);
+  assert.match(source, /This never changes the frozen audit or Daily Drop eligibility/);
+  assert.match(source, /disabled=\{!isCurrent/);
+  assert.match(source, /action:'save_rescue_board'/);
+  assert.match(source, /Save this arrangement/);
+  assert.match(source, /Move card \$\{index\+1\} earlier/);
+});

@@ -1,0 +1,99 @@
+**#233 is strong and correctly scoped.** It creates the image-level red pen without allowing the red pen to publish directly.
+
+I would approve it with a few clarifications.
+
+## 1. Reconcile “append-only” with “unflag”
+
+The task currently promises both. Unflagging should not delete or mutate the original flag.
+
+Use an append-only event history:
+
+- `flagged`
+- `unflagged`
+- `reflagged`
+
+The latest event determines the visible state, while the full history remains intact.
+
+## 2. Capture *why* Katie wants the image
+
+A generic flag says “I like this.” We need the editorial lesson:
+
+- Stronger Vibe match
+- Character/look anchor
+- Costume continuity
+- Better silhouette
+- Better hero image
+- Better composition
+- Intentional similarity
+- Useful supporting card
+- System rejection appears incorrect
+- Other editorial instinct
+
+Also capture intended use:
+
+- **Hero candidate**
+- **Core board card**
+- **Supporting/bridge card**
+
+That distinguishes “put this in the center” from “this would help the palette transition.”
+
+## 3. Define stable candidate identity carefully
+
+Do not key flags only to the thumbnail URL. URLs can expire, duplicate, or change between providers.
+
+Prefer:
+
+- Image digest when analysis succeeded
+- Canonical source link
+- Normalized thumbnail URL
+- Query provenance
+- Audit-run ID
+
+For an image that could not be downloaded or fingerprinted, use a deterministic fallback identity and mark it as provisional.
+
+## 4. Clarify when flagging becomes available
+
+To preserve the blind experiment:
+
+- **Two-board run:** raw-result flagging unlocks only after the independent choice.
+- **Comparison unavailable:** flagging can unlock immediately because no head-to-head verdict can be contaminated.
+- Historical flags remain visible but never reopen the frozen vote.
+
+## 5. Clarify current-run versus future-run behavior
+
+The flag receipt should remain attached to the immutable run. If the same image reappears later, a future run may recognize it as **prior editorial preference**, but must reevaluate it under the new:
+
+- Aesthetic-cluster version
+- Vibe promise contract
+- Curation version
+- Technical and identity gates
+
+A historical flag should never become permanent immunity.
+
+## Important dependency
+
+The persistence and interface can be built now, but the provisional requested grid will only become meaningful once **#229’s corrected gates** exist. Otherwise the requested-grid builder may keep rejecting the images Katie prefers using the same broken definition that caused the original disagreement.
+
+So:
+
+> **#233 records the editorial evidence. #229 teaches the curator how to interpret it.**
+> 
+
+## Suggested acceptance criteria to add
+
+> • Flags capture structured editorial reasons and intended board role, including Hero, Core, and Supporting.
+• Flag and unflag operations are append-only events; later events change effective state without deleting history.
+• Candidate identity prefers image digest plus source/query provenance and has a deterministic fallback for unanalyzed images.
+• Raw-result flagging unlocks after the blind choice, or immediately when no blind comparison is available.
+• Prior-run flags may appear as version-bounded historical preference on future runs but never bypass reevaluation.
+• A blocked image can still be flagged to record disagreement; the requested grid explains the blocking rule and, where appropriate, can seek a usable equivalent rather than inserting the blocked asset.
+> 
+
+Then it is ready.
+
+This gives us the exact receipt we need:
+
+> **Rejected as near duplicate → Katie flagged as Hero candidate → Reason: full silhouette and intentional costume continuity → Original asset blocked at low resolution → System should locate a better copy of this look.**
+> 
+
+That is no longer “Katie disliked the board.” It is actionable evidence explaining **which card the board needed, where it belonged, and why the algorithm misunderstood it.**

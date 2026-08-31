@@ -7,9 +7,14 @@ import {
   assertIdentityProfileCoverage,
   vibePromiseFor,
 } from "./actor-identity-profiles.js";
-import { auditRunKey, eligibilityKey } from "./actor-eligibility.js";
+import {
+  auditFeedbackPrefix,
+  auditRescueBoardPrefix,
+  auditRunKey,
+  eligibilityKey,
+} from "./actor-eligibility.js";
 import { createActorAuditHandler, vibeKeyFor } from "./actor-audit.js";
-import { CURATION_VERSION } from "./grid-curation.js";
+import { candidateIdForResult, CURATION_VERSION } from "./grid-curation.js";
 
 const ORIGIN = "https://fandom.example";
 const pairActor = {
@@ -67,15 +72,33 @@ function searchResults(query) {
   }));
 }
 
-function curation({ sufficient = true, curationFailure = false } = {}) {
-  return async ranked => ({
+function curation({ sufficient = true, curationFailure = false, hardRejected = false } = {}) {
+  return async ranked => {
+    const rawCandidates = (ranked[0]?.results.slice(0, 9) || []).map(result => ({
+      ...result,
+      candidateId: candidateIdForResult({
+        ...result,
+        batchKey: result.batchKey || ranked[0].query,
+      }),
+      dropReason: null,
+      promise: {
+        coreSatisfied: true,
+        heroSatisfied: true,
+        incompatibleCluster: false,
+        singleFrameRatio: 1,
+      },
+    }));
+    const dropped = hardRejected && rawCandidates[0]
+      ? [{ ...rawCandidates[0], dropReason: "composite_image", dropDetail: "Visible panel seams." }]
+      : [{ title: "bad frame", source: "stock.example", thumbnail: "https://images.example/bad.jpg", dropReason: "unusable_image" }];
+    return ({
     displayResults: sufficient ? ranked[0].results.slice(0, 9) : [],
     curation: sufficient
       ? { mode: "compiled", version: CURATION_VERSION, rationale: "A varied set won.", signals: ["source range"] }
       : null,
     diagnostics: {
-      rawCandidates: ranked[0]?.results.slice(0, 9) || [],
-      dropped: [{ title: "bad frame", source: "stock.example", thumbnail: "https://images.example/bad.jpg", dropReason: "unusable_image" }],
+      rawCandidates,
+      dropped,
       eventFamilies: [{ id: "event-family-1", strength: 0.8, size: 9, candidates: [] }],
       strongestEvent: sufficient ? { score: 0.7, scoreBreakdown: { familyStrength: { value: 0.8, weight: 0.55, contribution: 0.44 } }, candidates: ranked[0].results.slice(0, 9) } : null,
       strongestCompiled: sufficient ? { score: 0.8, scoreBreakdown: { sourceRange: { value: 1, weight: 0.2, contribution: 0.2 } }, candidates: ranked[0].results.slice(0, 9).reverse() } : null,
@@ -95,10 +118,11 @@ function curation({ sufficient = true, curationFailure = false } = {}) {
       alternate: sufficient ? "event" : null,
       receipt: { rawCount: 9, analyzedCount: sufficient || curationFailure ? 9 : 0, curationVersion: CURATION_VERSION },
     },
-  });
+    });
+  };
 }
 
-function harness({ sufficient = true, curationFailure = false, authorized = true } = {}) {
+function harness({ sufficient = true, curationFailure = false, hardRejected = false, authorized = true } = {}) {
   const store = memoryStore();
   let runNumber = 0;
   const auth = {
@@ -126,7 +150,11 @@ function harness({ sufficient = true, curationFailure = false, authorized = true
       return () => new Date(Date.UTC(2026, 7, 31, 12, 0, tick++));
     })(),
     createRunId: () => `run-${++runNumber}`,
-    curate: curation({ sufficient, curationFailure }),
+    createFeedbackId: (() => {
+      let feedbackNumber = 0;
+      return () => `feedback-${++feedbackNumber}`;
+    })(),
+    curate: curation({ sufficient, curationFailure, hardRejected }),
   });
   return { handler, store };
 }
@@ -296,6 +324,224 @@ test("run, verdict, rerun, and retained-run inspection keep eligibility current"
   ), {});
   assert.equal(priorResponse.status, 200);
   assert.equal((await priorResponse.json()).run.operatorVerdict.verdict, "approved");
+});
+
+test("run-scoped image flags persist as append-only feedback without rewriting calibration", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const chosen = await choiceResponse.json();
+  const candidate = chosen.currentRun.rawResults.find(item =>
+    chosen.currentRun.curationReceipt.rawCandidates.some(
+      retained => retained.candidateId === item.candidateId,
+    ));
+  const calibrationBefore = structuredClone(chosen.currentRun.blindReview);
+
+  const flagResponse = await handler(request("POST", {
+    action: "flag_candidate",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: candidate.candidateId,
+    flagged: true,
+  }), {});
+  const flagged = await flagResponse.json();
+  assert.equal(flagResponse.status, 200, JSON.stringify(flagged));
+  assert.equal(flagged.currentRun.editorialFeedback.eventCount, 1);
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].candidateId, candidate.candidateId);
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].createdBy, "operator-1");
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].disposition, "requested");
+  assert.equal(flagged.currentRun.editorialFeedback.requestedReview.status, "provisional_board");
+  assert.equal(flagged.currentRun.editorialFeedback.requestedReview.board.candidates.length, 9);
+  assert.deepEqual(flagged.currentRun.blindReview, calibrationBefore);
+  assert.equal(flagged.currentRun.operatorVerdict, null);
+
+  const rescueIds = flagged.currentRun.editorialFeedback.requestedReview.board.candidates
+    .map(item => item.candidateId);
+  [rescueIds[0], rescueIds[2]] = [rescueIds[2], rescueIds[0]];
+  const rescueResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds: rescueIds,
+  }), {});
+  const rescued = await rescueResponse.json();
+  assert.equal(rescueResponse.status, 200, JSON.stringify(rescued));
+  assert.deepEqual(
+    rescued.currentRun.editorialFeedback.operatorRescueBoard.board.candidates
+      .map(item => item.candidateId),
+    rescueIds,
+  );
+  assert.equal(rescued.currentRun.editorialFeedback.operatorRescueBoard.savedBy, "operator-1");
+  assert.deepEqual(rescued.currentRun.blindReview, calibrationBefore);
+  assert.equal([...store.records.keys()]
+    .filter(key => key.startsWith(auditRescueBoardPrefix(pairActor.id, 0, "run-1"))).length, 1);
+
+  const feedbackKeysAfterFlag = [...store.records.keys()]
+    .filter(key => key.startsWith(auditFeedbackPrefix(pairActor.id, 0, "run-1")));
+  assert.equal(feedbackKeysAfterFlag.length, 1);
+  const duplicateFlag = await handler(request("POST", {
+    action: "flag_candidate",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: candidate.candidateId,
+    flagged: true,
+  }), {});
+  assert.equal(duplicateFlag.status, 200);
+  assert.equal([...store.records.keys()]
+    .filter(key => key.startsWith(auditFeedbackPrefix(pairActor.id, 0, "run-1"))).length, 1);
+
+  const refreshed = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const persisted = await refreshed.json();
+  assert.equal(persisted.currentRun.editorialFeedback.flags[0].candidateId, candidate.candidateId);
+  assert.equal(persisted.currentRun.editorialFeedback.requestedReview.status, "provisional_board");
+
+  const unflagResponse = await handler(request("POST", {
+    action: "flag_candidate",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: candidate.candidateId,
+    flagged: false,
+  }), {});
+  const unflagged = await unflagResponse.json();
+  assert.equal(unflagResponse.status, 200);
+  assert.equal(unflagged.currentRun.editorialFeedback.eventCount, 2);
+  assert.deepEqual(unflagged.currentRun.editorialFeedback.flags, []);
+  assert.equal([...store.records.keys()]
+    .filter(key => key.startsWith(auditFeedbackPrefix(pairActor.id, 0, "run-1"))).length, 2);
+  assert.deepEqual(unflagged.currentRun.blindReview, calibrationBefore);
+});
+
+test("hard-gated image flags remain visibly blocked and cannot create a requested board", async () => {
+  const { handler } = harness({ hardRejected: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "event",
+  }), {});
+  const chosen = await choiceResponse.json();
+  const rejected = chosen.currentRun.rawResults.find(item =>
+    chosen.currentRun.rejections.some(entry =>
+      entry.kind === "image" && entry.candidateId === item.candidateId));
+  assert.ok(rejected);
+
+  const flagResponse = await handler(request("POST", {
+    action: "flag_candidate",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: rejected.candidateId,
+    flagged: true,
+    intent: "challenge",
+    reasons: ["better_silhouette", "not_collage_duplicate_or_bts"],
+  }), {});
+  const flagged = await flagResponse.json();
+  assert.equal(flagResponse.status, 200, JSON.stringify(flagged));
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].disposition, "blocked");
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].blockedReason, "composite_image");
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].intent, "challenge");
+  assert.deepEqual(
+    flagged.currentRun.editorialFeedback.flags[0].reasons,
+    ["better_silhouette", "not_collage_duplicate_or_bts"],
+  );
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].originalRejection.reason, "composite_image");
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].originalRejection.detail, "Visible panel seams.");
+  assert.equal(
+    flagged.currentRun.editorialFeedback.flags[0].equivalentRequest.requestType,
+    "find_usable_equivalent",
+  );
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].equivalentRequest.status, "requested");
+  assert.equal(flagged.currentRun.editorialFeedback.requestedReview.status, "blocked");
+  assert.equal(flagged.currentRun.editorialFeedback.requestedReview.board, null);
+  assert.equal(flagged.currentRun.blindReview.choice, "event");
+});
+
+test("a rejection challenge requires a structured reason", async () => {
+  const { handler } = harness({ hardRejected: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const chosen = await choiceResponse.json();
+  const candidate = chosen.currentRun.rawResults.find(item =>
+    chosen.currentRun.rejections.some(entry => entry.candidateId === item.candidateId));
+  const response = await handler(request("POST", {
+    action: "flag_candidate",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: candidate.candidateId,
+    flagged: true,
+    intent: "challenge",
+    reasons: [],
+  }), {});
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /Explain why/);
+});
+
+test("flags cannot target hidden evidence, another run, or an arbitrary candidate", async () => {
+  const { handler } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const pending = await runResponse.json();
+  const hiddenCandidateId = candidateIdForResult({
+    ...searchResults(pairActor.vibes[0].queries[0])[0],
+    batchKey: pairActor.vibes[0].queries[0],
+  });
+  const hiddenFlag = await handler(request("POST", {
+    action: "flag_candidate",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: pending.currentRun.runId,
+    candidateId: hiddenCandidateId,
+    flagged: true,
+  }), {});
+  assert.equal(hiddenFlag.status, 409);
+
+  await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const arbitrary = await handler(request("POST", {
+    action: "flag_candidate",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: "a".repeat(24),
+    flagged: true,
+  }), {});
+  assert.equal(arbitrary.status, 404);
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const historical = await handler(request("POST", {
+    action: "flag_candidate",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: hiddenCandidateId,
+    flagged: true,
+  }), {});
+  assert.equal(historical.status, 409);
 });
 
 test("disagreements and Neither require structured reasons before scheduling", async () => {

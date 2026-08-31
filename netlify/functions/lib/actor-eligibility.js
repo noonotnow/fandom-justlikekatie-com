@@ -21,6 +21,12 @@ export const auditCalibrationPrefix = (actorId, vibeIdx, runId) => `calibrations
 export const auditCalibrationKey = (actorId, vibeIdx, runId, receiptId = "canonical") => `${auditCalibrationPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
 export const auditCalibrationReasonsPrefix = (actorId, vibeIdx, runId) => `calibration-reasons/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
 export const auditCalibrationReasonsKey = (actorId, vibeIdx, runId, receiptId = "canonical") => `${auditCalibrationReasonsPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
+export const auditFeedbackPrefix = (actorId, vibeIdx, runId) => `feedback/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
+export const auditFeedbackKey = (actorId, vibeIdx, runId, receiptId) => `${auditFeedbackPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
+export const auditRequestedReviewPrefix = (actorId, vibeIdx, runId) => `requested-reviews/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
+export const auditRequestedReviewKey = (actorId, vibeIdx, runId, feedbackHash) => `${auditRequestedReviewPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(feedbackHash)}`;
+export const auditRescueBoardPrefix = (actorId, vibeIdx, runId) => `rescue-boards/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
+export const auditRescueBoardKey = (actorId, vibeIdx, runId, receiptId) => `${auditRescueBoardPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
 
 export function pairingFingerprintFor(actor, vibeIdx) {
   return createHash("sha256").update(JSON.stringify({

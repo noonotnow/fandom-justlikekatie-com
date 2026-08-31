@@ -23,6 +23,17 @@ const DISAGREEMENT_REASONS: Array<[string,string]> = [
   ['bad_arrangement','Bad arrangement'],
   ['other_editorial_instinct','Other editorial instinct'],
 ];
+const CHALLENGE_REASONS: Array<[string,string]> = [
+  ['stronger_vibe_match','Stronger Vibe match'],
+  ['better_silhouette','Better silhouette'],
+  ['better_costume_continuity','Better costume continuity'],
+  ['better_character_match','Better character match'],
+  ['intentional_similarity','Intentional similarity'],
+  ['better_composition','Better composition'],
+  ['better_hero_image','Better hero image'],
+  ['not_collage_duplicate_or_bts','Not actually a collage, duplicate, or BTS image'],
+  ['other_editorial_instinct','Other editorial instinct'],
+];
 const api = async (body?: AnyRecord, query?: AnyRecord) => { const queryString = query ? `?${new URLSearchParams(Object.entries(query).filter(([,value]) => value !== undefined && value !== '') as [string,string][]).toString()}` : ''; const response = await fetch(`/.netlify/functions/actor-audits${queryString}`, { method: body ? 'POST' : 'GET', headers: body ? {'Content-Type':'application/json'} : undefined, body: body ? JSON.stringify(body) : undefined, credentials:'include' }); const result = await response.json().catch(() => null); if (!response.ok) throw new Error(result?.error || 'Actor audit desk unavailable.'); return result; };
 const text = (value: unknown) => Array.isArray(value)
   ? value.map(item => typeof item === 'object' && item ? JSON.stringify(item) : String(item)).join(' · ')
@@ -79,6 +90,8 @@ export const ActorPreflightLab: React.FC = () => {
   async function saveBlindChoice(choice:'event'|'compiled'|'neither') { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy('blind-choice'); setNotice(''); try { const result=await api({action:'blind_choice',actorId,vibeKey,runId:currentRun.runId,choice}); applyRefresh(result); setRun(result.currentRun ?? null); setCurrentRun(result.currentRun ?? null); setPriorRuns(result.priorRuns ?? []); setDisagreementReasons(result.currentRun?.blindReview?.reasonCodes ?? []); setEditorialNote(result.currentRun?.blindReview?.note ?? ''); setNotice('Independent choice recorded. The system result is now revealed.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function saveDisagreement(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy('reasons'); setNotice(''); try { const result=await api({action:'blind_reasons',actorId,vibeKey,runId:currentRun.runId,reasonCodes:disagreementReasons,note:editorialNote}); applyRefresh(result); setRun(result.currentRun ?? null); setCurrentRun(result.currentRun ?? null); setPriorRuns(result.priorRuns ?? []); setDisagreementReasons(result.currentRun?.blindReview?.reasonCodes ?? disagreementReasons); setEditorialNote(result.currentRun?.blindReview?.note ?? editorialNote); setNotice('Editorial calibration notes saved.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function saveVerdict(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!verdict)return; setBusy('verdict'); setNotice(''); try { const result=await api({action:'verdict',actorId,vibeKey,runId:currentRun.runId,verdict,notes}); applyRefresh(result); setRun(result.currentRun ?? currentRun); setCurrentRun(result.currentRun ?? currentRun); setVerdict(result.verdict ?? verdict); setNotes(result.notes ?? notes); setNotice('Verdict saved to the curation ledger.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
+  async function saveCandidateFlag(candidateId:string,flagged:boolean,intent='pin',reasons:string[]=[] ) { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy(`flag:${candidateId}`); setNotice(''); try { const result=await api({action:'flag_candidate',actorId,vibeKey,runId:currentRun.runId,candidateId,flagged,intent,reasons}); applyRefresh(result); const next=result.currentRun ?? currentRun; setRun(next); setCurrentRun(next); setPriorRuns(result.priorRuns ?? priorRuns); setNotice(flagged?'Image-level editorial intent saved. Safety gates still apply.':'Image annotation removed from the requested grid review.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
+  async function saveRescueBoard(candidateIds:string[]) { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy('rescue-board'); setNotice(''); try { const result=await api({action:'save_rescue_board',actorId,vibeKey,runId:currentRun.runId,candidateIds}); applyRefresh(result); const next=result.currentRun ?? currentRun; setRun(next); setCurrentRun(next); setPriorRuns(result.priorRuns ?? priorRuns); setNotice('Operator Rescue Board saved as a separate append-only receipt.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   const selectedIsCurrent = Boolean(run?.runId && currentRun?.runId === run.runId);
   const review = run?.blindReview;
   const disagreementNeedsReasons = Boolean(review?.choice && review.agreement !== true && !review.reasonCodes?.length);
@@ -105,6 +118,8 @@ export const ActorPreflightLab: React.FC = () => {
               onReasonChange={setDisagreementReasons}
               onNoteChange={setEditorialNote}
               onSaveReasons={saveDisagreement}
+              onFlag={saveCandidateFlag}
+              onSaveRescue={saveRescueBoard}
               onSelect={selected=>{setRun(selected);if(selected.runId===currentRun?.runId){setDisagreementReasons(selected.blindReview?.reasonCodes??[]);setEditorialNote(selected.blindReview?.note??'')}}}
             />
           </div>
@@ -120,11 +135,11 @@ export const ActorPreflightLab: React.FC = () => {
 
 function InfoCard({title,data,keys}:{title:string;data:AnyRecord;keys:string[]}) { return <article className={`${styles.card} ${styles.cardWide}`}><h5>{title}</h5><div className={styles.grid}>{keys.map(key=><div key={key}><p className={styles.muted}>{key.replace(/[A-Z]/g,m=>` ${m}`).toUpperCase()}</p><div className={styles.chips}>{(Array.isArray(data[key])?data[key]:[data[key]]).filter(Boolean).map((item:any,index:number)=><span className={styles.chip} key={index}>{text(item)}</span>)}</div></div>)}</div></article>; }
 function RunEvidence({
-  run,currentRun,priorRuns,busy,disagreementReasons,editorialNote,onChoice,onReasonChange,onNoteChange,onSaveReasons,onSelect,
+  run,currentRun,priorRuns,busy,disagreementReasons,editorialNote,onChoice,onReasonChange,onNoteChange,onSaveReasons,onFlag,onSaveRescue,onSelect,
 }:{
   run:Run|null;currentRun:Run|null;priorRuns:Run[];busy:string;disagreementReasons:string[];editorialNote:string;
   onChoice:(choice:'event'|'compiled'|'neither')=>void;onReasonChange:(reasons:string[])=>void;onNoteChange:(note:string)=>void;
-  onSaveReasons:(event:React.FormEvent)=>void;onSelect:(run:Run)=>void;
+  onSaveReasons:(event:React.FormEvent)=>void;onFlag:(candidateId:string,flagged:boolean,intent?:string,reasons?:string[])=>void;onSaveRescue:(candidateIds:string[])=>void;onSelect:(run:Run)=>void;
 }) {
   const review = run?.blindReview;
   const revealed = Boolean(review?.choice);
@@ -158,10 +173,58 @@ function RunEvidence({
           <button className={styles.buttonPrimary} disabled={busy==='reasons'||!disagreementReasons.length||(disagreementReasons.includes('other_editorial_instinct')&&!editorialNote.trim())}>Save calibration reasons</button>
         </form>}
       </section>}
-      {evidenceAvailable && <><div className={styles.evidenceSummary}><strong>{run.displayCount ?? 0}</strong><span>clean display images</span><strong>{run.queryCount ?? run.queryRuns?.length ?? 0}</strong><span>queries audited</span><strong>{rawResults.length}</strong><span>retained results</span></div><div className={styles.evidence}>{sections.map(([label,value])=><details key={label}><summary>{label} <span className={styles.muted}>{Array.isArray(value)?`${value.length} records`:''}</span></summary>{label === 'Bounded raw results' && rawResults.length > 0 ? <div className={styles.resultGrid}>{rawResults.map((item:any,index:number)=><a className={styles.result} href={item.link || item.thumbnail || '#'} target="_blank" rel="noreferrer" key={`${item.link || item.thumbnail || item.title || 'result'}-${index}`}>{item.thumbnail ? <img src={item.thumbnail} alt="" loading="lazy" /> : <span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{item.title || 'Untitled result'}</span><small>{item.source || 'Unknown source'}</small></a>)}</div> : <pre>{text(value)}</pre>}</details>)}</div></>}
+      {evidenceAvailable && <><div className={styles.evidenceSummary}><strong>{run.displayCount ?? 0}</strong><span>clean display images</span><strong>{run.queryCount ?? run.queryRuns?.length ?? 0}</strong><span>queries audited</span><strong>{rawResults.length}</strong><span>retained results</span></div><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue}/><div className={styles.evidence}>{sections.map(([label,value])=><details key={label}><summary>{label} <span className={styles.muted}>{Array.isArray(value)?`${value.length} records`:''}</span></summary>{label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} busy={busy} onFlag={onFlag}/> : <pre>{text(value)}</pre>}</details>)}</div></>}
     </> : <p className={styles.empty}>Run an audit to open a blinded Event versus Compiled comparison.</p>}
     {currentRun&&<label className={styles.label}>Audit run<select className={styles.select} value={run?.runId ?? ''} onChange={e=>{const selected=[currentRun,...priorRuns].find(item=>item.runId===e.target.value);if(selected)onSelect(selected)}}><option value={currentRun.runId}>Current · {currentRun.runId} · {date(currentRun.completedAt)}</option>{priorRuns.map(item=><option key={item.runId} value={item.runId}>Retained · {item.runId} · {date(item.completedAt)}</option>)}</select></label>}
   </article>;
+}
+
+function RawResultGrid({run,isCurrent,busy,onFlag}:{run:Run;isCurrent:boolean;busy:string;onFlag:(candidateId:string,flagged:boolean,intent?:string,reasons?:string[])=>void}) {
+  const rawResults = Array.isArray(run.rawResults) ? run.rawResults : [];
+  const [challengeByCandidate,setChallengeByCandidate]=useState<Record<string,string>>({});
+  const selectedIds = new Set([
+    ...(run.strongestEvent?.candidates ?? []),
+    ...(run.strongestCompiled?.candidates ?? []),
+  ].map((item:any)=>item.candidateId).filter(Boolean));
+  const flags = run.editorialFeedback?.flags ?? [];
+  return <div className={styles.resultGrid}>{rawResults.map((item:any,index:number)=>{
+    const rejection=(run.rejections??[]).find((entry:any)=>entry.kind==='image'&&(entry.candidateId===item.candidateId||(!entry.candidateId&&entry.thumbnail===item.thumbnail&&entry.title===item.title)));
+    const flag=flags.find((entry:any)=>entry.candidateId===item.candidateId);
+    const state=rejection?'rejected':selectedIds.has(item.candidateId)?'selected':'not_selected';
+    const stateLabel=state==='rejected'?`Rejected · ${String(rejection?.reason??'curation gate').replaceAll('_',' ')}`:state==='selected'?'Selected for a candidate board':'Retained · not selected';
+    return <article className={styles.result} data-state={state} data-flagged={Boolean(flag)} key={item.candidateId||`${item.link||item.thumbnail||item.title||'result'}-${index}`}>
+      <a className={styles.resultLink} href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.thumbnail?<img src={item.thumbnail} alt="" loading="lazy"/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{item.title||'Untitled result'}</span><small>{item.source||'Unknown source'}</small></a>
+      <span className={styles.resultState} data-state={state}>{stateLabel}</span>
+      {rejection?.dropDetail&&<small className={styles.resultReason}>{rejection.dropDetail}</small>}
+      {flag&&<small className={flag.disposition==='blocked'?styles.flagBlocked:styles.flagHonored}>{flag.disposition==='excluded'?'Excluded from rescue board':flag.disposition==='blocked'?`${flag.intent==='challenge'?'Challenge saved':'Preference saved'} · blocked by ${String(flag.blockedReason).replaceAll('_',' ')}; find a usable equivalent`:`${String(flag.intent||'pin').replaceAll('_',' ')} saved · eligible for provisional review`}<br/>{flag.reasons?.length?`${flag.reasons.map((reason:string)=>reason.replaceAll('_',' ')).join(' · ')} · `:''}{date(flag.createdAt)} · {flag.createdBy}</small>}
+      <div className={styles.intentButtons} aria-label="Image-level editorial flags">
+        {([['pin','Pin for board'],['hero','Hero candidate'],['supporting','Good supporting card'],['exclude','Exclude']] as Array<[string,string]>).map(([intent,label])=><button type="button" key={intent} className={flag?.intent===intent?styles.flagButtonActive:styles.flagButton} disabled={!isCurrent||busy===`flag:${item.candidateId}`||!item.candidateId} onClick={()=>onFlag(item.candidateId,flag?.intent!==intent,intent)}>{label}</button>)}
+      </div>
+      {rejection&&<div className={styles.challengeControls}><select className={styles.challengeSelect} value={challengeByCandidate[item.candidateId]??flag?.reasons?.[0]??''} onChange={event=>setChallengeByCandidate(current=>({...current,[item.candidateId]:event.target.value}))} aria-label="Why challenge this rejection"><option value="">Why challenge this rejection?</option>{CHALLENGE_REASONS.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select><button type="button" className={flag?.intent==='challenge'?styles.flagButtonActive:styles.flagButton} disabled={!isCurrent||busy===`flag:${item.candidateId}`||!item.candidateId||!(challengeByCandidate[item.candidateId]??flag?.reasons?.[0])} onClick={()=>{const reason=challengeByCandidate[item.candidateId]??flag?.reasons?.[0];onFlag(item.candidateId,flag?.intent!=='challenge','challenge',reason?[reason]:[])}}>{flag?.intent==='challenge'?'Remove challenge':'Challenge rejection'}</button></div>}
+    </article>;
+  })}</div>;
+}
+
+function RequestedGridReview({run,isCurrent,busy,onSave}:{run:Run;isCurrent:boolean;busy:string;onSave:(candidateIds:string[])=>void}) {
+  const feedback=run.editorialFeedback;
+  const flags=feedback?.flags??[];
+  const review=feedback?.requestedReview;
+  const saved=feedback?.operatorRescueBoard;
+  const initialCandidates=(saved?.board?.candidates??review?.board?.candidates??[]) as AnyRecord[];
+  const signature=initialCandidates.map(item=>item.candidateId).join('|');
+  const [candidates,setCandidates]=useState<AnyRecord[]>(initialCandidates);
+  useEffect(()=>setCandidates(initialCandidates),[run.runId,signature]);
+  if(!flags.length&&!saved)return null;
+  const honorCount=flags.filter((item:any)=>item.disposition==='requested').length;
+  const blockedCount=flags.filter((item:any)=>item.disposition==='blocked').length;
+  const excludedCount=flags.filter((item:any)=>item.disposition==='excluded').length;
+  const move=(index:number,direction:-1|1)=>setCandidates(current=>{const target=index+direction;if(target<0||target>=current.length)return current;const next=[...current];[next[index],next[target]]=[next[target],next[index]];return next;});
+  return <section className={styles.requestedReview}>
+    <div className={styles.requestedReviewHeader}><div><h6>Operator rescue board</h6><p>Pin, hero, and supporting flags are preferences among candidates that still pass identity, single-frame, duplicate, availability, and Vibe-promise gates. Exclusions stay out. This never changes the frozen audit or Daily Drop eligibility.</p></div><span>{honorCount} reviewable · {blockedCount} blocked · {excludedCount} excluded</span></div>
+    {candidates.length===9?<><div className={styles.rescueGrid}>{candidates.map((item,index)=><article className={styles.rescueTile} data-hero={index===4} key={item.candidateId}><a href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.thumbnail?<img src={item.thumbnail} alt={item.title||`Rescue card ${index+1}`}/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{index===4?'Hero · ':''}{item.title||`Card ${index+1}`}</span></a><div><button type="button" disabled={index===0} onClick={()=>move(index,-1)} aria-label={`Move card ${index+1} earlier`}>←</button><button type="button" disabled={index===8} onClick={()=>move(index,1)} aria-label={`Move card ${index+1} later`}>→</button></div></article>)}</div><div className={styles.rescueActions}><button type="button" className={styles.buttonPrimary} disabled={!isCurrent||busy==='rescue-board'} onClick={()=>onSave(candidates.map(item=>item.candidateId))}>{busy==='rescue-board'?'Saving rescue board…':'Save this arrangement'}</button>{saved&&<span>Last saved {date(saved.savedAt)} by {saved.savedBy}</span>}</div></>:<p className={styles.boardEmpty}>{review?.summary||'The request receipt is saved. A provisional board has not formed.'}</p>}
+    {review?.board&&<p className={styles.requestedSummary}>{review.summary}</p>}
+    {blockedCount>0&&<div className={styles.blockedFlags}>{flags.filter((item:any)=>item.disposition==='blocked').map((item:any)=><span key={item.candidateId}><strong>{item.candidate?.title||item.candidateId}</strong> remains blocked by {String(item.blockedReason||'a hard rule').replaceAll('_',' ')}. The receipt requests a usable equivalent rather than placing the rejected asset.</span>)}</div>}
+  </section>;
 }
 
 function PartialBoards({run}:{run:Run}) {

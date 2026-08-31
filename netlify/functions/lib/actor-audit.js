@@ -15,8 +15,13 @@ import {
   auditCalibrationPrefix,
   auditCalibrationReasonsKey,
   auditCalibrationReasonsPrefix,
+  auditFeedbackKey,
+  auditFeedbackPrefix,
   auditRunKey,
   auditRunPrefix,
+  auditRequestedReviewKey,
+  auditRescueBoardKey,
+  auditRescueBoardPrefix,
   auditVerdictKey,
   auditVerdictPrefix,
   auditVibeKey,
@@ -29,7 +34,7 @@ import {
   rankCandidates,
   RANKED_BATCH_LIMIT,
 } from "./ranking.js";
-import { curateDisplayResults } from "./grid-curation.js";
+import { candidateIdForResult, curateDisplayResults } from "./grid-curation.js";
 
 const MAX_BODY_BYTES = 48 * 1024;
 const MAX_NOTE_LENGTH = 2000;
@@ -37,6 +42,20 @@ const MAX_CALIBRATION_NOTE_LENGTH = 1000;
 const MAX_RETAINED_RUNS = 12;
 const MAX_RAW_RESULTS = 36;
 const MAX_IDENTITY_ITEMS = 36;
+const MAX_FEEDBACK_EVENTS = 72;
+const MAX_FEEDBACK_NOTE_LENGTH = 400;
+const FEEDBACK_INTENTS = new Set(["pin", "hero", "supporting", "exclude", "challenge"]);
+const CHALLENGE_REASONS = new Set([
+  "stronger_vibe_match",
+  "better_silhouette",
+  "better_costume_continuity",
+  "better_character_match",
+  "intentional_similarity",
+  "better_composition",
+  "better_hero_image",
+  "not_collage_duplicate_or_bts",
+  "other_editorial_instinct",
+]);
 const VERDICTS = new Set([
   "approved",
   "approved_override",
@@ -67,6 +86,7 @@ export function createActorAuditHandler({
   searchOneQuery,
   now = () => new Date(),
   createRunId = () => randomUUID(),
+  createFeedbackId = () => randomUUID(),
   curate = curateDisplayResults,
 }) {
   return async (req, context) => {
@@ -325,6 +345,181 @@ export function createActorAuditHandler({
         });
       }
 
+      if (input.action === "flag_candidate") {
+        const report = await readReport(store, pair);
+        const run = await readRun(store, pair, input.runId);
+        if (!run || run.runId !== input.runId) {
+          return json(409, { error: "This flag is not for a retained audit run. Refresh and try again." });
+        }
+        if (report.currentRun?.runId !== run.runId) {
+          return json(409, { error: "Only the current audit run can receive grid-review requests." });
+        }
+        if (!run.blindReview?.choice && run.blindReview?.status !== "unavailable") {
+          return json(409, { error: "Choose the blind board result before flagging evidence for grid review." });
+        }
+        if (typeof input.candidateId !== "string" || !/^[a-f0-9]{24}$/.test(input.candidateId)) {
+          return json(400, { error: "A valid retained candidate is required." });
+        }
+        if (typeof input.flagged !== "boolean") {
+          return json(400, { error: "Flag state must be true or false." });
+        }
+        const requestedIntent = input.intent === undefined ? "pin" : input.intent;
+        if (input.flagged && (typeof requestedIntent !== "string" || !FEEDBACK_INTENTS.has(requestedIntent))) {
+          return json(400, { error: "Choose pin, hero, supporting, exclude, or challenge as the editorial intent." });
+        }
+        const challengeReasons = parseChallengeReasons(input.reasons);
+        if (challengeReasons === null) {
+          return json(400, { error: "Choose only the listed rejection-challenge reasons." });
+        }
+        if (input.flagged && requestedIntent === "challenge" && !challengeReasons.length) {
+          return json(400, { error: "Explain why this rejected image should be reconsidered." });
+        }
+        const receiptReasons = requestedIntent === "challenge" ? challengeReasons : [];
+        const candidate = (run.rawResults || []).find(item =>
+          candidateIdForResult({ ...item, batchKey: item.query }) === input.candidateId);
+        if (!candidate) {
+          return json(404, { error: "That image is not part of this audit's retained evidence." });
+        }
+        const originalRejection = (run.rejections || []).find(item =>
+          item.kind === "image" && item.candidateId === input.candidateId) || null;
+        if (input.flagged && requestedIntent === "challenge" && !originalRejection) {
+          return json(409, { error: "Only an image rejected by this audit can receive a rejection challenge." });
+        }
+        const note = boundedText(input.note, MAX_FEEDBACK_NOTE_LENGTH);
+        if (note === null) {
+          return json(400, { error: "The review note must be text under 400 characters." });
+        }
+        const feedback = run.editorialFeedback || emptyEditorialFeedback();
+        const existing = feedback.flags.find(item => item.candidateId === input.candidateId);
+        if (
+          (existing?.flagged === input.flagged && (!input.flagged || (
+            existing.intent === requestedIntent
+            && JSON.stringify(existing.reasons || []) === JSON.stringify(receiptReasons)
+          )))
+          || (!existing && input.flagged === false)
+        ) {
+          return json(200, {
+            actor: await actorSummary(store, actorPacks, pair.actor),
+            pairing: pairingSummary(pair, report),
+            ...detailResponse(pair, report),
+          });
+        }
+        if (feedback.eventCount >= MAX_FEEDBACK_EVENTS) {
+          return json(409, { error: "This run has reached its editorial feedback receipt limit." });
+        }
+        const stamp = now().toISOString();
+        const gate = candidateGate(run, input.candidateId);
+        const receipt = {
+          schemaVersion: 1,
+          eventId: createFeedbackId(),
+          action: input.flagged ? "flag" : "unflag",
+          flagged: input.flagged,
+          intent: input.flagged ? requestedIntent : existing?.intent || "pin",
+          reasons: input.flagged ? receiptReasons : [],
+          runId: run.runId,
+          actorId: pair.actor.id,
+          vibeKey: pair.vibeKey,
+          candidateId: input.candidateId,
+          candidate: {
+            query: String(candidate.query || "").slice(0, 500),
+            title: String(candidate.title || "").slice(0, 240),
+            source: String(candidate.source || "").slice(0, 120),
+            link: String(candidate.link || "").slice(0, 700),
+            thumbnail: String(candidate.thumbnail || "").slice(0, 700),
+            imageDigest: String(candidate.imageDigest || "").slice(0, 256) || null,
+          },
+          originalRejection: originalRejection ? {
+            reason: originalRejection.reason || "curation_gate",
+            detail: originalRejection.dropDetail || null,
+          } : null,
+          equivalentRequest: input.flagged
+            && requestedIntent !== "exclude"
+            && gate.disposition === "blocked"
+            ? {
+              status: "requested",
+              requestType: "find_usable_equivalent",
+              sourceCandidateId: input.candidateId,
+              blockedReason: gate.blockedReason,
+              requestedAt: stamp,
+            }
+            : null,
+          versions: {
+            identityProfileVersion: run.identityProfileVersion || run.profileVersion || null,
+            aestheticClusterVersion: run.aestheticClusterVersion || null,
+            promiseContractVersion: run.promiseContractVersion || null,
+            curationVersion: run.curationReceipt?.curationVersion || null,
+          },
+          note,
+          createdAt: stamp,
+          createdBy: operator.user.accountId,
+        };
+        const write = await store.setJSON(
+          auditFeedbackKey(pair.actor.id, pair.vibeIdx, run.runId, receipt.eventId),
+          receipt,
+          { onlyIfNew: true },
+        );
+        if (write?.modified === false) {
+          return json(409, { error: "Another operator recorded this grid-review request first." });
+        }
+        const refreshed = await readReport(store, pair);
+        const refreshedRun = refreshed.currentRun;
+        if (refreshedRun?.runId === run.runId && refreshedRun.editorialFeedback?.flags?.length) {
+          await persistRequestedReview(store, pair, refreshedRun, now);
+        }
+        const next = await readReport(store, pair);
+        return json(200, {
+          actor: await actorSummary(store, actorPacks, pair.actor),
+          pairing: pairingSummary(pair, next),
+          ...detailResponse(pair, next),
+        });
+      }
+
+      if (input.action === "save_rescue_board") {
+        const report = await readReport(store, pair);
+        const run = report.currentRun;
+        if (!run || input.runId !== run.runId) {
+          return json(409, { error: "Only the current audit run can save an Operator Rescue Board." });
+        }
+        if (!run.blindReview?.choice && run.blindReview?.status !== "unavailable") {
+          return json(409, { error: "Choose the blind board result before saving a rescue arrangement." });
+        }
+        const validation = validateRescueArrangement(run, input.candidateIds);
+        if (!validation.ok) return json(409, { error: validation.error });
+        const savedAt = now().toISOString();
+        const receiptId = createFeedbackId();
+        const receipt = {
+          schemaVersion: 1,
+          receiptId,
+          runId: run.runId,
+          actorId: pair.actor.id,
+          vibeKey: pair.vibeKey,
+          feedbackHash: feedbackHash(run.editorialFeedback?.flags || []),
+          board: validation.board,
+          savedAt,
+          savedBy: operator.user.accountId,
+          versions: {
+            identityProfileVersion: run.identityProfileVersion || run.profileVersion || null,
+            aestheticClusterVersion: run.aestheticClusterVersion || null,
+            promiseContractVersion: run.promiseContractVersion || null,
+            curationVersion: run.curationReceipt?.curationVersion || null,
+          },
+        };
+        const write = await store.setJSON(
+          auditRescueBoardKey(pair.actor.id, pair.vibeIdx, run.runId, receiptId),
+          receipt,
+          { onlyIfNew: true },
+        );
+        if (write?.modified === false) {
+          return json(409, { error: "Another operator saved this rescue arrangement first." });
+        }
+        const next = await readReport(store, pair);
+        return json(200, {
+          actor: await actorSummary(store, actorPacks, pair.actor),
+          pairing: pairingSummary(pair, next),
+          ...detailResponse(pair, next),
+        });
+      }
+
       return json(400, { error: "Unknown audit action." });
     } catch (error) {
       const status = error?.status || (error instanceof TypeError ? 400 : 500);
@@ -398,7 +593,7 @@ export async function runPreflight(
     completedAt,
     queryCount: queries.length,
     queryRuns,
-    rawResults: boundedRawResults(candidates),
+    rawResults: boundedRawResults(candidates, diagnostics),
     rejections: buildRejectionLedger(queryRuns, diagnostics),
     identityEvidence,
     detectedEvents: diagnostics.eventFamilies || [],
@@ -416,6 +611,8 @@ export async function runPreflight(
     curationReceipt: {
       ...(diagnostics.receipt || {}),
       ...(curated.curation || {}),
+      rawCandidates: diagnostics.rawCandidates || [],
+      dropped: diagnostics.dropped || [],
     },
     displayCount: curated.displayResults.length,
     materialSufficient,
@@ -452,15 +649,31 @@ function queryRun(candidate, receipt, rankIndex) {
   };
 }
 
-function boundedRawResults(candidates) {
-  return candidates.flatMap(candidate => (candidate.results || []).map(result => ({
+function boundedRawResults(candidates, diagnostics = {}) {
+  const analyzed = new Map((diagnostics.rawCandidates || []).map(item => [
+    item.provisionalCandidateId
+      || candidateIdForResult({ ...item, batchKey: item.batchKey || item.query, digest: "" }),
+    {
+      candidateId: item.candidateId || null,
+      imageDigest: item.imageDigest || null,
+    },
+  ]));
+  return candidates.flatMap(candidate => (candidate.results || []).map(result => {
+    const batchKey = result.batchKey || candidate.query;
+    const fallbackId = candidateIdForResult({ ...result, batchKey, digest: "" });
+    const analysis = analyzed.get(fallbackId);
+    const digest = analysis?.imageDigest || null;
+    return {
+    candidateId: analysis?.candidateId || candidateIdForResult({ ...result, batchKey, digest }),
+    imageDigest: digest,
     query: String(candidate.query || "").slice(0, 500),
     title: String(result.title || "").slice(0, 240),
     description: String(result.description || "").slice(0, 400),
     source: String(result.source || "").slice(0, 120),
     link: String(result.link || "").slice(0, 700),
     thumbnail: String(result.thumbnail || "").slice(0, 700),
-  }))).slice(0, MAX_RAW_RESULTS);
+    };
+  })).slice(0, MAX_RAW_RESULTS);
 }
 
 function buildRejectionLedger(queryRuns, diagnostics) {
@@ -471,10 +684,13 @@ function buildRejectionLedger(queryRuns, diagnostics) {
   })));
   const imageRejections = (diagnostics.dropped || []).map(item => ({
     kind: "image",
+    candidateId: item.candidateId || null,
+    link: item.link || null,
     title: item.title,
     source: item.source,
     thumbnail: item.thumbnail,
     reason: item.dropReason,
+    dropDetail: item.dropDetail || null,
   }));
   return [...queryRejections, ...imageRejections].slice(0, MAX_RAW_RESULTS);
 }
@@ -679,15 +895,17 @@ async function readRun(store, pair, runId) {
 }
 
 async function attachVerdict(store, pair, run) {
-  const [operatorVerdict, calibration, reasons] = await Promise.all([
+  const [operatorVerdict, calibration, reasons, editorialFeedback] = await Promise.all([
     readFirstReceipt(store, auditVerdictPrefix(pair.actor.id, pair.vibeIdx, run.runId), "decidedAt"),
     readFirstReceipt(store, auditCalibrationPrefix(pair.actor.id, pair.vibeIdx, run.runId), "chosenAt"),
     readFirstReceipt(store, auditCalibrationReasonsPrefix(pair.actor.id, pair.vibeIdx, run.runId), "annotatedAt"),
+    readEditorialFeedback(store, pair, run),
   ]);
   const boardDiagnostics = run.boardDiagnostics || boardDiagnosticsFromRetainedEvidence(run);
   return {
     ...run,
     boardDiagnostics,
+    editorialFeedback,
     operatorVerdict: operatorVerdict || null,
     blindReview: calibration
       ? { ...calibration, ...(reasons || {}) }
@@ -697,6 +915,270 @@ async function attachVerdict(store, pair, run) {
         boards: blindBoards(run, presentationOrderFor(run.runId)),
       },
   };
+}
+
+function emptyEditorialFeedback() {
+  return {
+    schemaVersion: 1,
+    eventCount: 0,
+    flags: [],
+    requestedReview: null,
+    operatorRescueBoard: null,
+  };
+}
+
+async function readEditorialFeedback(store, pair, run) {
+  const listing = await store.list({
+    prefix: auditFeedbackPrefix(pair.actor.id, pair.vibeIdx, run.runId),
+  });
+  const receipts = (await Promise.all((listing?.blobs || []).map(async blob => {
+    if (typeof blob?.key !== "string") return null;
+    const value = await store.get(blob.key, { type: "json", consistency: "strong" });
+    return value ? { key: blob.key, value } : null;
+  }))).filter(item => item?.value?.candidateId);
+  receipts.sort((left, right) =>
+    String(left.value.createdAt || "").localeCompare(String(right.value.createdAt || ""))
+    || left.key.localeCompare(right.key));
+  const latest = new Map();
+  for (const receipt of receipts) {
+    if (receipt.value.runId !== run.runId || receipt.value.actorId !== pair.actor.id
+      || receipt.value.vibeKey !== pair.vibeKey) continue;
+    latest.set(receipt.value.candidateId, receipt.value);
+  }
+  const flags = [...latest.values()]
+    .filter(receipt => receipt.flagged === true)
+    .map(receipt => ({
+      ...receipt,
+      ...feedbackDisposition(receipt, candidateGate(run, receipt.candidateId)),
+    }))
+    .sort((left, right) => left.candidateId.localeCompare(right.candidateId));
+  const feedback = {
+    schemaVersion: 1,
+    eventCount: receipts.length,
+    flags,
+    requestedReview: null,
+    operatorRescueBoard: await readLatestReceipt(
+      store,
+      auditRescueBoardPrefix(pair.actor.id, pair.vibeIdx, run.runId),
+      "savedAt",
+    ),
+  };
+  if (flags.length) {
+    const hash = feedbackHash(flags);
+    feedback.requestedReview = await store.get(
+      auditRequestedReviewKey(pair.actor.id, pair.vibeIdx, run.runId, hash),
+      { type: "json", consistency: "strong" },
+    );
+  }
+  return feedback;
+}
+
+function feedbackHash(flags) {
+  return recordHash(flags.map(flag => ({
+    candidateId: flag.candidateId,
+    eventId: flag.eventId,
+    flagged: flag.flagged,
+    intent: flag.intent,
+    reasons: flag.reasons || [],
+  }))).slice(0, 32);
+}
+
+function candidateGate(run, candidateId) {
+  const raw = (run.rawResults || []).find(item =>
+    candidateIdForResult({ ...item, batchKey: item.query }) === candidateId);
+  if (!raw) return { disposition: "blocked", blockedReason: "not_retained" };
+  const rawCandidates = run.curationReceipt?.rawCandidates || [];
+  const dropped = (run.curationReceipt?.dropped || []).find(item =>
+    item.candidateId === candidateId);
+  const analyzed = rawCandidates.find(item => item.candidateId === candidateId);
+  const reason = dropped?.dropReason || analyzed?.dropReason || null;
+  if (reason) return { disposition: "blocked", blockedReason: reason };
+  if (!analyzed) return { disposition: "blocked", blockedReason: "not_analyzed_in_audit" };
+  return { disposition: "requested", blockedReason: null };
+}
+
+async function persistRequestedReview(store, pair, run, now) {
+  const flags = run.editorialFeedback?.flags || [];
+  if (!flags.length) return null;
+  const hash = feedbackHash(flags);
+  const key = auditRequestedReviewKey(pair.actor.id, pair.vibeIdx, run.runId, hash);
+  const existing = await store.get(key, { type: "json", consistency: "strong" });
+  if (existing) return existing;
+  const eligibleFlags = flags.filter(flag => flag.disposition === "requested");
+  const board = buildFrozenRescueBoard(run, flags);
+  const review = {
+    schemaVersion: 1,
+    sourceRunId: run.runId,
+    feedbackHash: hash,
+    generatedAt: now().toISOString(),
+    status: eligibleFlags.length ? "needs_more_candidates" : "blocked",
+    flaggedCandidates: flags.map(flag => ({
+      candidateId: flag.candidateId,
+      title: flag.candidate?.title || "",
+      thumbnail: flag.candidate?.thumbnail || "",
+      intent: flag.intent || "pin",
+      reasons: flag.reasons || [],
+      disposition: flag.disposition,
+      blockedReason: flag.blockedReason,
+    })),
+    blockedCandidates: flags
+      .filter(flag => flag.disposition !== "requested")
+      .map(flag => ({
+        candidateId: flag.candidateId,
+        reason: flag.blockedReason,
+        equivalentRequest: flag.equivalentRequest || null,
+      })),
+    board,
+    summary: board
+      ? "A provisional rescue board was composed only from this run's frozen gate-approved candidates."
+      : eligibleFlags.length
+        ? "The frozen approved pool could not form a complete nine-card rescue board under the Vibe promise."
+        : "Every preference is excluded or blocked; rejected assets have a usable-equivalent request instead of board access.",
+  };
+  review.status = board ? "provisional_board" : eligibleFlags.length ? "needs_more_candidates" : "blocked";
+  const write = await store.setJSON(key, review, { onlyIfNew: true });
+  return write?.modified === false ? store.get(key, { type: "json", consistency: "strong" }) : review;
+}
+
+function feedbackDisposition(receipt, gate) {
+  if (receipt.intent === "exclude") {
+    return { disposition: "excluded", blockedReason: null };
+  }
+  return gate;
+}
+
+function buildFrozenRescueBoard(run, flags) {
+  const droppedIds = new Set((run.curationReceipt?.dropped || [])
+    .filter(item => item.dropReason)
+    .map(item => item.candidateId));
+  const excludedIds = new Set(flags
+    .filter(flag => flag.disposition === "excluded")
+    .map(flag => flag.candidateId));
+  const approved = (run.curationReceipt?.rawCandidates || [])
+    .filter(candidate =>
+      candidate.candidateId
+      && !candidate.dropReason
+      && !droppedIds.has(candidate.candidateId)
+      && !excludedIds.has(candidate.candidateId)
+      && Number(candidate.promise?.singleFrameRatio ?? 1) >= 0.99);
+  const byId = new Map(approved.map(candidate => [candidate.candidateId, candidate]));
+  const requested = flags
+    .filter(flag => flag.disposition === "requested" && byId.has(flag.candidateId))
+    .sort((left, right) => intentPriority(left.intent) - intentPriority(right.intent)
+      || left.candidateId.localeCompare(right.candidateId));
+  const winnerMode = run.winner?.mode;
+  const winnerBoard = winnerMode === "event" ? run.strongestEvent : run.strongestCompiled;
+  const ordered = [];
+  const add = candidate => {
+    const frozen = candidate && byId.get(candidate.candidateId);
+    if (frozen && !ordered.some(item => item.candidateId === frozen.candidateId)) ordered.push(frozen);
+  };
+  requested.forEach(flag => add(byId.get(flag.candidateId)));
+  (winnerBoard?.candidates || []).forEach(add);
+  [...approved].sort((left, right) => left.candidateId.localeCompare(right.candidateId)).forEach(add);
+  const coreSafe = candidate => Boolean(
+    candidate?.promise?.coreSatisfied
+    && candidate?.promise?.incompatibleCluster !== true,
+  );
+  const heroSafe = candidate => coreSafe(candidate) && candidate.promise?.heroSatisfied === true;
+  const requestedHeroIds = new Set(requested
+    .filter(flag => flag.intent === "hero")
+    .map(flag => flag.candidateId));
+  const hero = ordered.find(candidate => requestedHeroIds.has(candidate.candidateId) && heroSafe(candidate))
+    || (winnerBoard?.candidates?.[4] && byId.get(winnerBoard.candidates[4].candidateId)
+      && heroSafe(byId.get(winnerBoard.candidates[4].candidateId))
+      ? byId.get(winnerBoard.candidates[4].candidateId)
+      : null)
+    || ordered.find(heroSafe);
+  if (!hero) return null;
+  const remaining = ordered.filter(candidate => candidate.candidateId !== hero.candidateId);
+  const core = remaining.filter(coreSafe);
+  if (core.length < 6 || ordered.length < 9) return null;
+  const arranged = Array(9);
+  arranged[4] = hero;
+  for (const slot of [1, 3, 5, 7]) arranged[slot] = core.shift();
+  const leftovers = remaining.filter(candidate =>
+    !arranged.some(selected => selected?.candidateId === candidate.candidateId));
+  const secondaryCore = leftovers.filter(coreSafe);
+  for (const slot of [0, 2]) arranged[slot] = secondaryCore.shift();
+  const finalPool = leftovers.filter(candidate =>
+    !arranged.some(selected => selected?.candidateId === candidate.candidateId));
+  for (const slot of [6, 8]) arranged[slot] = finalPool.shift();
+  if (arranged.some(candidate => !candidate)) return null;
+  return {
+    mode: "operator_rescue",
+    candidates: arranged,
+    promise: {
+      coreCount: arranged.filter(coreSafe).length,
+      heroFulfillment: heroSafe(arranged[4]) ? 1 : 0,
+      singleFrameRatio: Math.min(...arranged.map(candidate =>
+        Number(candidate.promise?.singleFrameRatio ?? 1))),
+    },
+    requestedCandidateIds: requested.map(flag => flag.candidateId),
+    honoredCandidateIds: requested
+      .filter(flag => arranged.some(candidate => candidate.candidateId === flag.candidateId))
+      .map(flag => flag.candidateId),
+  };
+}
+
+function validateRescueArrangement(run, candidateIds) {
+  if (!Array.isArray(candidateIds) || candidateIds.length !== 9
+    || candidateIds.some(candidateId => typeof candidateId !== "string")
+    || new Set(candidateIds).size !== 9) {
+    return { ok: false, error: "A rescue arrangement must contain nine distinct retained candidates." };
+  }
+  const excludedIds = new Set((run.editorialFeedback?.flags || [])
+    .filter(flag => flag.disposition === "excluded")
+    .map(flag => flag.candidateId));
+  const droppedIds = new Set((run.curationReceipt?.dropped || [])
+    .filter(item => item.dropReason)
+    .map(item => item.candidateId));
+  const approved = new Map((run.curationReceipt?.rawCandidates || [])
+    .filter(candidate =>
+      candidate.candidateId
+      && !candidate.dropReason
+      && !droppedIds.has(candidate.candidateId)
+      && !excludedIds.has(candidate.candidateId)
+      && Number(candidate.promise?.singleFrameRatio ?? 1) >= 0.99)
+    .map(candidate => [candidate.candidateId, candidate]));
+  const candidates = candidateIds.map(candidateId => approved.get(candidateId));
+  if (candidates.some(candidate => !candidate)) {
+    return {
+      ok: false,
+      error: "A rescue board can only use this run's frozen, gate-approved, non-excluded candidates.",
+    };
+  }
+  const coreSafe = candidate => Boolean(
+    candidate?.promise?.coreSatisfied
+    && candidate?.promise?.incompatibleCluster !== true,
+  );
+  if (!coreSafe(candidates[4]) || candidates[4].promise?.heroSatisfied !== true) {
+    return { ok: false, error: "The center card must satisfy the frozen hero and Vibe-promise gates." };
+  }
+  if ([1, 3, 4, 5, 7].some(index => !coreSafe(candidates[index]))) {
+    return { ok: false, error: "Every high-salience rescue-board slot must satisfy the frozen Vibe promise." };
+  }
+  const coreCount = candidates.filter(coreSafe).length;
+  if (coreCount < 7) {
+    return { ok: false, error: "At least seven rescue-board cards must satisfy the frozen Vibe promise." };
+  }
+  return {
+    ok: true,
+    board: {
+      mode: "operator_rescue",
+      candidates,
+      promise: {
+        coreCount,
+        heroFulfillment: 1,
+        singleFrameRatio: Math.min(...candidates.map(candidate =>
+          Number(candidate.promise?.singleFrameRatio ?? 1))),
+      },
+    },
+  };
+}
+
+function intentPriority(intent) {
+  return intent === "hero" ? 0 : intent === "pin" ? 1 : intent === "supporting" ? 2 : 3;
 }
 
 function boardDiagnosticsFromRetainedEvidence(run) {
@@ -877,6 +1359,15 @@ function parseReasons(value) {
     : null;
 }
 
+function parseChallengeReasons(value) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > CHALLENGE_REASONS.size) return null;
+  const reasons = [...new Set(value)];
+  return reasons.every(reason => typeof reason === "string" && CHALLENGE_REASONS.has(reason))
+    ? reasons
+    : null;
+}
+
 function clientRun(run, pair) {
   if (!run) return null;
   const review = run.blindReview || {
@@ -913,6 +1404,19 @@ async function readFirstReceipt(store, prefix, timestampField) {
   receipts.sort((left, right) =>
     String(left.value[timestampField] || "").localeCompare(String(right.value[timestampField] || ""))
     || left.key.localeCompare(right.key));
+  return receipts[0]?.value || null;
+}
+
+async function readLatestReceipt(store, prefix, timestampField) {
+  const listing = await store.list({ prefix });
+  const receipts = (await Promise.all((listing?.blobs || []).map(async blob => {
+    if (typeof blob?.key !== "string") return null;
+    const value = await store.get(blob.key, { type: "json", consistency: "strong" });
+    return value ? { key: blob.key, value } : null;
+  }))).filter(Boolean);
+  receipts.sort((left, right) =>
+    String(right.value[timestampField] || "").localeCompare(String(left.value[timestampField] || ""))
+    || right.key.localeCompare(left.key));
   return receipts[0]?.value || null;
 }
 

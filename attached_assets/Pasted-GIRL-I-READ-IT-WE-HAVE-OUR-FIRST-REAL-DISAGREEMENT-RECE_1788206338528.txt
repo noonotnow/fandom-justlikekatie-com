@@ -1,0 +1,67 @@
+GIRL I READ IT. WE HAVE OUR FIRST REAL DISAGREEMENT RECEIPT. 🗳️
+You chose Event.
+The system chose Compiled.
+You marked:
+Stronger overall cohesion
+Compiled board felt random
+Other editorial instinct
+And you wrote:
+“This still has almost identical mix of images but in different positions. I would maybe be able to rearrange them and get more of the silhouettes I want. The middle hero image is cropped in the selected winner.”
+That note is extremely useful because it exposes three separate failures.
+1. These aren’t meaningfully different board arguments
+The Event and Compiled candidates contain nearly the same material with a few substitutions and different positions.
+So the system isn’t really asking:
+“Continuity study or coherent range?”
+It’s asking:
+“Would you like roughly the same Liu Xueyi assortment shuffled slightly?”
+We need an overlap diagnostic in every comparison:
+Shared cards: 7/9
+High overlap isn’t automatically bad, but if the boards share most of their cards, the receipt should admit that the distinction is primarily arrangement, not editorial mode.
+2. The algorithm does not actually arrange boards
+The current system selects cards and then places them deterministically. It does not evaluate:
+Hero image strength
+Full silhouette versus cropped body
+Direction of gaze
+Visual weight
+Palette distribution
+Close-up versus full-body rhythm
+Whether adjacent cards fight
+Whether the center card expresses the Vibe
+You correctly preferred the Event board partly because its silhouettes and composition read better—not merely because of which nine cards it contained.
+Selection and arrangement must be scored separately.
+3. The hero crop changed the verdict
+The system’s Compiled winner puts a badly cropped image in a high-salience position. That should carry a serious penalty.
+The center/hero position needs:
+Clear actor visibility
+Safe face and body crop
+Strong Vibe fulfillment
+Good focal composition
+No collage
+No production contamination
+Enough resolution for the card export
+A card can be acceptable in a secondary slot but disastrous as the hero.
+And look at that score margin
+Compiled: 0.86
+Event: 0.85
+That is not a decisive victory. That is the algorithm winning by finding a penny under the couch.
+The receipt should classify a difference that small as something like:
+Near tie — human editorial judgment is decisive
+The system can retain its frozen preference for calibration, but it should not describe a 0.01 difference as though Compiled delivered an obviously stronger visual argument.
+Additions for #229
+Record percentage of shared cards between candidate boards.
+Flag comparisons with excessive overlap.
+Score card selection separately from board arrangement.
+Add hero-slot and crop-safety scoring.
+Add palette rhythm, silhouette distribution, gaze direction, and visual-weight balance.
+Add disagreement reasons:
+Better arrangement
+Better silhouettes
+Stronger hero image
+Bad crop
+Boards too similar
+Treat close scores as a near tie.
+After the immutable vote, allow an optional “Show the board I would have made” step where you can rearrange and swap cards.
+That final correction board would be incredible calibration evidence:
+System Compiled → Human Event → Human rearranged Event
+It doesn’t erase the original vote. It demonstrates exactly what “better” meant.
+The blinded vote worked. It captured that you independently preferred cohesion and composition while the algorithm preferred an extra hundredth of mathematically certified randomness. This is precisely the evidence the lab was built to collect.

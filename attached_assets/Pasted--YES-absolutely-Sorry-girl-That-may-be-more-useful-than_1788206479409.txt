@@ -1,0 +1,82 @@
+**YES—absolutely. Sorry, girl.** That may be more useful than merely recording which finished board you preferred.
+
+Right now the system only learns:
+
+> “Katie preferred Event.”
+> 
+
+But what we actually need is:
+
+> “Katie wanted **these specific rejected images**, because they had the silhouettes, costume continuity, and mood the selected board lacked.”
+> 
+
+## Add image-level editorial flags
+
+Every raw or rejected image should offer:
+
+- **Pin for board** — I want this considered
+- **Hero candidate** — this could anchor the center
+- **Good supporting card**
+- **Exclude** — don’t show me this again for this pairing
+- **Challenge rejection** — the system rejected this incorrectly
+
+When challenging a rejection, capture why:
+
+- Stronger Vibe match
+- Better silhouette
+- Better costume continuity
+- Better character match
+- Intentional similarity
+- Better composition
+- Better hero image
+- Not actually a collage/duplicate/BTS image
+- Other editorial instinct
+
+And show the original system rejection beside it:
+
+> Rejected: near duplicate
+Operator: intentional same-costume variation
+> 
+
+That disagreement is gold.
+
+## Then generate a rescue board
+
+After the immutable blind vote:
+
+1. Let you pin preferred images from the candidate and rejection pools.
+2. Let you remove unwanted selected images.
+3. Let you rearrange the nine cards.
+4. Save the result as an **Operator Rescue Board** attached to that audit run.
+
+The record becomes:
+
+- System Compiled board
+- System Event board
+- Blind human vote: Event
+- Rejected images Katie restored
+- Selected images Katie removed
+- Final arrangement Katie preferred
+- Reasons for each intervention
+
+That teaches much more than a text note ever could.
+
+## Preserve the experiment
+
+Your flags should **not rewrite the frozen audit** or silently override hard failures. They should be separate calibration annotations.
+
+If an image was rejected because it is inaccessible, too small, or an exact duplicate, “Pin” should initiate:
+
+> **Find a usable copy of this image/look**
+> 
+
+—not place a broken asset directly into production.
+
+## Minimum useful version
+
+For #229, I’d add:
+
+> • Operators can flag selected, unselected, and rejected images as “Prefer for board,” “Hero candidate,” or “Exclude,” with structured reasons. These annotations remain separate from the immutable blind receipt and can generate a post-review Operator Rescue Board. A preference does not bypass hard technical or identity safeguards; the system attempts to locate a usable equivalent when necessary.
+> 
+
+**Because yes:** seeing the algorithm reject the exact full-body moonlit silhouette you wanted, while promoting a cropped collage due to “visual variation,” and having no way to point at the evidence is editorial torture. The lab needs a red pen at the **image level**, not just the board level.

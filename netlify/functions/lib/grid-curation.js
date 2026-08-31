@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   fetchImageBuffer,
   fingerprintImage,
@@ -518,6 +519,18 @@ function stableSerialize(value) {
     `${JSON.stringify(key)}:${stableSerialize(value[key])}`).join(",")}}`;
 }
 
+export function candidateIdForResult(result) {
+  const digest = String(result?.digest || result?.imageDigest || "").slice(0, 256);
+  return createHash("sha256").update(stableSerialize({
+    digest: digest || null,
+    batchKey: result?.batchKey || "",
+    title: result?.title || "",
+    source: result?.source || "",
+    link: result?.link || "",
+    thumbnail: result?.thumbnail || "",
+  })).digest("hex").slice(0, 24);
+}
+
 function stableResultKey(result) {
   return [
     batchKey(result),
@@ -709,7 +722,16 @@ function greedyBoards(candidates, limit, score, incompatible, promise) {
     || boardKey(left.board).localeCompare(boardKey(right.board))).slice(0, 6);
 }
 
-function selectEventBoards(families, limit, promise) {
+function preferredBoardBonus(board, preferredCandidateIds) {
+  if (!preferredCandidateIds?.size) return 0;
+  const preferredCount = board.filter(candidate =>
+    preferredCandidateIds.has(candidateIdForResult(candidate.result))).length;
+  // Preference is deliberately small: it can break a close editorial tie, but
+  // cannot make an otherwise invalid board pass the promise or safety gates.
+  return preferredCount * 0.02;
+}
+
+function selectEventBoards(families, limit, promise, preferredCandidateIds) {
   const alternatives = families.flatMap(family => {
     const candidates = collapseCopies(
       [...family.candidates].sort(candidateOrder),
@@ -719,7 +741,8 @@ function selectEventBoards(families, limit, promise) {
     const selected = greedyBoards(
       candidates,
       limit,
-      board => eventScore(board, family.familyStrength, promise),
+      board => eventScore(board, family.familyStrength, promise)
+        + preferredBoardBonus(board, preferredCandidateIds),
       () => false,
       promise,
     );
@@ -730,11 +753,11 @@ function selectEventBoards(families, limit, promise) {
     || boardKey(left.board).localeCompare(boardKey(right.board))).slice(0, 6);
 }
 
-function selectCompiledBoards(candidates, limit, promise) {
+function selectCompiledBoards(candidates, limit, promise, preferredCandidateIds) {
   return greedyBoards(
     candidates,
     limit,
-    board => compiledScore(board, promise),
+    board => compiledScore(board, promise) + preferredBoardBonus(board, preferredCandidateIds),
     (left, right) =>
       perceptualDistance(left.fingerprint, right.fingerprint) <= COMPILED_SIMILARITY_DISTANCE,
     promise,
@@ -807,6 +830,7 @@ export async function curateDisplayResults(
     analysisConcurrency = DEFAULT_ANALYSIS_CONCURRENCY,
     promise = null,
     profileVersions = null,
+    preferredCandidateIds = [],
   } = {},
 ) {
   const rawCandidates = [];
@@ -869,8 +893,9 @@ export async function curateDisplayResults(
   const candidates = replaceExactCopies(analyzed).sort(candidateOrder);
   const families = buildFamilies(candidates);
   const withFamilies = familyLabeledCandidates(candidates, families);
-  const eventProposals = selectEventBoards(families, limit, promise);
-  const compiledProposals = selectCompiledBoards(withFamilies, limit, promise);
+  const preferredIds = new Set(preferredCandidateIds.filter(Boolean));
+  const eventProposals = selectEventBoards(families, limit, promise, preferredIds);
+  const compiledProposals = selectCompiledBoards(withFamilies, limit, promise, preferredIds);
   const eventAlternatives = eventProposals.filter(item => promiseQualified(item.board, promise, limit));
   const compiledAlternatives = compiledProposals.filter(item => promiseQualified(item.board, promise, limit));
   const eventCandidate = eventAlternatives[0] || null;
@@ -916,12 +941,19 @@ export async function curateDisplayResults(
 
 function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, winner, boardDiagnostics, promise, profileVersions) {
   const summarize = candidate => ({
+    candidateId: candidateIdForResult({ ...candidate.result, digest: candidate.fingerprint?.digest }),
+    provisionalCandidateId: candidateIdForResult({ ...candidate.result, digest: "" }),
+    imageDigest: String(candidate.fingerprint?.digest || "").slice(0, 256) || null,
+    query: String(candidate.result.batchKey || "").slice(0, 500),
+    link: String(candidate.result.link || "").slice(0, 700),
     thumbnail: String(candidate.result.thumbnail || "").slice(0, 500),
     title: String(candidate.result.title || "").slice(0, 240),
     source: String(candidate.result.source || "").slice(0, 120),
     batchRank: candidate.batchRank,
     promise: candidate.editorial ? {
       coreSatisfied: candidate.editorial.coreSatisfied,
+      heroSatisfied: candidate.editorial.heroSatisfied,
+      incompatibleCluster: candidate.editorial.incompatibleCluster === true,
       requiredMatches: candidate.editorial.requiredMatches || [],
       supportingMatches: candidate.editorial.supportingMatches || [],
       softContradictionMatches: candidate.editorial.softContradictionMatches || [],
