@@ -427,6 +427,44 @@ test("run-scoped image flags persist as append-only feedback without rewriting c
   assert.equal([...store.records.keys()]
     .filter(key => key.startsWith(auditRescueBoardPrefix(pairActor.id, 0, "run-1"))).length, 1);
 
+  const eligibilityBeforeExport = structuredClone(store.records.get(eligibilityKey(pairActor.id, 0)));
+  const savedReceipt = rescued.currentRun.editorialFeedback.operatorRescueBoard;
+  const exportResponse = await handler(request("POST", {
+    action: "export_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId: savedReceipt.receiptId,
+  }), {});
+  const exported = await exportResponse.json();
+  assert.equal(exportResponse.status, 200, JSON.stringify(exported));
+  assert.equal(exported.rescueExport.gridId, `rescue-${pairActor.id}-${savedReceipt.receiptId}`);
+  assert.deepEqual(
+    exported.rescueExport.candidates.map(item => item.candidateId),
+    rescueIds,
+  );
+  assert.deepEqual(
+    exported.rescueExport.candidates.map(item => ({
+      resultId: item.candidateId,
+      query: item.query,
+      sourceUrl: item.link,
+      imageUrl: item.thumbnail,
+    })),
+    savedReceipt.board.candidates.map(item => ({
+      resultId: item.candidateId,
+      query: item.query,
+      sourceUrl: item.link,
+      imageUrl: item.thumbnail,
+    })),
+  );
+  const afterExport = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  assert.deepEqual((await afterExport.json()).currentRun.blindReview, calibrationBefore);
+  assert.deepEqual(store.records.get(eligibilityKey(pairActor.id, 0)), eligibilityBeforeExport);
+
   const feedbackKeysAfterFlag = [...store.records.keys()]
     .filter(key => key.startsWith(auditFeedbackPrefix(pairActor.id, 0, "run-1")));
   assert.equal(feedbackKeysAfterFlag.length, 1);
@@ -468,6 +506,61 @@ test("run-scoped image flags persist as append-only feedback without rewriting c
   assert.equal([...store.records.keys()]
     .filter(key => key.startsWith(auditFeedbackPrefix(pairActor.id, 0, "run-1"))).length, 2);
   assert.deepEqual(unflagged.currentRun.blindReview, calibrationBefore);
+
+  const staleExport = await handler(request("POST", {
+    action: "export_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId: savedReceipt.receiptId,
+  }), {});
+  assert.equal(staleExport.status, 409);
+  assert.match((await staleExport.json()).error, /stale|rebuild/i);
+});
+
+test("a historical rescue receipt cannot be exported as the current board", async () => {
+  const { handler } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const chosen = await choiceResponse.json();
+  const candidate = chosen.currentRun.rawResults[0];
+  const flaggedResponse = await handler(request("POST", {
+    action: "flag_candidate",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: candidate.candidateId,
+    flagged: true,
+  }), {});
+  const flagged = await flaggedResponse.json();
+  const candidateIds = flagged.currentRun.editorialFeedback.requestedReview.board.candidates
+    .map(item => item.candidateId);
+  const savedResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds,
+  }), {});
+  const receiptId = (await savedResponse.json()).currentRun.editorialFeedback.operatorRescueBoard.receiptId;
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const exportResponse = await handler(request("POST", {
+    action: "export_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId,
+  }), {});
+  assert.equal(exportResponse.status, 409);
+  assert.match((await exportResponse.json()).error, /current audit run/i);
 });
 
 test("an operator can save and reload an exact nine-card rescue board without image flags", async () => {

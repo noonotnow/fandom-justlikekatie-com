@@ -85,3 +85,15 @@ test('the rescue board is a manual operator override without changing the frozen
   assert.match(source, /savedMatchesCurrentFeedback/);
   assert.match(source, /previous saved arrangement is retained as history/);
 });
+
+test('only the current saved rescue arrangement exposes a Collection export', () => {
+  const exportBody = functionBody('exportRescueBoard');
+  assert.match(exportBody, /action:'export_rescue_board'/);
+  assert.match(exportBody, /dbSaveGrid\(grid\)/);
+  assert.match(exportBody, /getPublicSession\(\)/);
+  assert.match(exportBody, /syncPublicGrid\(session,grid\.id\)/);
+  assert.match(source, /savedMatchesCurrentFeedback&&saved/);
+  assert.match(source, /Export saved board to Collection/);
+  assert.match(source, /resultId: candidate\.candidateId/);
+  assert.match(source, /gridPosition/);
+});

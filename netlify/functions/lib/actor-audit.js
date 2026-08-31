@@ -533,6 +533,69 @@ export function createActorAuditHandler({
         });
       }
 
+      if (input.action === "export_rescue_board") {
+        const report = await readReport(store, pair);
+        const run = report.currentRun;
+        if (!run || input.runId !== run.runId) {
+          return json(409, { error: "Only the current audit run can export an Operator Rescue Board." });
+        }
+        if (!currentRunMatchesCurrentContract(run, pair)) {
+          return json(409, { error: "This rescue board belongs to an older audit contract. Run a fresh audit and rebuild it before exporting." });
+        }
+        const receipt = run.editorialFeedback?.operatorRescueBoard;
+        if (!receipt || receipt.receiptId !== input.receiptId) {
+          return json(409, { error: "The saved rescue arrangement is no longer current. Refresh and export the latest saved arrangement." });
+        }
+        const currentFeedbackHash = feedbackHash(run.editorialFeedback?.flags || []);
+        if (receipt.runId !== run.runId
+          || receipt.actorId !== pair.actor.id
+          || receipt.vibeKey !== pair.vibeKey
+          || receipt.feedbackHash !== currentFeedbackHash) {
+          return json(409, { error: "The saved rescue arrangement is stale. Rebuild and save it from the current image choices before exporting." });
+        }
+        const candidateIds = receipt.board?.candidates?.map(candidate => candidate?.candidateId);
+        const validation = validateRescueArrangement(run, candidateIds);
+        if (!validation.ok) {
+          return json(409, { error: "The saved rescue arrangement no longer passes the current audit gates. Rebuild it before exporting." });
+        }
+        const exportedAt = now().toISOString();
+        return json(200, {
+          rescueExport: {
+            schemaVersion: 1,
+            gridId: `rescue-${pair.actor.id}-${receipt.receiptId}`,
+            runId: run.runId,
+            receiptId: receipt.receiptId,
+            feedbackHash: receipt.feedbackHash,
+            arrangedAt: receipt.savedAt,
+            exportedAt,
+            actor: {
+              id: pair.actor.id,
+              name: pair.actor.name,
+              nameEn: pair.actor.shortName_en || pair.actor.shortName || pair.actor.name,
+              accentColor: pair.actor.accentColor || "#c9a96e",
+            },
+            vibe: {
+              key: pair.vibeKey,
+              label: pair.vibe.label || pair.vibe.label_en || pair.vibeKey,
+              labelEn: pair.vibe.label_en || pair.vibe.label || pair.vibeKey,
+              emoji: pair.vibe.emoji || "✨",
+              subtitle: pair.vibe.subtitle || "",
+              subtitleEn: pair.vibe.subtitle_en || pair.vibe.subtitle || "",
+              searchSpell: pair.vibe.queries?.[0] || pair.vibeKey,
+            },
+            candidates: validation.board.candidates.map(candidate => ({
+              candidateId: candidate.candidateId,
+              imageDigest: candidate.imageDigest || null,
+              query: candidate.query || "",
+              title: candidate.title || "",
+              source: candidate.source || "",
+              link: candidate.link || "",
+              thumbnail: candidate.thumbnail || "",
+            })),
+          },
+        });
+      }
+
       return json(400, { error: "Unknown audit action." });
     } catch (error) {
       const status = error?.status || (error instanceof TypeError ? 400 : 500);
