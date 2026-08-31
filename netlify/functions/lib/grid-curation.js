@@ -240,7 +240,8 @@ function candidateOrder(left, right) {
 }
 
 function rawCandidateOrder(left, right) {
-  return stableResultKey(left.result).localeCompare(stableResultKey(right.result))
+  return left.batchRank - right.batchRank
+    || stableResultKey(left.result).localeCompare(stableResultKey(right.result))
     || left.order - right.order;
 }
 
@@ -334,47 +335,72 @@ function familyLabeledCandidates(candidates, families) {
   }));
 }
 
-function selectEventBoard(families, limit) {
-  const eligible = families
-    .filter(group => group.candidates.length >= limit)
-    .sort((left, right) =>
-      right.familyStrength - left.familyStrength
-      || right.candidates.length - left.candidates.length
-      || candidateOrder(left.candidates[0], right.candidates[0]));
-  if (!eligible.length) return null;
+function boardKey(board) {
+  return [...board]
+    .sort(candidateOrder)
+    .map(candidate => stableResultKey(candidate.result))
+    .join("\u0001");
+}
 
-  const family = eligible[0];
-  const board = collapseCopies(family.candidates.sort(candidateOrder), EVENT_COPY_DISTANCE).slice(0, limit);
-  return board.length === limit
-    ? { board, score: eventScore(board, family.familyStrength), familyStrength: family.familyStrength }
-    : null;
+function greedyBoard(candidates, limit, score, incompatible) {
+  const alternatives = [];
+  for (const seed of candidates) {
+    const board = [seed];
+    while (board.length < limit) {
+      const choices = candidates
+        .filter(candidate =>
+          !board.includes(candidate)
+          && !board.some(existing => incompatible(existing, candidate)))
+        .map(candidate => ({
+          candidate,
+          score: score([...board, candidate]),
+        }))
+        .sort((left, right) =>
+          right.score - left.score
+          || candidateOrder(left.candidate, right.candidate));
+      if (!choices.length) break;
+      board.push(choices[0].candidate);
+    }
+    if (board.length === limit) {
+      const ordered = board.sort(candidateOrder);
+      alternatives.push({ board: ordered, score: score(ordered) });
+    }
+  }
+  return alternatives.sort((left, right) =>
+    right.score - left.score
+    || boardKey(left.board).localeCompare(boardKey(right.board)))[0] || null;
+}
+
+function selectEventBoard(families, limit) {
+  const alternatives = families.flatMap(family => {
+    const candidates = collapseCopies(
+      [...family.candidates].sort(candidateOrder),
+      EVENT_COPY_DISTANCE,
+    );
+    if (candidates.length < limit) return [];
+    const selected = greedyBoard(
+      candidates,
+      limit,
+      board => eventScore(board, family.familyStrength),
+      () => false,
+    );
+    return selected
+      ? [{ ...selected, familyStrength: family.familyStrength }]
+      : [];
+  });
+  return alternatives.sort((left, right) =>
+    right.score - left.score
+    || boardKey(left.board).localeCompare(boardKey(right.board)))[0] || null;
 }
 
 function selectCompiledBoard(candidates, limit) {
-  const available = [...candidates].sort(candidateOrder);
-  const board = [];
-  const familyCounts = new Map();
-  const sourceCounts = new Map();
-
-  const consider = (candidate, enforceVariety) => {
-    if (board.length >= limit) return;
-    const nearDuplicate = board.some(existing =>
-      perceptualDistance(existing.fingerprint, candidate.fingerprint) <= COMPILED_SIMILARITY_DISTANCE);
-    if (nearDuplicate) return;
-    const familyCount = candidate.familyId ? (familyCounts.get(candidate.familyId) || 0) : 0;
-    const source = sourceKey(candidate.result);
-    const sourceCount = source ? (sourceCounts.get(source) || 0) : 0;
-    if (enforceVariety && (familyCount >= 3 || sourceCount >= 4)) return;
-    board.push(candidate);
-    if (candidate.familyId) familyCounts.set(candidate.familyId, familyCount + 1);
-    if (source) sourceCounts.set(source, sourceCount + 1);
-  };
-
-  available.forEach(candidate => consider(candidate, true));
-  if (board.length < limit) available.forEach(candidate => consider(candidate, false));
-  return board.length
-    ? { board, score: compiledScore(board) }
-    : null;
+  return greedyBoard(
+    candidates,
+    limit,
+    compiledScore,
+    (left, right) =>
+      perceptualDistance(left.fingerprint, right.fingerprint) <= COMPILED_SIMILARITY_DISTANCE,
+  );
 }
 
 function rationaleFor(mode, eventCandidate, compiledCandidate) {
@@ -417,11 +443,12 @@ export async function curateDisplayResults(
   } = {},
 ) {
   const rawCandidates = [];
-  for (const batch of rankedBatches || []) {
+  for (const [batchRank, batch] of (rankedBatches || []).entries()) {
     for (const result of batch.results || []) {
       if (!result.thumbnail) continue;
       rawCandidates.push({
         result: { ...result, batchKey: result.batchKey || batch.query },
+        batchRank,
         order: rawCandidates.length,
       });
     }

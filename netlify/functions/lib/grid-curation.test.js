@@ -50,8 +50,12 @@ function result(id, {
 }
 
 async function curate(results, options = {}) {
+  return curateBatches([{ query: "刘宇宁 月光氛围", results }], options);
+}
+
+async function curateBatches(batches, options = {}) {
   return curateDisplayResults(
-    [{ query: "刘宇宁 月光氛围", results }],
+    batches,
     {
       loadBuffer: async (_url, item) => item,
       fingerprint: async (_buffer, item) => item.fp,
@@ -105,6 +109,29 @@ test("provider order cannot change which candidates survive the curation cap", a
   assert.deepEqual(first, second);
   assert.equal(first.curation.mode, "event");
   assert.equal(first.displayResults.length, 9);
+});
+
+test("candidate cap preserves top-ranked batch priority over lexical query order", async () => {
+  const article = "https://editorial.test/top-ranked-event";
+  const topRanked = [
+    ...Array.from({ length: 9 }, (_, index) => result(`ranked-event-${index}`, {
+      source: "editorial.test",
+      link: article,
+      title: `刘宇宁 月光大片 ${index + 1}`,
+    })),
+    ...Array.from({ length: 9 }, (_, index) => result(`ranked-noise-${index}`)),
+  ];
+  const lowerRanked = Array.from({ length: 30 }, (_, index) => result(`lower-${index}`, {
+    source: `aaa-lower-${index}.test`,
+  }));
+
+  const curated = await curateBatches([
+    { query: "zzzz top ranked", results: topRanked },
+    { query: "aaaa lower ranked", results: lowerRanked },
+  ], { candidateLimit: 36 });
+
+  assert.equal(curated.curation.mode, "event");
+  assert.equal(curated.displayResults.every(item => item.link === article), true);
 });
 
 test("tracking-only duplicate variants cannot change the capped curation output", async () => {
@@ -188,6 +215,47 @@ test("same publisher with unrelated shoots does not become an event", async () =
   const curated = await curate(unrelated);
 
   assert.equal(curated.curation.mode, "compiled");
+});
+
+test("higher-scoring event family wins over a lexically earlier eligible family", async () => {
+  const weak = Array.from({ length: 9 }, (_, index) => result(`weak-${index}`, {
+    source: "aaa-editorial.test",
+    link: `https://aaa-editorial.test/shoot/${index}`,
+    title: `刘宇宁 shared moonlight sequence ${index}`,
+  }));
+  const strongLink = "https://zzz-editorial.test/one-article";
+  const strong = Array.from({ length: 9 }, (_, index) => result(`strong-${index}`, {
+    source: "zzz-editorial.test",
+    link: strongLink,
+    title: `刘宇宁 cinematic frame ${index}`,
+  }));
+
+  const curated = await curate([...weak, ...strong]);
+
+  assert.equal(curated.curation.mode, "event");
+  assert.equal(curated.displayResults.every(item => item.link === strongLink), true);
+});
+
+test("compiled selection chooses scored quality over lexical first-match order", async () => {
+  const lowQuality = Array.from({ length: 9 }, (_, index) => result(`low-score-${index}`, {
+    source: `aaa-low-${index}.test`,
+    fp: fingerprint(`low-score-${index}`, {
+      ones: spreadBits(`low-score-${index}`),
+      quality: 121,
+    }),
+  }));
+  const highQuality = Array.from({ length: 9 }, (_, index) => result(`high-score-${index}`, {
+    source: `zzz-high-${index}.test`,
+    fp: fingerprint(`high-score-${index}`, {
+      ones: spreadBits(`high-score-${index}`),
+      quality: 240,
+    }),
+  }));
+
+  const curated = await curate([...lowQuality, ...highQuality]);
+
+  assert.equal(curated.curation.mode, "compiled");
+  assert.equal(curated.displayResults.every(item => item.source.startsWith("zzz-high-")), true);
 });
 
 test("search-engine viewer routes are never mistaken for one shared article", async () => {
