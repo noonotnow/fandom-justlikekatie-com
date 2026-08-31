@@ -1,0 +1,104 @@
+**You’re right. Red-marker revision: I gave the rejection logic too much benefit.** Looking at those results, there isn’t merely one technically complete Compiled board hiding in the rubble. There are **multiple viable visual arguments**.
+
+The algorithm’s definition of **Event** is too literal and too dependent on a single source/editorial cluster.
+
+## “Event” should mean visual continuity—not merely a literal event
+
+An Event-style board can be any coherent visual world:
+
+- **Literal Event** — one ceremony, premiere, livestream, or press appearance
+- **Editorial Set** — one magazine shoot or campaign
+- **Costume Study** — the same costume across different scenes and angles
+- **Character Study** — one character across a coherent role/look
+- **Scene Family** — one setting, sequence, episode, or visual motif
+- **Styling Moment** — the same hair, makeup, silhouette, or accessory across appearances
+
+The audience experience remains:
+
+> **“No, look closer.”**
+> 
+
+The sameness is the subject. It does not matter whether all nine images came from one website or one photographer.
+
+## These Liu Xueyi results already contain candidate clusters
+
+Even from this mediocre broad query, I can see potential arguments around:
+
+- **White/gray austere immortal Liu Xueyi**
+- **Red-and-black fur-trimmed menace**
+- **Pale ceremonial robes**
+- Potential character-specific clusters once the results are mapped back to roles and scenes
+
+The system appears to have detected **three fragmented event families**, but it failed to understand that images from different pages and scenes can belong to the **same costume or character continuity family**.
+
+That is the actual algorithm problem.
+
+## The curation pool is also too cramped
+
+It shouldn’t:
+
+1. Rank queries.
+2. Take only a tiny handful of winning query batches.
+3. Demand that one preassembled family already contains nine images.
+4. Declare Event impossible.
+
+It should:
+
+1. Search the entire approved query ladder.
+2. Pool all viable candidates within a bounded but larger limit.
+3. Deduplicate exact copies.
+4. Extract continuity signals across queries and sources.
+5. Cluster by:
+    - Character/drama
+    - Exact costume or styling
+    - Color and silhouette
+    - Setting
+    - Editorial/event metadata
+    - Scene or promotional family
+6. Build **multiple candidate boards from each promising cluster**.
+7. Score the finished boards—not merely whether a preexisting cluster happened to contain nine items.
+
+## Controlled similarity must not be mistaken for duplication
+
+For a costume-study board:
+
+- Same costume: **desired**
+- Same character: **desired**
+- Different angle/expression/action/background: **desired**
+- Exact crop or essentially identical frame: **reject**
+- Nine indistinguishable headshots: **weak**
+- Nine scenes that reveal the same visual identity: **excellent**
+
+A strong costume board might use:
+
+- 6–7 unmistakable anchor images in the same costume
+- 2–3 contextual or detail images
+- Variation in distance, pose, expression, and scene lighting
+
+That is a deliberate mood board, not failed variety.
+
+## The preflight should propose several boards
+
+Instead of only:
+
+- Strongest Event
+- Strongest Compiled
+
+It should be able to generate:
+
+- **Event A — Costume study**
+- **Event B — Character continuity**
+- **Event C — Editorial/source set**
+- **Compiled A — Best range**
+- **Compiled B — Vibe-first range**
+
+Then select the strongest Event and Compiled for blinded comparison—but let us inspect the runners-up and understand what material exists.
+
+## Copy-paste correction for Replit
+
+> The Liu Xueyi results show that the Event ontology is too narrow. Event should mean coherent visual continuity, not only a literal event or single-source editorial family. A same-costume mood board across different scenes and sources is a valid Event board because controlled similarity is the editorial subject. Expand Event subtypes to literal event, editorial set, costume study, character study, scene family, and styling moment. Pool candidates across the broader query ladder, cluster across sources using character/costume/look/setting continuity, and generate multiple board proposals per promising cluster before scoring. Continue rejecting exact duplicates, but do not collapse distinct scenes, angles, expressions, or compositions merely because the costume is the same. The current Liu Xueyi evidence appears to contain several viable continuity boards despite the system declaring Event unavailable.
+> 
+
+**This is exactly why we built preflight.** The queries did not merely fail. They exposed that our algorithm’s concept of an editorial set is poorer than ours.
+
+It sees “different webpages.” We see **Liu Xueyi wearing the same immortal grievance in nine distinct situations.** That is the intelligence we need to encode.

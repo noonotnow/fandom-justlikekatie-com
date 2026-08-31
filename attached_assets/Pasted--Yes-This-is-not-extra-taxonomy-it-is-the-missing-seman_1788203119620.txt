@@ -1,0 +1,158 @@
+**Yes. This is not extra taxonomy—it is the missing semantic layer.** Replit’s answer is directionally right, with one refinement:
+
+> **A character is not always one aesthetic cluster.**
+> 
+
+A single character can have several distinct looks or phases. So the inventory should separate:
+
+1. **Actor**
+2. **Character / drama**
+3. **Character-look cluster**
+4. **Relationship between that cluster and a Vibe Pack**
+
+For example, Yuan Zhong might have:
+
+- Pale ceremonial immortal
+- Severe court robes
+- Injured/disheveled
+- Battle styling
+
+Those are related, but they are not visually interchangeable in every board.
+
+## Why this solves the current problem
+
+The algorithm currently seems to understand:
+
+> “This is Liu Xueyi in costume.”
+> 
+
+We need it to understand:
+
+> “This image is Yuan Zhong in pale ceremonial styling, which strongly supports Cold Jade Immortal.”
+> 
+
+And separately:
+
+> “This is Murong Jinghe in dark commander styling. It supports Wounded Menace, but conflicts with Cold Jade Immortal unless deliberately used as contrast.”
+> 
+
+That allows the same image cluster to:
+
+- Strengthen one Vibe Pack
+- Support another weakly
+- Conflict with a third
+- Become the central subject of an Event board
+- Appear selectively in a Compiled board
+
+## Placement absolutely matters
+
+A Murong Jinghe image in a Yuan Zhong-heavy grid isn’t automatically wrong.
+
+- **One carefully placed image** might introduce danger underneath the cold control.
+- **Four scattered Murong Jinghe images** may destroy the Yuan Zhong visual world.
+- **Murong Jinghe in the center hero slot** changes the entire board’s thesis.
+- **Murong Jinghe at the edge**, connected through palette or expression, can function as deliberate contrast.
+
+So the board needs not only a cluster mix but a **cluster composition**.
+
+### Example: Cold Jade Immortal
+
+A strong Compiled board might be:
+
+- 5 Yuan Zhong pale-ceremonial images
+- 2 other cool-toned immortal-role images
+- 1 restrained darker character image
+- 1 detail/context card that bridges the palette
+
+A bad board would be:
+
+- 2 Yuan Zhong
+- 2 Murong Jinghe
+- 1 modern event photo
+- 2 collages
+- 1 black-robed villain
+- 1 fire truck incident
+
+Technically varied. Editorially unemployed.
+
+## Lightweight inventory structure
+
+For each **character-look cluster**:
+
+| Field | Purpose |
+| --- | --- |
+| Actor | Liu Xueyi |
+| Drama | 念无双 |
+| Character | Yuan Zhong / 源仲 |
+| Cluster | Pale ceremonial immortal |
+| Aliases | Chinese and English search variants |
+| Mood | Controlled, aloof, divine, restrained |
+| Palette | White, silver, pale blue, cool gray |
+| Wardrobe anchors | Layered pale robes, silver detailing |
+| Hair/props | Specific crown, ornament, weapon, fan |
+| Scene anchors | Temple, snow, moonlight, ceremonial interiors |
+| Anti-anchors | Modern styling, red commander robes, obvious BTS |
+| Query seeds | Character + costume + scene terms |
+| Vibe compatibility | Strong / Supporting / Neutral / Conflict |
+| Board use | Event / Compiled / Either |
+| Evidence status | Seeded / Confirmed / Needs review |
+
+Then a separate compatibility table can say:
+
+| Cluster | Vibe Pack | Relationship |
+| --- | --- | --- |
+| Yuan Zhong — pale ceremonial | Cold Jade Immortal | Strong anchor |
+| Yuan Zhong — wounded | Shattered Beauty | Strong anchor |
+| Murong Jinghe — dark commander | Court Menace | Strong anchor |
+| Murong Jinghe — red/black | Cold Jade Immortal | Conflict |
+| Murong Jinghe — restrained portrait | Cold Jade Immortal | Possible bridge |
+
+## Board rules this enables
+
+### Event / continuity board
+
+- Usually 7–9 cards from one character-look cluster
+- Controlled variation across scenes, angles, and expressions
+- Exact duplicates rejected
+- Same costume actively rewarded
+
+### Compiled board
+
+- Usually 2–4 compatible clusters
+- One dominant cluster or a deliberate progression
+- Conflicting clusters allowed only as purposeful contrast
+- Placement and visual bridges matter
+
+### Bad mix
+
+- Multiple clusters with no relationship
+- Conflicting palette in hero positions
+- Modern/BTS intrusion
+- “Variety” used to disguise lack of an argument
+
+## Don’t inventory everything upfront
+
+Start with the actors we’re actively auditing:
+
+1. **Liu Xueyi**
+    - Yuan Zhong
+    - Murong Jinghe
+    - His other major visually distinct roles
+2. **Dylan Wang**
+3. **Song Weilong**
+
+For each, seed only the **3–5 most useful character-look clusters**. Let the audit reveal where more granularity is needed.
+
+The current spreadsheet can gain two additional tabs:
+
+- **Character & Look Clusters**
+- **Cluster × Vibe Compatibility**
+
+Eventually, the preflight surface can let you tag raw images with a cluster, correct uncertain assignments, and see receipts like:
+
+> **6/9 Yuan Zhong pale ceremonial · 2/9 compatible cool immortal · 1/9 Murong Jinghe conflict · center-slot conflict penalty applied**
+> 
+
+That is much more useful than “source diversity: 1.0.”
+
+So: **yes, emphatically.** This is how Vibe Atlas stops treating an actor’s filmography as one large costume closet and starts understanding that every character arrives with a separate weather system.

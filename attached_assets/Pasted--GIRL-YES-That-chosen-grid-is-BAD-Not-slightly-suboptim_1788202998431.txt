@@ -1,0 +1,86 @@
+**GIRL, YES. That chosen grid is BAD.** Not “slightly suboptimal.” It fundamentally misunderstands **Cold Jade Immortal**.
+
+## Red-marker audit
+
+### What works
+
+- The gray fur-profile image is excellent.
+- A couple of pale blue/white costume images belong.
+- Liu Xueyi is generally recognizable.
+
+### What absolutely does not
+
+- **Purple robe**
+- **Black/teal menace**
+- **Modern event collage**
+- **Behind-the-scenes photo with a literal fire truck**
+- **Multi-image collages masquerading as individual cards**
+- **Paired-character scene with no clear Cold Jade composition**
+- No consistent character, costume, palette, atmosphere, or emotional register
+
+This is not:
+
+> **Cold Jade Immortal**
+> 
+
+It is:
+
+> **Nine occasions on which Liu Xueyi wore fabric**
+> 
+
+Even as a Compiled board, it fails. **Compiled means coherent range—not random variety.**
+
+## Why the algorithm probably chose it
+
+The visible score explains the crime:
+
+- Completeness: perfect
+- Source range: perfect
+- Technical quality: high
+
+It appears to be rewarding:
+
+> “Nine available images from varied sources”
+> 
+
+more heavily than:
+
+> “Do these nine images make the promised visual argument?”
+> 
+
+Source diversity has become an objective when it should be a **weak tie-breaker**. A banging same-costume cluster should beat a diverse assortment of unrelated looks every time.
+
+## The raw evidence contains better boards
+
+I can already see enough material for at least:
+
+- A **white-and-pale-blue immortal** continuity board
+- A **gray/fur cold menace** costume study
+- A broader but still coherent **austere costume portrait** board
+
+The problem is not insufficient material. It is **selection failure**.
+
+And that exposes another missing verdict: **Needs curation work**.
+
+Do **not** mark this “Needs query work” if the query returned good material and the board selector chose badly. That would teach the system the wrong lesson. If the verdict is immutable, don’t finalize this run until Replit adds the correct classification.
+
+## Necessary curation gates
+
+For a Vibe Pack like Cold Jade Immortal:
+
+- At least **7 of 9** cards must clearly satisfy the core palette/look.
+- Modern-event imagery is prohibited unless the Vibe specifically requests it.
+- Behind-the-scenes machinery and crew context are prohibited.
+- Collages/contact sheets should be rejected as individual cards.
+- Unrelated costume colors should be heavily penalized.
+- Source diversity must never compensate for weak Vibe relevance.
+- Same costume across different scenes should earn continuity credit.
+- Controlled similarity should beat incoherent variety.
+- The final board itself must be scored for **promise fulfillment**.
+
+## Send this to Replit
+
+> The selected Liu Xueyi Cold Jade Immortal board is a clear curation failure despite its high score. It includes purple and black costumes, a modern event collage, multi-image collages, a paired scene, and a behind-the-scenes image with a fire truck. It does not fulfill the Cold Jade Immortal promise. Meanwhile, the raw pool visibly contains enough pale-blue, white, gray, and fur-trimmed material for multiple coherent boards. This is not insufficient material or necessarily query failure; it is board-selection failure. Add a `needs_curation_work` verdict so operators do not mislabel algorithm failures as query failures. Treat source range as a tie-breaker rather than a primary reward. Add Vibe-relevance gates, collage/BTS rejection, palette and costume-continuity scoring, and finished-board promise-fulfillment scoring. Compiled must mean coherent range, not random variety.
+> 
+
+**Your disagreement is the calibration doing its job.** The algorithm has looked directly at a pile of immaculate pale immortal evidence and selected the fire truck. Court is adjourned due to judicial misconduct.
