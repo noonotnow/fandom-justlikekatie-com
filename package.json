@@ -3,6 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "packageManager": "pnpm@10.26.1",
   "description": "Fandom Vibe Atlas — React app + Netlify Functions, deployed at fandom.justlikekatie.com",
   "scripts": {
     "prepare:public": "node scripts/generate-public-pages.js",

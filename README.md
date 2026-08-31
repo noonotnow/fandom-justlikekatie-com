@@ -29,9 +29,20 @@ npm run test:app       # tests/*.test.ts
 npm run test:functions # netlify/functions/lib/*.test.js
 ```
 
-Netlify build config (`netlify.toml`): `command = "npm install && npm run
-build"`, `publish = "dist"`, functions directory `netlify/functions`. No
-`cd` into a subdirectory is required — repo root is the deploy root.
+Netlify build config (`netlify.toml`): Netlify installs the exact pnpm version
+declared by `package.json` and runs `command = "pnpm run build"`, with
+`publish = "dist"` and functions directory `netlify/functions`. No `cd` into a
+subdirectory is required — repo root is the deploy root.
+
+### Dependency resolver parity
+
+`package.json` is the single source of truth for pnpm (`packageManager`).
+Netlify reads that exact version when it detects `pnpm-lock.yaml`, and GitHub
+Actions installs and verifies the same version before checking the lockfiles.
+Run `netlify build --offline` to confirm the configured build command is
+`pnpm run build`. After a hosted deploy, confirm the dependency-install log
+reports pnpm `10.26.1`; that hosted pre-build log is the authoritative check
+that Netlify honored the repository pin.
 
 ## Saved Collection → Creator OS
 

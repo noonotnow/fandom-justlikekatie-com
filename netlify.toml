@@ -3,7 +3,10 @@
   external_node_modules = ["sharp", "stripe", "stripe-replit-sync", "pg"]
 
 [build]
-  command = "npm install && npm run build"
+  # Netlify reads package.json#packageManager and installs that exact pnpm version
+  # before this command. `netlify build --offline` verifies this command locally;
+  # the hosted deploy log must report pnpm 10.26.1 during dependency installation.
+  command = "pnpm run build"
   publish = "dist"
 
 [[edge_functions]]

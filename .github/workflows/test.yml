@@ -21,8 +21,12 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10.26.1
+
+      - name: Verify pnpm version matches package.json
+        run: |
+          expected="$(node -p "require('./package.json').packageManager.split('@')[1]")"
+          actual="$(pnpm --version)"
+          test "$actual" = "$expected"
 
       - name: Check lockfiles are synchronized
         run: npm run check:lockfiles
