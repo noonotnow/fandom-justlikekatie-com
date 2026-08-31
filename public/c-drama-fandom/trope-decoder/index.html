@@ -291,59 +291,66 @@
   <script>
     (() => {
       const search = document.querySelector("#trope-search");
-       const filterButtons = [...document.querySelectorAll(".decoder-filter")];
+      const filterButtons = [...document.querySelectorAll(".decoder-filter")];
       const cards = [...document.querySelectorAll(".trope-card")];
       const count = document.querySelector("#trope-count");
       const empty = document.querySelector("#trope-empty");
       const shareButton = document.querySelector("#share-decoder");
       const shareStatus = document.querySelector("#share-status");
       const publicUrl = "https://fandom.justlikekatie.com/c-drama-fandom/trope-decoder/";
-       const trackEvent = (name, data) => {
-         try {
-           window.umami?.track(name, data);
-         } catch {
-           // Analytics must never interrupt reading or sharing.
-         }
-       };
-       let lastFilterSignature = "";
-       let activeFilter = "all";
 
-       const applyFilters = () => {
+      const trackEvent = (name, data) => {
+        try {
+          if (typeof window.gtag === "function") {
+            window.gtag("event", name, data);
+            return;
+          }
+          window.dataLayer = window.dataLayer || [];
+          window.dataLayer.push(["event", name, data]);
+        } catch {
+          // Analytics must never interfere with decoder interactions.
+        }
+      };
+
+      let lastFilterSignature = "";
+      let activeFilter = "all";
+
+      const applyFilters = () => {
         const query = search.value.trim().toLowerCase();
         let visible = 0;
         cards.forEach((card) => {
-           const matchesSearch = !query || `${card.textContent} ${card.dataset.search}`.toLowerCase().includes(query);
-           const matchesCategory = activeFilter === "all" || card.dataset.category === activeFilter;
-           const matches = matchesSearch && matchesCategory;
+          const matchesSearch = !query || `${card.textContent} ${card.dataset.search}`.toLowerCase().includes(query);
+          const matchesCategory = activeFilter === "all" || card.dataset.category === activeFilter;
+          const matches = matchesSearch && matchesCategory;
           card.hidden = !matches;
           if (matches) visible += 1;
         });
         count.textContent = `Showing ${visible} of ${cards.length} tropes`;
         empty.hidden = visible !== 0;
-         const filterSignature = `${activeFilter}:${query ? "present" : "empty"}:${visible}`;
-         if (filterSignature !== lastFilterSignature) {
-           lastFilterSignature = filterSignature;
-           trackEvent("trope_filter_used", {
-             category: activeFilter,
-             query_present: Boolean(query),
-             result_count: visible
-           });
-         }
-       };
+        const filterSignature = `${activeFilter}:${query ? "present" : "empty"}:${visible}`;
+        if (filterSignature !== lastFilterSignature) {
+          lastFilterSignature = filterSignature;
+          trackEvent("trope_filter_used", {
+            category: activeFilter,
+            query_present: Boolean(query),
+            result_count: visible
+          });
+        }
+      };
 
-       search.addEventListener("input", applyFilters);
+      search.addEventListener("input", applyFilters);
 
-       filterButtons.forEach((button) => {
-         button.addEventListener("click", () => {
-           activeFilter = button.dataset.filter;
-           filterButtons.forEach((candidate) => {
-             const isActive = candidate === button;
-             candidate.classList.toggle("is-active", isActive);
-             candidate.setAttribute("aria-pressed", String(isActive));
-           });
-           applyFilters();
-         });
-       });
+      filterButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          activeFilter = button.dataset.filter;
+          filterButtons.forEach((candidate) => {
+            const isActive = candidate === button;
+            candidate.classList.toggle("is-active", isActive);
+            candidate.setAttribute("aria-pressed", String(isActive));
+          });
+          applyFilters();
+        });
+      });
 
       const announce = (message) => {
         shareStatus.textContent = message;
@@ -375,10 +382,10 @@
                text: "Newcomers see: Certain death. Veterans know: She’d need amnesia to fall for him in this enemies-to-lovers arc.",
               url: publicUrl
             });
-           trackEvent("trope_decoder_shared", { method: "native" });
+            trackEvent("trope_decoder_shared", { method: "native" });
             announce("Decoder ready to share.");
           } else if (await copyUrl()) {
-           trackEvent("trope_decoder_shared", { method: "copy" });
+            trackEvent("trope_decoder_shared", { method: "copy" });
             announce("Public decoder link copied.");
           } else {
             announce(`Share this public link: ${publicUrl}`);

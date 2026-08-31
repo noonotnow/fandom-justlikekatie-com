@@ -208,7 +208,8 @@ test("the trope decoder is searchable, shareable, and spoiler-light", () => {
   assert.match(html, /matchesCategory = activeFilter === "all" \|\| card\.dataset\.category === activeFilter/);
   assert.match(html, /id="share-decoder"/);
   assert.match(html, /publicUrl = "https:\/\/fandom\.justlikekatie\.com\/c-drama-fandom\/trope-decoder\/"/);
-  assert.match(html, /window\.umami\?\.track/);
+  assert.match(html, /window\.gtag\("event", name, data\)/);
+  assert.match(html, /window\.dataLayer\.push\(\["event", name, data\]\)/);
   assert.match(html, /trackEvent\("trope_filter_used", \{\s*category: activeFilter,\s*query_present: Boolean\(query\),\s*result_count: visible\s*\}\)/);
   assert.match(html, /trackEvent\("trope_decoder_shared", \{ method: "native" \}\)/);
   assert.match(html, /trackEvent\("trope_decoder_shared", \{ method: "copy" \}\)/);
