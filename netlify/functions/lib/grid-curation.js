@@ -30,6 +30,7 @@ const EVENT_COPY_DISTANCE = 0.085;
 const EVENT_PAIR_DISTANCE = 0.24;
 const HIGH_SALIENCE_SLOTS = [1, 3, 4, 5, 7];
 const SECONDARY_SLOTS = [0, 2, 6, 8];
+const MAX_TRUSTED_DIGEST_URLS = 3;
 const SEARCH_PROVIDER_HOST = /(^|\.)(bing|google|baidu|yahoo|duckduckgo|brave|serpapi)\./i;
 const GENERIC_SOURCE = /^(unknown|source|image|images|bing(?: images)?|google(?: images)?|baidu(?: images)?|search result)$/i;
 const GENERIC_QUERY_TERMS = new Set([
@@ -725,11 +726,18 @@ function greedyBoards(candidates, limit, score, incompatible, promise) {
 
 function preferredBoardBonus(board, preferredCandidateIds) {
   if (!preferredCandidateIds?.size) return 0;
-  const preferredCount = board.filter(candidate =>
-    preferredCandidateIds.has(candidateIdForResult({
+  const preferredCount = board.filter(candidate => {
+    const digestId = candidateIdForResult({
       ...candidate.result,
       digest: candidate.fingerprint?.digest,
-    }))).length;
+    });
+    const provenanceId = candidateIdForResult({
+      ...candidate.result,
+      imageDigest: "",
+      digest: "",
+    });
+    return preferredCandidateIds.has(digestId) || preferredCandidateIds.has(provenanceId);
+  }).length;
   // Preference is deliberately small: it can break a close editorial tie, but
   // cannot make an otherwise invalid board pass the promise or safety gates.
   return preferredCount * 0.02;
@@ -851,7 +859,7 @@ export async function curateDisplayResults(
   rawCandidates.sort(rawCandidateOrder);
   rawCandidates.length = Math.min(rawCandidates.length, candidateLimit);
 
-  const analyzedStates = await mapWithConcurrency(rawCandidates, analysisConcurrency, async candidate => {
+  let analyzedStates = await mapWithConcurrency(rawCandidates, analysisConcurrency, async candidate => {
     try {
       const buffer = await loadBuffer(candidate.result.thumbnail, candidate.result);
       const imageFingerprint = await fingerprint(buffer, candidate.result);
@@ -890,6 +898,7 @@ export async function curateDisplayResults(
       };
     }
   });
+  analyzedStates = disambiguateMassDigestCollisions(analyzedStates);
   const analyzed = analyzedStates
     .filter(state => state.candidate.fingerprint && !state.dropReason)
     .map(state => state.candidate);
@@ -943,11 +952,47 @@ export async function curateDisplayResults(
   return result;
 }
 
+function disambiguateMassDigestCollisions(states) {
+  const urlsByDigest = new Map();
+  for (const state of states) {
+    if (state.dropReason || !state.candidate?.fingerprint?.digest) continue;
+    const digest = state.candidate.fingerprint.digest;
+    const urls = urlsByDigest.get(digest) || new Set();
+    urls.add(String(state.candidate.result?.thumbnail || ""));
+    urlsByDigest.set(digest, urls);
+  }
+  const suspicious = new Set([...urlsByDigest.entries()]
+    .filter(([, urls]) => urls.size > MAX_TRUSTED_DIGEST_URLS)
+    .map(([digest]) => digest));
+  if (!suspicious.size) return states;
+  return states.map(state => {
+    const fingerprint = state.candidate?.fingerprint;
+    if (state.dropReason || !fingerprint || !suspicious.has(fingerprint.digest)) return state;
+    const retrievalDigest = fingerprint.digest;
+    const thumbnail = String(state.candidate.result?.thumbnail || "");
+    return {
+      ...state,
+      candidate: {
+        ...state.candidate,
+        fingerprint: {
+          ...fingerprint,
+          digest: createHash("sha256")
+            .update(`retrieval-collision:${retrievalDigest}\0${thumbnail}`)
+            .digest("hex"),
+          retrievalDigest,
+          digestCollision: true,
+        },
+      },
+    };
+  });
+}
+
 function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, winner, boardDiagnostics, promise, profileVersions) {
   const summarize = candidate => ({
     candidateId: candidateIdForResult({ ...candidate.result, digest: candidate.fingerprint?.digest }),
     provisionalCandidateId: candidateIdForResult({ ...candidate.result, digest: "" }),
     imageDigest: String(candidate.fingerprint?.digest || "").slice(0, 256) || null,
+    retrievalDigestCollision: candidate.fingerprint?.digestCollision === true,
     query: String(candidate.result.batchKey || "").slice(0, 500),
     link: String(candidate.result.link || "").slice(0, 700),
     thumbnail: String(candidate.result.thumbnail || "").slice(0, 500),

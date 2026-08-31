@@ -142,7 +142,7 @@ export function createActorAuditHandler({
         const scope = parseScope(input.scope);
         if (!scope) return json(400, { error: "Audit scope must be representative or full." });
         const previous = await readReport(store, pair);
-        const preferredCandidateIds = nextReviewPreferenceIds(previous.currentRun, pair);
+        const preferredCandidateIds = nextReviewPreferenceIds(previous.currentRun);
         const run = await runPreflight(pair, searchOneQuery, {
           now,
           createRunId,
@@ -954,25 +954,109 @@ async function readRun(store, pair, runId) {
 }
 
 async function attachVerdict(store, pair, run) {
+  const normalizedRun = normalizeLegacyRunEvidence(run);
   const [operatorVerdict, calibration, reasons, editorialFeedback] = await Promise.all([
-    readFirstReceipt(store, auditVerdictPrefix(pair.actor.id, pair.vibeIdx, run.runId), "decidedAt"),
-    readFirstReceipt(store, auditCalibrationPrefix(pair.actor.id, pair.vibeIdx, run.runId), "chosenAt"),
-    readFirstReceipt(store, auditCalibrationReasonsPrefix(pair.actor.id, pair.vibeIdx, run.runId), "annotatedAt"),
-    readEditorialFeedback(store, pair, run),
+    readFirstReceipt(store, auditVerdictPrefix(pair.actor.id, pair.vibeIdx, normalizedRun.runId), "decidedAt"),
+    readFirstReceipt(store, auditCalibrationPrefix(pair.actor.id, pair.vibeIdx, normalizedRun.runId), "chosenAt"),
+    readFirstReceipt(store, auditCalibrationReasonsPrefix(pair.actor.id, pair.vibeIdx, normalizedRun.runId), "annotatedAt"),
+    readEditorialFeedback(store, pair, normalizedRun),
   ]);
-  const boardDiagnostics = run.boardDiagnostics || boardDiagnosticsFromRetainedEvidence(run);
+  const boardDiagnostics = normalizedRun.boardDiagnostics
+    || boardDiagnosticsFromRetainedEvidence(normalizedRun);
   return {
-    ...run,
+    ...normalizedRun,
     boardDiagnostics,
     editorialFeedback,
     operatorVerdict: operatorVerdict || null,
     blindReview: calibration
       ? { ...calibration, ...(reasons || {}) }
       : {
-        status: comparableBoards(run) ? "pending" : "unavailable",
-        presentationOrder: presentationOrderFor(run.runId),
-        boards: blindBoards(run, presentationOrderFor(run.runId)),
+        status: comparableBoards(normalizedRun) ? "pending" : "unavailable",
+        presentationOrder: presentationOrderFor(normalizedRun.runId),
+        boards: blindBoards(normalizedRun, presentationOrderFor(normalizedRun.runId)),
       },
+  };
+}
+
+function normalizeLegacyRunEvidence(run) {
+  const curationVersion = run.curationVersion
+    ?? run.curationReceipt?.curationVersion
+    ?? run.curationReceipt?.version
+    ?? 0;
+  const legacyDigestUrls = new Map();
+  if (curationVersion < CURATION_VERSION) {
+    for (const item of run.rawResults || []) {
+      if (!item.imageDigest) continue;
+      const urls = legacyDigestUrls.get(item.imageDigest) || new Set();
+      urls.add(String(item.thumbnail || ""));
+      legacyDigestUrls.set(item.imageDigest, urls);
+    }
+  }
+  const untrustedLegacyDigests = new Set([...legacyDigestUrls.entries()]
+    .filter(([, urls]) => urls.size > 3)
+    .map(([digest]) => digest));
+  const rawResults = (run.rawResults || []).map(item => ({
+    ...item,
+    candidateId: item.candidateId || candidateIdForResult({
+      ...item,
+      batchKey: item.query,
+      imageDigest: untrustedLegacyDigests.has(item.imageDigest) ? "" : item.imageDigest,
+      digest: untrustedLegacyDigests.has(item.imageDigest) ? "" : item.imageDigest || "",
+    }),
+  }));
+  const rawByThumbnail = new Map();
+  for (const item of rawResults) {
+    if (item.thumbnail && !rawByThumbnail.has(item.thumbnail)) {
+      rawByThumbnail.set(item.thumbnail, item);
+    }
+  }
+  const enrich = item => {
+    if (!item) return item;
+    const raw = rawByThumbnail.get(item.thumbnail);
+    return {
+      ...item,
+      candidateId: item.candidateId
+        || raw?.candidateId
+        || candidateIdForResult({
+          ...item,
+          batchKey: item.query || raw?.query,
+          digest: item.imageDigest || "",
+        }),
+      query: item.query || raw?.query,
+      link: item.link || raw?.link,
+      description: item.description || raw?.description,
+    };
+  };
+  const enrichBoard = board => board ? {
+    ...board,
+    candidates: (board.candidates || []).map(enrich),
+  } : board;
+  const legacyDuplicateReason = reason =>
+    curationVersion < CURATION_VERSION && reason === "exact_duplicate"
+      ? "legacy_duplicate_unverified"
+      : reason;
+  const curationReceipt = run.curationReceipt ? {
+    ...run.curationReceipt,
+    rawCandidates: (run.curationReceipt.rawCandidates || []).map(enrich),
+    dropped: (run.curationReceipt.dropped || []).map(enrich),
+  } : run.curationReceipt;
+  return {
+    ...run,
+    rawResults,
+    curationReceipt,
+    rejections: (run.rejections || []).map(item => item.kind === "image" ? {
+      ...enrich(item),
+      reason: legacyDuplicateReason(item.reason),
+      dropDetail: curationVersion < CURATION_VERSION && item.reason === "exact_duplicate"
+        ? "An older curation contract could not prove this was a duplicate. Treat it as retained evidence."
+        : item.dropDetail,
+    } : item),
+    strongestEvent: enrichBoard(run.strongestEvent),
+    strongestCompiled: enrichBoard(run.strongestCompiled),
+    eventAlternatives: (run.eventAlternatives || []).map(enrichBoard),
+    compiledAlternatives: (run.compiledAlternatives || []).map(enrichBoard),
+    winner: run.winner ? { ...run.winner, board: enrichBoard(run.winner.board) } : run.winner,
+    alternate: run.alternate ? { ...run.alternate, board: enrichBoard(run.alternate.board) } : run.alternate,
   };
 }
 
@@ -1042,8 +1126,8 @@ function feedbackHash(flags) {
   }))).slice(0, 32);
 }
 
-function nextReviewPreferenceIds(run, pair) {
-  if (!run || !currentRunMatchesCurrentContract(run, pair)) return [];
+function nextReviewPreferenceIds(run) {
+  if (!run) return [];
   return [...new Set((run.editorialFeedback?.flags || [])
     .filter(flag =>
       flag.disposition === "requested"

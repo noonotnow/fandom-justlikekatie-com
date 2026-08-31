@@ -458,6 +458,32 @@ test("exact image copies are always collapsed before either board is scored", as
   assert.equal(thumbnails.includes(result("copy-b").thumbnail), true);
 });
 
+test("a mass same-byte retrieval response does not declare distinct URLs exact duplicates", async () => {
+  const retrievalFingerprint = fingerprint("shared-fetch-response", {
+    ones: spreadBits(2),
+    digest: "shared-fetch-response",
+  });
+  const collisionGroup = Array.from({ length: 4 }, (_, index) => result(`collision-${index}`, {
+    source: `publisher-${index}.test`,
+    link: `https://publisher-${index}.test/story/${index}`,
+    fp: retrievalFingerprint,
+  }));
+  const clean = Array.from({ length: 9 }, (_, index) => result(`collision-clean-${index}`, {
+    source: `clean-${index}.test`,
+    fp: fingerprint(`collision-clean-${index}`, { ones: spreadBits(index + 30) }),
+  }));
+
+  const output = await curate([...collisionGroup, ...clean], { diagnostics: true });
+  const collisionThumbnails = new Set(collisionGroup.map(item => item.thumbnail));
+  const collisionCandidates = output.diagnostics.rawCandidates.filter(item =>
+    collisionThumbnails.has(item.thumbnail));
+
+  assert.equal(new Set(collisionCandidates.map(item => item.candidateId)).size, 4);
+  assert.equal(collisionCandidates.every(item => item.retrievalDigestCollision === true), true);
+  assert.equal(output.diagnostics.dropped.some(item =>
+    collisionThumbnails.has(item.thumbnail) && item.dropReason === "exact_duplicate"), false);
+});
+
 test("diagnostics retain exact-copy and image-gate rejection reasons", async () => {
   const exactFingerprint = fingerprint("same-digest", { ones: spreadBits(71) });
   const items = [
@@ -486,7 +512,8 @@ test("diagnostics explain when usable images collapse into too much visual dupli
 
   assert.equal(output.diagnostics.boardDiagnostics.event.reasonCode, "too_much_visual_duplication");
   assert.equal(output.diagnostics.boardDiagnostics.compiled.reasonCode, "too_much_visual_duplication");
-  assert.match(output.diagnostics.boardDiagnostics.compiled.summary, /1 distinct frames/);
+  assert.match(output.diagnostics.boardDiagnostics.compiled.summary, /visual overlap/i);
+  assert.equal(output.diagnostics.dropped.some(item => item.dropReason === "exact_duplicate"), false);
 });
 
 test("diagnostics explain when fewer than nine images are usable", async () => {

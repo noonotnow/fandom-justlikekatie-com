@@ -8,9 +8,11 @@ import {
   vibePromiseFor,
 } from "./actor-identity-profiles.js";
 import {
+  auditCalibrationPrefix,
   auditFeedbackPrefix,
   auditRescueBoardPrefix,
   auditRunKey,
+  auditVerdictPrefix,
   eligibilityKey,
 } from "./actor-eligibility.js";
 import { createActorAuditHandler, vibeKeyFor } from "./actor-audit.js";
@@ -555,6 +557,111 @@ test("a retained image left out of both boards can be pinned for the next review
   }), {});
   assert.equal(rerunResponse.status, 200);
   assert.deepEqual(curateOptions[1].preferredCandidateIds, [omitted.candidateId]);
+});
+
+test("a finalized legacy run can annotate old duplicate guesses as separate image feedback", async () => {
+  const curateOptions = [];
+  const { handler, store } = harness({
+    onCurateOptions: options => curateOptions.push(options),
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const key = auditRunKey(pairActor.id, 0, "run-1");
+  const legacy = await store.get(key);
+  const withoutId = item => {
+    const { candidateId: _candidateId, ...rest } = item;
+    return rest;
+  };
+  legacy.curationVersion = 3;
+  legacy.curationReceipt.curationVersion = 3;
+  legacy.rawResults = legacy.rawResults.map(item => ({
+    ...withoutId(item),
+    imageDigest: "shared-bad-retrieval-digest",
+  }));
+  legacy.curationReceipt.rawCandidates = legacy.curationReceipt.rawCandidates.map(item => ({
+    ...withoutId(item),
+    imageDigest: "shared-bad-retrieval-digest",
+  }));
+  legacy.curationReceipt.dropped = legacy.curationReceipt.rawCandidates.map(item => ({
+    ...withoutId(item),
+    dropReason: "exact_duplicate",
+  }));
+  legacy.rejections = legacy.rawResults.map(item => ({
+    kind: "image",
+    ...withoutId(item),
+    reason: "exact_duplicate",
+  }));
+  legacy.strongestEvent.candidates = legacy.strongestEvent.candidates.map(withoutId);
+  legacy.strongestCompiled.candidates = legacy.strongestCompiled.candidates.map(withoutId);
+  await store.setJSON(key, legacy);
+
+  await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+    notes: "",
+  }), {});
+  const detailResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const detail = await detailResponse.json();
+  const candidate = detail.currentRun.rawResults[0];
+  const secondCandidate = detail.currentRun.rawResults[1];
+  assert.match(candidate.candidateId, /^[a-f0-9]{24}$/);
+  assert.equal(new Set(detail.currentRun.rawResults.slice(0, 4).map(item => item.candidateId)).size, 4);
+  assert.equal(detail.currentRun.rejections[0].reason, "legacy_duplicate_unverified");
+  const calibrationPrefix = auditCalibrationPrefix(pairActor.id, 0, "run-1");
+  const verdictPrefix = auditVerdictPrefix(pairActor.id, 0, "run-1");
+  const immutableBefore = [...store.records.entries()]
+    .filter(([recordKey]) => recordKey.startsWith(calibrationPrefix) || recordKey.startsWith(verdictPrefix))
+    .map(([recordKey, value]) => [recordKey, structuredClone(value)]);
+
+  const flagResponse = await handler(request("POST", {
+    action: "flag_candidate",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: candidate.candidateId,
+    flagged: true,
+    intent: "pin",
+  }), {});
+  const flagged = await flagResponse.json();
+  assert.equal(flagResponse.status, 200, JSON.stringify(flagged));
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].disposition, "requested");
+  const secondFlagResponse = await handler(request("POST", {
+    action: "flag_candidate",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: secondCandidate.candidateId,
+    flagged: true,
+    intent: "supporting",
+  }), {});
+  const secondFlagged = await secondFlagResponse.json();
+  assert.equal(secondFlagResponse.status, 200, JSON.stringify(secondFlagged));
+  assert.equal(secondFlagged.currentRun.editorialFeedback.flags.length, 2);
+  assert.equal(new Set(secondFlagged.currentRun.editorialFeedback.flags.map(item => item.candidateId)).size, 2);
+  const immutableAfter = [...store.records.entries()]
+    .filter(([recordKey]) => recordKey.startsWith(calibrationPrefix) || recordKey.startsWith(verdictPrefix))
+    .map(([recordKey, value]) => [recordKey, structuredClone(value)]);
+  assert.deepEqual(immutableAfter, immutableBefore);
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  assert.deepEqual(new Set(curateOptions[1].preferredCandidateIds), new Set([
+    candidate.candidateId,
+    secondCandidate.candidateId,
+  ]));
 });
 
 test("rendered evidence uses the exact frozen ranked curation snapshot", async () => {
