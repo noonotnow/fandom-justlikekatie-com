@@ -459,9 +459,6 @@ export async function searchOneQuery(
   }
 
   const braveKey = process.env.BRAVE_SEARCH_API_KEY;
-  if (!braveKey && !googleFirst) {
-    throw new Error("Brave API key not configured");
-  }
 
   {
     const braveUrl =
@@ -470,7 +467,7 @@ export async function searchOneQuery(
       `&count=40` +
       `&safesearch=moderate`;
 
-    const braveResp = googleFirst
+    const braveResp = googleFirst || !braveKey
       ? { ok: false, status: 0, json: async () => ({}) }
       : await fetchImpl(braveUrl, {
           method: "GET",
@@ -551,7 +548,9 @@ export async function searchOneQuery(
     const braveQuality = scoreResultQuality(braveUseful);
     const qualityBelowThreshold = braveQuality.overall < QUALITY_FALLBACK_THRESHOLD;
     const preferActorIdentityProvider = !!subjectToken && !middleEarthFallback;
-    const braveTriggerReason = !braveSubjectGuardPassed
+    const braveTriggerReason = !braveKey && !googleFirst
+      ? "brave_not_configured"
+      : !braveSubjectGuardPassed
       ? `subject_guard_failed (${braveSubjectHitCount}/${braveRaw.length} mention "${subjectToken}", ratio=${braveSubjectHitRatio.toFixed(2)})`
       : preferActorIdentityProvider
       ? "actor_identity_provider_preference"
@@ -707,10 +706,11 @@ export async function searchOneQuery(
           ? serpApiEngineLog.map((entry) => entry.engine)
           : [
               ...(baiduEligible ? ["baidu"] : []),
-              "brave_baseline",
+              ...(braveKey ? ["brave_baseline"] : []),
               ...serpApiEngineLog.map((entry) => entry.engine),
             ]),
       ];
+      response.braveConfigured = Boolean(braveKey);
       response.braveRawCount = braveRaw.length;
       response.braveNormalizedCount = braveNormalized.length;
       response.braveUsefulCount = braveUseful.length;

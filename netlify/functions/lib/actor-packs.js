@@ -98,9 +98,9 @@ export const ACTOR_PACKS = [
         "subtitle": "一身白衣，像规矩本身动了情",
         "subtitle_en": "All in white, like discipline itself caught feelings",
         "queries": [
-          "刘学义 念无双 源仲 白衣",
-          "刘学义 落花时节又逢君 段飞 白衣",
-          "刘学义 天乩 斩荒 白衣"
+          "刘学义 古装 写真",
+          "刘学义 白衣 造型",
+          "刘学义 念无双 源仲"
         ],
         "shareFragment": "仙门冷玉学义，白衣一出天下寒",
         "mjPrompt": ""
@@ -112,9 +112,9 @@ export const ACTOR_PACKS = [
         "subtitle": "他一抬眼，朝堂都安静了",
         "subtitle_en": "One look from him and the whole court goes silent",
         "queries": [
-          "刘学义 古装 权谋 帅气",
-          "刘学义 权臣 大片",
-          "刘学义 古装 霸气"
+          "刘学义 古装 剧照",
+          "刘学义 权臣 造型",
+          "刘学义 黑衣 写真"
         ],
         "shareFragment": "权臣压迫感学义，他一抬眼朝堂就安静了",
         "mjPrompt": ""
@@ -126,9 +126,9 @@ export const ACTOR_PACKS = [
         "subtitle": "眼镜一戴，危险变得很有礼貌",
         "subtitle_en": "Put the glasses on. The danger got extremely polite.",
         "queries": [
-          "刘学义 眼镜 斯文 帅气",
-          "刘学义 眼镜 现代",
-          "刘学义 西装 眼镜"
+          "刘学义 西装 写真",
+          "刘学义 现代 造型",
+          "刘学义 眼镜 写真"
         ],
         "shareFragment": "眼镜版学义，斯文败类警告",
         "mjPrompt": ""
@@ -140,13 +140,13 @@ export const ACTOR_PACKS = [
         "subtitle": "明明没说话，像已经疼了三生三世",
         "subtitle_en": "Said nothing — but clearly hurting for three lifetimes",
         "queries": [
-          "刘学义 念无双 源仲 破碎感",
-          "刘学义 千古玦尘 天启 悲伤",
-          "刘学义 千古玦尘 天气 悲伤",
-          "刘学义 天乩之白蛇传说 斩荒 破碎",
-          "刘学义 秋蝉 林小庄 落寞",
-          "刘学义 落花时节又逢君 锦绣 悲剧",
-          "刘学义 春花焰 慕容璟和 破碎"
+          "刘学义 采访 情绪",
+          "刘学义 角色 剧照",
+          "刘学义 斩荒 剧照",
+          "刘学义 天启 剧照",
+          "刘学义 源仲 剧照",
+          "刘学义 秋蝉 林小庄",
+          "刘学义 春花焰 慕容璟和"
         ],
         "shareFragment": "破碎感美人学义，三生三世都是他",
         "mjPrompt": ""

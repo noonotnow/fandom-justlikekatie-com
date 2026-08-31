@@ -453,6 +453,45 @@ test("continues to Google when Baidu is unavailable", async () => {
   }
 });
 
+test("continues to SerpAPI when Baidu is unavailable and Brave is not configured", async () => {
+  const previousBraveKey = process.env.BRAVE_SEARCH_API_KEY;
+  const previousSerpKey = process.env.SERPAPI_KEY;
+  delete process.env.BRAVE_SEARCH_API_KEY;
+  process.env.SERPAPI_KEY = "serp-test";
+  const warnings = [];
+  const calls = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args);
+  try {
+    const response = await searchOneQuery("刘学义 古装 写真", {
+      debug: true,
+      baiduOptions: { cache: false, retries: 0 },
+      fetchImpl: async (url) => {
+        calls.push(url);
+        if (url.includes("image.baidu.com")) return mockResponse("busy", { status: 503 });
+        if (url.includes("serpapi.com")) {
+          return mockResponse(JSON.stringify(serpPayload()), { contentType: "application/json" });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    });
+
+    assert.equal(response.provider, "google_images");
+    assert.equal(response.braveConfigured, false);
+    assert.equal(response.braveTriggerReason, "brave_not_configured");
+    assert.deepEqual(response.providerFetchOrder, ["baidu", "google_images"]);
+    assert.equal(calls.some(url => url.includes("api.search.brave.com")), false);
+    assert.equal(response.serpApiEngineLog[0].usedAsFinal, true);
+    assert.equal(warnings.length, 1);
+  } finally {
+    console.warn = originalWarn;
+    if (previousBraveKey === undefined) delete process.env.BRAVE_SEARCH_API_KEY;
+    else process.env.BRAVE_SEARCH_API_KEY = previousBraveKey;
+    if (previousSerpKey === undefined) delete process.env.SERPAPI_KEY;
+    else process.env.SERPAPI_KEY = previousSerpKey;
+  }
+});
+
 test("falls back when Baidu is valid but below the viability threshold", async () => {
   const previousBraveKey = process.env.BRAVE_SEARCH_API_KEY;
   const previousSerpKey = process.env.SERPAPI_KEY;
