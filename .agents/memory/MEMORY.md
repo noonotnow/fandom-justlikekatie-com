@@ -28,3 +28,4 @@
 - [Daily Drop grid curation contract](grid-curation-contract.md) — Event is a bounded, evidence-backed exception that must beat a competitive Compiled board on scored evidence.
 - [Daily Drop actor eligibility](daily-drop-eligibility.md) — approvals are pair-specific, bound to current audit evidence, and revalidated across builds, caches, and fallbacks.
 - [Private operator console](private-operator-console.md) — keep admin tools private for preflight, audits, and controlled publishing; do not make them part of the public product.
+- [Actor image-query ladders](actor-image-query-ladders.md) — start broad, then add light role/style anchors; stacked show, character, mood, and wardrobe terms can erase a popular actor’s evidence.
