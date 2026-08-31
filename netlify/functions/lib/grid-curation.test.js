@@ -124,6 +124,26 @@ test("a generic actor style query cannot manufacture an Event family", async () 
   assert.equal(curated.diagnostics.strongestCompiled.candidates.length, 9);
 });
 
+test("related character and look queries can combine into one Event mood board", async () => {
+  const queries = ["刘宇宁 离十六 蒙面", "刘宇宁 离十六 面具", "刘宇宁 离十六 夜行"];
+  const batches = queries.map((query, batchIndex) => ({
+    query,
+    results: Array.from({ length: 3 }, (_, index) => result(`masked-${batchIndex}-${index}`, {
+      source: `publisher-${batchIndex}-${index}.test`,
+      link: `https://publisher-${batchIndex}-${index}.test/li-shiliu/frame`,
+      title: `离十六 moonlit mask and hat frame ${batchIndex}-${index}`,
+      fp: fingerprint(`masked-${batchIndex}-${index}`, {
+        ones: spreadBits(`masked-${batchIndex}-${index}`, 104),
+      }),
+    })),
+  }));
+
+  const curated = await curateBatches(batches, { diagnostics: true });
+
+  assert.equal(curated.diagnostics.strongestEvent.candidates.length, 9);
+  assert.equal(curated.diagnostics.eventFamilies.some(family => family.size >= 9), true);
+});
+
 test("provider order cannot change which candidates survive the curation cap", async () => {
   const event = Array.from({ length: 9 }, (_, index) => result(`capped-event-${index}`, {
     source: "editorial.test",

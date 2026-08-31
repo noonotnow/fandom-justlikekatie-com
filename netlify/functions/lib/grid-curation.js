@@ -12,7 +12,7 @@ import {
  * intentionally heuristic: metadata and perceptual fingerprints can provide
  * evidence, but cannot prove actor identity, pose progression, or emotion.
  */
-export const CURATION_VERSION = 2;
+export const CURATION_VERSION = 3;
 export const DEFAULT_CURATION_LIMIT = 9;
 export const DEFAULT_CANDIDATE_LIMIT = 36;
 export const DEFAULT_ANALYSIS_CONCURRENCY = 4;
@@ -102,10 +102,10 @@ function batchKey(result) {
   return normalizeText(result.batchKey || "");
 }
 
-function boundedRoleBatchKey(result) {
+function boundedRoleTerms(result) {
   const raw = String(result.batchKey || "").trim();
   const terms = raw.split(/\s+/).filter(Boolean);
-  if (terms.length < 3) return "";
+  if (terms.length < 3) return null;
 
   // Actor-pack searches are actor-first. The remaining terms need either a
   // work + character/role pair, or one named role explicitly anchored as a
@@ -114,9 +114,18 @@ function boundedRoleBatchKey(result) {
     .map(normalizeText)
     .filter(term => term && !GENERIC_QUERY_TERMS.has(term));
   const hasStillAnchor = terms.some(term => normalizeText(term) === "剧照");
-  return boundaryTerms.length >= 2 || (boundaryTerms.length === 1 && hasStillAnchor)
-    ? batchKey(result)
-    : "";
+  if (boundaryTerms.length < 2 && !(boundaryTerms.length === 1 && hasStillAnchor)) return null;
+  return { actor: normalizeText(terms[0]), boundaryTerms };
+}
+
+function boundedRoleBatchKey(result) {
+  const details = boundedRoleTerms(result);
+  return details ? batchKey(result) : "";
+}
+
+function boundedRoleAnchorKey(result) {
+  const details = boundedRoleTerms(result);
+  return details ? `${details.actor}:${details.boundaryTerms[0]}` : "";
 }
 
 function hasGenericTitle(result) {
@@ -150,6 +159,9 @@ function familyEvidence(left, right) {
   const sameBoundedRole = sameBatch
     && leftRoleBatch
     && leftRoleBatch === boundedRoleBatchKey(rightResult);
+  const leftRoleAnchor = boundedRoleAnchorKey(leftResult);
+  const sameRoleAcrossQueries = leftRoleAnchor
+    && leftRoleAnchor === boundedRoleAnchorKey(rightResult);
   const visualDistance = left.fingerprint && right.fingerprint
     ? perceptualDistance(left.fingerprint, right.fingerprint)
     : 1;
@@ -157,7 +169,7 @@ function familyEvidence(left, right) {
   // A character mood board is a bounded Event even when its varied frames were
   // published by different sources. A specific work/character query supplies
   // that boundary; generic actor + style searches deliberately do not.
-  if (sameBoundedRole) {
+  if (sameRoleAcrossQueries) {
     return { related: true, strength: 0.76, kind: "shared work or character boundary" };
   }
 
