@@ -1,0 +1,150 @@
+**Okay, this is an extremely useful example. My verdict is:**
+
+> **Event wins the comparison, but neither board is publishable.**
+> 
+
+Your blind choice was reasonable. The Event board has the stronger red/black continuity and more clearly gestures toward one damaged-character world. The Compiled board adds “range” mostly by throwing in armor, cleaner portraits, and other looks that dilute the thesis.
+
+But Event still fails **Shattered Beauty** as a finished card.
+
+## What’s wrong with both boards
+
+### 1. The promise scores are lying
+
+Both boards claim:
+
+- **9/9 core anchors**
+- **Hero fulfilled**
+- **Single-frame 99%**
+- **Zero contradiction penalty**
+
+Visually, that is impossible.
+
+Several cards are:
+
+- Multi-frame collages
+- Clean, emotionally neutral portraits
+- Smiling or composed character shots
+- Costume documentation rather than visible damage
+- Different character/look families
+- Text-heavy edits
+
+If the system calls all nine “core anchor matches,” its anchor detector is probably treating **query provenance or broad metadata as visual fulfillment**.
+
+It needs to explain fulfillment **card by card**:
+
+> Card 1 matched: blood + distressed expression
+Card 2 matched: nothing; generic black costume
+Card 3 blocked: composite image
+Card 4 matched: wounded-character cluster
+> 
+
+Without that breakdown, “9/9” is decorative math.
+
+### 2. The hero check is not checking the hero’s emotional job
+
+The center images do not immediately communicate Shattered Beauty.
+
+A hero for this pack should be:
+
+- Bloodied or visibly distressed
+- Beautifully furious
+- Exhausted, grieving, collapsing, or haunted
+- Composed strongly enough to survive the center crop
+
+A clean black-costume portrait is not automatically a fulfilled hero because the surrounding query said “虐” or “破碎感.”
+
+### 3. The collage detector is still failing badly
+
+Both primary boards and several runners-up contain obvious composites, yet every board reports **single-frame 99%**.
+
+That is not a borderline classification. The detector is fundamentally missing:
+
+- Stacked frames
+- Split panels
+- Contact sheets
+- Picture-within-picture layouts
+- Text-heavy fan edits combining multiple shots
+
+This deserves a direct regression fixture using one of these exact thumbnails.
+
+### 4. The runner-ups are not truly different proposals
+
+They are mostly the same cards shuffled, with one or two substitutions. Nearly all score **0.89** because the metrics are saturated:
+
+- Core anchors: always 1.00
+- Hero: always 1.00
+- Visual variation: always 1.00
+- Contradictions: always 0.00
+- Family strength: identical
+
+If radically different-looking boards receive effectively identical component values, the scorer cannot discriminate between them.
+
+The runner-up section should show:
+
+- Shared cards with the primary board
+- Shared cards between Event and Compiled
+- New cards introduced
+- Different cluster mix
+- Different editorial thesis
+
+Right now they are less “runner-up boards” and more **the same suspects seated in different chairs**.
+
+## One crucial run-detail problem
+
+Although the dropdown currently displays **Full scope**, this audit receipt says:
+
+- **Representative scope**
+- **3 queries audited**
+
+Shattered Beauty has **7 queries**.
+
+So this is not the full-ladder audit yet. The dropdown reflects the control’s current value, not the scope that produced this receipt. That is confusing and should be made explicit near the button:
+
+> Viewing representative audit · 3 of 7 queries
+> 
+
+A genuine fresh full audit should say **full scope** in the evidence header and **7 queries audited**.
+
+That may uncover stronger material—but it does not excuse the false 9/9, false single-frame score, or flat runner-ups.
+
+## Your disagreement reasons are right
+
+You selected:
+
+- Event repetition felt redundant
+- Compiled board felt random
+- Wrong vibe
+- Bad arrangement
+
+That is accurate.
+
+I would add one conceptual note:
+
+> Event was the better of the two because its dark red/black character continuity created a clearer visual world, but neither board fulfilled Shattered Beauty strongly enough for release. Several cards are collages or neutral costume portraits, and the runner-ups are mostly permutations rather than distinct editorial proposals.
+> 
+
+## What I would do with this run
+
+1. **Do not approve it for scheduling.**
+2. Preserve your Event vote as the valid comparative judgment.
+3. Save the disagreement reasons.
+4. Build a rescue board from the 36 results.
+5. If you cannot find nine genuinely shattered single-frame images, save the strongest partial cluster as a search lesson rather than forcing nine.
+6. Then run a true **full seven-query audit** after the rescue lesson is applied.
+
+The “Another operator recorded the disagreement annotation first” message is also a UX bug if you submitted the same reasons twice. Identical retries should reload the existing receipt instead of presenting a conflict. Refresh and confirm whether your reasons actually persisted.
+
+## Final grade
+
+- **Search pool:** Possibly promising, but only 3/7 queries tested
+- **Event detection:** Better than before
+- **Event board:** Better than Compiled, still not release-worthy
+- **Compiled board:** Random dark-costume assortment
+- **Promise scoring:** Not credible
+- **Composite detection:** Failed
+- **Runner-up generation:** Too repetitive and score-insensitive
+- **Blind-review system:** Successfully captured a meaningful disagreement
+- **Overall:** Excellent calibration evidence; failed Daily candidate
+
+The major discovery here is that adding “promise fulfillment” to the score did not automatically make it truthful. The system now has the right vocabulary, but it is using that vocabulary to confidently certify several collages as nine separate examples of emotional devastation.

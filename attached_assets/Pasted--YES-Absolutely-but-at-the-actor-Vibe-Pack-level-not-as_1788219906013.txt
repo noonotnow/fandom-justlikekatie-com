@@ -1,0 +1,94 @@
+**YES. Absolutely—but at the `actor × Vibe Pack` level, not as one permanent archetype assigned to the actor.**
+
+That gives us three clean layers:
+
+> **Vibe Pack = the visual promise**
+**Character/look cluster = the evidence**
+**Archetype = the narrative interpretation**
+> 
+
+## Example
+
+### Liu Xueyi × Cold Jade Immortal
+
+- Character evidence: aloof Jinxiu, pale ceremonial Yuan Zhong
+- Visual promise: cool, divine, restrained, untouchable
+- Game archetype: **The Aloof Immortal** or whichever existing archetype corresponds
+
+### Liu Xueyi × Professionally Devastated
+
+- Character evidence: Murong Jinghe, distressed Shen Zaiye, late-arc Jinxiu
+- Visual promise: romantic and physical ruin
+- Game archetype: **The Beautifully Doomed One**
+
+### Liu Xueyi × Court Menace
+
+- Character evidence: calculating court roles and dangerous political looks
+- Visual promise: elegant institutional threat
+- Game archetype: **The Smiling Strategist**, **Court Fox**, or its existing equivalent
+
+Same actor, different cards in the archetype deck.
+
+## Why this is useful
+
+It connects several product systems without conflating them:
+
+- Vibe Atlas grids become evidence for archetype assignments.
+- The archetype game becomes a discovery route into actor/Vibe cards.
+- Character clusters explain *why* the assignment makes sense.
+- One actor can demonstrate several archetypes across roles.
+- Users can compare:
+    
+    > “Liu Xueyi is an Aloof Immortal here, but Professionally Devastated over there.”
+    > 
+- Exported grids can optionally carry an archetype label.
+- Membership profiles can learn which archetypes someone repeatedly saves or builds.
+
+It also gives us extremely good editorial content:
+
+> **One actor. Three characters. Which xianxia archetype owns the face card?**
+> 
+
+## Data model
+
+Each approved actor/Vibe pairing could have:
+
+```
+Primary archetype
+Secondary archetype (optional)
+Supporting character clusters
+Confidence/status
+Editorial rationale
+Evidence board
+Archetype taxonomy version
+```
+
+Possible statuses:
+
+- Suggested by system
+- Confirmed by editor
+- Confirmed by exported-grid behavior
+- Disputed
+- Needs more evidence
+
+## Important restraint
+
+The archetype should **not become another curation gate**.
+
+It can help generate queries and interpret the finished board, but the system should not reject an excellent Cold Jade grid because the archetype classifier thinks one card looks 14% too emotionally available.
+
+And the mapping cannot be:
+
+> Liu Xueyi = Aloof Immortal
+> 
+
+It must be:
+
+> Liu Xueyi × Cold Jade Immortal = Aloof Immortal
+Liu Xueyi × Professionally Devastated = Beautifully Doomed
+Liu Xueyi × Court Menace = Elegant Schemer
+> 
+
+That is basically **Pokémon typing for C-drama men**. The actor is the card universe, the Vibe Pack is the build, the character clusters are the moveset, and the archetype is the type assignment.
+
+So yes—we want this. It makes the game and Vibe Atlas feel like two views of the same underlying fandom intelligence rather than two cute features living in adjacent apartments.

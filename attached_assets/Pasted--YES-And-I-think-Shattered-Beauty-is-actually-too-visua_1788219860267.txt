@@ -1,0 +1,154 @@
+**YES. And I think “Shattered Beauty” is actually too visually vague.** The curator hears that and thinks:
+
+> black robe + attractive face + maybe a little red = shattered
+> 
+
+But what you mean is **narrative suffering attached to a specific heartbroken character**.
+
+Also: *The Princess’s Gambit* is **桃花映江山**, and Liu Xueyi plays **沈在野 / Shen Zaiye**.[[1]](https://www.chasingdramas.com/reviews/short-review-the-princesss-gambit-2025-%E6%A1%83%E8%8A%B1%E6%98%A0%E6%B1%9F%E5%B1%B1/) *Kill Me Love Me* is **春花焰**, with Liu Xueyi as **慕容璟和 / Murong Jinghe**.[[2]](https://zh.wikipedia.org/wiki/%E6%98%A5%E8%8A%B1%E7%84%B0)
+
+## My vote: **Hurting for Three Lifetimes**
+
+Chinese label:
+
+> **三生都在心碎**
+> 
+
+Supporting line:
+
+> **The costume changes. The suffering does not.**
+> 
+
+That is much clearer than Shattered Beauty. It tells the curator this is a **cross-character romantic-devastation board**, not a collection of handsome dark costumes.
+
+Other strong options:
+
+- **Heartbroken Across Three Lifetimes**
+- **Love Ruined Him Beautifully**
+- **Professionally Devastated**
+- **Born to Suffer Beautifully**
+- **Grief Has a Face Card**
+- **Three Lifetimes of Emotional Damage**
+
+But **Hurting for Three Lifetimes** feels the most Vibe Atlas: thirsty, trope-aware, and specific enough to build around.
+
+## The character clusters become the actual evidence
+
+### Murong Jinghe — 春花焰
+
+Promise:
+
+> Wounded prince, fury curdled into grief, carrying the person whose loss has spiritually ended him.
+> 
+
+Visual anchors:
+
+- Blood and visible injury
+- Red/black robes
+- Disabled or physically vulnerable moments
+- Grief turning into rage
+- Carrying Mei Lin
+- Wedding/funeral imagery
+- Kneeling, collapsing, holding, refusing to let go
+- The expression of someone whose revenge plan has become a personal curse
+
+That scene where he carries her in the wedding clothes is not merely “a sad picture.” It is an entire **scene-family Event**:
+
+> **Murong Jinghe carrying home the love that destroyed him**
+> 
+
+If there are multiple angles, frames, close-ups, and aftermath images, that can absolutely become one Event board.
+
+### Shen Zaiye — 桃花映江山
+
+Promise:
+
+> The immaculate political operator finally made dirty, bloody, desperate, and emotionally compromised.
+> 
+
+Visual anchors:
+
+- Bloodied or distressed Shen Zaiye
+- Dirty/torn robes
+- Hair no longer immaculate
+- Crying or restrained devastation
+- Carrying or protecting Jiang Taohua
+- Political composure visibly cracking
+- Injury, sacrifice, exhaustion
+- A man discovering that strategy cannot save him from feelings
+
+This cluster is different from Murong Jinghe:
+
+- **Murong Jinghe:** feral grief, revenge, red/black heat
+- **Shen Zaiye:** controlled heartbreak, dirty elegance, political restraint breaking
+
+They support the same larger Vibe, but they should not be treated as one visual family.
+
+## Board logic
+
+### Event board
+
+One bounded heartbreak:
+
+- Murong Jinghe carrying Mei Lin
+- Murong Jinghe wounded/disabled prince arc
+- Shen Zaiye bloodied and emotionally compromised
+- One specific collapse, wedding, battle, or aftermath scene family
+
+The argument is:
+
+> **Look at this exact man suffering from nine angles.**
+> 
+
+### Compiled board
+
+Cross-character suffering with deliberate structure:
+
+- 3 Murong Jinghe: grief and rage
+- 3 Shen Zaiye: composure breaking
+- 3 other qualifying Liu Xueyi tortured-character moments
+
+The argument is:
+
+> **New lifetime. New costume. Same contractual obligation to suffer beautifully.**
+> 
+
+You could even arrange the 3×3 by “lifetimes,” with each row representing one character cluster.
+
+## Strong internal promise contract
+
+> Liu Xueyi portraying visible romantic devastation across character lifetimes. Cards must show emotional or physical fracture—not merely dark styling, costume drama, or a serious expression. Each image must belong to a named character/scene cluster involving grief, injury, sacrifice, separation, desperate protection, or catastrophic love.
+> 
+
+### Hard anti-anchors
+
+- Generic black-robed portraits
+- Smiling character stills
+- Clean neutral promotional images
+- “He looks serious” with no narrative distress
+- Modern suits
+- Random armor
+- Collages
+- Red clothing with no heartbreak context
+- Another person suffering while Liu Xueyi merely occupies the thumbnail
+
+## Query ladders should start from characters
+
+Instead of:
+
+> `刘学义 破碎感`
+> 
+
+Use bounded searches like:
+
+- `刘学义 慕容璟和 春花焰 受伤`
+- `慕容璟和 眉林 婚服 抱`
+- `慕容璟和 崩溃 哭戏`
+- `刘学义 沈在野 桃花映江山 受伤`
+- `沈在野 吐血 狼狈`
+- `沈在野 姜桃花 哭戏`
+- `沈在野 血 剧照`
+
+Then classify every result into its named character/look/scene family before it can contribute to the board.
+
+**So yes: rename it.** “Shattered Beauty” asks for an aesthetic. **“Hurting for Three Lifetimes” asks for tortured characters with receipts.** That is the board you are actually trying to make—and the ugly-crying wedding carry is precisely the kind of iconic emotional Event the system should learn to hunt down rather than accidentally excluding in favor of Man Wearing Black #6.
