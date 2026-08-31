@@ -6,6 +6,9 @@ export interface StarOfDayResult {
   thumbnail: string;
   link: string;
   source: string;
+  familyId?: string;
+  familyLabel?: string;
+  familyEvidence?: 'persisted-event' | 'batch' | 'publisher' | 'fallback';
 }
 
 export interface RankedBatch {
@@ -36,6 +39,14 @@ export interface StarOfDayData {
   generationPrompt?: string;
   generationQuery?: string;
   ctaSeed?: string;
+  editorial?: {
+    mode: 'event' | 'compiled';
+    compositionSize: 9 | 12;
+    arrangement: 'automatic' | 'creator-arranged';
+    primaryFamilyId?: string;
+    primaryFamilyLabel?: string;
+    evidenceBasis?: 'persisted-event' | 'batch';
+  };
   stale?: boolean;
   building?: boolean;
   error?: string;

@@ -28,6 +28,11 @@ export interface GridExportEvent {
    * storage; references the export event in the grid-exports blob store.
    */
   persistedExportId?: string;
+  editorialMode?: 'event' | 'compiled';
+  compositionSize?: 9 | 12;
+  arrangement?: 'automatic' | 'creator-arranged';
+  primaryFamilyId?: string;
+  familyIds?: string[];
 }
 
 export function gridExportEventFromRecord(
@@ -51,6 +56,13 @@ export function gridExportEventFromRecord(
     imageIds: grid.images.map(image => image.resultId),
     gridWasSaved,
     ctaSeed: grid.ctaSeed,
+    ...(grid.editorial ? {
+      editorialMode: grid.editorial.mode,
+      compositionSize: grid.editorial.compositionSize,
+      arrangement: grid.editorial.arrangement,
+      ...(grid.editorial.primaryFamilyId ? { primaryFamilyId: grid.editorial.primaryFamilyId } : {}),
+      familyIds: [...new Set(grid.images.flatMap(image => image.familyId ? [image.familyId] : []))],
+    } : {}),
     ...(persistedExportId ? { persistedExportId } : {}),
   };
 }

@@ -1,6 +1,7 @@
 import { createHash, createHmac } from "node:crypto";
 import { isIP } from "node:net";
 import { renderCanonicalOutput } from "./canonical-render.js";
+import { validateGridEditorialContract } from "./grid-editorial-contract.js";
 
 export const CREATOR_DRAFT_SOURCE_SCHEMA = "fandom.creator-draft-source.v1";
 export const CREATOR_DRAFT_WORKFLOW = "creator-draft";
@@ -8,7 +9,7 @@ export const CREATOR_PLATFORMS = ["rednote", "weibo", "instagram"];
 const COLLECTION_STORE = "fandom-user-collections";
 const RECEIPT_STORE = "creator-draft-handoffs";
 const MAX_RESPONSE_BYTES = 256 * 1024;
-const MAX_IMAGES = 9;
+const MAX_IMAGES = 12;
 const MAX_PNG_BYTES = 8 * 1024 * 1024;
 const UPSTREAM_TIMEOUT_MS = 30_000;
 const DEFAULT_MEDIA_URL = "https://media.justlikekatie.com/v1/assets/images";
@@ -153,6 +154,16 @@ function validateSource(source) {
     || typeof source.creativeContext.brief !== "string"
     || (source.creativeContext.captionSeed !== undefined
       && typeof source.creativeContext.captionSeed !== "string")
+    || (source.creativeContext.editorialMode !== undefined
+      && !["event", "compiled"].includes(source.creativeContext.editorialMode))
+    || (source.creativeContext.compositionSize !== undefined
+      && ![9, 12].includes(source.creativeContext.compositionSize))
+    || (source.creativeContext.arrangement !== undefined
+      && !["automatic", "creator-arranged"].includes(source.creativeContext.arrangement))
+    || (source.creativeContext.primaryFamily !== undefined
+      && typeof source.creativeContext.primaryFamily !== "string")
+    || (source.creativeContext.evidenceBasis !== undefined
+      && !["persisted-event", "batch"].includes(source.creativeContext.evidenceBasis))
     || !Array.isArray(source.orderedImages)
     || source.orderedImages.length < 1
     || source.orderedImages.length > MAX_IMAGES
@@ -161,7 +172,11 @@ function validateSource(source) {
       "actor", "creativeContext", "orderedImages",
     ].includes(key))
     || Object.keys(source.actor).some(key => !["id", "name", "nameEn"].includes(key))
-    || Object.keys(source.creativeContext).some(key => !["vibe", "vibeEn", "brief", "captionSeed"].includes(key))
+    || Object.keys(source.creativeContext).some(key => ![
+      "vibe", "vibeEn", "brief", "captionSeed",
+      "editorialMode", "compositionSize", "arrangement", "primaryFamily",
+      "evidenceBasis",
+    ].includes(key))
   ) throw requestError("Creator Draft source is invalid.", 400);
 
   const platforms = normalizePlatforms(source.platforms === undefined ? ["rednote"] : source.platforms);
@@ -183,8 +198,13 @@ function validateSource(source) {
       || typeof image.title !== "string"
       || (image.publisher !== undefined && typeof image.publisher !== "string")
       || (image.batchKey !== undefined && typeof image.batchKey !== "string")
+      || (image.familyId !== undefined && typeof image.familyId !== "string")
+      || (image.familyLabel !== undefined && typeof image.familyLabel !== "string")
+      || (image.familyEvidence !== undefined
+        && !["persisted-event", "batch", "publisher", "fallback"].includes(image.familyEvidence))
       || Object.keys(image).some(key => ![
         "position", "resultId", "sourceUrl", "title", "publisher", "batchKey",
+        "familyId", "familyLabel", "familyEvidence",
       ].includes(key))
     ) throw requestError("Creator Draft ordered images are invalid.", 400);
     positions.add(image.position);
@@ -219,6 +239,7 @@ function validateSourceAgainstGrid(source, grid) {
     || !Array.isArray(grid.images)
     || grid.images.length < 1
     || grid.images.length > MAX_IMAGES
+    || validateGridEditorialContract(grid)
   ) throw requestError("The saved grid is invalid or incomplete.", 409);
 
   const ordered = [...grid.images].sort((a, b) => a.gridPosition - b.gridPosition);
@@ -241,6 +262,13 @@ function validateSourceAgainstGrid(source, grid) {
       vibeEn: grid.vibeEn,
       brief: grid.generationPrompt || "",
       ...(grid.ctaSeed ? { captionSeed: grid.ctaSeed } : {}),
+      ...(grid.editorial ? {
+        editorialMode: grid.editorial.mode,
+        compositionSize: grid.editorial.compositionSize,
+        arrangement: grid.editorial.arrangement,
+        ...(grid.editorial.primaryFamilyLabel ? { primaryFamily: grid.editorial.primaryFamilyLabel } : {}),
+        ...(grid.editorial.evidenceBasis ? { evidenceBasis: grid.editorial.evidenceBasis } : {}),
+      } : {}),
     },
     orderedImages: ordered.map(image => ({
       position: image.gridPosition,
@@ -249,6 +277,9 @@ function validateSourceAgainstGrid(source, grid) {
       title: image.title,
       ...(image.publisher ? { publisher: image.publisher } : {}),
       ...(image.batchKey ? { batchKey: image.batchKey } : {}),
+      ...(image.familyId ? { familyId: image.familyId } : {}),
+      ...(image.familyLabel ? { familyLabel: image.familyLabel } : {}),
+      ...(image.familyEvidence ? { familyEvidence: image.familyEvidence } : {}),
     })),
   };
   if (JSON.stringify(source) !== JSON.stringify(expected)) {
@@ -283,6 +314,7 @@ function sourceVersionMaterial(grid) {
       misprint: Boolean(grid.edition?.misprint),
       legendary: Boolean(grid.edition?.legendary),
     },
+    editorial: grid.editorial || null,
     capturedDate: grid.capturedDate,
     generatedAt: grid.generatedAt,
     sourceRoute: grid.sourceRoute || "/vibe-atlas",
@@ -294,6 +326,9 @@ function sourceVersionMaterial(grid) {
       title: image.title,
       publisher: image.publisher || "",
       batchKey: image.batchKey || "",
+      familyId: image.familyId || "",
+      familyLabel: image.familyLabel || "",
+      familyEvidence: image.familyEvidence || "",
       media: image.media || null,
     })),
   };

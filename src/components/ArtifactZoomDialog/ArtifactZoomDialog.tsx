@@ -52,6 +52,8 @@ export const ArtifactZoomDialog: React.FC<Props> = ({
       ? styles.twoByTwo
       : images.length === 6
         ? styles.twoByThree
+      : images.length === 12
+        ? styles.fourByThree
         : styles.threeByThree;
 
   return (
@@ -70,7 +72,7 @@ export const ArtifactZoomDialog: React.FC<Props> = ({
           <button ref={closeRef} type="button" aria-label="Close enlarged view" onClick={onClose}>×</button>
         </header>
         <div className={`${styles.visual} ${composition}`}>
-          {images.slice(0, 9).map((image, index) => (
+          {images.slice(0, 12).map((image, index) => (
             <img key={`${image.src}:${index}`} src={image.src} alt={singleImage ? image.alt : ''} />
           ))}
         </div>

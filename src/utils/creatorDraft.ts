@@ -23,6 +23,11 @@ export interface CreatorDraftSource {
     vibeEn: string;
     brief: string;
     captionSeed?: string;
+    editorialMode?: 'event' | 'compiled';
+    compositionSize?: 9 | 12;
+    arrangement?: 'automatic' | 'creator-arranged';
+    primaryFamily?: string;
+    evidenceBasis?: 'persisted-event' | 'batch';
   };
   orderedImages: Array<{
     position: number;
@@ -31,6 +36,9 @@ export interface CreatorDraftSource {
     title: string;
     publisher?: string;
     batchKey?: string;
+    familyId?: string;
+    familyLabel?: string;
+    familyEvidence?: 'persisted-event' | 'batch' | 'publisher' | 'fallback';
   }>;
 }
 
@@ -65,6 +73,13 @@ export async function creatorDraftSourceFromGrid(
       vibeEn: grid.vibeEn,
       brief: grid.generationPrompt || '',
       ...(grid.ctaSeed ? { captionSeed: grid.ctaSeed } : {}),
+      ...(grid.editorial ? {
+        editorialMode: grid.editorial.mode,
+        compositionSize: grid.editorial.compositionSize,
+        arrangement: grid.editorial.arrangement,
+        ...(grid.editorial.primaryFamilyLabel ? { primaryFamily: grid.editorial.primaryFamilyLabel } : {}),
+        ...(grid.editorial.evidenceBasis ? { evidenceBasis: grid.editorial.evidenceBasis } : {}),
+      } : {}),
     },
     orderedImages: orderedImages
       .map(image => ({
@@ -74,6 +89,9 @@ export async function creatorDraftSourceFromGrid(
         title: image.title,
         ...(image.publisher ? { publisher: image.publisher } : {}),
         ...(image.batchKey ? { batchKey: image.batchKey } : {}),
+        ...(image.familyId ? { familyId: image.familyId } : {}),
+        ...(image.familyLabel ? { familyLabel: image.familyLabel } : {}),
+        ...(image.familyEvidence ? { familyEvidence: image.familyEvidence } : {}),
       })),
   };
 }
@@ -122,6 +140,7 @@ function sourceVersionMaterial(grid: GridRecord) {
       misprint: Boolean(grid.edition?.misprint),
       legendary: Boolean(grid.edition?.legendary),
     },
+    editorial: grid.editorial || null,
     capturedDate: grid.capturedDate,
     generatedAt: grid.generatedAt,
     sourceRoute: grid.sourceRoute || '/vibe-atlas',
@@ -133,6 +152,9 @@ function sourceVersionMaterial(grid: GridRecord) {
       title: image.title,
       publisher: image.publisher || '',
       batchKey: image.batchKey || '',
+      familyId: image.familyId || '',
+      familyLabel: image.familyLabel || '',
+      familyEvidence: image.familyEvidence || '',
       media: image.media || null,
     })),
   };

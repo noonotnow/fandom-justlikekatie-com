@@ -16,6 +16,7 @@ import {
   rebuildRationale,
   type BuilderCard,
   type CollectionLens,
+  type EditorialMode,
   type GridProposal,
 } from '../../utils/gridBuilder';
 import styles from './GridBuilder.module.css';
@@ -40,7 +41,7 @@ interface Props {
 
 /**
  * Vibe Atlas Grid Builder — the core studio workflow. Saved collection →
- * lens → proposed 3×3 → slot swaps → save and export.
+ * lens → editorial contract → proposed set → slot swaps → save and export.
  */
 export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCreateFromGrid, onPacketCreated, onExported, isMember = false, onUpgrade }) => {
   const [pool, setPool] = useState<BuilderCard[] | null>(null);
@@ -48,6 +49,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
   const [loadError, setLoadError] = useState('');
   const [lens, setLens] = useState<CollectionLens>({});
   const [builderMode, setBuilderMode] = useState<'smart' | 'manual'>('smart');
+  const [editorialMode, setEditorialMode] = useState<EditorialMode>('compiled');
   const [proposal, setProposal] = useState<GridProposal | null>(null);
   const [swapSlot, setSwapSlot] = useState<number | null>(null);
   const [busy, setBusy] = useState('');
@@ -103,11 +105,34 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
   }, [accountId]);
 
   const options = useMemo(() => (pool ? lensOptions(pool) : null), [pool]);
+  const eligibleEventFamilyIds = useMemo(() => new Set(
+    (pool || [])
+      .filter(card => card.familyEvidence === 'batch' || card.familyEvidence === 'persisted-event')
+      .map(card => card.familyId),
+  ), [pool]);
+  const familyOptions = useMemo(() => {
+    if (!options) return [];
+    return editorialMode === 'event'
+      ? options.families.filter(option => eligibleEventFamilyIds.has(option.value))
+      : options.families;
+  }, [editorialMode, eligibleEventFamilyIds, options]);
   const lensedCount = useMemo(() => (pool ? applyLens(pool, lens).length : 0), [pool, lens]);
   const manualCandidates = useMemo(
     () => pool && lens.actor ? applyLens(pool, { mode: lens.mode, actor: lens.actor }) : [],
     [pool, lens.actor, lens.mode],
   );
+  const proposalTargetSize = proposal?.rationale.compositionSize || 9;
+  const proposalComplete = Boolean(proposal && proposal.slots.length === proposalTargetSize);
+  const proposalEvidence = useMemo(() => {
+    if (!proposal) return null;
+    const families = new Set(proposal.slots.map(card => card.familyId));
+    const sources = new Set(proposal.slots.map(card => card.publisher || card.sourceUrl).filter(Boolean));
+    return {
+      familyCount: families.size,
+      sourceCount: sources.size,
+      primaryFamily: proposal.slots[0]?.familyLabel || 'Unresolved family',
+    };
+  }, [proposal]);
 
   function setMode(mode: 'standard' | 'misprints') {
     if (!sourceRecords) return;
@@ -134,6 +159,19 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
 
   function chooseBuilderMode(mode: 'smart' | 'manual') {
     setBuilderMode(mode);
+    setProposal(null);
+    setSwapSlot(null);
+    setIsGridSaved(false);
+    setSavedGridId(null);
+    setPriorSavedGridId(null);
+    setShowSaveNudge(false);
+    setPendingNavAfterSave(false);
+    setNotice('');
+  }
+
+  function chooseEditorialMode(mode: EditorialMode) {
+    setEditorialMode(mode);
+    setLens(current => ({ ...current, familyId: undefined }));
     setProposal(null);
     setSwapSlot(null);
     setIsGridSaved(false);
@@ -194,7 +232,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
 
   function propose() {
     if (!pool) return;
-    const next = proposeGrid(pool, lens);
+    const next = proposeGrid(pool, lens, editorialMode);
     setProposal(next);
     setSwapSlot(null);
     setIsGridSaved(false);
@@ -202,8 +240,11 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
     setPriorSavedGridId(null);
     setShowSaveNudge(false);
     setPendingNavAfterSave(false);
-    setNotice(next.slots.length < 9
-      ? `Only ${next.slots.length} cards match this lens — save more material or widen the lens.`
+    const targetSize = next.rationale.compositionSize || 9;
+    setNotice(next.slots.length < targetSize
+      ? editorialMode === 'event'
+        ? `This Event family has ${next.slots.length} of ${targetSize} needed frames. Save more from this appearance or choose Compiled.`
+        : `Only ${next.slots.length} cards match this lens — save more material or widen the lens.`
       : '');
   }
 
@@ -216,7 +257,17 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
       const alternates = [outgoing, ...current.alternates.filter(card => card.key !== replacement.key)];
       const manualSwaps = [...new Set([...current.rationale.manualSwaps, replacement.familyLabel])];
       // Rationale must describe the grid as it now stands, not the original proposal.
-      return { slots, alternates, rationale: rebuildRationale(slots, lens, manualSwaps) };
+      return {
+        slots,
+        alternates,
+        rationale: rebuildRationale(
+          slots,
+          lens,
+          manualSwaps,
+          current.rationale.editorialMode || 'compiled',
+          current.rationale.compositionSize || 9,
+        ),
+      };
     });
     setSwapSlot(null);
     // Preserve the stale saved id so the next saveGrid call can remove the
@@ -230,7 +281,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
 
   /** Persist the current grid to the local collection without rendering or sharing. */
   async function saveGrid() {
-    if (!proposal || proposal.slots.length !== 9 || busy) return;
+    if (!proposal || !proposalComplete || busy) return;
     setBusy('save');
     try {
       const grid = gridRecordFromProposal(proposal.slots, proposal.rationale);
@@ -287,7 +338,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
       setNotice('Premium exports are available with Founding Member.');
       return;
     }
-    if (!proposal || proposal.slots.length !== 9 || busy) return;
+    if (!proposal || !proposalComplete || busy) return;
     // Synchronous re-entrant guard: setBusy schedules a React update but does
     // not mutate the captured closure value until the next render.  A second
     // call that arrives in the same event-loop tick (double-click) would pass
@@ -335,8 +386,8 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
   }
 
   async function startPacket(platforms: CreatorPlatform[]): Promise<CreatorDraftResult> {
-    if (!proposal || proposal.slots.length !== 9 || busy || !onCreateFromGrid) {
-      throw new Error('Complete a nine-image grid before creating a post.');
+    if (!proposal || !proposalComplete || busy || !onCreateFromGrid) {
+      throw new Error(`Complete the ${proposalTargetSize}-frame composition before creating a post.`);
     }
     // Synchronous re-entrant guard: the ref is set before any await, so a second
     // call that arrives in the same event-loop tick (before React re-renders and
@@ -376,7 +427,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
     return (
       <div className={styles.empty}>
         <strong>The shelf is empty.</strong>
-        <span>Save cards or grids first — the Grid Builder assembles new 3×3s from saved material.</span>
+        <span>Save cards or grids first — the Grid Builder assembles editorial sets from saved material.</span>
       </div>
     );
   }
@@ -399,6 +450,32 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
           Build Your Own
         </button>
       </div>
+
+      {builderMode === 'smart' && (
+        <fieldset className={styles.contractChoice}>
+          <legend>Editorial contract</legend>
+          <button
+            type="button"
+            className={styles.contractCard}
+            aria-pressed={editorialMode === 'event'}
+            onClick={() => chooseEditorialMode('event')}
+          >
+            <span>Event</span>
+            <strong>No, look closer.</strong>
+            <small>Stay inside one detected appearance. Repetition becomes sequence, and a strong family can grow to 12 frames.</small>
+          </button>
+          <button
+            type="button"
+            className={styles.contractCard}
+            aria-pressed={editorialMode === 'compiled'}
+            onClick={() => chooseEditorialMode('compiled')}
+          >
+            <span>Compiled</span>
+            <strong>Look at the range.</strong>
+            <small>Build a nine-frame argument across visual families, sources, roles, looks, and moods.</small>
+          </button>
+        </fieldset>
+      )}
 
       {(notice || showSaveNudge) && (
         <div className={styles.notice} role="status">
@@ -431,13 +508,15 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
         />
         <LensRow label="Star" options={options.actors} active={lens.actor} onToggle={value => toggle('actor', value)} />
         {builderMode === 'smart' && <LensRow label="Vibe" options={options.vibes} active={lens.vibe} onToggle={value => toggle('vibe', value)} />}
-        {builderMode === 'smart' && options.families.length > 0 && (
-          <LensRow label="Visual family" options={options.families} active={lens.familyId} onToggle={value => toggle('familyId', value)} />
+        {builderMode === 'smart' && familyOptions.length > 0 && (
+          <LensRow label="Visual family" options={familyOptions} active={lens.familyId} onToggle={value => toggle('familyId', value)} />
         )}
       </div>
 
       {builderMode === 'smart' && <button type="button" className={styles.propose} onClick={propose} disabled={lensedCount === 0}>
-        {proposal ? 'Re-propose 3×3' : 'Propose 3×3'}
+        {proposal
+          ? `Re-propose ${proposalTargetSize}-frame ${editorialMode === 'event' ? 'Event' : 'Compiled'} set`
+          : `Propose ${editorialMode === 'event' ? 'Event set' : 'Compiled 3×3'}`}
       </button>}
 
       {builderMode === 'manual' && (
@@ -473,7 +552,13 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
       {proposal && (
         <div className={styles.workspace}>
           <div>
-            <div className={styles.grid} role="group" aria-label={builderMode === 'manual' ? 'Custom 3×3 grid' : 'Proposed 3×3 grid'}>
+            <div
+              className={`${styles.grid} ${proposalTargetSize === 12 ? styles.eventGrid : ''}`}
+              role="group"
+              aria-label={builderMode === 'manual'
+                ? 'Custom 3×3 grid'
+                : `Proposed ${proposal.rationale.editorialMode === 'event' ? 'Event' : 'Compiled'} ${proposalTargetSize}-frame set`}
+            >
               {proposal.slots.map((card, index) => (
                 <button
                   key={card.key}
@@ -524,16 +609,40 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
           </div>
 
           <aside className={styles.rationale} aria-label="Curation rationale">
-            <h4>Creative brief</h4>
+            <div className={styles.rationaleHeader}>
+              <div>
+                <span>{builderMode === 'manual' || proposal.rationale.manualSwaps.length > 0
+                  ? 'Creator-arranged'
+                  : 'Automatic proposal'}</span>
+                <h4>Creative brief</h4>
+              </div>
+              {proposal.rationale.editorialMode && (
+                <strong>{proposal.rationale.editorialMode === 'event' ? 'Event' : 'Compiled'} · {proposalTargetSize}</strong>
+              )}
+            </div>
             {lens.mode === 'misprints' && (
               <p><strong>Legendary Misprint lens</strong> · Only creator-marked mismatches are included. Saved grids and exports retain both identities and provenance.</p>
+            )}
+            {proposalEvidence && builderMode === 'smart' && (
+              <dl className={styles.evidence}>
+                <div><dt>Primary family</dt><dd>{proposalEvidence.primaryFamily}</dd></div>
+                <div><dt>Family logic</dt><dd>{proposal.rationale.editorialMode === 'event'
+                  ? `One bounded family across ${proposal.slots.length} frames`
+                  : `${proposalEvidence.familyCount} families balanced across nine frames`}</dd></div>
+                <div><dt>Source trail</dt><dd>{proposalEvidence.sourceCount} distinct source {proposalEvidence.sourceCount === 1 ? 'signal' : 'signals'}</dd></div>
+                {proposal.rationale.familyEvidence && (
+                  <div><dt>Family evidence</dt><dd>{proposal.rationale.familyEvidence === 'persisted-event'
+                    ? 'Preserved approved Event family'
+                    : 'Shared saved batch provenance'}</dd></div>
+                )}
+              </dl>
             )}
             <pre>{rationaleBrief(proposal.rationale)}</pre>
             <div className={styles.actions}>
               <button
                 type="button"
                 onClick={saveGrid}
-                disabled={Boolean(busy) || proposal.slots.length !== 9 || isGridSaved}
+                disabled={Boolean(busy) || !proposalComplete || isGridSaved}
                 title={isGridSaved ? 'Already saved to your collection' : 'Save this grid to your collection'}
               >
                 {busy === 'save' ? 'Saving…' : isGridSaved ? '✓ Saved' : '💾 Save grid'}
@@ -549,7 +658,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
                 </button>
               )}
               {isMember ? (
-                <button type="button" onClick={exportGrid} disabled={Boolean(busy) || proposal.slots.length !== 9}>
+                <button type="button" onClick={exportGrid} disabled={Boolean(busy) || !proposalComplete}>
                   {busy === 'export' ? 'Exporting…' : '📤 Export share card'}
                 </button>
               ) : (
@@ -560,7 +669,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
               {isAdmin && onCreateFromGrid && (
                 <CreatorPostAction
                   entryPoint="builder"
-                  disabled={Boolean(busy) || proposal.slots.length !== 9}
+                  disabled={Boolean(busy) || !proposalComplete}
                   onSubmit={startPacket}
                 />
               )}

@@ -536,7 +536,7 @@ export const Collection: React.FC<Props> = ({
           <h2>{isMiddleEarth ? 'Middle-earth Collection' : 'Your Collection'}</h2>
           <p>{isMiddleEarth
             ? 'Your separate MemeForge shelf for finished Middle-earth memes.'
-            : 'Collect individual finds, keep finished worlds, and compose new 3×3 grids.'}</p>
+            : 'Collect individual finds, keep finished worlds, and compose Event or Compiled editorial sets.'}</p>
         </div>
         <span>{isMiddleEarth ? `${cards.length} memes` : `${grids.length} grids · ${cards.length} results`}</span>
       </header>
@@ -908,7 +908,9 @@ export const Collection: React.FC<Props> = ({
           singleImage={Boolean(expandedArtifact.record.legacyCompositeUrl)}
           footer={expandedArtifact.record.legacyCompositeUrl
             ? 'Legacy saved share card'
-            : `${expandedArtifact.record.images.length} source results · ${expandedArtifact.record.rendererVersion}${expandedArtifact.record.legendaryMisprint || expandedArtifact.record.intent === 'legendary-misprint'
+            : `${expandedArtifact.record.images.length} source results · ${expandedArtifact.record.editorial
+              ? `${expandedArtifact.record.editorial.mode === 'event' ? 'Event' : 'Compiled'} · ${expandedArtifact.record.editorial.arrangement === 'creator-arranged' ? 'creator-arranged' : 'automatic'} · `
+              : ''}${expandedArtifact.record.rendererVersion}${expandedArtifact.record.legendaryMisprint || expandedArtifact.record.intent === 'legendary-misprint'
               ? ` · Intentional Legendary Misprint · unexpected ${expandedArtifact.record.legendaryMisprint?.unexpectedActor.name || expandedArtifact.record.misprintMetadata?.unexpectedImageIdentities.join(', ') || 'identity recorded in provenance'}`
               : ''}`}
           onClose={() => setExpandedArtifact(null)}
@@ -1013,7 +1015,9 @@ function GridVisual({
     ? styles.gridTwoByTwo
     : grid.images.length === 6
       ? styles.gridTwoByThree
-      : styles.gridThreeByThree;
+      : grid.images.length === 12
+        ? styles.gridFourByThree
+        : styles.gridThreeByThree;
   return (
     <span
       className={[
@@ -1023,7 +1027,7 @@ function GridVisual({
       ].filter(Boolean).join(' ')}
       aria-hidden="true"
     >
-       {grid.images.slice(0, 9).map(image => (
+       {grid.images.slice(0, 12).map(image => (
          <img key={image.resultId} src={image.imageUrl} alt="" onError={onImageError} />
       ))}
     </span>

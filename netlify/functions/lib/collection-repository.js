@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { validateGridEditorialContract } from "./grid-editorial-contract.js";
 
 const MAX_OPERATIONS = 100;
 
@@ -133,7 +134,8 @@ function validateItem(item) {
       || item.rendererVersion !== "vibe-atlas-v1"
       || !Array.isArray(item.images)
       || item.images.length < 1
-      || item.images.length > 9
+      || item.images.length > 12
+      || validateGridEditorialContract(item)
       || item.images.some(image => (
         !image
         || typeof image.resultId !== "string"

@@ -75,6 +75,13 @@ function sourceFor(savedGrid = grid(), platforms) {
       vibeEn: savedGrid.vibeEn,
       brief: savedGrid.generationPrompt || "",
       ...(savedGrid.ctaSeed ? { captionSeed: savedGrid.ctaSeed } : {}),
+      ...(savedGrid.editorial ? {
+        editorialMode: savedGrid.editorial.mode,
+        compositionSize: savedGrid.editorial.compositionSize,
+        arrangement: savedGrid.editorial.arrangement,
+        ...(savedGrid.editorial.primaryFamilyLabel ? { primaryFamily: savedGrid.editorial.primaryFamilyLabel } : {}),
+        ...(savedGrid.editorial.evidenceBasis ? { evidenceBasis: savedGrid.editorial.evidenceBasis } : {}),
+      } : {}),
     },
     orderedImages: orderedImages.map(image => ({
       position: image.gridPosition,
@@ -83,6 +90,9 @@ function sourceFor(savedGrid = grid(), platforms) {
       title: image.title,
       publisher: image.publisher,
       batchKey: image.batchKey,
+      ...(image.familyId ? { familyId: image.familyId } : {}),
+      ...(image.familyLabel ? { familyLabel: image.familyLabel } : {}),
+      ...(image.familyEvidence ? { familyEvidence: image.familyEvidence } : {}),
     })),
   };
 }

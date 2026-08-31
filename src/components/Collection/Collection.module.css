@@ -158,6 +158,7 @@
   box-shadow: 0 14px 36px rgba(26, 19, 8, .16);
 }
 .gridThreeByThree { grid-template-columns: repeat(3, 1fr); aspect-ratio: 1; }
+.gridFourByThree { grid-template-columns: repeat(4, 1fr); aspect-ratio: 4 / 3; }
 .gridTwoByTwo { grid-template-columns: repeat(2, 1fr); aspect-ratio: 1; }
 .gridTwoByThree { grid-template-columns: repeat(2, 1fr); aspect-ratio: 2 / 3; }
 .legacyPreview {

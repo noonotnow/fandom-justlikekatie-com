@@ -36,6 +36,7 @@ export interface BuilderCard {
   /** Visual family id assigned during pool build (editorial set or batch). */
   familyId: string;
   familyLabel: string;
+  familyEvidence?: 'persisted-event' | 'batch' | 'publisher' | 'fallback';
   legendaryMisprint?: LegendaryMisprint;
 }
 
@@ -46,6 +47,9 @@ export interface CollectionLens {
   familyId?: string;
 }
 
+export type EditorialMode = 'event' | 'compiled';
+export type CompositionSize = 9 | 12;
+
 export interface LensOption {
   value: string;
   label: string;
@@ -53,6 +57,12 @@ export interface LensOption {
 }
 
 export interface GridRationale {
+  /** The editorial contract used for an automatic proposal. */
+  editorialMode?: EditorialMode;
+  /** The number of frames intentionally composed into the proposal. */
+  compositionSize?: CompositionSize;
+  /** Provenance basis for the primary Event family, when applicable. */
+  familyEvidence?: 'persisted-event' | 'batch';
   /** One-line aesthetic read of the whole grid. */
   aestheticRead: string;
   /** Why these 9 belong together. */
@@ -154,8 +164,11 @@ function fromGridImage(grid: GridRecord, image: GridMediaSnapshot): BuilderCard 
     resultId: image.resultId,
     origin: 'saved-grid',
     sourceGridId: grid.id,
-    familyId: '',
-    familyLabel: '',
+    familyId: image.familyId || '',
+    familyLabel: image.familyLabel || '',
+    ...(image.familyEvidence || (grid.editorial?.mode === 'event' && image.familyId)
+      ? { familyEvidence: image.familyEvidence || 'persisted-event' as const }
+      : {}),
     ...(image.legendaryMisprint || gridLegendaryMisprint
       ? { legendaryMisprint: image.legendaryMisprint || gridLegendaryMisprint }
       : {}),
@@ -239,12 +252,25 @@ export function buildPool(cards: CardRecord[], grids: GridRecord[]): BuilderCard
   const setById = new Map(items.map(item => [item.id, item.editorialSetId]));
 
   return pool.map(card => {
-    const editorial = setById.get(card.key);
+    if (card.familyId && card.familyLabel) return card;
+    // A missing publisher must not turn unrelated saved images into one
+    // synthetic "unknown" Event family.
+    const editorial = card.publisher ? setById.get(card.key) : undefined;
     if (editorial) {
-      return { ...card, familyId: editorial, familyLabel: card.publisher || editorial.replace(/^editorial-/, '') };
+      return {
+        ...card,
+        familyId: editorial,
+        familyLabel: card.publisher || editorial.replace(/^editorial-/, ''),
+        familyEvidence: card.batchKey ? 'batch' : 'publisher',
+      };
     }
     const batch = card.batchKey ? `batch-${slugify(card.batchKey)}` : `vibe-${slugify(card.vibeEn || card.vibe)}`;
-    return { ...card, familyId: batch, familyLabel: card.batchKey || card.vibeEn || card.vibe };
+    return {
+      ...card,
+      familyId: batch,
+      familyLabel: card.batchKey || card.vibeEn || card.vibe,
+      familyEvidence: card.batchKey ? 'batch' : 'fallback',
+    };
   });
 }
 
@@ -307,6 +333,8 @@ export function applyLens(pool: BuilderCard[], lens: CollectionLens): BuilderCar
 
 const MAX_PER_FAMILY = 3;
 const MAX_PER_PUBLISHER = 4;
+export const EVENT_COMPOSITION_MAX = 12;
+export const STANDARD_COMPOSITION_SIZE = 9;
 
 function rankPool(pool: BuilderCard[]): BuilderCard[] {
   const familySizes = new Map<string, number>();
@@ -317,12 +345,40 @@ function rankPool(pool: BuilderCard[]): BuilderCard[] {
     // Larger cohesive families first (capped later), then recency.
     const familyDelta = (familySizes.get(b.familyId) || 0) - (familySizes.get(a.familyId) || 0);
     if (familyDelta !== 0) return familyDelta;
-    return (b.savedAt || b.capturedDate).localeCompare(a.savedAt || a.capturedDate);
+    const recency = (b.savedAt || b.capturedDate).localeCompare(a.savedAt || a.capturedDate);
+    return recency || a.key.localeCompare(b.key);
   });
 }
 
-/** Propose a 3×3 from the lensed pool with anti-clustering constraints. */
-export function proposeGrid(pool: BuilderCard[], lens: CollectionLens): GridProposal {
+function proposeEventGrid(pool: BuilderCard[], lens: CollectionLens): GridProposal {
+  const ranked = rankPool(applyLens(pool, lens));
+  const families = new Map<string, BuilderCard[]>();
+  for (const card of ranked) {
+    if (card.familyEvidence !== 'batch' && card.familyEvidence !== 'persisted-event') continue;
+    const family = families.get(card.familyId) || [];
+    family.push(card);
+    families.set(card.familyId, family);
+  }
+  const familyList = [...families.values()].sort((a, b) => {
+    const sizeDelta = b.length - a.length;
+    if (sizeDelta) return sizeDelta;
+    const recency = (b[0]?.savedAt || b[0]?.capturedDate || '')
+      .localeCompare(a[0]?.savedAt || a[0]?.capturedDate || '');
+    return recency || (a[0]?.familyId || '').localeCompare(b[0]?.familyId || '');
+  });
+  const chosenFamily = familyList[0] || [];
+  const compositionSize: CompositionSize = chosenFamily.length >= EVENT_COMPOSITION_MAX ? 12 : 9;
+  const slots = chosenFamily.slice(0, compositionSize);
+  const selected = new Set(slots.map(card => card.key));
+  const alternates = chosenFamily.filter(card => !selected.has(card.key));
+  return {
+    slots,
+    alternates,
+    rationale: buildRationale(slots, lens, 'event', compositionSize),
+  };
+}
+
+function proposeCompiledGrid(pool: BuilderCard[], lens: CollectionLens): GridProposal {
   const ranked = rankPool(applyLens(pool, lens));
   const slots: BuilderCard[] = [];
   const rest: BuilderCard[] = [];
@@ -344,7 +400,22 @@ export function proposeGrid(pool: BuilderCard[], lens: CollectionLens): GridProp
   // Backfill if constraints starved the grid.
   while (slots.length < 9 && rest.length > 0) slots.push(rest.shift()!);
 
-  return { slots, alternates: rest, rationale: buildRationale(slots, lens) };
+  return {
+    slots,
+    alternates: rest,
+    rationale: buildRationale(slots, lens, 'compiled', STANDARD_COMPOSITION_SIZE),
+  };
+}
+
+/** Propose an editorial set from the lensed pool under the selected contract. */
+export function proposeGrid(
+  pool: BuilderCard[],
+  lens: CollectionLens,
+  editorialMode: EditorialMode = 'compiled',
+): GridProposal {
+  return editorialMode === 'event'
+    ? proposeEventGrid(pool, lens)
+    : proposeCompiledGrid(pool, lens);
 }
 
 // ── Rationale ──────────────────────────────────────────────────────
@@ -365,11 +436,18 @@ export function rebuildRationale(
   slots: BuilderCard[],
   lens: CollectionLens,
   manualSwaps: string[],
+  editorialMode: EditorialMode = 'compiled',
+  compositionSize: CompositionSize = STANDARD_COMPOSITION_SIZE,
 ): GridRationale {
-  return { ...buildRationale(slots, lens), manualSwaps };
+  return { ...buildRationale(slots, lens, editorialMode, compositionSize), manualSwaps };
 }
 
-function buildRationale(slots: BuilderCard[], lens: CollectionLens): GridRationale {
+function buildRationale(
+  slots: BuilderCard[],
+  lens: CollectionLens,
+  editorialMode: EditorialMode,
+  compositionSize: CompositionSize,
+): GridRationale {
   const families = new Map<string, BuilderCard[]>();
   for (const card of slots) {
     const group = families.get(card.familyId) || [];
@@ -391,21 +469,33 @@ function buildRationale(slots: BuilderCard[], lens: CollectionLens): GridRationa
 
   const aestheticRead = `${actors.join(' / ')} across ${vibes.length === 1 ? `one vibe (${vibes[0]})` : `${vibes.length} vibes (${vibes.join(', ')})`}, drawn from ${familyList.length === 1 ? 'a single visual family' : `${familyList.length} visual families`}.`;
 
-  const whyTogether = familyList.length === 1
-    ? `All nine frames come from the same visual family (${familyList[0][0].familyLabel}) — the grid reads as one cohesive editorial issue.`
-    : `The grid balances ${familyList.length} families — anchored by ${familyList[0][0].familyLabel} (${familyList[0].length} frames) with contrast from ${familyList.slice(1).map(g => g[0].familyLabel).join(', ')} — so it reads curated, not scraped.`;
+  const whyTogether = editorialMode === 'event'
+    ? familyList.length
+      ? `All ${slots.length} frames stay inside ${familyList[0][0].familyLabel}. Repeated visual language is intentional here: one bounded appearance, examined more closely.`
+      : 'This collection does not yet contain a coherent visual family for an Event set.'
+    : familyList.length === 1
+      ? `The available material comes from one visual family (${familyList[0][0].familyLabel}); Compiled mode needs more saved range before it can make a varied nine-frame argument.`
+      : `The grid balances ${familyList.length} families — anchored by ${familyList[0][0].familyLabel} (${familyList[0].length} frames) with contrast from ${familyList.slice(1).map(g => g[0].familyLabel).join(', ')} — so it reads curated, not scraped.`;
 
   const stance = STANCES.find(({ test }) => test({ vibes, familyCount: familyList.length }))?.stance
     ?? 'Aesthetic archive — a curated visual collection';
 
-  const slotReasons = slots.map(card => {
+  const slotReasons = slots.map((card, index) => {
     const size = families.get(card.familyId)?.length || 1;
+    if (editorialMode === 'event') {
+      return `${card.familyLabel} · sequence ${index + 1} of ${slots.length}`;
+    }
     return size > 1
       ? `${card.familyLabel} set (${size} in grid)`
-      : `standalone · ${card.vibeEn || card.vibe}`;
+      : `range beat · ${card.vibeEn || card.vibe}`;
   });
 
   return {
+    ...(editorialMode === 'event' && slots[0]?.familyEvidence !== 'publisher' && slots[0]?.familyEvidence !== 'fallback'
+      ? { familyEvidence: slots[0]?.familyEvidence }
+      : {}),
+    editorialMode,
+    compositionSize,
     aestheticRead,
     whyTogether,
     motifs,
@@ -419,6 +509,13 @@ function buildRationale(slots: BuilderCard[], lens: CollectionLens): GridRationa
 /** Render the rationale as the creative brief text that travels to CREATE. */
 export function rationaleBrief(rationale: GridRationale): string {
   return [
+    rationale.editorialMode
+      ? `Editorial contract: ${rationale.editorialMode === 'event' ? 'Event — No, look closer.' : 'Compiled — Look at the range.'}`
+      : '',
+    rationale.familyEvidence
+      ? `Family evidence: ${rationale.familyEvidence === 'persisted-event' ? 'preserved approved Event family' : 'shared saved batch provenance'}`
+      : '',
+    rationale.compositionSize ? `Composition: ${rationale.compositionSize} frames` : '',
     `Lens: ${rationale.lens}`,
     `Aesthetic read: ${rationale.aestheticRead}`,
     `Why these belong together: ${rationale.whyTogether}`,
@@ -435,6 +532,7 @@ export function manualGridRationale(slots: BuilderCard[], actor: string): GridRa
   const motifs = [...new Set(slots.map(card => card.familyLabel).filter(Boolean))].slice(0, 4);
   const vibes = [...new Set(slots.map(card => card.vibeEn || card.vibe).filter(Boolean))];
   return {
+    compositionSize: STANDARD_COMPOSITION_SIZE,
     aestheticRead: `A creator-arranged portrait of ${actor}.`,
     whyTogether: 'All nine images and their exact positions were deliberately chosen by the creator.',
     motifs: motifs.length ? motifs : ['creator-selected saved images'],
@@ -459,7 +557,7 @@ function stableHash(value: string): string {
 }
 
 /**
- * Build a GridRecord from the chosen 9 slots. The rationale brief is stored
+ * Build a GridRecord from a complete 9- or 12-frame composition. The rationale brief is stored
  * in `generationPrompt` so it survives into packets and the CREATE handoff
  * without touching the rendered card.
  */
@@ -468,12 +566,24 @@ export function gridRecordFromProposal(
   rationale: GridRationale,
   now = new Date(),
 ): GridRecord {
-  if (slots.length !== 9) throw new Error(`A grid needs exactly 9 slots (got ${slots.length}).`);
+  if (slots.length !== 9 && slots.length !== 12) {
+    throw new Error(`A composition needs exactly 9 or 12 slots (got ${slots.length}).`);
+  }
   const date = now.toISOString().slice(0, 10);
   const anchor = slots[0];
   const vibes = [...new Set(slots.map(card => card.vibe))];
   const creatorDirected = rationale.lens.startsWith('Build Your Own');
-  const id = `builder-${date}-${stableHash(`${creatorDirected ? 'manual' : 'smart'}|${slots.map(card => card.key).join('|')}`)}`;
+  const editorialMode = rationale.editorialMode || 'compiled';
+  const compositionSize = slots.length as CompositionSize;
+  const familyCounts = new Map<string, { count: number; label: string }>();
+  for (const card of slots) {
+    const family = familyCounts.get(card.familyId) || { count: 0, label: card.familyLabel };
+    family.count += 1;
+    familyCounts.set(card.familyId, family);
+  }
+  const primaryFamily = [...familyCounts.entries()]
+    .sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0]))[0];
+  const id = `builder-${date}-${stableHash(`${creatorDirected ? 'manual' : editorialMode}|${compositionSize}|${slots.map(card => card.key).join('|')}`)}`;
   const misprints = slots.flatMap(card => card.legendaryMisprint ? [card.legendaryMisprint] : []);
   const intentionalMisprint = misprints.length > 0;
   return {
@@ -493,7 +603,9 @@ export function gridRecordFromProposal(
     searchSpell: rationale.lens,
     generationPrompt: rationaleBrief(rationale),
     edition: {
-      provider: creatorDirected ? 'collection-grid-builder-manual' : 'collection-grid-builder',
+      provider: creatorDirected
+        ? 'collection-grid-builder-manual'
+        : `collection-grid-builder-${editorialMode}`,
       misprint: intentionalMisprint,
       legendary: intentionalMisprint,
     },
@@ -502,6 +614,16 @@ export function gridRecordFromProposal(
     savedAt: now.toISOString(),
     sourceRoute: '/admin#grid-builder',
     intent: intentionalMisprint ? 'legendary-misprint' : 'standard',
+    editorial: {
+      mode: editorialMode,
+      compositionSize,
+      arrangement: creatorDirected || rationale.manualSwaps.length > 0 ? 'creator-arranged' : 'automatic',
+      ...(primaryFamily ? {
+        primaryFamilyId: primaryFamily[0],
+        primaryFamilyLabel: primaryFamily[1].label,
+      } : {}),
+      ...(rationale.familyEvidence ? { evidenceBasis: rationale.familyEvidence } : {}),
+    },
     ...(intentionalMisprint ? {
       misprintMetadata: {
         confirmedByCreator: true,
@@ -517,6 +639,9 @@ export function gridRecordFromProposal(
       title: card.title,
       ...(card.publisher ? { publisher: card.publisher } : {}),
       ...(card.batchKey ? { batchKey: card.batchKey } : {}),
+      ...(card.familyId ? { familyId: card.familyId } : {}),
+      ...(card.familyLabel ? { familyLabel: card.familyLabel } : {}),
+      ...(card.familyEvidence ? { familyEvidence: card.familyEvidence } : {}),
       ...(card.legendaryMisprint ? { legendaryMisprint: card.legendaryMisprint } : {}),
       gridPosition,
     })),

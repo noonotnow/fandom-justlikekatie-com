@@ -115,8 +115,13 @@ test("imageIds must not be empty", () => {
   assert.match(err, /imageIds/);
 });
 
-test("imageIds must not exceed 9 entries", () => {
-  const imageIds = Array.from({ length: 10 }, (_, i) => `https://images.example/${i}.jpg`);
+test("imageIds accepts a bounded 12-frame Event composition", () => {
+  const imageIds = Array.from({ length: 12 }, (_, i) => `https://images.example/${i}.jpg`);
+  assert.equal(validateGridPayload(validPayload({ imageIds })), null);
+});
+
+test("imageIds must not exceed 12 entries", () => {
+  const imageIds = Array.from({ length: 13 }, (_, i) => `https://images.example/${i}.jpg`);
   const err = validateGridPayload(validPayload({ imageIds }));
   assert.ok(err);
   assert.match(err, /imageIds/);
@@ -229,6 +234,7 @@ test("GRID_ALLOWED_FIELDS covers every key in a full client payload", () => {
     "gridId", "date", "actorId", "actor", "actorEn",
     "vibe", "vibeEn", "searchSpell", "tier",
     "variant", "imageIds", "gridWasSaved", "ctaSeed", "persistedExportId",
+    "editorialMode", "compositionSize", "arrangement", "primaryFamilyId", "familyIds",
   ];
   for (const field of clientFields) {
     assert.ok(
@@ -243,6 +249,7 @@ test("GRID_ALLOWED_FIELDS has no extra fields beyond what the client sends", () 
     "gridId", "date", "actorId", "actor", "actorEn",
     "vibe", "vibeEn", "searchSpell", "tier",
     "variant", "imageIds", "gridWasSaved", "ctaSeed", "persistedExportId",
+    "editorialMode", "compositionSize", "arrangement", "primaryFamilyId", "familyIds",
   ]);
   for (const field of GRID_ALLOWED_FIELDS) {
     assert.ok(

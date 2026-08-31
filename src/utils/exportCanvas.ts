@@ -391,6 +391,7 @@ interface ExportPayload {
   rankIndex: number | null;
   totalBatches: number | null;
   badgeTier: string;
+  editorial?: StarOfDayData['editorial'];
 }
 
 export function buildExportPayload(data: StarOfDayData): ExportPayload {
@@ -410,13 +411,16 @@ export function buildExportPayload(data: StarOfDayData): ExportPayload {
     rankIndex: 0,
     totalBatches: data.rankedBatches.length,
     badgeTier: tier !== 'standard' ? tier : 'star-of-day',
+    ...(data.editorial ? { editorial: data.editorial } : {}),
   };
 }
 
 // ── Full export canvas (1080×1350) ─────────────────────────────────
 
 async function renderFullExportCanvas(payload: ExportPayload): Promise<HTMLCanvasElement> {
-  const results = payload.chosen?.results?.slice(0, 9) ?? [];
+  const results = payload.chosen?.results?.slice(0, 12) ?? [];
+  const cols = results.length > 9 ? 4 : 3;
+  const rows = 3;
   const dateStr = payload.date;
   const tier = classifyEditionTier(payload.chosen);
   const editionStamp = buildEditionStampLine(
@@ -461,7 +465,9 @@ async function renderFullExportCanvas(payload: ExportPayload): Promise<HTMLCanva
   y += 34;
   ctx.font = '600 24px "Noto Sans SC", "Inter", sans-serif';
   ctx.fillStyle = colors.gold;
-  ctx.fillText('今日氛围图鉴', cx, y);
+  ctx.fillText(payload.editorial
+    ? `VIBE ATLAS · ${payload.editorial.mode === 'event' ? 'EVENT SET' : 'COMPILED SET'}`
+    : '今日氛围图鉴', cx, y);
 
   // 1b. Edition catalog code
   y += 26;
@@ -515,24 +521,27 @@ async function renderFullExportCanvas(payload: ExportPayload): Promise<HTMLCanva
     y += (Math.min(subLines.length, 2) - 1) * 30;
   }
 
-  // 7. 3×3 image grid
+  // 7. Standard 3×3 or bounded Event 4×3 image composition
   const footerZoneH = 168;
   const gridTop = y + 36;
   const gridBottom = EXPORT_CARD_H - footerZoneH;
   const gridGap = 12;
   const gridAvailW = contentW;
   const gridAvailH = gridBottom - gridTop;
-  let tileSize = Math.min((gridAvailW - gridGap * 2) / 3, (gridAvailH - gridGap * 2) / 3);
+  let tileSize = Math.min(
+    (gridAvailW - gridGap * (cols - 1)) / cols,
+    (gridAvailH - gridGap * (rows - 1)) / rows,
+  );
   tileSize = Math.max(tileSize, 40);
-  const gridW = tileSize * 3 + gridGap * 2;
-  const gridH = tileSize * 3 + gridGap * 2;
+  const gridW = tileSize * cols + gridGap * (cols - 1);
+  const gridH = tileSize * rows + gridGap * (rows - 1);
   const gridX = (EXPORT_CARD_W - gridW) / 2;
   const gridY = gridTop + Math.max(0, (gridAvailH - gridH) / 2);
 
   const images = await imagesPromise;
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 3; col++) {
-      const idx = row * 3 + col;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const idx = row * cols + col;
       const tx = gridX + col * (tileSize + gridGap);
       const ty = gridY + row * (tileSize + gridGap);
       const img = images[idx];
@@ -745,7 +754,7 @@ export async function renderExportCanvas(
  */
 function logGridExportFireAndForget(payload: ExportPayload, tier: string): void {
   try {
-    const results = payload.chosen?.results?.slice(0, 9) ?? [];
+    const results = payload.chosen?.results?.slice(0, 12) ?? [];
     const batchKey = `${payload.date}:${payload.actorNameEn}`;
     fetch('/.netlify/functions/log-engagement', {
       method: 'POST',

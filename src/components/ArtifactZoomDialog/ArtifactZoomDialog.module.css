@@ -55,6 +55,7 @@
 
 .visual img { width: 100%; height: 100%; min-height: 0; object-fit: cover; }
 .threeByThree { grid-template-columns: repeat(3, 1fr); width: min(72vh, 760px, 100%); aspect-ratio: 1; }
+.fourByThree { grid-template-columns: repeat(4, 1fr); width: min(88vh, 920px, 100%); aspect-ratio: 4 / 3; }
 .twoByTwo { grid-template-columns: repeat(2, 1fr); width: min(72vh, 760px, 100%); aspect-ratio: 1; }
 .twoByThree { grid-template-columns: repeat(2, 1fr); width: min(48vh, 560px, 100%); aspect-ratio: 2 / 3; }
 .singleImage { display: flex; width: min(100%, 760px); height: min(72vh, 840px); }

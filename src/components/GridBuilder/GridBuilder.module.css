@@ -16,6 +16,33 @@
 .modeTabs button { min-height: 38px; padding: 7px 14px; border: 0; border-radius: 8px; background: transparent; color: inherit; }
 .modeTabs button[aria-selected="true"] { background: var(--gb-gold); color: #15120e; font-weight: 700; }
 
+.contractChoice {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.contractChoice legend { margin-bottom: 8px; color: var(--gb-muted); font-size: 12px; font-weight: 600; }
+.contractCard {
+  display: grid;
+  gap: 4px;
+  min-height: 112px;
+  padding: 14px;
+  border: 1px solid var(--gb-border);
+  border-radius: 12px;
+  background: var(--gb-panel);
+  color: inherit;
+  text-align: left;
+}
+.contractCard > span { color: var(--gb-gold); font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.contractCard > strong { font-family: Georgia, 'Times New Roman', serif; font-size: 18px; }
+.contractCard > small { color: var(--gb-muted); font-size: 12px; line-height: 1.45; }
+.contractCard[aria-pressed="true"] { border-color: var(--gb-gold); box-shadow: inset 0 0 0 1px var(--gb-gold); }
+.contractCard:focus-visible { outline: 3px solid color-mix(in srgb, var(--gb-gold) 55%, transparent); outline-offset: 2px; }
+@media (max-width: 620px) { .contractChoice { grid-template-columns: 1fr; } }
+
 .notice { border: 1px solid var(--gb-border); border-left: 3px solid var(--gb-gold); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
 .saveNudge { display: inline; white-space: nowrap; }
 .saveNudgeBtn { display: inline; padding: 0; border: none; background: none; color: var(--gb-gold); font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
@@ -46,6 +73,7 @@
 @media (max-width: 860px) { .workspace { grid-template-columns: 1fr; } }
 
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; border-radius: 12px; overflow: hidden; background: var(--gb-panel); }
+.eventGrid { grid-template-columns: repeat(4, 1fr); }
 .slot { position: relative; padding: 0; border: 2px solid transparent; background: none; aspect-ratio: 1; cursor: pointer; }
 .slot img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .slot span { position: absolute; inset: auto 0 0 0; padding: 3px 6px; font-size: 10px; color: #f5f0e6; background: linear-gradient(transparent, rgba(0, 0, 0, .72)); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -63,7 +91,14 @@
 .alternateStrip button:hover { border-color: var(--gb-gold); }
 
 .rationale { border: 1px solid var(--gb-border); border-radius: 12px; background: var(--gb-panel); padding: 14px; display: grid; gap: 12px; }
+.rationaleHeader { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.rationaleHeader span { color: var(--gb-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.rationaleHeader > strong { padding: 4px 8px; border: 1px solid var(--gb-border); border-radius: 999px; color: var(--gb-gold); font-size: 11px; white-space: nowrap; }
 .rationale h4 { margin: 0; color: var(--gb-gold); font-size: 14px; }
+.evidence { display: grid; gap: 7px; margin: 0; padding: 10px; border-radius: 9px; background: color-mix(in srgb, currentColor 4%, transparent); }
+.evidence div { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; font-size: 11px; }
+.evidence dt { color: var(--gb-muted); }
+.evidence dd { margin: 0; overflow-wrap: anywhere; }
 .rationale pre { margin: 0; white-space: pre-wrap; font-family: inherit; font-size: 12.5px; line-height: 1.55; color: inherit; }
 .actions { display: grid; gap: 8px; }
 .actions button { min-height: 42px; border: 1px solid var(--gb-border); border-radius: 10px; background: transparent; color: inherit; font-size: 13px; }

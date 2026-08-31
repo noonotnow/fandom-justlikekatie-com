@@ -105,6 +105,9 @@ export function starDataFromCollectionGrid(grid: GridRecord): StarOfDayData {
     thumbnail: sourceThumbnail(image.resultId, image.imageUrl),
     link: image.sourceUrl,
     source: image.publisher || 'Saved collection',
+    ...(image.familyId ? { familyId: image.familyId } : {}),
+    ...(image.familyLabel ? { familyLabel: image.familyLabel } : {}),
+    ...(image.familyEvidence ? { familyEvidence: image.familyEvidence } : {}),
   }));
   return {
     actorId: grid.actorId,
@@ -132,6 +135,7 @@ export function starDataFromCollectionGrid(grid: GridRecord): StarOfDayData {
     ...(grid.generationPrompt ? { generationPrompt: grid.generationPrompt } : {}),
     ...(grid.searchSpell ? { generationQuery: grid.searchSpell } : {}),
     ...(grid.ctaSeed ? { ctaSeed: grid.ctaSeed } : {}),
+    ...(grid.editorial ? { editorial: grid.editorial } : {}),
   };
 }
 

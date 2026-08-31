@@ -85,6 +85,9 @@ export interface GridMediaSnapshot {
   title: string;
   publisher?: string;
   batchKey?: string;
+  familyId?: string;
+  familyLabel?: string;
+  familyEvidence?: 'persisted-event' | 'batch' | 'publisher' | 'fallback';
   gridPosition: number;
   media?: MediaReference;
   legendaryMisprint?: LegendaryMisprint;
@@ -121,6 +124,14 @@ export interface GridRecord {
   savedAt: string;
   sourceRoute: string;
   images: GridMediaSnapshot[];
+  editorial?: {
+    mode: 'event' | 'compiled';
+    compositionSize: 9 | 12;
+    arrangement: 'automatic' | 'creator-arranged';
+    primaryFamilyId?: string;
+    primaryFamilyLabel?: string;
+    evidenceBasis?: 'persisted-event' | 'batch';
+  };
   legacyCompositeUrl?: string;
   media?: MediaReference;
   mediaRecovery?: CollectionMediaRecovery;
@@ -748,6 +759,7 @@ export function normalizeGridRecord(grid: Partial<GridRecord>): GridRecord {
     savedAt: grid.savedAt || grid.generatedAt || new Date().toISOString(),
     sourceRoute: grid.sourceRoute || '/',
     images,
+    ...(grid.editorial ? { editorial: grid.editorial } : {}),
     ...(grid.localId ? { localId: grid.localId } : {}),
     ...(grid.serverId ? { serverId: grid.serverId } : {}),
     ...(grid.ownerAccountId ? { ownerAccountId: grid.ownerAccountId } : {}),

@@ -24,6 +24,11 @@ export const GRID_ALLOWED_FIELDS = new Set([
   "gridWasSaved",
   "ctaSeed",
   "persistedExportId",
+  "editorialMode",
+  "compositionSize",
+  "arrangement",
+  "primaryFamilyId",
+  "familyIds",
 ]);
 
 /**
@@ -46,10 +51,10 @@ export function validateGridPayload(grid) {
   if (
     !Array.isArray(grid.imageIds) ||
     grid.imageIds.length < 1 ||
-    grid.imageIds.length > 9 ||
+    grid.imageIds.length > 12 ||
     !grid.imageIds.every((id) => typeof id === "string")
   ) {
-    return "grid.imageIds must be 1-9 strings";
+    return "grid.imageIds must be 1-12 strings";
   }
   if (grid.gridWasSaved !== undefined && typeof grid.gridWasSaved !== "boolean") {
     return "grid.gridWasSaved must be a boolean";
@@ -59,6 +64,26 @@ export function validateGridPayload(grid) {
   }
   if (grid.persistedExportId !== undefined && typeof grid.persistedExportId !== "string") {
     return "grid.persistedExportId must be a string";
+  }
+  if (grid.editorialMode !== undefined && !["event", "compiled"].includes(grid.editorialMode)) {
+    return "grid.editorialMode must be event or compiled";
+  }
+  if (grid.compositionSize !== undefined && ![9, 12].includes(grid.compositionSize)) {
+    return "grid.compositionSize must be 9 or 12";
+  }
+  if (grid.arrangement !== undefined && !["automatic", "creator-arranged"].includes(grid.arrangement)) {
+    return "grid.arrangement must be automatic or creator-arranged";
+  }
+  if (grid.primaryFamilyId !== undefined && typeof grid.primaryFamilyId !== "string") {
+    return "grid.primaryFamilyId must be a string";
+  }
+  if (
+    grid.familyIds !== undefined
+    && (!Array.isArray(grid.familyIds)
+      || grid.familyIds.length > 12
+      || !grid.familyIds.every(value => typeof value === "string"))
+  ) {
+    return "grid.familyIds must contain at most 12 strings";
   }
   for (const key of Object.keys(grid)) {
     if (!GRID_ALLOWED_FIELDS.has(key)) return `unknown grid field: ${key}`;

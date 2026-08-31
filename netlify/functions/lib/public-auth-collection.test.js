@@ -438,6 +438,65 @@ test("collection sync is idempotent, URL-independent, cursor-based, and tombston
   assert.equal(removed.tombstones[0].id, id);
 });
 
+test("collection sync enforces complete editorial compositions while preserving legacy grids", async () => {
+  const store = memoryStore();
+  const images = Array.from({ length: 12 }, (_, index) => ({
+    resultId: `result-${index}`,
+    imageUrl: `https://images.example/${index}.jpg`,
+    familyId: "event-family",
+    familyEvidence: "batch",
+    gridPosition: index,
+  }));
+  const base = {
+    kind: "grid",
+    id: "event-grid",
+    schemaVersion: 1,
+    rendererVersion: "vibe-atlas-v1",
+    images,
+    editorial: {
+      mode: "event",
+      compositionSize: 12,
+      arrangement: "automatic",
+      primaryFamilyId: "event-family",
+      evidenceBasis: "batch",
+    },
+  };
+  const operation = item => ({
+    schemaVersion: 1,
+    clientId: "device-a",
+    cursor: 0,
+    operations: [{
+      type: "upsert",
+      mutationId: `mutation-${item.id}`,
+      localId: item.id,
+      item,
+    }],
+  });
+
+  const response = await syncCollection(store, "usr_test", operation(base));
+  assert.equal(response.items[0].images.length, 12);
+  assert.equal(response.items[0].editorial.mode, "event");
+
+  await assert.rejects(
+    () => syncCollection(store, "usr_test", operation({
+      ...base,
+      id: "invalid-compiled-grid",
+      editorial: { ...base.editorial, mode: "compiled" },
+    })),
+    /Collection grid is invalid/,
+  );
+  await assert.rejects(
+    () => syncCollection(store, "usr_test", operation({
+      ...base,
+      id: "mixed-event-grid",
+      images: images.map((image, index) => index === 11
+        ? { ...image, familyId: "other-family" }
+        : image),
+    })),
+    /Collection grid is invalid/,
+  );
+});
+
 test("collection sync preserves attributed Middle-earth meme metadata", async () => {
   const store = memoryStore();
   const item = {

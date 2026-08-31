@@ -25,7 +25,7 @@ export async function renderCanonicalOutput(
     ? packet.grids?.find(candidate => candidate.id === output.sourceId)
     : null;
   const cards = output.kind === "grid"
-    ? grid?.images?.slice(0, 9) || packet.sourceCards.slice(0, 9)
+    ? grid?.images?.slice(0, 12) || packet.sourceCards.slice(0, 12)
     : packet.sourceCards.filter(card => card.id === output.sourceId);
   if (cards.length === 0) throw new Error(`Output ${output.id} has no persisted source selection.`);
 
@@ -334,11 +334,13 @@ export function validatedProxyTarget(value, requestUrl) {
 async function renderGrid(packet, grid, sources) {
   const gap = 12;
   const top = 394;
-  const tile = 252;
-  const gridWidth = tile * 3 + gap * 2;
+  const cols = sources.length > 9 ? 4 : 3;
+  const rows = 3;
+  const tile = cols === 4 ? 231 : 252;
+  const gridWidth = tile * cols + gap * (cols - 1);
   const left = Math.round((RENDER_WIDTH - gridWidth) / 2);
   const composites = [];
-  for (let index = 0; index < 9; index += 1) {
+  for (let index = 0; index < cols * rows; index += 1) {
     const source = sources[index];
     const input = source
       ? await sharp(source, { failOn: "error" })
@@ -349,8 +351,8 @@ async function renderGrid(packet, grid, sources) {
       : Buffer.from(placeholderTile(tile));
     composites.push({
       input,
-      left: left + (index % 3) * (tile + gap),
-      top: top + Math.floor(index / 3) * (tile + gap),
+      left: left + (index % cols) * (tile + gap),
+      top: top + Math.floor(index / cols) * (tile + gap),
     });
   }
   composites.push({
