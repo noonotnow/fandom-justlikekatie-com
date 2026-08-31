@@ -12,6 +12,7 @@
     "build": "node scripts/check-court-record.js && tsc -b && vite build",
     "preview": "vite preview",
     "lint": "oxlint && node scripts/check-court-record.js",
+    "check:lockfiles": "node .github/scripts/check-lockfiles.mjs",
     "test": "npm run test:app && npm run test:functions && npm run test:scripts && npm run test:browser",
     "test:app": "node --import tsx/esm --test tests/*.test.ts",
     "test:functions": "node --test netlify/functions/lib/*.test.js",
