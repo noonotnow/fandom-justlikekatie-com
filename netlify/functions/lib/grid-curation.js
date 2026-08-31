@@ -113,6 +113,8 @@ function clusterEvidence(result, promise) {
       ...(cluster.aliases || []),
     ].filter(Boolean);
     const visualTerms = [
+      ...(cluster.mood || []),
+      ...(cluster.palette || []),
       ...(cluster.wardrobeAnchors || []),
       ...(cluster.propAnchors || []),
       ...(cluster.settingAnchors || []),

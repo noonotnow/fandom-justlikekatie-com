@@ -1,8 +1,8 @@
 // Private operational metadata. Do not add this to ACTOR_PACKS or public APIs.
 // These are search-disambiguation heuristics, not identity verification.
 export const IDENTITY_PROFILE_VERSION = 2;
-export const AESTHETIC_CLUSTER_VERSION = 1;
-export const VIBE_PROMISE_CONTRACT_VERSION = 2;
+export const AESTHETIC_CLUSTER_VERSION = 2;
+export const VIBE_PROMISE_CONTRACT_VERSION = 3;
 
 const LIU_YUNING_CLUSTERS = [
   {
@@ -47,6 +47,26 @@ const LIU_XUEYI_CLUSTERS = [
     antiAnchors: ["pale ceremonial", "white immortal", "modern event", "bts", "fire truck"],
     vibeCompatibility: { "权臣压迫感": "strong_anchor", "仙门冷玉": "conflict" },
   },
+  {
+    id: "shattered-beauty-fractured-roles",
+    work: "cross-role emotional damage",
+    character: "破碎感美人",
+    aliases: ["Shattered Beauty", "破碎感美人", "刘学义", "Liu Xueyi"],
+    mood: [
+      "wounded", "bloodied", "bleeding", "injured", "tearful", "exhausted",
+      "disheveled", "grief", "rage", "betrayal", "devastated", "haunted",
+      "伤", "血", "受伤", "流血", "含泪", "疲惫", "凌乱", "悲痛", "背叛", "崩溃",
+    ],
+    palette: ["red", "black", "white", "desaturated blue", "bruised purple"],
+    wardrobeAnchors: ["disheveled hair", "torn clothing", "disturbed robes", "messy robes"],
+    propAnchors: ["blood", "wound", "weapon", "hands"],
+    settingAnchors: ["rain", "snow", "night", "smoke", "firelight", "collapse", "kneeling", "imprisoned"],
+    antiAnchors: [
+      "modern business", "business suit", "businessman", "office", "corporate",
+      "women-centered", "unrelated actor", "collage", "neutral portrait",
+    ],
+    vibeCompatibility: { "破碎感美人": "strong_anchor" },
+  },
 ];
 
 const COLD_JADE_CONTRACT = {
@@ -75,9 +95,61 @@ const LI_SHILIU_CONTRACT = {
   clusterIds: ["li-shiliu-masked-moonlight"],
 };
 
+const SHATTERED_BEAUTY_CONTRACT = {
+  id: "liu-xueyi-shattered-beauty",
+  requiredCombinations: [
+    { id: "liu-xueyi-identity", any: ["刘学义", "liu xueyi"] },
+    {
+      id: "visible-fracture",
+      any: [
+        "wounded", "bloodied", "bleeding", "injured", "injury", "tearful", "tears",
+        "exhausted", "disheveled", "distressed", "devastated", "grief", "rage",
+        "betrayed", "betrayal", "collapse", "collapsing", "kneeling", "feverish",
+        "haunted", "restrained", "imprisoned", "blood", "wound",
+        "伤", "血", "受伤", "流血", "落泪", "含泪", "疲惫", "凌乱", "崩溃",
+        "悲痛", "暴怒", "背叛", "跪", "发烧", "囚禁", "狼狈", "憔悴", "破碎",
+      ],
+    },
+  ],
+  supportingAnchors: [
+    "red", "black", "white", "desaturated blue", "bruised purple",
+    "rain", "snow", "night", "smoke", "firelight", "close-up", "closeup",
+    "intense expression", "solitary", "hands", "weapon", "torn clothing",
+    "romantic devastation", "红", "黑", "白", "雨", "雪", "夜", "烟", "火光",
+  ],
+  hardAntiAnchors: [
+    "modern business", "business suit", "business suits", "modern businessman",
+    "businessman", "corporate", "office styling", "office", "quarterly earnings",
+    "earnings call", "suit", "suits", "glasses office", "商务", "职场", "公司",
+    "办公室", "西装", "眼镜",
+    "woman", "women", "female", "girl", "women-centered", "women centered",
+    "woman-centered", "woman centered", "unrelated actor", "unrelated character",
+    "random character", "different actor", "other actor", "namesake",
+    "女主", "女性", "女人", "女孩", "女演员", "成毅",
+    "collage", "contact sheet", "mood board", "multi-panel", "拼图", "九宫格", "组图", "多图", "合集",
+    "clean neutral", "neutral portrait", "neutral costume", "clean costume",
+    "emotionally neutral", "neutral expression", "no damage signal", "无伤",
+    "无表情", "情绪平淡", "平静写真",
+  ],
+  softContradictions: [
+    "clean portrait", "clean costume portrait", "formal portrait", "neutral",
+    "modern", "casual streetwear", "award ceremony",
+  ],
+  hero: {
+    any: [
+      "wounded", "bloodied", "bleeding", "injured", "tearful", "exhausted",
+      "disheveled", "distressed", "devastated", "grief", "rage", "betrayal",
+      "collapse", "kneeling", "feverish", "haunted", "blood", "wound",
+      "伤", "血", "受伤", "流血", "落泪", "含泪", "疲惫", "凌乱", "崩溃",
+      "悲痛", "暴怒", "背叛", "跪", "发烧", "囚禁", "狼狈", "憔悴", "破碎",
+    ],
+  },
+  clusterIds: ["shattered-beauty-fractured-roles"],
+};
+
 export const ACTOR_IDENTITY_PROFILES = {
   "liu-yuning": { canonicalNames: ["刘宇宁"], romanizedNames: ["Liu Yuning"], aliases: ["摩登兄弟刘宇宁", "宇宁"], commonCollisions: ["刘宇", "李大齐"], representativeWorks: ["书卷一梦", "一念关山"], knownContamination: ["李大齐", "成毅"], productStockMeanings: ["music products", "stock portraits"], trustedSourcePatterns: ["official", "studio", "drama", "magazine"], problematicSourcePatterns: ["finance", "stock", "product", "baike"], aestheticClusters: LIU_YUNING_CLUSTERS, vibeContracts: { "3": LI_SHILIU_CONTRACT } },
-  "liu-xueyi": { canonicalNames: ["刘学义"], romanizedNames: ["Liu Xueyi"], aliases: ["学义"], commonCollisions: ["刘宇", "刘天成", "刘宝"], representativeWorks: ["千古玦尘", "天乩之白蛇传说", "念无双"], knownContamination: ["成毅", "same-surname namesakes"], productStockMeanings: ["glasses catalog", "stock portraits"], trustedSourcePatterns: ["official", "studio", "drama", "magazine"], problematicSourcePatterns: ["finance", "stock", "product", "reference"], aestheticClusters: LIU_XUEYI_CLUSTERS, vibeContracts: { "0": COLD_JADE_CONTRACT } },
+  "liu-xueyi": { canonicalNames: ["刘学义"], romanizedNames: ["Liu Xueyi"], aliases: ["学义"], commonCollisions: ["刘宇", "刘天成", "刘宝"], representativeWorks: ["千古玦尘", "天乩之白蛇传说", "念无双"], knownContamination: ["成毅", "same-surname namesakes"], productStockMeanings: ["glasses catalog", "stock portraits"], trustedSourcePatterns: ["official", "studio", "drama", "magazine"], problematicSourcePatterns: ["finance", "stock", "product", "reference"], aestheticClusters: LIU_XUEYI_CLUSTERS, vibeContracts: { "0": COLD_JADE_CONTRACT, "3": SHATTERED_BEAUTY_CONTRACT } },
   "song-weilong": { canonicalNames: ["宋威龙"], romanizedNames: ["Song Weilong"], aliases: ["威龙"], commonCollisions: ["威龙", "宋威"], representativeWorks: ["以家人之名", "下一站是幸福", "去有风的地方"], knownContamination: ["generic campus and basketball stock images"], productStockMeanings: ["Weilong food/snack brand", "stock photography"], trustedSourcePatterns: ["official", "studio", "drama", "magazine"], problematicSourcePatterns: ["commerce", "stock", "product"], aestheticClusters: [], vibeContracts: {} },
   "zhang-linghe": { canonicalNames: ["张凌赫"], romanizedNames: ["Zhang Linghe"], aliases: ["凌赫"], commonCollisions: ["张凌", "何苏叶"], representativeWorks: ["苍兰诀", "宁安如梦", "爱你"], knownContamination: ["谢彬彬", "doctor-role posters"], productStockMeanings: ["medical stock photos", "white-coat products"], trustedSourcePatterns: ["official", "studio", "drama", "magazine"], problematicSourcePatterns: ["commerce", "stock", "product", "reference"], aestheticClusters: [], vibeContracts: {} },
   "ao-ruipeng": { canonicalNames: ["敖瑞鹏"], romanizedNames: ["Ao Ruipeng"], aliases: ["瑞鹏"], commonCollisions: ["敖瑞", "瑞鹏"], representativeWorks: ["白月梵星", "少年江湖物语"], knownContamination: ["generic xianxia character art"], productStockMeanings: ["generic costume stock"], trustedSourcePatterns: ["official", "studio", "drama", "magazine"], problematicSourcePatterns: ["commerce", "stock", "illustration"], aestheticClusters: [], vibeContracts: {} },

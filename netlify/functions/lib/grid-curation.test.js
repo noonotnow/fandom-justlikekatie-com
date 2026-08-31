@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { candidateIdForResult, CURATION_VERSION, curateDisplayResults } from "./grid-curation.js";
+import { vibePromiseFor } from "./actor-identity-profiles.js";
 
 test("analyzed candidate identity follows the image digest across metadata and query changes", () => {
   const first = candidateIdForResult({
@@ -686,6 +687,63 @@ test("a Vibe promise gate beats technically varied contradictory cards", async (
   assert.equal(output.diagnostics.strongestCompiled.promise.heroFulfillment, 1);
   assert.equal("sourceRange" in output.diagnostics.strongestCompiled.scoreBreakdown, false);
   assert.equal("queryRange" in output.diagnostics.strongestCompiled.scoreBreakdown, false);
+});
+
+test("shattered-beauty-but-make-it-corporate-networking rejects a random technically complete board", async () => {
+  const actor = {
+    id: "liu-xueyi",
+    name: "刘学义",
+    shortName_en: "Liu Xueyi",
+    vibes: [{}, {}, {}, { queries: ["刘学义 破碎感"] }],
+  };
+  const promise = vibePromiseFor(actor, 3);
+  const valid = Array.from({ length: 4 }, (_, index) => result(`shattered-valid-${index}`, {
+    source: `wounded-${index}.test`,
+    title: `刘学义 wounded bloodied tearful close-up frame ${index}`,
+    fp: fingerprint(`shattered-valid-${index}`, { ones: spreadBits(`shattered-valid-${index}`, 92) }),
+  }));
+  const contaminated = [
+    result("shattered-women", {
+      title: "women-centered thumbnail with Liu Xueyi article reference",
+      fp: fingerprint("shattered-women", { ones: spreadBits("shattered-women", 110) }),
+    }),
+    result("shattered-business", {
+      title: "刘学义 modern businessman business suit glasses office portrait",
+      fp: fingerprint("shattered-business", { ones: spreadBits("shattered-business", 110) }),
+    }),
+    result("shattered-unrelated", {
+      title: "成毅 unrelated actor clean costume frame",
+      fp: fingerprint("shattered-unrelated", { ones: spreadBits("shattered-unrelated", 110) }),
+    }),
+    result("shattered-collage", {
+      title: "刘学义 shattered beauty collage contact sheet",
+      fp: fingerprint("shattered-collage", {
+        ones: spreadBits("shattered-collage", 128),
+        compositeScore: 0.91,
+        singleFrameRatio: 0.09,
+      }),
+    }),
+    result("shattered-neutral", {
+      title: "刘学义 clean neutral costume portrait with no damage signal",
+      fp: fingerprint("shattered-neutral", { ones: spreadBits("shattered-neutral", 110) }),
+    }),
+  ];
+
+  const output = await curateBatches([
+    { query: "刘学义 破碎感", results: [...contaminated, ...valid] },
+  ], { diagnostics: true, promise });
+
+  assert.equal(promise.id, "liu-xueyi-shattered-beauty");
+  assert.equal(output.displayResults.length, 0);
+  assert.equal(output.diagnostics.boardDiagnostics.compiled.reasonCode, "too_few_usable_images");
+  assert.equal(output.diagnostics.dropped.filter(item =>
+    ["hard_anti_anchor", "composite_image"].includes(item.dropReason)).length, 5);
+  assert.equal(output.diagnostics.dropped.some(item =>
+    item.dropReason === "hard_anti_anchor" && /business|office|suit/i.test(item.dropDetail)), true);
+  assert.equal(output.diagnostics.dropped.some(item =>
+    item.dropReason === "hard_anti_anchor" && /women|woman/i.test(item.dropDetail)), true);
+  assert.equal(output.diagnostics.dropped.some(item =>
+    item.dropReason === "hard_anti_anchor" && /neutral|clean/i.test(item.dropDetail)), true);
 });
 
 test("character query provenance cannot prove cluster membership without result evidence", async () => {

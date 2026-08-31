@@ -227,6 +227,13 @@ test("every configured actor has a complete private identity profile", () => {
   assert.ok(yuning.aestheticClusters.some(cluster => cluster.id === "li-shiliu-masked-moonlight"));
   assert.ok(xueyi.aestheticClusters.some(cluster => cluster.id === "yuan-zhong-pale-ceremonial"));
   assert.ok(xueyi.aestheticClusters.some(cluster => cluster.id === "murong-jinghe-dark-commander"));
+  const shatteredBeauty = vibePromiseFor(ACTOR_PACKS.find(actor => actor.id === "liu-xueyi"), 3);
+  assert.equal(shatteredBeauty.id, "liu-xueyi-shattered-beauty");
+  assert.ok(shatteredBeauty.requiredCombinations.some(combination => combination.id === "visible-fracture"));
+  assert.ok(shatteredBeauty.hardAntiAnchors.includes("business suit"));
+  assert.ok(shatteredBeauty.hardAntiAnchors.includes("women-centered"));
+  assert.ok(shatteredBeauty.hardAntiAnchors.includes("neutral portrait"));
+  assert.ok(shatteredBeauty.hero.any.includes("wounded"));
 });
 
 test("the audit surface is admin-only before any report store is read", async () => {
