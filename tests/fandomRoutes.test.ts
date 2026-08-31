@@ -5,6 +5,7 @@ import {
   initialCollectionType,
   initialVibeAtlasEditionDate,
   initialVibeAtlasView,
+  isAdminEntryLocation,
   isValidVibeAtlasEditionDate,
   resolveFandomProductRoute,
 } from '../src/utils/fandomRoutes.ts';
@@ -12,6 +13,9 @@ import {
 test('resolves the three Fandom product routes and keeps magic-link verification in Vibe Atlas', () => {
   assert.equal(resolveFandomProductRoute('/'), 'launchpad');
   assert.equal(resolveFandomProductRoute('/', '?admin=true'), 'vibe-atlas');
+  assert.equal(isAdminEntryLocation('/', '?admin=true'), true);
+  assert.equal(isAdminEntryLocation('/auth/verify', '', '#token=redacted&next=plan'), true);
+  assert.equal(isAdminEntryLocation('/auth/verify', '', '#token=redacted&next=collection'), false);
   assert.equal(resolveFandomProductRoute('/vibe-atlas'), 'vibe-atlas');
   assert.equal(resolveFandomProductRoute('/vibe-atlas/'), 'vibe-atlas');
   assert.equal(resolveFandomProductRoute('/memeforge/middle-earth'), 'middle-earth');

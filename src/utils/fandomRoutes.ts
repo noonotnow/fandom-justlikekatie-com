@@ -2,10 +2,16 @@ export type FandomProductRoute = 'launchpad' | 'vibe-atlas' | 'middle-earth' | '
 
 const EDITION_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+export function isAdminEntryLocation(pathname: string, search = '', hash = ''): boolean {
+  if (new URLSearchParams(search).get('admin') === 'true') return true;
+  return pathname === '/auth/verify'
+    && new URLSearchParams(hash.replace(/^#/, '')).get('next') === 'plan';
+}
+
 export function resolveFandomProductRoute(pathname: string, search = ''): FandomProductRoute {
   const normalized = pathname.replace(/\/+$/, '') || '/';
   if (normalized === '/vibe-atlas' || normalized === '/auth/verify') return 'vibe-atlas';
-  if (normalized === '/' && new URLSearchParams(search).get('admin') === 'true') return 'vibe-atlas';
+  if (normalized === '/' && isAdminEntryLocation(normalized, search)) return 'vibe-atlas';
   if (normalized === '/vibe-atlas/veteran-journal') return 'veteran-journal';
   if (normalized === '/memeforge/middle-earth') return 'middle-earth';
   return 'launchpad';

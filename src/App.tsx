@@ -31,6 +31,7 @@ import {
   initialVibeAtlasEditionDate,
   initialVibeAtlasView,
   isValidVibeAtlasEditionDate,
+  isAdminEntryLocation,
   resolveFandomProductRoute,
 } from './utils/fandomRoutes';
 import './App.css';
@@ -70,7 +71,11 @@ function syncVibeAtlasEditionUrl(date: string | null, replace = false) {
 }
 
 function App() {
-  const adminEntry = new URLSearchParams(window.location.search).get('admin') === 'true';
+  const adminEntry = isAdminEntryLocation(
+    window.location.pathname,
+    window.location.search,
+    window.location.hash,
+  );
   const route = resolveFandomProductRoute(window.location.pathname, window.location.search);
   if (route === 'vibe-atlas') return <VibeAtlasApp adminEntry={adminEntry} />;
   if (route === 'middle-earth') return <MiddleEarthApp />;
