@@ -1,0 +1,172 @@
+Yes. The deployment discipline is now correct:
+Implement → test → commit → push → verify the live Netlify build
+GitHub success and production success remain separate receipts. Netlify has lost its privilege to quietly live 67 commits in the past.
+Design-document drift audit
+Using PRODUCT.md as the design document, we have not drifted away from the core Vibe Atlas system. The document itself has become stale because the product grew beyond its original internal-workbench scope.
+Still strongly aligned
+Media first, copy second
+Daily generated Vibe Atlas grid
+Individual-card and whole-grid curation
+Saved Collection as the source of truth
+Provenance retained through saving and handoff
+Creator OS owns post development after handoff
+Duplicate media should be rejected
+Admin mutations remain protected
+Bilingual, gold-accented Vibe Atlas identity
+Keyboard and touch accessibility expectations
+The operational spine survived remarkably well.
+Intentional expansion—not harmful drift
+The original document describes Katie as the initial internal operator. The current product now also includes:
+A public daily card drop
+Fandom Vibes as the umbrella
+Public editorial guides and games
+The trope decoder
+The first-watch journal and sealed veteran evidence
+A member-facing Collection and Grid Builder
+Paid membership
+These additions are coherent with the product, but the document no longer acknowledges them.
+One direct contradiction
+PRODUCT.md currently says:
+“Social, trading, multiplayer, and consumer account systems are out of scope.”
+Social, trading, and multiplayer remain out of scope. Consumer accounts no longer do. Passwordless accounts, cloud Collection sync, and paid membership are now implemented product decisions.
+That sentence needs revision eventually. The implementation isn’t wrong; the document is describing an earlier era.
+The main design risk
+The app has accumulated several identities:
+Internal collection workbench
+Public daily discovery product
+C-drama editorial destination
+Creator pipeline
+Fandom-universe launchpad
+Membership product
+The architecture separates them reasonably well, but future features must have an explicit home. Otherwise every good idea will migrate into the same navigation bar and Vibe Atlas will eventually resemble a shopping mall built around one extremely attractive card kiosk.
+Verdict
+Core Vibe Atlas concept: on course
+Collection → Creator OS boundary: on course
+Visual identity: on course
+Public-product scope: intentionally broader
+Consumer accounts: contradict the stale document
+Immediate redesign required: no
+Document refresh required before major new scope: yes, but not before algorithm work
+Return-to-fun work order
+The proposed sequence is right, with one conceptual grouping:
+Identity gate
+Reject images that are not confidently the selected actor.
+Quality gate
+Reject duplicates, near-duplicates, tiny images, broken crops, excessive watermarks, and unusable compositions.
+Vibe ranking
+Score how well each surviving image expresses the Vibe Pack—not merely whether its metadata contains matching words.
+Grid composition
+Select nine cards with both strong individual scores and collective variety: close-ups, full costume, action, relationship context, objects, color balance, and silhouette.
+Grid Builder
+Make arranging saved cards feel like building a deck: visual, tactile, collectible, and slightly thirsty.
+So we have veered outward, not off course. The core survived; the design document simply needs to be informed that the small internal workbench has acquired visitors, members, field investigators, and a suspicious flute. Now we can return to making the algorithm dangerously good.
+so the quality gate reminds me of how we want to differentiate between an “event” grid and a compiled grid. like how i mentioned that a big trend on rednote is the huge grids from one editorial or event and the similar pictures are the aesthetic (to a degree).
+7:25 AM
+Thought
+Exactly. “Similarity” is not automatically a quality defect. Its meaning depends on the grid’s editorial contract.
+A series of near-similar images can be:
+Redundancy in a compiled discovery grid
+The entire aesthetic language of an event/editorial grid
+So the quality gate cannot globally say “remove near-duplicates.” It needs to identify the grid mode first.
+Two grid types
+1. Event Grid
+One bounded visual moment, explored deeply.
+Examples:
+One magazine editorial
+One red-carpet appearance
+One brand event
+One photoshoot
+One concert or stage
+One drama scene or promotional set
+One airport look, if the photographic record is rich enough
+Here, repetition creates rhythm. The same clothing, lighting, backdrop, and styling make the grid feel intentional.
+The algorithm should preserve images when they provide a meaningful variation:
+Different expression
+Different pose or gesture
+Full-body versus close-up
+Front, profile, and detail views
+Movement progression
+Interaction with another person or object
+Styling or accessory detail
+Changes in composition or negative space
+It should still reject:
+The exact same file at different resolutions
+Reposts with no meaningful crop difference
+Frames so similar that the eye cannot detect a new moment
+Low-resolution or badly watermarked copies when a better version exists
+Event-grid optimization target: continuity, sequence, and visual rhythm.
+2. Compiled Grid
+One actor or vibe, interpreted across different moments.
+This is closer to the current Star of the Day grid:
+Multiple characters
+Multiple dramas
+Different costumes
+Different settings
+Portrait, action, romance, and detail imagery
+A coherent vibe expressed through varied evidence
+Here, five images from the same photoshoot usually represent search-result collapse, even if every image is technically attractive.
+The algorithm should favor:
+Source diversity
+Character and role diversity
+Different silhouettes and framing
+Different emotional registers
+Different environments
+A balanced visual composition
+Cohesion through the Vibe Pack, not through one repeated outfit
+Compiled-grid optimization target: range held together by one aesthetic argument.
+The crucial algorithm change
+The pipeline should become:
+Universal hard-quality gate
+Correct actor
+Image loads
+Sufficient resolution
+No exact duplicates
+No severe obstruction or unusable crop
+Event-cluster detection
+Same editorial/event/source
+Strong visual similarity
+Same costume, setting, and approximate time
+Meaningful frame-to-frame variation
+Mode-aware selection
+Event Grid: preserve controlled similarity
+Compiled Grid: enforce stronger diversity
+In other words:
+Exact duplication is always a defect. Near-duplication is either repetition or rhythm, depending on intent.
+Grid Builder implication
+Grid Builder should eventually let us declare:
+Build an Event Grid
+Stay inside this editorial or appearance. Show me the sequence.
+Build a Compiled Grid
+Pull the strongest evidence across roles, looks, and moments.
+And event grids should not necessarily be trapped at 3×3. Those huge Rednote compositions often work because they create density and immersion—12, 16, 20, or more images from one visually coherent event. The current 3×3 remains ideal for the daily compiled drop; the larger format becomes a deliberate editorial mode.
+The clean product distinction is:
+Compiled Grid: “Look at the range.”
+Event Grid: “No, look closer.”
+That is not an exception to the quality gate. It is a second definition of quality.
+yeah because we talked about how i’d rather have a banging event grid than 9 completely different random pics of dylan wang in many cases
+7:28 AM
+Thought
+Exactly. Diversity is not the goal; a banging grid is the goal.
+Nine technically different Dylan Wang images can still feel random, flat, and Google-Images-coded. Meanwhile, nine shots from one devastating editorial can feel like a complete collectible set because the repetition creates rhythm, styling continuity, and escalating evidence.
+The algorithm should therefore produce two candidate boards:
+Best Event Grid
+The strongest coherent editorial/event cluster that fits the Vibe Pack.
+Best Compiled Grid
+The strongest varied set across roles, looks, and moments.
+Then choose whichever creates the better overall board—not automatically reward the compiled grid for having nine different outfits.
+The governing rule:
+Prefer a spectacular coherent cluster over forced variety. Prefer variety only when it forms a stronger visual argument.
+For an Event Grid, we want:
+Same look, distinct poses
+Mix of close-up, full-body, profile, and detail
+Intentional visual sequence
+Enough variation to reward looking closer
+No truly redundant frames
+For a Compiled Grid, we want:
+Different sources without visual chaos
+Multiple roles or eras
+One consistent Vibe Pack interpretation
+No “nine unrelated handsome pictures” syndrome
+So the algorithm shouldn’t ask, “Are these pictures different?” It should ask:
+“Do these nine pictures belong together—and is this the most compelling way to look at today’s star?”
+Sometimes the answer is range. Sometimes the answer is Dylan Wang wearing one outfit so effectively that additional outfits would only dilute the prosecution’s case.
