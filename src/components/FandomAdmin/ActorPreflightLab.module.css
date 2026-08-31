@@ -89,6 +89,10 @@
 .revealSummary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:14px; padding-top:14px; border-top:1px solid var(--admin-border); }
 .revealSummary > div { display:grid; gap:5px; min-width:0; padding:10px; border:1px solid var(--admin-border); border-radius:7px; }
 .revealSummary strong { overflow-wrap:anywhere; font-size:11px; }
+.runnerUps { display:grid; gap:10px; margin-top:14px; padding-top:14px; border-top:1px solid var(--admin-border); }
+.runnerUps h6 { margin:0; color:#c9a96e; font-size:12px; }
+.runnerUps p { margin-top:4px; color:#8d928f; font-size:10px; }
+.promiseReceipt { margin-top:9px!important; padding:7px 8px; border:1px solid color-mix(in srgb,#6f8d83 45%,var(--admin-border)); border-radius:5px; color:#b8d2c6; font-size:9px!important; }
 .scoreBreakdown { display:grid; gap:4px; margin-top:10px; padding-top:9px; border-top:1px solid var(--admin-border); }
 .scoreBreakdown > div { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 8px; align-items:baseline; }
 .scoreBreakdown span { color:#b9bfbb; font-size:9px; text-transform:capitalize; }

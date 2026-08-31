@@ -5,7 +5,7 @@ description: Editorial rules for deciding between coherent Event boards and vari
 
 **Rule:** Treat Event as a bounded, evidence-backed exception. A coherent Event may be one appearance, scene, shoot, look, or a character mood board bounded to a specific work/role and signature styling. Related queries for the same character/look may combine across publishers. Similarity alone, publisher alone, or a generic style query must not force Event.
 
-**Composition rule:** Character-look compatibility is placement-aware: hero and high-salience positions must satisfy core Vibe anchors, while supporting or contrasting clusters are bounded to secondary positions and cannot silently change the board thesis. Promise contracts must distinguish required combinations, supporting anchors, hard anti-anchors, soft contradictions, and hero-slot requirements; query provenance is bounded evidence, never proof.
+**Composition rule:** Character-look compatibility is placement-aware: hero and high-salience positions must satisfy every required Vibe-anchor combination, while supporting or contrasting clusters are bounded to secondary positions and cannot silently change the board thesis. Promise contracts must distinguish required combinations, supporting anchors, hard anti-anchors, soft contradictions, and hero-slot requirements; query provenance is bounded evidence, never proof. Every actor/Vibe pair needs an enforceable promise—never an empty allow-all fallback.
 
 **Why:** The product distinguishes rhythm within one bounded editorial from search-result collapse across a compiled set. Overweighting Event produces confidently repetitive daily grids; overweighting diversity can destroy a strong visual argument.
 

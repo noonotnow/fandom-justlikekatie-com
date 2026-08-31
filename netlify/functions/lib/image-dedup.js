@@ -7,6 +7,60 @@ const HASH_HEIGHT = 16;
 const SAMPLE_SIZE = HASH_HEIGHT * (HASH_WIDTH - 1);
 const DEFAULT_CANDIDATE_LIMIT = 18;
 
+function separatedPeaks(values, threshold) {
+  const peaks = [];
+  for (let index = 1; index < values.length - 1; index += 1) {
+    if (
+      values[index] >= threshold
+      && values[index] >= values[index - 1]
+      && values[index] >= values[index + 1]
+      && peaks.every(previous => Math.abs(previous - index) > 1)
+    ) peaks.push(index);
+  }
+  return peaks;
+}
+
+function compositeSignals(data, info) {
+  const vertical = [];
+  const horizontal = [];
+  for (let x = 1; x < info.width; x += 1) {
+    let total = 0;
+    for (let y = 0; y < info.height; y += 1) {
+      total += Math.abs(
+        data[(y * info.width + x) * info.channels]
+        - data[(y * info.width + x - 1) * info.channels],
+      );
+    }
+    vertical.push(total / info.height);
+  }
+  for (let y = 1; y < info.height; y += 1) {
+    let total = 0;
+    for (let x = 0; x < info.width; x += 1) {
+      total += Math.abs(
+        data[(y * info.width + x) * info.channels]
+        - data[((y - 1) * info.width + x) * info.channels],
+      );
+    }
+    horizontal.push(total / info.width);
+  }
+  const edges = [...vertical, ...horizontal];
+  const baseline = edges.reduce((total, value) => total + value, 0) / Math.max(1, edges.length);
+  const threshold = Math.max(34, baseline * 2.6);
+  const seamCount = separatedPeaks(vertical, threshold).length
+    + separatedPeaks(horizontal, threshold).length;
+  const maximum = Math.max(0, ...edges);
+  const dominance = maximum / Math.max(1, baseline);
+  const score = Math.max(0, Math.min(1,
+    (Math.max(0, seamCount - 1) * 0.24)
+    + (Math.max(0, dominance - 2.5) * 0.12),
+  ));
+  return {
+    compositeScore: Number(score.toFixed(4)),
+    singleFrameRatio: Number((1 - score).toFixed(4)),
+    seamCount,
+  };
+}
+
 export async function fetchImageBuffer(url) {
   return fetchSafeImage(url);
 }
@@ -35,6 +89,7 @@ export async function fingerprintImage(buffer) {
 
   const area = (metadata.width || 0) * (metadata.height || 0);
   const sharpness = edgeDetail / SAMPLE_SIZE;
+  const composite = compositeSignals(data, info);
   return {
     digest: createHash("sha256").update(buffer).digest("hex"),
     differences,
@@ -42,6 +97,7 @@ export async function fingerprintImage(buffer) {
     quality: Math.log2(area + 1) * 10 + sharpness,
     width: metadata.width || 0,
     height: metadata.height || 0,
+    ...composite,
   };
 }
 

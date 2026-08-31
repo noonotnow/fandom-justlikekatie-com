@@ -5,9 +5,11 @@ import {
   ACTOR_IDENTITY_PROFILES,
   IDENTITY_PROFILE_VERSION,
   assertIdentityProfileCoverage,
+  vibePromiseFor,
 } from "./actor-identity-profiles.js";
 import { auditRunKey, eligibilityKey } from "./actor-eligibility.js";
 import { createActorAuditHandler, vibeKeyFor } from "./actor-audit.js";
+import { CURATION_VERSION } from "./grid-curation.js";
 
 const ORIGIN = "https://fandom.example";
 const pairActor = {
@@ -65,11 +67,11 @@ function searchResults(query) {
   }));
 }
 
-function curation({ sufficient = true } = {}) {
+function curation({ sufficient = true, curationFailure = false } = {}) {
   return async ranked => ({
     displayResults: sufficient ? ranked[0].results.slice(0, 9) : [],
     curation: sufficient
-      ? { mode: "compiled", version: 1, rationale: "A varied set won.", signals: ["source range"] }
+      ? { mode: "compiled", version: CURATION_VERSION, rationale: "A varied set won.", signals: ["source range"] }
       : null,
     diagnostics: {
       rawCandidates: ranked[0]?.results.slice(0, 9) || [],
@@ -80,23 +82,23 @@ function curation({ sufficient = true } = {}) {
       boardDiagnostics: {
         event: {
           available: sufficient,
-          reasonCode: sufficient ? null : "no_bounded_role_family",
-          summary: sufficient ? "A complete 9-card Event board qualified." : "No bounded work or role family produced enough distinct frames for an Event board.",
+          reasonCode: sufficient ? null : curationFailure ? "promise_not_fulfilled" : "no_bounded_role_family",
+          summary: sufficient ? "A complete 9-card Event board qualified." : curationFailure ? "A complete proposal failed the Vibe promise." : "No bounded work or role family produced enough distinct frames for an Event board.",
         },
         compiled: {
           available: sufficient,
-          reasonCode: sufficient ? null : "too_few_usable_images",
-          summary: sufficient ? "A complete 9-card Compiled board qualified." : "Compiled had 0 usable images; 9 are required.",
+          reasonCode: sufficient ? null : curationFailure ? "promise_not_fulfilled" : "too_few_usable_images",
+          summary: sufficient ? "A complete 9-card Compiled board qualified." : curationFailure ? "A complete proposal failed the Vibe promise." : "Compiled had 0 usable images; 9 are required.",
         },
       },
       winner: sufficient ? "compiled" : null,
       alternate: sufficient ? "event" : null,
-      receipt: { rawCount: 9, analyzedCount: sufficient ? 9 : 0, curationVersion: 1 },
+      receipt: { rawCount: 9, analyzedCount: sufficient || curationFailure ? 9 : 0, curationVersion: CURATION_VERSION },
     },
   });
 }
 
-function harness({ sufficient = true, authorized = true } = {}) {
+function harness({ sufficient = true, curationFailure = false, authorized = true } = {}) {
   const store = memoryStore();
   let runNumber = 0;
   const auth = {
@@ -124,7 +126,7 @@ function harness({ sufficient = true, authorized = true } = {}) {
       return () => new Date(Date.UTC(2026, 7, 31, 12, 0, tick++));
     })(),
     createRunId: () => `run-${++runNumber}`,
-    curate: curation({ sufficient }),
+    curate: curation({ sufficient, curationFailure }),
   });
   return { handler, store };
 }
@@ -136,11 +138,24 @@ test("every configured actor has a complete private identity profile", () => {
     for (const field of [
       "canonicalNames", "romanizedNames", "aliases", "commonCollisions",
       "representativeWorks", "knownContamination", "productStockMeanings",
-      "trustedSourcePatterns", "problematicSourcePatterns",
+      "trustedSourcePatterns", "problematicSourcePatterns", "aestheticClusters",
     ]) {
       assert.ok(Array.isArray(profile[field]), `${actor.id}.${field}`);
     }
+    assert.equal(typeof profile.vibeContracts, "object", `${actor.id}.vibeContracts`);
+    actor.vibes.forEach((_, vibeIdx) => {
+      const promise = vibePromiseFor(actor, vibeIdx);
+      assert.ok(promise.requiredCombinations.length >= 2, `${actor.id}:${vibeIdx} required promise`);
+      assert.ok(promise.requiredCombinations.every(combination => combination.any?.length || combination.all?.length), `${actor.id}:${vibeIdx} enforceable combinations`);
+      assert.ok(promise.hero?.any?.length, `${actor.id}:${vibeIdx} hero promise`);
+    });
   }
+  const yuning = ACTOR_IDENTITY_PROFILES["liu-yuning"];
+  const xueyi = ACTOR_IDENTITY_PROFILES["liu-xueyi"];
+  assert.equal(yuning.commonCollisions.includes("离十六"), false, "Li Shiliu is Liu Yuning's character, not a collision");
+  assert.ok(yuning.aestheticClusters.some(cluster => cluster.id === "li-shiliu-masked-moonlight"));
+  assert.ok(xueyi.aestheticClusters.some(cluster => cluster.id === "yuan-zhong-pale-ceremonial"));
+  assert.ok(xueyi.aestheticClusters.some(cluster => cluster.id === "murong-jinghe-dark-commander"));
 });
 
 test("the audit surface is admin-only before any report store is read", async () => {
@@ -426,6 +441,30 @@ test("runs without two complete boards fail clearly and cannot be approved", asy
   }), {});
   assert.equal(rejected.status, 200);
   assert.equal((await rejected.json()).pairing.eligible, false);
+  assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).eligible, false);
+});
+
+test("useful evidence with failed board selection records Needs curation work", async () => {
+  const { handler, store } = harness({ sufficient: false, curationFailure: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const run = await runResponse.json();
+  assert.equal(run.currentRun.blindReview.status, "unavailable");
+  assert.equal(run.currentRun.suggestedState, "needs_curation_work");
+  assert.equal(run.currentRun.boardDiagnostics.compiled.reasonCode, "promise_not_fulfilled");
+
+  const verdictResponse = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "needs_curation_work",
+    notes: "Useful evidence exists, but neither board kept the promise.",
+  }), {});
+  assert.equal(verdictResponse.status, 200);
+  assert.equal((await verdictResponse.json()).pairing.eligible, false);
   assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).eligible, false);
 });
 

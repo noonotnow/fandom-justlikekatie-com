@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import { getRandomForDate, hashDateString } from "./date-seed.js";
-import { IDENTITY_PROFILE_VERSION } from "./actor-identity-profiles.js";
+import {
+  AESTHETIC_CLUSTER_VERSION,
+  IDENTITY_PROFILE_VERSION,
+  VIBE_PROMISE_CONTRACT_VERSION,
+  vibePromiseFor,
+} from "./actor-identity-profiles.js";
+import { CURATION_VERSION } from "./grid-curation.js";
 
 export const ELIGIBILITY_STORE = "actor-audit";
 export const APPROVED_VERDICTS = new Set(["approved", "approved_override"]);
@@ -19,9 +25,14 @@ export const auditCalibrationReasonsKey = (actorId, vibeIdx, runId, receiptId = 
 export function pairingFingerprintFor(actor, vibeIdx) {
   return createHash("sha256").update(JSON.stringify({
     profileVersion: IDENTITY_PROFILE_VERSION,
+    identityProfileVersion: IDENTITY_PROFILE_VERSION,
+    aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+    promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+    curationVersion: CURATION_VERSION,
     actorId: actor.id,
     vibeKey: auditVibeKey(actor.id, vibeIdx),
     queries: actor.vibes?.[vibeIdx]?.queries || [],
+    promise: vibePromiseFor(actor, vibeIdx),
   })).digest("hex").slice(0, 20);
 }
 
@@ -59,8 +70,16 @@ export async function getEligibility(store, actor, vibeIdx) {
     })
     || snapshot.calibrationVersion !== 1
     || run.profileVersion !== IDENTITY_PROFILE_VERSION
+    || run.identityProfileVersion !== IDENTITY_PROFILE_VERSION
+    || run.aestheticClusterVersion !== AESTHETIC_CLUSTER_VERSION
+    || run.promiseContractVersion !== VIBE_PROMISE_CONTRACT_VERSION
+    || run.curationReceipt?.curationVersion !== CURATION_VERSION
     || run.pairingFingerprint !== expectedFingerprint
     || snapshot.profileVersion !== IDENTITY_PROFILE_VERSION
+    || snapshot.identityProfileVersion !== IDENTITY_PROFILE_VERSION
+    || snapshot.aestheticClusterVersion !== AESTHETIC_CLUSTER_VERSION
+    || snapshot.promiseContractVersion !== VIBE_PROMISE_CONTRACT_VERSION
+    || snapshot.curationVersion !== CURATION_VERSION
     || snapshot.pairingFingerprint !== expectedFingerprint
     || snapshot.verdict !== verdict.verdict
   ) return null;
@@ -88,7 +107,11 @@ function validFinalCalibration({ actor, vibeIdx, run, verdict, calibration, reas
     && calibration.agreement === expectedAgreement
     && calibration.experiment?.auditRunId === run.runId
     && calibration.experiment?.curationVersion === expectedVersion
+    && calibration.experiment?.identityProfileVersion === IDENTITY_PROFILE_VERSION
+    && calibration.experiment?.aestheticClusterVersion === AESTHETIC_CLUSTER_VERSION
+    && calibration.experiment?.promiseContractVersion === VIBE_PROMISE_CONTRACT_VERSION
     && expectedVersion !== null
+    && expectedVersion === CURATION_VERSION
     && sameRecord(calibration.experiment?.eventBoard, eventBoard)
     && sameRecord(calibration.experiment?.compiledBoard, compiledBoard)
     && validPresentationOrder(calibration.presentationOrder)
@@ -101,6 +124,9 @@ function validFinalCalibration({ actor, vibeIdx, run, verdict, calibration, reas
     && sameRecord(final.compiledBoard, compiledBoard)
     && sameRecord(final.presentationOrder, calibration.presentationOrder)
     && final.curationVersion === expectedVersion
+    && final.identityProfileVersion === IDENTITY_PROFILE_VERSION
+    && final.aestheticClusterVersion === AESTHETIC_CLUSTER_VERSION
+    && final.promiseContractVersion === VIBE_PROMISE_CONTRACT_VERSION
     && final.humanChoice === calibration.choice
     && final.humanChoiceAt === calibration.chosenAt
     && final.humanChoiceBy === calibration.chosenBy

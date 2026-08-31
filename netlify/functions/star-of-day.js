@@ -5,6 +5,12 @@ import { evaluateCandidates, rankCandidates, RANKED_BATCH_LIMIT } from "./lib/ra
 import { getShanghaiDateString, shanghaiYesterday } from "./lib/date-seed.js";
 import { curateDisplayResults } from "./lib/grid-curation.js";
 import {
+  AESTHETIC_CLUSTER_VERSION,
+  IDENTITY_PROFILE_VERSION,
+  VIBE_PROMISE_CONTRACT_VERSION,
+  vibePromiseFor,
+} from "./lib/actor-identity-profiles.js";
+import {
   ELIGIBILITY_STORE,
   isPairEligible,
   selectEligiblePair,
@@ -27,10 +33,10 @@ import {
 // real cache key and reads whatever the winner produced. This is what stops
 // simultaneous requests right after midnight from each independently
 // re-running the whole search+rank ladder.
-const VERSION = "v7";
+const VERSION = "v8";
 // Legacy entries remain readable as historical editions; today's key is v7 so
 // no pre-audit cache can satisfy the current day's scheduler.
-const LEGACY_READ_VERSIONS = ["v6", "v5"];
+const LEGACY_READ_VERSIONS = ["v7", "v6", "v5"];
 const STORE_NAME = "star-of-day";
 const LOCK_TTL_MS = 25000; // a stale/abandoned lock is ignored after this long
 const POLL_INTERVAL_MS = 700;
@@ -89,7 +95,14 @@ export async function buildPayloadForDate(
       continue;
     }
 
-    const { displayResults, curation } = await curate(ranked);
+    const { displayResults, curation } = await curate(ranked, {
+      promise: vibePromiseFor(actor, seed.vIdx),
+      profileVersions: {
+        identityProfileVersion: IDENTITY_PROFILE_VERSION,
+        aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+        promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+      },
+    });
     if (displayResults.length < 9) {
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;

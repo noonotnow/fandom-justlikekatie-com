@@ -13,6 +13,12 @@ import {
   eligibilityKey,
   pairingFingerprintFor,
 } from "./actor-eligibility.js";
+import {
+  AESTHETIC_CLUSTER_VERSION,
+  IDENTITY_PROFILE_VERSION,
+  VIBE_PROMISE_CONTRACT_VERSION,
+} from "./actor-identity-profiles.js";
+import { CURATION_VERSION } from "./grid-curation.js";
 
 function makeStore(entries = {}) {
   const values = new Map(Object.entries(entries));
@@ -76,7 +82,10 @@ function approvedEligibility(actor, vibeIdx) {
     agreement: true,
     experiment: {
       auditRunId: runId,
-      curationVersion: 1,
+      curationVersion: CURATION_VERSION,
+      identityProfileVersion: IDENTITY_PROFILE_VERSION,
+      aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+      promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
       eventBoard,
       compiledBoard,
     },
@@ -89,7 +98,10 @@ function approvedEligibility(actor, vibeIdx) {
     eventBoard,
     compiledBoard,
     presentationOrder,
-    curationVersion: 1,
+    curationVersion: CURATION_VERSION,
+    identityProfileVersion: IDENTITY_PROFILE_VERSION,
+    aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+    promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
     humanChoice: "compiled",
     humanChoiceAt: chosenAt,
     humanChoiceBy: "operator-1",
@@ -109,7 +121,11 @@ function approvedEligibility(actor, vibeIdx) {
       eligible: true,
       verdict: "approved",
       runId,
-      profileVersion: 1,
+      profileVersion: IDENTITY_PROFILE_VERSION,
+      identityProfileVersion: IDENTITY_PROFILE_VERSION,
+      aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+      promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+      curationVersion: CURATION_VERSION,
       pairingFingerprint,
       calibrationVersion: 1,
       calibrationHash: recordHash(finalCalibration),
@@ -117,12 +133,15 @@ function approvedEligibility(actor, vibeIdx) {
     [auditHeadKey(actorId, vibeIdx)]: { currentRunId: runId },
     [auditRunKey(actorId, vibeIdx, runId)]: {
       runId,
-      profileVersion: 1,
+      profileVersion: IDENTITY_PROFILE_VERSION,
+      identityProfileVersion: IDENTITY_PROFILE_VERSION,
+      aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+      promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
       pairingFingerprint,
       strongestEvent: { candidates },
       strongestCompiled: { candidates: [...candidates].reverse() },
       winner: { mode: "compiled" },
-      curationReceipt: { curationVersion: 1 },
+      curationReceipt: { curationVersion: CURATION_VERSION },
     },
     [auditVerdictKey(actorId, vibeIdx, runId)]: {
       verdict: "approved",

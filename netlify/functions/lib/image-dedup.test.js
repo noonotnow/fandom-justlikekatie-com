@@ -76,6 +76,24 @@ test("retains a distinct editorial pose with the same set, outfit, and palette",
   );
 });
 
+test("flags a multi-panel contact sheet instead of rewarding its seam density as quality", async () => {
+  const collage = await sharp(Buffer.from(`
+    <svg width="640" height="480" xmlns="http://www.w3.org/2000/svg">
+      <rect width="320" height="240" fill="#121820"/>
+      <rect x="320" width="320" height="240" fill="#e8e3dc"/>
+      <rect y="240" width="320" height="240" fill="#7f2530"/>
+      <rect x="320" y="240" width="320" height="240" fill="#216e83"/>
+      <rect x="315" width="10" height="480" fill="#fff"/>
+      <rect y="235" width="640" height="10" fill="#fff"/>
+    </svg>
+  `)).jpeg({ quality: 94 }).toBuffer();
+
+  const fingerprint = await fingerprintImage(collage);
+  assert.ok(fingerprint.compositeScore >= 0.68);
+  assert.ok(fingerprint.singleFrameRatio < 0.55);
+  assert.ok(fingerprint.seamCount >= 2);
+});
+
 test("keeps the higher-quality candidate when a blurrier copy ranked first", async () => {
   const high = await renderedScene();
   const low = await sharp(high).resize(140, 105).blur(1.5).jpeg({ quality: 30 }).toBuffer();

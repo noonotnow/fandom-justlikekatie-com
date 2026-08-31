@@ -9,8 +9,8 @@ type BlindReview = AnyRecord & { status?: 'pending'|'revealed'|'unavailable'; ch
 type BoardDiagnostic = { available?: boolean; requiredCount?: number; candidateCount?: number; usableCount?: number; distinctUsableCount?: number; largestFamilyCount?: number; largestDistinctFamilyCount?: number; reasonCodes?: string[]; reasonCode?: string|null; summary?: string };
 type Run = AnyRecord & { runId?: string; scope?: string; queryRuns?: AnyRecord[]; rawResults?: AnyRecord[]; rejections?: AnyRecord[]; identityEvidence?: AnyRecord; detectedEvents?: AnyRecord[]; boardDiagnostics?: { event?: BoardDiagnostic; compiled?: BoardDiagnostic }; strongestEvent?: AnyRecord; strongestCompiled?: AnyRecord; winner?: AnyRecord; alternate?: AnyRecord; curationReceipt?: AnyRecord; blindReview?: BlindReview };
 
-const VERDICTS = ['approved','approved_override','needs_query_work','insufficient_material','identity_risk','do_not_schedule'];
-const VERDICT_LABELS: Record<string, string> = { approved: 'Approved', approved_override: 'Approved with override', needs_query_work: 'Needs query work', insufficient_material: 'Insufficient material', identity_risk: 'Identity risk', do_not_schedule: 'Do not schedule' };
+const VERDICTS = ['approved','approved_override','needs_query_work','needs_curation_work','insufficient_material','identity_risk','do_not_schedule'];
+const VERDICT_LABELS: Record<string, string> = { approved: 'Approved', approved_override: 'Approved with override', needs_query_work: 'Needs query work', needs_curation_work: 'Needs curation work', insufficient_material: 'Insufficient material', identity_risk: 'Identity risk', do_not_schedule: 'Do not schedule' };
 const DISAGREEMENT_REASONS: Array<[string,string]> = [
   ['better_individual_cards','Better individual cards'],
   ['stronger_overall_cohesion','Stronger overall cohesion'],
@@ -150,7 +150,7 @@ function RunEvidence({
           <small>Your first choice is permanent. Scores and the system winner are withheld until you choose.</small>
         </div>}
         {!revealed && !isCurrent && <p className={styles.historicalNotice}>This historical run was never independently judged and remains blinded.</p>}
-        {revealed && <RevealSummary run={run} />}
+        {revealed && <><RevealSummary run={run} /><RunnerUpBoards run={run} /></>}
         {disagreed && isCurrent && <form className={styles.disagreement} onSubmit={onSaveReasons}>
           <div><strong>Why did you disagree?</strong><p>Choose every editorial instinct that mattered. “Neither” is a real result and still needs a reason.</p></div>
           <div className={styles.reasonGrid}>{DISAGREEMENT_REASONS.map(([value,label])=><label className={styles.reason} key={value}><input type="checkbox" checked={disagreementReasons.includes(value)} onChange={event=>onReasonChange(event.target.checked?[...disagreementReasons,value]:disagreementReasons.filter(item=>item!==value))}/><span>{label}</span></label>)}</div>
@@ -192,7 +192,16 @@ function RevealSummary({run}:{run:Run}) {
   </div>;
 }
 
+function RunnerUpBoards({run}:{run:Run}) {
+  const boards = [
+    ...(Array.isArray(run.eventAlternatives) ? run.eventAlternatives.map((board:AnyRecord,index:number)=>({label:`Event runner-up ${index + 1}`,board})) : []),
+    ...(Array.isArray(run.compiledAlternatives) ? run.compiledAlternatives.map((board:AnyRecord,index:number)=>({label:`Compiled runner-up ${index + 1}`,board})) : []),
+  ];
+  if (!boards.length) return null;
+  return <section className={styles.runnerUps}><div><h6>Runner-up boards</h6><p>Revealed only after the independent choice. Use these to diagnose selection failures, not to rewrite the frozen calibration.</p></div><div className={styles.boardComparison}>{boards.map(item=><BoardPreview key={item.label} label={item.label} board={item.board} isWinner={false} revealed />)}</div></section>;
+}
+
 function BoardPreview({label,board,isWinner,revealed}:{label:string;board?:AnyRecord|null;isWinner:boolean;revealed:boolean}) {
   const candidates = Array.isArray(board?.candidates) ? board.candidates : [];
-  return <article className={`${styles.board} ${isWinner ? styles.boardWinner : ''}`}><div className={styles.boardHeader}><div><strong>{label}</strong>{isWinner && <span className={styles.boardTag}>System winner</span>}</div><small>{revealed && typeof board?.score === 'number' ? `score ${board.score.toFixed(2)}` : candidates.length >= 9 ? '9-card board' : 'No complete board'}</small></div>{candidates.length > 0 ? <div className={styles.boardGrid}>{candidates.map((item:any,index:number)=><a className={styles.boardTile} href={item.link || item.thumbnail || '#'} target="_blank" rel="noreferrer" key={`${item.link || item.thumbnail || item.title || 'board-image'}-${index}`}>{item.thumbnail ? <img src={item.thumbnail} alt={item.title || `${label} image ${index + 1}`} loading="lazy" /> : <span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{item.title || `Frame ${index + 1}`}</span></a>)}</div> : <p className={styles.boardEmpty}>No complete 9-image board survived this audit.</p>}{revealed && board?.scoreBreakdown && <div className={styles.scoreBreakdown}>{Object.entries(board.scoreBreakdown).map(([key,value]:[string,any])=><div key={key}><span>{key.replace(/[A-Z]/g,letter=>` ${letter}`).toLowerCase()}</span><strong>{Number(value.contribution ?? 0).toFixed(3)}</strong><small>{Number(value.value ?? 0).toFixed(2)} × {Number(value.weight ?? 0).toFixed(2)}</small></div>)}</div>}</article>;
+  return <article className={`${styles.board} ${isWinner ? styles.boardWinner : ''}`}><div className={styles.boardHeader}><div><strong>{label}</strong>{isWinner && <span className={styles.boardTag}>System winner</span>}</div><small>{revealed && typeof board?.score === 'number' ? `score ${board.score.toFixed(2)}` : candidates.length >= 9 ? '9-card board' : 'No complete board'}</small></div>{candidates.length > 0 ? <div className={styles.boardGrid}>{candidates.map((item:any,index:number)=><a className={styles.boardTile} href={item.link || item.thumbnail || '#'} target="_blank" rel="noreferrer" key={`${item.link || item.thumbnail || item.title || 'board-image'}-${index}`}>{item.thumbnail ? <img src={item.thumbnail} alt={item.title || `${label} image ${index + 1}`} loading="lazy" /> : <span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{item.title || `Frame ${index + 1}`}</span></a>)}</div> : <p className={styles.boardEmpty}>No complete 9-image board survived this audit.</p>}{revealed && board?.promise && <p className={styles.promiseReceipt}>{board.promise.coreCount ?? 0}/9 core anchors · hero {board.promise.heroFulfillment === 1 ? 'fulfilled' : 'failed'} · single-frame {Math.round(Number(board.promise.singleFrameRatio ?? 0) * 100)}%</p>}{revealed && board?.scoreBreakdown && <div className={styles.scoreBreakdown}>{Object.entries(board.scoreBreakdown).map(([key,value]:[string,any])=><div key={key}><span>{key.replace(/[A-Z]/g,letter=>` ${letter}`).toLowerCase()}</span><strong>{Number(value.contribution ?? 0).toFixed(3)}</strong><small>{Number(value.value ?? 0).toFixed(2)} × {Number(value.weight ?? 0).toFixed(2)}</small></div>)}</div>}</article>;
 }

@@ -12,10 +12,11 @@ import {
  * intentionally heuristic: metadata and perceptual fingerprints can provide
  * evidence, but cannot prove actor identity, pose progression, or emotion.
  */
-export const CURATION_VERSION = 3;
+export const CURATION_VERSION = 4;
 export const DEFAULT_CURATION_LIMIT = 9;
 export const DEFAULT_CANDIDATE_LIMIT = 36;
 export const DEFAULT_ANALYSIS_CONCURRENCY = 4;
+export const MIN_PROMISE_CARDS = 7;
 
 const MIN_DIMENSION = 128;
 const MIN_AREA = 24_000;
@@ -25,6 +26,8 @@ const MIN_SHARPNESS = 2;
 const COMPILED_SIMILARITY_DISTANCE = 0.18;
 const EVENT_COPY_DISTANCE = 0.085;
 const EVENT_PAIR_DISTANCE = 0.24;
+const HIGH_SALIENCE_SLOTS = [1, 3, 4, 5, 7];
+const SECONDARY_SLOTS = [0, 2, 6, 8];
 const SEARCH_PROVIDER_HOST = /(^|\.)(bing|google|baidu|yahoo|duckduckgo|brave|serpapi)\./i;
 const GENERIC_SOURCE = /^(unknown|source|image|images|bing(?: images)?|google(?: images)?|baidu(?: images)?|search result)$/i;
 const GENERIC_QUERY_TERMS = new Set([
@@ -32,6 +35,8 @@ const GENERIC_QUERY_TERMS = new Set([
   "采访", "情绪", "角色", "帅气", "特写", "近景", "近照", "日常", "随拍",
   "温柔", "单人", "个人", "大片", "活动", "现场",
 ]);
+const COMPOSITE_TEXT = /(?:collage|contact\s*sheet|mood\s*board|multi[-\s]?panel|multiple\s+(?:photos?|looks?)|拼图|九宫格|组图|多图|合集|拼接|(?:介绍|盘点)\s*\+\s*\d+)/i;
+const BTS_TEXT = /(?:behind\s+the\s+scenes|\bbts\b|production\s+(?:equipment|set)|片场|幕后|花絮|路透)/i;
 
 function clamp(value, min = 0, max = 1) {
   return Math.max(min, Math.min(max, value));
@@ -42,6 +47,148 @@ function normalizeText(value) {
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, " ")
     .trim();
+}
+
+function resultText(result, includeQuery = false) {
+  return normalizeText([
+    result.title,
+    result.description,
+    includeQuery ? result.batchKey : "",
+  ].filter(Boolean).join(" "));
+}
+
+function containsTerm(text, term) {
+  const normalized = normalizeText(term);
+  return Boolean(normalized && text.includes(normalized));
+}
+
+function matchingTerms(text, terms = []) {
+  return terms.filter(term => containsTerm(text, term));
+}
+
+function matchesCombination(text, combination) {
+  const all = combination?.all || [];
+  const any = combination?.any || [];
+  return all.every(term => containsTerm(text, term))
+    && (!any.length || any.some(term => containsTerm(text, term)));
+}
+
+function declaredImageCount(result) {
+  const values = [
+    result.imageCount,
+    result.mediaCount,
+    result.photoCount,
+    Array.isArray(result.images) ? result.images.length : null,
+  ].map(Number).filter(Number.isFinite);
+  return values.length ? Math.max(...values) : 1;
+}
+
+function compositeEvidence(result, fingerprint) {
+  const text = `${result.title || ""} ${result.description || ""}`;
+  const declaredCount = declaredImageCount(result);
+  const visualScore = Number(fingerprint?.compositeScore) || 0;
+  const singleFrameRatio = Number.isFinite(fingerprint?.singleFrameRatio)
+    ? Number(fingerprint.singleFrameRatio)
+    : 1 - visualScore;
+  const metadataSignal = declaredCount > 1 || COMPOSITE_TEXT.test(text);
+  return {
+    composite: metadataSignal || visualScore >= 0.68 || singleFrameRatio < 0.55,
+    metadataSignal,
+    declaredCount,
+    visualScore,
+    singleFrameRatio: clamp(singleFrameRatio),
+  };
+}
+
+function clusterEvidence(result, promise) {
+  const metadata = resultText(result, false);
+  const query = normalizeText(result.batchKey);
+  return (promise?.aestheticClusters || []).map(cluster => {
+    const identityTerms = [
+      cluster.work,
+      cluster.character,
+      ...(cluster.aliases || []),
+    ].filter(Boolean);
+    const visualTerms = [
+      ...(cluster.wardrobeAnchors || []),
+      ...(cluster.propAnchors || []),
+      ...(cluster.settingAnchors || []),
+    ].filter(Boolean);
+    const identityMetadataMatches = matchingTerms(metadata, identityTerms);
+    const visualMetadataMatches = matchingTerms(metadata, visualTerms);
+    const queryIdentityMatches = matchingTerms(query, identityTerms);
+    // Generic styling words cannot claim a character look by themselves.
+    // Query identity is only a bounded prior and needs two independent visual
+    // anchors from the result itself before it can establish membership.
+    const confidence = identityMetadataMatches.length
+      ? (visualMetadataMatches.length ? 1 : 0.8)
+      : queryIdentityMatches.length && visualMetadataMatches.length >= 2
+        ? 0.7
+        : 0;
+    return {
+      id: cluster.id,
+      confidence,
+      compatible: !promise.clusterIds?.length || promise.clusterIds.includes(cluster.id),
+      metadataMatches: [...identityMetadataMatches, ...visualMetadataMatches],
+      identityMetadataMatches,
+      visualMetadataMatches,
+      queryMatches: queryIdentityMatches,
+      compatibility: cluster.vibeCompatibility || {},
+    };
+  }).filter(item => item.confidence > 0);
+}
+
+function promiseEvidence(result, promise) {
+  if (!promise) {
+    return {
+      coreSatisfied: true,
+      supportingMatches: [],
+      hardAntiMatches: [],
+      softContradictionMatches: [],
+      heroSatisfied: true,
+      clusters: [],
+      promiseScore: 1,
+    };
+  }
+  const metadata = resultText(result, false);
+  const required = promise.requiredCombinations || [];
+  const requiredMatches = required.filter(combination => matchesCombination(metadata, combination));
+  const supportingMatches = matchingTerms(metadata, promise.supportingAnchors);
+  const hardAntiMatches = matchingTerms(metadata, promise.hardAntiAnchors);
+  if (BTS_TEXT.test(metadata) && !hardAntiMatches.includes("bts")) hardAntiMatches.push("behind_the_scenes");
+  const softContradictionMatches = matchingTerms(metadata, promise.softContradictions);
+  const clusters = clusterEvidence(result, promise);
+  const recognizedCluster = clusters.some(cluster =>
+    cluster.compatible && cluster.confidence >= 0.7);
+  const incompatibleCluster = clusters.some(cluster =>
+    !cluster.compatible && cluster.confidence >= 0.7);
+  const coreSatisfied = required.length === 0
+    ? (!promise.clusterIds?.length || recognizedCluster)
+    : requiredMatches.length === required.length
+      && (!promise.clusterIds?.length || recognizedCluster);
+  const heroTerms = promise.hero?.any || [];
+  const heroSatisfied = (heroTerms.length === 0
+    || heroTerms.some(term => containsTerm(metadata, term))
+    || recognizedCluster)
+    && softContradictionMatches.length === 0
+    && !incompatibleCluster;
+  const promiseScore = clamp(
+    (coreSatisfied ? 0.7 : 0)
+    + Math.min(0.2, supportingMatches.length * 0.04)
+    + Math.min(0.1, clusters.length * 0.05)
+    - Math.min(0.5, softContradictionMatches.length * 0.18),
+  );
+  return {
+    coreSatisfied,
+    requiredMatches: requiredMatches.map(item => item.id),
+    supportingMatches,
+    hardAntiMatches,
+    softContradictionMatches,
+    heroSatisfied,
+    incompatibleCluster,
+    clusters,
+    promiseScore,
+  };
 }
 
 function titleTokens(value) {
@@ -266,39 +413,100 @@ function weightedBreakdown(parts) {
   return { total, breakdown };
 }
 
-function eventScoreParts(board, familyStrength) {
+function boardPromiseMetrics(board, promise) {
+  if (!promise) {
+    return {
+      coreCount: board.length,
+      coreCoverage: 1,
+      promiseFulfillment: 1,
+      heroFulfillment: 1,
+      clusterCoherence: 1,
+      contradictionRate: 0,
+      singleFrameRatio: 1,
+    };
+  }
+  const coreCount = board.filter(candidate => candidate.editorial?.coreSatisfied).length;
+  const promiseFulfillment = average(board.map(candidate => candidate.editorial?.promiseScore || 0));
+  const hero = board[Math.min(4, Math.max(0, board.length - 1))];
+  const highSalience = HIGH_SALIENCE_SLOTS
+    .filter(index => index < board.length)
+    .map(index => board[index]);
+  const clusterIds = board.flatMap(candidate =>
+    (candidate.editorial?.clusters || [])
+      .filter(cluster => cluster.compatible && cluster.confidence >= 0.7)
+      .map(cluster => cluster.id));
+  const clusterCounts = new Map();
+  for (const id of clusterIds) clusterCounts.set(id, (clusterCounts.get(id) || 0) + 1);
+  const dominantCount = Math.max(0, ...clusterCounts.values());
+  const contradictionCount = board.filter(candidate =>
+    candidate.editorial?.softContradictionMatches?.length).length;
+  return {
+    coreCount,
+    coreCoverage: coreCount / Math.max(1, board.length),
+    promiseFulfillment,
+    heroFulfillment: hero?.editorial?.heroSatisfied ? 1 : 0,
+    highSalienceCoreCount: highSalience.filter(candidate =>
+      candidate?.editorial?.coreSatisfied && !candidate?.editorial?.incompatibleCluster).length,
+    highSalienceCount: highSalience.length,
+    incompatibleClusterCount: board.filter(candidate =>
+      candidate.editorial?.incompatibleCluster).length,
+    clusterCoherence: clusterIds.length ? dominantCount / clusterIds.length : 0.5,
+    contradictionRate: contradictionCount / Math.max(1, board.length),
+    singleFrameRatio: average(board.map(candidate => candidate.singleFrameRatio ?? 1)),
+  };
+}
+
+function promiseQualified(board, promise, limit) {
+  if (!promise) return true;
+  const metrics = boardPromiseMetrics(board, promise);
+  return metrics.coreCount >= Math.min(MIN_PROMISE_CARDS, limit)
+    && metrics.heroFulfillment === 1
+    && metrics.highSalienceCoreCount === metrics.highSalienceCount
+    && metrics.singleFrameRatio >= 0.99;
+}
+
+function eventScoreParts(board, familyStrength, promise) {
   const variation = boardVisualVariation(board);
   const quality = boardQuality(board);
+  const promiseMetrics = boardPromiseMetrics(board, promise);
   return weightedBreakdown([
+    ["promiseFulfillment", promiseMetrics.promiseFulfillment, 0.3],
+    ["coreAnchorCoverage", promiseMetrics.coreCoverage, 0.15],
+    ["heroSlotFulfillment", promiseMetrics.heroFulfillment, 0.15],
+    ["clusterContinuity", promiseMetrics.clusterCoherence, 0.1],
+    ["familyStrength", familyStrength, 0.3],
+    ["visualVariation", variation, 0.05],
+    ["quality", quality, 0.05],
+    ["contradictionPenalty", -promiseMetrics.contradictionRate, 0.1],
+  ]);
+}
+
+function eventScore(board, familyStrength, promise) {
+  return eventScoreParts(board, familyStrength, promise).total;
+}
+
+function compiledScoreParts(board, promise) {
+  const quality = boardQuality(board);
+  const variation = boardVisualVariation(board);
+  const promiseMetrics = boardPromiseMetrics(board, promise);
+  const coherentRange = clamp(
+    (promiseMetrics.clusterCoherence * 0.65)
+    + (variation * 0.35)
+    - promiseMetrics.contradictionRate,
+  );
+  return weightedBreakdown([
+    ["promiseFulfillment", promiseMetrics.promiseFulfillment, 0.3],
+    ["coreAnchorCoverage", promiseMetrics.coreCoverage, 0.2],
+    ["heroSlotFulfillment", promiseMetrics.heroFulfillment, 0.15],
+    ["coherentRange", coherentRange, 0.15],
+    ["visualVariation", variation, 0.05],
     ["quality", quality, 0.15],
-    ["completeness", board.length / DEFAULT_CURATION_LIMIT, 0.15],
-    ["familyStrength", familyStrength, 0.55],
-    ["visualVariation", variation, 0.15],
+    ["contradictionPenalty", -promiseMetrics.contradictionRate, 0.1],
   ]);
 }
 
-function eventScore(board, familyStrength) {
-  return eventScoreParts(board, familyStrength).total;
-}
-
-function compiledScoreParts(board) {
-  const quality = boardQuality(board);
-  const sources = clamp(uniqueCount(board, candidate => sourceKey(candidate.result)) / 5);
-  const batches = clamp(uniqueCount(board, candidate => batchKey(candidate.result)) / 3);
-  const families = clamp(uniqueCount(board, candidate => candidate.familyId) / 4);
-  const variation = boardVisualVariation(board);
-  return weightedBreakdown([
-    ["quality", quality, 0.2],
-    ["completeness", board.length / DEFAULT_CURATION_LIMIT, 0.15],
-    ["sourceRange", sources, 0.2],
-    ["queryRange", batches, 0.15],
-    ["familyRange", families, 0.15],
-    ["visualVariation", variation, 0.15],
-  ]);
-}
-
-function compiledScore(board) {
-  return compiledScoreParts(board).total;
+function compiledScore(board, promise) {
+  return compiledScoreParts(board, promise).total;
 }
 
 function stableSerialize(value) {
@@ -430,7 +638,42 @@ function boardKey(board) {
     .join("\u0001");
 }
 
-function greedyBoard(candidates, limit, score, incompatible) {
+function boardRangeTieBreak(board) {
+  return uniqueCount(board, candidate => sourceKey(candidate.result))
+    + uniqueCount(board, candidate => batchKey(candidate.result)) * 0.1;
+}
+
+function arrangeBoard(candidates, promise) {
+  const ordered = [...candidates].sort(candidateOrder);
+  if (!promise || ordered.length < 5) return ordered;
+  const rankedForHero = [...ordered].sort((left, right) =>
+    Number(right.editorial?.heroSatisfied) - Number(left.editorial?.heroSatisfied)
+    || Number(right.editorial?.coreSatisfied) - Number(left.editorial?.coreSatisfied)
+    || Number(left.editorial?.incompatibleCluster) - Number(right.editorial?.incompatibleCluster)
+    || (right.editorial?.promiseScore || 0) - (left.editorial?.promiseScore || 0)
+    || candidateOrder(left, right));
+  const hero = rankedForHero[0];
+  const rest = ordered
+    .filter(candidate => candidate !== hero)
+    .sort((left, right) =>
+      Number(left.editorial?.incompatibleCluster) - Number(right.editorial?.incompatibleCluster)
+      || Number(Boolean(left.editorial?.softContradictionMatches?.length))
+        - Number(Boolean(right.editorial?.softContradictionMatches?.length))
+      || Number(right.editorial?.coreSatisfied) - Number(left.editorial?.coreSatisfied)
+      || (right.editorial?.promiseScore || 0) - (left.editorial?.promiseScore || 0)
+      || candidateOrder(left, right));
+  const arranged = Array(ordered.length);
+  arranged[4] = hero;
+  const supportingSlots = HIGH_SALIENCE_SLOTS.filter(index => index !== 4 && index < ordered.length);
+  for (const slot of supportingSlots) arranged[slot] = rest.shift();
+  for (const slot of SECONDARY_SLOTS.filter(index => index < ordered.length)) arranged[slot] = rest.shift();
+  for (let index = 0; index < arranged.length; index += 1) {
+    if (!arranged[index]) arranged[index] = rest.shift();
+  }
+  return arranged;
+}
+
+function greedyBoards(candidates, limit, score, incompatible, promise) {
   const alternatives = [];
   for (const seed of candidates) {
     const board = [seed];
@@ -450,44 +693,50 @@ function greedyBoard(candidates, limit, score, incompatible) {
       board.push(choices[0].candidate);
     }
     if (board.length === limit) {
-      const ordered = board.sort(candidateOrder);
+      const ordered = arrangeBoard(board, promise);
       alternatives.push({ board: ordered, score: score(ordered) });
     }
   }
-  return alternatives.sort((left, right) =>
+  const unique = new Map();
+  for (const alternative of alternatives) {
+    const key = boardKey(alternative.board);
+    if (!unique.has(key) || alternative.score > unique.get(key).score) unique.set(key, alternative);
+  }
+  return [...unique.values()].sort((left, right) =>
     right.score - left.score
-    || boardKey(left.board).localeCompare(boardKey(right.board)))[0] || null;
+    || boardRangeTieBreak(right.board) - boardRangeTieBreak(left.board)
+    || boardKey(left.board).localeCompare(boardKey(right.board))).slice(0, 6);
 }
 
-function selectEventBoard(families, limit) {
+function selectEventBoards(families, limit, promise) {
   const alternatives = families.flatMap(family => {
     const candidates = collapseCopies(
       [...family.candidates].sort(candidateOrder),
       EVENT_COPY_DISTANCE,
     );
     if (candidates.length < limit) return [];
-    const selected = greedyBoard(
+    const selected = greedyBoards(
       candidates,
       limit,
-      board => eventScore(board, family.familyStrength),
+      board => eventScore(board, family.familyStrength, promise),
       () => false,
+      promise,
     );
-    return selected
-      ? [{ ...selected, familyStrength: family.familyStrength }]
-      : [];
+    return selected.map(item => ({ ...item, familyStrength: family.familyStrength }));
   });
   return alternatives.sort((left, right) =>
     right.score - left.score
-    || boardKey(left.board).localeCompare(boardKey(right.board)))[0] || null;
+    || boardKey(left.board).localeCompare(boardKey(right.board))).slice(0, 6);
 }
 
-function selectCompiledBoard(candidates, limit) {
-  return greedyBoard(
+function selectCompiledBoards(candidates, limit, promise) {
+  return greedyBoards(
     candidates,
     limit,
-    compiledScore,
+    board => compiledScore(board, promise),
     (left, right) =>
       perceptualDistance(left.fingerprint, right.fingerprint) <= COMPILED_SIMILARITY_DISTANCE,
+    promise,
   );
 }
 
@@ -510,6 +759,9 @@ function boardDiagnosticSummary(mode, reasonCode, metrics) {
   }
   if (reasonCode === "event_family_too_small") {
     return `The strongest Event family had ${metrics.largestFamilyCount} frames (${metrics.largestDistinctFamilyCount} after copy collapse); ${metrics.requiredCount} distinct frames are required.`;
+  }
+  if (reasonCode === "promise_not_fulfilled") {
+    return `${label} formed a complete proposal, but only ${metrics.coreAnchorCount} of ${metrics.requiredCount} cards fulfilled the Vibe Pack's required anchors; at least ${Math.min(MIN_PROMISE_CARDS, metrics.requiredCount)} plus an on-promise hero are required.`;
   }
   return `${label} did not reach the ${metrics.requiredCount}-card qualification gate.`;
 }
@@ -552,6 +804,8 @@ export async function curateDisplayResults(
     fingerprint = fingerprintImage,
     diagnostics = false,
     analysisConcurrency = DEFAULT_ANALYSIS_CONCURRENCY,
+    promise = null,
+    profileVersions = null,
   } = {},
 ) {
   const rawCandidates = [];
@@ -573,7 +827,32 @@ export async function curateDisplayResults(
       const buffer = await loadBuffer(candidate.result.thumbnail, candidate.result);
       const imageFingerprint = await fingerprint(buffer, candidate.result);
       if (!usableFingerprint(imageFingerprint)) return { candidate, dropReason: "unusable_image" };
-      return { candidate: { ...candidate, fingerprint: imageFingerprint }, dropReason: null };
+      const composite = compositeEvidence(candidate.result, imageFingerprint);
+      const editorial = promiseEvidence(candidate.result, promise);
+      const enriched = {
+        ...candidate,
+        fingerprint: imageFingerprint,
+        editorial,
+        singleFrameRatio: composite.singleFrameRatio,
+        composite,
+      };
+      if (composite.composite) {
+        return {
+          candidate: enriched,
+          dropReason: "composite_image",
+          dropDetail: composite.metadataSignal
+            ? `Result metadata indicates ${composite.declaredCount} images or a composite format.`
+            : `Image seam analysis produced composite score ${composite.visualScore.toFixed(2)}.`,
+        };
+      }
+      if (editorial.hardAntiMatches.length) {
+        return {
+          candidate: enriched,
+          dropReason: "hard_anti_anchor",
+          dropDetail: editorial.hardAntiMatches.join(", ").slice(0, 160),
+        };
+      }
+      return { candidate: enriched, dropReason: null };
     } catch (error) {
       return {
         candidate,
@@ -582,31 +861,41 @@ export async function curateDisplayResults(
       };
     }
   });
-  const analyzed = analyzedStates.filter(state => state.candidate.fingerprint).map(state => state.candidate);
+  const analyzed = analyzedStates
+    .filter(state => state.candidate.fingerprint && !state.dropReason)
+    .map(state => state.candidate);
 
   const candidates = replaceExactCopies(analyzed).sort(candidateOrder);
   const families = buildFamilies(candidates);
   const withFamilies = familyLabeledCandidates(candidates, families);
-  const eventCandidate = selectEventBoard(families, limit);
-  const compiledCandidate = selectCompiledBoard(withFamilies, limit);
+  const eventProposals = selectEventBoards(families, limit, promise);
+  const compiledProposals = selectCompiledBoards(withFamilies, limit, promise);
+  const eventAlternatives = eventProposals.filter(item => promiseQualified(item.board, promise, limit));
+  const compiledAlternatives = compiledProposals.filter(item => promiseQualified(item.board, promise, limit));
+  const eventCandidate = eventAlternatives[0] || null;
+  const compiledCandidate = compiledAlternatives[0] || null;
   const boardDiagnostics = {
     event: boardDiagnostic("event", eventCandidate, {
       limit,
       usableCount: analyzed.length,
       distinctUsableCount: candidates.length,
       families,
+      proposals: eventProposals,
+      promise,
     }),
     compiled: boardDiagnostic("compiled", compiledCandidate, {
       limit,
       usableCount: analyzed.length,
       distinctUsableCount: candidates.length,
       families,
+      proposals: compiledProposals,
+      promise,
     }),
   };
 
   if (!eventCandidate && !compiledCandidate) {
     return diagnostics
-      ? { displayResults: [], curation: null, diagnostics: diagnosticReceipt(rawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, null, boardDiagnostics) }
+      ? { displayResults: [], curation: null, diagnostics: diagnosticReceipt(rawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, null, boardDiagnostics, promise, profileVersions) }
       : { displayResults: [], curation: null };
   }
 
@@ -615,24 +904,39 @@ export async function curateDisplayResults(
   const winner = useEvent ? eventCandidate : compiledCandidate;
   const result = {
     displayResults: winner.board.map(candidate => candidate.result),
-    curation: rationaleFor(useEvent ? "event" : "compiled", eventCandidate, compiledCandidate),
+    curation: {
+      ...rationaleFor(useEvent ? "event" : "compiled", eventCandidate, compiledCandidate),
+      ...(profileVersions || {}),
+    },
   };
-  if (diagnostics) result.diagnostics = diagnosticReceipt(rawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, useEvent ? "event" : "compiled", boardDiagnostics);
+  if (diagnostics) result.diagnostics = diagnosticReceipt(rawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, useEvent ? "event" : "compiled", boardDiagnostics, promise, profileVersions);
   return result;
 }
 
-function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, eventCandidate, compiledCandidate, winner, boardDiagnostics) {
+function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, winner, boardDiagnostics, promise, profileVersions) {
   const summarize = candidate => ({
     thumbnail: String(candidate.result.thumbnail || "").slice(0, 500),
     title: String(candidate.result.title || "").slice(0, 240),
     source: String(candidate.result.source || "").slice(0, 120),
     batchRank: candidate.batchRank,
+    promise: candidate.editorial ? {
+      coreSatisfied: candidate.editorial.coreSatisfied,
+      requiredMatches: candidate.editorial.requiredMatches || [],
+      supportingMatches: candidate.editorial.supportingMatches || [],
+      softContradictionMatches: candidate.editorial.softContradictionMatches || [],
+      clusters: (candidate.editorial.clusters || []).map(cluster => ({
+        id: cluster.id,
+        confidence: Number(cluster.confidence.toFixed(3)),
+      })),
+      singleFrameRatio: Number((candidate.singleFrameRatio ?? 1).toFixed(3)),
+    } : null,
   });
   const board = (selection, mode) => selection ? {
     score: Number(selection.score.toFixed(4)),
     scoreBreakdown: (mode === "event"
-      ? eventScoreParts(selection.board, selection.familyStrength)
-      : compiledScoreParts(selection.board)).breakdown,
+      ? eventScoreParts(selection.board, selection.familyStrength, promise)
+      : compiledScoreParts(selection.board, promise)).breakdown,
+    promise: boardPromiseMetrics(selection.board, promise),
     candidates: selection.board.slice(0, DEFAULT_CURATION_LIMIT).map(summarize),
   } : null;
   return {
@@ -656,10 +960,20 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
     })),
     strongestEvent: board(eventCandidate, "event"),
     strongestCompiled: board(compiledCandidate, "compiled"),
+    eventAlternatives: eventAlternatives.slice(1, 4).map(item => board(item, "event")),
+    compiledAlternatives: compiledAlternatives.slice(1, 4).map(item => board(item, "compiled")),
     boardDiagnostics,
     winner,
     alternate: winner === "event" ? "compiled" : winner === "compiled" ? "event" : null,
-    receipt: { rawCount: rawCandidates.length, analyzedCount: states.filter(state => !state.dropReason).length, curationVersion: CURATION_VERSION },
+    receipt: {
+      rawCount: rawCandidates.length,
+      analyzedCount: states.filter(state => !state.dropReason).length,
+      curationVersion: CURATION_VERSION,
+      promiseContractId: promise?.id || null,
+      singleFrameCount: states.filter(state => !state.dropReason && (state.candidate.singleFrameRatio ?? 1) >= 0.99).length,
+      compositeRejectedCount: states.filter(state => state.dropReason === "composite_image").length,
+      ...(profileVersions || {}),
+    },
   };
 }
 
@@ -668,6 +982,8 @@ function boardDiagnostic(mode, selection, {
   usableCount,
   distinctUsableCount,
   families,
+  proposals = [],
+  promise = null,
 }) {
   const largestFamilyCount = families.reduce(
     (largest, family) => Math.max(largest, family.candidates.length),
@@ -689,6 +1005,9 @@ function boardDiagnostic(mode, selection, {
     distinctUsableCount,
     largestFamilyCount,
     largestDistinctFamilyCount,
+    coreAnchorCount: proposals[0]?.board
+      ? boardPromiseMetrics(proposals[0].board, promise).coreCount
+      : 0,
   };
   const reasonCodes = [];
 
@@ -720,6 +1039,10 @@ function boardDiagnostic(mode, selection, {
     }
   }
 
+  if (!selection && proposals.length && promise) {
+    reasonCodes.unshift("promise_not_fulfilled");
+  }
+
   if (!selection && !reasonCodes.length) reasonCodes.push("board_not_selected");
   const uniqueReasonCodes = [...new Set(reasonCodes)];
   const reasonCode = uniqueReasonCodes[0] || null;
@@ -731,6 +1054,7 @@ function boardDiagnostic(mode, selection, {
     distinctUsableCount,
     largestFamilyCount,
     largestDistinctFamilyCount,
+    coreAnchorCount: metrics.coreAnchorCount,
     reasonCodes: uniqueReasonCodes,
     reasonCode,
     summary: reasonCode

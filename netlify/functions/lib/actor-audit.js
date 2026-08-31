@@ -1,8 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { json } from "./public-auth.js";
 import {
+  AESTHETIC_CLUSTER_VERSION,
   ACTOR_IDENTITY_PROFILES,
   IDENTITY_PROFILE_VERSION,
+  VIBE_PROMISE_CONTRACT_VERSION,
+  vibePromiseFor,
 } from "./actor-identity-profiles.js";
 import {
   APPROVED_VERDICTS,
@@ -38,6 +41,7 @@ const VERDICTS = new Set([
   "approved",
   "approved_override",
   "needs_query_work",
+  "needs_curation_work",
   "insufficient_material",
   "identity_risk",
   "do_not_schedule",
@@ -78,6 +82,9 @@ export function createActorAuditHandler({
           return json(200, {
             schemaVersion: 1,
             profileVersion: IDENTITY_PROFILE_VERSION,
+            identityProfileVersion: IDENTITY_PROFILE_VERSION,
+            aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+            promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
             actors: await listActors(store, actorPacks),
           });
         }
@@ -189,6 +196,10 @@ export function createActorAuditHandler({
         await writeEligibility(store, pair, {
           schemaVersion: 1,
           profileVersion: IDENTITY_PROFILE_VERSION,
+          identityProfileVersion: IDENTITY_PROFILE_VERSION,
+          aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+          promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+          curationVersion: report.currentRun.curationReceipt?.curationVersion || null,
           actorId: pair.actor.id,
           vibeKey: pair.vibeKey,
           vibeIdx: pair.vibeIdx,
@@ -353,8 +364,17 @@ export async function runPreflight(
   });
   const ranked = rankCandidates(candidates);
   const rankedForCuration = ranked.slice(0, RANKED_BATCH_LIMIT);
+  const profileVersions = {
+    identityProfileVersion: IDENTITY_PROFILE_VERSION,
+    aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+    promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+  };
   const curated = rankedForCuration.length
-    ? await curate(rankedForCuration, { diagnostics: true })
+    ? await curate(rankedForCuration, {
+      diagnostics: true,
+      promise: vibePromiseFor(pair.actor, pair.vibeIdx),
+      profileVersions,
+    })
     : { displayResults: [], curation: null, diagnostics: null };
   const diagnostics = curated.diagnostics || emptyDiagnostics();
   const profile = ACTOR_IDENTITY_PROFILES[pair.actor.id];
@@ -371,6 +391,7 @@ export async function runPreflight(
     runId: createRunId(),
     schemaVersion: 1,
     profileVersion: IDENTITY_PROFILE_VERSION,
+    ...profileVersions,
     pairingFingerprint: pairingFingerprintFor(pair.actor, pair.vibeIdx),
     scope,
     startedAt,
@@ -384,6 +405,8 @@ export async function runPreflight(
     boardDiagnostics: diagnostics.boardDiagnostics || null,
     strongestEvent: diagnostics.strongestEvent || null,
     strongestCompiled: diagnostics.strongestCompiled || null,
+    eventAlternatives: diagnostics.eventAlternatives || [],
+    compiledAlternatives: diagnostics.compiledAlternatives || [],
     winner: diagnostics.winner
       ? { mode: diagnostics.winner, board: diagnostics[diagnostics.winner === "event" ? "strongestEvent" : "strongestCompiled"] }
       : null,
@@ -398,7 +421,9 @@ export async function runPreflight(
     materialSufficient,
     suggestedState: materialSufficient
       ? identityEvidence.collisionSignals > 0 ? "identity_risk" : "needs_operator_verdict"
-      : "insufficient_material",
+      : Number(diagnostics.receipt?.analyzedCount) >= 9
+        ? "needs_curation_work"
+        : "insufficient_material",
     operatorVerdict: null,
   };
 }
@@ -529,6 +554,9 @@ async function actorSummary(store, actorPacks, actor) {
     canonicalName: actor.name,
     romanizedName: actor.shortName_en,
     profileVersion: IDENTITY_PROFILE_VERSION,
+    identityProfileVersion: IDENTITY_PROFILE_VERSION,
+    aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+    promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
     ...profile,
     pairings,
   };
@@ -542,6 +570,9 @@ function pairingSummary(pair, report) {
   const eligible = Boolean(
     current
     && current.profileVersion === IDENTITY_PROFILE_VERSION
+    && current.identityProfileVersion === IDENTITY_PROFILE_VERSION
+    && current.aestheticClusterVersion === AESTHETIC_CLUSTER_VERSION
+    && current.promiseContractVersion === VIBE_PROMISE_CONTRACT_VERSION
     && current.pairingFingerprint === pairingFingerprintFor(pair.actor, pair.vibeIdx)
     && currentVerdict
     && current.blindReview?.choice
@@ -601,6 +632,8 @@ function emptyDiagnostics() {
     eventFamilies: [],
     strongestEvent: null,
     strongestCompiled: null,
+    eventAlternatives: [],
+    compiledAlternatives: [],
     boardDiagnostics: null,
     winner: null,
     alternate: null,
@@ -789,6 +822,9 @@ function createCalibration(pair, run, choice, operator, now) {
       eventBoard: boardSnapshot(run.strongestEvent, "event"),
       compiledBoard: boardSnapshot(run.strongestCompiled, "compiled"),
       curationVersion: run.curationReceipt?.curationVersion || run.curationReceipt?.version || null,
+      identityProfileVersion: run.identityProfileVersion || run.profileVersion || null,
+      aestheticClusterVersion: run.aestheticClusterVersion || null,
+      promiseContractVersion: run.promiseContractVersion || null,
       systemWinner: run.winner?.mode || null,
     },
     choice,
@@ -814,6 +850,9 @@ function calibrationSnapshot(review, verdict, notes, decidedAt, decidedBy) {
     compiledBoard: review.experiment?.compiledBoard || null,
     presentationOrder: review.presentationOrder || [],
     curationVersion: review.experiment?.curationVersion || null,
+    identityProfileVersion: review.experiment?.identityProfileVersion || null,
+    aestheticClusterVersion: review.experiment?.aestheticClusterVersion || null,
+    promiseContractVersion: review.experiment?.promiseContractVersion || null,
     humanChoice: review.choice,
     humanChoiceAt: review.chosenAt,
     humanChoiceBy: review.chosenBy,
@@ -850,6 +889,9 @@ function clientRun(run, pair) {
     runId: run.runId,
     schemaVersion: run.schemaVersion,
     profileVersion: run.profileVersion,
+    identityProfileVersion: run.identityProfileVersion,
+    aestheticClusterVersion: run.aestheticClusterVersion,
+    promiseContractVersion: run.promiseContractVersion,
     pairingFingerprint: run.pairingFingerprint,
     scope: run.scope,
     startedAt: run.startedAt,
@@ -882,6 +924,9 @@ async function writeEligibility(store, pair, snapshot) {
   const value = snapshot || {
     schemaVersion: 1,
     profileVersion: IDENTITY_PROFILE_VERSION,
+    identityProfileVersion: IDENTITY_PROFILE_VERSION,
+    aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+    promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
     actorId: pair.actor.id,
     vibeKey: pair.vibeKey,
     vibeIdx: pair.vibeIdx,

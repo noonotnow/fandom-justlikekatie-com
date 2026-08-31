@@ -11,10 +11,12 @@ function fingerprint(id, {
   quality = 220,
   sharpness = 12,
   digest = `digest-${id}`,
+  compositeScore = 0,
+  singleFrameRatio = 1,
 } = {}) {
   const differences = new Uint8Array(DIFFERENCE_COUNT);
   for (const index of ones) differences[index % DIFFERENCE_COUNT] = 1;
-  return { digest, differences, quality, sharpness, width, height };
+  return { digest, differences, quality, sharpness, width, height, compositeScore, singleFrameRatio };
 }
 
 function spreadBits(index, count = 96) {
@@ -285,7 +287,8 @@ test("a strong compiled set wins with a frozen component score breakdown", async
   const diagnostic = await curate(compiled, { diagnostics: true });
   const breakdown = diagnostic.diagnostics.strongestCompiled.scoreBreakdown;
   assert.deepEqual(Object.keys(breakdown), [
-    "quality", "completeness", "sourceRange", "queryRange", "familyRange", "visualVariation",
+    "promiseFulfillment", "coreAnchorCoverage", "heroSlotFulfillment", "coherentRange",
+    "visualVariation", "quality", "contradictionPenalty",
   ]);
   const contributionTotal = Object.values(breakdown)
     .reduce((total, component) => total + component.contribution, 0);
@@ -534,4 +537,228 @@ test("bounds concurrent image analysis for serverless runtimes", async () => {
 
   assert.equal(curated.displayResults.length, 9);
   assert.equal(peak, 3);
+});
+
+test("composite thumbnails are rejected before their internal variety can earn score", async () => {
+  const collage = result("collage", {
+    title: "刘学义介绍 +10部必看陆剧 多图合集",
+    source: "high-variety.test",
+    fp: fingerprint("collage", {
+      ones: spreadBits("collage", 128),
+      quality: 280,
+      sharpness: 40,
+      compositeScore: 0.91,
+      singleFrameRatio: 0.09,
+    }),
+  });
+  const clean = Array.from({ length: 9 }, (_, index) => result(`single-${index}`, {
+    title: `刘学义 源仲 白衣 single editorial frame ${index}`,
+  }));
+  const output = await curateBatches([
+    { query: "刘学义 念无双 源仲", results: [collage, ...clean] },
+  ], {
+    diagnostics: true,
+    promise: {
+      id: "cold-jade-test",
+      requiredCombinations: [{ id: "yuan-zhong", any: ["源仲"] }],
+      supportingAnchors: ["白衣"],
+      hardAntiAnchors: [],
+      softContradictions: [],
+      hero: { any: ["源仲"] },
+      clusterIds: [],
+      aestheticClusters: [],
+    },
+  });
+
+  assert.equal(output.displayResults.length, 9);
+  assert.equal(output.displayResults.some(item => item.thumbnail === collage.thumbnail), false);
+  assert.equal(output.diagnostics.dropped.some(item => item.dropReason === "composite_image"), true);
+  assert.equal(output.diagnostics.receipt.compositeRejectedCount, 1);
+  assert.equal(output.diagnostics.strongestCompiled.promise.singleFrameRatio, 1);
+});
+
+test("a Vibe promise gate beats technically varied contradictory cards", async () => {
+  const promise = {
+    id: "cold-jade-test",
+    requiredCombinations: [
+      { id: "yuan-zhong", any: ["源仲"] },
+      { id: "pale-costume", any: ["白衣", "pale robe"] },
+    ],
+    supportingAnchors: ["silver", "snow", "moonlight"],
+    hardAntiAnchors: ["modern event", "fire truck"],
+    softContradictions: ["red", "black armor", "慕容璟和"],
+    hero: { any: ["源仲", "白衣"] },
+    clusterIds: [],
+    aestheticClusters: [],
+  };
+  const coldJade = Array.from({ length: 9 }, (_, index) => result(`cold-jade-${index}`, {
+    source: `cold-${index % 3}.test`,
+    title: `刘学义 源仲 白衣 silver moonlight frame ${index}`,
+    fp: fingerprint(`cold-jade-${index}`, { ones: spreadBits(`cold-jade-${index}`, 92) }),
+  }));
+  const chaos = Array.from({ length: 9 }, (_, index) => result(`chaos-${index}`, {
+    source: `chaos-${index}.test`,
+    title: `刘学义 ${index % 2 ? "慕容璟和 red black armor" : "unrelated modern portrait"} ${index}`,
+    fp: fingerprint(`chaos-${index}`, {
+      ones: spreadBits(`chaos-${index}`, 128),
+      quality: 270,
+    }),
+  }));
+  const output = await curateBatches([
+    { query: "刘学义 念无双 源仲", results: coldJade },
+    { query: "刘学义 角色 剧照", results: chaos },
+  ], { diagnostics: true, promise });
+
+  assert.equal(output.displayResults.length, 9);
+  assert.equal(output.displayResults.every(item => /源仲|白衣/.test(item.title)), true);
+  assert.equal(output.diagnostics.strongestCompiled.promise.coreCount, 9);
+  assert.equal(output.diagnostics.strongestCompiled.promise.heroFulfillment, 1);
+  assert.equal("sourceRange" in output.diagnostics.strongestCompiled.scoreBreakdown, false);
+  assert.equal("queryRange" in output.diagnostics.strongestCompiled.scoreBreakdown, false);
+});
+
+test("character query provenance cannot prove cluster membership without result evidence", async () => {
+  const unrelated = Array.from({ length: 9 }, (_, index) => result(`query-prior-${index}`, {
+    title: `刘学义 unrelated dark commander frame ${index}`,
+  }));
+  const promise = {
+    id: "yuan-zhong-only",
+    requiredCombinations: [{ id: "yuan-zhong", any: ["源仲"] }],
+    supportingAnchors: [],
+    hardAntiAnchors: [],
+    softContradictions: ["dark commander"],
+    hero: { any: ["源仲"] },
+    clusterIds: ["yuan-zhong"],
+    aestheticClusters: [{
+      id: "yuan-zhong",
+      work: "念无双",
+      character: "源仲",
+      aliases: ["Yuan Zhong"],
+      vibeCompatibility: {},
+    }],
+  };
+  const output = await curateBatches([
+    { query: "刘学义 念无双 源仲", results: unrelated },
+  ], { diagnostics: true, promise });
+
+  assert.equal(output.displayResults.length, 0);
+  assert.equal(output.diagnostics.strongestCompiled, null);
+  assert.equal(output.diagnostics.boardDiagnostics.compiled.reasonCode, "promise_not_fulfilled");
+  assert.match(output.diagnostics.boardDiagnostics.compiled.summary, /only 0 of 9 cards/i);
+});
+
+test("every required promise combination must match on each core card", async () => {
+  const partial = Array.from({ length: 9 }, (_, index) => result(`partial-promise-${index}`, {
+    title: `刘学义 源仲 editorial frame ${index}`,
+  }));
+  const output = await curateBatches([
+    { query: "刘学义 念无双 源仲", results: partial },
+  ], {
+    diagnostics: true,
+    promise: {
+      id: "cold-jade-required-set",
+      requiredCombinations: [
+        { id: "character", any: ["源仲"] },
+        { id: "pale-look", any: ["白衣", "pale robe"] },
+      ],
+      supportingAnchors: [],
+      hardAntiAnchors: [],
+      softContradictions: [],
+      hero: { any: ["源仲"] },
+      clusterIds: [],
+      aestheticClusters: [],
+    },
+  });
+
+  assert.equal(output.displayResults.length, 0);
+  assert.equal(output.diagnostics.boardDiagnostics.compiled.reasonCode, "promise_not_fulfilled");
+});
+
+test("incompatible character looks are confined to secondary slots", async () => {
+  const core = Array.from({ length: 7 }, (_, index) => result(`yuan-core-${index}`, {
+    title: `刘学义 源仲 白衣 silver editorial frame ${index}`,
+  }));
+  const conflicting = Array.from({ length: 2 }, (_, index) => result(`murong-conflict-${index}`, {
+    title: `刘学义 慕容璟和 black armor commander frame ${index}`,
+  }));
+  const promise = {
+    id: "cold-jade-placement",
+    requiredCombinations: [
+      { id: "character", any: ["源仲"] },
+      { id: "pale-look", any: ["白衣"] },
+    ],
+    supportingAnchors: ["silver"],
+    hardAntiAnchors: [],
+    softContradictions: ["慕容璟和", "black armor"],
+    hero: { any: ["源仲", "白衣"] },
+    clusterIds: ["yuan-zhong"],
+    aestheticClusters: [
+      {
+        id: "yuan-zhong",
+        work: "念无双",
+        character: "源仲",
+        wardrobeAnchors: ["白衣", "silver"],
+      },
+      {
+        id: "murong-jinghe",
+        work: "春花焰",
+        character: "慕容璟和",
+        wardrobeAnchors: ["black armor", "commander"],
+      },
+    ],
+  };
+  const output = await curateBatches([
+    { query: "刘学义 character study", results: [...conflicting, ...core] },
+  ], { diagnostics: true, promise });
+  const highSalience = [1, 3, 4, 5, 7].map(index => output.displayResults[index]?.title || "");
+  const secondary = [0, 2, 6, 8].map(index => output.displayResults[index]?.title || "");
+
+  assert.equal(output.displayResults.length, 9);
+  assert.equal(highSalience.every(title => title.includes("源仲")), true);
+  assert.equal(secondary.filter(title => title.includes("慕容璟和")).length, 2);
+  assert.equal(output.diagnostics.strongestCompiled.promise.highSalienceCoreCount, 5);
+  assert.equal(output.diagnostics.strongestCompiled.promise.incompatibleClusterCount, 2);
+});
+
+test("one generic visual word cannot claim character-look membership", async () => {
+  const generic = Array.from({ length: 9 }, (_, index) => result(`generic-mask-${index}`, {
+    title: `unrelated actor moonlight portrait ${index}`,
+  }));
+  const output = await curateBatches([
+    { query: "刘宇宁 书卷一梦 离十六", results: generic },
+  ], {
+    diagnostics: true,
+    promise: {
+      id: "li-shiliu-cluster",
+      requiredCombinations: [],
+      supportingAnchors: [],
+      hardAntiAnchors: [],
+      softContradictions: [],
+      hero: { any: ["离十六"] },
+      clusterIds: ["li-shiliu"],
+      aestheticClusters: [{
+        id: "li-shiliu",
+        work: "书卷一梦",
+        character: "离十六",
+        wardrobeAnchors: ["mask", "moonlight", "hat"],
+      }],
+    },
+  });
+
+  assert.equal(output.displayResults.length, 0);
+  assert.equal(output.diagnostics.boardDiagnostics.compiled.reasonCode, "promise_not_fulfilled");
+});
+
+test("successful non-diagnostic curation carries profile provenance", async () => {
+  const frames = Array.from({ length: 9 }, (_, index) => result(`provenance-${index}`));
+  const profileVersions = {
+    identityProfileVersion: 2,
+    aestheticClusterVersion: 1,
+    promiseContractVersion: 2,
+  };
+  const output = await curate(frames, { profileVersions });
+
+  assert.equal(output.curation.identityProfileVersion, 2);
+  assert.equal(output.curation.aestheticClusterVersion, 1);
+  assert.equal(output.curation.promiseContractVersion, 2);
 });

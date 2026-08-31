@@ -3,6 +3,12 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import { getRandomForDate } from "./date-seed.js";
 import {
+  AESTHETIC_CLUSTER_VERSION,
+  IDENTITY_PROFILE_VERSION,
+  VIBE_PROMISE_CONTRACT_VERSION,
+} from "./actor-identity-profiles.js";
+import { CURATION_VERSION } from "./grid-curation.js";
+import {
   auditHeadKey,
   auditCalibrationKey,
   auditRunKey,
@@ -61,7 +67,10 @@ function approved(actor, vibeIdx) {
     agreement: true,
     experiment: {
       auditRunId: runId,
-      curationVersion: 1,
+      curationVersion: CURATION_VERSION,
+      identityProfileVersion: IDENTITY_PROFILE_VERSION,
+      aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+      promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
       eventBoard,
       compiledBoard,
     },
@@ -74,7 +83,10 @@ function approved(actor, vibeIdx) {
     eventBoard,
     compiledBoard,
     presentationOrder,
-    curationVersion: 1,
+    curationVersion: CURATION_VERSION,
+    identityProfileVersion: IDENTITY_PROFILE_VERSION,
+    aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+    promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
     humanChoice: "compiled",
     humanChoiceAt: chosenAt,
     humanChoiceBy: "operator-1",
@@ -94,7 +106,11 @@ function approved(actor, vibeIdx) {
       eligible: true,
       verdict: "approved",
       runId,
-      profileVersion: 1,
+      profileVersion: IDENTITY_PROFILE_VERSION,
+      identityProfileVersion: IDENTITY_PROFILE_VERSION,
+      aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+      promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+      curationVersion: CURATION_VERSION,
       pairingFingerprint,
       calibrationVersion: 1,
       calibrationHash: recordHash(finalCalibration),
@@ -102,12 +118,15 @@ function approved(actor, vibeIdx) {
     [auditHeadKey(actorId, vibeIdx)]: { currentRunId: runId },
     [auditRunKey(actorId, vibeIdx, runId)]: {
       runId,
-      profileVersion: 1,
+      profileVersion: IDENTITY_PROFILE_VERSION,
+      identityProfileVersion: IDENTITY_PROFILE_VERSION,
+      aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+      promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
       pairingFingerprint,
       strongestEvent: { candidates },
       strongestCompiled: { candidates: [...candidates].reverse() },
       winner: { mode: "compiled" },
-      curationReceipt: { curationVersion: 1 },
+      curationReceipt: { curationVersion: CURATION_VERSION },
     },
     [auditVerdictKey(actorId, vibeIdx, runId)]: {
       verdict: "approved",
@@ -204,4 +223,15 @@ test("an approval is stale after its identity profile or query fingerprint chang
   changedPacks[legacy.aIdx].vibes[legacy.vIdx].queries = ["new query contract"];
 
   assert.equal(await selectEligiblePair(changedPacks, date, storeWith(entries)), null);
+});
+
+test("an approval fails closed after the curation algorithm version changes", async () => {
+  const date = "2026-09-04";
+  const legacy = getRandomForDate(packs, date);
+  const actor = packs[legacy.aIdx];
+  const entries = approved(actor, legacy.vIdx);
+  const runId = `${actor.id}-${legacy.vIdx}-run`;
+  entries[auditRunKey(actor.id, legacy.vIdx, runId)].curationReceipt.curationVersion = CURATION_VERSION - 1;
+
+  assert.equal(await selectEligiblePair(packs, date, storeWith(entries)), null);
 });
