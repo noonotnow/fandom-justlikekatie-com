@@ -8,6 +8,7 @@ type BlindBoard = { mode: 'event'|'compiled'; label: string; board?: AnyRecord|n
 type BlindReview = AnyRecord & { status?: 'pending'|'revealed'|'unavailable'; choice?: 'event'|'compiled'|'neither'; agreement?: boolean; systemWinner?: string; presentationOrder?: string[]; boards?: BlindBoard[]; reasonCodes?: string[]; note?: string };
 type BoardDiagnostic = { available?: boolean; requiredCount?: number; candidateCount?: number; usableCount?: number; distinctUsableCount?: number; largestFamilyCount?: number; largestDistinctFamilyCount?: number; reasonCodes?: string[]; reasonCode?: string|null; summary?: string };
 type Run = AnyRecord & { runId?: string; scope?: string; curationVersion?: number; identityProfileVersion?: number; aestheticClusterVersion?: number; promiseContractVersion?: number; queryRuns?: AnyRecord[]; rawResults?: AnyRecord[]; rejections?: AnyRecord[]; identityEvidence?: AnyRecord; detectedEvents?: AnyRecord[]; boardDiagnostics?: { event?: BoardDiagnostic; compiled?: BoardDiagnostic }; strongestEvent?: AnyRecord; strongestCompiled?: AnyRecord; winner?: AnyRecord; alternate?: AnyRecord; curationReceipt?: AnyRecord; blindReview?: BlindReview };
+const EMPTY_RECORDS: AnyRecord[] = [];
 
 const VERDICTS = ['approved','approved_override','needs_query_work','needs_curation_work','insufficient_material','identity_risk','do_not_schedule'];
 const VERDICT_LABELS: Record<string, string> = { approved: 'Approved', approved_override: 'Approved with override', needs_query_work: 'Needs query work', needs_curation_work: 'Needs curation work', insufficient_material: 'Insufficient material', identity_risk: 'Identity risk', do_not_schedule: 'Do not schedule' };
@@ -211,35 +212,55 @@ function RawResultGrid({run,isCurrent,busy,onFlag}:{run:Run;isCurrent:boolean;bu
 
 function RequestedGridReview({run,isCurrent,busy,onSave}:{run:Run;isCurrent:boolean;busy:string;onSave:(candidateIds:string[])=>void}) {
   const feedback=run.editorialFeedback;
-  const flags=feedback?.flags??[];
+  const flags=feedback?.flags??EMPTY_RECORDS;
   const review=feedback?.requestedReview;
   const saved=feedback?.operatorRescueBoard;
-  const savedMatchesCurrentFeedback=Boolean(saved?.feedbackHash&&review?.feedbackHash&&saved.feedbackHash===review.feedbackHash);
+  const savedMatchesCurrentFeedback=Boolean(saved?.feedbackHash&&feedback?.feedbackHash&&saved.feedbackHash===feedback.feedbackHash);
+  const rawResults=(run.rawResults??EMPTY_RECORDS) as AnyRecord[];
+  const excludedIds=useMemo(()=>new Set(flags.filter((item:any)=>item.disposition==='excluded').map((item:any)=>item.candidateId)),[flags]);
+  const unavailableIds=useMemo(()=>{
+    const unavailable=new Set<string>();
+    for(const item of rawResults)if(!item.thumbnail)unavailable.add(item.candidateId);
+    for(const item of run.curationReceipt?.rawCandidates??[])if(item.dropReason==='image_load_failed')unavailable.add(item.candidateId);
+    for(const item of run.rejections??[])if(item.kind==='image'&&item.reason==='image_load_failed')unavailable.add(item.candidateId);
+    return unavailable;
+  },[rawResults,run.curationReceipt?.rawCandidates,run.rejections]);
+  const candidatePool=useMemo<AnyRecord[]>(()=>{
+    const analyzedById=new Map<string,AnyRecord>((run.curationReceipt?.rawCandidates??EMPTY_RECORDS).map((item:AnyRecord)=>[item.candidateId,item]));
+    return rawResults
+      .filter(item=>item.candidateId&&item.thumbnail&&!excludedIds.has(item.candidateId)&&!unavailableIds.has(item.candidateId))
+      .map(item=>{const analyzed=analyzedById.get(item.candidateId);return {...item,...(analyzed??{}),link:analyzed?.link||item.link,thumbnail:item.thumbnail};});
+  },[rawResults,run.curationReceipt?.rawCandidates,excludedIds,unavailableIds]);
+  const poolIds=useMemo(()=>new Set(candidatePool.map(item=>item.candidateId)),[candidatePool]);
   const reviewCandidates=review?.board?.candidates;
   const savedCandidates=saved?.board?.candidates;
   const initialCandidates=useMemo<AnyRecord[]>(()=>((savedMatchesCurrentFeedback
     ? savedCandidates
     : review
       ? reviewCandidates
-      : [])??[]) as AnyRecord[],[
+      : [])??[]).filter((item:any)=>poolIds.has(item.candidateId)).slice(0,9) as AnyRecord[],[
     savedMatchesCurrentFeedback,
     savedCandidates,
     review,
     reviewCandidates,
+    poolIds,
   ]);
   const [candidates,setCandidates]=useState<AnyRecord[]>(initialCandidates);
   useEffect(()=>setCandidates(initialCandidates),[initialCandidates]);
-  if(!flags.length&&!saved)return null;
-  const honorCount=flags.filter((item:any)=>item.disposition==='requested').length;
-  const blockedCount=flags.filter((item:any)=>item.disposition==='blocked').length;
-  const excludedCount=flags.filter((item:any)=>item.disposition==='excluded').length;
+  const blockedCount=unavailableIds.size;
+  const excludedCount=excludedIds.size;
   const move=(index:number,direction:-1|1)=>setCandidates(current=>{const target=index+direction;if(target<0||target>=current.length)return current;const next=[...current];[next[index],next[target]]=[next[target],next[index]];return next;});
+  const setHero=(index:number)=>setCandidates(current=>{if(current.length<5||index===4)return current;const next=[...current];[next[index],next[4]]=[next[4],next[index]];return next;});
+  const toggleCandidate=(item:AnyRecord)=>setCandidates(current=>current.some(candidate=>candidate.candidateId===item.candidateId)?current.filter(candidate=>candidate.candidateId!==item.candidateId):current.length<9?[...current,item]:current);
   return <section className={styles.requestedReview}>
-    <div className={styles.requestedReviewHeader}><div><h6>Operator rescue board</h6><p>Pin, hero, and supporting flags are preferences among candidates that still pass identity, single-frame, duplicate, availability, and Vibe-promise gates. Exclusions stay out. This never changes the frozen audit or Daily Drop eligibility.</p></div><span>{honorCount} reviewable · {blockedCount} blocked · {excludedCount} excluded</span></div>
+    <div className={styles.requestedReviewHeader}><div><h6>Operator rescue board</h6><p>This is your override. Choose any nine retained, displayable images and arrange them yourself. Composite, duplicate, anti-anchor, and Vibe labels remain visible as algorithm evidence, but they do not veto the rescue. Only unavailable images and your exclusions stay out. The original audit and Daily Drop eligibility never change.</p></div><span>{candidates.length}/9 chosen · {candidatePool.length} available · {blockedCount} unavailable · {excludedCount} excluded</span></div>
     {saved&&!savedMatchesCurrentFeedback&&<p className={styles.historicalNotice}>{review?'Your previous saved arrangement is retained as history. This board was rebuilt from the current image choices.':'Your previous saved arrangement is retained as history. Pin an image to start a new editable rescue board.'}</p>}
-    {candidates.length===9?<><div className={styles.rescueGrid}>{candidates.map((item,index)=><article className={styles.rescueTile} data-hero={index===4} key={item.candidateId}><a href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.thumbnail?<img src={item.thumbnail} alt={item.title||`Rescue card ${index+1}`}/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{index===4?'Hero · ':''}{item.title||`Card ${index+1}`}</span></a><div><button type="button" disabled={index===0} onClick={()=>move(index,-1)} aria-label={`Move card ${index+1} earlier`}>←</button><button type="button" disabled={index===8} onClick={()=>move(index,1)} aria-label={`Move card ${index+1} later`}>→</button></div></article>)}</div><div className={styles.rescueActions}><button type="button" className={styles.buttonPrimary} disabled={!isCurrent||busy==='rescue-board'} onClick={()=>onSave(candidates.map(item=>item.candidateId))}>{busy==='rescue-board'?'Saving rescue board…':'Save this arrangement'}</button>{savedMatchesCurrentFeedback&&saved&&<span>Last saved {date(saved.savedAt)} by {saved.savedBy}</span>}</div></>:<p className={styles.boardEmpty}>{review?.summary||'The request receipt is saved. A provisional board has not formed.'}</p>}
-    {review?.board&&<p className={styles.requestedSummary}>{review.summary}</p>}
-    {blockedCount>0&&<div className={styles.blockedFlags}>{flags.filter((item:any)=>item.disposition==='blocked').map((item:any)=><span key={item.candidateId}><strong>{item.candidate?.title||item.candidateId}</strong> remains blocked by {String(item.blockedReason||'a hard rule').replaceAll('_',' ')}. The receipt requests a usable equivalent rather than placing the rejected asset.</span>)}</div>}
+    <div className={styles.rescuePickerHeader}><strong>Choose your nine</strong><span>Click an image to {candidates.length===9?'remove it before choosing another':'add or remove it'}.</span></div>
+    <div className={styles.rescuePicker}>{candidatePool.map(item=>{const selectedIndex=candidates.findIndex(candidate=>candidate.candidateId===item.candidateId);const selected=selectedIndex>=0;return <button type="button" className={selected?styles.rescuePickSelected:styles.rescuePick} aria-pressed={selected} disabled={!selected&&candidates.length>=9} onClick={()=>toggleCandidate(item)} key={item.candidateId}><img src={item.thumbnail} alt={item.title||'Retained rescue candidate'}/><span>{selected?`Chosen ${selectedIndex+1}`:'Add'}</span></button>;})}</div>
+    {candidates.length>0?<div className={styles.rescueGrid}>{candidates.map((item,index)=><article className={styles.rescueTile} data-hero={index===4} key={item.candidateId}><a href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.thumbnail?<img src={item.thumbnail} alt={item.title||`Rescue card ${index+1}`}/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{index===4?'Hero · ':''}{item.title||`Card ${index+1}`}</span></a><div><button type="button" disabled={index===0} onClick={()=>move(index,-1)} aria-label={`Move card ${index+1} earlier`}>←</button><button type="button" disabled={candidates.length<5||index===4} onClick={()=>setHero(index)} aria-label={`Make card ${index+1} the hero`}>Hero</button><button type="button" disabled={index===candidates.length-1} onClick={()=>move(index,1)} aria-label={`Move card ${index+1} later`}>→</button></div></article>)}</div>:<p className={styles.boardEmpty}>Choose the first image for this rescue board.</p>}
+    <div className={styles.rescueActions}><button type="button" className={styles.buttonPrimary} disabled={!isCurrent||busy==='rescue-board'||candidates.length!==9} onClick={()=>onSave(candidates.map(item=>item.candidateId))}>{busy==='rescue-board'?'Saving rescue board…':candidates.length===9?'Save my nine':'Choose nine to save'}</button><button type="button" className={styles.buttonSecondary} disabled={!candidates.length} onClick={()=>setCandidates([])}>Clear board</button>{savedMatchesCurrentFeedback&&saved&&<span>Last saved {date(saved.savedAt)} by {saved.savedBy}</span>}</div>
+    {review?.board&&<p className={styles.requestedSummary}>The suggested starting arrangement is editable. Your saved nine are the operator override.</p>}
+    {blockedCount>0&&<div className={styles.blockedFlags}>{[...unavailableIds].map(candidateId=>{const item=rawResults.find(candidate=>candidate.candidateId===candidateId);return <span key={candidateId}><strong>{item?.title||candidateId}</strong> is unavailable because the audit could not load a usable image from its retained URL.</span>;})}</div>}
   </section>;
 }
 

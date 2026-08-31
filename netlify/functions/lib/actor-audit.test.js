@@ -79,6 +79,7 @@ function curation({
   sufficient = true,
   curationFailure = false,
   hardRejected = false,
+  unavailableRejected = false,
   duplicateRejected = false,
   onOptions = () => {},
 } = {}) {
@@ -110,7 +111,9 @@ function curation({
     }
     const boardCandidates = [...new Map(rawCandidates.map(candidate =>
       [candidate.candidateId, candidate])).values()].slice(0, 9);
-    const dropped = hardRejected && rawCandidates[0]
+    const dropped = unavailableRejected && rawCandidates[0]
+      ? [{ ...rawCandidates[0], dropReason: "image_load_failed", dropDetail: "The source did not return image bytes." }]
+      : hardRejected && rawCandidates[0]
       ? [{ ...rawCandidates[0], dropReason: "composite_image", dropDetail: "Visible panel seams." }]
       : duplicateRejected && rawCandidates[1]
         ? [{ ...rawCandidates[1], dropReason: "exact_duplicate", dropDetail: "A canonical copy was retained." }]
@@ -150,6 +153,7 @@ function harness({
   sufficient = true,
   curationFailure = false,
   hardRejected = false,
+  unavailableRejected = false,
   duplicateRejected = false,
   authorized = true,
   onCurateOptions = () => {},
@@ -189,6 +193,7 @@ function harness({
       sufficient,
       curationFailure,
       hardRejected,
+      unavailableRejected,
       duplicateRejected,
       onOptions: onCurateOptions,
     }),
@@ -465,6 +470,54 @@ test("run-scoped image flags persist as append-only feedback without rewriting c
   assert.deepEqual(unflagged.currentRun.blindReview, calibrationBefore);
 });
 
+test("an operator can save and reload an exact nine-card rescue board without image flags", async () => {
+  const { handler } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const chosen = await choiceResponse.json();
+  const calibrationBefore = structuredClone(chosen.currentRun.blindReview);
+  const manualIds = chosen.currentRun.rawResults
+    .slice(4, 13)
+    .map(candidate => candidate.candidateId);
+
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds: manualIds,
+  }), {});
+  const saved = await saveResponse.json();
+  assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+  assert.deepEqual(saved.currentRun.editorialFeedback.flags, []);
+  assert.equal(
+    saved.currentRun.editorialFeedback.operatorRescueBoard.feedbackHash,
+    saved.currentRun.editorialFeedback.feedbackHash,
+  );
+
+  const reloadResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const reloaded = await reloadResponse.json();
+  assert.deepEqual(
+    reloaded.currentRun.editorialFeedback.operatorRescueBoard.board.candidates
+      .map(candidate => candidate.candidateId),
+    manualIds,
+  );
+  assert.equal(
+    reloaded.currentRun.editorialFeedback.operatorRescueBoard.board.candidates[4].candidateId,
+    manualIds[4],
+  );
+  assert.deepEqual(reloaded.currentRun.blindReview, calibrationBefore);
+});
+
 test("excluding an original board image removes it from rescue boards and rejects it on save", async () => {
   const { handler } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
@@ -683,7 +736,7 @@ test("rendered evidence uses the exact frozen ranked curation snapshot", async (
     item.query === pairActor.vibes[0].queries[2]));
 });
 
-test("hard-gated image flags remain visibly blocked and cannot create a requested board", async () => {
+test("a retained composite image can be rescued without changing its original rejection evidence", async () => {
   const { handler } = harness({ hardRejected: true });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   await handler(request("POST", {
@@ -705,28 +758,79 @@ test("hard-gated image flags remain visibly blocked and cannot create a requeste
     runId: "run-1",
     candidateId: rejected.candidateId,
     flagged: true,
-    intent: "challenge",
-    reasons: ["better_silhouette", "not_collage_duplicate_or_bts"],
+    intent: "pin",
+  }), {});
+  const flagged = await flagResponse.json();
+  assert.equal(flagResponse.status, 200, JSON.stringify(flagged));
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].disposition, "requested");
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].blockedReason, null);
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].intent, "pin");
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].originalRejection.reason, "composite_image");
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].originalRejection.detail, "Visible panel seams.");
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].equivalentRequest, null);
+  assert.equal(flagged.currentRun.editorialFeedback.requestedReview.status, "provisional_board");
+  assert.equal(flagged.currentRun.editorialFeedback.requestedReview.board.candidates
+    .some(candidate => candidate.candidateId === rejected.candidateId), true);
+  assert.equal(flagged.currentRun.blindReview.choice, "event");
+  const manualIds = chosen.currentRun.rawResults.slice(0, 9).map(candidate => candidate.candidateId);
+  assert.equal(manualIds.includes(rejected.candidateId), true);
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds: manualIds,
+  }), {});
+  const saved = await saveResponse.json();
+  assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+  assert.deepEqual(
+    saved.currentRun.editorialFeedback.operatorRescueBoard.board.candidates
+      .map(candidate => candidate.candidateId),
+    manualIds,
+  );
+});
+
+test("an image whose retained URL could not be loaded remains unavailable to rescue", async () => {
+  const { handler } = harness({ unavailableRejected: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "event",
+  }), {});
+  const chosen = await choiceResponse.json();
+  const unavailable = chosen.currentRun.rawResults.find(item =>
+    chosen.currentRun.rejections.some(entry =>
+      entry.kind === "image"
+      && entry.reason === "image_load_failed"
+      && entry.candidateId === item.candidateId));
+
+  const flagResponse = await handler(request("POST", {
+    action: "flag_candidate",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: unavailable.candidateId,
+    flagged: true,
+    intent: "pin",
   }), {});
   const flagged = await flagResponse.json();
   assert.equal(flagResponse.status, 200, JSON.stringify(flagged));
   assert.equal(flagged.currentRun.editorialFeedback.flags[0].disposition, "blocked");
-  assert.equal(flagged.currentRun.editorialFeedback.flags[0].blockedReason, "composite_image");
-  assert.equal(flagged.currentRun.editorialFeedback.flags[0].intent, "challenge");
-  assert.deepEqual(
-    flagged.currentRun.editorialFeedback.flags[0].reasons,
-    ["better_silhouette", "not_collage_duplicate_or_bts"],
-  );
-  assert.equal(flagged.currentRun.editorialFeedback.flags[0].originalRejection.reason, "composite_image");
-  assert.equal(flagged.currentRun.editorialFeedback.flags[0].originalRejection.detail, "Visible panel seams.");
-  assert.equal(
-    flagged.currentRun.editorialFeedback.flags[0].equivalentRequest.requestType,
-    "find_usable_equivalent",
-  );
-  assert.equal(flagged.currentRun.editorialFeedback.flags[0].equivalentRequest.status, "requested");
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].blockedReason, "unavailable");
   assert.equal(flagged.currentRun.editorialFeedback.requestedReview.status, "blocked");
   assert.equal(flagged.currentRun.editorialFeedback.requestedReview.board, null);
-  assert.equal(flagged.currentRun.blindReview.choice, "event");
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds: chosen.currentRun.strongestEvent.candidates.map(candidate => candidate.candidateId),
+  }), {});
+  const saveBody = await saveResponse.json();
+  assert.equal(saveResponse.status, 409, JSON.stringify(saveBody));
+  assert.match(saveBody.error, /displayable/i);
 });
 
 test("an exact-copy source can pin its canonical retained image without duplicating a board slot", async () => {

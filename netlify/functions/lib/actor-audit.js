@@ -49,12 +49,6 @@ const MAX_IDENTITY_ITEMS = 36;
 const MAX_FEEDBACK_EVENTS = 72;
 const MAX_FEEDBACK_NOTE_LENGTH = 400;
 const FEEDBACK_INTENTS = new Set(["pin", "hero", "supporting", "exclude", "challenge"]);
-const HARD_IMAGE_REJECTIONS = new Set([
-  "composite_image",
-  "hard_anti_anchor",
-  "image_load_failed",
-  "unusable_image",
-]);
 const CHALLENGE_REASONS = new Set([
   "stronger_vibe_match",
   "better_silhouette",
@@ -1065,6 +1059,7 @@ function emptyEditorialFeedback() {
     schemaVersion: 1,
     eventCount: 0,
     flags: [],
+    feedbackHash: feedbackHash([]),
     requestedReview: null,
     operatorRescueBoard: null,
   };
@@ -1099,6 +1094,7 @@ async function readEditorialFeedback(store, pair, run) {
     schemaVersion: 1,
     eventCount: receipts.length,
     flags,
+    feedbackHash: feedbackHash(flags),
     requestedReview: null,
     operatorRescueBoard: await readLatestReceipt(
       store,
@@ -1107,9 +1103,8 @@ async function readEditorialFeedback(store, pair, run) {
     ),
   };
   if (flags.length) {
-    const hash = feedbackHash(flags);
     feedback.requestedReview = await store.get(
-      auditRequestedReviewKey(pair.actor.id, pair.vibeIdx, run.runId, hash),
+      auditRequestedReviewKey(pair.actor.id, pair.vibeIdx, run.runId, feedback.feedbackHash),
       { type: "json", consistency: "strong" },
     );
   }
@@ -1146,8 +1141,8 @@ function candidateGate(run, candidateId) {
     item.candidateId === candidateId);
   const analyzed = rawCandidates.find(item => item.candidateId === candidateId);
   const reason = dropped?.dropReason || analyzed?.dropReason || null;
-  if (reason && HARD_IMAGE_REJECTIONS.has(reason)) {
-    return { disposition: "blocked", blockedReason: reason };
+  if (!raw.thumbnail || reason === "image_load_failed") {
+    return { disposition: "blocked", blockedReason: "unavailable" };
   }
   if (!analyzed) return { disposition: "blocked", blockedReason: "not_analyzed_in_audit" };
   return { disposition: "requested", blockedReason: null };
@@ -1186,10 +1181,10 @@ async function persistRequestedReview(store, pair, run, now) {
       })),
     board,
     summary: board
-      ? "A provisional rescue board was composed only from this run's frozen gate-approved candidates."
+      ? "A provisional rescue board was composed from this run's retained, displayable evidence. Algorithm labels remain attached but do not veto the operator's rescue."
       : eligibleFlags.length
-        ? "The frozen approved pool could not form a complete nine-card rescue board under the Vibe promise."
-        : "Every preference is excluded or blocked; rejected assets have a usable-equivalent request instead of board access.",
+        ? "Choose exactly nine retained, displayable images for the rescue board."
+        : "Every preference is excluded or unavailable.",
   };
   review.status = board ? "provisional_board" : eligibleFlags.length ? "needs_more_candidates" : "blocked";
   const write = await store.setJSON(key, review, { onlyIfNew: true });
@@ -1204,16 +1199,16 @@ function feedbackDisposition(receipt, gate) {
 }
 
 function buildFrozenRescueBoard(run, flags) {
-  const droppedIds = new Set((run.curationReceipt?.dropped || [])
-    .filter(item => HARD_IMAGE_REJECTIONS.has(item.dropReason))
-    .map(item => item.candidateId));
   const excludedIds = new Set(flags
     .filter(flag => flag.disposition === "excluded")
     .map(flag => flag.candidateId));
-  const byId = canonicalFrozenCandidates(run, excludedIds, droppedIds);
+  const byId = canonicalFrozenCandidates(run, excludedIds);
   const approved = [...byId.values()];
   const requested = flags
-    .filter(flag => flag.disposition === "requested" && byId.has(flag.candidateId))
+    .filter(flag =>
+      flag.disposition === "requested"
+      && ["pin", "hero", "supporting"].includes(flag.intent)
+      && byId.has(flag.candidateId))
     .sort((left, right) => intentPriority(left.intent) - intentPriority(right.intent)
       || left.candidateId.localeCompare(right.candidateId));
   const winnerMode = run.winner?.mode;
@@ -1226,41 +1221,30 @@ function buildFrozenRescueBoard(run, flags) {
   requested.forEach(flag => add(byId.get(flag.candidateId)));
   (winnerBoard?.candidates || []).forEach(add);
   [...approved].sort((left, right) => left.candidateId.localeCompare(right.candidateId)).forEach(add);
-  const coreSafe = candidate => Boolean(
-    candidate?.promise?.coreSatisfied
-    && candidate?.promise?.incompatibleCluster !== true,
-  );
-  const heroSafe = candidate => coreSafe(candidate) && candidate.promise?.heroSatisfied === true;
   const requestedHeroIds = new Set(requested
     .filter(flag => flag.intent === "hero")
     .map(flag => flag.candidateId));
-  const hero = ordered.find(candidate => requestedHeroIds.has(candidate.candidateId) && heroSafe(candidate))
+  const hero = ordered.find(candidate => requestedHeroIds.has(candidate.candidateId))
     || (winnerBoard?.candidates?.[4] && byId.get(winnerBoard.candidates[4].candidateId)
-      && heroSafe(byId.get(winnerBoard.candidates[4].candidateId))
       ? byId.get(winnerBoard.candidates[4].candidateId)
       : null)
-    || ordered.find(heroSafe);
+    || ordered[0];
   if (!hero) return null;
   const remaining = ordered.filter(candidate => candidate.candidateId !== hero.candidateId);
-  const core = remaining.filter(coreSafe);
-  if (core.length < 6 || ordered.length < 9) return null;
+  if (ordered.length < 9) return null;
   const arranged = Array(9);
   arranged[4] = hero;
-  for (const slot of [1, 3, 5, 7]) arranged[slot] = core.shift();
-  const leftovers = remaining.filter(candidate =>
-    !arranged.some(selected => selected?.candidateId === candidate.candidateId));
-  const secondaryCore = leftovers.filter(coreSafe);
-  for (const slot of [0, 2]) arranged[slot] = secondaryCore.shift();
-  const finalPool = leftovers.filter(candidate =>
-    !arranged.some(selected => selected?.candidateId === candidate.candidateId));
-  for (const slot of [6, 8]) arranged[slot] = finalPool.shift();
+  for (const slot of [1, 3, 5, 7]) arranged[slot] = remaining.shift();
+  for (const slot of [0, 2, 6, 8]) arranged[slot] = remaining.shift();
   if (arranged.some(candidate => !candidate)) return null;
   return {
     mode: "operator_rescue",
+    operatorOverride: true,
     candidates: arranged,
     promise: {
-      coreCount: arranged.filter(coreSafe).length,
-      heroFulfillment: heroSafe(arranged[4]) ? 1 : 0,
+      coreCount: arranged.filter(candidate =>
+        candidate.promise?.coreSatisfied && candidate.promise?.incompatibleCluster !== true).length,
+      heroFulfillment: arranged[4].promise?.heroSatisfied === true ? 1 : 0,
       singleFrameRatio: Math.min(...arranged.map(candidate =>
         Number(candidate.promise?.singleFrameRatio ?? 1))),
     },
@@ -1280,39 +1264,25 @@ function validateRescueArrangement(run, candidateIds) {
   const excludedIds = new Set((run.editorialFeedback?.flags || [])
     .filter(flag => flag.disposition === "excluded")
     .map(flag => flag.candidateId));
-  const droppedIds = new Set((run.curationReceipt?.dropped || [])
-    .filter(item => HARD_IMAGE_REJECTIONS.has(item.dropReason))
-    .map(item => item.candidateId));
-  const approved = canonicalFrozenCandidates(run, excludedIds, droppedIds);
+  const approved = canonicalFrozenCandidates(run, excludedIds);
   const candidates = candidateIds.map(candidateId => approved.get(candidateId));
   if (candidates.some(candidate => !candidate)) {
     return {
       ok: false,
-      error: "A rescue board can only use this run's frozen, gate-approved, non-excluded candidates.",
+      error: "A rescue board can only use this run's retained, displayable, non-excluded candidates.",
     };
   }
-  const coreSafe = candidate => Boolean(
-    candidate?.promise?.coreSatisfied
-    && candidate?.promise?.incompatibleCluster !== true,
-  );
-  if (!coreSafe(candidates[4]) || candidates[4].promise?.heroSatisfied !== true) {
-    return { ok: false, error: "The center card must satisfy the frozen hero and Vibe-promise gates." };
-  }
-  if ([1, 3, 4, 5, 7].some(index => !coreSafe(candidates[index]))) {
-    return { ok: false, error: "Every high-salience rescue-board slot must satisfy the frozen Vibe promise." };
-  }
-  const coreCount = candidates.filter(coreSafe).length;
-  if (coreCount < 7) {
-    return { ok: false, error: "At least seven rescue-board cards must satisfy the frozen Vibe promise." };
-  }
+  const coreCount = candidates.filter(candidate =>
+    candidate.promise?.coreSatisfied && candidate.promise?.incompatibleCluster !== true).length;
   return {
     ok: true,
     board: {
       mode: "operator_rescue",
+      operatorOverride: true,
       candidates,
       promise: {
         coreCount,
-        heroFulfillment: 1,
+        heroFulfillment: candidates[4].promise?.heroSatisfied === true ? 1 : 0,
         singleFrameRatio: Math.min(...candidates.map(candidate =>
           Number(candidate.promise?.singleFrameRatio ?? 1))),
       },
@@ -1320,39 +1290,23 @@ function validateRescueArrangement(run, candidateIds) {
   };
 }
 
-function canonicalFrozenCandidates(run, excludedIds = new Set(), droppedIds = new Set()) {
-  const exactDroppedProvisionalIds = new Set((run.curationReceipt?.dropped || [])
-    .filter(item => item.dropReason === "exact_duplicate")
-    .map(item => item.provisionalCandidateId)
-    .filter(Boolean));
-  const boardCandidates = [
-    ...(run.strongestEvent?.candidates || []),
-    ...(run.strongestCompiled?.candidates || []),
-  ];
+function canonicalFrozenCandidates(run, excludedIds = new Set()) {
+  const unavailableIds = new Set((run.curationReceipt?.dropped || [])
+    .filter(candidate => candidate.dropReason === "image_load_failed")
+    .map(candidate => candidate.candidateId));
   const canonicalById = new Map();
-  for (const candidate of boardCandidates) {
-    if (candidate?.candidateId
-      && !HARD_IMAGE_REJECTIONS.has(candidate.dropReason)
-      && !droppedIds.has(candidate.candidateId)
-      && !excludedIds.has(candidate.candidateId)
-      && Number(candidate.promise?.singleFrameRatio ?? 1) >= 0.99
-      && !canonicalById.has(candidate.candidateId)) {
-      canonicalById.set(candidate.candidateId, candidate);
-    }
-  }
-  for (const candidate of run.curationReceipt?.rawCandidates || []) {
-    if (!candidate.candidateId
-      || HARD_IMAGE_REJECTIONS.has(candidate.dropReason)
-      || droppedIds.has(candidate.candidateId)
+  const evidence = [
+    ...(run.curationReceipt?.rawCandidates || []),
+    ...(run.rawResults || []),
+  ];
+  for (const candidate of evidence) {
+    if (!candidate?.candidateId
+      || !candidate.thumbnail
+      || candidate.dropReason === "image_load_failed"
+      || unavailableIds.has(candidate.candidateId)
       || excludedIds.has(candidate.candidateId)
-      || Number(candidate.promise?.singleFrameRatio ?? 1) < 0.99) continue;
-    const existing = canonicalById.get(candidate.candidateId);
-    if (!existing || (
-      exactDroppedProvisionalIds.has(existing.provisionalCandidateId)
-      && !exactDroppedProvisionalIds.has(candidate.provisionalCandidateId)
-    )) {
-      canonicalById.set(candidate.candidateId, candidate);
-    }
+      || canonicalById.has(candidate.candidateId)) continue;
+    canonicalById.set(candidate.candidateId, candidate);
   }
   return canonicalById;
 }

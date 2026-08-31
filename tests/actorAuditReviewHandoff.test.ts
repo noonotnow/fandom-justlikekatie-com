@@ -70,13 +70,17 @@ test('retained evidence exposes image-level editorial intents after review', () 
   assert.match(source, /flag\?\.reasons/);
 });
 
-test('the rescue board explains hard blocks and preserves the frozen audit boundary', () => {
+test('the rescue board is a manual operator override without changing the frozen audit', () => {
   assert.match(source, /Operator rescue board/);
-  assert.match(source, /find a usable equivalent/);
-  assert.match(source, /This never changes the frozen audit or Daily Drop eligibility/);
+  assert.match(source, /This is your override/);
+  assert.match(source, /Choose your nine/);
+  assert.match(source, /Only unavailable images and your exclusions stay out/);
+  assert.match(source, /The original audit and Daily Drop eligibility never change/);
   assert.match(source, /disabled=\{!isCurrent/);
   assert.match(source, /action:'save_rescue_board'/);
-  assert.match(source, /Save this arrangement/);
+  assert.match(source, /Save my nine/);
+  assert.match(source, /Clear board/);
+  assert.match(source, /Make card \$\{index\+1\} the hero/);
   assert.match(source, /Move card \$\{index\+1\} earlier/);
   assert.match(source, /savedMatchesCurrentFeedback/);
   assert.match(source, /previous saved arrangement is retained as history/);
