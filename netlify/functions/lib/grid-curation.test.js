@@ -90,6 +90,39 @@ test("chooses a coherent event over forced source diversity", async () => {
   assert.deepEqual(first, permuted, "provider ordering must not change the winning board");
 });
 
+test("a specific work and character query can form a cross-publisher character Event board", async () => {
+  const characterFrames = Array.from({ length: 9 }, (_, index) => result(`yuan-zhong-${index}`, {
+    source: `publisher-${index}.test`,
+    link: `https://publisher-${index}.test/念无双/frame-${index}`,
+    title: `源仲 character frame ${index + 1}`,
+    fp: fingerprint(`yuan-zhong-${index}`, { ones: spreadBits(`yuan-zhong-${index}`, 104) }),
+  }));
+
+  const curated = await curateBatches([
+    { query: "刘学义 念无双 源仲", results: characterFrames },
+  ], { diagnostics: true });
+
+  assert.equal(curated.diagnostics.strongestEvent.candidates.length, 9);
+  assert.equal(curated.diagnostics.strongestCompiled.candidates.length, 9);
+  assert.equal(curated.diagnostics.eventFamilies.some(family => family.size >= 9), true);
+});
+
+test("a generic actor style query cannot manufacture an Event family", async () => {
+  const styleFrames = Array.from({ length: 9 }, (_, index) => result(`suit-${index}`, {
+    source: `publisher-${index}.test`,
+    link: `https://publisher-${index}.test/style/frame-${index}`,
+    title: `unrelated suit portrait ${index + 1}`,
+    fp: fingerprint(`suit-${index}`, { ones: spreadBits(`suit-${index}`, 104) }),
+  }));
+
+  const curated = await curateBatches([
+    { query: "刘学义 西装 写真", results: styleFrames },
+  ], { diagnostics: true });
+
+  assert.equal(curated.diagnostics.strongestEvent, null);
+  assert.equal(curated.diagnostics.strongestCompiled.candidates.length, 9);
+});
+
 test("provider order cannot change which candidates survive the curation cap", async () => {
   const event = Array.from({ length: 9 }, (_, index) => result(`capped-event-${index}`, {
     source: "editorial.test",

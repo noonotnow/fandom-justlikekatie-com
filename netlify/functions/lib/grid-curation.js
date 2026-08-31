@@ -27,6 +27,11 @@ const EVENT_COPY_DISTANCE = 0.085;
 const EVENT_PAIR_DISTANCE = 0.24;
 const SEARCH_PROVIDER_HOST = /(^|\.)(bing|google|baidu|yahoo|duckduckgo|brave|serpapi)\./i;
 const GENERIC_SOURCE = /^(unknown|source|image|images|bing(?: images)?|google(?: images)?|baidu(?: images)?|search result)$/i;
+const GENERIC_QUERY_TERMS = new Set([
+  "写真", "造型", "剧照", "古装", "现代", "西装", "白衣", "黑衣", "眼镜",
+  "采访", "情绪", "角色", "帅气", "特写", "近景", "近照", "日常", "随拍",
+  "温柔", "单人", "个人", "大片", "活动", "现场",
+]);
 
 function clamp(value, min = 0, max = 1) {
   return Math.max(min, Math.min(max, value));
@@ -97,6 +102,23 @@ function batchKey(result) {
   return normalizeText(result.batchKey || "");
 }
 
+function boundedRoleBatchKey(result) {
+  const raw = String(result.batchKey || "").trim();
+  const terms = raw.split(/\s+/).filter(Boolean);
+  if (terms.length < 3) return "";
+
+  // Actor-pack searches are actor-first. The remaining terms need either a
+  // work + character/role pair, or one named role explicitly anchored as a
+  // drama still. Generic mood/style terms alone are not an editorial boundary.
+  const boundaryTerms = terms.slice(1)
+    .map(normalizeText)
+    .filter(term => term && !GENERIC_QUERY_TERMS.has(term));
+  const hasStillAnchor = terms.some(term => normalizeText(term) === "剧照");
+  return boundaryTerms.length >= 2 || (boundaryTerms.length === 1 && hasStillAnchor)
+    ? batchKey(result)
+    : "";
+}
+
 function hasGenericTitle(result) {
   const title = normalizeText(result.title);
   const batch = normalizeText(result.batchKey);
@@ -124,9 +146,20 @@ function familyEvidence(left, right) {
     ? 0
     : jaccard(distinctiveTitleTokens(leftResult), distinctiveTitleTokens(rightResult));
   const sameBatch = batchKey(leftResult) && batchKey(leftResult) === batchKey(rightResult);
+  const leftRoleBatch = boundedRoleBatchKey(leftResult);
+  const sameBoundedRole = sameBatch
+    && leftRoleBatch
+    && leftRoleBatch === boundedRoleBatchKey(rightResult);
   const visualDistance = left.fingerprint && right.fingerprint
     ? perceptualDistance(left.fingerprint, right.fingerprint)
     : 1;
+
+  // A character mood board is a bounded Event even when its varied frames were
+  // published by different sources. A specific work/character query supplies
+  // that boundary; generic actor + style searches deliberately do not.
+  if (sameBoundedRole) {
+    return { related: true, strength: 0.76, kind: "shared work or character boundary" };
+  }
 
   // Publisher/source alone is not an event. A same-source pair needs corroboration
   // from titles or an actually similar frame and shared query provenance.
