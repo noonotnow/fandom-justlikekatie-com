@@ -1,0 +1,139 @@
+I reviewed the current production-source copy. **Verdict: the Vibe Atlas concept is finally clear, but several supporting lines still sound like Replit explaining its data model at a gallery opening.**
+
+The live domain wouldn’t resolve inside my browser sandbox, so I couldn’t verify the rendered layout itself. The review below is based on the latest production-route source in GitHub.
+
+## Keep exactly
+
+These are strong and calibrated:
+
+- **A daily C-drama card drop**
+- **Vibe Atlas 氛围图鉴**
+- **One star. One vibe. Nine pieces of evidence.**
+- **Today’s star**
+- **Today’s vibe**
+- **Browse past editions**
+- The recurring **evidence/receipts** language
+
+That is the product voice.
+
+## Must-fix: Vibe Atlas introduction
+
+Current copy becomes procedural:
+
+> “set the aesthetic assignment… through that assignment… not choosing an arbitrary actor × vibe pairing”
+> 
+
+The final sentence especially sounds like a terms-of-service clarification for a feature nobody accused of misconduct.
+
+Replace the paragraph with:
+
+> **Every day, Vibe Atlas pairs one C-drama star with one Vibe Pack, then searches their iconic characters, looks, and moments for nine cards worth keeping. Browse today’s drop, save your favorites, and build a 3×3 from the evidence.**
+> 
+
+It explains the mechanics without exposing the algorithm-training strategy.
+
+## Must-fix: archive copy
+
+Current:
+
+> Revisit a finished daily drop without choosing an arbitrary pairing.
+> 
+
+Replace with:
+
+> **Revisit past stars, vibes, and evidence.**
+> 
+
+No one needs to be reminded of a feature they cannot use.
+
+## Improve: grid heading
+
+Current:
+
+> Fresh 3×3 evidence grid
+Collectible receipts from today’s star × vibe assignment.
+> 
+
+Better:
+
+> **Today’s evidence**
+Nine cards from today’s star × Vibe Pack.
+> 
+
+“Fresh 3×3 evidence grid” contains three nouns competing for custody.
+
+## Improve: public navigation
+
+**Studio Operations** sounds like the place where employees investigate a failed nightly build.
+
+Rename it:
+
+> **Your Collection**
+Saved Grids · Grid Builder
+> 
+
+Or, if you want more creative energy:
+
+> **Your Studio**
+Collection · Grid Builder
+> 
+
+## Improve: homepage Vibe Atlas card
+
+Current:
+
+> collect what resonates, and compose a finished 3×3 in Studio Operations
+> 
+
+That is the old AI-coded voice.
+
+Replace the full card paragraph with:
+
+> **One star, one vibe, nine pieces of evidence. Browse today’s drop, save the cards that hit, and build a 3×3 from your favorites.**
+> 
+
+## Later fix: membership copy
+
+Current:
+
+> Keep the worlds you’re building.
+Founding Member adds a durable creative home for the collections worth returning to.
+> 
+
+Pretty, but vague.
+
+Replace with:
+
+> **Keep every card worth saving.**
+Daily discovery stays free. Founding Members can sync collections across devices, build grids from saved cards, and export premium share cards.
+> 
+
+That tells people what the $9 actually buys.
+
+## First-watch form
+
+The functionality is impressively clear. One tonal improvement:
+
+Current:
+
+> The operator cannot see your words before that episode is filed.
+> 
+
+Replace with:
+
+> **Choose the journal moment you’re responding to and the last episode your note spoils. Katie won’t be able to read it until that episode is logged.**
+> 
+
+“The operator” makes you sound like an employee monitoring a municipal spoiler facility.
+
+## Overall calibration
+
+**Vibe Atlas page:** 8/10
+**Core concept:** clear and distinctive
+**Main remaining issue:** unnecessary system explanations
+**Voice rule going forward:**
+
+> Explain what visitors can do—not which product decisions prevent them from doing something else.
+> 
+
+The heart is now right: **daily drop, featured actor, Vibe Pack, nine collectible receipts.** We just need to remove the remaining sentences that sound like the interface recently completed compliance training.
