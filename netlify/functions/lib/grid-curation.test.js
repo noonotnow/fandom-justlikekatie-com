@@ -86,6 +86,27 @@ test("chooses a coherent event over forced source diversity", async () => {
   assert.deepEqual(first, permuted, "provider ordering must not change the winning board");
 });
 
+test("provider order cannot change which candidates survive the curation cap", async () => {
+  const event = Array.from({ length: 9 }, (_, index) => result(`capped-event-${index}`, {
+    source: "editorial.test",
+    link: "https://editorial.test/capped-event",
+    title: `刘宇宁 月光大片 ${index + 1}`,
+    fp: fingerprint(`capped-event-${index}`, { ones: spreadBits(index + 1, 72) }),
+  }));
+  const noise = Array.from({ length: 40 }, (_, index) => result(`capped-noise-${index}`, {
+    source: `noise-${index}.test`,
+    link: `https://noise-${index}.test/result`,
+    title: `刘宇宁 unrelated result ${index}`,
+  }));
+
+  const first = await curate([...noise, ...event], { candidateLimit: 36 });
+  const second = await curate([...event, ...noise], { candidateLimit: 36 });
+
+  assert.deepEqual(first, second);
+  assert.equal(first.curation.mode, "event");
+  assert.equal(first.displayResults.length, 9);
+});
+
 test("near-similar event frames survive until editorial mode is selected", async () => {
   const article = "https://rednote.test/post/moonlight-editorial";
   const base = new Set(Array.from({ length: 128 }, (_, index) => index));

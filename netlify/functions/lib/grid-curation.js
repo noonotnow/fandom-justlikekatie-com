@@ -233,6 +233,24 @@ function candidateOrder(left, right) {
     || left.order - right.order;
 }
 
+function rawCandidateOrder(left, right) {
+  const leftKey = [
+    batchKey(left.result),
+    sourceKey(left.result),
+    canonicalLinkKey(left.result) || normalizeText(left.result.link),
+    normalizeText(left.result.title),
+    left.result.thumbnail || "",
+  ].join("\u0000");
+  const rightKey = [
+    batchKey(right.result),
+    sourceKey(right.result),
+    canonicalLinkKey(right.result) || normalizeText(right.result.link),
+    normalizeText(right.result.title),
+    right.result.thumbnail || "",
+  ].join("\u0000");
+  return leftKey.localeCompare(rightKey) || left.order - right.order;
+}
+
 function replaceExactCopies(candidates) {
   const selected = [];
   const seenUrls = new Map();
@@ -413,10 +431,10 @@ export async function curateDisplayResults(
         result: { ...result, batchKey: result.batchKey || batch.query },
         order: rawCandidates.length,
       });
-      if (rawCandidates.length >= candidateLimit) break;
     }
-    if (rawCandidates.length >= candidateLimit) break;
   }
+  rawCandidates.sort(rawCandidateOrder);
+  rawCandidates.length = Math.min(rawCandidates.length, candidateLimit);
 
   const analyzed = (await Promise.all(rawCandidates.map(async candidate => {
     try {

@@ -193,8 +193,8 @@ export default async (req, context) => {
           // read-then-write check (not a strict atomic compare-and-swap — see
           // its comment above for why), two simultaneous first-of-the-day
           // requests can both believe they hold the lock and both build a
-          // payload here. Since rankCandidates() uses Math.random() for
-          // tie-breaking, those two builds can genuinely differ. Re-fetch the
+          // payload here. Even though ranking and curation are deterministic,
+          // upstream search responses can change while both builds run. Re-fetch the
           // real cache key one more time immediately before writing: if a
           // racing request already wrote a result while we were building, defer
           // to it and discard our own payload, so whichever build finished
