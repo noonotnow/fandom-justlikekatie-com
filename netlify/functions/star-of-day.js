@@ -27,6 +27,7 @@ const STORE_NAME = "star-of-day";
 const LOCK_TTL_MS = 25000; // a stale/abandoned lock is ignored after this long
 const POLL_INTERVAL_MS = 700;
 const POLL_MAX_WAIT_MS = 12000;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function cacheKeyFor(dateString) {
   return `starOfDay:${VERSION}:${dateString}`;
@@ -138,6 +139,32 @@ export default async (req, context) => {
   try {
     const store = getBlobStore(STORE_NAME, context);
     const todayStr = getShanghaiDateString();
+    const url = new URL(req.url || "https://fandom.local/.netlify/functions/star-of-day");
+
+    if (url.searchParams.get("archive") === "1") {
+      return jsonResponse(200, await listArchivedEditions(store, todayStr));
+    }
+
+    const requestedDate = url.searchParams.get("date");
+    if (requestedDate !== null) {
+      if (!isUsableDate(requestedDate)) {
+        return jsonResponse(400, { error: "Invalid edition date." });
+      }
+      if (requestedDate > todayStr) {
+        return jsonResponse(400, { error: "Future editions are not available." });
+      }
+
+      // Historical editions are read-only cache entries. In particular, do
+      // not run today's build/lock/fallback flow for an older date.
+      if (requestedDate !== todayStr) {
+        const archived = await store.get(cacheKeyFor(requestedDate), { type: "json" });
+        if (!archived) {
+          return jsonResponse(404, { error: "That Vibe Atlas edition is not available." });
+        }
+        return jsonResponse(200, archived);
+      }
+    }
+
     const todayKey = cacheKeyFor(todayStr);
 
     const cached = await store.get(todayKey, { type: "json" });
@@ -207,6 +234,43 @@ export default async (req, context) => {
     return jsonResponse(500, { error: err.message || "Unknown error", rankedBatches: [] });
   }
 };
+
+function isUsableDate(value) {
+  if (!DATE_RE.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+async function listArchivedEditions(store, todayStr) {
+  const listing = await store.list({ prefix: `starOfDay:${VERSION}:` });
+  const keys = (listing?.blobs || [])
+    .map(blob => blob?.key)
+    .filter(key => typeof key === "string")
+    .map(key => key.match(new RegExp(`^starOfDay:${VERSION}:(\\d{4}-\\d{2}-\\d{2})$`))?.[1])
+    .filter(date => date && date <= todayStr);
+
+  const editions = await Promise.all([...new Set(keys)].map(async date => {
+    const payload = await store.get(cacheKeyFor(date), { type: "json" });
+    if (!payload || payload.date !== date || !payload.actorName || !payload.vibeLabel) return null;
+    return {
+      date,
+      actorName: payload.actorName,
+      actorShortNameEn: payload.actorShortNameEn,
+      vibeEmoji: payload.vibeEmoji,
+      vibeLabel: payload.vibeLabel,
+      vibeLabelEn: payload.vibeLabelEn,
+      vibeSubtitleEn: payload.vibeSubtitleEn,
+      generatedAt: payload.generatedAt,
+    };
+  }));
+
+  return {
+    version: VERSION,
+    editions: editions
+      .filter(Boolean)
+      .sort((a, b) => b.date.localeCompare(a.date)),
+  };
+}
 
 async function pollForCache(store, todayKey) {
   const deadline = Date.now() + POLL_MAX_WAIT_MS;

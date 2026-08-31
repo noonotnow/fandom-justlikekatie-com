@@ -240,6 +240,171 @@
   font-size: .68rem;
 }
 
+.daily-archive {
+  max-width: 760px;
+  margin: 2rem 0 0 12%;
+}
+
+.daily-archive__toggle {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  width: 100%;
+  padding: .75rem 0;
+  border-top: 1px solid rgba(36, 62, 64, .18);
+  border-bottom: 1px solid rgba(36, 62, 64, .18);
+  border-radius: 0;
+  background: transparent;
+  color: #263e40;
+  font: 600 .78rem "Manrope", sans-serif;
+  text-align: left;
+}
+
+.daily-archive__toggle small {
+  color: #9b762e;
+  font: 500 .58rem "DM Mono", monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.daily-archive__toggle strong {
+  margin-left: auto;
+  color: #b35f49;
+  font: 400 1.25rem/1 "Manrope", sans-serif;
+}
+
+.daily-archive__panel {
+  padding: 1.25rem 0 .25rem;
+}
+
+.daily-archive__intro {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.daily-archive__intro h2 {
+  margin: .2rem 0 0;
+  color: #263e40;
+  font: 600 1.35rem/1.1 "Fraunces", serif;
+}
+
+.daily-archive__intro > p {
+  max-width: 220px;
+  margin: 0;
+  color: #74807d;
+  font-size: .72rem;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.daily-archive__kicker {
+  margin: 0;
+  color: #9b762e;
+  font: 500 .58rem "DM Mono", monospace;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.daily-archive__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .6rem;
+}
+
+.daily-archive__edition {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .22rem;
+  min-height: 7rem;
+  padding: .85rem;
+  border: 1px solid rgba(36, 62, 64, .16);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .35);
+  color: #263e40;
+  text-align: left;
+}
+
+.daily-archive__edition:hover,
+.daily-archive__edition:focus-visible,
+.daily-archive__edition--selected {
+  border-color: #c9a96e;
+  background: rgba(211, 174, 98, .12);
+  opacity: 1;
+}
+
+.daily-archive__date {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  color: #9b762e;
+  font: 500 .64rem "DM Mono", monospace;
+  letter-spacing: .04em;
+}
+
+.daily-archive__date small {
+  padding: .15rem .3rem;
+  background: #263e40;
+  color: #f5f0e8;
+  font-size: .5rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.daily-archive__edition strong {
+  margin-top: .2rem;
+  font: 600 1.08rem "Fraunces", serif;
+}
+
+.daily-archive__edition > span:not(.daily-archive__date) {
+  color: #74807d;
+  font-size: .68rem;
+}
+
+.daily-archive__edition b {
+  margin-top: auto;
+  color: #b35f49;
+  font: 600 .58rem "DM Mono", monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.daily-archive__status {
+  margin: 0;
+  padding: 1rem;
+  border: 1px dashed rgba(36, 62, 64, .2);
+  color: #74807d;
+  font-size: .75rem;
+}
+
+.daily-archive__status--error {
+  color: #a26b30;
+}
+
+.daily-archive__today {
+  margin-top: 1rem;
+  padding: .35rem 0;
+  border-radius: 0;
+  background: transparent;
+  color: #9b762e;
+  font-size: .72rem;
+}
+
+.dark .daily-archive__toggle,
+.dark .daily-archive__intro h2,
+.dark .daily-archive__edition { color: #f0e8dc; }
+.dark .daily-archive__toggle { border-color: rgba(236, 231, 221, .18); }
+.dark .daily-archive__intro > p,
+.dark .daily-archive__edition > span:not(.daily-archive__date),
+.dark .daily-archive__status { color: #a4a4a5; }
+.dark .daily-archive__edition { border-color: rgba(236, 231, 221, .18); background: rgba(255, 255, 255, .03); }
+.dark .daily-archive__edition:hover,
+.dark .daily-archive__edition:focus-visible,
+.dark .daily-archive__edition--selected { background: rgba(211, 174, 98, .09); }
+.dark .daily-archive__date small { background: #e0c171; color: #171619; }
+
 .dark .fandom-atlas-page { color: #ece7dd; }
 .dark .fandom-universe-nav { border-bottom-color: rgba(236, 231, 221, .14); }
 .dark .fandom-universe-mark { background: #b35f49; color: #171619; }
@@ -282,7 +447,8 @@
   .atlas-hero__title-row { display: block; }
   .atlas-hero__thesis { margin-top: 1.4rem; text-align: left; }
   .atlas-hero__intro,
-  .atlas-edition { margin-left: 0; }
+  .atlas-edition,
+  .daily-archive { margin-left: 0; }
 }
 
 @media (max-width: 520px) {
@@ -292,6 +458,9 @@
   .atlas-hero { padding-top: 3rem; }
   .atlas-hero h1 { font-size: clamp(3rem, 15vw, 5rem); }
   .atlas-hero h1 span { display: block; margin-top: .18em; }
+  .daily-archive__intro { display: block; }
+  .daily-archive__intro > p { margin-top: .7rem; text-align: left; }
+  .daily-archive__list { grid-template-columns: 1fr; }
 }
 
 .fandom-home-link {

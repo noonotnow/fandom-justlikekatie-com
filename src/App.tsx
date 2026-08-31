@@ -16,7 +16,7 @@ import { migrateBookmarks } from './utils/migrateBookmarks';
 import { migrateLegacyGridHistory } from './utils/collectionHistory';
 import { applyWholeCardTierOverride, boardIdentity } from './utils/wholeCardTier';
 import { useDarkMode } from './hooks/useDarkMode';
-import { useStarOfDay } from './hooks/useStarOfDay';
+import { useStarOfDay, type StarOfDayArchiveEntry } from './hooks/useStarOfDay';
 import { useWholeCardTier } from './hooks/useWholeCardTier';
 import { collectionGridFromStar } from './utils/collectionHistoryModel';
 import { consumeMagicLinkFromLocation, requestMagicLink } from './utils/publicAccount';
@@ -35,6 +35,17 @@ import { VeteranSubmissionForm } from './components/VeteranSubmissionForm/Vetera
 
 /** Number of columns in the grid — used to calculate preview row insertion */
 const GRID_COLS = 3;
+
+function formatEditionDate(value: string): string {
+  const date = new Date(`${value}T00:00:00Z`);
+  if (!Number.isFinite(date.getTime())) return value;
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(date);
+}
 
 function App() {
   const route = resolveFandomProductRoute(window.location.pathname);
@@ -56,6 +67,8 @@ function VibeAtlasApp() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [dailyGridZoomOpen, setDailyGridZoomOpen] = useState(false);
+  const [selectedEditionDate, setSelectedEditionDate] = useState<string | null>(null);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const [view, setView] = useState<'daily' | 'collection' | 'plan' | 'membership'>(
     () => initialVibeAtlasView(window.location.search),
   );
@@ -64,7 +77,17 @@ function VibeAtlasApp() {
   );
   const { isAdmin, loading: adminLoading, recheck: recheckAdmin } = useIsAdmin();
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
-  const { items: gridImages, meta, rawData, loading, error } = useStarOfDay();
+  const {
+    items: gridImages,
+    meta,
+    rawData,
+    archive,
+    archiveLoading,
+    archiveError,
+    loadArchive,
+    loading,
+    error,
+  } = useStarOfDay(selectedEditionDate);
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
   const [isMember, setIsMember] = useState(false);
 
@@ -134,6 +157,14 @@ function VibeAtlasApp() {
     return () => window.removeEventListener('popstate', restoreUrlView);
   }, []);
 
+  const selectEdition = (date: string | null) => {
+    setExpandedId(null);
+    setLightboxIndex(null);
+    setDailyGridZoomOpen(false);
+    setImageTiers({});
+    setSelectedEditionDate(date);
+  };
+
   const navigateAtlas = (
     destination: 'daily' | 'collection' | 'membership',
     tab: 'grids' | 'results' | 'builder' = 'grids',
@@ -146,6 +177,13 @@ function VibeAtlasApp() {
     window.history.pushState({}, '', `/vibe-atlas${search}`);
     setCollectionTab(tab);
     setView(destination);
+    if (destination === 'daily') selectEdition(null);
+  };
+
+  const toggleArchive = () => {
+    const nextOpen = !archiveOpen;
+    setArchiveOpen(nextOpen);
+    if (nextOpen && !archive.length && !archiveLoading) void loadArchive();
   };
 
   const handleItemClick = (itemId: string) => {
@@ -266,9 +304,58 @@ function VibeAtlasApp() {
           <p className="atlas-hero__thesis">One star. One vibe. Nine pieces of evidence.</p>
         </div>
         <p className="atlas-hero__intro">Each day, one featured actor and one Vibe Pack set the aesthetic assignment. We search their iconic characters, looks, and moments through that assignment for nine collectible pieces of evidence—thirsty, beautiful, and ready to save. You’re browsing today’s curated drop, not choosing an arbitrary actor × vibe pairing.</p>
+        <section className="daily-archive" aria-label="Vibe Atlas daily edition archive">
+          <button
+            type="button"
+            className="daily-archive__toggle"
+            aria-expanded={archiveOpen}
+            onClick={toggleArchive}
+          >
+            <span>{archiveOpen ? 'Hide past editions' : 'Browse past editions'}</span>
+            <small>{archiveOpen ? '收起往期' : '往期图鉴'}</small>
+            <strong aria-hidden="true">{archiveOpen ? '−' : '+'}</strong>
+          </button>
+          {archiveOpen && (
+            <div className="daily-archive__panel">
+              <div className="daily-archive__intro">
+                <div>
+                  <p className="daily-archive__kicker">The Vibe Atlas archive</p>
+                  <h2>Every star. Every assignment.</h2>
+                </div>
+                <p>Revisit a finished daily drop without choosing an arbitrary pairing.</p>
+              </div>
+              {archiveLoading ? (
+                <p className="daily-archive__status">Loading available editions…</p>
+              ) : archiveError ? (
+                <p className="daily-archive__status daily-archive__status--error" role="alert">{archiveError}</p>
+              ) : archive.length === 0 ? (
+                <p className="daily-archive__status">No archived editions are available yet.</p>
+              ) : (
+                <div className="daily-archive__list">
+                  {archive.map((edition, index) => (
+                    <ArchiveEditionButton
+                      key={edition.date}
+                      edition={edition}
+                      isSelected={selectedEditionDate === edition.date}
+                      isLatest={index === 0}
+                      onSelect={() => selectEdition(edition.date)}
+                    />
+                  ))}
+                </div>
+              )}
+              {selectedEditionDate && (
+                <button type="button" className="daily-archive__today" onClick={() => selectEdition(null)}>
+                  ← Return to today’s drop
+                </button>
+              )}
+            </div>
+          )}
+        </section>
         {meta && (
           <div className="atlas-edition">
-            <div className="atlas-edition__label">Today's curated card drop</div>
+            <div className="atlas-edition__label">
+              {selectedEditionDate ? `Archived card drop · ${formatEditionDate(meta.date)}` : "Today's curated card drop"}
+            </div>
             <div className="atlas-edition__name">
               <span>Today's star</span> {meta.vibeEmoji} {meta.actorName}
             </div>
@@ -374,6 +461,35 @@ function VibeAtlasApp() {
         />
       )}
     </div>
+  );
+}
+
+function ArchiveEditionButton({
+  edition,
+  isSelected,
+  isLatest,
+  onSelect,
+}: {
+  edition: StarOfDayArchiveEntry;
+  isSelected: boolean;
+  isLatest: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`daily-archive__edition${isSelected ? ' daily-archive__edition--selected' : ''}`}
+      aria-pressed={isSelected}
+      onClick={onSelect}
+    >
+      <span className="daily-archive__date">
+        {formatEditionDate(edition.date)}
+        {isLatest && <small>Latest</small>}
+      </span>
+      <strong>{edition.vibeEmoji} {edition.actorName}</strong>
+      <span>{edition.vibeLabel} · {edition.vibeLabelEn}</span>
+      {isSelected && <b>Viewing</b>}
+    </button>
   );
 }
 

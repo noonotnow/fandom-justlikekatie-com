@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { GridItemData } from '../types';
 
 export interface StarOfDayResult {
@@ -39,6 +39,17 @@ export interface StarOfDayData {
   stale?: boolean;
   building?: boolean;
   error?: string;
+}
+
+export interface StarOfDayArchiveEntry {
+  date: string;
+  actorName: string;
+  actorShortNameEn?: string;
+  vibeEmoji: string;
+  vibeLabel: string;
+  vibeLabelEn: string;
+  vibeSubtitleEn?: string;
+  generatedAt?: string;
 }
 
 function proxyUrl(url: string): string {
@@ -93,23 +104,36 @@ export interface UseStarOfDayReturn {
   } | null;
   /** Raw API response — used by the export-card renderer */
   rawData: StarOfDayData | null;
+  archive: StarOfDayArchiveEntry[];
+  archiveLoading: boolean;
+  archiveError: string | null;
+  loadArchive: () => Promise<void>;
   loading: boolean;
   error: string | null;
 }
 
-export const useStarOfDay = (): UseStarOfDayReturn => {
+export const useStarOfDay = (editionDate: string | null = null): UseStarOfDayReturn => {
   const [items, setItems] = useState<GridItemData[]>([]);
   const [meta, setMeta] = useState<UseStarOfDayReturn['meta']>(null);
   const [rawData, setRawData] = useState<StarOfDayData | null>(null);
+  const [archive, setArchive] = useState<StarOfDayArchiveEntry[]>([]);
+  const [archiveLoading, setArchiveLoading] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    setItems([]);
+    setMeta(null);
+    setRawData(null);
+    setLoading(true);
+    setError(null);
 
     async function fetchStarOfDay() {
       try {
-        const res = await fetch('/.netlify/functions/star-of-day');
+        const query = editionDate ? `?date=${encodeURIComponent(editionDate)}` : '';
+        const res = await fetch(`/.netlify/functions/star-of-day${query}`);
         if (!res.ok) throw new Error(`API error: ${res.status}`);
         if (!res.headers.get('content-type')?.includes('application/json')) {
           throw new Error('Today’s Vibe Atlas data service is unavailable in this preview.');
@@ -155,7 +179,35 @@ export const useStarOfDay = (): UseStarOfDayReturn => {
 
     fetchStarOfDay();
     return () => { cancelled = true; };
+  }, [editionDate]);
+
+  const loadArchive = useCallback(async () => {
+    setArchiveLoading(true);
+    setArchiveError(null);
+    try {
+      const res = await fetch('/.netlify/functions/star-of-day?archive=1');
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      if (!res.headers.get('content-type')?.includes('application/json')) {
+        throw new Error('The Vibe Atlas archive is unavailable in this preview.');
+      }
+      const data: { editions?: StarOfDayArchiveEntry[] } = await res.json();
+      setArchive(Array.isArray(data.editions) ? data.editions : []);
+    } catch (err) {
+      setArchiveError(err instanceof Error ? err.message : 'Failed to load the archive');
+    } finally {
+      setArchiveLoading(false);
+    }
   }, []);
 
-  return { items, meta, rawData, loading, error };
+  return {
+    items,
+    meta,
+    rawData,
+    archive,
+    archiveLoading,
+    archiveError,
+    loadArchive,
+    loading,
+    error,
+  };
 };
