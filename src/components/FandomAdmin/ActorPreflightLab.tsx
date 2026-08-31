@@ -6,7 +6,8 @@ type Pairing = AnyRecord & { vibeKey: string; labels?: string[]; auditState?: st
 type Actor = AnyRecord & { actorId: string; canonicalName: string; romanizedName?: string; aliases?: string[]; pairings?: Pairing[] };
 type BlindBoard = { mode: 'event'|'compiled'; label: string; board?: AnyRecord|null };
 type BlindReview = AnyRecord & { status?: 'pending'|'revealed'|'unavailable'; choice?: 'event'|'compiled'|'neither'; agreement?: boolean; systemWinner?: string; presentationOrder?: string[]; boards?: BlindBoard[]; reasonCodes?: string[]; note?: string };
-type Run = AnyRecord & { runId?: string; scope?: string; queryRuns?: AnyRecord[]; rawResults?: AnyRecord[]; rejections?: AnyRecord[]; identityEvidence?: AnyRecord; detectedEvents?: AnyRecord[]; strongestEvent?: AnyRecord; strongestCompiled?: AnyRecord; winner?: AnyRecord; alternate?: AnyRecord; curationReceipt?: AnyRecord; blindReview?: BlindReview };
+type BoardDiagnostic = { available?: boolean; requiredCount?: number; candidateCount?: number; usableCount?: number; distinctUsableCount?: number; largestFamilyCount?: number; largestDistinctFamilyCount?: number; reasonCodes?: string[]; reasonCode?: string|null; summary?: string };
+type Run = AnyRecord & { runId?: string; scope?: string; queryRuns?: AnyRecord[]; rawResults?: AnyRecord[]; rejections?: AnyRecord[]; identityEvidence?: AnyRecord; detectedEvents?: AnyRecord[]; boardDiagnostics?: { event?: BoardDiagnostic; compiled?: BoardDiagnostic }; strongestEvent?: AnyRecord; strongestCompiled?: AnyRecord; winner?: AnyRecord; alternate?: AnyRecord; curationReceipt?: AnyRecord; blindReview?: BlindReview };
 
 const VERDICTS = ['approved','approved_override','needs_query_work','insufficient_material','identity_risk','do_not_schedule'];
 const VERDICT_LABELS: Record<string, string> = { approved: 'Approved', approved_override: 'Approved with override', needs_query_work: 'Needs query work', insufficient_material: 'Insufficient material', identity_risk: 'Identity risk', do_not_schedule: 'Do not schedule' };
@@ -137,7 +138,7 @@ function RunEvidence({
     <h5>Audit evidence {run?.runId?`· ${run.runId}`:''}</h5>
     {run ? <>
       <p className={styles.muted}>{run.scope} scope · started {date(run.startedAt)} · completed {date(run.completedAt)}</p>
-      {review?.status === 'unavailable' ? <section className={styles.boardUnavailable}><strong>Blind comparison unavailable</strong><p>This run did not produce two complete nine-card boards. It cannot be approved; use the retained evidence to choose a rejection or query-work verdict.</p><PartialBoards run={run} /></section> : <section className={styles.boardReview} aria-label="Visual board comparison">
+      {review?.status === 'unavailable' ? <section className={styles.boardUnavailable}><strong>Blind comparison unavailable</strong><p>This run did not produce two complete nine-card boards. It cannot be approved; use the retained evidence to choose a rejection or query-work verdict.</p><BoardQualificationSummary run={run} /><PartialBoards run={run} /></section> : <section className={styles.boardReview} aria-label="Visual board comparison">
         <div className={styles.boardReviewHeader}>
           <div><h6>{revealed ? 'Independent choice recorded' : 'Blind board review'}</h6><p>{revealed ? `You chose ${review?.choice === 'neither' ? 'Neither' : review?.choice}. This result is frozen for this audit run.` : 'Both boards are equal-sized. Their left/right order is fixed for this run.'}</p></div>
           {revealed && <div className={styles.revealBadges}><span className={styles.winnerBadge}>System winner: {review?.systemWinner}</span><span className={review?.agreement ? styles.agreeBadge : styles.disagreeBadge}>{review?.agreement ? 'You agreed' : 'You disagreed'}</span></div>}
@@ -170,6 +171,16 @@ function PartialBoards({run}:{run:Run}) {
   ].filter(Boolean) as Array<{label:string;board:AnyRecord}>;
   if (!boards.length) return <p className={styles.boardEmpty}>No candidate board reached nine images.</p>;
   return <div className={styles.partialBoards}><h6>Available candidate board{boards.length > 1 ? 's' : ''}</h6><p>These images survived curation, but the missing counterpart means this run is not eligible for blind calibration.</p><div className={styles.boardComparison}>{boards.map(item=><BoardPreview key={item.label} label={item.label} board={item.board} isWinner={false} revealed={false} />)}</div></div>;
+}
+
+function BoardQualificationSummary({run}:{run:Run}) {
+  const diagnostics = run.boardDiagnostics || {};
+  const modes: Array<['event'|'compiled', string]> = [['event', 'Event'], ['compiled', 'Compiled']];
+  return <div className={styles.boardQualification} aria-label="Board qualification diagnostics">{modes.map(([mode, label]) => {
+    const diagnostic = diagnostics[mode];
+    const available = diagnostic?.available ?? Boolean(run[mode === 'event' ? 'strongestEvent' : 'strongestCompiled']);
+    return <div className={styles.boardQualificationRow} key={mode}><strong>{available ? `${label} board available` : `${label} board missing`}</strong><span>{available ? `${diagnostic?.candidateCount ?? 9} usable frames qualified.` : diagnostic?.summary || `No complete ${label} board qualified.`}</span></div>;
+  })}</div>;
 }
 
 function RevealSummary({run}:{run:Run}) {

@@ -123,9 +123,17 @@ function boundedRoleBatchKey(result) {
   return details ? batchKey(result) : "";
 }
 
-function boundedRoleAnchorKey(result) {
+function boundedRoleAnchorKeys(result) {
   const details = boundedRoleTerms(result);
-  return details ? `${details.actor}:${details.boundaryTerms[0]}` : "";
+  if (!details) return new Set();
+  const title = normalizeText(result.title);
+  const anchors = details.boundaryTerms.filter((term, index) => {
+    if (!title.includes(term)) return false;
+    const trailingTerms = details.boundaryTerms.slice(index + 1);
+    return index === details.boundaryTerms.length - 1
+      || trailingTerms.every(trailingTerm => !title.includes(trailingTerm));
+  });
+  return new Set(anchors.map(anchor => `${details.actor}:${anchor}`));
 }
 
 function hasGenericTitle(result) {
@@ -155,13 +163,10 @@ function familyEvidence(left, right) {
     ? 0
     : jaccard(distinctiveTitleTokens(leftResult), distinctiveTitleTokens(rightResult));
   const sameBatch = batchKey(leftResult) && batchKey(leftResult) === batchKey(rightResult);
-  const leftRoleBatch = boundedRoleBatchKey(leftResult);
-  const sameBoundedRole = sameBatch
-    && leftRoleBatch
-    && leftRoleBatch === boundedRoleBatchKey(rightResult);
-  const leftRoleAnchor = boundedRoleAnchorKey(leftResult);
-  const sameRoleAcrossQueries = leftRoleAnchor
-    && leftRoleAnchor === boundedRoleAnchorKey(rightResult);
+  const leftRoleAnchors = boundedRoleAnchorKeys(leftResult);
+  const rightRoleAnchors = boundedRoleAnchorKeys(rightResult);
+  const sameRoleAcrossQueries = [...leftRoleAnchors]
+    .some(anchor => rightRoleAnchors.has(anchor));
   const visualDistance = left.fingerprint && right.fingerprint
     ? perceptualDistance(left.fingerprint, right.fingerprint)
     : 1;
@@ -170,7 +175,7 @@ function familyEvidence(left, right) {
   // published by different sources. A specific work/character query supplies
   // that boundary; generic actor + style searches deliberately do not.
   if (sameRoleAcrossQueries) {
-    return { related: true, strength: 0.76, kind: "shared work or character boundary" };
+    return { related: true, strength: 0.76, kind: "shared character or role boundary" };
   }
 
   // Publisher/source alone is not an event. A same-source pair needs corroboration
@@ -486,6 +491,28 @@ function selectCompiledBoard(candidates, limit) {
   );
 }
 
+function boardDiagnosticSummary(mode, reasonCode, metrics) {
+  const label = mode === "event" ? "Event" : "Compiled";
+  if (reasonCode === "too_few_usable_images") {
+    return `${label} had ${metrics.usableCount} usable image${metrics.usableCount === 1 ? "" : "s"}; ${metrics.requiredCount} are required.`;
+  }
+  if (reasonCode === "too_much_visual_duplication") {
+    if (mode === "event" && metrics.largestFamilyCount > 0) {
+      return `The strongest Event family had ${metrics.largestFamilyCount} usable images, but only ${metrics.largestDistinctFamilyCount} distinct frames remained after visual duplicates were collapsed; ${metrics.requiredCount} are required.`;
+    }
+    if (metrics.distinctUsableCount < metrics.requiredCount) {
+      return `${label} had ${metrics.usableCount} usable images, but only ${metrics.distinctUsableCount} distinct frames remained after exact duplicates were collapsed; ${metrics.requiredCount} are required.`;
+    }
+    return `${label} had enough usable images, but visual overlap prevented ${metrics.requiredCount} sufficiently distinct frames from forming one varied board.`;
+  }
+  if (reasonCode === "no_bounded_role_family") {
+    return "No bounded work or role family produced enough distinct frames for an Event board. Make the query more specific.";
+  }
+  if (reasonCode === "event_family_too_small") {
+    return `The strongest Event family had ${metrics.largestFamilyCount} frames (${metrics.largestDistinctFamilyCount} after copy collapse); ${metrics.requiredCount} distinct frames are required.`;
+  }
+  return `${label} did not reach the ${metrics.requiredCount}-card qualification gate.`;
+}
 function rationaleFor(mode, eventCandidate, compiledCandidate) {
   if (mode === "event") {
     const signals = ["shared editorial family", "meaningful frame variation"];
@@ -562,10 +589,24 @@ export async function curateDisplayResults(
   const withFamilies = familyLabeledCandidates(candidates, families);
   const eventCandidate = selectEventBoard(families, limit);
   const compiledCandidate = selectCompiledBoard(withFamilies, limit);
+  const boardDiagnostics = {
+    event: boardDiagnostic("event", eventCandidate, {
+      limit,
+      usableCount: analyzed.length,
+      distinctUsableCount: candidates.length,
+      families,
+    }),
+    compiled: boardDiagnostic("compiled", compiledCandidate, {
+      limit,
+      usableCount: analyzed.length,
+      distinctUsableCount: candidates.length,
+      families,
+    }),
+  };
 
   if (!eventCandidate && !compiledCandidate) {
     return diagnostics
-      ? { displayResults: [], curation: null, diagnostics: diagnosticReceipt(rawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, null) }
+      ? { displayResults: [], curation: null, diagnostics: diagnosticReceipt(rawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, null, boardDiagnostics) }
       : { displayResults: [], curation: null };
   }
 
@@ -576,11 +617,11 @@ export async function curateDisplayResults(
     displayResults: winner.board.map(candidate => candidate.result),
     curation: rationaleFor(useEvent ? "event" : "compiled", eventCandidate, compiledCandidate),
   };
-  if (diagnostics) result.diagnostics = diagnosticReceipt(rawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, useEvent ? "event" : "compiled");
+  if (diagnostics) result.diagnostics = diagnosticReceipt(rawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, useEvent ? "event" : "compiled", boardDiagnostics);
   return result;
 }
 
-function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, eventCandidate, compiledCandidate, winner) {
+function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, eventCandidate, compiledCandidate, winner, boardDiagnostics) {
   const summarize = candidate => ({
     thumbnail: String(candidate.result.thumbnail || "").slice(0, 500),
     title: String(candidate.result.title || "").slice(0, 240),
@@ -615,8 +656,85 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
     })),
     strongestEvent: board(eventCandidate, "event"),
     strongestCompiled: board(compiledCandidate, "compiled"),
+    boardDiagnostics,
     winner,
     alternate: winner === "event" ? "compiled" : winner === "compiled" ? "event" : null,
     receipt: { rawCount: rawCandidates.length, analyzedCount: states.filter(state => !state.dropReason).length, curationVersion: CURATION_VERSION },
+  };
+}
+
+function boardDiagnostic(mode, selection, {
+  limit,
+  usableCount,
+  distinctUsableCount,
+  families,
+}) {
+  const largestFamilyCount = families.reduce(
+    (largest, family) => Math.max(largest, family.candidates.length),
+    0,
+  );
+  const largestDistinctFamilyCount = families.reduce(
+    (largest, family) => Math.max(
+      largest,
+      collapseCopies(
+        [...family.candidates].sort(candidateOrder),
+        EVENT_COPY_DISTANCE,
+      ).length,
+    ),
+    0,
+  );
+  const metrics = {
+    requiredCount: limit,
+    usableCount,
+    distinctUsableCount,
+    largestFamilyCount,
+    largestDistinctFamilyCount,
+  };
+  const reasonCodes = [];
+
+  if (!selection && usableCount < limit) {
+    reasonCodes.push("too_few_usable_images");
+  } else if (!selection && distinctUsableCount < limit) {
+    reasonCodes.push("too_much_visual_duplication");
+  }
+
+  if (
+    !selection
+    && mode === "compiled"
+    && usableCount >= limit
+    && distinctUsableCount >= limit
+  ) {
+    reasonCodes.push("too_much_visual_duplication");
+  }
+
+  if (!selection && mode === "event") {
+    const hasBoundedRoleFamily = families.some(family =>
+      family.candidates.some(candidate => boundedRoleBatchKey(candidate.result)),
+    );
+    if (largestFamilyCount >= limit && largestDistinctFamilyCount < limit) {
+      reasonCodes.push("too_much_visual_duplication");
+    } else if (!hasBoundedRoleFamily && largestDistinctFamilyCount < limit) {
+      reasonCodes.push("no_bounded_role_family");
+    } else if (largestFamilyCount < limit || largestDistinctFamilyCount < limit) {
+      reasonCodes.push("event_family_too_small");
+    }
+  }
+
+  if (!selection && !reasonCodes.length) reasonCodes.push("board_not_selected");
+  const uniqueReasonCodes = [...new Set(reasonCodes)];
+  const reasonCode = uniqueReasonCodes[0] || null;
+  return {
+    available: Boolean(selection),
+    requiredCount: limit,
+    candidateCount: selection?.board.length || 0,
+    usableCount,
+    distinctUsableCount,
+    largestFamilyCount,
+    largestDistinctFamilyCount,
+    reasonCodes: uniqueReasonCodes,
+    reasonCode,
+    summary: reasonCode
+      ? boardDiagnosticSummary(mode, reasonCode, metrics)
+      : `A complete ${limit}-card ${mode === "event" ? "Event" : "Compiled"} board qualified.`,
   };
 }

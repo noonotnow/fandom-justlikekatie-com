@@ -381,6 +381,7 @@ export async function runPreflight(
     rejections: buildRejectionLedger(queryRuns, diagnostics),
     identityEvidence,
     detectedEvents: diagnostics.eventFamilies || [],
+    boardDiagnostics: diagnostics.boardDiagnostics || null,
     strongestEvent: diagnostics.strongestEvent || null,
     strongestCompiled: diagnostics.strongestCompiled || null,
     winner: diagnostics.winner
@@ -600,6 +601,7 @@ function emptyDiagnostics() {
     eventFamilies: [],
     strongestEvent: null,
     strongestCompiled: null,
+    boardDiagnostics: null,
     winner: null,
     alternate: null,
     receipt: { rawCount: 0, analyzedCount: 0 },
@@ -649,8 +651,10 @@ async function attachVerdict(store, pair, run) {
     readFirstReceipt(store, auditCalibrationPrefix(pair.actor.id, pair.vibeIdx, run.runId), "chosenAt"),
     readFirstReceipt(store, auditCalibrationReasonsPrefix(pair.actor.id, pair.vibeIdx, run.runId), "annotatedAt"),
   ]);
+  const boardDiagnostics = run.boardDiagnostics || boardDiagnosticsFromRetainedEvidence(run);
   return {
     ...run,
+    boardDiagnostics,
     operatorVerdict: operatorVerdict || null,
     blindReview: calibration
       ? { ...calibration, ...(reasons || {}) }
@@ -659,6 +663,68 @@ async function attachVerdict(store, pair, run) {
         presentationOrder: presentationOrderFor(run.runId),
         boards: blindBoards(run, presentationOrderFor(run.runId)),
       },
+  };
+}
+
+function boardDiagnosticsFromRetainedEvidence(run) {
+  const requiredCount = 9;
+  const usableCount = Number(run?.curationReceipt?.analyzedCount) || 0;
+  const exactDuplicateCount = (run?.rejections || [])
+    .filter(item => item?.kind === "image" && item?.reason === "exact_duplicate")
+    .length;
+  const distinctUsableCount = Math.max(0, usableCount - exactDuplicateCount);
+  const largestFamilyCount = (run?.detectedEvents || []).reduce(
+    (largest, family) => Math.max(largest, Number(family?.size) || 0),
+    0,
+  );
+  const diagnostic = mode => {
+    const board = run?.[mode === "event" ? "strongestEvent" : "strongestCompiled"];
+    if (Array.isArray(board?.candidates) && board.candidates.length >= requiredCount) {
+      return {
+        available: true,
+        requiredCount,
+        candidateCount: board.candidates.length,
+        usableCount,
+        distinctUsableCount,
+        largestFamilyCount,
+        reasonCodes: [],
+        reasonCode: null,
+        summary: `A complete ${requiredCount}-card ${mode === "event" ? "Event" : "Compiled"} board qualified.`,
+      };
+    }
+
+    let reasonCode;
+    let summary;
+    if (usableCount < requiredCount) {
+      reasonCode = "too_few_usable_images";
+      summary = `${mode === "event" ? "Event" : "Compiled"} had ${usableCount} usable image${usableCount === 1 ? "" : "s"}; ${requiredCount} are required.`;
+    } else if (mode === "compiled" || distinctUsableCount < requiredCount || largestFamilyCount >= requiredCount) {
+      reasonCode = "too_much_visual_duplication";
+      summary = mode === "event"
+        ? `The strongest retained Event family had ${largestFamilyCount} frames, but visual duplication kept it from producing ${requiredCount} distinct cards.`
+        : `Compiled had enough usable images, but visual overlap prevented ${requiredCount} sufficiently distinct frames from forming one varied board.`;
+    } else if (largestFamilyCount === 0) {
+      reasonCode = "no_bounded_role_family";
+      summary = "No bounded work or role family produced enough distinct frames for an Event board. Make the query more specific.";
+    } else {
+      reasonCode = "event_family_too_small";
+      summary = `The strongest retained Event family had ${largestFamilyCount} frames; ${requiredCount} distinct frames are required.`;
+    }
+    return {
+      available: false,
+      requiredCount,
+      candidateCount: 0,
+      usableCount,
+      distinctUsableCount,
+      largestFamilyCount,
+      reasonCodes: [reasonCode],
+      reasonCode,
+      summary,
+    };
+  };
+  return {
+    event: diagnostic("event"),
+    compiled: diagnostic("compiled"),
   };
 }
 

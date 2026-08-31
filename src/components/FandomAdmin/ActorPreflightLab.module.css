@@ -79,6 +79,10 @@
 .boardUnavailable { margin-top:16px; padding:14px; border:1px solid #9b5b4b; border-radius:9px; background:color-mix(in srgb,#9b5b4b 9%,transparent); }
 .boardUnavailable strong { color:#e5b09a; font-size:12px; }
 .boardUnavailable p { margin-top:5px; color:#b9bfbb; }
+.boardQualification { display:grid; gap:7px; margin-top:12px; }
+.boardQualificationRow { display:grid; gap:3px; padding:9px 10px; border:1px solid color-mix(in srgb,#9b5b4b 50%,var(--admin-border)); border-radius:6px; background:color-mix(in srgb,Canvas 94%,currentColor 6%); }
+.boardQualificationRow strong { color:#e5b09a; font-size:11px; }
+.boardQualificationRow span { color:#b9bfbb; font-size:10px; line-height:1.45; }
 .partialBoards { display:grid; gap:8px; margin-top:14px; padding-top:12px; border-top:1px solid color-mix(in srgb,#9b5b4b 50%,var(--admin-border)); }
 .partialBoards h6 { margin:0; color:#c9a96e; font-size:12px; }
 .partialBoards > p { margin:0; color:#8d928f; font-size:11px; }

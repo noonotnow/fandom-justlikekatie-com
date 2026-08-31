@@ -122,6 +122,10 @@ test("a generic actor style query cannot manufacture an Event family", async () 
 
   assert.equal(curated.diagnostics.strongestEvent, null);
   assert.equal(curated.diagnostics.strongestCompiled.candidates.length, 9);
+  assert.equal(curated.diagnostics.boardDiagnostics.event.available, false);
+  assert.equal(curated.diagnostics.boardDiagnostics.event.reasonCode, "no_bounded_role_family");
+  assert.match(curated.diagnostics.boardDiagnostics.event.summary, /more specific/i);
+  assert.equal(curated.diagnostics.boardDiagnostics.compiled.available, true);
 });
 
 test("related character and look queries can combine into one Event mood board", async () => {
@@ -142,6 +146,27 @@ test("related character and look queries can combine into one Event mood board",
 
   assert.equal(curated.diagnostics.strongestEvent.candidates.length, 9);
   assert.equal(curated.diagnostics.eventFamilies.some(family => family.size >= 9), true);
+});
+
+test("different characters from the same work cannot combine into one Event board", async () => {
+  const roles = ["角色甲", "角色乙", "角色丙"];
+  const batches = roles.map((role, batchIndex) => ({
+    query: `刘学义 同一部剧 ${role}`,
+    results: Array.from({ length: 3 }, (_, index) => result(`separate-role-${batchIndex}-${index}`, {
+      source: `publisher-${batchIndex}-${index}.test`,
+      link: `https://publisher-${batchIndex}-${index}.test/${role}/frame`,
+      title: `同一部剧 ${role} character frame ${index + 1}`,
+      fp: fingerprint(`separate-role-${batchIndex}-${index}`, {
+        ones: spreadBits(`separate-role-${batchIndex}-${index}`, 104),
+      }),
+    })),
+  }));
+
+  const curated = await curateBatches(batches, { diagnostics: true });
+
+  assert.equal(curated.diagnostics.strongestEvent, null);
+  assert.equal(curated.diagnostics.eventFamilies.some(family => family.size >= 9), false);
+  assert.equal(curated.diagnostics.strongestCompiled.candidates.length, 9);
 });
 
 test("provider order cannot change which candidates survive the curation cap", async () => {
@@ -404,6 +429,30 @@ test("diagnostics retain exact-copy and image-gate rejection reasons", async () 
   assert.equal(output.diagnostics.rawCandidates.length, items.length);
 });
 
+test("diagnostics explain when usable images collapse into too much visual duplication", async () => {
+  const exactFingerprint = fingerprint("repeated", { ones: spreadBits(91) });
+  const repeated = Array.from({ length: 9 }, (_, index) => result(`repeated-${index}`, {
+    source: `publisher-${index}.test`,
+    fp: exactFingerprint,
+  }));
+  const output = await curate(repeated, { diagnostics: true });
+
+  assert.equal(output.diagnostics.boardDiagnostics.event.reasonCode, "too_much_visual_duplication");
+  assert.equal(output.diagnostics.boardDiagnostics.compiled.reasonCode, "too_much_visual_duplication");
+  assert.match(output.diagnostics.boardDiagnostics.compiled.summary, /1 distinct frames/);
+});
+
+test("diagnostics explain when fewer than nine images are usable", async () => {
+  const output = await curate(
+    Array.from({ length: 8 }, (_, index) => result(`sparse-${index}`)),
+    { diagnostics: true },
+  );
+
+  assert.equal(output.diagnostics.boardDiagnostics.event.reasonCode, "too_few_usable_images");
+  assert.equal(output.diagnostics.boardDiagnostics.compiled.reasonCode, "too_few_usable_images");
+  assert.match(output.diagnostics.boardDiagnostics.event.summary, /8 usable images/);
+});
+
 test("unloaded, undersized, and unusably cropped images fail the hard gate", async () => {
   const valid = Array.from({ length: 9 }, (_, index) => result(`valid-${index}`));
   const undersized = result("tiny", {
@@ -457,10 +506,14 @@ test("visually repetitive frames without meaningful variation cannot fill an eve
     }),
   }));
 
-  const curated = await curate(repetitive);
+  const curated = await curate(repetitive, { diagnostics: true });
 
   assert.notEqual(curated.curation?.mode, "event");
   assert.ok(curated.displayResults.length < 9);
+  assert.equal(curated.diagnostics.boardDiagnostics.event.reasonCode, "too_much_visual_duplication");
+  assert.match(curated.diagnostics.boardDiagnostics.event.summary, /visual duplicates/i);
+  assert.equal(curated.diagnostics.boardDiagnostics.compiled.reasonCode, "too_much_visual_duplication");
+  assert.match(curated.diagnostics.boardDiagnostics.compiled.summary, /visual overlap/i);
 });
 
 test("bounds concurrent image analysis for serverless runtimes", async () => {

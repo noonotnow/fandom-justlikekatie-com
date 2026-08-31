@@ -6,7 +6,7 @@ import {
   IDENTITY_PROFILE_VERSION,
   assertIdentityProfileCoverage,
 } from "./actor-identity-profiles.js";
-import { eligibilityKey } from "./actor-eligibility.js";
+import { auditRunKey, eligibilityKey } from "./actor-eligibility.js";
 import { createActorAuditHandler, vibeKeyFor } from "./actor-audit.js";
 
 const ORIGIN = "https://fandom.example";
@@ -77,6 +77,18 @@ function curation({ sufficient = true } = {}) {
       eventFamilies: [{ id: "event-family-1", strength: 0.8, size: 9, candidates: [] }],
       strongestEvent: sufficient ? { score: 0.7, scoreBreakdown: { familyStrength: { value: 0.8, weight: 0.55, contribution: 0.44 } }, candidates: ranked[0].results.slice(0, 9) } : null,
       strongestCompiled: sufficient ? { score: 0.8, scoreBreakdown: { sourceRange: { value: 1, weight: 0.2, contribution: 0.2 } }, candidates: ranked[0].results.slice(0, 9).reverse() } : null,
+      boardDiagnostics: {
+        event: {
+          available: sufficient,
+          reasonCode: sufficient ? null : "no_bounded_role_family",
+          summary: sufficient ? "A complete 9-card Event board qualified." : "No bounded work or role family produced enough distinct frames for an Event board.",
+        },
+        compiled: {
+          available: sufficient,
+          reasonCode: sufficient ? null : "too_few_usable_images",
+          summary: sufficient ? "A complete 9-card Compiled board qualified." : "Compiled had 0 usable images; 9 are required.",
+        },
+      },
       winner: sufficient ? "compiled" : null,
       alternate: sufficient ? "event" : null,
       receipt: { rawCount: 9, analyzedCount: sufficient ? 9 : 0, curationVersion: 1 },
@@ -372,6 +384,17 @@ test("runs without two complete boards fail clearly and cannot be approved", asy
   assert.equal(report.currentRun.queryRuns.length, 4);
   assert.equal(report.currentRun.rawResults.length, 36);
   assert.ok(report.currentRun.curationReceipt);
+  assert.equal(report.currentRun.boardDiagnostics.event.reasonCode, "no_bounded_role_family");
+  assert.equal(report.currentRun.boardDiagnostics.compiled.reasonCode, "too_few_usable_images");
+
+  const retainedRunKey = auditRunKey(pairActor.id, 0, "run-1");
+  const retainedRun = store.records.get(retainedRunKey);
+  delete retainedRun.boardDiagnostics;
+  store.records.set(retainedRunKey, retainedRun);
+  const legacyDetail = await handler(request("GET", undefined, `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`), {});
+  const legacyReport = await legacyDetail.json();
+  assert.equal(legacyReport.currentRun.boardDiagnostics.event.reasonCode, "too_few_usable_images");
+  assert.match(legacyReport.currentRun.boardDiagnostics.event.summary, /0 usable images/);
 
   const blindChoice = await handler(request("POST", {
     action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "neither",
