@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  hasInvalidVibeAtlasEditionDate,
   initialCollectionType,
+  initialVibeAtlasEditionDate,
   initialVibeAtlasView,
+  isValidVibeAtlasEditionDate,
   resolveFandomProductRoute,
 } from '../src/utils/fandomRoutes.ts';
 
@@ -25,6 +28,18 @@ test('reads the requested Vibe Atlas section without allowing arbitrary views', 
   assert.equal(initialVibeAtlasView('?view=builder'), 'collection');
   assert.equal(initialVibeAtlasView('?view=unknown'), 'daily');
   assert.equal(initialVibeAtlasView(''), 'daily');
+});
+
+test('accepts only real calendar dates for shareable Vibe Atlas editions', () => {
+  assert.equal(isValidVibeAtlasEditionDate('2026-08-30'), true);
+  assert.equal(isValidVibeAtlasEditionDate('2026-02-29'), false);
+  assert.equal(isValidVibeAtlasEditionDate('2026-13-01'), false);
+  assert.equal(isValidVibeAtlasEditionDate('2026-8-1'), false);
+  assert.equal(initialVibeAtlasEditionDate('?date=2026-08-30'), '2026-08-30');
+  assert.equal(initialVibeAtlasEditionDate('?date=2026-02-29'), null);
+  assert.equal(initialVibeAtlasEditionDate(''), null);
+  assert.equal(hasInvalidVibeAtlasEditionDate('?date=2026-02-29'), true);
+  assert.equal(hasInvalidVibeAtlasEditionDate('?view=collection'), false);
 });
 
 test('collection links open the requested Vibe Atlas tool', () => {

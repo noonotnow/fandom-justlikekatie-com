@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { ImageTier } from './types';
 import FandomLaunchpad from './components/FandomLaunchpad/FandomLaunchpad';
 import { MiddleEarthWorkspace } from './components/MiddleEarthWorkspace/MiddleEarthWorkspace';
@@ -26,8 +26,11 @@ import { makeCreatorPostFromGrid } from './utils/creatorDraft';
 import { CreatorPostAction } from './components/CreatorPostAction/CreatorPostAction';
 import { useIsAdmin } from './hooks/useIsAdmin';
 import {
+  hasInvalidVibeAtlasEditionDate,
   initialCollectionType,
+  initialVibeAtlasEditionDate,
   initialVibeAtlasView,
+  isValidVibeAtlasEditionDate,
   resolveFandomProductRoute,
 } from './utils/fandomRoutes';
 import './App.css';
@@ -51,6 +54,21 @@ function formatEditionDate(value: string): string {
   }).format(date);
 }
 
+function syncVibeAtlasEditionUrl(date: string | null, replace = false) {
+  const params = new URLSearchParams(window.location.search);
+  if (date) {
+    params.set('date', date);
+  } else {
+    params.delete('date');
+  }
+
+  const query = params.toString();
+  const nextUrl = `/vibe-atlas${query ? `?${query}` : ''}`;
+  if (`${window.location.pathname}${window.location.search}` === nextUrl) return;
+  const update = replace ? window.history.replaceState : window.history.pushState;
+  update.call(window.history, {}, '', nextUrl);
+}
+
 function App() {
   const route = resolveFandomProductRoute(window.location.pathname);
   if (route === 'vibe-atlas') return <VibeAtlasApp />;
@@ -71,8 +89,15 @@ function VibeAtlasApp() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [dailyGridZoomOpen, setDailyGridZoomOpen] = useState(false);
-  const [selectedEditionDate, setSelectedEditionDate] = useState<string | null>(null);
-  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [selectedEditionDate, setSelectedEditionDate] = useState<string | null>(
+    () => initialVibeAtlasView(window.location.search) === 'daily'
+      ? initialVibeAtlasEditionDate(window.location.search)
+      : null,
+  );
+  const [archiveOpen, setArchiveOpen] = useState(
+    () => initialVibeAtlasView(window.location.search) === 'daily'
+      && hasInvalidVibeAtlasEditionDate(window.location.search),
+  );
   const [view, setView] = useState<'daily' | 'collection' | 'plan' | 'membership'>(
     () => initialVibeAtlasView(window.location.search),
   );
@@ -152,20 +177,23 @@ function VibeAtlasApp() {
     canonical.href = 'https://fandom.justlikekatie.com/vibe-atlas';
   }, [view]);
 
-  useEffect(() => {
-    const restoreUrlView = () => {
-      setView(initialVibeAtlasView(window.location.search));
-      setCollectionTab(initialCollectionType(window.location.search));
-    };
-    window.addEventListener('popstate', restoreUrlView);
-    return () => window.removeEventListener('popstate', restoreUrlView);
-  }, []);
+  const openArchivePicker = useCallback(() => {
+    setArchiveOpen(true);
+    if (!archive.length && !archiveLoading) void loadArchive();
+  }, [archive.length, archiveLoading, loadArchive]);
 
   const selectEdition = (date: string | null) => {
     setExpandedId(null);
     setLightboxIndex(null);
     setDailyGridZoomOpen(false);
     setImageTiers({});
+    if (date !== null && !isValidVibeAtlasEditionDate(date)) {
+      syncVibeAtlasEditionUrl(null, true);
+      setSelectedEditionDate(null);
+      openArchivePicker();
+      return;
+    }
+    syncVibeAtlasEditionUrl(date);
     setSelectedEditionDate(date);
   };
 
@@ -183,6 +211,45 @@ function VibeAtlasApp() {
     setView(destination);
     if (destination === 'daily') selectEdition(null);
   };
+
+  useEffect(() => {
+    const restoreUrlState = () => {
+      const restoredView = initialVibeAtlasView(window.location.search);
+      const invalidEditionDate = hasInvalidVibeAtlasEditionDate(window.location.search);
+      setView(restoredView);
+      setCollectionTab(initialCollectionType(window.location.search));
+      setExpandedId(null);
+      setLightboxIndex(null);
+      setDailyGridZoomOpen(false);
+      setImageTiers({});
+      setSelectedEditionDate(
+        restoredView === 'daily' ? initialVibeAtlasEditionDate(window.location.search) : null,
+      );
+      if (restoredView === 'daily' && invalidEditionDate) {
+        syncVibeAtlasEditionUrl(null, true);
+        openArchivePicker();
+      }
+    };
+    window.addEventListener('popstate', restoreUrlState);
+    return () => window.removeEventListener('popstate', restoreUrlState);
+  }, [openArchivePicker]);
+
+  useEffect(() => {
+    if (!hasInvalidVibeAtlasEditionDate(window.location.search)) return;
+    syncVibeAtlasEditionUrl(null, true);
+    setSelectedEditionDate(null);
+    if (view === 'daily') openArchivePicker();
+  }, [openArchivePicker, view]);
+
+  useEffect(() => {
+    // A valid date can still point at a cache entry that has been retired or
+    // was never generated. Return the visitor to a usable picker rather than
+    // leaving them on an empty/error grid.
+    if (!selectedEditionDate || loading || !error) return;
+    syncVibeAtlasEditionUrl(null, true);
+    setSelectedEditionDate(null);
+    openArchivePicker();
+  }, [error, loading, openArchivePicker, selectedEditionDate]);
 
   const toggleArchive = () => {
     const nextOpen = !archiveOpen;

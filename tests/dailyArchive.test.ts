@@ -10,6 +10,8 @@ test('daily archive selection reuses the daily payload renderer and keeps today 
   assert.match(hookSource, /star-of-day\$\{query\}/);
   assert.match(appSource, /useStarOfDay\(selectedEditionDate\)/);
   assert.match(appSource, /selectedEditionDate \? `Archived card drop/);
+  assert.match(appSource, /initialVibeAtlasEditionDate\(window\.location\.search\)/);
+  assert.match(appSource, /params\.set\('date', date\)/);
 });
 
 test('every return to today clears per-image edition state', () => {
@@ -25,4 +27,6 @@ test('every return to today clears per-image edition state', () => {
   assert.match(selectEdition, /setImageTiers\(\{\}\)/);
   assert.match(selectEdition, /setSelectedEditionDate\(date\)/);
   assert.match(navigateAtlas, /if \(destination === 'daily'\) selectEdition\(null\)/);
+  assert.match(appSource, /params\.delete\('date'\)/);
+  assert.match(appSource, /openArchivePicker\(\)/);
 });
