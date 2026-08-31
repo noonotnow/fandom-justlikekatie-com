@@ -278,13 +278,11 @@ function subjectGuard(rawItems, subjectToken, minimumRatio = 0) {
 }
 
 export function sanitizeProviderResults(items, subjectToken) {
-  return dedupeSameSource(
-    dedupeResults(
-      filterResults(items)
-        .filter((result) => !isCommerceDomain(result.source))
-        .filter((result) => passesPerItemSubjectFilter(result, subjectToken))
-        .filter((result) => !isProductUrl(result.link, result.title, subjectToken)),
-    ),
+  return dedupeResults(
+    filterResults(items)
+      .filter((result) => !isCommerceDomain(result.source))
+      .filter((result) => passesPerItemSubjectFilter(result, subjectToken))
+      .filter((result) => !isProductUrl(result.link, result.title, subjectToken)),
   );
 }
 
@@ -514,7 +512,6 @@ export async function searchOneQuery(
         // Product-URL filter: reject product/catalog pages that don't mention the subject
         .filter((r) => !isProductUrl(r.link, r.title, subjectToken));
       braveNormalized = dedupeResults(braveNormalized);
-      braveNormalized = dedupeSameSource(braveNormalized);
       braveUseful = braveNormalized.filter((r) => !isCommerceDomain(r.source))
         .filter((r) => !isProductUrl(r.link, r.title, subjectToken));
     }
@@ -625,14 +622,14 @@ export async function searchOneQuery(
               ? Object.fromEntries(Object.keys(serpRaw[0]).map(k => [k, typeof serpRaw[0][k]]))
               : null;
 
-            const serpNormalized = dedupeSameSource(dedupeResults(
+            const serpNormalized = dedupeResults(
               filterResults(serpRaw.map((item) => normalizeSerpResult(item, q)))
                 .filter((r) => !isCommerceDomain(r.source))
                 // Per-item negative filter: reject co-star/wrong-actor and non-subject-content
                 // items, same as the Brave path above.
                 .filter((r) => passesPerItemSubjectFilter(r, subjectToken))
                 .filter((r) => !isProductUrl(r.link, r.title, subjectToken))
-            ));
+            );
             serpApiNormalizedCount = serpNormalized.length;
             engineLog.normalizedCount = serpNormalized.length;
 
@@ -859,26 +856,6 @@ function isProductUrl(link, title, subjectToken) {
   if (title && title.includes(subjectToken)) return false;
   const lower = link.toLowerCase();
   return PRODUCT_PATH_PATTERNS.some((p) => lower.includes(p));
-}
-
-// Same-source near-dedup: collapses results from the same domain that share a very
-// similar title (likely zoomed/cropped variants of the same image or the same ad
-// shown multiple times). Keeps the first occurrence only.
-function dedupeSameSource(items) {
-  const seen = new Map(); // domain → Set of normalized title prefixes
-  return items.filter((r) => {
-    if (!r.source || !r.title) return true;
-    const key = r.source;
-    const titleNorm = r.title.replace(/\s+/g, "").slice(0, 20);
-    if (!seen.has(key)) {
-      seen.set(key, new Set([titleNorm]));
-      return true;
-    }
-    const titles = seen.get(key);
-    if (titles.has(titleNorm)) return false;
-    titles.add(titleNorm);
-    return true;
-  });
 }
 
 function isPlaceholderThumbnail(url) {

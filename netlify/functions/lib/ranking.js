@@ -13,8 +13,8 @@
 //      PREFERRED_RESULTS — a grid should feel like a grid, not crumbs).
 //   3. Source/domain diversity narrows further within a close-count top tier (a
 //      cheap, mechanical proxy for quality over a wall of duplicate-domain results).
-//   4. Randomness only breaks a genuine remaining tie. Random is for flavor; ranking
-//      is for breakfast — this is the tie-breaker, not the method.
+//   4. A stable query/result key breaks genuine remaining ties. Identical edition
+//      inputs must always produce the same ranking and editorial decision.
 export const MIN_VIABLE_RESULTS = 3;   // below this (after junk filtering) a batch is sparse/crumbs, not a grid.
 export const PREFERRED_RESULTS = 7;    // mirrors USEFUL_FALLBACK_THRESHOLD in preview-search.js — informal target, not a hard cutoff.
 export const CLOSE_COUNT_RANGE = 2;    // counts within this range of the max are treated as tied for randomization.
@@ -104,6 +104,11 @@ export function countDistinctSources(results) {
   return seen.size;
 }
 
+function stableCandidateKey(candidate) {
+  const firstThumbnail = candidate.results?.[0]?.thumbnail || "";
+  return `${candidate.query || ""}\u0000${candidate.provider || ""}\u0000${firstThumbnail}`;
+}
+
 // Evaluates every candidate query for a vibe and scores each one. Strips known-junk
 // sources before counting, so ranking reflects only grid-worthy results. Returns the
 // full evaluated list (not just a winner) so rankCandidates can compare across all of
@@ -142,7 +147,7 @@ export async function evaluateCandidates(queries, searchOneQuery) {
 // band" and the rest. Candidates whose clean-result count is within CLOSE_COUNT_RANGE
 // of the maximum form the band — within that band, source diversity wins over raw
 // count (so 17 results from 6 sources beats 18 results all from one domain).
-// Candidates below the band sort normally by count → diversity → jitter.
+// Candidates below the band sort normally by count → diversity → stable key.
 export function rankCandidates(candidates) {
   const acceptable = candidates.filter((c) => c.count >= MIN_VIABLE_RESULTS);
   if (acceptable.length === 0) return [];
@@ -153,18 +158,16 @@ export function rankCandidates(candidates) {
   const band = acceptable.filter((c) => c.count >= maxCount - CLOSE_COUNT_RANGE);
   const rest = acceptable.filter((c) => c.count < maxCount - CLOSE_COUNT_RANGE);
 
-  const bandWithJitter = band.map((c) => ({ ...c, _jitter: Math.random() }));
-  bandWithJitter.sort((a, b) => {
+  band.sort((a, b) => {
     if (b.distinctSources !== a.distinctSources) return b.distinctSources - a.distinctSources;
-    return b._jitter - a._jitter;
+    return stableCandidateKey(a).localeCompare(stableCandidateKey(b));
   });
 
-  const restWithJitter = rest.map((c) => ({ ...c, _jitter: Math.random() }));
-  restWithJitter.sort((a, b) => {
+  rest.sort((a, b) => {
     if (b.count !== a.count) return b.count - a.count;
     if (b.distinctSources !== a.distinctSources) return b.distinctSources - a.distinctSources;
-    return b._jitter - a._jitter;
+    return stableCandidateKey(a).localeCompare(stableCandidateKey(b));
   });
 
-  return [...bandWithJitter, ...restWithJitter];
+  return [...band, ...rest];
 }

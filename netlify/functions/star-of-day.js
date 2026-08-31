@@ -3,7 +3,7 @@ import { ACTOR_PACKS as actorPacks } from "./lib/actor-packs.js";
 import { searchOneQuery } from "./preview-search.js";
 import { evaluateCandidates, rankCandidates, RANKED_BATCH_LIMIT } from "./lib/ranking.js";
 import { getShanghaiDateString, getRandomForDate, shanghaiYesterday } from "./lib/date-seed.js";
-import { selectDisplayResults } from "./lib/image-dedup.js";
+import { curateDisplayResults } from "./lib/grid-curation.js";
 
 // Server-side daily cache for "Star of the Day".
 //
@@ -22,7 +22,8 @@ import { selectDisplayResults } from "./lib/image-dedup.js";
 // real cache key and reads whatever the winner produced. This is what stops
 // simultaneous requests right after midnight from each independently
 // re-running the whole search+rank ladder.
-const VERSION = "v5";
+const VERSION = "v6";
+const LEGACY_READ_VERSIONS = ["v5"];
 const STORE_NAME = "star-of-day";
 const LOCK_TTL_MS = 25000; // a stale/abandoned lock is ignored after this long
 const POLL_INTERVAL_MS = 700;
@@ -31,6 +32,14 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function cacheKeyFor(dateString) {
   return `starOfDay:${VERSION}:${dateString}`;
+}
+
+async function getHistoricalPayload(store, dateString) {
+  for (const version of [VERSION, ...LEGACY_READ_VERSIONS]) {
+    const payload = await store.get(`starOfDay:${version}:${dateString}`, { type: "json" });
+    if (payload) return payload;
+  }
+  return null;
 }
 
 function lockKeyFor(dateString) {
@@ -65,7 +74,8 @@ async function buildPayloadForDate(dateString) {
     return null;
   }
 
-  const displayResults = await selectDisplayResults(ranked);
+  const { displayResults, curation } = await curateDisplayResults(ranked);
+  if (displayResults.length < 9) return null;
 
   return {
     version: VERSION,
@@ -85,6 +95,7 @@ async function buildPayloadForDate(dateString) {
     generationQuery: ranked[0]?.query,
     rankedBatches: ranked,
     displayResults,
+    curation,
     generatedAt: new Date().toISOString()
   };
 }
@@ -157,7 +168,7 @@ export default async (req, context) => {
       // Historical editions are read-only cache entries. In particular, do
       // not run today's build/lock/fallback flow for an older date.
       if (requestedDate !== todayStr) {
-        const archived = await store.get(cacheKeyFor(requestedDate), { type: "json" });
+        const archived = await getHistoricalPayload(store, requestedDate);
         if (!archived) {
           return jsonResponse(404, { error: "That Vibe Atlas edition is not available." });
         }
@@ -242,15 +253,21 @@ function isUsableDate(value) {
 }
 
 async function listArchivedEditions(store, todayStr) {
-  const listing = await store.list({ prefix: `starOfDay:${VERSION}:` });
-  const keys = (listing?.blobs || [])
+  const listing = await store.list({ prefix: "starOfDay:" });
+  const availableVersions = new Set([VERSION, ...LEGACY_READ_VERSIONS]);
+  const versionsByDate = new Map();
+  (listing?.blobs || [])
     .map(blob => blob?.key)
     .filter(key => typeof key === "string")
-    .map(key => key.match(new RegExp(`^starOfDay:${VERSION}:(\\d{4}-\\d{2}-\\d{2})$`))?.[1])
-    .filter(date => date && date <= todayStr);
+    .forEach(key => {
+      const match = key.match(/^starOfDay:(v\d+):(\d{4}-\d{2}-\d{2})$/);
+      if (!match || !availableVersions.has(match[1]) || match[2] > todayStr) return;
+      const existing = versionsByDate.get(match[2]);
+      if (!existing || match[1] === VERSION) versionsByDate.set(match[2], match[1]);
+    });
 
-  const editions = await Promise.all([...new Set(keys)].map(async date => {
-    const payload = await store.get(cacheKeyFor(date), { type: "json" });
+  const editions = await Promise.all([...versionsByDate].map(async ([date, version]) => {
+    const payload = await store.get(`starOfDay:${version}:${date}`, { type: "json" });
     if (!payload || payload.date !== date || !payload.actorName || !payload.vibeLabel) return null;
     return {
       date,
@@ -285,7 +302,7 @@ async function pollForCache(store, todayKey) {
 async function tryYesterdayFallback(store, todayStr) {
   try {
     const yesterdayStr = shanghaiYesterday(todayStr);
-    const yesterdayCached = await store.get(cacheKeyFor(yesterdayStr), { type: "json" });
+    const yesterdayCached = await getHistoricalPayload(store, yesterdayStr);
     if (yesterdayCached) {
       return { ...yesterdayCached, stale: true, staleReason: "yesterday_fallback", date: todayStr, originalDate: yesterdayCached.date };
     }

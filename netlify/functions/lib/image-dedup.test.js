@@ -2,10 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import sharp from "sharp";
 import {
+  fetchImageBuffer,
   fingerprintImage,
   isNearDuplicate,
   selectDisplayResults,
 } from "./image-dedup.js";
+
+test("default thumbnail loading rejects non-public destinations before fetching", async () => {
+  await assert.rejects(
+    fetchImageBuffer("http://127.0.0.1/internal-preview.jpg"),
+    /https|public|address/i,
+  );
+});
 
 function sceneSvg({ pose = "left", color = "#6b2336", marker = 0 } = {}) {
   const subject = pose === "left"

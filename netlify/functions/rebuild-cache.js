@@ -17,9 +17,9 @@ import { ACTOR_PACKS as actorPacks } from "./lib/actor-packs.js";
 import { searchOneQuery } from "./preview-search.js";
 import { evaluateCandidates, rankCandidates, RANKED_BATCH_LIMIT } from "./lib/ranking.js";
 import { getShanghaiDateString, getRandomForDate } from "./lib/date-seed.js";
-import { selectDisplayResults } from "./lib/image-dedup.js";
+import { curateDisplayResults } from "./lib/grid-curation.js";
 
-const VERSION = "v5";
+const VERSION = "v6";
 const STORE_NAME = "star-of-day";
 
 function cacheKeyFor(dateString) {
@@ -46,7 +46,8 @@ async function buildPayloadForDate(dateString) {
     return null;
   }
 
-  const displayResults = await selectDisplayResults(ranked);
+  const { displayResults, curation } = await curateDisplayResults(ranked);
+  if (displayResults.length < 9) return null;
 
   return {
     version: VERSION,
@@ -66,6 +67,7 @@ async function buildPayloadForDate(dateString) {
     generationQuery: ranked[0]?.query,
     rankedBatches: ranked,
     displayResults,
+    curation,
     generatedAt: new Date().toISOString()
   };
 }

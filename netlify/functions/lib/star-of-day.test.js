@@ -37,7 +37,7 @@ function contextFor(store) {
 
 function archivePayload(date, actorName = `Actor ${date}`) {
   return {
-    version: "v5",
+    version: "v6",
     date,
     actorName,
     actorShortNameEn: actorName,
@@ -55,12 +55,13 @@ function archivePayload(date, actorName = `Actor ${date}`) {
   };
 }
 
-test("archive lists available payload dates with edition identity and excludes locks", async () => {
+test("archive lists current and legacy payload dates with edition identity and excludes locks", async () => {
   const store = makeStore({
-    "starOfDay:v5:2026-08-30": archivePayload("2026-08-30"),
-    "starOfDay:v5:2026-08-29": archivePayload("2026-08-29"),
-    "starOfDay:v5:2026-08-30:lock": { startedAt: Date.now() },
-    "starOfDay:v4:2026-08-28": archivePayload("2026-08-28"),
+    "starOfDay:v6:2026-08-30": archivePayload("2026-08-30"),
+    "starOfDay:v6:2026-08-29": archivePayload("2026-08-29"),
+    "starOfDay:v6:2026-08-30:lock": { startedAt: Date.now() },
+    "starOfDay:v5:2026-08-28": { ...archivePayload("2026-08-28"), version: "v5" },
+    "starOfDay:v4:2026-08-27": { ...archivePayload("2026-08-27"), version: "v4" },
   });
 
   const response = await starOfDay(
@@ -73,16 +74,31 @@ test("archive lists available payload dates with edition identity and excludes l
   assert.deepEqual(body.editions.map(edition => edition.date), [
     "2026-08-30",
     "2026-08-29",
+    "2026-08-28",
   ]);
   assert.equal(body.editions[0].actorName, "Actor 2026-08-30");
 });
 
 test("historical date reads use the existing cache without starting a build", async () => {
   const archived = archivePayload("2026-08-29");
-  const store = makeStore({ "starOfDay:v5:2026-08-29": archived });
+  const store = makeStore({ "starOfDay:v6:2026-08-29": archived });
 
   const response = await starOfDay(
     { method: "GET", url: "https://example.test/star-of-day?date=2026-08-29" },
+    contextFor(store),
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), archived);
+  assert.deepEqual(store.stats(), { listCalls: 0, setCalls: 0 });
+});
+
+test("historical date reads preserve legacy v5 editions after the curation upgrade", async () => {
+  const archived = { ...archivePayload("2026-08-28"), version: "v5" };
+  const store = makeStore({ "starOfDay:v5:2026-08-28": archived });
+
+  const response = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?date=2026-08-28" },
     contextFor(store),
   );
 

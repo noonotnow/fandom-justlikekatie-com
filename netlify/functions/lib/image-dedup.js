@@ -1,16 +1,14 @@
 import { createHash } from "node:crypto";
 import sharp from "sharp";
+import { fetchSafeImage } from "./canonical-render.js";
 
 const HASH_WIDTH = 17;
 const HASH_HEIGHT = 16;
 const SAMPLE_SIZE = HASH_HEIGHT * (HASH_WIDTH - 1);
 const DEFAULT_CANDIDATE_LIMIT = 18;
-const FETCH_TIMEOUT_MS = 2500;
 
-async function fetchImageBuffer(url) {
-  const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-  if (!response.ok) throw new Error(`Image fetch failed (${response.status})`);
-  return Buffer.from(await response.arrayBuffer());
+export async function fetchImageBuffer(url) {
+  return fetchSafeImage(url);
 }
 
 export async function fingerprintImage(buffer) {
@@ -40,6 +38,7 @@ export async function fingerprintImage(buffer) {
   return {
     digest: createHash("sha256").update(buffer).digest("hex"),
     differences,
+    sharpness,
     quality: Math.log2(area + 1) * 10 + sharpness,
     width: metadata.width || 0,
     height: metadata.height || 0,
@@ -60,9 +59,13 @@ export function isNearDuplicate(left, right) {
 }
 
 /**
- * Builds the visible grid before applying its size limit. Candidates are considered
- * in ranked order, but a later higher-quality copy replaces a blurrier copy in-place.
- * Pixel comparison failures fail open so a remote host cannot empty the grid.
+ * Legacy display selector retained for older callers. Daily Vibe Atlas selection now
+ * uses grid-curation.js, which keeps perceptual relationships available until it has
+ * classified the board as Event or Compiled.
+ *
+ * Candidates are considered in ranked order, but a later higher-quality copy replaces
+ * a blurrier copy in-place. Pixel comparison failures fail open for this compatibility
+ * helper; the Daily Drop's server-side curation path fails closed for unusable images.
  */
 export async function selectDisplayResults(
   rankedBatches,
