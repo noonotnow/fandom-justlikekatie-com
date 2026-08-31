@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { curateDisplayResults } from "./grid-curation.js";
+import { CURATION_VERSION, curateDisplayResults } from "./grid-curation.js";
 
 const DIFFERENCE_COUNT = 256;
 
@@ -105,6 +105,7 @@ test("a specific work and character query can form a cross-publisher character E
   assert.equal(curated.diagnostics.strongestEvent.candidates.length, 9);
   assert.equal(curated.diagnostics.strongestCompiled.candidates.length, 9);
   assert.equal(curated.diagnostics.eventFamilies.some(family => family.size >= 9), true);
+  assert.equal(curated.diagnostics.receipt.curationVersion, CURATION_VERSION);
 });
 
 test("a generic actor style query cannot manufacture an Event family", async () => {
