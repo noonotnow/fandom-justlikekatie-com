@@ -23,3 +23,4 @@
 - [Xianxia decoder joke engine](xianxia-decoder-voice.md) — veteran lines explain the absurd narrative necessity behind events; never stop at naming or predicting the trope.
 - [Field Journal spoiler integrity](field-journal-spoiler-integrity.md) — filed watch boundaries govern verdicts, linked evidence, and all reader-safe delivery; fail closed on uncertainty.
 - [Capability-link analytics](capability-link-analytics.md) — remove public capability values from browser URLs before trackers initialize; canonicalize pageview and event locations.
+- [Vibe Atlas public positioning](vibe-atlas-public-positioning.md) — daily-drop messaging is funnel-wide; audit crawlable guides and regenerate derived previews when it changes.

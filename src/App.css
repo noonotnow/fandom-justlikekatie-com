@@ -203,9 +203,29 @@
   background: rgba(211, 174, 98, .1);
 }
 
+.atlas-edition__label {
+  margin-bottom: .65rem;
+  color: #9b762e;
+  font: 500 .62rem "DM Mono", monospace;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
 .atlas-edition__name {
+  display: flex;
+  align-items: baseline;
+  gap: .45rem;
   color: #263e40;
   font: 600 1.3rem "Fraunces", serif;
+}
+
+.atlas-edition__name + .atlas-edition__name { margin-top: .25rem; }
+
+.atlas-edition__name span {
+  color: #9b762e;
+  font: 500 .62rem "DM Mono", monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
 }
 
 .atlas-edition__subline {
@@ -243,6 +263,8 @@
 .dark .atlas-edition__subline { color: #a4a4a5; }
 .dark .atlas-edition { background: rgba(211, 174, 98, .09); }
 .dark .atlas-edition__name { color: #f0e8dc; }
+.dark .atlas-edition__label,
+.dark .atlas-edition__name span { color: #e0c171; }
 
 @media (max-width: 800px) {
   .fandom-universe-nav {
@@ -349,6 +371,26 @@ h1 {
   gap: 8px;
   margin-bottom: 2rem;
 }
+
+.daily-grid__header {
+  margin: 0 0 1rem;
+}
+
+.daily-grid__header h2 {
+  margin: 0;
+  color: #263e40;
+  font: 600 clamp(1.4rem, 3vw, 2rem) "Fraunces", serif;
+  letter-spacing: -.04em;
+}
+
+.daily-grid__header p {
+  margin: .25rem 0 0;
+  color: #74807d;
+  font-size: .76rem;
+}
+
+.dark .daily-grid__header h2 { color: #f0e8dc; }
+.dark .daily-grid__header p { color: #a4a4a5; }
 
 .daily-grid__zoom {
   display: block;

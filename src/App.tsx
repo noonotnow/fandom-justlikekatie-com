@@ -106,7 +106,7 @@ function VibeAtlasApp() {
       || view === 'plan'
       || view === 'membership';
     const title = view === 'daily'
-      ? 'Vibe Atlas | Free Daily C-Drama Atmosphere Grid'
+      ? 'Vibe Atlas | A Daily C-Drama Card Drop'
       : view === 'membership'
         ? 'Vibe Atlas Founding Member | Fandom Vibes'
         : view === 'collection'
@@ -217,7 +217,7 @@ function VibeAtlasApp() {
         <div className="fandom-universe-tools">
           <span className="fandom-universe-current">Current universe</span>
           <a className="fandom-tool-link fandom-tool-link--active" href="/vibe-atlas">
-            <strong>Vibe Atlas</strong><small>C-drama atmosphere</small>
+            <strong>Vibe Atlas</strong><small>Daily C-drama card drop</small>
           </a>
         </div>
         <div className="fandom-atlas-nav" aria-label="Vibe Atlas workspace">
@@ -227,7 +227,7 @@ function VibeAtlasApp() {
             onClick={() => navigateAtlas('daily')}
             className={view === 'daily' ? 'fandom-atlas-nav__active' : ''}
           >
-            <span>Daily edition</span><small>今日之星</small>
+            <span>Daily card drop</span><small>今日之星</small>
           </button>
           <button
             type="button"
@@ -260,16 +260,20 @@ function VibeAtlasApp() {
         <div className="atlas-hero__eyebrow"><span>Fandom Vibes / studio 01</span><i /></div>
         <div className="atlas-hero__title-row">
           <div>
-            <p className="atlas-hero__universe">A C-drama worldbuilding instrument</p>
+            <p className="atlas-hero__universe">A daily C-drama card drop</p>
             <h1>Vibe Atlas <span>氛围图鉴</span></h1>
           </div>
-          <p className="atlas-hero__thesis">Too wrong to discard.<br /><em>Too iconic to ignore.</em></p>
+          <p className="atlas-hero__thesis">One star. One vibe. Nine pieces of evidence.</p>
         </div>
-        <p className="atlas-hero__intro">Compose the emotional weather of the day: a living grid of faces, textures, and tiny signals from the C-drama worlds you keep returning to.</p>
+        <p className="atlas-hero__intro">Each day, one featured actor and one Vibe Pack set the aesthetic assignment. We search their iconic characters, looks, and moments through that assignment for nine collectible pieces of evidence—thirsty, beautiful, and ready to save. You’re browsing today’s curated drop, not choosing an arbitrary actor × vibe pairing.</p>
         {meta && (
           <div className="atlas-edition">
+            <div className="atlas-edition__label">Today's curated card drop</div>
             <div className="atlas-edition__name">
-              {meta.vibeEmoji} {meta.actorName} · {meta.vibeLabel}
+              <span>Today's star</span> {meta.vibeEmoji} {meta.actorName}
+            </div>
+            <div className="atlas-edition__name">
+              <span>Today's vibe</span> {meta.vibeLabel}
             </div>
             <div className="atlas-edition__subline">
               {meta.vibeLabelEn} — {meta.vibeSubtitleEn}
@@ -299,6 +303,10 @@ function VibeAtlasApp() {
       </header>
 
       <div className="daily-grid">
+        <div className="daily-grid__header">
+          <h2>Fresh 3×3 evidence grid</h2>
+          <p>Collectible receipts from today’s star × vibe assignment.</p>
+        </div>
         {!loading && !error && gridImages.length > 0 && (
           <button type="button" className="daily-grid__zoom" onClick={() => setDailyGridZoomOpen(true)}>
             ⛶ View whole grid

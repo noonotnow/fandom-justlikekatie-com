@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 
 const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const adminSource = await readFile(
@@ -18,6 +18,20 @@ const builderSource = await readFile(
 const launchpadSource = await readFile(
   new URL('../src/components/FandomLaunchpad/FandomLaunchpad.tsx', import.meta.url),
   'utf8',
+);
+const rootHtml = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+const [guideHtml, gettingStartedHtml, glossaryHtml, tropeDecoderHtml, fandomGamesHtml] = await Promise.all([
+  readFile(new URL('../public/c-drama-fandom/index.html', import.meta.url), 'utf8'),
+  readFile(new URL('../public/c-drama-fandom/getting-started/index.html', import.meta.url), 'utf8'),
+  readFile(new URL('../public/c-drama-fandom/glossary/index.html', import.meta.url), 'utf8'),
+  readFile(new URL('../public/c-drama-fandom/trope-decoder/index.html', import.meta.url), 'utf8'),
+  readFile(new URL('../public/c-drama-fandom/fandom-games/index.html', import.meta.url), 'utf8'),
+]);
+const previewRoot = new URL('../public/c-drama-fandom/fandom-games/previews/', import.meta.url);
+const previewDirectories = (await readdir(previewRoot, { withFileTypes: true }))
+  .filter(entry => entry.isDirectory());
+const previewHtml = await Promise.all(
+  previewDirectories.map(entry => readFile(new URL(`${entry.name}/index.html`, previewRoot), 'utf8')),
 );
 
 test('Studio Operations is the public Collection and Grid Builder workspace', () => {
@@ -37,8 +51,52 @@ test('the private operator console does not mount a duplicate Grid Builder', () 
 });
 
 test('public launchpad copy does not expose internal admin or CREATE architecture', () => {
-  assert.match(launchpadSource, /compose a finished 3×3 in Studio Operations/);
+  assert.match(launchpadSource, /daily C-drama card drop/);
+  assert.match(launchpadSource, /One star, one vibe, nine pieces of evidence/);
+  assert.match(launchpadSource, /Browse today’s curated card drop/);
   assert.doesNotMatch(launchpadSource, /\badmin\b/i);
   assert.doesNotMatch(launchpadSource, /\bCREATE\b/);
   assert.doesNotMatch(builderSource, /\bCREATE\b/);
+});
+
+test('public Vibe Atlas copy names the daily card-drop promise', () => {
+  assert.match(appSource, /A daily C-drama card drop/);
+  assert.match(appSource, /'Vibe Atlas \| A Daily C-Drama Card Drop'/);
+  assert.match(appSource, /One star\. One vibe\. Nine pieces of evidence\./);
+  assert.match(appSource, /iconic characters, looks, and moments/);
+  assert.match(appSource, /Today's star/);
+  assert.match(appSource, /Today's vibe/);
+  assert.match(appSource, /Fresh 3×3 evidence grid/);
+  assert.match(rootHtml, /Vibe Atlas’s curated daily C-drama card drop/);
+  assert.match(rootHtml, /browse today’s Vibe Atlas card drop/);
+  assert.doesNotMatch(appSource, /worldbuilding instrument|emotional weather/i);
+  assert.doesNotMatch(appSource, /Free Daily C-Drama Atmosphere Grid/);
+  assert.doesNotMatch(launchpadSource, /daily atmosphere|worldbuilding instrument|emotional weather/i);
+  assert.doesNotMatch(rootHtml, /daily atmosphere|worldbuilding instrument|emotional weather/i);
+});
+
+test('crawlable C-drama entry points use the Vibe Atlas daily card-drop promise', () => {
+  assert.match(guideHtml, /daily C-drama card drop/);
+  assert.match(guideHtml, /one featured actor with one Vibe Pack/);
+  assert.match(guideHtml, /nine collectible pieces of evidence/);
+  assert.match(guideHtml, /Browse today’s C-drama card drop/);
+  assert.match(gettingStartedHtml, /Browse today’s C-drama card drop/);
+  assert.match(gettingStartedHtml, /today’s Vibe Atlas card drop/);
+  assert.match(gettingStartedHtml, /Meet today’s featured star and vibe through nine collectible pieces of evidence/);
+  assert.match(glossaryHtml, /one featured actor, one Vibe Pack, and nine collectible pieces of evidence/);
+  assert.match(glossaryHtml, /Browse today’s card drop/);
+  assert.match(tropeDecoderHtml, /today’s Vibe Atlas card drop/);
+  assert.match(tropeDecoderHtml, /nine pieces of evidence/);
+  assert.match(tropeDecoderHtml, /Browse today’s card drop/);
+  assert.match(fandomGamesHtml, /today’s curated C-drama card drop/);
+  assert.match(fandomGamesHtml, /One star, one vibe, nine collectible pieces of evidence/);
+
+  const retiredVibeAtlasCopy = /atmosphere grid|atmosphere studio|emotional weather|daily atmosphere|living 3×3|Explore today’s grid|Explore today’s free Vibe Atlas|Explore Vibe Atlas|today’s C-drama atmosphere|today’s free Vibe Atlas/i;
+  for (const html of [guideHtml, gettingStartedHtml, glossaryHtml, tropeDecoderHtml, fandomGamesHtml, ...previewHtml]) {
+    assert.doesNotMatch(html, retiredVibeAtlasCopy);
+  }
+  for (const html of previewHtml) {
+    assert.match(html, /today’s curated C-drama card drop/);
+    assert.match(html, /One star, one vibe, nine collectible pieces of evidence/);
+  }
 });
