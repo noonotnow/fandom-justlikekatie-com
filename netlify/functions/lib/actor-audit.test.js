@@ -17,6 +17,7 @@ import { createActorAuditHandler, vibeKeyFor } from "./actor-audit.js";
 import { candidateIdForResult, CURATION_VERSION } from "./grid-curation.js";
 
 const ORIGIN = "https://fandom.example";
+const PREVIOUS_CURATION_VERSION = 4;
 const pairActor = {
   id: "liu-xueyi",
   name: "刘学义",
@@ -199,6 +200,7 @@ test("the private actor register includes every pairing without exposing reports
   const body = await response.json();
   assert.equal(response.status, 200, JSON.stringify(body));
   assert.equal(body.profileVersion, IDENTITY_PROFILE_VERSION);
+  assert.equal(body.curationVersion, CURATION_VERSION);
   assert.equal(body.actors[0].canonicalName, "刘学义");
   assert.deepEqual(body.actors[0].pairings.map(item => item.vibeKey), ["liu-xueyi:0"]);
   assert.equal(body.actors[0].pairings[0].eligible, false);
@@ -217,6 +219,7 @@ test("run, verdict, rerun, and retained-run inspection keep eligibility current"
   assert.equal(runResponse.status, 200);
   assert.equal(first.currentRun.runId, "run-1");
   assert.equal(first.currentRun.blindReview.status, "pending");
+  assert.equal(first.currentRun.curationVersion, CURATION_VERSION);
   assert.equal(first.currentRun.blindReview.boards.length, 2);
   assert.equal(first.currentRun.blindReview.boards.every(item => item.board.candidates.length === 9), true);
   assert.equal(first.currentRun.queryRuns, undefined);
@@ -688,6 +691,49 @@ test("runs without two complete boards fail clearly and cannot be approved", asy
   assert.equal(rejected.status, 200);
   assert.equal((await rejected.json()).pairing.eligible, false);
   assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).eligible, false);
+});
+
+test("an approval from a stale curation contract is visibly marked for reapproval", async () => {
+  assert.equal(CURATION_VERSION, PREVIOUS_CURATION_VERSION + 1);
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  await handler(request("POST", {
+    action: "verdict", actorId: pairActor.id, vibeKey, runId: "run-1", verdict: "approved",
+  }), {});
+
+  const runKey = auditRunKey(pairActor.id, 0, "run-1");
+  const staleRun = store.records.get(runKey);
+  staleRun.curationVersion = PREVIOUS_CURATION_VERSION;
+  staleRun.curationReceipt.curationVersion = PREVIOUS_CURATION_VERSION;
+  staleRun.curationReceipt.version = PREVIOUS_CURATION_VERSION;
+  staleRun.pairingFingerprint = "previous-v4-pairing-fingerprint";
+  store.records.set(runKey, staleRun);
+  const staleEligibility = store.records.get(eligibilityKey(pairActor.id, 0));
+  staleEligibility.curationVersion = PREVIOUS_CURATION_VERSION;
+  staleEligibility.pairingFingerprint = staleRun.pairingFingerprint;
+  store.records.set(eligibilityKey(pairActor.id, 0), staleEligibility);
+
+  const response = await handler(request(), {});
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.actors[0].pairings[0].auditState, "needs_reapproval");
+  assert.equal(body.actors[0].pairings[0].verdict, "approved");
+  assert.equal(body.actors[0].pairings[0].eligible, false);
+
+  const staleVerdict = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+  }), {});
+  assert.equal(staleVerdict.status, 409);
 });
 
 test("useful evidence with failed board selection records Needs curation work", async () => {

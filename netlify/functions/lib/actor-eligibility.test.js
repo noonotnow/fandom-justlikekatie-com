@@ -22,6 +22,7 @@ const packs = [
   { id: "actor-a", vibes: [{}, {}] },
   { id: "actor-b", vibes: [{}, {}] },
 ];
+const PREVIOUS_CURATION_VERSION = 4;
 
 function storeWith(entries = {}) {
   return {
@@ -226,12 +227,13 @@ test("an approval is stale after its identity profile or query fingerprint chang
 });
 
 test("an approval fails closed after the curation algorithm version changes", async () => {
+  assert.equal(CURATION_VERSION, PREVIOUS_CURATION_VERSION + 1);
   const date = "2026-09-04";
   const legacy = getRandomForDate(packs, date);
   const actor = packs[legacy.aIdx];
   const entries = approved(actor, legacy.vIdx);
   const runId = `${actor.id}-${legacy.vIdx}-run`;
-  entries[auditRunKey(actor.id, legacy.vIdx, runId)].curationReceipt.curationVersion = CURATION_VERSION - 1;
+  entries[auditRunKey(actor.id, legacy.vIdx, runId)].curationReceipt.curationVersion = PREVIOUS_CURATION_VERSION;
 
   assert.equal(await selectEligiblePair(packs, date, storeWith(entries)), null);
 });

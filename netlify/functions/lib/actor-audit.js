@@ -34,7 +34,11 @@ import {
   rankCandidates,
   RANKED_BATCH_LIMIT,
 } from "./ranking.js";
-import { candidateIdForResult, curateDisplayResults } from "./grid-curation.js";
+import {
+  candidateIdForResult,
+  CURATION_VERSION,
+  curateDisplayResults,
+} from "./grid-curation.js";
 
 const MAX_BODY_BYTES = 48 * 1024;
 const MAX_NOTE_LENGTH = 2000;
@@ -105,6 +109,7 @@ export function createActorAuditHandler({
             identityProfileVersion: IDENTITY_PROFILE_VERSION,
             aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
             promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+            curationVersion: CURATION_VERSION,
             actors: await listActors(store, actorPacks),
           });
         }
@@ -156,6 +161,9 @@ export function createActorAuditHandler({
         const report = await readReport(store, pair);
         if (!report?.currentRun || input.runId !== report.currentRun.runId) {
           return json(409, { error: "This verdict is not for the current audit run. Refresh and try again." });
+        }
+        if (!currentRunMatchesCurrentContract(report.currentRun, pair)) {
+          return json(409, { error: "This audit used an older curation contract. Run a fresh audit before recording a scheduling verdict." });
         }
         const hasComparableBoards = comparableBoards(report.currentRun);
         const blindReview = report.currentRun.blindReview;
@@ -581,12 +589,19 @@ export async function runPreflight(
   ));
   const completedAt = now().toISOString();
   const materialSufficient = curated.displayResults.length >= 9;
+  const curationReceipt = {
+    ...(diagnostics.receipt || {}),
+    ...(curated.curation || {}),
+    rawCandidates: diagnostics.rawCandidates || [],
+    dropped: diagnostics.dropped || [],
+  };
 
   return {
     runId: createRunId(),
     schemaVersion: 1,
     profileVersion: IDENTITY_PROFILE_VERSION,
     ...profileVersions,
+    curationVersion: curationReceipt.curationVersion ?? curationReceipt.version ?? null,
     pairingFingerprint: pairingFingerprintFor(pair.actor, pair.vibeIdx),
     scope,
     startedAt,
@@ -608,12 +623,7 @@ export async function runPreflight(
     alternate: diagnostics.alternate
       ? { mode: diagnostics.alternate, board: diagnostics[diagnostics.alternate === "event" ? "strongestEvent" : "strongestCompiled"] }
       : null,
-    curationReceipt: {
-      ...(diagnostics.receipt || {}),
-      ...(curated.curation || {}),
-      rawCandidates: diagnostics.rawCandidates || [],
-      dropped: diagnostics.dropped || [],
-    },
+    curationReceipt,
     displayCount: curated.displayResults.length,
     materialSufficient,
     suggestedState: materialSufficient
@@ -783,13 +793,10 @@ function pairingSummary(pair, report) {
   const currentVerdict = current && report?.verdictRunId === current.runId ? report.verdict : null;
   const reviewPending = Boolean(current && comparableBoards(current) && !current.blindReview?.choice);
   const comparisonUnavailable = Boolean(current && !comparableBoards(current) && !currentVerdict);
+  const needsReapproval = Boolean(current && !currentRunMatchesCurrentContract(current, pair));
   const eligible = Boolean(
     current
-    && current.profileVersion === IDENTITY_PROFILE_VERSION
-    && current.identityProfileVersion === IDENTITY_PROFILE_VERSION
-    && current.aestheticClusterVersion === AESTHETIC_CLUSTER_VERSION
-    && current.promiseContractVersion === VIBE_PROMISE_CONTRACT_VERSION
-    && current.pairingFingerprint === pairingFingerprintFor(pair.actor, pair.vibeIdx)
+    && currentRunMatchesCurrentContract(current, pair)
     && currentVerdict
     && current.blindReview?.choice
     && (!isDisagreement(current, current.blindReview) || current.blindReview.reasonCodes?.length)
@@ -800,20 +807,33 @@ function pairingSummary(pair, report) {
     vibeIdx: pair.vibeIdx,
     labels: [pair.vibe.label, pair.vibe.label_en].filter(Boolean),
     queryCount: pair.vibe.queries.length,
-    auditState: reviewPending
-      ? "blind_review_pending"
-      : comparisonUnavailable
-        ? "comparison_unavailable"
-        : currentVerdict || current?.suggestedState || "not_run",
+    auditState: needsReapproval
+      ? "needs_reapproval"
+      : reviewPending
+        ? "blind_review_pending"
+        : comparisonUnavailable
+          ? "comparison_unavailable"
+          : currentVerdict || current?.suggestedState || "not_run",
     lastRunAt: current?.completedAt || null,
     currentRunId: current?.runId || null,
     verdict: currentVerdict,
     notes: currentVerdict ? report.notes : "",
     verdictAt: currentVerdict ? report.verdictAt : null,
-    eligible: reviewPending ? null : eligible,
+    eligible: needsReapproval ? false : reviewPending ? null : eligible,
   };
 }
 
+function currentRunMatchesCurrentContract(run, pair) {
+  return Boolean(
+    run
+    && run.profileVersion === IDENTITY_PROFILE_VERSION
+    && run.identityProfileVersion === IDENTITY_PROFILE_VERSION
+    && run.aestheticClusterVersion === AESTHETIC_CLUSTER_VERSION
+    && run.promiseContractVersion === VIBE_PROMISE_CONTRACT_VERSION
+    && (run.curationVersion ?? run.curationReceipt?.curationVersion) === CURATION_VERSION
+    && run.pairingFingerprint === pairingFingerprintFor(pair.actor, pair.vibeIdx)
+  );
+}
 function detailResponse(pair, report) {
   const revealed = Boolean(report?.currentRun?.blindReview?.choice);
   return {
@@ -1383,6 +1403,7 @@ function clientRun(run, pair) {
     identityProfileVersion: run.identityProfileVersion,
     aestheticClusterVersion: run.aestheticClusterVersion,
     promiseContractVersion: run.promiseContractVersion,
+    curationVersion: run.curationVersion ?? run.curationReceipt?.curationVersion ?? null,
     pairingFingerprint: run.pairingFingerprint,
     scope: run.scope,
     startedAt: run.startedAt,
