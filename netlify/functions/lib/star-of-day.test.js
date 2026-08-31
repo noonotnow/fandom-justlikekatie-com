@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import starOfDay from "./star-of-day.js";
+import starOfDay from "../star-of-day.js";
 
 function makeStore(entries = {}) {
   const values = new Map(Object.entries(entries));
