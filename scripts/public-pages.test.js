@@ -129,6 +129,26 @@ test("the public field journal has crawlable direct routes with spoiler-safe met
   );
 });
 
+test("the C-drama guide makes the Watch Journal discoverable", () => {
+  const guide = read("public/c-drama-fandom/index.html");
+
+  assert.match(
+    guide,
+    /<a href="\/c-drama-fandom\/watch-journal\/">Field journal<\/a>/,
+    "the shared C-drama navigation must link to the Watch Journal",
+  );
+  assert.match(
+    guide,
+    /<a class="button button--secondary" href="\/c-drama-fandom\/watch-journal\/">Read The Untamed field journal<\/a>/,
+    "the guide must have a clear Watch Journal call to action",
+  );
+  assert.match(
+    guide,
+    /<a href="\/c-drama-fandom\/watch-journal\/">Open the Watch Journal →<\/a>/,
+    "the guide exploration rail must link to the Watch Journal",
+  );
+});
+
 test("the field journal source persists a strict boundary and fetches no unfiltered payload", () => {
   const index = read("public/c-drama-fandom/watch-journal/index.html");
   const range = read("public/c-drama-fandom/watch-journal/episodes-1-4/index.html");
