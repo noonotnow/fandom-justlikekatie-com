@@ -107,6 +107,38 @@ test("provider order cannot change which candidates survive the curation cap", a
   assert.equal(first.displayResults.length, 9);
 });
 
+test("tracking-only duplicate variants cannot change the capped curation output", async () => {
+  const stable = Array.from({ length: 35 }, (_, index) => result(`tracking-stable-${index}`, {
+    source: `stable-${index}.test`,
+    link: `https://stable-${index}.test/result`,
+  }));
+  const sharedFingerprint = fingerprint("tracking-duplicate", { ones: spreadBits("tracking-duplicate") });
+  const trackedA = {
+    ...result("tracking-a", {
+      source: "editorial.test",
+      link: "https://editorial.test/shared?utm_source=a",
+      fp: sharedFingerprint,
+    }),
+    thumbnail: "https://images.test/tracking-duplicate.jpg",
+  };
+  const trackedB = {
+    ...result("tracking-b", {
+      source: "editorial.test",
+      link: "https://editorial.test/shared?utm_source=b",
+      fp: sharedFingerprint,
+    }),
+    title: trackedA.title,
+    thumbnail: trackedA.thumbnail,
+  };
+
+  const first = await curate([...stable, trackedA, trackedB], { candidateLimit: 36 });
+  const second = await curate([trackedB, trackedA, ...stable].reverse(), { candidateLimit: 36 });
+
+  assert.deepEqual(first, second);
+  assert.equal(first.displayResults.some(item => item.link === trackedA.link), true);
+  assert.equal(first.displayResults.some(item => item.link === trackedB.link), false);
+});
+
 test("near-similar event frames survive until editorial mode is selected", async () => {
   const article = "https://rednote.test/post/moonlight-editorial";
   const base = new Set(Array.from({ length: 128 }, (_, index) => index));

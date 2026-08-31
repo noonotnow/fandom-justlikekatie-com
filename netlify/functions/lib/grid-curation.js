@@ -213,42 +213,35 @@ function compiledScore(board) {
   );
 }
 
+function stableSerialize(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (ArrayBuffer.isView(value)) return `[${[...value].join(",")}]`;
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
+  return `{${Object.keys(value).sort().map(key =>
+    `${JSON.stringify(key)}:${stableSerialize(value[key])}`).join(",")}}`;
+}
+
+function stableResultKey(result) {
+  return [
+    batchKey(result),
+    sourceKey(result),
+    canonicalLinkKey(result),
+    String(result.link || ""),
+    normalizeText(result.title),
+    result.thumbnail || "",
+    stableSerialize(result),
+  ].join("\u0000");
+}
+
 function candidateOrder(left, right) {
-  const leftKey = [
-    batchKey(left.result),
-    sourceKey(left.result),
-    canonicalLinkKey(left.result) || normalizeText(left.result.link),
-    normalizeText(left.result.title),
-    left.result.thumbnail || "",
-  ].join("\u0000");
-  const rightKey = [
-    batchKey(right.result),
-    sourceKey(right.result),
-    canonicalLinkKey(right.result) || normalizeText(right.result.link),
-    normalizeText(right.result.title),
-    right.result.thumbnail || "",
-  ].join("\u0000");
-  return leftKey.localeCompare(rightKey)
+  return stableResultKey(left.result).localeCompare(stableResultKey(right.result))
     || right.fingerprint.quality - left.fingerprint.quality
     || left.order - right.order;
 }
 
 function rawCandidateOrder(left, right) {
-  const leftKey = [
-    batchKey(left.result),
-    sourceKey(left.result),
-    canonicalLinkKey(left.result) || normalizeText(left.result.link),
-    normalizeText(left.result.title),
-    left.result.thumbnail || "",
-  ].join("\u0000");
-  const rightKey = [
-    batchKey(right.result),
-    sourceKey(right.result),
-    canonicalLinkKey(right.result) || normalizeText(right.result.link),
-    normalizeText(right.result.title),
-    right.result.thumbnail || "",
-  ].join("\u0000");
-  return leftKey.localeCompare(rightKey) || left.order - right.order;
+  return stableResultKey(left.result).localeCompare(stableResultKey(right.result))
+    || left.order - right.order;
 }
 
 function replaceExactCopies(candidates) {
