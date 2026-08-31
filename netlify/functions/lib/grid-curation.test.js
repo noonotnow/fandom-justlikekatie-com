@@ -47,6 +47,182 @@ test("a prior digest-backed preference can break a close next-review board tie",
     candidate.candidateId === omitted.candidateId));
 });
 
+test("pairwise ranking evidence can change a close proposal without query or source signals", async () => {
+  const candidates = Array.from({ length: 10 }, (_, index) => result(`ranking-${index}`, {
+    source: `publisher-${index}.test`,
+    title: `刘宇宁 ranking portrait ${index}`,
+    fp: fingerprint(`ranking-${index}`, {
+      ones: spreadBits(`ranking-${index}`, 96),
+      quality: 220,
+      sharpness: 12,
+    }),
+  }));
+  const baseline = await curate(candidates, { diagnostics: true });
+  const selectedIds = new Set(
+    baseline.diagnostics.strongestCompiled.candidates.map(candidate => candidate.candidateId),
+  );
+  const omitted = baseline.diagnostics.rawCandidates.find(candidate =>
+    !selectedIds.has(candidate.candidateId));
+  assert.ok(omitted);
+
+  const calibrated = await curate(candidates, {
+    diagnostics: true,
+    calibrationProfile: {
+      calibrationVersion: 1,
+      evidenceCount: 1,
+      sourceReceiptIds: ["rescue-ranking"],
+      sourceEvidenceCandidateIds: [omitted.candidateId, "historical-omitted"],
+      positiveCandidateIds: [],
+      negativeCandidateIds: [],
+      heroCandidateIds: [],
+      positiveQueries: [],
+      negativeQueries: [],
+      positiveSources: [],
+      negativeSources: [],
+      positiveClusters: [],
+      negativeClusters: [],
+      positiveAntiAnchors: [],
+      negativeAntiAnchors: [],
+      rankingContrasts: [{
+        preferredCandidateId: omitted.candidateId,
+        omittedCandidateId: "historical-omitted",
+      }],
+      rankingWins: { [omitted.candidateId]: 8 },
+      rankingLosses: {},
+      preferredPositions: { [omitted.candidateId]: 2 },
+    },
+  });
+  const selected = calibrated.diagnostics.strongestCompiled.candidates;
+  const preferred = selected.find(candidate => candidate.candidateId === omitted.candidateId);
+  assert.ok(preferred);
+  assert.equal(preferred.calibration.rankingScore, 1);
+  assert.equal(preferred.calibration.preferredPosition, 2);
+  assert.ok(preferred.calibration.positive.includes("pairwise-ranking-win"));
+  assert.equal(calibrated.diagnostics.calibrationSignals.rankingContrastCount, 1);
+});
+
+test("calibrated and control selection share one frozen image analysis", async () => {
+  const candidates = Array.from({ length: 10 }, (_, index) => result(`frozen-${index}`, {
+    source: `publisher-${index}.test`,
+    fp: fingerprint(`frozen-${index}`, { ones: spreadBits(`frozen-${index}`, 96) }),
+  }));
+  const seen = new Set();
+  const calibrated = await curateDisplayResults(
+    [{ query: "刘宇宁 frozen comparison", results: candidates }],
+    {
+      diagnostics: true,
+      loadBuffer: async (url, item) => {
+        if (seen.has(url)) throw new Error("image was fetched twice");
+        seen.add(url);
+        return item;
+      },
+      fingerprint: async (_buffer, item) => item.fp,
+      calibrationProfile: {
+        calibrationVersion: 1,
+        evidenceCount: 1,
+        sourceReceiptIds: ["rescue-frozen"],
+        sourceEvidenceCandidateIds: [],
+        positiveCandidateIds: [],
+        negativeCandidateIds: [],
+        heroCandidateIds: [],
+        positiveQueries: [],
+        negativeQueries: [],
+        positiveSources: [candidates[0].source],
+        negativeSources: [],
+        positiveClusters: [],
+        negativeClusters: [],
+        positiveAntiAnchors: [],
+        negativeAntiAnchors: [],
+        rankingContrasts: [],
+        rankingWins: {},
+        rankingLosses: {},
+        preferredPositions: {},
+      },
+      calibrationControl: {
+        preferredCandidateIds: [],
+        batchRanks: { "刘宇宁 frozen comparison": 0 },
+      },
+    },
+  );
+  assert.equal(seen.size, candidates.length);
+  assert.ok(calibrated.controlDiagnostics);
+  assert.deepEqual(
+    calibrated.diagnostics.rawCandidates.map(candidate => candidate.imageDigest).sort(),
+    calibrated.controlDiagnostics.rawCandidates.map(candidate => candidate.imageDigest).sort(),
+  );
+  assert.deepEqual(
+    calibrated.diagnostics.rawCandidates.map(candidate => candidate.dropReason).sort(),
+    calibrated.controlDiagnostics.rawCandidates.map(candidate => candidate.dropReason).sort(),
+  );
+});
+
+test("confirmed rescue calibration transfers source and hero preferences beyond exact saved candidates", async () => {
+  const candidates = Array.from({ length: 10 }, (_, index) => result(`calibration-${index}`, {
+    source: `publisher-${index}.test`,
+    title: `刘宇宁 calibrated portrait ${index}`,
+    fp: fingerprint(`calibration-${index}`, {
+      ones: spreadBits(`calibration-${index}`, 96),
+      quality: 220,
+      sharpness: 12,
+    }),
+  }));
+  const baseline = await curate(candidates, { diagnostics: true });
+  const baselineBoard = baseline.diagnostics.strongestCompiled.candidates;
+  const heroEvidence = baselineBoard[0];
+  const transferableSourceEvidence = baselineBoard[1];
+  const transferCandidate = result("calibration-transfer", {
+    source: transferableSourceEvidence.source,
+    title: "刘宇宁 newly retrieved calibrated portrait",
+    fp: fingerprint("calibration-transfer", {
+      ones: spreadBits("calibration-transfer", 96),
+      quality: 220,
+      sharpness: 12,
+    }),
+  });
+
+  const calibrated = await curate([...candidates, transferCandidate], {
+    diagnostics: true,
+    calibrationProfile: {
+      calibrationVersion: 1,
+      evidenceCount: 1,
+      sourceReceiptIds: ["rescue-1"],
+      sourceEvidenceCandidateIds: baseline.diagnostics.rawCandidates
+        .map(candidate => candidate.candidateId),
+      positiveCandidateIds: [heroEvidence.candidateId],
+      negativeCandidateIds: [],
+      heroCandidateIds: [heroEvidence.candidateId],
+      positiveQueries: [],
+      negativeQueries: [],
+      positiveSources: [transferableSourceEvidence.source],
+      negativeSources: [],
+      positiveClusters: [],
+      negativeClusters: [],
+      positiveAntiAnchors: [],
+      negativeAntiAnchors: [],
+    },
+  });
+  const board = calibrated.diagnostics.strongestCompiled.candidates;
+  assert.equal(
+    board[4].candidateId,
+    heroEvidence.candidateId,
+    JSON.stringify(board.map(candidate => ({
+      candidateId: candidate.candidateId,
+      calibration: candidate.calibration,
+    }))),
+  );
+  assert.equal(board[4].calibration.hero, true);
+  assert.equal(board[4].calibration.exactSavedCandidate, true);
+  assert.ok(board.some(candidate =>
+    candidate.calibration.exactSavedCandidate === false
+    && candidate.calibration.positive.some(signal => signal.startsWith("source:"))));
+  assert.ok(calibrated.diagnostics.calibrationSignals.scoreDelta > 0);
+  assert.ok(calibrated.diagnostics.calibrationSignals.beyondExactSavedNineCount > 0);
+  assert.deepEqual(
+    calibrated.diagnostics.calibrationSignals.preferredSources,
+    [transferableSourceEvidence.source],
+  );
+});
+
 const DIFFERENCE_COUNT = 256;
 
 function fingerprint(id, {
@@ -85,10 +261,12 @@ function result(id, {
   source = `source-${id}.test`,
   link = `https://${source}/editorial/${id}`,
   title = `刘宇宁 editorial frame ${id}`,
+  description = "",
   fp = fingerprint(id, { ones: spreadBits(id) }),
 } = {}) {
   return {
     title,
+    description,
     thumbnail: `https://images.test/${id}.jpg`,
     link,
     source,
@@ -235,6 +413,47 @@ test("provider order cannot change which candidates survive the curation cap", a
   assert.deepEqual(first, second);
   assert.equal(first.curation.mode, "event");
   assert.equal(first.displayResults.length, 9);
+});
+
+test("diagnostics retain a compact identity ledger beyond the 36-card display cap", async () => {
+  const candidates = Array.from({ length: 50 }, (_, index) => result(`ledger-${index}`, {
+    source: `publisher-${index % 5}.test`,
+    title: index === 49
+      ? "刘宇宁 unrelated business suit evidence"
+      : `刘宇宁 evidence ledger portrait ${index}`,
+    description: `Sanitized evidence description ${index}`,
+    fp: fingerprint(`ledger-${index}`, {
+      ones: spreadBits(`ledger-${index}`, 96),
+      quality: 220,
+      sharpness: 12,
+    }),
+  }));
+
+  const output = await curate(candidates, {
+    diagnostics: true,
+    candidateLimit: 50,
+    promise: {
+      id: "complete-source-ledger",
+      requiredCombinations: [],
+      supportingAnchors: ["portrait"],
+      hardAntiAnchors: ["business suit"],
+      softContradictions: [],
+      hero: { any: ["portrait"] },
+      clusterIds: [],
+      aestheticClusters: [],
+    },
+  });
+
+  assert.equal(output.diagnostics.rawCandidates.length, 36);
+  assert.equal(output.diagnostics.sourceEvidenceCandidates.length, 50);
+  assert.equal(new Set(output.diagnostics.sourceEvidenceCandidates
+    .map(candidate => candidate.candidateId)).size, 50);
+  const omitted = output.diagnostics.sourceEvidenceCandidates.find(candidate =>
+    candidate.title.includes("business suit"));
+  assert.equal(omitted.description, "Sanitized evidence description 49");
+  assert.deepEqual(omitted.promise.hardAntiMatches, ["business suit"]);
+  assert.equal(omitted.dropReason, "hard_anti_anchor");
+  assert.match(omitted.dropDetail, /business suit/i);
 });
 
 test("candidate cap preserves top-ranked batch priority over lexical query order", async () => {

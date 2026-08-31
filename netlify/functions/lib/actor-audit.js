@@ -10,6 +10,7 @@ import {
 import {
   APPROVED_VERDICTS,
   ELIGIBILITY_STORE,
+  auditEligibilityDecisionKey,
   auditHeadKey,
   auditCalibrationKey,
   auditCalibrationPrefix,
@@ -22,6 +23,8 @@ import {
   auditRequestedReviewKey,
   auditRescueBoardKey,
   auditRescueBoardPrefix,
+  auditRescueCalibrationKey,
+  auditRescueCalibrationPrefix,
   auditVerdictKey,
   auditVerdictPrefix,
   auditVibeKey,
@@ -48,6 +51,9 @@ const MAX_RAW_RESULTS = 36;
 const MAX_IDENTITY_ITEMS = 36;
 const MAX_FEEDBACK_EVENTS = 72;
 const MAX_FEEDBACK_NOTE_LENGTH = 400;
+const RESCUE_CALIBRATION_VERSION = 1;
+const MIN_REUSABLE_SIGNAL_DELTA = 0.15;
+const MIN_REUSABLE_SIGNAL_SUPPORT = 2;
 const FEEDBACK_INTENTS = new Set(["pin", "hero", "supporting", "exclude", "challenge"]);
 const CHALLENGE_REASONS = new Set([
   "stronger_vibe_match",
@@ -136,16 +142,43 @@ export function createActorAuditHandler({
         const scope = parseScope(input.scope);
         if (!scope) return json(400, { error: "Audit scope must be representative or full." });
         const previous = await readReport(store, pair);
-        const preferredCandidateIds = nextReviewPreferenceIds(previous.currentRun);
+        const calibrationProfile = await readRescueCalibrationProfile(store, pair);
+        const reviewPreferenceCandidateIds = nextReviewPreferenceIds(previous.currentRun);
+        const preferredCandidateIds = [
+          ...new Set([
+            ...reviewPreferenceCandidateIds,
+            ...(calibrationProfile?.positiveCandidateIds || []),
+          ]),
+        ];
         const run = await runPreflight(pair, searchOneQuery, {
           now,
           createRunId,
           scope,
           curate,
           preferredCandidateIds,
+          reviewPreferenceCandidateIds,
+          calibrationProfile,
         });
-        const report = await appendRun(store, pair, run);
-        await writeEligibility(store, pair, null);
+        const { report, advanced } = await appendRun(store, pair, run);
+        if (advanced) {
+          await writeEligibility(store, pair, {
+            schemaVersion: 1,
+            profileVersion: IDENTITY_PROFILE_VERSION,
+            identityProfileVersion: IDENTITY_PROFILE_VERSION,
+            aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+            promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+            curationVersion: run.curationReceipt?.curationVersion || null,
+            actorId: pair.actor.id,
+            vibeKey: pair.vibeKey,
+            vibeIdx: pair.vibeIdx,
+            runId: run.runId,
+            pairingFingerprint: run.pairingFingerprint,
+            verdict: null,
+            eligible: false,
+            decisionReason: "fresh_audit_pending_verdict",
+            decidedAt: run.completedAt,
+          });
+        }
         return json(200, {
           actor: await actorSummary(store, actorPacks, pair.actor),
           pairing: pairingSummary(pair, report),
@@ -194,6 +227,13 @@ export function createActorAuditHandler({
         if (input.verdict === "approved" && !report.currentRun.materialSufficient) {
           return json(409, { error: "Insufficient material cannot be approved without an override." });
         }
+        if (APPROVED_VERDICTS.has(input.verdict)
+          && report.calibrationProfile?.evidenceCount
+          && !calibrationProofCoversProfile(report.currentRun, report.calibrationProfile)) {
+          return json(409, {
+            error: "Run a fresh audit that reproduces positive calibration signals beyond the exact saved nine before approving this pairing.",
+          });
+        }
         const stamp = now().toISOString();
         const operatorVerdict = {
           verdict: input.verdict,
@@ -239,6 +279,14 @@ export function createActorAuditHandler({
           verdict: input.verdict,
           calibrationVersion: 1,
           calibrationHash: recordHash(operatorVerdict.calibration),
+          rescueCalibrationVersion: report.calibrationProfile?.calibrationVersion || null,
+          rescueCalibrationEvidenceCount: report.calibrationProfile?.evidenceCount || 0,
+          rescueCalibrationHash: report.calibrationProfile
+            ? recordHash({
+              sourceReceiptIds: [...report.calibrationProfile.sourceReceiptIds].sort(),
+              proofStatus: report.currentRun.calibrationProof?.status || null,
+            })
+            : null,
           materialSufficient: report.currentRun.materialSufficient,
           eligible: APPROVED_VERDICTS.has(input.verdict),
           decidedAt: stamp,
@@ -518,6 +566,7 @@ export function createActorAuditHandler({
           vibeKey: pair.vibeKey,
           feedbackHash: feedbackHash(run.editorialFeedback?.flags || []),
           board: validation.board,
+          calibrationBasis: rescueCalibrationBasis(run, validation.board),
           savedAt,
           savedBy: operator.user.accountId,
           versions: {
@@ -534,6 +583,55 @@ export function createActorAuditHandler({
         );
         if (write?.modified === false) {
           return json(409, { error: "Another operator saved this rescue arrangement first." });
+        }
+        const next = await readReport(store, pair);
+        return json(200, {
+          actor: await actorSummary(store, actorPacks, pair.actor),
+          pairing: pairingSummary(pair, next),
+          ...detailResponse(pair, next),
+        });
+      }
+
+      if (input.action === "mark_rescue_calibration") {
+        if (typeof input.receiptId !== "string"
+          || !/^[A-Za-z0-9_-]{1,128}$/.test(input.receiptId)
+          || typeof input.runId !== "string") {
+          return json(400, { error: "A saved rescue receipt is required." });
+        }
+        const run = await readRun(store, pair, input.runId);
+        if (!run || run.runId !== input.runId) {
+          return json(404, { error: "That audit run was not found." });
+        }
+        if (!currentRunMatchesCurrentContract(run, pair)) {
+          return json(409, {
+            error: "Legacy rescue boards remain historical records and cannot calibrate the current profile. Run a fresh audit and save a current-contract rescue board.",
+          });
+        }
+        const receipt = await store.get(
+          auditRescueBoardKey(pair.actor.id, pair.vibeIdx, run.runId, input.receiptId),
+          { type: "json", consistency: "strong" },
+        );
+        if (!receipt
+          || receipt.receiptId !== input.receiptId
+          || receipt.runId !== run.runId
+          || receipt.actorId !== pair.actor.id
+          || receipt.vibeKey !== pair.vibeKey) {
+          return json(404, { error: "That saved rescue arrangement was not found for this pairing." });
+        }
+        const key = auditRescueCalibrationKey(pair.actor.id, pair.vibeIdx, receipt.receiptId);
+        const existing = await store.get(key, { type: "json", consistency: "strong" });
+        if (!existing) {
+          const calibration = createRescueCalibration(
+            pair,
+            run,
+            receipt,
+            operator,
+            now,
+          );
+          const write = await store.setJSON(key, calibration, { onlyIfNew: true });
+          if (write?.modified === false) {
+            return json(409, { error: "Another operator marked this rescue board first." });
+          }
         }
         const next = await readReport(store, pair);
         return json(200, {
@@ -633,6 +731,8 @@ export async function runPreflight(
     scope = "full",
     curate = curateDisplayResults,
     preferredCandidateIds = [],
+    reviewPreferenceCandidateIds = [],
+    calibrationProfile = null,
   } = {},
 ) {
   const startedAt = now().toISOString();
@@ -651,19 +751,42 @@ export async function runPreflight(
       throw error;
     }
   });
-  const ranked = rankCandidates(candidates);
-  const rankedForCuration = ranked.slice(0, RANKED_BATCH_LIMIT);
+  const baselineRanked = rankCandidates(candidates);
+  const ranked = applyCalibrationQueryRanking(baselineRanked, calibrationProfile);
+  const baselineTop = baselineRanked.slice(0, RANKED_BATCH_LIMIT);
+  const calibratedTop = ranked.slice(0, RANKED_BATCH_LIMIT);
+  const comparisonQueries = new Set([
+    ...baselineTop.map(candidate => candidate.query),
+    ...calibratedTop.map(candidate => candidate.query),
+  ]);
+  const baselineForCuration = baselineRanked.filter(candidate =>
+    comparisonQueries.has(candidate.query));
+  const rankedForCuration = ranked.filter(candidate =>
+    comparisonQueries.has(candidate.query));
   const profileVersions = {
     identityProfileVersion: IDENTITY_PROFILE_VERSION,
     aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
     promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
   };
+  const curationOptions = {
+    diagnostics: true,
+    promise: vibePromiseFor(pair.actor, pair.vibeIdx),
+    profileVersions,
+    candidateLimit: Math.min(
+      96,
+      rankedForCuration.reduce((count, batch) => count + (batch.results || []).length, 0),
+    ),
+  };
   const curated = rankedForCuration.length
     ? await curate(rankedForCuration, {
-      diagnostics: true,
-      promise: vibePromiseFor(pair.actor, pair.vibeIdx),
-      profileVersions,
+      ...curationOptions,
       preferredCandidateIds,
+      calibrationProfile,
+      calibrationControl: calibrationProfile?.evidenceCount ? {
+        preferredCandidateIds: reviewPreferenceCandidateIds,
+        batchRanks: Object.fromEntries(baselineForCuration.map((batch, index) =>
+          [batch.query, index])),
+      } : null,
     })
     : { displayResults: [], curation: null, diagnostics: null };
   const diagnostics = curated.diagnostics || emptyDiagnostics();
@@ -676,12 +799,33 @@ export async function runPreflight(
   ));
   const completedAt = now().toISOString();
   const materialSufficient = curated.displayResults.length >= 9;
+  const calibrationComparison = compareCalibrationOutcomes(
+    calibrationProfile,
+    curated.controlDiagnostics,
+    diagnostics,
+    {
+      baselineInputFingerprint: analysisFingerprintFromDiagnostics(curated.controlDiagnostics),
+      calibratedInputFingerprint: analysisFingerprintFromDiagnostics(diagnostics),
+    },
+  );
+  const calibrationSignals = diagnostics.calibrationSignals
+    ? { ...diagnostics.calibrationSignals, comparison: calibrationComparison }
+    : null;
   const curationReceipt = {
     ...(diagnostics.receipt || {}),
     ...(curated.curation || {}),
     rawCandidates: diagnostics.rawCandidates || [],
+    sourceEvidenceCandidates: diagnostics.sourceEvidenceCandidates
+      || diagnostics.rawCandidates
+      || [],
     dropped: diagnostics.dropped || [],
+    calibrationSignals,
   };
+  const calibrationProof = calibrationProofFromDiagnostics(
+    calibrationProfile,
+    calibrationSignals,
+    materialSufficient,
+  );
 
   return {
     runId: createRunId(),
@@ -695,7 +839,20 @@ export async function runPreflight(
     completedAt,
     queryCount: queries.length,
     queryRuns,
+    calibrationQueryRanking: calibrationProfile ? {
+      positiveQueries: calibrationProfile.positiveQueries,
+      negativeQueries: calibrationProfile.negativeQueries,
+      baselineTopQueries: baselineTop.map(candidate => candidate.query),
+      calibratedTopQueries: calibratedTop.map(candidate => candidate.query),
+      comparisonUniverseQueries: [...comparisonQueries],
+    } : null,
     inheritedPreferenceCandidateIds: preferredCandidateIds,
+    inheritedCalibration: calibrationProfile ? {
+      calibrationVersion: calibrationProfile.calibrationVersion,
+      evidenceCount: calibrationProfile.evidenceCount,
+      sourceReceiptIds: calibrationProfile.sourceReceiptIds,
+    } : null,
+    calibrationProof,
     rawResults: boundedRawResults(candidates, diagnostics),
     rejections: buildRejectionLedger(queryRuns, diagnostics),
     identityEvidence,
@@ -745,6 +902,25 @@ function queryRun(candidate, receipt, rankIndex) {
     acceptedForCuration: rankIndex >= 0 && rankIndex < RANKED_BATCH_LIMIT,
     rejectionReasons: [...new Set(reasons)],
   };
+}
+
+function applyCalibrationQueryRanking(ranked, profile) {
+  if (!profile?.evidenceCount) return ranked;
+  const positive = new Set(profile.positiveQueries || []);
+  const negative = new Set(profile.negativeQueries || []);
+  return ranked
+    .map((candidate, index) => {
+      const query = signalText(candidate.query);
+      return {
+        candidate,
+        index,
+        calibrationRank: Number(positive.has(query)) - Number(negative.has(query)),
+      };
+    })
+    .sort((left, right) =>
+      right.calibrationRank - left.calibrationRank
+      || left.index - right.index)
+    .map(item => item.candidate);
 }
 
 function boundedRawResults(candidates, diagnostics = {}) {
@@ -867,15 +1043,61 @@ function summarizeIdentityEvidence(candidates, profile) {
 }
 
 async function appendRun(store, pair, run) {
-  await store.setJSON(auditRunKey(pair.actor.id, pair.vibeIdx, run.runId), run);
-  await store.setJSON(auditHeadKey(pair.actor.id, pair.vibeIdx), {
+  const runWrite = await store.setJSON(
+    auditRunKey(pair.actor.id, pair.vibeIdx, run.runId),
+    run,
+    { onlyIfNew: true },
+  );
+  if (runWrite?.modified === false) {
+    const error = new Error("An audit run with this identifier already exists.");
+    error.status = 409;
+    throw error;
+  }
+  const headKey = auditHeadKey(pair.actor.id, pair.vibeIdx);
+  const nextHead = {
     schemaVersion: 1,
     actorId: pair.actor.id,
     vibeIdx: pair.vibeIdx,
     currentRunId: run.runId,
+    startedAt: run.startedAt,
     updatedAt: run.completedAt,
-  });
-  return readReport(store, pair);
+  };
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const entry = await getJSONEntry(store, headKey);
+    if (entry?.data && compareAuditHeads(entry.data, nextHead) >= 0) {
+      return { report: await readReport(store, pair), advanced: false };
+    }
+    const options = entry?.etag
+      ? { onlyIfMatch: entry.etag }
+      : entry?.data ? null : { onlyIfNew: true };
+    if (!options) {
+      const error = new Error("The audit store cannot safely advance the current run.");
+      error.status = 503;
+      throw error;
+    }
+    const write = await store.setJSON(headKey, nextHead, options);
+    if (write?.modified !== false) {
+      return { report: await readReport(store, pair), advanced: true };
+    }
+  }
+  const error = new Error("Another audit run advanced concurrently. Refresh and try again.");
+  error.status = 409;
+  throw error;
+}
+
+async function getJSONEntry(store, key) {
+  if (typeof store.getWithMetadata === "function") {
+    return store.getWithMetadata(key, { type: "json", consistency: "strong" });
+  }
+  const data = await store.get(key, { type: "json", consistency: "strong" });
+  return data ? { data, etag: null } : null;
+}
+
+function compareAuditHeads(left, right) {
+  const timestamp = String(left?.startedAt || left?.updatedAt || "")
+    .localeCompare(String(right?.startedAt || right?.updatedAt || ""));
+  if (timestamp) return timestamp;
+  return String(left?.currentRunId || "").localeCompare(String(right?.currentRunId || ""));
 }
 
 async function listActors(store, actorPacks) {
@@ -908,9 +1130,14 @@ function pairingSummary(pair, report) {
   const comparisonUnavailable = Boolean(current && !comparableBoards(current) && !currentVerdict);
   const auditContract = current ? auditContractFor(current, pair) : null;
   const needsReapproval = Boolean(auditContract?.isLegacy);
+  const calibrationNeedsRerun = Boolean(
+    report?.calibrationProfile?.evidenceCount
+    && !calibrationProofCoversProfile(current, report.calibrationProfile),
+  );
   const eligible = Boolean(
     current
     && auditContract?.isCurrent
+    && !calibrationNeedsRerun
     && currentVerdict
     && current.blindReview?.choice
     && (!isDisagreement(current, current.blindReview) || current.blindReview.reasonCodes?.length)
@@ -923,6 +1150,8 @@ function pairingSummary(pair, report) {
     queryCount: pair.vibe.queries.length,
     auditState: needsReapproval
       ? "needs_reapproval"
+      : calibrationNeedsRerun
+        ? "calibration_reaudit_required"
       : reviewPending
         ? "blind_review_pending"
         : comparisonUnavailable
@@ -933,8 +1162,10 @@ function pairingSummary(pair, report) {
     verdict: currentVerdict,
     notes: currentVerdict ? report.notes : "",
     verdictAt: currentVerdict ? report.verdictAt : null,
-    eligible: needsReapproval ? false : reviewPending ? null : eligible,
+    eligible: needsReapproval || calibrationNeedsRerun ? false : reviewPending ? null : eligible,
     auditContract,
+    calibrationEvidenceCount: report?.calibrationProfile?.evidenceCount || 0,
+    calibrationProof: current?.calibrationProof || null,
   };
 }
 
@@ -993,6 +1224,7 @@ function detailResponse(pair, report) {
     verdict: revealed ? report?.verdict || null : null,
     notes: revealed ? report?.notes || "" : "",
     verdictAt: revealed ? report?.verdictAt || null : null,
+    calibrationProfile: report?.calibrationProfile || null,
   };
 }
 
@@ -1041,6 +1273,7 @@ async function readReport(store, pair) {
     .sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)));
   const currentRun = runs.find(run => run.runId === head?.currentRunId) || null;
   const currentVerdict = currentRun?.operatorVerdict || null;
+  const calibrationProfile = await readRescueCalibrationProfile(store, pair);
   return {
     schemaVersion: 1,
     actorId: pair.actor.id,
@@ -1051,6 +1284,7 @@ async function readReport(store, pair) {
     verdictAt: currentVerdict?.decidedAt || null,
     verdictRunId: currentVerdict ? currentRun.runId : null,
     currentRun,
+    calibrationProfile,
     priorRuns: runs.filter(run => run.runId !== currentRun?.runId).slice(0, MAX_RETAINED_RUNS),
   };
 }
@@ -1148,6 +1382,7 @@ function normalizeLegacyRunEvidence(run) {
   const curationReceipt = run.curationReceipt ? {
     ...run.curationReceipt,
     rawCandidates: (run.curationReceipt.rawCandidates || []).map(enrich),
+    sourceEvidenceCandidates: (run.curationReceipt.sourceEvidenceCandidates || []).map(enrich),
     dropped: (run.curationReceipt.dropped || []).map(enrich),
   } : run.curationReceipt;
   return {
@@ -1207,15 +1442,29 @@ async function readEditorialFeedback(store, pair, run) {
       ...feedbackDisposition(receipt, candidateGate(run, receipt.candidateId)),
     }))
     .sort((left, right) => left.candidateId.localeCompare(right.candidateId));
-  const operatorRescueBoards = (await readReceipts(
-    store,
-    auditRescueBoardPrefix(pair.actor.id, pair.vibeIdx, run.runId),
-    "savedAt",
-  )).filter(receipt =>
+  const [savedBoards, calibrations] = await Promise.all([
+    readReceipts(
+      store,
+      auditRescueBoardPrefix(pair.actor.id, pair.vibeIdx, run.runId),
+      "savedAt",
+    ),
+    readReceipts(
+      store,
+      auditRescueCalibrationPrefix(pair.actor.id, pair.vibeIdx),
+      "confirmedAt",
+    ),
+  ]);
+  const calibrationByReceipt = new Map(calibrations
+    .filter(calibration => calibration.sourceRunId === run.runId)
+    .map(calibration => [calibration.sourceRescueReceiptId, calibration]));
+  const operatorRescueBoards = savedBoards.filter(receipt =>
     receipt.runId === run.runId
     && receipt.actorId === pair.actor.id
     && receipt.vibeKey === pair.vibeKey
-  );
+  ).map(receipt => ({
+    ...receipt,
+    calibrationEvidence: calibrationByReceipt.get(receipt.receiptId) || null,
+  }));
   const feedback = {
     schemaVersion: 1,
     eventCount: receipts.length,
@@ -1252,6 +1501,511 @@ function nextReviewPreferenceIds(run) {
       && ["pin", "hero", "supporting"].includes(flag.intent)
       && typeof flag.candidateId === "string")
     .map(flag => flag.candidateId))];
+}
+
+function signalText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, " ")
+    .trim();
+}
+
+function calibrationCandidateSnapshot(candidate, {
+  evidenceRank = null,
+  boardPosition = null,
+} = {}) {
+  return {
+    candidateId: candidate.candidateId,
+    imageDigest: candidate.imageDigest || null,
+    query: String(candidate.query || "").slice(0, 500),
+    title: String(candidate.title || "").slice(0, 240),
+    description: String(candidate.description || "").slice(0, 400),
+    source: String(candidate.source || "").slice(0, 120),
+    link: String(candidate.link || "").slice(0, 700),
+    thumbnail: String(candidate.thumbnail || "").slice(0, 700),
+    promise: candidate.promise || null,
+    dropReason: candidate.dropReason || null,
+    dropDetail: String(candidate.dropDetail || "").slice(0, 400) || null,
+    evidenceRank,
+    boardPosition,
+  };
+}
+
+function signalValues(candidates) {
+  const values = key => [...new Set(candidates.map(key).filter(Boolean))];
+  const flattenedValues = key => [...new Set(candidates.flatMap(key).filter(Boolean))];
+  return {
+    candidateIds: values(candidate => candidate.candidateId),
+    queries: values(candidate => signalText(candidate.query)),
+    sources: values(candidate => signalText(candidate.source)),
+    clusters: flattenedValues(candidate => (candidate.promise?.clusters || [])
+      .map(cluster => signalText(cluster.id))),
+    antiAnchors: flattenedValues(candidate => (candidate.promise?.hardAntiMatches || [])
+      .map(signalText)),
+  };
+}
+
+function signalValuesForCandidate(candidate, key) {
+  if (key === "queries") return [signalText(candidate.query)].filter(Boolean);
+  if (key === "sources") return [signalText(candidate.source)].filter(Boolean);
+  if (key === "clusters") {
+    return (candidate.promise?.clusters || []).map(cluster => signalText(cluster.id)).filter(Boolean);
+  }
+  if (key === "antiAnchors") {
+    return (candidate.promise?.hardAntiMatches || []).map(signalText).filter(Boolean);
+  }
+  return [];
+}
+
+function reusableSignalPreferences(records, key) {
+  const evidenceCount = Math.max(1, records.length);
+  const values = new Map();
+  const add = (value, field, amount = 1) => {
+    const current = values.get(value) || {
+      value,
+      selectedCount: 0,
+      omittedCount: 0,
+      selectedRateTotal: 0,
+      omittedRateTotal: 0,
+    };
+    current[field] += amount;
+    values.set(value, current);
+  };
+  for (const record of records) {
+    const selected = record.selectedNine || [];
+    const omitted = record.omittedAlternatives || [];
+    const selectedCounts = new Map();
+    const omittedCounts = new Map();
+    for (const candidate of selected) {
+      for (const value of new Set(signalValuesForCandidate(candidate, key))) {
+        selectedCounts.set(value, (selectedCounts.get(value) || 0) + 1);
+      }
+    }
+    for (const candidate of omitted) {
+      for (const value of new Set(signalValuesForCandidate(candidate, key))) {
+        omittedCounts.set(value, (omittedCounts.get(value) || 0) + 1);
+      }
+    }
+    for (const value of new Set([...selectedCounts.keys(), ...omittedCounts.keys()])) {
+      const selectedCount = selectedCounts.get(value) || 0;
+      const omittedCount = omittedCounts.get(value) || 0;
+      add(value, "selectedCount", selectedCount);
+      add(value, "omittedCount", omittedCount);
+      add(value, "selectedRateTotal", selectedCount / Math.max(1, selected.length));
+      add(value, "omittedRateTotal", omittedCount / Math.max(1, omitted.length));
+    }
+  }
+  const deltas = [...values.values()].map(value => {
+    const selectedRate = value.selectedRateTotal / evidenceCount;
+    const omittedRate = value.omittedRateTotal / evidenceCount;
+    return {
+      value: value.value,
+      selectedCount: value.selectedCount,
+      omittedCount: value.omittedCount,
+      selectedRate: Number(selectedRate.toFixed(4)),
+      omittedRate: Number(omittedRate.toFixed(4)),
+      delta: Number((selectedRate - omittedRate).toFixed(4)),
+    };
+  }).sort((left, right) => right.delta - left.delta || left.value.localeCompare(right.value));
+  return {
+    positive: deltas
+      .filter(signal =>
+        signal.selectedCount >= MIN_REUSABLE_SIGNAL_SUPPORT
+        && signal.delta >= MIN_REUSABLE_SIGNAL_DELTA)
+      .map(signal => signal.value),
+    negative: deltas
+      .filter(signal =>
+        signal.omittedCount >= MIN_REUSABLE_SIGNAL_SUPPORT
+        && signal.delta <= -MIN_REUSABLE_SIGNAL_DELTA)
+      .map(signal => signal.value),
+    deltas,
+  };
+}
+
+export function rescueCalibrationBasis(run, board) {
+  const completeSourceEvidence = run.curationReceipt?.sourceEvidenceCandidates
+    || run.curationReceipt?.rawCandidates
+    || run.rawResults
+    || [];
+  const evidenceRankById = new Map(completeSourceEvidence.map((candidate, index) =>
+    [candidate.candidateId, index + 1]));
+  const selectedNine = (board.candidates || []).map((candidate, boardPosition) =>
+    calibrationCandidateSnapshot(candidate, {
+      evidenceRank: evidenceRankById.get(candidate.candidateId) || null,
+      boardPosition,
+    }));
+  const selectedIds = new Set(selectedNine.map(candidate => candidate.candidateId));
+  const omittedAlternatives = completeSourceEvidence
+    .filter(candidate => !selectedIds.has(candidate.candidateId))
+    .map(candidate => calibrationCandidateSnapshot(candidate, {
+      evidenceRank: evidenceRankById.get(candidate.candidateId) || null,
+    }));
+  const systemCandidates = [
+    ...(run.strongestEvent?.candidates || []),
+    ...(run.strongestCompiled?.candidates || []),
+  ];
+  const omittedSystemSelections = [...new Map(systemCandidates
+    .filter(candidate => !selectedIds.has(candidate.candidateId))
+    .map(candidate => [candidate.candidateId, candidate])).values()]
+    .map(calibrationCandidateSnapshot);
+  const hero = selectedNine[4] || null;
+  const reusableSignals = Object.fromEntries(
+    ["queries", "sources", "clusters", "antiAnchors"].map(key => [
+      key,
+      reusableSignalPreferences([{ selectedNine, omittedAlternatives }], key),
+    ]),
+  );
+  const sourceEvidenceCandidateIds = [...new Set([
+    ...selectedNine,
+    ...omittedAlternatives,
+    ...omittedSystemSelections,
+  ].map(candidate => candidate.candidateId).filter(Boolean))];
+  const rankingContrasts = selectedNine.flatMap(selected =>
+    omittedAlternatives.map(omitted => ({
+      preferredCandidateId: selected.candidateId,
+      preferredBoardPosition: selected.boardPosition,
+      preferredEvidenceRank: selected.evidenceRank,
+      omittedCandidateId: omitted.candidateId,
+      omittedEvidenceRank: omitted.evidenceRank,
+      queryContrast: selected.query !== omitted.query,
+      sourceContrast: selected.source !== omitted.source,
+      clusterContrast: JSON.stringify(signalValues([selected]).clusters)
+        !== JSON.stringify(signalValues([omitted]).clusters),
+      antiAnchorContrast: JSON.stringify(signalValues([selected]).antiAnchors)
+        !== JSON.stringify(signalValues([omitted]).antiAnchors),
+    }))).slice(0, 144);
+  return {
+    schemaVersion: 1,
+    selectedNine,
+    arrangement: selectedNine.map((candidate, position) => ({
+      position,
+      candidateId: candidate.candidateId,
+    })),
+    hero: hero ? { position: 4, candidateId: hero.candidateId, candidate: hero } : null,
+    omittedAlternatives,
+    omittedSystemSelections,
+    sourceEvidenceCandidateIds,
+    rankingContrasts,
+    provenance: {
+      queries: (run.queryRuns || []).map(query => ({
+        query: query.query,
+        provider: query.provider || null,
+        rank: query.rank ?? null,
+        acceptedForCuration: query.acceptedForCuration === true,
+      })),
+      selectedQueries: signalValues(selectedNine).queries,
+      selectedSources: signalValues(selectedNine).sources,
+      omittedQueries: signalValues(omittedAlternatives).queries,
+      omittedSources: signalValues(omittedAlternatives).sources,
+    },
+    signals: {
+      positive: signalValues(selectedNine),
+      negative: signalValues(omittedAlternatives),
+      reusable: reusableSignals,
+      hero: signalValues(hero ? [hero] : []),
+      rankingContrasts,
+      gateExceptions: selectedNine
+        .filter(candidate => candidate.dropReason)
+        .map(candidate => ({
+          candidateId: candidate.candidateId,
+          dropReason: candidate.dropReason,
+          dropDetail: candidate.dropDetail,
+        })),
+    },
+    contract: {
+      calibrationVersion: RESCUE_CALIBRATION_VERSION,
+      curationVersion: run.curationReceipt?.curationVersion || run.curationVersion || null,
+      identityProfileVersion: run.identityProfileVersion || run.profileVersion || null,
+      aestheticClusterVersion: run.aestheticClusterVersion || null,
+      promiseContractVersion: run.promiseContractVersion || null,
+      pairingFingerprint: run.pairingFingerprint || null,
+    },
+  };
+}
+
+function createRescueCalibration(pair, run, receipt, operator, now) {
+  const basis = receipt.calibrationBasis || rescueCalibrationBasis(run, receipt.board);
+  return {
+    schemaVersion: 1,
+    calibrationVersion: RESCUE_CALIBRATION_VERSION,
+    status: "confirmed",
+    sourceRescueReceiptId: receipt.receiptId,
+    sourceRunId: run.runId,
+    actor: {
+      id: pair.actor.id,
+      name: pair.actor.name,
+    },
+    vibePack: {
+      key: pair.vibeKey,
+      index: pair.vibeIdx,
+      label: pair.vibe.label_en || pair.vibe.label || pair.vibeKey,
+    },
+    selectedNine: basis.selectedNine,
+    arrangement: basis.arrangement,
+    hero: basis.hero,
+    omittedAlternatives: basis.omittedAlternatives,
+    omittedSystemSelections: basis.omittedSystemSelections,
+    sourceEvidenceCandidateIds: basis.sourceEvidenceCandidateIds || [...new Set([
+      ...(basis.selectedNine || []).map(candidate => candidate.candidateId),
+      ...(basis.omittedAlternatives || []).map(candidate => candidate.candidateId),
+      ...(basis.omittedSystemSelections || []).map(candidate => candidate.candidateId),
+    ].filter(Boolean))],
+    rankingContrasts: basis.rankingContrasts,
+    provenance: basis.provenance,
+    signals: basis.signals,
+    contract: basis.contract,
+    confirmedAt: now().toISOString(),
+    confirmedBy: operator.user.accountId,
+  };
+}
+
+function preferredSignals(positiveValues, negativeValues) {
+  const positives = new Set((positiveValues || []).filter(Boolean));
+  const negatives = new Set((negativeValues || []).filter(Boolean));
+  return {
+    positive: [...positives].filter(value => !negatives.has(value)).sort(),
+    negative: [...negatives].filter(value => !positives.has(value)).sort(),
+  };
+}
+
+function rescueCalibrationMatchesCurrentContract(record, pair) {
+  const contract = record?.contract;
+  return contract?.curationVersion === CURATION_VERSION
+    && contract?.identityProfileVersion === IDENTITY_PROFILE_VERSION
+    && contract?.aestheticClusterVersion === AESTHETIC_CLUSTER_VERSION
+    && contract?.promiseContractVersion === VIBE_PROMISE_CONTRACT_VERSION
+    && contract?.pairingFingerprint === pairingFingerprintFor(pair.actor, pair.vibeIdx);
+}
+
+async function readRescueCalibrationProfile(store, pair) {
+  const records = (await readReceipts(
+    store,
+    auditRescueCalibrationPrefix(pair.actor.id, pair.vibeIdx),
+    "confirmedAt",
+  )).filter(record =>
+    record.status === "confirmed"
+    && record.calibrationVersion === RESCUE_CALIBRATION_VERSION
+    && record.actor?.id === pair.actor.id
+    && record.vibePack?.key === pair.vibeKey
+    && rescueCalibrationMatchesCurrentContract(record, pair)
+  );
+  if (!records.length) return null;
+  const positive = key => records.flatMap(record => record.signals?.positive?.[key] || []);
+  const negative = key => records.flatMap(record => record.signals?.negative?.[key] || []);
+  const candidateIds = preferredSignals(positive("candidateIds"), negative("candidateIds"));
+  const queries = reusableSignalPreferences(records, "queries");
+  const sources = reusableSignalPreferences(records, "sources");
+  const clusters = reusableSignalPreferences(records, "clusters");
+  const antiAnchors = reusableSignalPreferences(records, "antiAnchors");
+  const rankingContrasts = records.flatMap(record =>
+    record.rankingContrasts || record.signals?.rankingContrasts || []).slice(0, 512);
+  const rankingWins = {};
+  const rankingLosses = {};
+  for (const contrast of rankingContrasts) {
+    if (contrast.preferredCandidateId) {
+      rankingWins[contrast.preferredCandidateId] =
+        (rankingWins[contrast.preferredCandidateId] || 0) + 1;
+    }
+    if (contrast.omittedCandidateId) {
+      rankingLosses[contrast.omittedCandidateId] =
+        (rankingLosses[contrast.omittedCandidateId] || 0) + 1;
+    }
+  }
+  const preferredPositions = {};
+  for (const record of records) {
+    for (const candidate of record.selectedNine || []) {
+      if (candidate.candidateId && Number.isInteger(candidate.boardPosition)
+        && preferredPositions[candidate.candidateId] === undefined) {
+        preferredPositions[candidate.candidateId] = candidate.boardPosition;
+      }
+    }
+  }
+  return {
+    schemaVersion: 1,
+    calibrationVersion: RESCUE_CALIBRATION_VERSION,
+    actorId: pair.actor.id,
+    vibeKey: pair.vibeKey,
+    evidenceCount: records.length,
+    sourceReceiptIds: records.map(record => record.sourceRescueReceiptId),
+    positiveCandidateIds: candidateIds.positive,
+    negativeCandidateIds: candidateIds.negative,
+    sourceEvidenceCandidateIds: [...new Set(records.flatMap(record =>
+      record.sourceEvidenceCandidateIds || [
+        ...(record.selectedNine || []).map(candidate => candidate.candidateId),
+        ...(record.omittedAlternatives || []).map(candidate => candidate.candidateId),
+        ...(record.omittedSystemSelections || []).map(candidate => candidate.candidateId),
+      ]).filter(Boolean))],
+    heroCandidateIds: [...new Set(records.flatMap(record =>
+      record.signals?.hero?.candidateIds || []))],
+    positiveQueries: queries.positive,
+    negativeQueries: queries.negative,
+    positiveSources: sources.positive,
+    negativeSources: sources.negative,
+    positiveClusters: clusters.positive,
+    negativeClusters: clusters.negative,
+    positiveAntiAnchors: antiAnchors.positive,
+    negativeAntiAnchors: antiAnchors.negative,
+    reusableSignalDeltas: {
+      queries: queries.deltas,
+      sources: sources.deltas,
+      clusters: clusters.deltas,
+      antiAnchors: antiAnchors.deltas,
+    },
+    rankingContrasts,
+    rankingWins,
+    rankingLosses,
+    preferredPositions,
+  };
+}
+
+function calibrationProofFromDiagnostics(profile, diagnostics, materialSufficient) {
+  if (!profile?.evidenceCount) return null;
+  const comparison = diagnostics?.comparison || null;
+  const beyondExactSavedNineCount = Number(comparison?.beyondExactSavedNineEffectCount) || 0;
+  const scoreDelta = Number(diagnostics?.scoreDelta) || 0;
+  const ready = Boolean(
+    materialSufficient
+    && comparison?.improved === true
+    && beyondExactSavedNineCount > 0
+  );
+  return {
+    schemaVersion: 1,
+    calibrationVersion: profile.calibrationVersion,
+    sourceReceiptIds: profile.sourceReceiptIds,
+    evidenceCount: profile.evidenceCount,
+    selectedSignalCount: Number(diagnostics?.selectedSignalCount) || 0,
+    beyondExactSavedNineCount,
+    scoreDelta,
+    comparison,
+    ready,
+    status: ready ? "reproduced_beyond_saved_nine" : "reaudit_not_yet_reproduced",
+    summary: ready
+      ? "Fresh evidence beyond the exact saved nine inherited positive operator signals."
+      : "This run did not yet prove a positive operator signal on evidence beyond the exact saved nine.",
+  };
+}
+
+function winnerBoardFromDiagnostics(diagnostics) {
+  if (diagnostics?.winner === "event") return diagnostics.strongestEvent?.candidates || [];
+  if (diagnostics?.winner === "compiled") return diagnostics.strongestCompiled?.candidates || [];
+  return [];
+}
+
+function analysisFingerprintFromDiagnostics(diagnostics) {
+  if (!diagnostics) return null;
+  return recordHash((diagnostics.rawCandidates || []).map(candidate => ({
+    candidateId: candidate.candidateId,
+    imageDigest: candidate.imageDigest,
+    retrievalDigestCollision: candidate.retrievalDigestCollision === true,
+    dropReason: candidate.dropReason || null,
+    dropDetail: candidate.dropDetail || null,
+    promise: candidate.promise || null,
+  })).sort((left, right) => left.candidateId.localeCompare(right.candidateId)));
+}
+
+export function compareCalibrationOutcomes(profile, baseline, calibrated, input = {}) {
+  if (!profile?.evidenceCount || !baseline || !calibrated) return null;
+  const baselineBoard = winnerBoardFromDiagnostics(baseline);
+  const calibratedBoard = winnerBoardFromDiagnostics(calibrated);
+  const baselinePositions = new Map(baselineBoard.map((candidate, index) =>
+    [candidate.candidateId, index]));
+  const calibratedPositions = new Map(calibratedBoard.map((candidate, index) =>
+    [candidate.candidateId, index]));
+  const calibratedEvidence = new Map((calibrated.rawCandidates || []).map(candidate =>
+    [candidate.candidateId, candidate.calibration || null]));
+  const sourceEvidenceIds = new Set(profile.sourceEvidenceCandidateIds || [
+    ...(profile.positiveCandidateIds || []),
+    ...(profile.negativeCandidateIds || []),
+  ]);
+  const transferableSignals = signals => (signals || []).filter(signal =>
+    /^(query|source|cluster):/.test(signal));
+  const effects = [];
+  for (const [candidateId, calibratedPosition] of calibratedPositions) {
+    const signal = calibratedEvidence.get(candidateId);
+    const signals = transferableSignals(signal?.positive);
+    if (!signals.length || sourceEvidenceIds.has(candidateId)) continue;
+    const baselinePosition = baselinePositions.get(candidateId);
+    if (baselinePosition === undefined) {
+      effects.push({
+        type: "selected",
+        candidateId,
+        baselinePosition: null,
+        calibratedPosition,
+        signals,
+      });
+    } else if (calibratedPosition < baselinePosition) {
+      effects.push({
+        type: calibratedPosition === 4 && signal.hero ? "hero_promoted" : "promoted",
+        candidateId,
+        baselinePosition,
+        calibratedPosition,
+        signals,
+      });
+    }
+  }
+  for (const [candidateId, baselinePosition] of baselinePositions) {
+    const signal = calibratedEvidence.get(candidateId);
+    const signals = transferableSignals(signal?.negative);
+    if (!signals.length || sourceEvidenceIds.has(candidateId)) continue;
+    const calibratedPosition = calibratedPositions.get(candidateId);
+    if (calibratedPosition === undefined) {
+      effects.push({
+        type: "removed",
+        candidateId,
+        baselinePosition,
+        calibratedPosition: null,
+        signals,
+      });
+    } else if (calibratedPosition > baselinePosition) {
+      effects.push({
+        type: "demoted",
+        candidateId,
+        baselinePosition,
+        calibratedPosition,
+        signals,
+      });
+    }
+  }
+  const boundedEffects = effects
+    .sort((left, right) =>
+      left.type.localeCompare(right.type)
+      || left.candidateId.localeCompare(right.candidateId))
+    .slice(0, 24);
+  const sameInput = Boolean(
+    input.baselineInputFingerprint
+    && input.baselineInputFingerprint === input.calibratedInputFingerprint,
+  );
+  return {
+    schemaVersion: 1,
+    method: "same_evidence_uncalibrated_control",
+    baselineInputFingerprint: input.baselineInputFingerprint || null,
+    calibratedInputFingerprint: input.calibratedInputFingerprint || null,
+    sameInput,
+    baselineWinner: baseline.winner || null,
+    calibratedWinner: calibrated.winner || null,
+    baselineCandidateIds: baselineBoard.map(candidate => candidate.candidateId),
+    calibratedCandidateIds: calibratedBoard.map(candidate => candidate.candidateId),
+    effects: boundedEffects,
+    beyondExactSavedNineEffectCount: effects.length,
+    sourceEvidenceCandidateCount: sourceEvidenceIds.size,
+    improved: sameInput && effects.length > 0,
+    summary: !sameInput
+      ? "The control and calibrated inputs differed, so no calibration proof was accepted."
+      : effects.length
+      ? `${effects.length} transferable ranking effect${effects.length === 1 ? "" : "s"} appeared on evidence absent from the source audit.`
+      : "The calibrated result did not improve new evidence through a transferable query, source, or visual-cluster signal.",
+  };
+}
+
+function calibrationProofCoversProfile(run, profile) {
+  if (!profile?.evidenceCount) return true;
+  const expected = [...new Set(profile.sourceReceiptIds || [])].sort();
+  const proved = [...new Set(run?.calibrationProof?.sourceReceiptIds || [])].sort();
+  return Boolean(
+    run?.calibrationProof?.ready === true
+    && run.calibrationProof.calibrationVersion === profile.calibrationVersion
+    && JSON.stringify(proved) === JSON.stringify(expected),
+  );
 }
 
 function candidateGate(run, candidateId) {
@@ -1700,7 +2454,35 @@ async function writeEligibility(store, pair, snapshot) {
     verdict: null,
     eligible: false,
   };
-  await store.setJSON(eligibilityKey(pair.actor.id, pair.vibeIdx), value);
+  const decisionId = recordHash(value).slice(0, 24);
+  const immutableWrite = await store.setJSON(
+    auditEligibilityDecisionKey(
+      pair.actor.id,
+      pair.vibeIdx,
+      value.runId || "no-run",
+      decisionId,
+    ),
+    value,
+    { onlyIfNew: true },
+  );
+  if (immutableWrite?.modified === false) {
+    const existing = await store.get(
+      auditEligibilityDecisionKey(
+        pair.actor.id,
+        pair.vibeIdx,
+        value.runId || "no-run",
+        decisionId,
+      ),
+      { type: "json", consistency: "strong" },
+    );
+    if (recordHash(existing) !== recordHash(value)) {
+      throw new Error("Eligibility decision history is immutable.");
+    }
+  }
+  await store.setJSON(eligibilityKey(pair.actor.id, pair.vibeIdx), {
+    ...value,
+    decisionId,
+  });
 }
 
 export function vibeKeyFor(actorId, vibeIdx) {

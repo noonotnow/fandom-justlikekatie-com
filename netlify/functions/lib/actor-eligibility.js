@@ -11,6 +11,9 @@ import { CURATION_VERSION } from "./grid-curation.js";
 export const ELIGIBILITY_STORE = "actor-audit";
 export const APPROVED_VERDICTS = new Set(["approved", "approved_override"]);
 export const eligibilityKey = (actorId, vibeIdx) => `eligibility/${actorId}/${vibeIdx}`;
+export const auditEligibilityDecisionPrefix = (actorId, vibeIdx) => `eligibility-decisions/${actorId}/${vibeIdx}/`;
+export const auditEligibilityDecisionKey = (actorId, vibeIdx, runId, decisionId) =>
+  `${auditEligibilityDecisionPrefix(actorId, vibeIdx)}${encodeURIComponent(runId)}/${encodeURIComponent(decisionId)}`;
 export const auditVibeKey = (actorId, vibeIdx) => `${actorId}:${vibeIdx}`;
 export const auditHeadKey = (actorId, vibeIdx) => `heads/${actorId}/${vibeIdx}`;
 export const auditRunPrefix = (actorId, vibeIdx) => `runs/${actorId}/${vibeIdx}/`;
@@ -27,6 +30,8 @@ export const auditRequestedReviewPrefix = (actorId, vibeIdx, runId) => `requeste
 export const auditRequestedReviewKey = (actorId, vibeIdx, runId, feedbackHash) => `${auditRequestedReviewPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(feedbackHash)}`;
 export const auditRescueBoardPrefix = (actorId, vibeIdx, runId) => `rescue-boards/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
 export const auditRescueBoardKey = (actorId, vibeIdx, runId, receiptId) => `${auditRescueBoardPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
+export const auditRescueCalibrationPrefix = (actorId, vibeIdx) => `rescue-calibrations/${actorId}/${vibeIdx}/`;
+export const auditRescueCalibrationKey = (actorId, vibeIdx, receiptId) => `${auditRescueCalibrationPrefix(actorId, vibeIdx)}${encodeURIComponent(receiptId)}`;
 
 export function pairingFingerprintFor(actor, vibeIdx) {
   return createHash("sha256").update(JSON.stringify({
@@ -50,11 +55,12 @@ export async function getEligibility(store, actor, vibeIdx) {
   ]);
   if (!snapshot || !head?.currentRunId || snapshot.runId !== head.currentRunId) return null;
 
-  const [run, verdict, calibration, reasons] = await Promise.all([
+  const [run, verdict, calibration, reasons, rescueCalibrations] = await Promise.all([
     store.get(auditRunKey(actorId, vibeIdx, head.currentRunId), { type: "json", consistency: "strong" }),
     readFirstReceipt(store, auditVerdictPrefix(actorId, vibeIdx, head.currentRunId), "decidedAt"),
     readFirstReceipt(store, auditCalibrationPrefix(actorId, vibeIdx, head.currentRunId), "chosenAt"),
     readFirstReceipt(store, auditCalibrationReasonsPrefix(actorId, vibeIdx, head.currentRunId), "annotatedAt"),
+    readReceipts(store, auditRescueCalibrationPrefix(actorId, vibeIdx), "confirmedAt"),
   ]);
   const disagreement = calibration?.choice !== run?.winner?.mode;
   const expectedFingerprint = pairingFingerprintFor(actor, vibeIdx);
@@ -88,8 +94,40 @@ export async function getEligibility(store, actor, vibeIdx) {
     || snapshot.curationVersion !== CURATION_VERSION
     || snapshot.pairingFingerprint !== expectedFingerprint
     || snapshot.verdict !== verdict.verdict
+    || !validRescueCalibrationProof(actor, vibeIdx, run, rescueCalibrations, snapshot)
   ) return null;
   return snapshot;
+}
+
+function validRescueCalibrationProof(actor, vibeIdx, run, calibrations, snapshot) {
+  const expectedFingerprint = pairingFingerprintFor(actor, vibeIdx);
+  const confirmed = calibrations.filter(record =>
+    record?.status === "confirmed"
+    && record?.calibrationVersion === 1
+    && typeof record?.sourceRescueReceiptId === "string"
+    && record?.contract?.curationVersion === CURATION_VERSION
+    && record?.contract?.identityProfileVersion === IDENTITY_PROFILE_VERSION
+    && record?.contract?.aestheticClusterVersion === AESTHETIC_CLUSTER_VERSION
+    && record?.contract?.promiseContractVersion === VIBE_PROMISE_CONTRACT_VERSION
+    && record?.contract?.pairingFingerprint === expectedFingerprint);
+  if (!confirmed.length) {
+    return snapshot.rescueCalibrationEvidenceCount === undefined
+      || snapshot.rescueCalibrationEvidenceCount === 0;
+  }
+  const sourceReceiptIds = [...new Set(confirmed
+    .map(record => record.sourceRescueReceiptId))].sort();
+  const proofIds = [...new Set(run?.calibrationProof?.sourceReceiptIds || [])].sort();
+  return Boolean(
+    run?.calibrationProof?.ready === true
+    && run.calibrationProof.calibrationVersion === 1
+    && sameRecord(proofIds, sourceReceiptIds)
+    && snapshot.rescueCalibrationVersion === 1
+    && snapshot.rescueCalibrationEvidenceCount === confirmed.length
+    && snapshot.rescueCalibrationHash === recordHash({
+      sourceReceiptIds,
+      proofStatus: run.calibrationProof.status,
+    })
+  );
 }
 
 function validFinalCalibration({ actor, vibeIdx, run, verdict, calibration, reasons, snapshot }) {
@@ -199,6 +237,19 @@ async function readFirstReceipt(store, prefix, timestampField) {
     String(left.value[timestampField] || "").localeCompare(String(right.value[timestampField] || ""))
     || left.key.localeCompare(right.key));
   return receipts[0]?.value || null;
+}
+
+async function readReceipts(store, prefix, timestampField) {
+  const listing = await store.list({ prefix });
+  const receipts = (await Promise.all((listing?.blobs || []).map(async blob => {
+    if (typeof blob?.key !== "string") return null;
+    const value = await store.get(blob.key, { type: "json", consistency: "strong" });
+    return value ? { key: blob.key, value } : null;
+  }))).filter(Boolean);
+  receipts.sort((left, right) =>
+    String(left.value[timestampField] || "").localeCompare(String(right.value[timestampField] || ""))
+    || left.key.localeCompare(right.key));
+  return receipts.map(receipt => receipt.value);
 }
 
 export function isApproved(snapshot) {

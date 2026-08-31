@@ -28,6 +28,7 @@ function functionBody(name: string): string {
 }
 
 const startAudit = functionBody('startAudit');
+const markRescueCalibration = functionBody('markRescueCalibration');
 const requestedReviewStart = source.indexOf('function RequestedGridReview');
 const requestedReviewEnd = source.indexOf('\nfunction PartialBoards', requestedReviewStart);
 const requestedReview = source.slice(requestedReviewStart, requestedReviewEnd);
@@ -122,4 +123,17 @@ test('legacy audits are visibly historical and require a fresh audit', () => {
   assert.match(source, /currentRun\?\.auditContract\?\.isLegacy/);
   assert.match(source, /freshAuditButton/);
   assert.match(source, /legacyBoardReview/);
+});
+
+test('rescue calibration is explicit, future-facing, and reports transfer proof', () => {
+  assert.match(markRescueCalibration, /action:'mark_rescue_calibration'/);
+  assert.match(markRescueCalibration, /fresh audit must reproduce its signals beyond these exact nine/i);
+  assert.match(source, /records-only by default/i);
+  assert.match(source, /Use as calibration evidence/);
+  assert.match(source, /calibrationEvidence/);
+  assert.match(source, /Operator-derived curation signals/);
+  assert.match(source, /Calibration transfer proof/);
+  assert.match(source, /calibration_reaudit_required/);
+  assert.match(source, /Legacy evidence · records only/);
+  assert.match(source, /run\.auditContract\?\.isLegacy/);
 });

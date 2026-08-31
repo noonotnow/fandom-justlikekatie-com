@@ -148,6 +148,8 @@
 .rescueHistoryList { display:grid; gap:5px; margin:0; padding:0; list-style:none; }
 .rescueHistoryItem,.rescueHistoryItemSelected { display:flex; gap:7px; align-items:stretch; min-width:0; padding:5px; border:1px solid var(--admin-border); border-radius:6px; }
 .rescueHistoryItemSelected { border-color:#c9a96e; background:color-mix(in srgb,#c9a96e 8%,transparent); }
+.rescueRecordActions { display:flex; flex-direction:column; justify-content:center; gap:5px; }
+.rescueRecordActions .buttonSecondary { min-height:30px; padding:0 8px; font-size:10px; }
 .rescueHistorySelect { display:grid; flex:1; gap:3px; min-width:0; padding:5px; border:0; background:transparent; color:inherit; text-align:left; cursor:pointer; }
 .rescueHistorySelect strong { color:#b9bfbb; font-size:10px; }
 .rescueHistorySelect span,.rescueHistorySelect small { overflow:hidden; color:#8d928f; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }

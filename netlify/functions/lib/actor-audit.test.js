@@ -9,18 +9,26 @@ import {
 } from "./actor-identity-profiles.js";
 import {
   auditCalibrationPrefix,
+  auditEligibilityDecisionPrefix,
   auditFeedbackPrefix,
   auditRescueBoardKey,
   auditRescueBoardPrefix,
+  auditRescueCalibrationPrefix,
   auditRunKey,
+  auditRunPrefix,
   auditVerdictPrefix,
   eligibilityKey,
 } from "./actor-eligibility.js";
-import { createActorAuditHandler, vibeKeyFor } from "./actor-audit.js";
+import {
+  compareCalibrationOutcomes,
+  createActorAuditHandler,
+  rescueCalibrationBasis,
+  vibeKeyFor,
+} from "./actor-audit.js";
 import { candidateIdForResult, CURATION_VERSION } from "./grid-curation.js";
 
 const ORIGIN = "https://fandom.example";
-const PREVIOUS_CURATION_VERSION = 4;
+const PREVIOUS_CURATION_VERSION = 5;
 const pairActor = {
   id: "liu-xueyi",
   name: "刘学义",
@@ -35,15 +43,30 @@ const pairActor = {
 
 function memoryStore() {
   const records = new Map();
+  const etags = new Map();
+  let revision = 0;
   return {
     records,
     async get(key) {
       return structuredClone(records.get(key) || null);
     },
+    async getWithMetadata(key) {
+      if (!records.has(key)) return null;
+      return {
+        data: structuredClone(records.get(key)),
+        etag: etags.get(key),
+      };
+    },
     async setJSON(key, value, options = {}) {
       if (options.onlyIfNew && records.has(key)) return { modified: false };
+      if (options.onlyIfMatch && options.onlyIfMatch !== etags.get(key)) {
+        return { modified: false };
+      }
       records.set(key, structuredClone(value));
-      return { modified: true, etag: `etag-${records.size}` };
+      revision += 1;
+      const etag = `etag-${revision}`;
+      etags.set(key, etag);
+      return { modified: true, etag };
     },
     async list({ prefix } = {}) {
       return {
@@ -82,10 +105,18 @@ function curation({
   hardRejected = false,
   unavailableRejected = false,
   duplicateRejected = false,
+  calibrationTransfers = true,
+  hiddenSourceTransfer = false,
   onOptions = () => {},
 } = {}) {
   return async (ranked, options = {}) => {
     onOptions(structuredClone(options));
+    const positiveCandidateIds = new Set(options.calibrationProfile?.positiveCandidateIds || []);
+    const negativeCandidateIds = new Set(options.calibrationProfile?.negativeCandidateIds || []);
+    const positiveQueries = new Set(options.calibrationProfile?.positiveQueries || []);
+    const negativeQueries = new Set(options.calibrationProfile?.negativeQueries || []);
+    const positiveSources = new Set(options.calibrationProfile?.positiveSources || []);
+    const negativeSources = new Set(options.calibrationProfile?.negativeSources || []);
     const rawCandidates = ranked.flatMap(batch => (batch.results || []).map(result => ({
       ...result,
       candidateId: candidateIdForResult({
@@ -100,6 +131,32 @@ function curation({
         incompatibleCluster: false,
         singleFrameRatio: 1,
       },
+      calibration: options.calibrationProfile ? (() => {
+        const candidateId = candidateIdForResult({
+          ...result,
+          batchKey: result.batchKey || batch.query,
+        });
+        const querySignal = String(batch.query || "").toLowerCase();
+        const sourceSignal = String(result.source || "")
+          .toLowerCase()
+          .replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, " ")
+          .trim();
+        return {
+          candidateId,
+          exactSavedCandidate: positiveCandidateIds.has(candidateId),
+          hero: false,
+          positive: [
+            ...(positiveCandidateIds.has(candidateId) ? ["exact-saved-candidate"] : []),
+            ...(positiveQueries.has(querySignal) ? [`query:${querySignal}`] : []),
+            ...(positiveSources.has(sourceSignal) ? [`source:${sourceSignal}`] : []),
+          ],
+          negative: [
+            ...(negativeCandidateIds.has(candidateId) ? ["omitted-candidate"] : []),
+            ...(negativeQueries.has(querySignal) ? [`query:${querySignal}`] : []),
+            ...(negativeSources.has(sourceSignal) ? [`source:${sourceSignal}`] : []),
+          ],
+        };
+      })() : null,
     }))).slice(0, 36);
     if (duplicateRejected && rawCandidates[0]) {
       rawCandidates[0].provisionalCandidateId = "canonical-source";
@@ -110,8 +167,15 @@ function curation({
         link: "https://duplicate-source.example/result",
       });
     }
-    const boardCandidates = [...new Map(rawCandidates.map(candidate =>
-      [candidate.candidateId, candidate])).values()].slice(0, 9);
+    const uniqueCandidates = [...new Map(rawCandidates.map(candidate =>
+      [candidate.candidateId, candidate])).values()];
+    const boardCandidates = (options.calibrationProfile && calibrationTransfers
+      ? [...uniqueCandidates].sort((left, right) =>
+        Number(Boolean(right.calibration?.positive?.length))
+        - Number(Boolean(left.calibration?.positive?.length))
+        || Number(Boolean(left.calibration?.negative?.length))
+        - Number(Boolean(right.calibration?.negative?.length)))
+      : uniqueCandidates).slice(0, 9);
     const dropped = unavailableRejected && rawCandidates[0]
       ? [{ ...rawCandidates[0], dropReason: "image_load_failed", dropDetail: "The source did not return image bytes." }]
       : hardRejected && rawCandidates[0]
@@ -119,13 +183,23 @@ function curation({
       : duplicateRejected && rawCandidates[1]
         ? [{ ...rawCandidates[1], dropReason: "exact_duplicate", dropDetail: "A canonical copy was retained." }]
       : [{ title: "bad frame", source: "stock.example", thumbnail: "https://images.example/bad.jpg", dropReason: "unusable_image" }];
-    return ({
+    const output = {
     displayResults: sufficient ? boardCandidates : [],
     curation: sufficient
       ? { mode: "compiled", version: CURATION_VERSION, rationale: "A varied set won.", signals: ["source range"] }
       : null,
     diagnostics: {
       rawCandidates,
+      sourceEvidenceCandidates: hiddenSourceTransfer ? [
+        ...rawCandidates,
+        {
+          candidateId: "hidden-source-candidate",
+          query: "historical hidden query",
+          source: "hidden-source.test",
+          link: "https://hidden-source.test/evidence",
+          thumbnail: "https://images.test/hidden-source.jpg",
+        },
+      ] : rawCandidates,
       dropped,
       eventFamilies: [{ id: "event-family-1", strength: 0.8, size: 9, candidates: [] }],
       strongestEvent: sufficient ? { score: 0.7, scoreBreakdown: { familyStrength: { value: 0.8, weight: 0.55, contribution: 0.44 } }, candidates: boardCandidates } : null,
@@ -144,9 +218,82 @@ function curation({
       },
       winner: sufficient ? "compiled" : null,
       alternate: sufficient ? "event" : null,
+      calibrationSignals: options.calibrationProfile ? {
+        calibrationVersion: options.calibrationProfile.calibrationVersion,
+        evidenceCount: options.calibrationProfile.evidenceCount,
+        affected: calibrationTransfers,
+        selectedSignalCount: calibrationTransfers ? 3 : 1,
+        beyondExactSavedNineCount: calibrationTransfers ? 2 : 0,
+        scoreDelta: calibrationTransfers ? 0.04 : 0,
+        messages: calibrationTransfers
+          ? ["2 matched candidates transferred the preference beyond the exact saved nine."]
+          : ["Only exact saved candidates matched."],
+      } : null,
       receipt: { rawCount: rawCandidates.length, analyzedCount: sufficient || curationFailure ? rawCandidates.length : 0, curationVersion: CURATION_VERSION },
     },
-    });
+    };
+    if (options.calibrationControl) {
+      const controlRanks = options.calibrationControl.batchRanks || {};
+      const controlCandidates = [...uniqueCandidates]
+        .sort((left, right) =>
+          (controlRanks[left.query] ?? Number.MAX_SAFE_INTEGER)
+          - (controlRanks[right.query] ?? Number.MAX_SAFE_INTEGER))
+        .slice(0, 9)
+        .map(candidate => ({ ...candidate, calibration: null }));
+      output.controlDiagnostics = {
+        ...output.diagnostics,
+        rawCandidates: rawCandidates.map(candidate => ({ ...candidate, calibration: null })),
+        strongestEvent: sufficient
+          ? { ...output.diagnostics.strongestEvent, candidates: controlCandidates }
+          : null,
+        strongestCompiled: sufficient
+          ? { ...output.diagnostics.strongestCompiled, candidates: [...controlCandidates].reverse() }
+          : null,
+        calibrationSignals: null,
+      };
+      if (hiddenSourceTransfer && options.calibrationProfile) {
+        const query = options.calibrationProfile.positiveQueries?.[0] || "transfer query";
+        const hiddenCandidate = {
+          ...uniqueCandidates[0],
+          candidateId: "hidden-source-candidate",
+          query,
+          calibration: {
+            candidateId: "hidden-source-candidate",
+            exactSavedCandidate: false,
+            hero: false,
+            positive: [`query:${query}`],
+            negative: [],
+          },
+        };
+        const supporting = uniqueCandidates.slice(1, 9);
+        output.diagnostics.rawCandidates = [...rawCandidates, hiddenCandidate];
+        output.diagnostics.sourceEvidenceCandidates = [
+          ...rawCandidates,
+          hiddenCandidate,
+        ];
+        output.diagnostics.strongestCompiled = {
+          ...output.diagnostics.strongestCompiled,
+          candidates: [hiddenCandidate, ...supporting],
+        };
+        output.displayResults = [hiddenCandidate, ...supporting];
+        const controlHidden = { ...hiddenCandidate, calibration: null };
+        output.controlDiagnostics.rawCandidates = [
+          ...output.controlDiagnostics.rawCandidates,
+          controlHidden,
+        ];
+        output.controlDiagnostics.sourceEvidenceCandidates = [
+          ...output.controlDiagnostics.rawCandidates,
+        ];
+        output.controlDiagnostics.strongestCompiled = {
+          ...output.controlDiagnostics.strongestCompiled,
+          candidates: [...supporting.map(candidate => ({
+            ...candidate,
+            calibration: null,
+          })), controlHidden],
+        };
+      }
+    }
+    return output;
   };
 }
 
@@ -156,8 +303,13 @@ function harness({
   hardRejected = false,
   unavailableRejected = false,
   duplicateRejected = false,
+  calibrationTransfers = true,
   authorized = true,
   onCurateOptions = () => {},
+  curationDelays = [],
+  runIdFactory = null,
+  freshEvidenceOnRerun = false,
+  hiddenSourceTransfer = false,
 } = {}) {
   const store = memoryStore();
   let runNumber = 0;
@@ -171,33 +323,50 @@ function harness({
       return { user: { accountId: "operator-1" } };
     },
   };
+  let curateCall = 0;
+  let searchCall = 0;
+  const curateFixture = curation({
+    sufficient,
+    curationFailure,
+    hardRejected,
+    unavailableRejected,
+    duplicateRejected,
+    calibrationTransfers,
+    hiddenSourceTransfer,
+    onOptions: onCurateOptions,
+  });
   const handler = createActorAuditHandler({
     auth,
     getStore: () => store,
     actorPacks: [pairActor],
-    searchOneQuery: async query => ({
+    searchOneQuery: async query => {
+      const pass = Math.floor(searchCall++ / pairActor.vibes[0].queries.length);
+      const results = searchResults(query).map(result => freshEvidenceOnRerun && pass > 0 ? {
+        ...result,
+        link: `${result.link}?fresh=${pass}`,
+        thumbnail: `${result.thumbnail}?fresh=${pass}`,
+      } : result);
+      return {
       provider: "test",
-      results: searchResults(query),
+      results,
       rawCount: 10,
       fallbackReason: query.includes("two") ? "subject_guard_failed" : null,
-    }),
+    };
+    },
     now: (() => {
       let tick = 0;
       return () => new Date(Date.UTC(2026, 7, 31, 12, 0, tick++));
     })(),
-    createRunId: () => `run-${++runNumber}`,
+    createRunId: runIdFactory || (() => `run-${++runNumber}`),
     createFeedbackId: (() => {
       let feedbackNumber = 0;
       return () => `feedback-${++feedbackNumber}`;
     })(),
-    curate: curation({
-      sufficient,
-      curationFailure,
-      hardRejected,
-      unavailableRejected,
-      duplicateRejected,
-      onOptions: onCurateOptions,
-    }),
+    curate: async (...args) => {
+      const delay = curationDelays[curateCall++] || 0;
+      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+      return curateFixture(...args);
+    },
   });
   return { handler, store };
 }
@@ -333,6 +502,11 @@ test("run, verdict, rerun, and retained-run inspection keep eligibility current"
   assert.equal(decided.currentRun.operatorVerdict.calibration.systemWinner, "compiled");
   assert.equal(decided.currentRun.operatorVerdict.calibration.finalSchedulingVerdict, "approved");
   assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).eligible, true);
+  const approvedEligibilityHistory = [...store.records.entries()]
+    .filter(([key, value]) =>
+      key.startsWith(auditEligibilityDecisionPrefix(pairActor.id, 0))
+      && value.eligible === true);
+  assert.equal(approvedEligibilityHistory.length, 1);
 
   const rewrittenVerdict = await handler(request("POST", {
     action: "verdict",
@@ -359,6 +533,12 @@ test("run, verdict, rerun, and retained-run inspection keep eligibility current"
   assert.equal(rerun.priorRuns[0].blindReview.choice, "compiled");
   assert.equal(rerun.pairing.eligible, null);
   assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).eligible, false);
+  assert.deepEqual(
+    [...store.records.entries()].filter(([key, value]) =>
+      key.startsWith(auditEligibilityDecisionPrefix(pairActor.id, 0))
+      && value.eligible === true),
+    approvedEligibilityHistory,
+  );
 
   const oldVerdict = await handler(request("POST", {
     action: "verdict",
@@ -686,6 +866,467 @@ test("an operator can save and reload an exact nine-card rescue board without im
     manualIds[4],
   );
   assert.deepEqual(reloaded.currentRun.blindReview, calibrationBefore);
+});
+
+test("only explicitly confirmed rescue boards calibrate a fresh audit and require transfer beyond the saved nine", async () => {
+  const curateOptions = [];
+  const { handler, store } = harness({
+    freshEvidenceOnRerun: true,
+    onCurateOptions: options => curateOptions.push(options),
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const chosen = await choiceResponse.json();
+  const selectedSource = chosen.currentRun.rawResults.at(-1).source;
+  const selectedIds = chosen.currentRun.rawResults
+    .filter(candidate => candidate.source === selectedSource)
+    .slice(0, 9)
+    .map(candidate => candidate.candidateId);
+  assert.equal(selectedIds.length, 9);
+  const immutableRunBefore = structuredClone(store.records.get(
+    auditRunKey(pairActor.id, 0, "run-1"),
+  ));
+  const eligibilityBefore = structuredClone(store.records.get(
+    eligibilityKey(pairActor.id, 0),
+  ));
+
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds: selectedIds,
+  }), {});
+  const saved = await saveResponse.json();
+  assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+  const receipt = saved.currentRun.editorialFeedback.operatorRescueBoard;
+  assert.equal(receipt.calibrationEvidence, null);
+  assert.deepEqual(receipt.calibrationBasis.selectedNine.map(item => item.candidateId), selectedIds);
+  assert.equal(receipt.calibrationBasis.hero.position, 4);
+  assert.equal(receipt.calibrationBasis.hero.candidateId, selectedIds[4]);
+  assert.ok(receipt.calibrationBasis.omittedAlternatives.length);
+  assert.equal(
+    receipt.calibrationBasis.signals.negative.candidateIds.length,
+    receipt.calibrationBasis.omittedAlternatives.length,
+  );
+  assert.ok(receipt.calibrationBasis.rankingContrasts.length);
+  assert.ok(receipt.calibrationBasis.rankingContrasts.every(contrast =>
+    Number.isInteger(contrast.preferredBoardPosition)
+    && Number.isInteger(contrast.preferredEvidenceRank)
+    && Number.isInteger(contrast.omittedEvidenceRank)));
+  assert.ok(receipt.calibrationBasis.provenance.queries.length);
+  const selectedSourceSignal = selectedSource.replace(".", " ");
+  assert.ok(receipt.calibrationBasis.signals.reusable.sources.positive
+    .includes(selectedSourceSignal));
+  const selectedSourceDelta = receipt.calibrationBasis.signals.reusable.sources.deltas
+    .find(signal => signal.value === selectedSourceSignal);
+  assert.equal(selectedSourceDelta.selectedCount, 9);
+  assert.ok(selectedSourceDelta.omittedCount > 0);
+  assert.ok(selectedSourceDelta.delta >= 0.15);
+  assert.equal(receipt.calibrationBasis.contract.curationVersion, CURATION_VERSION);
+  assert.equal([...store.records.keys()]
+    .filter(key => key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0))).length, 0);
+
+  const markResponse = await handler(request("POST", {
+    action: "mark_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId: receipt.receiptId,
+  }), {});
+  const marked = await markResponse.json();
+  assert.equal(markResponse.status, 200, JSON.stringify(marked));
+  const evidence = marked.currentRun.editorialFeedback.operatorRescueBoard.calibrationEvidence;
+  assert.equal(evidence.status, "confirmed");
+  assert.equal(evidence.sourceRescueReceiptId, receipt.receiptId);
+  assert.equal(evidence.actor.id, pairActor.id);
+  assert.equal(evidence.vibePack.key, vibeKey);
+  assert.deepEqual(evidence.arrangement.map(item => item.candidateId), selectedIds);
+  assert.equal(evidence.hero.candidateId, selectedIds[4]);
+  assert.ok(evidence.omittedAlternatives.length);
+  assert.deepEqual(
+    new Set(evidence.sourceEvidenceCandidateIds),
+    new Set([
+      ...evidence.selectedNine,
+      ...evidence.omittedAlternatives,
+      ...evidence.omittedSystemSelections,
+    ].map(candidate => candidate.candidateId)),
+  );
+  assert.deepEqual(evidence.rankingContrasts, receipt.calibrationBasis.rankingContrasts);
+  assert.ok(evidence.provenance.selectedQueries.length);
+  assert.equal(evidence.contract.curationVersion, CURATION_VERSION);
+  assert.equal(marked.pairing.auditState, "calibration_reaudit_required");
+  assert.deepEqual(store.records.get(auditRunKey(pairActor.id, 0, "run-1")), immutableRunBefore);
+  assert.deepEqual(store.records.get(eligibilityKey(pairActor.id, 0)), eligibilityBefore);
+
+  const rerunResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  assert.equal(rerunResponse.status, 200);
+  const calibratedOptions = curateOptions.find(options => options.calibrationProfile);
+  assert.equal(calibratedOptions.calibrationProfile.evidenceCount, 1);
+  assert.equal(calibratedOptions.calibrationProfile.sourceReceiptIds[0], receipt.receiptId);
+  assert.deepEqual(
+    new Set(calibratedOptions.calibrationProfile.positiveCandidateIds),
+    new Set(selectedIds),
+  );
+  assert.ok(calibratedOptions.calibrationProfile.positiveSources
+    .includes(selectedSourceSignal));
+  assert.ok(calibratedOptions.calibrationProfile.reusableSignalDeltas.sources
+    .some(signal =>
+      signal.value === selectedSourceSignal
+      && signal.selectedCount === 9
+      && signal.omittedCount > 0
+      && signal.delta >= 0.15));
+
+  const rerunChoice = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-2", choice: "compiled",
+  }), {});
+  const rerun = await rerunChoice.json();
+  assert.equal(
+    rerun.currentRun.calibrationProof.ready,
+    true,
+    JSON.stringify(rerun.currentRun.calibrationProof, null, 2),
+  );
+  assert.ok(rerun.currentRun.calibrationProof.beyondExactSavedNineCount > 0);
+  assert.equal(rerun.currentRun.calibrationProof.comparison.sameInput, true);
+  assert.equal(
+    rerun.currentRun.calibrationProof.comparison.baselineInputFingerprint,
+    rerun.currentRun.calibrationProof.comparison.calibratedInputFingerprint,
+  );
+  assert.ok(rerun.currentRun.calibrationProof.comparison.effects.length > 0);
+  assert.equal(rerun.currentRun.curationReceipt.calibrationSignals.scoreDelta, 0.04);
+  const verdictResponse = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-2",
+    verdict: "approved",
+    notes: "Fresh evidence transferred the operator signal.",
+  }), {});
+  assert.equal(verdictResponse.status, 200, JSON.stringify(await verdictResponse.clone().json()));
+});
+
+test("confirmed calibration becomes records-only after its source contract is superseded", async () => {
+  const curateOptions = [];
+  const { handler, store } = harness({
+    onCurateOptions: options => curateOptions.push(options),
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const firstChoice = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const first = await firstChoice.json();
+  const selectedQuery = first.currentRun.rawResults.at(-1).query;
+  const selectedIds = first.currentRun.rawResults
+    .filter(candidate => candidate.query === selectedQuery)
+    .slice(0, 9)
+    .map(candidate => candidate.candidateId);
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds: selectedIds,
+  }), {});
+  const receiptId = (await saveResponse.json())
+    .currentRun.editorialFeedback.operatorRescueBoard.receiptId;
+  await handler(request("POST", {
+    action: "mark_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId,
+  }), {});
+
+  const calibrationKey = [...store.records.keys()].find(key =>
+    key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0)));
+  const calibration = store.records.get(calibrationKey);
+  calibration.contract.curationVersion = PREVIOUS_CURATION_VERSION;
+  store.records.set(calibrationKey, calibration);
+
+  const rerunResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const rerun = await rerunResponse.json();
+  assert.equal(rerunResponse.status, 200, JSON.stringify(rerun));
+  assert.equal(curateOptions.filter(options => options.calibrationProfile).length, 0);
+  assert.equal(rerun.currentRun.inheritedCalibration ?? null, null);
+  assert.equal(rerun.currentRun.calibrationProof ?? null, null);
+  assert.equal(store.records.get(calibrationKey).status, "confirmed");
+});
+
+test("approval remains blocked when calibration only reorders selected or omitted source evidence", async () => {
+  const { handler } = harness({ calibrationTransfers: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const firstChoice = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const first = await firstChoice.json();
+  const selectedIds = first.currentRun.rawResults.slice(4, 13)
+    .map(candidate => candidate.candidateId);
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds: selectedIds,
+  }), {});
+  const receiptId = (await saveResponse.json())
+    .currentRun.editorialFeedback.operatorRescueBoard.receiptId;
+  await handler(request("POST", {
+    action: "mark_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId,
+  }), {});
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const secondChoice = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-2", choice: "compiled",
+  }), {});
+  const second = await secondChoice.json();
+  assert.equal(second.currentRun.calibrationProof.ready, false);
+  assert.equal(second.currentRun.calibrationProof.beyondExactSavedNineCount, 0);
+  const verdictResponse = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-2",
+    verdict: "approved",
+    notes: "",
+  }), {});
+  assert.equal(verdictResponse.status, 409);
+  assert.match((await verdictResponse.json()).error, /beyond the exact saved nine/i);
+});
+
+test("a promoted candidate beyond the source audit display cap cannot prove transfer", async () => {
+  const curateOptions = [];
+  const { handler } = harness({
+    hiddenSourceTransfer: true,
+    onCurateOptions: options => curateOptions.push(options),
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const firstChoice = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const first = await firstChoice.json();
+  const selectedQuery = first.currentRun.rawResults.at(-1).query;
+  const selectedIds = first.currentRun.rawResults
+    .filter(candidate => candidate.query === selectedQuery)
+    .slice(0, 9)
+    .map(candidate => candidate.candidateId);
+  assert.equal(selectedIds.length, 9);
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds: selectedIds,
+  }), {});
+  const receiptId = (await saveResponse.json())
+    .currentRun.editorialFeedback.operatorRescueBoard.receiptId;
+  await handler(request("POST", {
+    action: "mark_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId,
+  }), {});
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const profile = curateOptions.find(options => options.calibrationProfile)
+    .calibrationProfile;
+  assert.ok(profile.sourceEvidenceCandidateIds.includes("hidden-source-candidate"));
+  const secondChoice = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-2", choice: "compiled",
+  }), {});
+  const second = await secondChoice.json();
+  assert.equal(
+    second.currentRun.calibrationProof.ready,
+    false,
+    JSON.stringify(second.currentRun.calibrationProof, null, 2),
+  );
+  assert.equal(second.currentRun.calibrationProof.beyondExactSavedNineCount, 0);
+});
+
+test("anti-anchor, hero, and candidate-ranking effects alone cannot prove calibration transfer", () => {
+  const sourceCandidate = { candidateId: "source-candidate" };
+  const newCandidate = { candidateId: "new-candidate" };
+  const baseline = {
+    winner: "compiled",
+    strongestCompiled: { candidates: [sourceCandidate, newCandidate] },
+    rawCandidates: [sourceCandidate, newCandidate],
+  };
+  const outcomeFor = positive => compareCalibrationOutcomes(
+    {
+      evidenceCount: 1,
+      sourceEvidenceCandidateIds: [sourceCandidate.candidateId],
+    },
+    baseline,
+    {
+      winner: "compiled",
+      strongestCompiled: { candidates: [newCandidate, sourceCandidate] },
+      rawCandidates: [
+        sourceCandidate,
+        {
+          ...newCandidate,
+          calibration: {
+            candidateId: newCandidate.candidateId,
+            positive,
+            negative: [],
+          },
+        },
+      ],
+    },
+    {
+      baselineInputFingerprint: "same-frozen-analysis",
+      calibratedInputFingerprint: "same-frozen-analysis",
+    },
+  );
+
+  for (const signal of [
+    "anti-anchor:business-suit",
+    "pairwise-ranking-win",
+    "exact-saved-candidate",
+  ]) {
+    const comparison = outcomeFor([signal]);
+    assert.equal(comparison.improved, false, signal);
+    assert.equal(comparison.beyondExactSavedNineEffectCount, 0, signal);
+  }
+  assert.equal(outcomeFor(["cluster:wounded-moonlight"]).improved, true);
+});
+
+test("calibration source evidence includes analyzed candidates beyond the 36-card display cap", () => {
+  const completeEvidence = Array.from({ length: 50 }, (_, index) => ({
+    candidateId: `candidate-${index}`,
+    title: `Candidate ${index}`,
+    query: `query-${Math.floor(index / 10)}`,
+    source: `source-${index % 4}.test`,
+    thumbnail: `https://images.test/${index}.jpg`,
+    promise: {
+      clusters: [{ id: index === 49 ? "omitted-cluster" : "selected-cluster" }],
+      hardAntiMatches: index === 49 ? ["business suit"] : [],
+    },
+    dropReason: index === 49 ? "hard_anti_anchor" : null,
+    dropDetail: index === 49 ? "Matched hard anti-anchor: business suit" : null,
+  }));
+  const run = {
+    rawResults: completeEvidence.slice(0, 36),
+    curationReceipt: {
+      rawCandidates: completeEvidence.slice(0, 36),
+      sourceEvidenceCandidates: completeEvidence,
+    },
+    strongestEvent: { candidates: completeEvidence.slice(0, 9) },
+    strongestCompiled: { candidates: completeEvidence.slice(9, 18) },
+  };
+  const board = { candidates: completeEvidence.slice(0, 9) };
+  const basis = rescueCalibrationBasis(run, board);
+
+  assert.equal(basis.omittedAlternatives.length, 41);
+  assert.equal(basis.sourceEvidenceCandidateIds.length, 50);
+  assert.ok(basis.sourceEvidenceCandidateIds.includes("candidate-49"));
+  const omitted = basis.omittedAlternatives.find(candidate =>
+    candidate.candidateId === "candidate-49");
+  assert.equal(omitted.title, "Candidate 49");
+  assert.equal(omitted.dropReason, "hard_anti_anchor");
+  assert.deepEqual(omitted.promise.clusters, [{ id: "omitted-cluster" }]);
+  assert.deepEqual(omitted.promise.hardAntiMatches, ["business suit"]);
+  assert.ok(basis.signals.negative.clusters.includes("omitted cluster"));
+  assert.ok(basis.signals.negative.antiAnchors.includes("business suit"));
+});
+
+test("shared source and cluster signals survive when selected evidence has a meaningful preference delta", () => {
+  const selected = Array.from({ length: 9 }, (_, index) => ({
+    candidateId: `selected-${index}`,
+    query: "shared query",
+    source: "shared-source.test",
+    promise: { clusters: [{ id: "shared-cluster" }], hardAntiMatches: [] },
+  }));
+  const omittedShared = Array.from({ length: 2 }, (_, index) => ({
+    candidateId: `omitted-shared-${index}`,
+    query: "shared query",
+    source: "shared-source.test",
+    promise: { clusters: [{ id: "shared-cluster" }], hardAntiMatches: [] },
+  }));
+  const omittedOther = Array.from({ length: 9 }, (_, index) => ({
+    candidateId: `omitted-other-${index}`,
+    query: "other query",
+    source: "other-source.test",
+    promise: { clusters: [{ id: "other-cluster" }], hardAntiMatches: [] },
+  }));
+  const evidence = [...selected, ...omittedShared, ...omittedOther];
+  const basis = rescueCalibrationBasis({
+    curationReceipt: { sourceEvidenceCandidates: evidence },
+    strongestEvent: { candidates: selected },
+    strongestCompiled: { candidates: selected },
+  }, { candidates: selected });
+
+  for (const key of ["queries", "sources", "clusters"]) {
+    const signal = basis.signals.reusable[key];
+    assert.ok(signal.positive.includes(`shared${key === "queries" ? " query" : key === "sources" ? " source test" : " cluster"}`));
+    const delta = signal.deltas.find(item => item.value.startsWith("shared"));
+    assert.equal(delta.selectedCount, 9);
+    assert.equal(delta.omittedCount, 2);
+    assert.ok(delta.delta >= 0.8);
+  }
+});
+
+test("legacy rescue receipts remain records-only and cannot calibrate the current profile", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const chosen = await choiceResponse.json();
+  const candidateIds = chosen.currentRun.rawResults.slice(0, 9)
+    .map(candidate => candidate.candidateId);
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds,
+  }), {});
+  const receiptId = (await saveResponse.json())
+    .currentRun.editorialFeedback.operatorRescueBoard.receiptId;
+  const runKey = auditRunKey(pairActor.id, 0, "run-1");
+  const legacy = await store.get(runKey);
+  legacy.curationVersion = PREVIOUS_CURATION_VERSION;
+  legacy.curationReceipt.curationVersion = PREVIOUS_CURATION_VERSION;
+  await store.setJSON(runKey, legacy);
+
+  const markResponse = await handler(request("POST", {
+    action: "mark_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId,
+  }), {});
+  assert.equal(markResponse.status, 409);
+  assert.match((await markResponse.json()).error, /legacy rescue boards remain historical records/i);
+  assert.equal([...store.records.keys()]
+    .filter(key => key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0))).length, 0);
 });
 
 test("excluding an original board image removes it from rescue boards and rejects it on save", async () => {
@@ -1486,6 +2127,50 @@ test("concurrent calibration writes preserve the canonical first receipt", async
   assert.equal(
     frozen.calibration.finalSchedulingVerdict,
     frozen.verdict,
+  );
+});
+
+test("audit run identifiers are create-only and cannot rewrite historical evidence", async () => {
+  const { handler, store } = harness({ runIdFactory: () => "fixed-run" });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const firstResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "representative",
+  }), {});
+  assert.equal(firstResponse.status, 200);
+  const runKey = auditRunKey(pairActor.id, 0, "fixed-run");
+  const firstRun = structuredClone(store.records.get(runKey));
+
+  const collisionResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  assert.equal(collisionResponse.status, 409);
+  assert.match((await collisionResponse.json()).error, /identifier already exists/i);
+  assert.deepEqual(store.records.get(runKey), firstRun);
+});
+
+test("a later-started concurrent audit remains current when an older request finishes last", async () => {
+  const { handler, store } = harness({ curationDelays: [40, 0] });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const olderRequest = handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "representative",
+  }), {});
+  await new Promise(resolve => setImmediate(resolve));
+  const newerRequest = handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const responses = await Promise.all([olderRequest, newerRequest]);
+  assert.deepEqual(responses.map(response => response.status), [200, 200]);
+
+  const detailResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const detail = await detailResponse.json();
+  assert.equal(detail.currentRun.scope, "full");
+  assert.equal(
+    [...store.records.keys()].filter(key => key.startsWith(auditRunPrefix(pairActor.id, 0))).length,
+    2,
   );
 });
 

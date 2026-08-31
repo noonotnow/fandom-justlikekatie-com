@@ -12,6 +12,7 @@ import {
   auditHeadKey,
   auditCalibrationKey,
   auditRunKey,
+  auditRescueCalibrationKey,
   auditVerdictKey,
   eligibilityKey,
   pairingFingerprintFor,
@@ -22,7 +23,7 @@ const packs = [
   { id: "actor-a", vibes: [{}, {}] },
   { id: "actor-b", vibes: [{}, {}] },
 ];
-const PREVIOUS_CURATION_VERSION = 4;
+const PREVIOUS_CURATION_VERSION = 5;
 
 function storeWith(entries = {}) {
   return {
@@ -140,6 +141,16 @@ function approved(actor, vibeIdx) {
   };
 }
 
+function rescueContract(actor, vibeIdx) {
+  return {
+    curationVersion: CURATION_VERSION,
+    identityProfileVersion: IDENTITY_PROFILE_VERSION,
+    aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+    promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+    pairingFingerprint: pairingFingerprintFor(actor, vibeIdx),
+  };
+}
+
 function boardSnapshot(board, mode) {
   const boardHash = createHash("sha256").update(JSON.stringify(
     board.candidates.map(candidate => ({
@@ -236,4 +247,88 @@ test("an approval fails closed after the curation algorithm version changes", as
   entries[auditRunKey(actor.id, legacy.vIdx, runId)].curationReceipt.curationVersion = PREVIOUS_CURATION_VERSION;
 
   assert.equal(await selectEligiblePair(packs, date, storeWith(entries)), null);
+});
+
+test("Daily Drop eligibility fails closed until confirmed rescue calibration is reproduced on a fresh run", async () => {
+  const date = "2026-09-05";
+  const legacy = getRandomForDate(packs, date);
+  const actor = packs[legacy.aIdx];
+  const entries = approved(actor, legacy.vIdx);
+  const runId = `${actor.id}-${legacy.vIdx}-run`;
+  const receiptId = "rescue-evidence-1";
+  entries[auditRescueCalibrationKey(actor.id, legacy.vIdx, receiptId)] = {
+    schemaVersion: 1,
+    calibrationVersion: 1,
+    status: "confirmed",
+    sourceRescueReceiptId: receiptId,
+    confirmedAt: "2026-09-05T10:00:00.000Z",
+    contract: rescueContract(actor, legacy.vIdx),
+  };
+
+  assert.equal(await selectEligiblePair(packs, date, storeWith(entries)), null);
+
+  const proofStatus = "reproduced_beyond_saved_nine";
+  entries[auditRunKey(actor.id, legacy.vIdx, runId)].calibrationProof = {
+    calibrationVersion: 1,
+    sourceReceiptIds: [receiptId],
+    ready: true,
+    status: proofStatus,
+  };
+  Object.assign(entries[eligibilityKey(actor.id, legacy.vIdx)], {
+    rescueCalibrationVersion: 1,
+    rescueCalibrationEvidenceCount: 1,
+    rescueCalibrationHash: recordHash({
+      sourceReceiptIds: [receiptId],
+      proofStatus,
+    }),
+  });
+  const selected = await selectEligiblePair(packs, date, storeWith(entries));
+  assert.equal(selected.aIdx, legacy.aIdx);
+  assert.equal(selected.vIdx, legacy.vIdx);
+
+  entries[auditRescueCalibrationKey(actor.id, legacy.vIdx, "rescue-evidence-2")] = {
+    schemaVersion: 1,
+    calibrationVersion: 1,
+    status: "confirmed",
+    sourceRescueReceiptId: "rescue-evidence-2",
+    confirmedAt: "2026-09-05T11:00:00.000Z",
+    contract: rescueContract(actor, legacy.vIdx),
+  };
+  assert.equal(
+    await selectEligiblePair(packs, date, storeWith(entries)),
+    null,
+    "new calibration evidence must require another fresh proof",
+  );
+});
+
+test("superseded rescue calibration contracts are records-only for Daily Drop eligibility", async () => {
+  const date = "2026-09-05";
+  const legacy = getRandomForDate(packs, date);
+  const actor = packs[legacy.aIdx];
+  const mismatches = {
+    curationVersion: PREVIOUS_CURATION_VERSION,
+    identityProfileVersion: IDENTITY_PROFILE_VERSION - 1,
+    aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION - 1,
+    promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION - 1,
+    pairingFingerprint: "superseded-pairing-fingerprint",
+  };
+
+  for (const [field, staleValue] of Object.entries(mismatches)) {
+    const entries = approved(actor, legacy.vIdx);
+    entries[auditRescueCalibrationKey(actor.id, legacy.vIdx, `stale-${field}`)] = {
+      schemaVersion: 1,
+      calibrationVersion: 1,
+      status: "confirmed",
+      sourceRescueReceiptId: `stale-${field}`,
+      confirmedAt: "2026-09-05T10:00:00.000Z",
+      contract: {
+        ...rescueContract(actor, legacy.vIdx),
+        [field]: staleValue,
+      },
+    };
+
+    const selected = await selectEligiblePair(packs, date, storeWith(entries));
+    assert.equal(selected?.aIdx, legacy.aIdx, field);
+    assert.equal(selected?.vIdx, legacy.vIdx, field);
+  }
 });

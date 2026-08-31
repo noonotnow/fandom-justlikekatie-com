@@ -14,7 +14,7 @@ import {
  * intentionally heuristic: metadata and perceptual fingerprints can provide
  * evidence, but cannot prove actor identity, pose progression, or emotion.
  */
-export const CURATION_VERSION = 5;
+export const CURATION_VERSION = 6;
 export const DEFAULT_CURATION_LIMIT = 9;
 export const DEFAULT_CANDIDATE_LIMIT = 36;
 export const DEFAULT_ANALYSIS_CONCURRENCY = 4;
@@ -661,11 +661,16 @@ function boardRangeTieBreak(board) {
     + uniqueCount(board, candidate => batchKey(candidate.result)) * 0.1;
 }
 
-function arrangeBoard(candidates, promise) {
+function calibrationSet(profile, key) {
+  return new Set((profile?.[key] || []).map(value => normalizeText(value)).filter(Boolean));
+}
+function arrangeBoard(candidates, _promise) {
   const ordered = [...candidates].sort(candidateOrder);
-  if (!promise || ordered.length < 5) return ordered;
+  if (ordered.length < 5) return ordered;
   const rankedForHero = [...ordered].sort((left, right) =>
-    Number(right.editorial?.heroSatisfied) - Number(left.editorial?.heroSatisfied)
+    Number(right.calibration?.hero) - Number(left.calibration?.hero)
+    || (right.calibration?.score || 0) - (left.calibration?.score || 0)
+    || Number(right.editorial?.heroSatisfied) - Number(left.editorial?.heroSatisfied)
     || Number(right.editorial?.coreSatisfied) - Number(left.editorial?.coreSatisfied)
     || Number(left.editorial?.incompatibleCluster) - Number(right.editorial?.incompatibleCluster)
     || (right.editorial?.promiseScore || 0) - (left.editorial?.promiseScore || 0)
@@ -682,9 +687,29 @@ function arrangeBoard(candidates, promise) {
       || candidateOrder(left, right));
   const arranged = Array(ordered.length);
   arranged[4] = hero;
+  const positioned = rest
+    .filter(candidate =>
+      Number.isInteger(candidate.calibration?.preferredPosition)
+      && candidate.calibration.preferredPosition >= 0
+      && candidate.calibration.preferredPosition < ordered.length
+      && candidate.calibration.preferredPosition !== 4)
+    .sort((left, right) =>
+      (right.calibration?.rankingScore || 0) - (left.calibration?.rankingScore || 0)
+      || candidateOrder(left, right));
+  for (const candidate of positioned) {
+    const slot = candidate.calibration.preferredPosition;
+    if (!arranged[slot]) {
+      arranged[slot] = candidate;
+      rest.splice(rest.indexOf(candidate), 1);
+    }
+  }
   const supportingSlots = HIGH_SALIENCE_SLOTS.filter(index => index !== 4 && index < ordered.length);
-  for (const slot of supportingSlots) arranged[slot] = rest.shift();
-  for (const slot of SECONDARY_SLOTS.filter(index => index < ordered.length)) arranged[slot] = rest.shift();
+  for (const slot of supportingSlots) {
+    if (!arranged[slot]) arranged[slot] = rest.shift();
+  }
+  for (const slot of SECONDARY_SLOTS.filter(index => index < ordered.length)) {
+    if (!arranged[slot]) arranged[slot] = rest.shift();
+  }
   for (let index = 0; index < arranged.length; index += 1) {
     if (!arranged[index]) arranged[index] = rest.shift();
   }
@@ -756,7 +781,8 @@ function selectEventBoards(families, limit, promise, preferredCandidateIds) {
       candidates,
       limit,
       board => eventScore(board, family.familyStrength, promise)
-        + preferredBoardBonus(board, preferredCandidateIds),
+        + preferredBoardBonus(board, preferredCandidateIds)
+        + operatorCalibrationBonus(board),
       () => false,
       promise,
     );
@@ -771,7 +797,9 @@ function selectCompiledBoards(candidates, limit, promise, preferredCandidateIds)
   return greedyBoards(
     candidates,
     limit,
-    board => compiledScore(board, promise) + preferredBoardBonus(board, preferredCandidateIds),
+    board => compiledScore(board, promise)
+      + preferredBoardBonus(board, preferredCandidateIds)
+      + operatorCalibrationBonus(board),
     (left, right) =>
       perceptualDistance(left.fingerprint, right.fingerprint) <= COMPILED_SIMILARITY_DISTANCE,
     promise,
@@ -829,6 +857,98 @@ function rationaleFor(mode, eventCandidate, compiledCandidate) {
   };
 }
 
+function selectFromFrozenAnalysis(rawCandidates, frozenStates, {
+  limit,
+  diagnostics,
+  promise,
+  profileVersions,
+  preferredCandidateIds,
+  calibrationProfile,
+  batchRanks = null,
+}) {
+  const rankFor = candidate => {
+    const query = candidate.result?.batchKey;
+    return Number.isInteger(batchRanks?.[query]) ? batchRanks[query] : candidate.batchRank;
+  };
+  const analyzedStates = frozenStates.map(state => {
+    const candidate = {
+      ...state.candidate,
+      batchRank: rankFor(state.candidate),
+    };
+    candidate.calibration = candidateCalibration(candidate, calibrationProfile);
+    return { ...state, candidate };
+  });
+  const rankedRawCandidates = rawCandidates.map(candidate => ({
+    ...candidate,
+    batchRank: rankFor(candidate),
+  })).sort(rawCandidateOrder);
+  const analyzed = analyzedStates
+    .filter(state => state.candidate.fingerprint && !state.dropReason)
+    .map(state => state.candidate);
+  const candidates = replaceExactCopies(analyzed).sort(candidateOrder);
+  const families = buildFamilies(candidates);
+  const withFamilies = familyLabeledCandidates(candidates, families);
+  const preferredIds = new Set(preferredCandidateIds.filter(Boolean));
+  const eventProposals = selectEventBoards(families, limit, promise, preferredIds);
+  const compiledProposals = selectCompiledBoards(withFamilies, limit, promise, preferredIds);
+  const eventAlternatives = eventProposals.filter(item => promiseQualified(item.board, promise, limit));
+  const compiledAlternatives = compiledProposals.filter(item => promiseQualified(item.board, promise, limit));
+  const eventCandidate = eventAlternatives[0] || null;
+  const compiledCandidate = compiledAlternatives[0] || null;
+  const boardDiagnostics = {
+    event: boardDiagnostic("event", eventCandidate, {
+      limit,
+      usableCount: analyzed.length,
+      distinctUsableCount: candidates.length,
+      families,
+      proposals: eventProposals,
+      promise,
+    }),
+    compiled: boardDiagnostic("compiled", compiledCandidate, {
+      limit,
+      usableCount: analyzed.length,
+      distinctUsableCount: candidates.length,
+      families,
+      proposals: compiledProposals,
+      promise,
+    }),
+  };
+  if (!eventCandidate && !compiledCandidate) {
+    return diagnostics
+      ? { displayResults: [], curation: null, diagnostics: diagnosticReceipt(rankedRawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, null, boardDiagnostics, promise, profileVersions, calibrationProfile) }
+      : { displayResults: [], curation: null };
+  }
+  const useEvent = Boolean(eventCandidate)
+    && (!compiledCandidate || eventCandidate.score >= compiledCandidate.score);
+  const winner = useEvent ? eventCandidate : compiledCandidate;
+  const result = {
+    displayResults: winner.board.map(candidate => candidate.result),
+    curation: {
+      ...rationaleFor(useEvent ? "event" : "compiled", eventCandidate, compiledCandidate),
+      ...(profileVersions || {}),
+      calibrationProfileVersion: calibrationProfile?.calibrationVersion || null,
+      calibrationEvidenceCount: calibrationProfile?.evidenceCount || 0,
+    },
+  };
+  if (diagnostics) {
+    result.diagnostics = diagnosticReceipt(
+      rankedRawCandidates,
+      analyzedStates,
+      candidates,
+      families,
+      eventCandidate,
+      compiledCandidate,
+      eventAlternatives,
+      compiledAlternatives,
+      useEvent ? "event" : "compiled",
+      boardDiagnostics,
+      promise,
+      profileVersions,
+      calibrationProfile,
+    );
+  }
+  return result;
+}
 /**
  * Curate the visible Daily Drop board. `fingerprint` is injectable so the
  * editorial decision can be tested without network images.
@@ -845,6 +965,8 @@ export async function curateDisplayResults(
     promise = null,
     profileVersions = null,
     preferredCandidateIds = [],
+    calibrationProfile = null,
+    calibrationControl = null,
   } = {},
 ) {
   const rawCandidates = [];
@@ -901,56 +1023,26 @@ export async function curateDisplayResults(
     }
   });
   analyzedStates = disambiguateMassDigestCollisions(analyzedStates);
-  const analyzed = analyzedStates
-    .filter(state => state.candidate.fingerprint && !state.dropReason)
-    .map(state => state.candidate);
-
-  const candidates = replaceExactCopies(analyzed).sort(candidateOrder);
-  const families = buildFamilies(candidates);
-  const withFamilies = familyLabeledCandidates(candidates, families);
-  const preferredIds = new Set(preferredCandidateIds.filter(Boolean));
-  const eventProposals = selectEventBoards(families, limit, promise, preferredIds);
-  const compiledProposals = selectCompiledBoards(withFamilies, limit, promise, preferredIds);
-  const eventAlternatives = eventProposals.filter(item => promiseQualified(item.board, promise, limit));
-  const compiledAlternatives = compiledProposals.filter(item => promiseQualified(item.board, promise, limit));
-  const eventCandidate = eventAlternatives[0] || null;
-  const compiledCandidate = compiledAlternatives[0] || null;
-  const boardDiagnostics = {
-    event: boardDiagnostic("event", eventCandidate, {
+  const result = selectFromFrozenAnalysis(rawCandidates, analyzedStates, {
+    limit,
+    diagnostics,
+    promise,
+    profileVersions,
+    preferredCandidateIds,
+    calibrationProfile,
+  });
+  if (calibrationControl) {
+    const control = selectFromFrozenAnalysis(rawCandidates, analyzedStates, {
       limit,
-      usableCount: analyzed.length,
-      distinctUsableCount: candidates.length,
-      families,
-      proposals: eventProposals,
+      diagnostics: true,
       promise,
-    }),
-    compiled: boardDiagnostic("compiled", compiledCandidate, {
-      limit,
-      usableCount: analyzed.length,
-      distinctUsableCount: candidates.length,
-      families,
-      proposals: compiledProposals,
-      promise,
-    }),
-  };
-
-  if (!eventCandidate && !compiledCandidate) {
-    return diagnostics
-      ? { displayResults: [], curation: null, diagnostics: diagnosticReceipt(rawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, null, boardDiagnostics, promise, profileVersions) }
-      : { displayResults: [], curation: null };
+      profileVersions,
+      preferredCandidateIds: calibrationControl.preferredCandidateIds || [],
+      calibrationProfile: null,
+      batchRanks: calibrationControl.batchRanks || null,
+    });
+    result.controlDiagnostics = control.diagnostics;
   }
-
-  const useEvent = Boolean(eventCandidate)
-    && (!compiledCandidate || eventCandidate.score >= compiledCandidate.score);
-  const winner = useEvent ? eventCandidate : compiledCandidate;
-  const result = {
-    displayResults: winner.board.map(candidate => candidate.result),
-    curation: {
-      ...rationaleFor(useEvent ? "event" : "compiled", eventCandidate, compiledCandidate),
-      ...(profileVersions || {}),
-    },
-  };
-  if (diagnostics) result.diagnostics = diagnosticReceipt(rawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, useEvent ? "event" : "compiled", boardDiagnostics, promise, profileVersions);
   return result;
 }
 
@@ -989,7 +1081,81 @@ function disambiguateMassDigestCollisions(states) {
   });
 }
 
-function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, winner, boardDiagnostics, promise, profileVersions) {
+function calibrationDiagnostics(profile, board = [], states = []) {
+  if (!profile?.evidenceCount) {
+    return {
+      calibrationVersion: null,
+      evidenceCount: 0,
+      affected: false,
+      selectedSignalCount: 0,
+      beyondExactSavedNineCount: 0,
+      messages: [],
+    };
+  }
+  const affectedCandidates = board.filter(candidate =>
+    candidate.calibration?.positive?.length || candidate.calibration?.negative?.length);
+  const sourceEvidenceIds = new Set(profile.sourceEvidenceCandidateIds || [
+    ...(profile.positiveCandidateIds || []),
+    ...(profile.negativeCandidateIds || []),
+  ]);
+  const beyondExactSavedNine = affectedCandidates.filter(candidate =>
+    !sourceEvidenceIds.has(candidate.calibration?.candidateId)
+    && candidate.calibration?.positive?.some(signal =>
+      /^(query|source|cluster):/.test(signal)));
+  const gateSignals = states
+    .filter(state =>
+      state.dropReason
+      && (state.candidate?.calibration?.positive?.length || state.candidate?.calibration?.negative?.length))
+    .map(state => ({
+      candidateId: state.candidate.calibration.candidateId,
+      dropReason: state.dropReason,
+      positive: state.candidate.calibration.positive,
+      negative: state.candidate.calibration.negative,
+    }));
+  const messages = [];
+  if (affectedCandidates.length) {
+    messages.push(`${affectedCandidates.length} board candidate${affectedCandidates.length === 1 ? "" : "s"} matched confirmed operator signals.`);
+  }
+  if (beyondExactSavedNine.length) {
+    messages.push(`${beyondExactSavedNine.length} matched candidate${beyondExactSavedNine.length === 1 ? "" : "s"} transferred a reusable signal onto evidence absent from the source audit.`);
+  }
+  if (gateSignals.length) {
+    messages.push(`${gateSignals.length} calibrated candidate${gateSignals.length === 1 ? "" : "s"} still met an image or anti-anchor gate; calibration did not bypass the gate.`);
+  }
+  return {
+    calibrationVersion: profile.calibrationVersion,
+    evidenceCount: profile.evidenceCount,
+    sourceReceiptIds: profile.sourceReceiptIds || [],
+    affected: affectedCandidates.length > 0 || gateSignals.length > 0,
+    selectedSignalCount: affectedCandidates.length,
+    beyondExactSavedNineCount: beyondExactSavedNine.length,
+    sourceEvidenceCandidateCount: sourceEvidenceIds.size,
+    exactSavedCandidateCount: affectedCandidates.length - beyondExactSavedNine.length,
+    scoreDelta: Number(operatorCalibrationBonus(board).toFixed(4)),
+    affectedCandidates: affectedCandidates.map(candidate => ({
+      candidateId: candidate.calibration.candidateId,
+      exactSavedCandidate: candidate.calibration.exactSavedCandidate,
+      hero: candidate.calibration.hero,
+      rankingScore: candidate.calibration.rankingScore,
+      rankingPairCount: candidate.calibration.rankingPairCount,
+      preferredPosition: candidate.calibration.preferredPosition,
+      positive: candidate.calibration.positive,
+      negative: candidate.calibration.negative,
+    })),
+    gateSignals,
+    preferredQueries: profile.positiveQueries || [],
+    discouragedQueries: profile.negativeQueries || [],
+    preferredSources: profile.positiveSources || [],
+    discouragedSources: profile.negativeSources || [],
+    preferredClusters: profile.positiveClusters || [],
+    discouragedClusters: profile.negativeClusters || [],
+    positiveAntiAnchors: profile.positiveAntiAnchors || [],
+    negativeAntiAnchors: profile.negativeAntiAnchors || [],
+    rankingContrastCount: profile.rankingContrasts?.length || 0,
+    messages,
+  };
+}
+function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, winner, boardDiagnostics, promise, profileVersions, calibrationProfile) {
   const summarize = candidate => ({
     candidateId: candidateIdForResult({ ...candidate.result, digest: candidate.fingerprint?.digest }),
     provisionalCandidateId: candidateIdForResult({ ...candidate.result, digest: "" }),
@@ -1008,24 +1174,52 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
       incompatibleCluster: candidate.editorial.incompatibleCluster === true,
       requiredMatches: candidate.editorial.requiredMatches || [],
       supportingMatches: candidate.editorial.supportingMatches || [],
+      hardAntiMatches: candidate.editorial.hardAntiMatches || [],
       softContradictionMatches: candidate.editorial.softContradictionMatches || [],
       clusters: (candidate.editorial.clusters || []).map(cluster => ({
         id: cluster.id,
         confidence: Number(cluster.confidence.toFixed(3)),
       })),
       singleFrameRatio: Number((candidate.singleFrameRatio ?? 1).toFixed(3)),
+      composite: candidate.composite ? {
+        metadataSignal: candidate.composite.metadataSignal === true,
+        visualScore: Number((candidate.composite.visualScore || 0).toFixed(3)),
+      } : null,
+    } : null,
+    calibration: candidate.calibration ? {
+      score: Number((candidate.calibration.score || 0).toFixed(3)),
+      hero: candidate.calibration.hero === true,
+      exactSavedCandidate: candidate.calibration.exactSavedCandidate === true,
+      rankingScore: Number((candidate.calibration.rankingScore || 0).toFixed(3)),
+      rankingPairCount: candidate.calibration.rankingPairCount || 0,
+      preferredPosition: candidate.calibration.preferredPosition,
+      positive: candidate.calibration.positive || [],
+      negative: candidate.calibration.negative || [],
     } : null,
   });
   const board = (selection, mode) => selection ? {
     score: Number(selection.score.toFixed(4)),
-    scoreBreakdown: (mode === "event"
+    scoreBreakdown: {
+      ...(mode === "event"
       ? eventScoreParts(selection.board, selection.familyStrength, promise)
       : compiledScoreParts(selection.board, promise)).breakdown,
+      ...(calibrationProfile?.evidenceCount ? { operatorCalibration: {
+        value: Number(operatorCalibrationBonus(selection.board).toFixed(4)),
+        weight: 1,
+        contribution: Number(operatorCalibrationBonus(selection.board).toFixed(4)),
+      } } : {}),
+    },
     promise: boardPromiseMetrics(selection.board, promise),
     candidates: selection.board.slice(0, DEFAULT_CURATION_LIMIT).map(summarize),
   } : null;
+  const sourceEvidenceCandidates = states.map(state => ({
+    ...summarize(state.candidate),
+    dropReason: state.dropReason || null,
+    dropDetail: state.dropDetail || null,
+  }));
   return {
     version: CURATION_VERSION,
+    sourceEvidenceCandidates,
     rawCandidates: states.slice(0, DEFAULT_CANDIDATE_LIMIT).map(state => ({
       ...summarize(state.candidate),
       dropReason: state.dropReason,
@@ -1050,6 +1244,11 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
     boardDiagnostics,
     winner,
     alternate: winner === "event" ? "compiled" : winner === "compiled" ? "event" : null,
+    calibrationSignals: calibrationDiagnostics(
+      calibrationProfile,
+      winner === "event" ? eventCandidate?.board : winner === "compiled" ? compiledCandidate?.board : [],
+      states,
+    ),
     receipt: {
       rawCount: rawCandidates.length,
       analyzedCount: states.filter(state => !state.dropReason).length,
@@ -1057,6 +1256,8 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
       promiseContractId: promise?.id || null,
       singleFrameCount: states.filter(state => !state.dropReason && (state.candidate.singleFrameRatio ?? 1) >= 0.99).length,
       compositeRejectedCount: states.filter(state => state.dropReason === "composite_image").length,
+      calibrationProfileVersion: calibrationProfile?.calibrationVersion || null,
+      calibrationEvidenceCount: calibrationProfile?.evidenceCount || 0,
       ...(profileVersions || {}),
     },
   };
@@ -1145,5 +1346,78 @@ function boardDiagnostic(mode, selection, {
     summary: reasonCode
       ? boardDiagnosticSummary(mode, reasonCode, metrics)
       : `A complete ${limit}-card ${mode === "event" ? "Event" : "Compiled"} board qualified.`,
+  };
+}
+
+function operatorCalibrationBonus(board) {
+  if (!board.some(candidate => candidate.calibration?.positive?.length || candidate.calibration?.negative?.length)) {
+    return 0;
+  }
+  const averageSignal = average(board.map(candidate => candidate.calibration?.score || 0));
+  const heroSignal = board[4]?.calibration?.hero ? 0.03 : 0;
+  // Operator evidence can reorder close proposals, but cannot satisfy promise,
+  // image-safety, or diversity gates by itself.
+  return clamp(averageSignal * 0.65 + heroSignal, -0.12, 0.12);
+}
+
+function candidateCalibration(candidate, profile) {
+  if (!profile?.evidenceCount) {
+    return { score: 0, hero: false, exactSavedCandidate: false, positive: [], negative: [] };
+  }
+  const candidateId = candidateIdForResult({
+    ...candidate.result,
+    digest: candidate.fingerprint?.digest,
+  });
+  const query = batchKey(candidate.result);
+  const source = sourceKey(candidate.result);
+  const clusters = (candidate.editorial?.clusters || []).map(cluster => normalizeText(cluster.id));
+  const antiAnchors = (candidate.editorial?.hardAntiMatches || []).map(normalizeText);
+  const positive = [];
+  const negative = [];
+  const positiveIds = new Set(profile.positiveCandidateIds || []);
+  const heroIds = new Set(profile.heroCandidateIds || []);
+  const negativeIds = new Set(profile.negativeCandidateIds || []);
+  const match = (value, positiveKey, negativeKey, label) => {
+    if (!value) return;
+    if (calibrationSet(profile, positiveKey).has(normalizeText(value))) positive.push(label);
+    if (calibrationSet(profile, negativeKey).has(normalizeText(value))) negative.push(label);
+  };
+  match(query, "positiveQueries", "negativeQueries", `query:${query}`);
+  match(source, "positiveSources", "negativeSources", `source:${source}`);
+  for (const cluster of clusters) {
+    match(cluster, "positiveClusters", "negativeClusters", `cluster:${cluster}`);
+  }
+  for (const anchor of antiAnchors) {
+    match(anchor, "positiveAntiAnchors", "negativeAntiAnchors", `anti-anchor:${anchor}`);
+  }
+  const exactSavedCandidate = positiveIds.has(candidateId);
+  if (exactSavedCandidate) positive.push("exact-saved-candidate");
+  if (negativeIds.has(candidateId)) negative.push("omitted-candidate");
+  const rankingWins = Number(profile.rankingWins?.[candidateId]) || 0;
+  const rankingLosses = Number(profile.rankingLosses?.[candidateId]) || 0;
+  const rankingScore = clamp(
+    (rankingWins - rankingLosses) / Math.max(1, rankingWins, rankingLosses),
+    -1,
+    1,
+  );
+  if (rankingScore > 0) positive.push("pairwise-ranking-win");
+  if (rankingScore < 0) negative.push("pairwise-ranking-loss");
+  const score = clamp(
+    positive.length * 0.28 - negative.length * 0.22 + rankingScore * 0.3,
+    -1,
+    1,
+  );
+  return {
+    score,
+    hero: heroIds.has(candidateId),
+    exactSavedCandidate,
+    rankingScore,
+    rankingPairCount: rankingWins + rankingLosses,
+    preferredPosition: Number.isInteger(profile.preferredPositions?.[candidateId])
+      ? profile.preferredPositions[candidateId]
+      : null,
+    candidateId,
+    positive: [...new Set(positive)],
+    negative: [...new Set(negative)],
   };
 }
