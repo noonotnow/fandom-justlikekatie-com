@@ -67,6 +67,9 @@ existing Netlify Blobs setup, so it does not need the Replit `DATABASE_URL`.
 The Replit connector and Postgres Stripe Sync remain the local/development
 fallback. Never prefix these secrets with `VITE_`, commit them, or expose them
 in browser responses.
+The browser never receives MEDIA or CREATE credentials. Do not add them as
+`VITE_` variables. Deployment must preserve the same-origin redirect for
+`/api/create-handoff`.
 
 The browser also never receives `XAI_API_KEY`. Configure it directly in the
 Netlify site's environment variables before deploying AI generation; Replit
