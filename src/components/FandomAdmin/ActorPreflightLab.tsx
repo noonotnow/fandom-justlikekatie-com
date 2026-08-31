@@ -23,7 +23,9 @@ const DISAGREEMENT_REASONS: Array<[string,string]> = [
   ['other_editorial_instinct','Other editorial instinct'],
 ];
 const api = async (body?: AnyRecord, query?: AnyRecord) => { const queryString = query ? `?${new URLSearchParams(Object.entries(query).filter(([,value]) => value !== undefined && value !== '') as [string,string][]).toString()}` : ''; const response = await fetch(`/.netlify/functions/actor-audits${queryString}`, { method: body ? 'POST' : 'GET', headers: body ? {'Content-Type':'application/json'} : undefined, body: body ? JSON.stringify(body) : undefined, credentials:'include' }); const result = await response.json().catch(() => null); if (!response.ok) throw new Error(result?.error || 'Actor audit desk unavailable.'); return result; };
-const text = (value: unknown) => Array.isArray(value) ? value.join(' · ') : typeof value === 'object' && value ? JSON.stringify(value, null, 2) : String(value ?? '—');
+const text = (value: unknown) => Array.isArray(value)
+  ? value.map(item => typeof item === 'object' && item ? JSON.stringify(item) : String(item)).join(' · ')
+  : typeof value === 'object' && value ? JSON.stringify(value, null, 2) : String(value ?? '—');
 const date = (value: unknown) => value ? new Date(String(value)).toLocaleString() : 'Not run';
 
 export const ActorPreflightLab: React.FC = () => {
@@ -135,7 +137,7 @@ function RunEvidence({
     <h5>Audit evidence {run?.runId?`· ${run.runId}`:''}</h5>
     {run ? <>
       <p className={styles.muted}>{run.scope} scope · started {date(run.startedAt)} · completed {date(run.completedAt)}</p>
-      {review?.status === 'unavailable' ? <section className={styles.boardUnavailable}><strong>Blind comparison unavailable</strong><p>This run did not produce two complete nine-card boards. It cannot be approved; use the retained evidence to choose a rejection or query-work verdict.</p></section> : <section className={styles.boardReview} aria-label="Visual board comparison">
+      {review?.status === 'unavailable' ? <section className={styles.boardUnavailable}><strong>Blind comparison unavailable</strong><p>This run did not produce two complete nine-card boards. It cannot be approved; use the retained evidence to choose a rejection or query-work verdict.</p><PartialBoards run={run} /></section> : <section className={styles.boardReview} aria-label="Visual board comparison">
         <div className={styles.boardReviewHeader}>
           <div><h6>{revealed ? 'Independent choice recorded' : 'Blind board review'}</h6><p>{revealed ? `You chose ${review?.choice === 'neither' ? 'Neither' : review?.choice}. This result is frozen for this audit run.` : 'Both boards are equal-sized. Their left/right order is fixed for this run.'}</p></div>
           {revealed && <div className={styles.revealBadges}><span className={styles.winnerBadge}>System winner: {review?.systemWinner}</span><span className={review?.agreement ? styles.agreeBadge : styles.disagreeBadge}>{review?.agreement ? 'You agreed' : 'You disagreed'}</span></div>}
@@ -159,6 +161,15 @@ function RunEvidence({
     </> : <p className={styles.empty}>Run an audit to open a blinded Event versus Compiled comparison.</p>}
     {currentRun&&<label className={styles.label}>Audit run<select className={styles.select} value={run?.runId ?? ''} onChange={e=>{const selected=[currentRun,...priorRuns].find(item=>item.runId===e.target.value);if(selected)onSelect(selected)}}><option value={currentRun.runId}>Current · {currentRun.runId} · {date(currentRun.completedAt)}</option>{priorRuns.map(item=><option key={item.runId} value={item.runId}>Retained · {item.runId} · {date(item.completedAt)}</option>)}</select></label>}
   </article>;
+}
+
+function PartialBoards({run}:{run:Run}) {
+  const boards = [
+    run.strongestEvent ? { label: 'Event candidate', board: run.strongestEvent } : null,
+    run.strongestCompiled ? { label: 'Compiled candidate', board: run.strongestCompiled } : null,
+  ].filter(Boolean) as Array<{label:string;board:AnyRecord}>;
+  if (!boards.length) return <p className={styles.boardEmpty}>No candidate board reached nine images.</p>;
+  return <div className={styles.partialBoards}><h6>Available candidate board{boards.length > 1 ? 's' : ''}</h6><p>These images survived curation, but the missing counterpart means this run is not eligible for blind calibration.</p><div className={styles.boardComparison}>{boards.map(item=><BoardPreview key={item.label} label={item.label} board={item.board} isWinner={false} revealed={false} />)}</div></div>;
 }
 
 function RevealSummary({run}:{run:Run}) {

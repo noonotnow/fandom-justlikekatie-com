@@ -49,4 +49,6 @@ test('an unavailable comparison is not described as ready for a blind choice', (
   assert.match(startAudit, /status==='unavailable'/);
   assert.match(startAudit, /did not produce two complete boards/);
   assert.match(startAudit, /Choose between the two boards below/);
+  assert.match(source, /function PartialBoards/);
+  assert.match(source, /Available candidate board/);
 });
