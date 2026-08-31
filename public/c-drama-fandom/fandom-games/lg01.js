@@ -84,7 +84,42 @@ const shareButton = document.querySelector("#share-fate");
 const copyButton = document.querySelector("#copy-fate");
 const downloadButton = document.querySelector("#download-fate");
 const status = document.querySelector("#share-status");
+const promoVideo = document.querySelector("#xianxia-fate-promo-video");
+const promoToggle = document.querySelector("[data-promo-toggle]");
 let selected = null;
+
+function updatePromoToggle() {
+  if (!promoVideo || !promoToggle) return;
+  promoToggle.textContent = promoVideo.paused ? "Play preview" : "Pause preview";
+}
+
+if (promoVideo) {
+  promoVideo.muted = true;
+  promoVideo.addEventListener("play", updatePromoToggle);
+  promoVideo.addEventListener("pause", updatePromoToggle);
+  promoVideo.addEventListener("ended", updatePromoToggle);
+  updatePromoToggle();
+
+  if (promoToggle) {
+    promoToggle.addEventListener("click", () => {
+      if (promoVideo.paused) {
+        promoVideo.play().catch(() => {});
+      } else {
+        promoVideo.pause();
+      }
+    });
+  }
+
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!reducedMotion) {
+    const playPreview = () => promoVideo.play().catch(() => {});
+    if (promoVideo.readyState >= 2) {
+      playPreview();
+    } else {
+      promoVideo.addEventListener("canplay", playPreview, { once: true });
+    }
+  }
+}
 
 function track(event, outcomeId, source) {
   window.dataLayer = window.dataLayer || [];

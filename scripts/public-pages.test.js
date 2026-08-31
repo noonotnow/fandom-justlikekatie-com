@@ -237,14 +237,59 @@ test("LG01 has nine bounded outcomes and a privacy-safe share contract", () => {
   assert.match(html, /requires no account|no sign-in gate|private by default|Privacy note/i);
 });
 
+test("LG01 promo media uses published assets with an accessible reduced-motion fallback", async () => {
+  await preparePublicPages();
+  const html = read("public/c-drama-fandom/fandom-games/index.html");
+  const script = read("public/c-drama-fandom/fandom-games/lg01.js");
+  const styles = read("public/c-drama-fandom/styles.css");
+  const videoPath = resolve(root, "public/assets/c-drama-fandom/xianxia-fate-lg01-promo.mp4");
+  const posterPath = resolve(root, "public/assets/c-drama-fandom/xianxia-fate-lg01-promo-poster.jpg");
+  assert.equal(existsSync(videoPath), true);
+  assert.equal(existsSync(posterPath), true);
+  assert.ok(readFileSync(videoPath).length > 100_000);
+  const posterMeta = await sharp(posterPath).metadata();
+  assert.equal(posterMeta.format, "jpeg");
+  assert.equal(posterMeta.width, 1080);
+  assert.equal(posterMeta.height, 1080);
+
+  assert.match(html, /class="promo-media"/);
+  assert.match(html, /src="\/assets\/c-drama-fandom\/xianxia-fate-lg01-promo\.mp4" type="video\/mp4"/);
+  assert.match(html, /poster="\/assets\/c-drama-fandom\/xianxia-fate-lg01-promo-poster\.jpg"/);
+  assert.match(html, /aria-label="Preview of Which Xianxia Fate Chose You\?"/);
+  assert.match(html, /aria-describedby="promo-media-description"/);
+  assert.match(html, /\bcontrols\b/);
+  assert.match(html, /\bloop\b/);
+  assert.match(html, /\bmuted\b/);
+  assert.match(html, /\bplaysinline\b/);
+  assert.match(html, /data-autoplay="normal-motion-only"/);
+  assert.match(html, /Video unavailable\./);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.promo-media__video \{ display: none; \}/);
+  assert.match(styles, /\.promo-media__poster \{ position: relative; \}/);
+  assert.match(styles, /\.promo-media__toggle \{ display: none; \}/);
+  assert.match(script, /matchMedia\("\(prefers-reduced-motion: reduce\)"\)\.matches/);
+  assert.match(script, /if \(!reducedMotion\)/);
+  assert.match(html, /The poster above and the master grid image still show the full nine-fate board/);
+  for (const name of [
+    "Moonlit Strategist", "Exiled Immortal", "Chaos Prince", "Lotus Healer",
+    "Silent Sword", "Fox Spirit", "Celestial Guardian", "Bamboo Recluse", "Fated Romantic",
+  ]) {
+    assert.match(html, new RegExp(name));
+  }
+  assert.doesNotMatch(html, /attached_assets|localhost|127\.0\.0\.1/);
+});
+
 test("asset preparation produces optimized content and social images", async () => {
   await preparePublicPages();
   const contentPath = resolve(root, "public/assets/c-drama-fandom/which-xianxia-fate-chose-you-lg01.webp");
   const socialPath = resolve(root, "public/assets/c-drama-fandom/lg01-master-og.jpg");
   const journalSocialPath = resolve(root, "public/assets/c-drama-fandom/watch-journal-og.jpg");
+  const promoVideoPath = resolve(root, "public/assets/c-drama-fandom/xianxia-fate-lg01-promo.mp4");
+  const promoPosterPath = resolve(root, "public/assets/c-drama-fandom/xianxia-fate-lg01-promo-poster.jpg");
   assert.equal(existsSync(contentPath), true);
   assert.equal(existsSync(socialPath), true);
   assert.equal(existsSync(journalSocialPath), true);
+  assert.equal(existsSync(promoVideoPath), true);
+  assert.equal(existsSync(promoPosterPath), true);
 
   const contentMeta = await sharp(contentPath).metadata();
   const socialMeta = await sharp(socialPath).metadata();
@@ -285,6 +330,9 @@ test("each allowlisted LG01 fate has a static social preview and exact query rew
         `to = "/c-drama-fandom/fandom-games/previews/${outcome.id}/index\\.html"[\\s\\S]*?query = \\{ fate = "${outcome.id}" \\}`,
       ),
     );
+    assert.match(html, /\/assets\/c-drama-fandom\/xianxia-fate-lg01-promo\.mp4/);
+    assert.match(html, /\/assets\/c-drama-fandom\/xianxia-fate-lg01-promo-poster\.jpg/);
+    assert.doesNotMatch(html, /attached_assets|localhost|127\.0\.0\.1/);
 
     const socialMeta = await sharp(resolve(root, `public/assets/c-drama-fandom/lg01-${outcome.id}-og.jpg`)).metadata();
     assert.equal(socialMeta.format, "jpeg");

@@ -12,6 +12,8 @@ const source = resolve(
   "attached_assets/Firefly_Gemini_Flash_--ATE._THE._ENTIRE._TABLE.--_No_crumbs,_n_1788112484176.png",
 );
 const outputDir = resolve(root, "public/assets/c-drama-fandom");
+const promoVideo = resolve(outputDir, "xianxia-fate-lg01-promo.mp4");
+const promoPoster = resolve(outputDir, "xianxia-fate-lg01-promo-poster.jpg");
 const gamePage = resolve(root, "public/c-drama-fandom/fandom-games/index.html");
 const previewDir = resolve(root, "public/c-drama-fandom/fandom-games/previews");
 const gameScript = resolve(root, "public/c-drama-fandom/fandom-games/lg01.js");
@@ -453,6 +455,11 @@ async function prepareOutcomeAssets(template) {
 export async function preparePublicPages() {
   if (!existsSync(source)) {
     throw new Error(`LG · 01 master is missing: ${source}`);
+  }
+  for (const asset of [promoVideo, promoPoster]) {
+    if (!existsSync(asset)) {
+      throw new Error(`LG · 01 promo asset is missing: ${asset}`);
+    }
   }
   for (const page of REQUIRED_PUBLIC_PAGES) {
     if (!existsSync(resolve(root, page))) {

@@ -72,15 +72,62 @@
 
     <section class="game-stage" aria-labelledby="game-title">
       <div class="game-layout">
-        <figure class="master-frame">
-          <img
-            src="/assets/c-drama-fandom/which-xianxia-fate-chose-you-lg01.webp"
-            width="768"
-            height="1024"
-            alt="Legendary Grid 01: Which Xianxia Fate Chose You? Nine illustrated archetypes arranged in a three-by-three grid."
-            fetchpriority="high"
-          >
-        </figure>
+        <div class="media-stack">
+          <figure class="master-frame">
+            <img
+              src="/assets/c-drama-fandom/which-xianxia-fate-chose-you-lg01.webp"
+              width="768"
+              height="1024"
+              alt="Legendary Grid 01: Which Xianxia Fate Chose You? Nine illustrated archetypes arranged in a three-by-three grid."
+              fetchpriority="high"
+            >
+          </figure>
+          <figure class="promo-media" aria-labelledby="promo-media-title">
+            <div class="promo-media__frame">
+              <img
+                class="promo-media__poster"
+                src="/assets/c-drama-fandom/xianxia-fate-lg01-promo-poster.jpg"
+                width="1080"
+                height="1080"
+                alt=""
+                aria-hidden="true"
+              >
+              <video
+                class="promo-media__video"
+                id="xianxia-fate-promo-video"
+                aria-label="Preview of Which Xianxia Fate Chose You?"
+                aria-describedby="promo-media-description"
+                controls
+                loop
+                muted
+                playsinline
+                preload="metadata"
+                poster="/assets/c-drama-fandom/xianxia-fate-lg01-promo-poster.jpg"
+                data-autoplay="normal-motion-only"
+              >
+                <source src="/assets/c-drama-fandom/xianxia-fate-lg01-promo.mp4" type="video/mp4">
+                <p>Video unavailable. The poster above and the master grid image still show the full nine-fate board.</p>
+              </video>
+            </div>
+            <figcaption class="promo-media__caption">
+              <p class="section-kicker">Animated preview · supporting media</p>
+              <h3 id="promo-media-title">Which Xianxia Fate Chose You?</h3>
+              <p id="promo-media-description">This five-second preview shows the fate board used by the interactive game. The nine visible choices are:</p>
+              <ol class="promo-media__options">
+                <li>Moonlit Strategist</li>
+                <li>Exiled Immortal</li>
+                <li>Chaos Prince</li>
+                <li>Lotus Healer</li>
+                <li>Silent Sword</li>
+                <li>Fox Spirit</li>
+                <li>Celestial Guardian</li>
+                <li>Bamboo Recluse</li>
+                <li>Fated Romantic</li>
+              </ol>
+              <button class="promo-media__toggle" type="button" data-promo-toggle aria-controls="xianxia-fate-promo-video">Play preview</button>
+            </figcaption>
+          </figure>
+        </div>
         <div class="game-panel">
           <p class="section-kicker">The entire table. No crumbs.</p>
           <h2 id="game-title">Choose 01–09</h2>
