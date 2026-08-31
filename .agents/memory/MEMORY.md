@@ -26,3 +26,4 @@
 - [Capability-link analytics](capability-link-analytics.md) — remove public capability values from browser URLs before trackers initialize; canonicalize pageview and event locations.
 - [Vibe Atlas public positioning](vibe-atlas-public-positioning.md) — daily-drop messaging is funnel-wide; audit crawlable guides and regenerate derived previews when it changes.
 - [Daily Drop grid curation contract](grid-curation-contract.md) — Event is a bounded, evidence-backed exception that must beat a competitive Compiled board on scored evidence.
+- [Daily Drop actor eligibility](daily-drop-eligibility.md) — approvals are pair-specific, bound to current audit evidence, and revalidated across builds, caches, and fallbacks.

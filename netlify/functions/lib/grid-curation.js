@@ -440,6 +440,7 @@ export async function curateDisplayResults(
     candidateLimit = DEFAULT_CANDIDATE_LIMIT,
     loadBuffer = fetchImageBuffer,
     fingerprint = fingerprintImage,
+    diagnostics = false,
   } = {},
 ) {
   const rawCandidates = [];
@@ -456,16 +457,17 @@ export async function curateDisplayResults(
   rawCandidates.sort(rawCandidateOrder);
   rawCandidates.length = Math.min(rawCandidates.length, candidateLimit);
 
-  const analyzed = (await Promise.all(rawCandidates.map(async candidate => {
+  const analyzedStates = await Promise.all(rawCandidates.map(async candidate => {
     try {
       const buffer = await loadBuffer(candidate.result.thumbnail, candidate.result);
       const imageFingerprint = await fingerprint(buffer, candidate.result);
-      if (!usableFingerprint(imageFingerprint)) return null;
-      return { ...candidate, fingerprint: imageFingerprint };
+      if (!usableFingerprint(imageFingerprint)) return { candidate, dropReason: "unusable_image" };
+      return { candidate: { ...candidate, fingerprint: imageFingerprint }, dropReason: null };
     } catch {
-      return null;
+      return { candidate, dropReason: "image_load_failed" };
     }
-  }))).filter(Boolean);
+  }));
+  const analyzed = analyzedStates.filter(state => state.candidate.fingerprint).map(state => state.candidate);
 
   const candidates = replaceExactCopies(analyzed).sort(candidateOrder);
   const families = buildFamilies(candidates);
@@ -474,14 +476,54 @@ export async function curateDisplayResults(
   const compiledCandidate = selectCompiledBoard(withFamilies, limit);
 
   if (!eventCandidate && !compiledCandidate) {
-    return { displayResults: [], curation: null };
+    return diagnostics
+      ? { displayResults: [], curation: null, diagnostics: diagnosticReceipt(rawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, null) }
+      : { displayResults: [], curation: null };
   }
 
   const useEvent = Boolean(eventCandidate)
     && (!compiledCandidate || eventCandidate.score >= compiledCandidate.score);
   const winner = useEvent ? eventCandidate : compiledCandidate;
-  return {
+  const result = {
     displayResults: winner.board.map(candidate => candidate.result),
     curation: rationaleFor(useEvent ? "event" : "compiled", eventCandidate, compiledCandidate),
+  };
+  if (diagnostics) result.diagnostics = diagnosticReceipt(rawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, useEvent ? "event" : "compiled");
+  return result;
+}
+
+function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, eventCandidate, compiledCandidate, winner) {
+  const summarize = candidate => ({
+    thumbnail: String(candidate.result.thumbnail || "").slice(0, 500),
+    title: String(candidate.result.title || "").slice(0, 240),
+    source: String(candidate.result.source || "").slice(0, 120),
+    batchRank: candidate.batchRank,
+  });
+  const board = selection => selection ? {
+    score: Number(selection.score.toFixed(4)),
+    candidates: selection.board.slice(0, DEFAULT_CURATION_LIMIT).map(summarize),
+  } : null;
+  return {
+    version: CURATION_VERSION,
+    rawCandidates: states.slice(0, DEFAULT_CANDIDATE_LIMIT).map(state => ({
+      ...summarize(state.candidate),
+      dropReason: state.dropReason,
+    })),
+    dropped: states
+      .filter(state => state.dropReason || !selectedCandidates.includes(state.candidate))
+      .slice(0, DEFAULT_CANDIDATE_LIMIT)
+      .map(state => ({
+        ...summarize(state.candidate),
+        dropReason: state.dropReason || "exact_duplicate",
+      })),
+    eventFamilies: families.slice(0, 12).map((family, index) => ({
+      id: `event-family-${index + 1}`, strength: Number(family.familyStrength.toFixed(4)),
+      size: family.candidates.length, candidates: family.candidates.slice(0, 9).map(summarize),
+    })),
+    strongestEvent: board(eventCandidate),
+    strongestCompiled: board(compiledCandidate),
+    winner,
+    alternate: winner === "event" ? "compiled" : winner === "compiled" ? "event" : null,
+    receipt: { rawCount: rawCandidates.length, analyzedCount: states.filter(state => !state.dropReason).length, curationVersion: CURATION_VERSION },
   };
 }

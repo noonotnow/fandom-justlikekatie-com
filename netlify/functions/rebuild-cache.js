@@ -13,13 +13,13 @@
 // Set the REBUILD_SECRET environment variable in the Netlify site settings.
 
 import { getBlobStore } from "./lib/blob-store.js";
-import { ACTOR_PACKS as actorPacks } from "./lib/actor-packs.js";
-import { searchOneQuery } from "./preview-search.js";
-import { evaluateCandidates, rankCandidates, RANKED_BATCH_LIMIT } from "./lib/ranking.js";
-import { getShanghaiDateString, getRandomForDate } from "./lib/date-seed.js";
-import { curateDisplayResults } from "./lib/grid-curation.js";
+import { getShanghaiDateString } from "./lib/date-seed.js";
+import {
+  buildPayloadForDate,
+  cachedPairIsEligible,
+} from "./star-of-day.js";
 
-const VERSION = "v6";
+const VERSION = "v7";
 const STORE_NAME = "star-of-day";
 
 function cacheKeyFor(dateString) {
@@ -28,48 +28,6 @@ function cacheKeyFor(dateString) {
 
 function lockKeyFor(dateString) {
   return `starOfDay:${VERSION}:${dateString}:lock`;
-}
-
-async function buildPayloadForDate(dateString) {
-  const seed = getRandomForDate(actorPacks, dateString);
-  if (!seed) {
-    throw new Error("Could not resolve actor/vibe pack for date");
-  }
-
-  const actor = actorPacks[seed.aIdx];
-  const vibe = actor.vibes[seed.vIdx];
-
-  const candidates = await evaluateCandidates(vibe.queries, searchOneQuery);
-  const ranked = rankCandidates(candidates).slice(0, RANKED_BATCH_LIMIT);
-
-  if (!ranked.length) {
-    return null;
-  }
-
-  const { displayResults, curation } = await curateDisplayResults(ranked);
-  if (displayResults.length < 9) return null;
-
-  return {
-    version: VERSION,
-    date: dateString,
-    actorId: actor.id,
-    actorIdx: seed.aIdx,
-    actorName: actor.name,
-    actorShortNameEn: actor.shortName_en,
-    actorAccentColor: actor.accentColor,
-    vibeIdx: seed.vIdx,
-    vibeEmoji: vibe.emoji,
-    vibeLabel: vibe.label,
-    vibeLabelEn: vibe.label_en,
-    vibeSubtitle: vibe.subtitle,
-    vibeSubtitleEn: vibe.subtitle_en,
-    generationPrompt: vibe.mjPrompt,
-    generationQuery: ranked[0]?.query,
-    rankedBatches: ranked,
-    displayResults,
-    curation,
-    generatedAt: new Date().toISOString()
-  };
 }
 
 export default async (req, context) => {
@@ -94,6 +52,7 @@ export default async (req, context) => {
 
   try {
     const store = getBlobStore(STORE_NAME, context);
+    const eligibilityStore = getBlobStore("actor-audit", context);
     const todayStr = getShanghaiDateString();
     const todayKey = cacheKeyFor(todayStr);
 
@@ -112,7 +71,7 @@ export default async (req, context) => {
     }
 
     // Build fresh payload
-    const payload = await buildPayloadForDate(todayStr);
+    const payload = await buildPayloadForDate(todayStr, eligibilityStore);
     if (!payload) {
       return jsonResponse(500, {
         error: "Rebuild produced no acceptable results",
@@ -120,8 +79,21 @@ export default async (req, context) => {
       });
     }
 
-    // Write to cache
+    if (!await cachedPairIsEligible(payload, eligibilityStore)) {
+      return jsonResponse(409, {
+        error: "Pairing approval changed while the rebuild was running",
+        date: todayStr,
+      });
+    }
+
     await store.setJSON(todayKey, payload);
+    if (!await cachedPairIsEligible(payload, eligibilityStore)) {
+      await store.delete(todayKey);
+      return jsonResponse(409, {
+        error: "Pairing approval changed before the rebuild completed",
+        date: todayStr,
+      });
+    }
 
     return jsonResponse(200, {
       success: true,

@@ -2,8 +2,13 @@ import { getBlobStore } from "./lib/blob-store.js";
 import { ACTOR_PACKS as actorPacks } from "./lib/actor-packs.js";
 import { searchOneQuery } from "./preview-search.js";
 import { evaluateCandidates, rankCandidates, RANKED_BATCH_LIMIT } from "./lib/ranking.js";
-import { getShanghaiDateString, getRandomForDate, shanghaiYesterday } from "./lib/date-seed.js";
+import { getShanghaiDateString, shanghaiYesterday } from "./lib/date-seed.js";
 import { curateDisplayResults } from "./lib/grid-curation.js";
+import {
+  ELIGIBILITY_STORE,
+  isPairEligible,
+  selectEligiblePair,
+} from "./lib/actor-eligibility.js";
 
 // Server-side daily cache for "Star of the Day".
 //
@@ -22,8 +27,10 @@ import { curateDisplayResults } from "./lib/grid-curation.js";
 // real cache key and reads whatever the winner produced. This is what stops
 // simultaneous requests right after midnight from each independently
 // re-running the whole search+rank ladder.
-const VERSION = "v6";
-const LEGACY_READ_VERSIONS = ["v5"];
+const VERSION = "v7";
+// Legacy entries remain readable as historical editions; today's key is v7 so
+// no pre-audit cache can satisfy the current day's scheduler.
+const LEGACY_READ_VERSIONS = ["v6", "v5"];
 const STORE_NAME = "star-of-day";
 const LOCK_TTL_MS = 25000; // a stale/abandoned lock is ignored after this long
 const POLL_INTERVAL_MS = 700;
@@ -53,51 +60,67 @@ function sleep(ms) {
 // Builds the full resolved display payload for a given Shanghai date string by
 // running the actual search+rank flow. Only called by whichever request wins
 // the lock for that date.
-async function buildPayloadForDate(dateString) {
-  const seed = getRandomForDate(actorPacks, dateString);
-  if (!seed) {
-    throw new Error("Could not resolve actor/vibe pack for date");
+export async function buildPayloadForDate(
+  dateString,
+  eligibilityStore,
+  {
+    packs = actorPacks,
+    evaluate = evaluateCandidates,
+    search = searchOneQuery,
+    rank = rankCandidates,
+    curate = curateDisplayResults,
+    generatedAt = () => new Date().toISOString(),
+  } = {},
+) {
+  const excluded = new Set();
+  while (true) {
+    const seed = await selectEligiblePair(packs, dateString, eligibilityStore, excluded);
+    if (!seed) return null;
+    const actor = packs[seed.aIdx];
+    const vibe = actor.vibes[seed.vIdx];
+
+    const candidates = await evaluate(vibe.queries, search);
+    const ranked = rank(candidates).slice(0, RANKED_BATCH_LIMIT);
+
+    if (!ranked.length) {
+      // Nothing acceptable came back for this approved pairing. Continue through
+      // the deterministic eligible order without changing ACTOR_PACKS indices.
+      excluded.add(`${actor.id}:${seed.vIdx}`);
+      continue;
+    }
+
+    const { displayResults, curation } = await curate(ranked);
+    if (displayResults.length < 9) {
+      excluded.add(`${actor.id}:${seed.vIdx}`);
+      continue;
+    }
+    if (!await isPairEligible(packs, actor.id, seed.vIdx, eligibilityStore)) {
+      excluded.add(`${actor.id}:${seed.vIdx}`);
+      continue;
+    }
+
+    return {
+      version: VERSION,
+      date: dateString,
+      actorId: actor.id,
+      actorIdx: seed.aIdx,
+      actorName: actor.name,
+      actorShortNameEn: actor.shortName_en,
+      actorAccentColor: actor.accentColor,
+      vibeIdx: seed.vIdx,
+      vibeEmoji: vibe.emoji,
+      vibeLabel: vibe.label,
+      vibeLabelEn: vibe.label_en,
+      vibeSubtitle: vibe.subtitle,
+      vibeSubtitleEn: vibe.subtitle_en,
+      generationPrompt: vibe.mjPrompt,
+      generationQuery: ranked[0]?.query,
+      rankedBatches: ranked,
+      displayResults,
+      curation,
+      generatedAt: generatedAt(),
+    };
   }
-
-  const actor = actorPacks[seed.aIdx];
-  const vibe = actor.vibes[seed.vIdx];
-
-  const candidates = await evaluateCandidates(vibe.queries, searchOneQuery);
-  const ranked = rankCandidates(candidates).slice(0, RANKED_BATCH_LIMIT);
-
-  if (!ranked.length) {
-    // Nothing acceptable came back for any candidate query today — the caller
-    // decides whether to fall back to yesterday's cache or surface a failure.
-    // We deliberately do NOT cache this: a bad/empty day should never overwrite
-    // (or permanently occupy) today's cache slot, in case a retry later in the
-    // day would succeed.
-    return null;
-  }
-
-  const { displayResults, curation } = await curateDisplayResults(ranked);
-  if (displayResults.length < 9) return null;
-
-  return {
-    version: VERSION,
-    date: dateString,
-    actorId: actor.id,
-    actorIdx: seed.aIdx,
-    actorName: actor.name,
-    actorShortNameEn: actor.shortName_en,
-    actorAccentColor: actor.accentColor,
-    vibeIdx: seed.vIdx,
-    vibeEmoji: vibe.emoji,
-    vibeLabel: vibe.label,
-    vibeLabelEn: vibe.label_en,
-    vibeSubtitle: vibe.subtitle,
-    vibeSubtitleEn: vibe.subtitle_en,
-    generationPrompt: vibe.mjPrompt,
-    generationQuery: ranked[0]?.query,
-    rankedBatches: ranked,
-    displayResults,
-    curation,
-    generatedAt: new Date().toISOString()
-  };
 }
 
 // Attempts to acquire the build lock for a date. Returns true if this request
@@ -149,6 +172,7 @@ export default async (req, context) => {
 
   try {
     const store = getBlobStore(STORE_NAME, context);
+    const eligibilityStore = getBlobStore(ELIGIBILITY_STORE, context);
     const todayStr = getShanghaiDateString();
     const url = new URL(req.url || "https://fandom.local/.netlify/functions/star-of-day");
 
@@ -179,15 +203,16 @@ export default async (req, context) => {
     const todayKey = cacheKeyFor(todayStr);
 
     const cached = await store.get(todayKey, { type: "json" });
-    if (cached) {
+    if (cached && await cachedPairIsEligible(cached, eligibilityStore)) {
       return jsonResponse(200, cached);
     }
+    if (cached) await store.delete(todayKey);
 
     const gotLock = await tryAcquireLock(store, todayStr);
 
     if (gotLock) {
       try {
-        const payload = await buildPayloadForDate(todayStr);
+        const payload = await buildPayloadForDate(todayStr, eligibilityStore);
         if (payload) {
           // First-write-wins re-check: because tryAcquireLock() is a best-effort
           // read-then-write check (not a strict atomic compare-and-swap — see
@@ -200,17 +225,23 @@ export default async (req, context) => {
           // to it and discard our own payload, so whichever build finished
           // first is the one that sticks for the rest of the day.
           const raceWinner = await store.get(todayKey, { type: "json" });
-          if (raceWinner) {
+          if (raceWinner && await cachedPairIsEligible(raceWinner, eligibilityStore)) {
             return jsonResponse(200, raceWinner);
           }
+          if (raceWinner) await store.delete(todayKey);
 
-          await store.setJSON(todayKey, payload);
-          return jsonResponse(200, payload);
+          if (await cachedPairIsEligible(payload, eligibilityStore)) {
+            await store.setJSON(todayKey, payload);
+            if (await cachedPairIsEligible(payload, eligibilityStore)) {
+              return jsonResponse(200, payload);
+            }
+            await store.delete(todayKey);
+          }
         }
 
         // Today's build produced nothing acceptable — graceful degrade to
         // yesterday's cached winner rather than a hard failure, if available.
-        const fallback = await tryYesterdayFallback(store, todayStr);
+        const fallback = await tryYesterdayFallback(store, eligibilityStore, todayStr);
         if (fallback) return jsonResponse(200, fallback);
 
         return jsonResponse(200, {
@@ -226,13 +257,13 @@ export default async (req, context) => {
 
     // Someone else is building — poll the real cache key briefly instead of
     // duplicating the expensive work.
-    const waited = await pollForCache(store, todayKey);
+    const waited = await pollForCache(store, eligibilityStore, todayKey);
     if (waited) return jsonResponse(200, waited);
 
     // Still building after our patience budget — try yesterday's cache so the
     // visitor gets something rather than a spinner-forever state, then fall
     // back to an explicit "still building" response.
-    const fallback = await tryYesterdayFallback(store, todayStr);
+    const fallback = await tryYesterdayFallback(store, eligibilityStore, todayStr);
     if (fallback) return jsonResponse(200, fallback);
 
     return jsonResponse(202, {
@@ -289,27 +320,33 @@ async function listArchivedEditions(store, todayStr) {
   };
 }
 
-async function pollForCache(store, todayKey) {
+async function pollForCache(store, eligibilityStore, todayKey) {
   const deadline = Date.now() + POLL_MAX_WAIT_MS;
   while (Date.now() < deadline) {
     await sleep(POLL_INTERVAL_MS);
     const cached = await store.get(todayKey, { type: "json" });
-    if (cached) return cached;
+    if (cached && await cachedPairIsEligible(cached, eligibilityStore)) return cached;
   }
   return null;
 }
 
-async function tryYesterdayFallback(store, todayStr) {
+async function tryYesterdayFallback(store, eligibilityStore, todayStr) {
   try {
     const yesterdayStr = shanghaiYesterday(todayStr);
     const yesterdayCached = await getHistoricalPayload(store, yesterdayStr);
-    if (yesterdayCached) {
+    if (yesterdayCached && await cachedPairIsEligible(yesterdayCached, eligibilityStore)) {
       return { ...yesterdayCached, stale: true, staleReason: "yesterday_fallback", date: todayStr, originalDate: yesterdayCached.date };
     }
   } catch (e) {
     // No usable fallback — caller handles the empty case.
   }
   return null;
+}
+
+export async function cachedPairIsEligible(payload, eligibilityStore, packs = actorPacks) {
+  return Number.isInteger(payload?.vibeIdx)
+    && typeof payload?.actorId === "string"
+    && isPairEligible(packs, payload.actorId, payload.vibeIdx, eligibilityStore);
 }
 
 function jsonResponse(statusCode, body) {

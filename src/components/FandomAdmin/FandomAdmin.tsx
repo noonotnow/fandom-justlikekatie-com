@@ -8,10 +8,11 @@ import {
   removeCustomRuling,
 } from '../../utils/courtRulings';
 import { WatchJournalCapture } from './WatchJournalCapture';
+import { ActorPreflightLab } from './ActorPreflightLab';
 import styles from './FandomAdmin.module.css';
 
 export const FandomAdmin: React.FC = () => {
-  const [view, setView] = useState<'plan' | 'court' | 'watch-journal'>('plan');
+  const [view, setView] = useState<'plan' | 'court' | 'watch-journal' | 'actor-preflight'>('plan');
   return (
     <section className={styles.admin}>
       <header className={styles.header}>
@@ -20,9 +21,10 @@ export const FandomAdmin: React.FC = () => {
           <button type="button" role="tab" aria-selected={view === 'plan'} onClick={() => setView('plan')}>PLAN schedule</button>
           <button type="button" role="tab" aria-selected={view === 'court'} onClick={() => setView('court')}>Court rulings</button>
           <button type="button" role="tab" aria-selected={view === 'watch-journal'} onClick={() => setView('watch-journal')}>Field Journal</button>
+          <button type="button" role="tab" aria-selected={view === 'actor-preflight'} onClick={() => setView('actor-preflight')}>Actor preflight</button>
         </div>
       </header>
-      {view === 'plan' ? <Plan /> : view === 'court' ? <CourtRulingsEditor /> : <WatchJournalCapture />}
+      {view === 'plan' ? <Plan /> : view === 'court' ? <CourtRulingsEditor /> : view === 'watch-journal' ? <WatchJournalCapture /> : <ActorPreflightLab />}
     </section>
   );
 };

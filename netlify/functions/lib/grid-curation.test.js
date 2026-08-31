@@ -323,6 +323,24 @@ test("exact image copies are always collapsed before either board is scored", as
   assert.equal(thumbnails.includes(result("copy-b").thumbnail), true);
 });
 
+test("diagnostics retain exact-copy and image-gate rejection reasons", async () => {
+  const exactFingerprint = fingerprint("same-digest", { ones: spreadBits(71) });
+  const items = [
+    result("exact-a", { fp: exactFingerprint }),
+    result("exact-b", { fp: exactFingerprint }),
+    result("broken", { fp: null }),
+    ...Array.from({ length: 9 }, (_, index) => result(`clean-${index}`)),
+  ];
+  const output = await curate(items, {
+    diagnostics: true,
+    fingerprint: async (_buffer, item) => item.fp,
+  });
+
+  assert.equal(output.diagnostics.dropped.some(item => item.dropReason === "exact_duplicate"), true);
+  assert.equal(output.diagnostics.dropped.some(item => item.dropReason === "unusable_image"), true);
+  assert.equal(output.diagnostics.rawCandidates.length, items.length);
+});
+
 test("unloaded, undersized, and unusably cropped images fail the hard gate", async () => {
   const valid = Array.from({ length: 9 }, (_, index) => result(`valid-${index}`));
   const undersized = result("tiny", {
