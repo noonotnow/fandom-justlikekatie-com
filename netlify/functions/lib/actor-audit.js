@@ -779,7 +779,7 @@ function clientRun(run, pair) {
     presentationOrder: presentationOrderFor(run.runId),
     boards: blindBoards(run, presentationOrderFor(run.runId)),
   };
-  if (review.choice) return run;
+  if (review.choice || review.status === "unavailable") return run;
   return {
     runId: run.runId,
     schemaVersion: run.schemaVersion,

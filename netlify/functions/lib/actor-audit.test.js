@@ -369,6 +369,9 @@ test("runs without two complete boards fail clearly and cannot be approved", asy
   const detail = await handler(request("GET", undefined, `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`), {});
   const report = await detail.json();
   assert.equal(report.currentRun.blindReview.status, "unavailable");
+  assert.equal(report.currentRun.queryRuns.length, 4);
+  assert.equal(report.currentRun.rawResults.length, 36);
+  assert.ok(report.currentRun.curationReceipt);
 
   const blindChoice = await handler(request("POST", {
     action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "neither",

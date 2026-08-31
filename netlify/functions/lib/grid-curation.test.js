@@ -408,3 +408,23 @@ test("visually repetitive frames without meaningful variation cannot fill an eve
   assert.notEqual(curated.curation?.mode, "event");
   assert.ok(curated.displayResults.length < 9);
 });
+
+test("bounds concurrent image analysis for serverless runtimes", async () => {
+  let active = 0;
+  let peak = 0;
+  const items = Array.from({ length: 12 }, (_, index) => result(`bounded-${index}`));
+
+  const curated = await curate(items, {
+    analysisConcurrency: 3,
+    loadBuffer: async (_url, item) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      active -= 1;
+      return item;
+    },
+  });
+
+  assert.equal(curated.displayResults.length, 9);
+  assert.equal(peak, 3);
+});

@@ -15,6 +15,7 @@ import {
 export const CURATION_VERSION = 1;
 export const DEFAULT_CURATION_LIMIT = 9;
 export const DEFAULT_CANDIDATE_LIMIT = 36;
+export const DEFAULT_ANALYSIS_CONCURRENCY = 4;
 
 const MIN_DIMENSION = 128;
 const MIN_AREA = 24_000;
@@ -166,6 +167,20 @@ function qualityScore(fingerprint) {
 
 function average(values) {
   return values.length ? values.reduce((total, value) => total + value, 0) / values.length : 0;
+}
+
+async function mapWithConcurrency(items, concurrency, worker) {
+  const output = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(items.length, Math.max(1, concurrency));
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      output[index] = await worker(items[index], index);
+    }
+  }));
+  return output;
 }
 
 function boardVisualVariation(board) {
@@ -464,6 +479,7 @@ export async function curateDisplayResults(
     loadBuffer = fetchImageBuffer,
     fingerprint = fingerprintImage,
     diagnostics = false,
+    analysisConcurrency = DEFAULT_ANALYSIS_CONCURRENCY,
   } = {},
 ) {
   const rawCandidates = [];
@@ -480,16 +496,20 @@ export async function curateDisplayResults(
   rawCandidates.sort(rawCandidateOrder);
   rawCandidates.length = Math.min(rawCandidates.length, candidateLimit);
 
-  const analyzedStates = await Promise.all(rawCandidates.map(async candidate => {
+  const analyzedStates = await mapWithConcurrency(rawCandidates, analysisConcurrency, async candidate => {
     try {
       const buffer = await loadBuffer(candidate.result.thumbnail, candidate.result);
       const imageFingerprint = await fingerprint(buffer, candidate.result);
       if (!usableFingerprint(imageFingerprint)) return { candidate, dropReason: "unusable_image" };
       return { candidate: { ...candidate, fingerprint: imageFingerprint }, dropReason: null };
-    } catch {
-      return { candidate, dropReason: "image_load_failed" };
+    } catch (error) {
+      return {
+        candidate,
+        dropReason: "image_load_failed",
+        dropDetail: String(error?.message || "unknown image analysis failure").slice(0, 160),
+      };
     }
-  }));
+  });
   const analyzed = analyzedStates.filter(state => state.candidate.fingerprint).map(state => state.candidate);
 
   const candidates = replaceExactCopies(analyzed).sort(candidateOrder);
@@ -534,6 +554,7 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
     rawCandidates: states.slice(0, DEFAULT_CANDIDATE_LIMIT).map(state => ({
       ...summarize(state.candidate),
       dropReason: state.dropReason,
+      dropDetail: state.dropDetail || null,
     })),
     dropped: states
       .filter(state => state.dropReason || !selectedCandidates.includes(state.candidate))
@@ -541,6 +562,7 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
       .map(state => ({
         ...summarize(state.candidate),
         dropReason: state.dropReason || "exact_duplicate",
+        dropDetail: state.dropDetail || null,
       })),
     eventFamilies: families.slice(0, 12).map((family, index) => ({
       id: `event-family-${index + 1}`, strength: Number(family.familyStrength.toFixed(4)),
