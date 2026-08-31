@@ -1,0 +1,194 @@
+6:53:33 AM: build-image version: 969defd95f3977f8de9cb1f48802a7e6f3d8c0b3 (noble-new-builds)
+6:53:33 AM: buildbot version: c5548c5cf2d730dc5d77e402d8df0759cb17c1f9
+6:53:33 AM: Fetching cached dependencies
+6:53:33 AM: Starting to download cache of 340.4MB (Last modified: 2026-08-31 01:00:11 +0000 UTC)
+6:53:34 AM: Downloaded cache in 767ms
+6:53:36 AM: Extracted cache in 1.656s
+6:53:36 AM: Fetched cache in 2.529s
+6:53:36 AM: Starting to prepare the repo for build
+6:53:36 AM: Preparing Git Reference refs/heads/main
+6:53:37 AM: Custom publish path detected. Proceeding with the specified path: 'dist'
+6:53:37 AM: Custom edge functions path detected. Proceeding with the specified path: 'netlify/edge-functions'
+6:53:38 AM: Installing dependencies
+6:53:38 AM: mise ~/.config/mise/config.toml tools: python@3.14.3
+6:53:38 AM: mise ~/.config/mise/config.toml tools: ruby@3.4.8
+6:53:38 AM: mise ~/.config/mise/config.toml tools: go@1.26.2
+6:53:38 AM: Downloading and installing node v24.20.0...
+6:53:39 AM: Downloading https://nodejs.org/dist/v24.20.0/node-v24.20.0-linux-x64.tar.xz...
+6:53:39 AM: Computing checksum with sha256sum
+6:53:39 AM: Checksums matched!
+6:53:41 AM: Now using node v24.20.0 (npm v11.19.0)
+6:53:42 AM: Enabling Node.js Corepack
+6:53:42 AM: No pnpm workspaces detected
+6:53:42 AM: Installing npm packages using pnpm version 10.30.3
+6:53:42 AM: Lockfile is up to date, resolution step is skipped
+6:53:42 AM: Already up to date
+6:53:43 AM: dependencies:
+6:53:43 AM: + @netlify/blobs 10.7.13
+6:53:43 AM: + @replit/connectors-sdk 0.4.3
+6:53:43 AM: + @replit/vite-plugin-cartographer 0.6.1
+6:53:43 AM: + @replit/vite-plugin-runtime-error-modal 0.0.6
+6:53:43 AM: + @tailwindcss/vite 4.3.3
+6:53:43 AM: + fast-glob 3.3.3
+6:53:43 AM: + pg 8.23.0
+6:53:43 AM: + react 19.2.8
+6:53:43 AM: + react-dom 19.2.8
+6:53:43 AM: + sharp 0.34.5
+6:53:43 AM: + stripe 22.6.0
+6:53:43 AM: + stripe-replit-sync 1.0.0
+6:53:43 AM: devDependencies:
+6:53:43 AM: + @playwright/test 1.62.1
+6:53:43 AM: + @tailwindcss/postcss 4.3.3
+6:53:43 AM: + @types/node 24.13.3
+6:53:43 AM: + @types/react 19.2.18
+6:53:43 AM: + @types/react-dom 19.2.5
+6:53:43 AM: + @vitejs/plugin-react 6.1.1
+6:53:43 AM: + autoprefixer 10.5.4
+6:53:43 AM: + fake-indexeddb 6.2.5
+6:53:43 AM: + fast-xml-parser 5.11.1
+6:53:43 AM: + oxlint 1.80.0
+6:53:43 AM: + postcss 8.5.26
+6:53:43 AM: + tailwindcss 4.3.3
+6:53:43 AM: + tsx 4.23.12
+6:53:43 AM: + typescript 6.0.3
+6:53:43 AM: + vite 8.2.2
+6:53:43 AM: ╭ Warning ─────────────────────────────────────────────────────────────────────╮
+6:53:43 AM: │                                                                              │
+6:53:43 AM: │   Ignored build scripts: esbuild@0.28.2, sharp@0.34.5.                       │
+6:53:43 AM: │   Run "pnpm approve-builds" to pick which dependencies should be allowed     │
+6:53:43 AM: │   to run scripts.                                                            │
+6:53:43 AM: │                                                                              │
+6:53:43 AM: ╰──────────────────────────────────────────────────────────────────────────────╯
+6:53:43 AM: Done in 464ms using pnpm v10.30.3
+6:53:43 AM: npm packages installed using pnpm
+6:53:43 AM: Successfully installed dependencies
+6:53:43 AM: Detected 1 framework(s)
+6:53:43 AM: "vite" at version "8.2.2"
+6:53:44 AM: Starting build script
+6:53:44 AM: Section completed: initializing
+6:53:46 AM: ​
+6:53:46 AM: Netlify Build                                                 
+6:53:46 AM: ────────────────────────────────────────────────────────────────
+6:53:46 AM: ​
+6:53:46 AM: ❯ Version
+6:53:46 AM:   @netlify/build 36.4.2
+6:53:46 AM: ​
+6:53:46 AM: ❯ Flags
+6:53:46 AM:   accountId: 6a4050cdaacb181e3e036f91
+6:53:46 AM:   baseRelDir: true
+6:53:46 AM:   buildId: 6a955d2c2ce14400086bacf4
+6:53:46 AM:   deployId: 6a955d2c2ce14400086bacf6
+6:53:46 AM: ​
+6:53:46 AM: ❯ Current directory
+6:53:46 AM:   /opt/build/repo
+6:53:46 AM: ​
+6:53:46 AM: ❯ Config file
+6:53:46 AM:   /opt/build/repo/netlify.toml
+6:53:46 AM: ​
+6:53:46 AM: ❯ Context
+6:53:46 AM:   production
+6:53:46 AM: ​
+6:53:46 AM: build.command from netlify.toml                               
+6:53:46 AM: ────────────────────────────────────────────────────────────────
+6:53:46 AM: ​
+6:53:46 AM: $ npm install && npm run build
+6:53:53 AM: added 3 packages, changed 27 packages, and audited 191 packages in 7s
+6:53:53 AM: 41 packages are looking for funding
+6:53:53 AM:   run `npm fund` for details
+6:53:53 AM: 5 high severity vulnerabilities
+6:53:53 AM: To address issues that do not require attention, run:
+6:53:53 AM:   npm audit fix
+6:53:53 AM: To address all issues (including breaking changes), run:
+6:53:53 AM:   npm audit fix --force
+6:53:53 AM: Run `npm audit` for details.
+6:53:53 AM: npm warn install-scripts 2 packages have install scripts not yet covered by allowScripts:
+6:53:53 AM: npm warn install-scripts   esbuild@0.28.2 (postinstall: node install.js)
+6:53:53 AM: npm warn install-scripts   sharp@0.34.5 (install: node install/check.js || npm run build)
+6:53:53 AM: npm warn install-scripts
+6:53:53 AM: npm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+6:53:53 AM: > fandom-justlikekatie-com@1.0.0 prebuild
+6:53:53 AM: > npm run prepare:public
+6:53:53 AM: > fandom-justlikekatie-com@1.0.0 prepare:public
+6:53:53 AM: > node scripts/generate-public-pages.js
+6:53:54 AM: Prepared crawlable C-drama fandom pages and LG · 01 assets.
+6:53:54 AM: > fandom-justlikekatie-com@1.0.0 build
+6:53:54 AM: > node scripts/check-court-record.js && tsc -b && vite build
+6:53:54 AM: check-court-record: OK — 15 ruling(s) checked, none are whitespace-only.
+6:53:57 AM: vite v8.2.0 building client environment for production...
+6:53:57 AM: 
+6:53:57 AM: transforming...✓ 96 modules transformed.
+6:53:57 AM: rendering chunks...
+6:53:57 AM: computing gzip size...
+6:53:57 AM: dist/index.html                   4.38 kB │ gzip:   1.70 kB
+6:53:57 AM: dist/assets/index-DPlLd9eQ.css  193.76 kB │ gzip:  36.47 kB
+6:53:57 AM: dist/assets/index-2eqHmYbM.js   475.52 kB │ gzip: 142.51 kB
+6:53:57 AM: ✓ built in 550ms
+6:53:57 AM: ​
+6:53:57 AM: (build.command completed in 11.5s)
+6:53:57 AM: ​
+6:53:57 AM: Functions bundling                                            
+6:53:57 AM: ────────────────────────────────────────────────────────────────
+6:53:57 AM: ​
+6:53:57 AM: Packaging Functions from netlify/functions directory:
+6:53:57 AM:  - actor-packs.js
+6:53:57 AM:  - auth-logout.js
+6:53:57 AM:  - auth-magic-link.js
+6:53:57 AM:  - auth-session.js
+6:53:57 AM:  - auth-verify.js
+6:53:57 AM:  - baidu-image-search.js
+6:53:57 AM:  - billing-checkout.js
+6:53:57 AM:  - billing-portal.js
+6:53:57 AM:  - billing-status.js
+6:53:57 AM:  - billing-webhook.js
+6:53:57 AM:  - collection-media.js
+6:53:57 AM:  - collection-sync.js
+6:53:57 AM:  - court-rulings.js
+6:53:57 AM:  - create-collection.js
+6:53:57 AM:  - create-handoff.js
+6:53:57 AM:  - grid-exports.js
+6:53:57 AM:  - image-proxy.js
+6:53:57 AM:  - log-engagement.js
+6:53:57 AM:  - middle-earth-ai.js
+6:53:57 AM:  - middle-earth-search.js
+6:53:57 AM:  - plan-handoff.js
+6:53:57 AM:  - plan-operator-scheduled.js
+6:53:57 AM:  - plan-posts.js
+6:53:57 AM:  - preview-search.js
+6:53:57 AM:  - prune-rate-limits.js
+6:53:57 AM:  - rebuild-cache.js
+6:53:57 AM:  - star-of-day.js
+6:53:57 AM:  - star-of-day.test.js
+6:53:57 AM:  - watch-journal.js
+6:53:57 AM: ​
+6:54:02 AM: ​
+6:54:02 AM: (Functions bundling completed in 4.7s)
+6:54:02 AM: ​
+6:54:02 AM: Edge Functions bundling                                       
+6:54:02 AM: ────────────────────────────────────────────────────────────────
+6:54:02 AM: ​
+6:54:02 AM: Packaging Edge Functions from netlify/edge-functions directory:
+6:54:02 AM:  - seo-indexing
+6:54:02 AM: ​
+6:54:02 AM: (Edge Functions bundling completed in 376ms)
+6:54:02 AM: ​
+6:54:02 AM: Scanning for secrets in code and build output.                
+6:54:02 AM: ────────────────────────────────────────────────────────────────
+6:54:02 AM: ​
+6:54:02 AM: SECRETS_SCAN_OMIT_KEYS override option set to: VITE_PLAN_SECRET
+6:54:02 AM: ​
+6:54:04 AM: Secrets scanning complete. 688 file(s) scanned. No secrets detected in build output or repo code!
+6:54:05 AM: Failed during stage 'building site': Command was cancelled
+6:54:05 AM: ** ERROR **
+6:54:05 AM: The following serverless functions failed to deploy: star-of-day.test
+6:54:05 AM: To deploy these functions successfully, change the function names to contain only alphanumeric characters, hyphens or underscores
+6:54:05 AM: ​
+6:54:05 AM: (Secrets scanning completed in 2s)
+6:54:05 AM: ​
+6:54:05 AM: Deploy site                                                   
+6:54:05 AM: ────────────────────────────────────────────────────────────────
+6:54:05 AM: ​
+6:54:05 AM: Starting to deploy site from 'dist'
+6:54:05 AM: Calculating files to upload
+6:54:05 AM: Execution cancelled
+6:54:05 AM: Failing build: Failed to build site
+6:54:05 AM: Finished processing build request in 32.051s
