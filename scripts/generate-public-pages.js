@@ -35,6 +35,8 @@ export const REQUIRED_PUBLIC_PAGES = [
   "public/c-drama-fandom/fandom-games/index.html",
 ];
 
+export const TROPE_DECODER_SHARE_EVENT = "decoder_share_succeeded";
+
 export const WATCH_JOURNAL_PUBLIC_PAGES = [
   "public/c-drama-fandom/watch-journal/index.html",
   ...journalRanges.map((range) => range.path),
@@ -74,6 +76,17 @@ function escapeHtml(value) {
 
 function escapeXml(value) {
   return escapeHtml(value).replaceAll("'", "&apos;");
+}
+
+function assertTropeDecoderAnalyticsContract() {
+  const html = readFileSync(resolve(root, "public/c-drama-fandom/trope-decoder/index.html"), "utf8");
+  const nativeEvent = `trackEvent("${TROPE_DECODER_SHARE_EVENT}", { method: "native" })`;
+  const copyEvent = `trackEvent("${TROPE_DECODER_SHARE_EVENT}", { method: "copy" })`;
+  const eventCount = html.match(new RegExp(`trackEvent\\("${TROPE_DECODER_SHARE_EVENT}"`, "g"))?.length ?? 0;
+
+  if (eventCount !== 2 || !html.includes(nativeEvent) || !html.includes(copyEvent)) {
+    throw new Error(`Trope decoder must emit exactly one ${TROPE_DECODER_SHARE_EVENT} event for each sharing method.`);
+  }
 }
 
 function journalPageHtml({ start = null, end = null } = {}) {
@@ -466,6 +479,7 @@ export async function preparePublicPages() {
       throw new Error(`Required public page is missing: ${page}`);
     }
   }
+  assertTropeDecoderAnalyticsContract();
   for (const page of WATCH_JOURNAL_PUBLIC_PAGES) {
     mkdirSync(dirname(resolve(root, page)), { recursive: true });
     writeFileSync(resolve(root, page), journalPageHtml(

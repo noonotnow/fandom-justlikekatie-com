@@ -62,7 +62,7 @@ async function analyticsCommands(page: Page): Promise<AnalyticsCommand[]> {
   });
 }
 
-test('trope decoder sends bounded GA4 filter and share outcomes', { timeout: 30_000 }, async () => {
+test('trope decoder sends bounded GA4 filter and privacy-safe share success events', { timeout: 30_000 }, async () => {
   const [{ server, origin }, browser] = await Promise.all([startApp(), launchBrowser()]);
   try {
     const nativePage = await browser.newPage();
@@ -89,10 +89,13 @@ test('trope decoder sends bounded GA4 filter and share outcomes', { timeout: 30_
       { category: 'love', query_present: true, result_count: 1 },
     ]);
     assert.doesNotMatch(JSON.stringify(filterEvent), /memory|query_text|search_text|url|account|name/i);
-    assert.deepEqual(
-      nativeCommands.find(command => command[1] === 'trope_decoder_shared'),
-      ['event', 'trope_decoder_shared', { method: 'native' }],
-    );
+    const nativeShareEvent = nativeCommands.find(command => command[1] === 'decoder_share_succeeded');
+    assert.deepEqual(nativeShareEvent, [
+      'event',
+      'decoder_share_succeeded',
+      { method: 'native' },
+    ]);
+    assert.doesNotMatch(JSON.stringify(nativeShareEvent), /url|account|name|text/i);
 
     const copyPage = await browser.newPage();
     await copyPage.route('https://www.googletagmanager.com/**', route => route.abort());
@@ -112,10 +115,13 @@ test('trope decoder sends bounded GA4 filter and share outcomes', { timeout: 30_
     await copyPage.getByRole('button', { name: 'Share this decoder' }).click();
 
     const copyCommands = await analyticsCommands(copyPage);
-    assert.deepEqual(
-      copyCommands.find(command => command[1] === 'trope_decoder_shared'),
-      ['event', 'trope_decoder_shared', { method: 'copy' }],
-    );
+    const copyShareEvent = copyCommands.find(command => command[1] === 'decoder_share_succeeded');
+    assert.deepEqual(copyShareEvent, [
+      'event',
+      'decoder_share_succeeded',
+      { method: 'copy' },
+    ]);
+    assert.doesNotMatch(JSON.stringify(copyShareEvent), /url|account|name|text/i);
   } finally {
     await browser.close();
     await server.close();

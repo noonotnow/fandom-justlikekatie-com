@@ -9,6 +9,7 @@ import {
   LG01_OUTCOMES,
   preparePublicPages,
   REQUIRED_PUBLIC_PAGES,
+  TROPE_DECODER_SHARE_EVENT,
   WATCH_JOURNAL_PUBLIC_PAGES,
 } from "./generate-public-pages.js";
 
@@ -231,10 +232,10 @@ test("the trope decoder is searchable, shareable, and spoiler-light", () => {
   assert.match(html, /window\.gtag\("event", name, data\)/);
   assert.match(html, /window\.dataLayer\.push\(\["event", name, data\]\)/);
   assert.match(html, /trackEvent\("trope_filter_used", \{\s*category: activeFilter,\s*query_present: Boolean\(query\),\s*result_count: visible\s*\}\)/);
-  assert.match(html, /trackEvent\("trope_decoder_shared", \{ method: "native" \}\)/);
-  assert.match(html, /trackEvent\("trope_decoder_shared", \{ method: "copy" \}\)/);
+  assert.match(html, new RegExp(`trackEvent\\("${TROPE_DECODER_SHARE_EVENT}", \\{ method: "native" \\}\\)`));
+  assert.match(html, new RegExp(`trackEvent\\("${TROPE_DECODER_SHARE_EVENT}", \\{ method: "copy" \\}\\)`));
   assert.doesNotMatch(html, /trackEvent\("trope_filter_used"[\s\S]*?search\.value/);
-  assert.doesNotMatch(html, /trackEvent\("trope_decoder_shared", \{[^}]*publicUrl/);
+  assert.doesNotMatch(html, /trackEvent\("decoder_share_succeeded", \{[^}]*publicUrl/);
   assert.match(html, /no account, Collection, name, or browsing information/i);
   assert.match(html, /original descriptions—not dialogue, scripts, or episode transcripts/i);
   assert.match(html, /"@type": "ItemList"/);

@@ -382,10 +382,10 @@
                text: "Newcomers see: Certain death. Veterans know: She’d need amnesia to fall for him in this enemies-to-lovers arc.",
               url: publicUrl
             });
-            trackEvent("trope_decoder_shared", { method: "native" });
+            trackEvent("decoder_share_succeeded", { method: "native" });
             announce("Decoder ready to share.");
           } else if (await copyUrl()) {
-            trackEvent("trope_decoder_shared", { method: "copy" });
+            trackEvent("decoder_share_succeeded", { method: "copy" });
             announce("Public decoder link copied.");
           } else {
             announce(`Share this public link: ${publicUrl}`);

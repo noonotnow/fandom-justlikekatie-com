@@ -14,10 +14,11 @@ the Netlify site's GA4 property has no traffic.
 | 90-day decoder coverage | No pageview or custom-event rows for any path containing `trope-decoder` |
 | 365-day project coverage | 0 pageviews and 0 custom events across the whole project |
 
-The source currently emits `trope_filter_used` and
-`trope_decoder_shared` (with `method: native` or `method: copy`) rather than
-the task's requested `decoder_share_succeeded`. The query therefore checked
-both share names; neither produced data.
+The production contract now emits `trope_filter_used` and
+`decoder_share_succeeded`. Successful sharing retains the bounded
+`method: native` or `method: copy` property, and the review query should use
+only `decoder_share_succeeded` for future comparisons. The snapshot above
+predates any collected share data, so it does not establish a baseline.
 
 ### Decision
 
