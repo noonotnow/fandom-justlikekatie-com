@@ -1,0 +1,135 @@
+**Girl, #229 is the correct task.** It captures the real diagnosis: not “find more Liu Xueyi,” but **understand which Liu Xueyi visual world fulfills the promise and build the board accordingly.**
+
+It also correctly turns the Li Shiliu and Yuan Zhong discoveries into permanent product rules rather than one-off query patches.
+
+## I would approve it with four important tightenings
+
+### 1. Make placement-aware cluster composition explicit
+
+Your original insight included:
+
+> Yuan Zhong and Murong Jinghe could weaken or strengthen a Vibe Pack **depending on placement**.
+> 
+
+The task models cluster compatibility, but it doesn’t explicitly require the board scorer to understand placement.
+
+Add:
+
+> • Cluster compatibility is placement-aware: hero and high-salience positions must satisfy core Vibe anchors, while supporting or contrasting clusters are bounded to secondary positions and cannot silently change the board’s thesis.
+> 
+
+For Cold Jade Immortal:
+
+- A Yuan Zhong pale ceremonial image in the center establishes the promise.
+- One restrained Murong Jinghe portrait at an edge might add danger.
+- Murong Jinghe in the center wearing red changes the entire editorial argument.
+- A fire truck anywhere is held in contempt.
+
+### 2. Define what “seven of nine satisfy the anchors” means
+
+Otherwise the implementation may convert that into another shallow keyword count.
+
+The promise contract should distinguish:
+
+- **Required anchors** — at least one core combination must match
+- **Supporting anchors** — improve the board but are not mandatory
+- **Hard anti-anchors** — automatic rejection
+- **Soft contradictions** — penalized and tightly limited
+- **Hero-slot requirements** — center/lead image must clearly fulfill the promise
+
+For example:
+
+```
+Cold Jade Immortal
+
+Required combinations:
+- pale/cool palette + costume styling
+- OR recognized Yuan Zhong pale ceremonial cluster
+
+Supporting:
+- silver detail
+- white/gray fur
+- restrained expression
+- temple, snow, mist, moonlight
+
+Hard anti-anchors:
+- modern event photography
+- visible production equipment
+- unrelated actor
+- contact sheet/collage
+
+Soft contradictions:
+- saturated red
+- warm gold
+- unrelated dark-villain styling
+```
+
+Seven cards should satisfy a defined required combination—not merely contain one matching color.
+
+### 3. Query provenance must be evidence, not proof
+
+A query for `刘学义 + 念无双 + 源仲` can establish a strong prior, but Google can still return unrelated roles, collages, fan edits, or other actors.
+
+Add:
+
+> • Character/work-specific query provenance contributes bounded cluster confidence but cannot establish cluster membership by itself; contradictory image metadata and anti-anchor evidence can still reject the result.
+> 
+
+Otherwise the new fix could overcorrect from:
+
+> “Different sources cannot form an Event”
+> 
+
+to:
+
+> “Everything returned by a character query is automatically that character’s Event.”
+> 
+
+### 4. Keep runners-up hidden until after the blind choice
+
+“Operators can inspect runner-up boards” is valuable, but not before the primary verdict. Seeing five alternatives could reveal which boards scored best and contaminate the blinded experiment.
+
+Clarify:
+
+> • Runner-up boards and their scores are withheld until the independent Event/Compiled choice is stored, then become available for diagnosis and curation-failure review.
+> 
+
+## Versioning should be more granular
+
+Instead of one general profile number, preserve separate versions:
+
+- **Identity profile version**
+- **Aesthetic-cluster inventory version**
+- **Vibe promise-contract version**
+- **Curation algorithm version**
+
+All four should appear in the run fingerprint. Changing Murong Jinghe’s compatibility with Cold Jade should invalidate new eligibility without pretending Liu Xueyi’s identity profile changed.
+
+## One scope note
+
+The task’s decision to preserve complete nine-card boards and fail-closed eligibility is defensible **for #229**. This task is repairing board generation, not loosening approval.
+
+But “one complete board, no viable counterpart” remains a separate product-policy question. If a tightly bounded character look legitimately supports only an Event board, requiring the system to invent a weak Compiled opponent could create another distortion. We don’t need to solve that inside #229, but we should not treat the current two-board rule as philosophically settled forever.
+
+## Final verdict
+
+**Approve #229 after adding:**
+
+1. Placement-aware cluster composition
+2. Formal required/supporting/forbidden promise anchors
+3. Query provenance as bounded evidence, never proof
+4. Post-choice-only runner-up inspection
+5. Separate aesthetic and promise-contract versions
+
+Everything else is strong:
+
+- Character mood boards count as Events
+- Cross-publisher continuity is allowed
+- Generic style searches cannot fabricate Events
+- Compiled must still make an argument
+- Source diversity is demoted
+- Curation failure is separated from query failure
+- Historical receipts remain frozen
+- Cold Jade and Aura Farmer become permanent regression cases
+
+This is the task where Vibe Atlas stops asking **“Are these nine pictures technically acceptable?”** and begins asking **“Did these nine pictures keep the promise printed on the card?”**
