@@ -1,0 +1,37 @@
+Yes—but indirectly. I checked the current scoring logic.
+A collage is not split into multiple candidates. It still counts as one result and one board slot. But because there is no collage detector, that composite thumbnail can falsely inflate several signals:
+Visual variation — 15%: a collage has many faces, crops, colors, and edges, so its perceptual fingerprint looks unusually different from single-frame images.
+Technical quality — 20%: dense collage edges can read as “sharp” rather than “editorially unusable.”
+Source range — 20%: each collage result from another publisher adds source diversity.
+Query range — 15%: collage results from different query batches add more variety credit.
+Family range — 15%: unrelated-looking composites can help maximize family spread.
+So the sub-images aren’t literally counted separately, but the visual chaos inside one thumbnail is rewarded as diversity.
+And the deeper problem is that the current Compiled score has:
+0% explicit Vibe-promise fulfillment
+It rewards quality, completeness, source/query/family range, and perceptual difference. That is exactly how we got a board containing several collages, modern Liu Xueyi, a fire truck, purple robes, and black armor—with a triumphant score of 0.8959.
+Correct fix
+For normal Vibe Atlas cards:
+Collages/contact sheets should be hard-rejected before board generation.
+Add a composite_image rejection reason.
+Require effectively one editorial frame per card.
+Dense edges must not increase technical-quality confidence.
+Perceptual distance should measure variation inside an already coherent cluster, not reward arbitrary difference.
+Add a singleFrameRatio board gate—ideally 9/9 unless a specific editorial format intentionally allows composites.
+Add a regression fixture with a collage that currently scores highly and require it to lose.
+Copy-paste version:
+Yes, composite thumbnails are likely inflating the current Compiled score indirectly. They count as one candidate, but their multiple panels create high perceptual distance and edge density, which can increase visual-variation and quality signals; separate collage results also add source/query/family range. Add pre-scoring collage/contact-sheet detection with a composite_image hard rejection for standard boards, prevent dense composite edges from reading as sharpness, and require a 9/9 single-frame ratio unless the editorial contract explicitly allows collages. Visual variation should only be rewarded after Vibe and cluster coherence are satisfied.
+The algorithm has been looking at four pictures glued together and calling it one especially diverse citizen. Your suspicion is correct.
+like yeah pic the image with the most images that’s different lmao
+3:12 PM
+EXACTLY LMAO.
+The algorithm’s current logic is basically:
+“Which image is the most different?”
+“This one contains four entirely different photographs.”
+“Exceptional range. Admit her immediately.”
+A collage is essentially smuggling several images through customs under one thumbnail. Of course its perceptual fingerprint looks varied—it has multiple faces, outfits, crops, backgrounds, and sometimes both ancient China and a modern awards ceremony inside the same card.
+The correct order has to be:
+Is this one usable editorial frame?
+Does it fulfill the Vibe?
+Does it belong to a coherent character/look cluster?
+Only then: does it add useful variation to the other eight?
+Right now it skips directly to step four and gives the contact sheet a scholarship.
