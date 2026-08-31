@@ -1,0 +1,79 @@
+[
+  {
+    "id": "single-frame-boromir",
+    "category": "single-frame",
+    "expectedComposite": false,
+    "file": "../../../../attached_assets/images_(6)_1787247161230.jpeg",
+    "provenance": "internally captured search thumbnail"
+  },
+  {
+    "id": "guttered-four-panel-thread",
+    "category": "guttered-collage",
+    "expectedComposite": true,
+    "file": "../../../../attached_assets/images_(9)_1787247161231.jpeg",
+    "provenance": "internally captured search thumbnail"
+  },
+  {
+    "id": "no-gutter-two-panel-group",
+    "category": "no-gutter-collage",
+    "expectedComposite": true,
+    "file": "../../../../attached_assets/images_(16)_1787247161233.jpeg",
+    "provenance": "internally captured search thumbnail"
+  },
+  {
+    "id": "no-gutter-two-panel-boromir",
+    "category": "no-gutter-collage",
+    "expectedComposite": true,
+    "file": "../../../../attached_assets/images_(1)_1787247161227.jpeg",
+    "provenance": "internally captured search thumbnail"
+  },
+  {
+    "id": "no-gutter-three-panel-work-shift",
+    "category": "no-gutter-collage",
+    "expectedComposite": true,
+    "file": "../../../../attached_assets/images_(2)_1787247161228.jpeg",
+    "provenance": "internally captured search thumbnail"
+  },
+  {
+    "id": "no-gutter-three-panel-friendship",
+    "category": "no-gutter-collage",
+    "expectedComposite": true,
+    "file": "../../../../attached_assets/images_(10)_1787247161232.jpeg",
+    "provenance": "internally captured search thumbnail"
+  },
+  {
+    "id": "no-gutter-two-panel-bilbo",
+    "category": "no-gutter-collage",
+    "expectedComposite": true,
+    "file": "../../../../attached_assets/images_(15)_1787247161233.jpeg",
+    "provenance": "internally captured search thumbnail"
+  },
+  {
+    "id": "poster-samwise-loyalty",
+    "category": "poster",
+    "expectedComposite": false,
+    "file": "../../../../attached_assets/Samwise-Loyalty-png_1787243732581.png",
+    "provenance": "internally created poster fixture"
+  },
+  {
+    "id": "poster-whole-trilogy",
+    "category": "poster",
+    "expectedComposite": false,
+    "file": "../../../../attached_assets/one-page-became-the-whole-trilogy-png_1787926790556.png",
+    "provenance": "internally created poster fixture"
+  },
+  {
+    "id": "text-heavy-supermarket-still",
+    "category": "text-heavy-still",
+    "expectedComposite": false,
+    "file": "../../../../attached_assets/images_(8)_1787247161231.jpeg",
+    "provenance": "internally captured search thumbnail"
+  },
+  {
+    "id": "text-heavy-gandalf-still",
+    "category": "text-heavy-still",
+    "expectedComposite": false,
+    "file": "../../../../attached_assets/images_(13)_1787247161232.jpeg",
+    "provenance": "internally captured search thumbnail"
+  }
+]

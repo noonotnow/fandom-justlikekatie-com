@@ -1,6 +1,7 @@
 import {
   fetchImageBuffer,
   fingerprintImage,
+  hasCompositeVisualSignals,
   perceptualDistance,
 } from "./image-dedup.js";
 
@@ -92,7 +93,7 @@ function compositeEvidence(result, fingerprint) {
     : 1 - visualScore;
   const metadataSignal = declaredCount > 1 || COMPOSITE_TEXT.test(text);
   return {
-    composite: metadataSignal || visualScore >= 0.68 || singleFrameRatio < 0.55,
+    composite: metadataSignal || hasCompositeVisualSignals(fingerprint),
     metadataSignal,
     declaredCount,
     visualScore,

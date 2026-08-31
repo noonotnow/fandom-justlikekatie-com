@@ -1,11 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import sharp from "sharp";
 import {
   fetchImageBuffer,
   fingerprintImage,
+  hasCompositeVisualSignals,
   isNearDuplicate,
+  MIN_SINGLE_FRAME_RATIO,
   selectDisplayResults,
+  VISUAL_COMPOSITE_SCORE_THRESHOLD,
 } from "./image-dedup.js";
 
 test("default thumbnail loading rejects non-public destinations before fetching", async () => {
@@ -92,6 +96,66 @@ test("flags a multi-panel contact sheet instead of rewarding its seam density as
   assert.ok(fingerprint.compositeScore >= 0.68);
   assert.ok(fingerprint.singleFrameRatio < 0.55);
   assert.ok(fingerprint.seamCount >= 2);
+});
+
+test("reports current precision and recall against captured search-thumbnail fixtures", async (t) => {
+  const fixtureUrl = new URL("./fixtures/search-thumbnail-composite-corpus.json", import.meta.url);
+  const fixtures = JSON.parse(await readFile(fixtureUrl, "utf8"));
+  const categories = new Set(fixtures.map(fixture => fixture.category));
+  assert.deepEqual(
+    [...categories].sort(),
+    ["guttered-collage", "no-gutter-collage", "poster", "single-frame", "text-heavy-still"],
+  );
+
+  const outcomes = [];
+  for (const fixture of fixtures) {
+    const imageUrl = new URL(fixture.file, fixtureUrl);
+    const fingerprint = await fingerprintImage(await readFile(imageUrl));
+    const predictedComposite = hasCompositeVisualSignals(fingerprint);
+    outcomes.push({
+      ...fixture,
+      predictedComposite,
+      compositeScore: fingerprint.compositeScore,
+      singleFrameRatio: fingerprint.singleFrameRatio,
+      seamCount: fingerprint.seamCount,
+    });
+  }
+
+  const truePositives = outcomes.filter(
+    outcome => outcome.expectedComposite && outcome.predictedComposite,
+  ).length;
+  const falsePositives = outcomes.filter(
+    outcome => !outcome.expectedComposite && outcome.predictedComposite,
+  ).length;
+  const falseNegatives = outcomes.filter(
+    outcome => outcome.expectedComposite && !outcome.predictedComposite,
+  ).length;
+  const trueNegatives = outcomes.filter(
+    outcome => !outcome.expectedComposite && !outcome.predictedComposite,
+  ).length;
+  const precision = truePositives / Math.max(1, truePositives + falsePositives);
+  const recall = truePositives / Math.max(1, truePositives + falseNegatives);
+
+  t.diagnostic(
+    `visual composite baseline: precision=${precision.toFixed(4)}, recall=${recall.toFixed(4)} `
+    + `(TP=${truePositives}, FP=${falsePositives}, FN=${falseNegatives}, TN=${trueNegatives}; `
+    + `score>=${VISUAL_COMPOSITE_SCORE_THRESHOLD} or single-frame<${MIN_SINGLE_FRAME_RATIO})`,
+  );
+
+  assert.deepEqual(
+    { truePositives, falsePositives, falseNegatives, trueNegatives },
+    { truePositives: 1, falsePositives: 1, falseNegatives: 5, trueNegatives: 4 },
+  );
+  assert.equal(Number(precision.toFixed(4)), 0.5);
+  assert.equal(Number(recall.toFixed(4)), 0.1667);
+
+  const singleFrames = outcomes.filter(outcome => outcome.category === "single-frame");
+  assert.equal(singleFrames.length > 0, true);
+  assert.equal(
+    singleFrames.every(outcome => !outcome.predictedComposite),
+    true,
+    "the current threshold must continue to preserve captured single-frame boards",
+  );
 });
 
 test("keeps the higher-quality candidate when a blurrier copy ranked first", async () => {

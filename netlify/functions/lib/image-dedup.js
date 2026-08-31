@@ -6,6 +6,8 @@ const HASH_WIDTH = 17;
 const HASH_HEIGHT = 16;
 const SAMPLE_SIZE = HASH_HEIGHT * (HASH_WIDTH - 1);
 const DEFAULT_CANDIDATE_LIMIT = 18;
+export const VISUAL_COMPOSITE_SCORE_THRESHOLD = 0.68;
+export const MIN_SINGLE_FRAME_RATIO = 0.55;
 
 function separatedPeaks(values, threshold) {
   const peaks = [];
@@ -99,6 +101,15 @@ export async function fingerprintImage(buffer) {
     height: metadata.height || 0,
     ...composite,
   };
+}
+
+export function hasCompositeVisualSignals(fingerprint) {
+  const visualScore = Number(fingerprint?.compositeScore) || 0;
+  const singleFrameRatio = Number.isFinite(fingerprint?.singleFrameRatio)
+    ? Number(fingerprint.singleFrameRatio)
+    : 1 - visualScore;
+  return visualScore >= VISUAL_COMPOSITE_SCORE_THRESHOLD
+    || singleFrameRatio < MIN_SINGLE_FRAME_RATIO;
 }
 
 export function perceptualDistance(left, right) {
