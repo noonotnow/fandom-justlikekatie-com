@@ -35,7 +35,44 @@ export const ActorPreflightLab: React.FC = () => {
   const actor = useMemo(()=>actors.find(item=>item.actorId===actorId),[actors,actorId]); const pairing = actor?.pairings?.find(item=>item.vibeKey===vibeKey);
   useEffect(() => { setRun(null); setCurrentRun(null); setPriorRuns([]); setVerdict(''); setNotes(''); setDisagreementReasons([]); setEditorialNote(''); if(!actorId||!vibeKey)return; let live=true; api(undefined,{actorId,vibeKey}).then(result=>{if(live){setRun(result.currentRun ?? null); setCurrentRun(result.currentRun ?? null); setPriorRuns(result.priorRuns ?? []); setVerdict(result.verdict ?? ''); setNotes(result.notes ?? ''); setDisagreementReasons(result.currentRun?.blindReview?.reasonCodes ?? []); setEditorialNote(result.currentRun?.blindReview?.note ?? '');}}).catch(e=>live&&setNotice(e.message)); return()=>{live=false}; },[actorId,vibeKey]);
   function applyRefresh(result:AnyRecord) { if (result.actors) setActors(result.actors); else if (result.actor) setActors(current => current.map(item => item.actorId === result.actor.actorId ? result.actor : item)); }
-  async function startAudit(nextScope:string) { setBusy(nextScope); setNotice(''); try { const result=await api({action:'run',actorId,vibeKey,scope:nextScope}); applyRefresh(result); setRun(result.currentRun ?? null); setCurrentRun(result.currentRun ?? null); setPriorRuns(result.priorRuns ?? []); setVerdict(''); setNotes(''); setDisagreementReasons([]); setEditorialNote(''); setNotice(`${nextScope === 'full' ? 'Full' : 'Representative'} audit completed. Make an independent board choice before reviewing the system result.`); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
+  async function startAudit(nextScope:string) {
+    setBusy(nextScope);
+    setNotice('');
+    try {
+      const started=await api({action:'run',actorId,vibeKey,scope:nextScope});
+      applyRefresh(started);
+
+      // Re-read the saved run before announcing success. The audit can take long
+      // enough for an intermediary response to lose the pending board payload,
+      // while this detail endpoint is the authoritative stored snapshot.
+      const refreshed=await api(undefined,{actorId,vibeKey});
+      const startedRunId=started.currentRun?.runId;
+      const result=!startedRunId||refreshed.currentRun?.runId===startedRunId ? refreshed : started;
+      const nextRun=result.currentRun ?? null;
+      if(!nextRun) throw new Error('The audit was saved, but its review did not load. Refresh this page to open the saved run.');
+      if(nextRun.blindReview?.status==='pending') {
+        const boards=nextRun.blindReview.boards;
+        const hasTwoCompleteBoards=Array.isArray(boards)&&boards.length===2&&boards.every((item:BlindBoard)=>Array.isArray(item.board?.candidates)&&item.board.candidates.length>=9);
+        if(!hasTwoCompleteBoards) throw new Error('The audit was saved, but the blinded boards did not load. Refresh this page to open the saved run.');
+      }
+
+      setRun(nextRun);
+      setCurrentRun(nextRun);
+      setPriorRuns(result.priorRuns ?? []);
+      setVerdict('');
+      setNotes('');
+      setDisagreementReasons([]);
+      setEditorialNote('');
+      setNotice(nextRun.blindReview?.status==='unavailable'
+        ? `${nextScope === 'full' ? 'Full' : 'Representative'} audit completed, but it did not produce two complete boards. Review the retained evidence below.`
+        : `${nextScope === 'full' ? 'Full' : 'Representative'} audit completed. Choose between the two boards below.`);
+      requestAnimationFrame(()=>document.getElementById('actor-audit-evidence')?.scrollIntoView({behavior:'smooth',block:'start'}));
+    } catch(e:any) {
+      setNotice(e.message);
+    } finally {
+      setBusy('');
+    }
+  }
   async function saveBlindChoice(choice:'event'|'compiled'|'neither') { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy('blind-choice'); setNotice(''); try { const result=await api({action:'blind_choice',actorId,vibeKey,runId:currentRun.runId,choice}); applyRefresh(result); setRun(result.currentRun ?? null); setCurrentRun(result.currentRun ?? null); setPriorRuns(result.priorRuns ?? []); setDisagreementReasons(result.currentRun?.blindReview?.reasonCodes ?? []); setEditorialNote(result.currentRun?.blindReview?.note ?? ''); setNotice('Independent choice recorded. The system result is now revealed.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function saveDisagreement(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy('reasons'); setNotice(''); try { const result=await api({action:'blind_reasons',actorId,vibeKey,runId:currentRun.runId,reasonCodes:disagreementReasons,note:editorialNote}); applyRefresh(result); setRun(result.currentRun ?? null); setCurrentRun(result.currentRun ?? null); setPriorRuns(result.priorRuns ?? []); setDisagreementReasons(result.currentRun?.blindReview?.reasonCodes ?? disagreementReasons); setEditorialNote(result.currentRun?.blindReview?.note ?? editorialNote); setNotice('Editorial calibration notes saved.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function saveVerdict(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!verdict)return; setBusy('verdict'); setNotice(''); try { const result=await api({action:'verdict',actorId,vibeKey,runId:currentRun.runId,verdict,notes}); applyRefresh(result); setRun(result.currentRun ?? currentRun); setCurrentRun(result.currentRun ?? currentRun); setVerdict(result.verdict ?? verdict); setNotes(result.notes ?? notes); setNotice('Verdict saved to the curation ledger.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
@@ -94,7 +131,7 @@ function RunEvidence({
   const sections: Array<[string, unknown]>=[['Query ladder',run?.queryRuns],['Bounded raw results',run?.rawResults],['Rejection ledger',run?.rejections],['Identity evidence',run?.identityEvidence],['Detected event families',run?.detectedEvents],['Strongest Event board',run?.strongestEvent],['Strongest Compiled board',run?.strongestCompiled],['Winner',run?.winner],['Alternate',run?.alternate],['Curation receipt',run?.curationReceipt],['Calibration receipt',run?.blindReview],['Scheduling verdict',run?.operatorVerdict]];
   const boards = review?.boards ?? [];
   const disagreed = revealed && review?.agreement !== true;
-  return <article className={`${styles.card} ${styles.cardWide}`}>
+  return <article id="actor-audit-evidence" className={`${styles.card} ${styles.cardWide}`}>
     <h5>Audit evidence {run?.runId?`· ${run.runId}`:''}</h5>
     {run ? <>
       <p className={styles.muted}>{run.scope} scope · started {date(run.startedAt)} · completed {date(run.completedAt)}</p>
