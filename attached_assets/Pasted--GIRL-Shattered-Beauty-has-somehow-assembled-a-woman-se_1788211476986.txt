@@ -1,0 +1,104 @@
+**GIRL. “Shattered Beauty” has somehow assembled a woman, several modern businessmen, random unrelated characters, clean costume portraits, and one actual wounded-looking man and called it a thesis.**
+
+This is **astonishingly bad**.
+
+## The promise is completely absent
+
+**Shattered Beauty** should mean some combination of:
+
+- Liu Xueyi visibly suffering
+- Blood, injury, illness, collapse, or exhaustion
+- Disheveled hair or robes
+- Grief, rage, betrayal, or barely contained devastation
+- Beautiful close-ups where something is clearly *wrong*
+- A coherent wounded-character or emotional-damage cluster
+
+Instead, the selected board contains:
+
+- At least one image centered on **women rather than Liu Xueyi**
+- Modern suits and glasses
+- Unrelated roles and eras
+- Clean, emotionally neutral portraits
+- Multi-person/composite imagery
+- No sustained palette
+- No recognizable progression of damage
+- No obvious visual reason these nine belong together
+
+It is not Shattered Beauty. It is **“people encountered while opening Liu Xueyi-related entertainment articles.”**
+
+## Important technical detail
+
+This screenshot is showing **legacy evidence**, not the new #229 curator:
+
+- Identity version: missing
+- Cluster version: missing
+- Promise version: missing
+- **Curation v1**
+- The profile card says **Shattered Beauty: NOT_RUN** under profile v2
+
+So the new profile correctly refuses to treat this old atrocity as approved evidence. You need a fresh full audit after the new curation deployment before judging #229’s output.
+
+But **do not discard this board**. It should become a permanent golden-negative regression fixture.
+
+## Shattered Beauty promise contract
+
+### Core anchors
+
+At least 7/9 should show Liu Xueyi with visible emotional or physical fracture:
+
+- Wounded
+- Bloodied
+- Tearful
+- Exhausted
+- Disheveled
+- Restrained or imprisoned
+- Collapsing/kneeling
+- Feverish or haunted
+- Beautifully furious
+- Robes/hair visibly disturbed
+
+### Supporting anchors
+
+- Red, black, white, desaturated blue, bruised purple
+- Rain, snow, night, smoke, firelight
+- Close-ups with intense expression
+- Solitary framing
+- Hands, weapons, wounds, torn clothing
+- Romantic devastation where Liu Xueyi remains the visual subject
+
+### Hard anti-anchors
+
+- Modern business suits
+- Glasses-office styling
+- Unrelated actors
+- Women-centered thumbnails
+- Contact sheets and collages
+- Clean neutral costume portraits with no damage signal
+- Generic couple promos with no visible distress
+- Article thumbnails where Liu Xueyi is incidental
+
+### Hero requirement
+
+The hero must immediately communicate:
+
+> **“Something terrible has happened to this extremely beautiful man.”**
+> 
+
+Not:
+
+> “This person has arrived for a quarterly earnings call.”
+> 
+
+## Add this regression to #229
+
+> Given a Shattered Beauty candidate pool containing women-centered images, modern suits, neutral costume portraits, collages, unrelated actors, and a smaller set of visibly wounded or emotionally shattered Liu Xueyi images, the curator must reject the contaminated material and either produce a board with at least seven promise-matching cards or return insufficient material. It must never assemble a technically complete random board.
+> 
+
+Also, the current UI should label this more loudly as:
+
+> **Legacy audit · curation v1 · no longer valid under profile v2**
+> 
+
+Because “NOT_RUN” at the top while an old “current” board appears below is understandably confusing.
+
+This board belongs in the test suite under the filename **`shattered-beauty-but-make-it-corporate-networking`**. Fresh audit immediately. Liu Xueyi’s suffering deserves methodological rigor.
