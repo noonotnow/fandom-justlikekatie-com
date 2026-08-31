@@ -2,16 +2,19 @@ export type FandomProductRoute = 'launchpad' | 'vibe-atlas' | 'middle-earth' | '
 
 const EDITION_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-export function resolveFandomProductRoute(pathname: string): FandomProductRoute {
+export function resolveFandomProductRoute(pathname: string, search = ''): FandomProductRoute {
   const normalized = pathname.replace(/\/+$/, '') || '/';
   if (normalized === '/vibe-atlas' || normalized === '/auth/verify') return 'vibe-atlas';
+  if (normalized === '/' && new URLSearchParams(search).get('admin') === 'true') return 'vibe-atlas';
   if (normalized === '/vibe-atlas/veteran-journal') return 'veteran-journal';
   if (normalized === '/memeforge/middle-earth') return 'middle-earth';
   return 'launchpad';
 }
 
 export function initialVibeAtlasView(search: string): 'daily' | 'collection' | 'plan' | 'membership' {
-  const view = new URLSearchParams(search).get('view');
+  const params = new URLSearchParams(search);
+  if (params.get('admin') === 'true') return 'plan';
+  const view = params.get('view');
   if (view === 'collection' || view === 'results' || view === 'builder') return 'collection';
   return view === 'plan' || view === 'membership' ? view : 'daily';
 }

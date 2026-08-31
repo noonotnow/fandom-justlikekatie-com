@@ -11,8 +11,10 @@ import { WatchJournalCapture } from './WatchJournalCapture';
 import { ActorPreflightLab } from './ActorPreflightLab';
 import styles from './FandomAdmin.module.css';
 
-export const FandomAdmin: React.FC = () => {
-  const [view, setView] = useState<'plan' | 'court' | 'watch-journal' | 'actor-preflight'>('plan');
+type AdminView = 'plan' | 'court' | 'watch-journal' | 'actor-preflight';
+
+export const FandomAdmin: React.FC<{ initialView?: AdminView }> = ({ initialView = 'plan' }) => {
+  const [view, setView] = useState<AdminView>(initialView);
   return (
     <section className={styles.admin}>
       <header className={styles.header}>

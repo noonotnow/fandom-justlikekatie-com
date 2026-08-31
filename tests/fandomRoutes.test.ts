@@ -11,6 +11,7 @@ import {
 
 test('resolves the three Fandom product routes and keeps magic-link verification in Vibe Atlas', () => {
   assert.equal(resolveFandomProductRoute('/'), 'launchpad');
+  assert.equal(resolveFandomProductRoute('/', '?admin=true'), 'vibe-atlas');
   assert.equal(resolveFandomProductRoute('/vibe-atlas'), 'vibe-atlas');
   assert.equal(resolveFandomProductRoute('/vibe-atlas/'), 'vibe-atlas');
   assert.equal(resolveFandomProductRoute('/memeforge/middle-earth'), 'middle-earth');
@@ -23,6 +24,7 @@ test('resolves the three Fandom product routes and keeps magic-link verification
 test('reads the requested Vibe Atlas section without allowing arbitrary views', () => {
   assert.equal(initialVibeAtlasView('?view=membership'), 'membership');
   assert.equal(initialVibeAtlasView('?view=plan'), 'plan');
+  assert.equal(initialVibeAtlasView('?admin=true'), 'plan');
   assert.equal(initialVibeAtlasView('?view=collection'), 'collection');
   assert.equal(initialVibeAtlasView('?view=results'), 'collection');
   assert.equal(initialVibeAtlasView('?view=builder'), 'collection');

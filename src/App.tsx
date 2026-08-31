@@ -70,8 +70,9 @@ function syncVibeAtlasEditionUrl(date: string | null, replace = false) {
 }
 
 function App() {
-  const route = resolveFandomProductRoute(window.location.pathname);
-  if (route === 'vibe-atlas') return <VibeAtlasApp />;
+  const adminEntry = new URLSearchParams(window.location.search).get('admin') === 'true';
+  const route = resolveFandomProductRoute(window.location.pathname, window.location.search);
+  if (route === 'vibe-atlas') return <VibeAtlasApp adminEntry={adminEntry} />;
   if (route === 'middle-earth') return <MiddleEarthApp />;
   if (route === 'veteran-journal') return <VeteranSubmissionForm />;
   return <FandomLaunchpad />;
@@ -85,7 +86,7 @@ function MiddleEarthApp() {
   return <MiddleEarthWorkspace isAdmin={isAdmin} />;
 }
 
-function VibeAtlasApp() {
+function VibeAtlasApp({ adminEntry = false }: { adminEntry?: boolean }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [dailyGridZoomOpen, setDailyGridZoomOpen] = useState(false);
@@ -532,8 +533,7 @@ function VibeAtlasApp() {
       ) : !isAdmin ? (
         <AdminSignIn />
       ) : (
-        <FandomAdmin
-        />
+        <FandomAdmin initialView={adminEntry ? 'actor-preflight' : 'plan'} />
       )}
     </div>
   );
