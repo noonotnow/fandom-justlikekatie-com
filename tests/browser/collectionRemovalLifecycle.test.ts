@@ -186,7 +186,7 @@ test('Collection commits pending grid and saved-result removals when navigation 
     await page.getByRole('button', { name: 'Remove' }).first().click();
     await page.getByRole('button', { name: '今日之星 · Daily' }).click();
 
-    await page.getByRole('button', { name: 'Studio Operations · Collection and Grid Builder' }).click();
+    await page.getByRole('button', { name: 'Your Collection · Saved Grids and Grid Builder' }).click();
     await page.getByRole('button', { name: 'Saved results' }).click();
     await page.getByRole('button', { name: 'Remove' }).click();
     await page.getByRole('button', { name: '今日之星 · Daily' }).click();

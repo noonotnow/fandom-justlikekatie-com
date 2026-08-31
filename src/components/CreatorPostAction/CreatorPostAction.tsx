@@ -114,7 +114,7 @@ export function CreatorPostAction({
           <p>{error}</p>
           <span>This grid is still saved.</span>
           <nav aria-label="Post recovery links">
-            <a href="/vibe-atlas?view=collection">Open Studio Operations</a>
+            <a href="/vibe-atlas?view=collection">Open Your Collection</a>
             <a href="https://workstation.justlikekatie.com" target="_blank" rel="noreferrer">Open Workstation</a>
           </nav>
         </div>

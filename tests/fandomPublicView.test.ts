@@ -34,9 +34,9 @@ const previewHtml = await Promise.all(
   previewDirectories.map(entry => readFile(new URL(`${entry.name}/index.html`, previewRoot), 'utf8')),
 );
 
-test('Studio Operations is the public Collection and Grid Builder workspace', () => {
-  assert.match(appSource, /<span>Studio Operations<\/span><small>Collection · Grid Builder<\/small>/);
-  assert.match(collectionSource, /'Studio Operations'/);
+test('Your Collection is the public Collection and Grid Builder workspace', () => {
+  assert.match(appSource, /<span>Your Collection<\/span><small>Saved Grids · Grid Builder<\/small>/);
+  assert.match(collectionSource, /'Your Collection'/);
   assert.match(collectionSource, />\s*Grid Builder\s*<\/button>/);
   assert.doesNotMatch(appSource, /<span>Admin<\/span><small>Packets<\/small>/);
 });
@@ -53,7 +53,7 @@ test('the private operator console does not mount a duplicate Grid Builder', () 
 test('public launchpad copy does not expose internal admin or CREATE architecture', () => {
   assert.match(launchpadSource, /daily C-drama card drop/);
   assert.match(launchpadSource, /One star, one vibe, nine pieces of evidence/);
-  assert.match(launchpadSource, /Browse today’s curated card drop/);
+  assert.match(launchpadSource, /Browse today’s drop, save the cards that hit/);
   assert.doesNotMatch(launchpadSource, /\badmin\b/i);
   assert.doesNotMatch(launchpadSource, /\bCREATE\b/);
   assert.doesNotMatch(builderSource, /\bCREATE\b/);
@@ -66,7 +66,8 @@ test('public Vibe Atlas copy names the daily card-drop promise', () => {
   assert.match(appSource, /iconic characters, looks, and moments/);
   assert.match(appSource, /Today's star/);
   assert.match(appSource, /Today's vibe/);
-  assert.match(appSource, /Fresh 3×3 evidence grid/);
+  assert.match(appSource, /<h2>Today’s evidence<\/h2>/);
+  assert.match(appSource, /Nine cards from today’s star × Vibe Pack/);
   assert.match(rootHtml, /Vibe Atlas’s curated daily C-drama card drop/);
   assert.match(rootHtml, /browse today’s Vibe Atlas card drop/);
   assert.doesNotMatch(appSource, /worldbuilding instrument|emotional weather/i);

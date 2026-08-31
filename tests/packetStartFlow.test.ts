@@ -62,6 +62,6 @@ test('Workstation navigation happens only after a validated result and failures 
   assert.notEqual(failureStart, -1);
   assert.ok(openStart > createStart, 'navigation must follow the handoff response');
   assert.ok(openStart < failureStart, 'only the successful handoff branch may open Workstation');
-  assert.match(actionSource, /Open Studio Operations/);
+  assert.match(actionSource, /Open Your Collection/);
   assert.match(actionSource, /https:\/\/workstation\.justlikekatie\.com/);
 });

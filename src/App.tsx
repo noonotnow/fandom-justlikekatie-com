@@ -341,11 +341,11 @@ function VibeAtlasApp() {
           </button>
           <button
             type="button"
-            aria-label="Studio Operations · Collection and Grid Builder"
+            aria-label="Your Collection · Saved Grids and Grid Builder"
             onClick={() => navigateAtlas('collection', 'grids')}
             className={view === 'collection' ? 'fandom-atlas-nav__active' : ''}
           >
-            <span>Studio Operations</span><small>Collection · Grid Builder</small>
+            <span>Your Collection</span><small>Saved Grids · Grid Builder</small>
           </button>
           <button
             type="button"
@@ -375,7 +375,7 @@ function VibeAtlasApp() {
           </div>
           <p className="atlas-hero__thesis">One star. One vibe. Nine pieces of evidence.</p>
         </div>
-        <p className="atlas-hero__intro">Each day, one featured actor and one Vibe Pack set the aesthetic assignment. We search their iconic characters, looks, and moments through that assignment for nine collectible pieces of evidence—thirsty, beautiful, and ready to save. You’re browsing today’s curated drop, not choosing an arbitrary actor × vibe pairing.</p>
+        <p className="atlas-hero__intro">Every day, Vibe Atlas pairs one C-drama star with one Vibe Pack, then searches their iconic characters, looks, and moments for nine cards worth keeping. Browse today’s drop, save your favorites, and build a 3×3 from the evidence.</p>
         <section className="daily-archive" aria-label="Vibe Atlas daily edition archive">
           <button
             type="button"
@@ -394,7 +394,7 @@ function VibeAtlasApp() {
                   <p className="daily-archive__kicker">The Vibe Atlas archive</p>
                   <h2>Every star. Every assignment.</h2>
                 </div>
-                <p>Revisit a finished daily drop without choosing an arbitrary pairing.</p>
+                <p>Revisit past stars, vibes, and evidence.</p>
               </div>
               {archiveLoading ? (
                 <p className="daily-archive__status">Loading available editions…</p>
@@ -466,8 +466,8 @@ function VibeAtlasApp() {
 
       <div className="daily-grid">
         <div className="daily-grid__header">
-          <h2>Fresh 3×3 evidence grid</h2>
-          <p>Collectible receipts from today’s star × vibe assignment.</p>
+          <h2>Today’s evidence</h2>
+          <p>Nine cards from today’s star × Vibe Pack.</p>
         </div>
         {!loading && !error && gridImages.length > 0 && (
           <button type="button" className="daily-grid__zoom" onClick={() => setDailyGridZoomOpen(true)}>

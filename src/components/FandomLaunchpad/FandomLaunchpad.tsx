@@ -17,7 +17,7 @@ export function FandomLaunchpad() {
         <a className={`${styles.workbench} ${styles.atlas}`} href="/vibe-atlas">
           <span className={styles.index}>01 / daily C-drama card drop</span>
           <div className={styles.cardArt}><span>VIBE<br /><b>ATLAS</b></span><small>REDNOTE / C-DRAMA</small></div>
-          <div className={styles.cardCopy}><h2>C-drama Vibe Atlas</h2><p>One star, one vibe, nine pieces of evidence. Browse today’s curated card drop, collect what resonates, and compose a finished 3×3 in Studio Operations.</p><span className={styles.enter}>Browse today’s card drop →</span></div>
+          <div className={styles.cardCopy}><h2>C-drama Vibe Atlas</h2><p>One star, one vibe, nine pieces of evidence. Browse today’s drop, save the cards that hit, and build a 3×3 from your favorites.</p><span className={styles.enter}>Browse today’s card drop →</span></div>
         </a>
         <a className={`${styles.workbench} ${styles.forge}`} href="/memeforge/middle-earth">
           <span className={styles.index}>02 / middle-earth reaction studio</span>

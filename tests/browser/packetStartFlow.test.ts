@@ -262,7 +262,7 @@ for (const failure of [
       await openSavedGrid(page, origin);
       await page.getByRole('button', { name: 'Make a post in Workstation' }).click();
       await page.getByRole('alert').filter({ hasText: failure.visibleMessage }).waitFor();
-      await page.getByRole('link', { name: 'Open Studio Operations' }).waitFor();
+      await page.getByRole('link', { name: 'Open Your Collection' }).waitFor();
       await page.getByRole('link', { name: 'Open Workstation' }).waitFor();
       assert.equal(new URL(page.url()).search, '?view=collection');
       assert.equal(createRequests, 1);

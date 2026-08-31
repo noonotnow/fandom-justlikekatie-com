@@ -100,7 +100,7 @@ export function VeteranSubmissionForm() {
         <header className={styles.header}>
           <p className={styles.eyebrow}>The Untamed · delayed conversation</p>
           <h1 id="veteran-submission-title">Leave a sealed veteran interpretation</h1>
-          <p>Choose the first-watch journal moment you are responding to and the episode through which your comment contains spoilers. The operator cannot see your words before that episode is filed.</p>
+          <p>Choose the journal moment you’re responding to and the last episode your note spoils. Katie won’t be able to read it until that episode is logged.</p>
         </header>
 
         {notice && <div className={styles.notice} role="status">{notice}</div>}

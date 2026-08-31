@@ -68,8 +68,8 @@ export function Membership({ onStatusChange }: Props) {
     <main className="membership">
       <header className="membership__hero">
         <p className="membership__eyebrow">Vibe Atlas Membership</p>
-        <h1>Keep the worlds<br /><em>you’re building.</em></h1>
-        <p>Daily discovery stays open. Founding Member adds a durable creative home for the collections worth returning to.</p>
+        <h1>Keep every card<br /><em>worth saving.</em></h1>
+        <p>Daily discovery stays free. Founding Members can sync collections across devices, build grids from saved cards, and export premium share cards.</p>
       </header>
       {(returnNotice || notice) && <p className="membership__notice" role="status">{returnNotice || notice}</p>}
       <section className="membership__plans" aria-label="Membership options">

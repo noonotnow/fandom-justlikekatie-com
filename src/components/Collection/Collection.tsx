@@ -533,7 +533,7 @@ export const Collection: React.FC<Props> = ({
     <main className={styles.collection}>
       <header className={styles.hero}>
         <div>
-          <h2>{isMiddleEarth ? 'Middle-earth Collection' : 'Studio Operations'}</h2>
+          <h2>{isMiddleEarth ? 'Middle-earth Collection' : 'Your Collection'}</h2>
           <p>{isMiddleEarth
             ? 'Your separate MemeForge shelf for finished Middle-earth memes.'
             : 'Collect individual finds, keep finished worlds, and compose new 3×3 grids.'}</p>
