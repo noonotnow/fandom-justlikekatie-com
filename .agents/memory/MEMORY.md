@@ -8,6 +8,7 @@
 - [Replit npm registry in lockfile](replit-npm-registry.md) — lockfiles generated in Replit have internal proxy URLs that break npm ci in GitHub Actions; delete and regenerate with --registry flag then sed-fix stragglers.
 - [Netlify Function-log verification](netlify-function-log-verification.md) — Real-time can appear empty; verify current Production calls in Last hour with filters cleared.
 - [Netlify dual-lockfile parity](netlify-dual-lockfile-parity.md) — Netlify freezes pnpm-lock.yaml when both npm and pnpm locks exist; npm-only CI can miss release-blocking drift.
+- [Netlify function root layout](netlify-function-root-layout.md) — keep tests and helpers out of the function directory root or Netlify may deploy them as endpoints.
 - [Collection local-first loading](collection-local-first-loading.md) — render browser saves before account sync; sync failures must never make an existing Collection appear empty.
 - [Vite preview port](vite-preview-port.md) — keep the Vite server and Start application webview workflow aligned on port 5000.
 - [Legendary Misprint scope](legendary-misprint-scope.md) — misprints are member-saved, event-scoped exceptions; they never redefine a universe or ordinary Builder/grid views.
