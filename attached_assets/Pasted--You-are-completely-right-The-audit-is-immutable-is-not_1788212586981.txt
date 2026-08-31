@@ -1,0 +1,138 @@
+**You are completely right. “The audit is immutable” is not a valid reason the curator can’t learn.** It only means:
+
+> The old audit result must remain frozen.
+> 
+
+It does **not** mean:
+
+> Future curator versions must ignore what Katie taught them.
+> 
+
+If you can build a strong board from the exact same search pool, then:
+
+- **Search succeeded.**
+- **The curator failed.**
+- Your rescue board is labeled evidence showing how it failed.
+- The next curation version should consume that evidence and try again.
+
+Otherwise the rescue grid is only a manual export feature wearing a lab coat.
+
+## The correct learning loop
+
+1. **System creates Event and Compiled boards.**
+2. **You make an immutable blind choice.**
+3. **You create your rescue board from the retained pool.**
+4. The system records:
+    - Images you selected
+    - System-selected images you removed
+    - Hero choice
+    - Arrangement
+    - Event/Compiled/character-look classification
+    - Relevant character and aesthetic cluster
+    - Your reasons
+5. A new **editorial calibration profile** is derived for that actor × Vibe Pack.
+6. Future audits use that profile as bounded preference evidence.
+7. The curator version and calibration-profile version are bumped.
+8. A fresh audit tests whether the curator can now create a strong board without rescue.
+9. Only then is the pairing ready for scheduling approval.
+
+The old audit stays frozen. The **next audit gets smarter**.
+
+## What the curator should learn from the rescue
+
+Not merely:
+
+> “Always pick these nine URLs.”
+> 
+
+It should learn transferable contrasts:
+
+- You selected full silhouettes over cropped torsos.
+- You selected Yuan Zhong over unrelated Liu Xueyi roles.
+- You preferred pale ceremonial styling for Cold Jade.
+- You treated same-costume variation as desirable Event continuity.
+- You rejected modern suits, collages, BTS imagery, and contradictory palettes.
+- You chose one image as the hero because its composition carried the promise.
+- You preferred these cards over the specific cards the system selected.
+
+That creates useful **pairwise preference evidence**:
+
+> Selected pale Yuan Zhong silhouette **beats** rejected modern portrait for Cold Jade Immortal.
+> 
+
+> Same-costume frame with a different expression **beats** unrelated-role variety.
+> 
+
+> Clean single frame **beats** collage, even when the collage maximizes perceptual difference.
+> 
+
+This can be implemented deterministically before anyone needs fancy model training.
+
+## Three kinds of learning
+
+### 1. Curation learning
+
+When your desired images already exist in the pool:
+
+- Reweight cluster compatibility
+- Improve promise scoring
+- Change hero and arrangement rules
+- Correct duplicate-versus-continuity decisions
+- Penalize features from removed images
+- Reward features shared by selected images
+
+### 2. Search learning
+
+When you select a partial cluster but need more:
+
+- Extract character/work/look anchors
+- Identify the productive query
+- Generate related bounded queries
+- Search for more images from that Event/look
+- Locate cleaner or higher-resolution versions
+
+### 3. Gate correction
+
+When you select an image the system hard-blocked:
+
+- The flag does not immediately bypass the gate.
+- But it records a possible **false positive**.
+- The team either corrects the detector or finds an eligible copy.
+- A new version proves the corrected gate still blocks real bad cases.
+
+## What “ready” should mean
+
+A Vibe Pack is not ready merely because you manually saved one good grid.
+
+Suggested states:
+
+1. **Uncalibrated**
+    - No reliable board yet.
+2. **Human rescue available**
+    - You demonstrated that the evidence can produce a good board.
+    - Not yet eligible for automatic Daily Drop.
+3. **Learning applied**
+    - A new calibration/curation version consumed the rescue evidence.
+4. **Reaudit required**
+    - Fresh search and curation run under the new version.
+5. **Reproduced**
+    - Curator independently creates a board that fulfills the same editorial principles.
+    - It does not need the exact same nine images.
+6. **Approved for Daily**
+    - New board passes blind human review and all technical gates.
+
+That closes the loop honestly.
+
+## What to tell Replit
+
+> The rescue-board receipt must become versioned input to future curation, not merely an immutable artifact for export. Immutability means the historical audit cannot be rewritten; it does not prohibit a new editorial-calibration profile from learning from the operator’s selected images, removals, hero choice, ordering, cluster label, and reasons. If the operator can build a strong board from the retained pool, classify the incident as curator failure rather than search failure. Derive bounded pairwise preferences and actor × Vibe cluster weights, bump the calibration and curation versions, and require a fresh audit to demonstrate that the curator can reproduce the editorial principles without manual rescue. Do not approve the pairing solely because a rescue board exists; approve it after a learned rerun passes review.
+> 
+
+And I would make this an explicit task, not a vague “future layer”:
+
+> **Make rescue boards teach future curation**
+> 
+
+Because your core challenge is correct:
+
+**If the laboratory records your answer but never changes its hypothesis, it is not calibration. It is scrapbooking.**

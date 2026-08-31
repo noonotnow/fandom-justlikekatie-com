@@ -1,0 +1,104 @@
+i should be able to mark grids as events vs compiled too for like specific examples. and i want this in place for any other user who exports grids going forward. we should get smarter based on what people actually want and this can be a membership feature that actually makes the product better
+5:41 PM
+YES. This turns the export into a real preference signal and makes membership genuinely participatory.
+The key distinction:
+The user’s Event/Compiled label declares the board’s editorial intent.
+Their image choices, removals, hero selection, and arrangement demonstrate what that intent means visually.
+So every exported grid can become a versioned example—without pretending every export is equally authoritative.
+Export flow
+Before or immediately after export:
+What kind of board did you make?
+Event — one bounded visual world: appearance, editorial, character, costume, scene, or signature look
+Compiled — an intentional range of roles, looks, moments, or sources
+Hybrid / not sure — useful so people aren’t forced to mislabel ambiguous boards
+Optional Event subtype:
+Literal appearance
+Editorial set
+Character study
+Costume/look study
+Scene family
+Styling moment
+Then ask:
+Use this grid to improve my recommendations?
+Members can optionally also contribute an anonymized version to broader Vibe Atlas learning.
+Learn from the entire edit lineage
+An exported grid should preserve:
+Actor and Vibe Pack
+User-declared Event/Compiled intent
+System starting board, if any
+Images retained from the system board
+Images added
+Images removed
+Hero selection
+Final arrangement
+Character/look cluster, when provided
+Export timestamp
+Search, cluster, promise, and curation versions
+Whether the user consented to personal and/or aggregate learning
+The strongest signal is not merely “exported.”
+It is:
+System proposed A → user removed cards 2, 5, and 7 → added three Yuan Zhong silhouettes → moved one to hero → labeled the result Event → exported.
+That is a complete taste lesson.
+Signal strength
+Not every action should count equally:
+Viewed — almost no signal
+Saved — weak positive
+Exported unchanged — moderate positive
+Labeled Event/Compiled — stronger intent signal
+Edited and exported — strong preference signal
+Repeatedly used similar clusters — strong personal pattern
+Operator-approved calibration board — strongest product-level evidence
+An export is evidence of usefulness, but not necessarily perfection. The edit delta explains what the person actually wanted.
+Two learning layers
+Personal taste profile
+Membership can offer:
+Your Atlas learns what you mean by a good grid.
+For example:
+Prefers Event boards
+Likes character/costume continuity
+Prioritizes full silhouettes
+Avoids collages
+Likes restrained palette consistency
+Frequently chooses emotional close-ups as hero images
+Enjoys controlled repetition more than maximal variety
+This should affect that member’s future proposals without changing everyone else’s results.
+Aggregate product learning
+With explicit consent, anonymized patterns can improve the global curator:
+Event boards are repeatedly preferred for character-specific Vibes
+Users remove modern images from costume packs
+Full silhouettes are commonly promoted to hero
+Certain query clusters produce frequently exported cards
+Collages are consistently removed
+Particular arrangements survive edits
+Global learning should be bounded and abuse-resistant so one very active user—or a fandom campaign—cannot distort the entire curator.
+Membership value
+This is much stronger than “pay us for extra exports.”
+Membership becomes:
+Persistent taste profile
+Smarter personalized board proposals
+Saved Event/Compiled preferences
+Character/look cluster memory
+Better rescue and “find more like this” tools
+A visible history of how their Atlas has learned
+Optional participation in improving the shared curator
+A member could eventually see:
+Your Atlas tends to prefer character-continuity Events, full-body hero images, cool palettes, and deliberate repetition.
+And perhaps reset or edit those preferences. The person should control their taste profile rather than being trapped by six grids they made during a temporary Zhang Linghe emergency.
+Important safeguards
+Explicit consent for using exports beyond delivering the export
+Separate personal learning from aggregate learning
+Anonymize aggregate contributions
+Never expose private grids or source images as public examples without permission
+Let users inspect, disable, reset, or delete their preference history
+Treat Event/Compiled as user intent—not unquestionable truth
+Preserve a stable editorial baseline so popularity does not flatten niche taste
+Weight repeated behavior carefully and prevent one account from dominating
+Task framing
+Learn from member-exported grids
+Let users label exported grids as Event, Compiled, or Hybrid and optionally classify the Event subtype. Preserve the full edit lineage from system proposal to exported board. Use the receipt to update a transparent personal taste profile, and—only with separate consent—contribute anonymized bounded signals to future global curation versions. Historical exports remain immutable; learning applies only to subsequent recommendations and must be validated through new proposals.
+This closes the loop we were missing:
+Search gives us possibilities.
+Curation makes a proposal.
+People reveal what they actually want.
+The next proposal gets better.
+That is a membership feature with compounding product value—not a decorative badge and twelve additional download credits.

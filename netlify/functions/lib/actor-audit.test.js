@@ -10,6 +10,7 @@ import {
 import {
   auditCalibrationPrefix,
   auditFeedbackPrefix,
+  auditRescueBoardKey,
   auditRescueBoardPrefix,
   auditRunKey,
   auditVerdictPrefix,
@@ -423,6 +424,7 @@ test("run-scoped image flags persist as append-only feedback without rewriting c
     rescueIds,
   );
   assert.equal(rescued.currentRun.editorialFeedback.operatorRescueBoard.savedBy, "operator-1");
+  assert.equal(rescued.currentRun.editorialFeedback.operatorRescueBoards.length, 1);
   assert.deepEqual(rescued.currentRun.blindReview, calibrationBefore);
   assert.equal([...store.records.keys()]
     .filter(key => key.startsWith(auditRescueBoardPrefix(pairActor.id, 0, "run-1"))).length, 1);
@@ -464,6 +466,74 @@ test("run-scoped image flags persist as append-only feedback without rewriting c
   ), {});
   assert.deepEqual((await afterExport.json()).currentRun.blindReview, calibrationBefore);
   assert.deepEqual(store.records.get(eligibilityKey(pairActor.id, 0)), eligibilityBeforeExport);
+
+  const secondRescueIds = [...rescueIds];
+  [secondRescueIds[1], secondRescueIds[4]] = [secondRescueIds[4], secondRescueIds[1]];
+  const secondRescueResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds: secondRescueIds,
+  }), {});
+  const secondRescue = await secondRescueResponse.json();
+  assert.equal(secondRescueResponse.status, 200, JSON.stringify(secondRescue));
+  const savedReceipts = secondRescue.currentRun.editorialFeedback.operatorRescueBoards;
+  assert.equal(savedReceipts.length, 2);
+  assert.equal(savedReceipts[0].receiptId, secondRescue.currentRun.editorialFeedback.operatorRescueBoard.receiptId);
+  assert.deepEqual(savedReceipts[0].board.candidates.map(item => item.candidateId), secondRescueIds);
+  assert.deepEqual(savedReceipts[1].board.candidates.map(item => item.candidateId), rescueIds);
+
+  const oldReceiptExport = await handler(request("POST", {
+    action: "export_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId: savedReceipt.receiptId,
+  }), {});
+  const oldExportBody = await oldReceiptExport.json();
+  assert.equal(oldReceiptExport.status, 200, JSON.stringify(oldExportBody));
+  assert.deepEqual(oldExportBody.rescueExport.candidates.map(item => item.candidateId), rescueIds);
+  assert.deepEqual(secondRescue.currentRun.blindReview, calibrationBefore);
+
+  const missingReceiptExport = await handler(request("POST", {
+    action: "export_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId: "missing-receipt",
+  }), {});
+  assert.equal(missingReceiptExport.status, 404);
+
+  const malformedReceiptExport = await handler(request("POST", {
+    action: "export_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId: "../another-run",
+  }), {});
+  assert.equal(malformedReceiptExport.status, 400);
+
+  const mismatchedReceiptId = "mismatched-receipt";
+  store.records.set(
+    auditRescueBoardKey(pairActor.id, 0, "run-1", mismatchedReceiptId),
+    { ...structuredClone(savedReceipt), receiptId: mismatchedReceiptId, actorId: "another-actor" },
+  );
+  const mismatchedReceiptExport = await handler(request("POST", {
+    action: "export_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId: mismatchedReceiptId,
+  }), {});
+  assert.equal(mismatchedReceiptExport.status, 409);
+  const filteredHistoryResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const filteredHistory = await filteredHistoryResponse.json();
+  assert.equal(filteredHistory.currentRun.editorialFeedback.operatorRescueBoards.length, 2);
 
   const feedbackKeysAfterFlag = [...store.records.keys()]
     .filter(key => key.startsWith(auditFeedbackPrefix(pairActor.id, 0, "run-1")));

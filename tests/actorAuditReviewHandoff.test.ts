@@ -28,6 +28,9 @@ function functionBody(name: string): string {
 }
 
 const startAudit = functionBody('startAudit');
+const requestedReviewStart = source.indexOf('function RequestedGridReview');
+const requestedReviewEnd = source.indexOf('\nfunction PartialBoards', requestedReviewStart);
+const requestedReview = source.slice(requestedReviewStart, requestedReviewEnd);
 
 test('a completed actor audit reloads its authoritative saved review', () => {
   const runRequest = startAudit.indexOf("api({action:'run'");
@@ -86,12 +89,24 @@ test('the rescue board is a manual operator override without changing the frozen
   assert.match(source, /previous saved arrangement is retained as history/);
 });
 
-test('only the current saved rescue arrangement exposes a Collection export', () => {
+test('saved rescue history exposes immutable records and Collection exports', () => {
   const exportBody = functionBody('exportRescueBoard');
   assert.match(exportBody, /action:'export_rescue_board'/);
   assert.match(exportBody, /dbSaveGrid\(grid\)/);
   assert.match(exportBody, /getPublicSession\(\)/);
   assert.match(exportBody, /syncPublicGrid\(session,grid\.id\)/);
+  assert.match(source, /operatorRescueBoards/);
+  assert.match(source, /Saved rescue records/);
+  assert.match(source, /Each record is immutable/);
+  assert.match(source, /Export this board/);
+  assert.match(source, /Viewing saved arrangement/);
+  assert.match(source, /Use as starting point/);
+  assert.match(source, /read-only record/);
+  const draftSeedStart = requestedReview.indexOf('const initialCandidates');
+  const draftSeedEnd = requestedReview.indexOf('const [candidates', draftSeedStart);
+  const draftSeed = requestedReview.slice(draftSeedStart, draftSeedEnd);
+  assert.match(draftSeed, /reviewCandidates/);
+  assert.doesNotMatch(draftSeed, /saved|operatorRescueBoard/);
   assert.match(source, /savedMatchesCurrentFeedback&&saved/);
   assert.match(source, /Export saved board to Collection/);
   assert.match(source, /resultId: candidate\.candidateId/);

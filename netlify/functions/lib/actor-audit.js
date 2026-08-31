@@ -542,9 +542,16 @@ export function createActorAuditHandler({
         if (!currentRunMatchesCurrentContract(run, pair)) {
           return json(409, { error: "This rescue board belongs to an older audit contract. Run a fresh audit and rebuild it before exporting." });
         }
-        const receipt = run.editorialFeedback?.operatorRescueBoard;
+        if (typeof input.receiptId !== "string"
+          || !/^[A-Za-z0-9_-]{1,128}$/.test(input.receiptId)) {
+          return json(400, { error: "A saved rescue receipt is required." });
+        }
+        const receipt = await store.get(
+          auditRescueBoardKey(pair.actor.id, pair.vibeIdx, run.runId, input.receiptId),
+          { type: "json", consistency: "strong" },
+        );
         if (!receipt || receipt.receiptId !== input.receiptId) {
-          return json(409, { error: "The saved rescue arrangement is no longer current. Refresh and export the latest saved arrangement." });
+          return json(404, { error: "That saved rescue arrangement was not found for this audit run." });
         }
         const currentFeedbackHash = feedbackHash(run.editorialFeedback?.flags || []);
         if (receipt.runId !== run.runId
@@ -1125,6 +1132,7 @@ function emptyEditorialFeedback() {
     feedbackHash: feedbackHash([]),
     requestedReview: null,
     operatorRescueBoard: null,
+    operatorRescueBoards: [],
   };
 }
 
@@ -1153,18 +1161,24 @@ async function readEditorialFeedback(store, pair, run) {
       ...feedbackDisposition(receipt, candidateGate(run, receipt.candidateId)),
     }))
     .sort((left, right) => left.candidateId.localeCompare(right.candidateId));
+  const operatorRescueBoards = (await readReceipts(
+    store,
+    auditRescueBoardPrefix(pair.actor.id, pair.vibeIdx, run.runId),
+    "savedAt",
+  )).filter(receipt =>
+    receipt.runId === run.runId
+    && receipt.actorId === pair.actor.id
+    && receipt.vibeKey === pair.vibeKey
+  );
   const feedback = {
     schemaVersion: 1,
     eventCount: receipts.length,
     flags,
     feedbackHash: feedbackHash(flags),
     requestedReview: null,
-    operatorRescueBoard: await readLatestReceipt(
-      store,
-      auditRescueBoardPrefix(pair.actor.id, pair.vibeIdx, run.runId),
-      "savedAt",
-    ),
+    operatorRescueBoards,
   };
+  feedback.operatorRescueBoard = feedback.operatorRescueBoards[0] || null;
   if (flags.length) {
     feedback.requestedReview = await store.get(
       auditRequestedReviewKey(pair.actor.id, pair.vibeIdx, run.runId, feedback.feedbackHash),
@@ -1605,7 +1619,7 @@ async function readFirstReceipt(store, prefix, timestampField) {
   return receipts[0]?.value || null;
 }
 
-async function readLatestReceipt(store, prefix, timestampField) {
+async function readReceipts(store, prefix, timestampField) {
   const listing = await store.list({ prefix });
   const receipts = (await Promise.all((listing?.blobs || []).map(async blob => {
     if (typeof blob?.key !== "string") return null;
@@ -1615,7 +1629,7 @@ async function readLatestReceipt(store, prefix, timestampField) {
   receipts.sort((left, right) =>
     String(right.value[timestampField] || "").localeCompare(String(left.value[timestampField] || ""))
     || right.key.localeCompare(left.key));
-  return receipts[0]?.value || null;
+  return receipts.map(receipt => receipt.value);
 }
 
 function recordHash(value) {

@@ -139,6 +139,19 @@
 .requestedReviewHeader h6 { margin:0; color:#c9a96e; font-size:12px; }
 .requestedReviewHeader p { max-width:680px; margin-top:4px; color:#8d928f; font-size:10px; }
 .requestedReviewHeader > span { flex:0 0 auto; padding:4px 7px; border:1px solid var(--admin-border); border-radius:5px; color:#b9bfbb; font-size:9px; }
+.rescueHistory { display:grid; gap:9px; padding:10px; border:1px solid var(--admin-border); border-radius:7px; background:color-mix(in srgb,Canvas 95%,currentColor 5%); }
+.rescueHistory h6 { margin:0; color:#c9a96e; font-size:11px; }
+.rescueHistory p { margin-top:4px; color:#8d928f; font-size:10px; line-height:1.45; }
+.rescueHistoryList { display:grid; gap:5px; margin:0; padding:0; list-style:none; }
+.rescueHistoryItem,.rescueHistoryItemSelected { display:flex; gap:7px; align-items:stretch; min-width:0; padding:5px; border:1px solid var(--admin-border); border-radius:6px; }
+.rescueHistoryItemSelected { border-color:#c9a96e; background:color-mix(in srgb,#c9a96e 8%,transparent); }
+.rescueHistorySelect { display:grid; flex:1; gap:3px; min-width:0; padding:5px; border:0; background:transparent; color:inherit; text-align:left; cursor:pointer; }
+.rescueHistorySelect strong { color:#b9bfbb; font-size:10px; }
+.rescueHistorySelect span,.rescueHistorySelect small { overflow:hidden; color:#8d928f; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+.rescueHistorySelect:hover strong,.rescueHistorySelect:focus-visible strong { color:#c9a96e; }
+.rescueHistoryItem > .buttonSecondary,.rescueHistoryItemSelected > .buttonSecondary { align-self:center; min-height:30px; padding:0 8px; font-size:10px; }
+.rescueHistoryPreview { display:grid; gap:8px; padding:10px; border-top:1px solid var(--admin-border); }
+.rescueHistoryPreview > p { margin:0; }
 .requestedSummary { color:#b8d2c6; font-size:10px!important; }
 .rescuePickerHeader { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
 .rescuePickerHeader strong { color:#c9a96e; font-size:10px; }

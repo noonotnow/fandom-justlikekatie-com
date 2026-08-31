@@ -251,6 +251,10 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport}:{run:Run;isCur
   const flags=feedback?.flags??EMPTY_RECORDS;
   const review=feedback?.requestedReview;
   const saved=feedback?.operatorRescueBoard;
+  const savedReceipts=useMemo<AnyRecord[]>(()=>{
+    const receipts=Array.isArray(feedback?.operatorRescueBoards)?feedback.operatorRescueBoards:[];
+    return saved&&!receipts.some((receipt:any)=>receipt.receiptId===saved.receiptId)?[saved,...receipts]:receipts;
+  },[feedback?.operatorRescueBoards,saved]);
   const savedMatchesCurrentFeedback=Boolean(saved?.feedbackHash&&feedback?.feedbackHash&&saved.feedbackHash===feedback.feedbackHash);
   const rawResults=(run.rawResults??EMPTY_RECORDS) as AnyRecord[];
   const excludedIds=useMemo(()=>new Set(flags.filter((item:any)=>item.disposition==='excluded').map((item:any)=>item.candidateId)),[flags]);
@@ -269,20 +273,26 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport}:{run:Run;isCur
   },[rawResults,run.curationReceipt?.rawCandidates,excludedIds,unavailableIds]);
   const poolIds=useMemo(()=>new Set(candidatePool.map(item=>item.candidateId)),[candidatePool]);
   const reviewCandidates=review?.board?.candidates;
-  const savedCandidates=saved?.board?.candidates;
-  const initialCandidates=useMemo<AnyRecord[]>(()=>((savedMatchesCurrentFeedback
-    ? savedCandidates
-    : review
-      ? reviewCandidates
-      : [])??[]).filter((item:any)=>poolIds.has(item.candidateId)).slice(0,9) as AnyRecord[],[
-    savedMatchesCurrentFeedback,
-    savedCandidates,
+  const initialCandidates=useMemo<AnyRecord[]>(()=>((review
+    ? reviewCandidates
+    : [])??[]).filter((item:any)=>poolIds.has(item.candidateId)).slice(0,9) as AnyRecord[],[
     review,
     reviewCandidates,
     poolIds,
   ]);
   const [candidates,setCandidates]=useState<AnyRecord[]>(initialCandidates);
-  useEffect(()=>setCandidates(initialCandidates),[initialCandidates]);
+  const draftContextKey=`${run.runId??''}:${feedback?.feedbackHash??''}`;
+  const [draftContext,setDraftContext]=useState(draftContextKey);
+  const [viewedReceiptId,setViewedReceiptId]=useState<string|null>(null);
+  const viewedReceipt=savedReceipts.find(receipt=>receipt.receiptId===viewedReceiptId)||null;
+  useEffect(()=>{
+    if(draftContext===draftContextKey)return;
+    setCandidates(initialCandidates);
+    setDraftContext(draftContextKey);
+  },[draftContext,draftContextKey,initialCandidates]);
+  useEffect(()=>{
+    setViewedReceiptId(saved?.receiptId??null);
+  },[saved?.receiptId]);
   const blockedCount=unavailableIds.size;
   const excludedCount=excludedIds.size;
   const move=(index:number,direction:-1|1)=>setCandidates(current=>{const target=index+direction;if(target<0||target>=current.length)return current;const next=[...current];[next[index],next[target]]=[next[target],next[index]];return next;});
@@ -291,6 +301,21 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport}:{run:Run;isCur
   return <section className={styles.requestedReview}>
     <div className={styles.requestedReviewHeader}><div><h6>Operator rescue board</h6><p>This is your override. Choose any nine retained, displayable images and arrange them yourself. Composite, duplicate, anti-anchor, and Vibe labels remain visible as algorithm evidence, but they do not veto the rescue. Only unavailable images and your exclusions stay out. The original audit and Daily Drop eligibility never change.</p></div><span>{candidates.length}/9 chosen · {candidatePool.length} available · {blockedCount} unavailable · {excludedCount} excluded</span></div>
     {saved&&!savedMatchesCurrentFeedback&&<p className={styles.historicalNotice}>{review?'Your previous saved arrangement is retained as history. This board was rebuilt from the current image choices.':'Your previous saved arrangement is retained as history. Pin an image to start a new editable rescue board.'}</p>}
+    {savedReceipts.length>0&&<section className={styles.rescueHistory} aria-label="Saved rescue board history">
+      <div><h6>Saved rescue records</h6><p>Each record is immutable. These boards document operator judgment and Collection exports; they do not train curation or change Daily Drop eligibility.</p></div>
+      <ol className={styles.rescueHistoryList}>{savedReceipts.map((receipt:any,index:number)=>{
+        const matchesCurrentFeedback=receipt.feedbackHash===feedback?.feedbackHash;
+        return <li className={receipt.receiptId===viewedReceiptId?styles.rescueHistoryItemSelected:styles.rescueHistoryItem} key={receipt.receiptId}>
+          <button type="button" className={styles.rescueHistorySelect} onClick={()=>setViewedReceiptId(receipt.receiptId)} aria-pressed={receipt.receiptId===viewedReceiptId}>
+            <strong>{index===0?'Latest saved board':'Saved board'}</strong>
+            <span>{date(receipt.savedAt)} · 9 cards · {String(receipt.receiptId).slice(0,8)}</span>
+            <small>{receipt.savedBy||'Operator'} · hero position 5 · {matchesCurrentFeedback?'current feedback':'earlier feedback · view only'}</small>
+          </button>
+          <button type="button" className={styles.buttonSecondary} disabled={!isCurrent||Boolean(busy)||!matchesCurrentFeedback} onClick={()=>onExport(receipt.receiptId)}>Export this board</button>
+        </li>;
+      })}</ol>
+      {viewedReceipt&&<div className={styles.rescueHistoryPreview}><div className={styles.rescuePickerHeader}><strong>Viewing saved arrangement</strong><span>{date(viewedReceipt.savedAt)} · read-only record</span></div><p>This board is not the editable draft. Use it as a starting point to create a new append-only receipt.</p><div className={styles.rescueGrid}>{(viewedReceipt.board?.candidates??[]).map((item:any,index:number)=><article className={styles.rescueTile} data-hero={index===4} key={`${viewedReceipt.receiptId}-${item.candidateId||index}`}><a href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.thumbnail?<img src={item.thumbnail} alt={item.title||`Saved rescue card ${index+1}`}/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{index===4?'Hero · ':''}{item.title||`Card ${index+1}`}</span></a></article>)}</div><div className={styles.rescueActions}><button type="button" className={styles.buttonSecondary} disabled={!isCurrent||Boolean(busy)} onClick={()=>{setCandidates((viewedReceipt.board?.candidates??[]).filter((item:any)=>poolIds.has(item.candidateId)).slice(0,9));setViewedReceiptId(null);}}>Use as starting point</button><button type="button" className={styles.buttonSecondary} disabled={!isCurrent||Boolean(busy)||viewedReceipt.feedbackHash!==feedback?.feedbackHash} onClick={()=>onExport(viewedReceipt.receiptId)}>Export this board to Collection</button></div></div>}
+    </section>}
     <div className={styles.rescuePickerHeader}><strong>Choose your nine</strong><span>Click an image to {candidates.length===9?'remove it before choosing another':'add or remove it'}.</span></div>
     <div className={styles.rescuePicker}>{candidatePool.map(item=>{const selectedIndex=candidates.findIndex(candidate=>candidate.candidateId===item.candidateId);const selected=selectedIndex>=0;return <button type="button" className={selected?styles.rescuePickSelected:styles.rescuePick} aria-pressed={selected} disabled={!selected&&candidates.length>=9} onClick={()=>toggleCandidate(item)} key={item.candidateId}><img src={item.thumbnail} alt={item.title||'Retained rescue candidate'}/><span>{selected?`Chosen ${selectedIndex+1}`:'Add'}</span></button>;})}</div>
     {candidates.length>0?<div className={styles.rescueGrid}>{candidates.map((item,index)=><article className={styles.rescueTile} data-hero={index===4} key={item.candidateId}><a href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.thumbnail?<img src={item.thumbnail} alt={item.title||`Rescue card ${index+1}`}/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{index===4?'Hero · ':''}{item.title||`Card ${index+1}`}</span></a><div><button type="button" disabled={index===0} onClick={()=>move(index,-1)} aria-label={`Move card ${index+1} earlier`}>←</button><button type="button" disabled={candidates.length<5||index===4} onClick={()=>setHero(index)} aria-label={`Make card ${index+1} the hero`}>Hero</button><button type="button" disabled={index===candidates.length-1} onClick={()=>move(index,1)} aria-label={`Move card ${index+1} later`}>→</button></div></article>)}</div>:<p className={styles.boardEmpty}>Choose the first image for this rescue board.</p>}
