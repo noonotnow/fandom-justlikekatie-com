@@ -166,7 +166,7 @@ export function createActorAuditHandler({
           return json(409, { error: "This verdict is not for the current audit run. Refresh and try again." });
         }
         if (!currentRunMatchesCurrentContract(report.currentRun, pair)) {
-          return json(409, { error: "This audit used an older curation contract. Run a fresh audit before recording a scheduling verdict." });
+          return json(409, { error: "This audit is invalid under the current profile contract. Run a fresh audit before recording a scheduling verdict." });
         }
         const hasComparableBoards = comparableBoards(report.currentRun);
         const blindReview = report.currentRun.blindReview;
@@ -255,6 +255,9 @@ export function createActorAuditHandler({
         if (!report?.currentRun || input.runId !== report.currentRun.runId) {
           return json(409, { error: "This review is not for the current audit run. Refresh and try again." });
         }
+        if (!currentRunMatchesCurrentContract(report.currentRun, pair)) {
+          return json(409, { error: "Legacy audits are retained history. Run a fresh audit before recording a board choice." });
+        }
         if (!comparableBoards(report.currentRun)) {
           return json(409, { error: "A blinded comparison requires two complete Event and Compiled boards." });
         }
@@ -295,6 +298,9 @@ export function createActorAuditHandler({
         const report = await readReport(store, pair);
         if (!report?.currentRun || input.runId !== report.currentRun.runId) {
           return json(409, { error: "This review is not for the current audit run. Refresh and try again." });
+        }
+        if (!currentRunMatchesCurrentContract(report.currentRun, pair)) {
+          return json(409, { error: "Legacy audits are retained history. Their calibration cannot be changed." });
         }
         if (report.currentRun.operatorVerdict) {
           return json(409, { error: "This audit run is finalized; its calibration receipt is immutable." });
@@ -365,7 +371,9 @@ export function createActorAuditHandler({
         if (report.currentRun?.runId !== run.runId) {
           return json(409, { error: "Only the current audit run can receive grid-review requests." });
         }
-        if (!run.blindReview?.choice && run.blindReview?.status !== "unavailable") {
+        if (currentRunMatchesCurrentContract(run, pair)
+          && !run.blindReview?.choice
+          && run.blindReview?.status !== "unavailable") {
           return json(409, { error: "Choose the blind board result before flagging evidence for grid review." });
         }
         if (typeof input.candidateId !== "string" || !/^[a-f0-9]{24}$/.test(input.candidateId)) {
@@ -493,7 +501,9 @@ export function createActorAuditHandler({
         if (!run || input.runId !== run.runId) {
           return json(409, { error: "Only the current audit run can save an Operator Rescue Board." });
         }
-        if (!run.blindReview?.choice && run.blindReview?.status !== "unavailable") {
+        if (currentRunMatchesCurrentContract(run, pair)
+          && !run.blindReview?.choice
+          && run.blindReview?.status !== "unavailable") {
           return json(409, { error: "Choose the blind board result before saving a rescue arrangement." });
         }
         const validation = validateRescueArrangement(run, input.candidateIds);
@@ -896,10 +906,11 @@ function pairingSummary(pair, report) {
   const currentVerdict = current && report?.verdictRunId === current.runId ? report.verdict : null;
   const reviewPending = Boolean(current && comparableBoards(current) && !current.blindReview?.choice);
   const comparisonUnavailable = Boolean(current && !comparableBoards(current) && !currentVerdict);
-  const needsReapproval = Boolean(current && !currentRunMatchesCurrentContract(current, pair));
+  const auditContract = current ? auditContractFor(current, pair) : null;
+  const needsReapproval = Boolean(auditContract?.isLegacy);
   const eligible = Boolean(
     current
-    && currentRunMatchesCurrentContract(current, pair)
+    && auditContract?.isCurrent
     && currentVerdict
     && current.blindReview?.choice
     && (!isDisagreement(current, current.blindReview) || current.blindReview.reasonCodes?.length)
@@ -923,25 +934,60 @@ function pairingSummary(pair, report) {
     notes: currentVerdict ? report.notes : "",
     verdictAt: currentVerdict ? report.verdictAt : null,
     eligible: needsReapproval ? false : reviewPending ? null : eligible,
+    auditContract,
   };
 }
 
 function currentRunMatchesCurrentContract(run, pair) {
-  return Boolean(
-    run
-    && run.profileVersion === IDENTITY_PROFILE_VERSION
-    && run.identityProfileVersion === IDENTITY_PROFILE_VERSION
-    && run.aestheticClusterVersion === AESTHETIC_CLUSTER_VERSION
-    && run.promiseContractVersion === VIBE_PROMISE_CONTRACT_VERSION
-    && (run.curationVersion ?? run.curationReceipt?.curationVersion) === CURATION_VERSION
-    && run.pairingFingerprint === pairingFingerprintFor(pair.actor, pair.vibeIdx)
-  );
+  return auditContractFor(run, pair).isCurrent;
+}
+
+function auditContractFor(run, pair) {
+  const curationVersion = run?.curationVersion
+    ?? run?.curationReceipt?.curationVersion
+    ?? run?.curationReceipt?.version
+    ?? null;
+  const legacyReasons = [];
+  if (run?.profileVersion !== IDENTITY_PROFILE_VERSION
+    || run?.identityProfileVersion !== IDENTITY_PROFILE_VERSION) {
+    legacyReasons.push("identity_profile_version");
+  }
+  if (run?.aestheticClusterVersion !== AESTHETIC_CLUSTER_VERSION) {
+    legacyReasons.push("aesthetic_cluster_version");
+  }
+  if (run?.promiseContractVersion !== VIBE_PROMISE_CONTRACT_VERSION) {
+    legacyReasons.push("promise_contract_version");
+  }
+  if (curationVersion !== CURATION_VERSION) {
+    legacyReasons.push("curation_version");
+  }
+  if (run?.pairingFingerprint !== pairingFingerprintFor(pair.actor, pair.vibeIdx)) {
+    legacyReasons.push("pairing_fingerprint");
+  }
+  return {
+    status: legacyReasons.length ? "legacy" : "current",
+    isLegacy: legacyReasons.length > 0,
+    isCurrent: legacyReasons.length === 0,
+    legacyReasons,
+    currentVersions: {
+      identityProfileVersion: IDENTITY_PROFILE_VERSION,
+      aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+      promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+      curationVersion: CURATION_VERSION,
+    },
+  };
 }
 function detailResponse(pair, report) {
   const revealed = Boolean(report?.currentRun?.blindReview?.choice);
   return {
     actorId: pair.actor.id,
     vibeKey: pair.vibeKey,
+    currentContract: {
+      identityProfileVersion: IDENTITY_PROFILE_VERSION,
+      aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+      promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+      curationVersion: CURATION_VERSION,
+    },
     currentRun: clientRun(report?.currentRun, pair),
     priorRuns: (report?.priorRuns || []).map(run => clientRun(run, pair)),
     verdict: revealed ? report?.verdict || null : null,
@@ -1581,12 +1627,15 @@ function parseChallengeReasons(value) {
 
 function clientRun(run, pair) {
   if (!run) return null;
+  const auditContract = auditContractFor(run, pair);
   const review = run.blindReview || {
     status: comparableBoards(run) ? "pending" : "unavailable",
     presentationOrder: presentationOrderFor(run.runId),
     boards: blindBoards(run, presentationOrderFor(run.runId)),
   };
-  if (review.choice || review.status === "unavailable") return run;
+  if (auditContract.isLegacy || review.choice || review.status === "unavailable") {
+    return { ...run, auditContract };
+  }
   return {
     runId: run.runId,
     schemaVersion: run.schemaVersion,
@@ -1603,6 +1652,7 @@ function clientRun(run, pair) {
     blindReview: review,
     actorId: pair.actor.id,
     vibeKey: pair.vibeKey,
+    auditContract,
   };
 }
 

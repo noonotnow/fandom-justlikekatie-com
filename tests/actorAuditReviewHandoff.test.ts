@@ -112,3 +112,14 @@ test('saved rescue history exposes immutable records and Collection exports', ()
   assert.match(source, /resultId: candidate\.candidateId/);
   assert.match(source, /gridPosition/);
 });
+
+test('legacy audits are visibly historical and require a fresh audit', () => {
+  assert.match(source, /Legacy audit · retained history/);
+  assert.match(source, /Retained history — invalid under the current profile contract/);
+  assert.match(source, /This board is preserved as historical evidence only/);
+  assert.match(source, /cannot establish Daily Drop eligibility/);
+  assert.match(source, /Run a fresh audit/);
+  assert.match(source, /currentRun\?\.auditContract\?\.isLegacy/);
+  assert.match(source, /freshAuditButton/);
+  assert.match(source, /legacyBoardReview/);
+});

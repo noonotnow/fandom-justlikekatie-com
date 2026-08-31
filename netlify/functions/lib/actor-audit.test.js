@@ -1265,7 +1265,7 @@ test("runs without two complete boards fail clearly and cannot be approved", asy
   assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).eligible, false);
 });
 
-test("an approval from a stale curation contract is visibly marked for reapproval", async () => {
+test("an approval from a legacy profile contract is visibly marked for reapproval", async () => {
   assert.equal(CURATION_VERSION, PREVIOUS_CURATION_VERSION + 1);
   const { handler, store } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
@@ -1281,6 +1281,10 @@ test("an approval from a stale curation contract is visibly marked for reapprova
 
   const runKey = auditRunKey(pairActor.id, 0, "run-1");
   const staleRun = store.records.get(runKey);
+  staleRun.profileVersion = IDENTITY_PROFILE_VERSION - 1;
+  delete staleRun.identityProfileVersion;
+  delete staleRun.aestheticClusterVersion;
+  delete staleRun.promiseContractVersion;
   staleRun.curationVersion = PREVIOUS_CURATION_VERSION;
   staleRun.curationReceipt.curationVersion = PREVIOUS_CURATION_VERSION;
   staleRun.curationReceipt.version = PREVIOUS_CURATION_VERSION;
@@ -1297,6 +1301,42 @@ test("an approval from a stale curation contract is visibly marked for reapprova
   assert.equal(body.actors[0].pairings[0].auditState, "needs_reapproval");
   assert.equal(body.actors[0].pairings[0].verdict, "approved");
   assert.equal(body.actors[0].pairings[0].eligible, false);
+  assert.equal(body.actors[0].pairings[0].auditContract.status, "legacy");
+  assert.deepEqual(body.actors[0].pairings[0].auditContract.legacyReasons, [
+    "identity_profile_version",
+    "aesthetic_cluster_version",
+    "promise_contract_version",
+    "curation_version",
+    "pairing_fingerprint",
+  ]);
+
+  const detailResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const detail = await detailResponse.json();
+  assert.equal(detailResponse.status, 200);
+  assert.equal(detail.currentRun.auditContract.isLegacy, true);
+  assert.deepEqual(detail.currentRun.auditContract.currentVersions, detail.currentContract);
+
+  const staleChoice = await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    choice: "compiled",
+  }), {});
+  assert.equal(staleChoice.status, 409);
+
+  const staleReasons = await handler(request("POST", {
+    action: "blind_reasons",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    reasonCodes: ["wrong_vibe"],
+  }), {});
+  assert.equal(staleReasons.status, 409);
 
   const staleVerdict = await handler(request("POST", {
     action: "verdict",
@@ -1306,6 +1346,55 @@ test("an approval from a stale curation contract is visibly marked for reapprova
     verdict: "approved",
   }), {});
   assert.equal(staleVerdict.status, 409);
+});
+
+test("a blinded legacy run reveals retained evidence and still accepts a rescue board", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+
+  const runKey = auditRunKey(pairActor.id, 0, "run-1");
+  const staleRun = store.records.get(runKey);
+  delete staleRun.promiseContractVersion;
+  store.records.set(runKey, staleRun);
+
+  const detailResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const detail = await detailResponse.json();
+  assert.equal(detail.currentRun.auditContract.isLegacy, true);
+  assert.ok(detail.currentRun.rawResults.length > 0);
+  assert.equal(detail.currentRun.blindReview.status, "pending");
+
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    choice: "compiled",
+  }), {});
+  assert.equal(choiceResponse.status, 409);
+
+  const candidateIds = detail.currentRun.strongestCompiled.candidates
+    .map(candidate => candidate.candidateId);
+  const rescueResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds,
+  }), {});
+  const rescued = await rescueResponse.json();
+  assert.equal(rescueResponse.status, 200, JSON.stringify(rescued));
+  assert.deepEqual(
+    rescued.currentRun.editorialFeedback.operatorRescueBoard.board.candidates
+      .map(candidate => candidate.candidateId),
+    candidateIds,
+  );
 });
 
 test("useful evidence with failed board selection records Needs curation work", async () => {
