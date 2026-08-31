@@ -521,14 +521,15 @@ function stableSerialize(value) {
 
 export function candidateIdForResult(result) {
   const digest = String(result?.digest || result?.imageDigest || "").slice(0, 256);
-  return createHash("sha256").update(stableSerialize({
-    digest: digest || null,
-    batchKey: result?.batchKey || "",
-    title: result?.title || "",
-    source: result?.source || "",
-    link: result?.link || "",
-    thumbnail: result?.thumbnail || "",
-  })).digest("hex").slice(0, 24);
+  const identity = digest
+    ? { imageDigest: digest }
+    : {
+      source: sourceKey(result),
+      canonicalLink: canonicalLinkKey(result),
+      thumbnail: String(result?.thumbnail || ""),
+      title: normalizeText(result?.title),
+    };
+  return createHash("sha256").update(stableSerialize(identity)).digest("hex").slice(0, 24);
 }
 
 function stableResultKey(result) {
@@ -725,7 +726,10 @@ function greedyBoards(candidates, limit, score, incompatible, promise) {
 function preferredBoardBonus(board, preferredCandidateIds) {
   if (!preferredCandidateIds?.size) return 0;
   const preferredCount = board.filter(candidate =>
-    preferredCandidateIds.has(candidateIdForResult(candidate.result))).length;
+    preferredCandidateIds.has(candidateIdForResult({
+      ...candidate.result,
+      digest: candidate.fingerprint?.digest,
+    }))).length;
   // Preference is deliberately small: it can break a close editorial tie, but
   // cannot make an otherwise invalid board pass the promise or safety gates.
   return preferredCount * 0.02;
@@ -948,6 +952,7 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
     link: String(candidate.result.link || "").slice(0, 700),
     thumbnail: String(candidate.result.thumbnail || "").slice(0, 500),
     title: String(candidate.result.title || "").slice(0, 240),
+    description: String(candidate.result.description || "").slice(0, 400),
     source: String(candidate.result.source || "").slice(0, 120),
     batchRank: candidate.batchRank,
     promise: candidate.editorial ? {

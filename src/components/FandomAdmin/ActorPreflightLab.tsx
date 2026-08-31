@@ -194,14 +194,15 @@ function RawResultGrid({run,isCurrent,busy,onFlag}:{run:Run;isCurrent:boolean;bu
     const state=rejection?'rejected':selectedIds.has(item.candidateId)?'selected':'not_selected';
     const stateLabel=state==='rejected'?`Rejected · ${String(rejection?.reason??'curation gate').replaceAll('_',' ')}`:state==='selected'?'Selected for a candidate board':'Retained · not selected';
     return <article className={styles.result} data-state={state} data-flagged={Boolean(flag)} key={item.candidateId||`${item.link||item.thumbnail||item.title||'result'}-${index}`}>
-      <a className={styles.resultLink} href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.thumbnail?<img src={item.thumbnail} alt="" loading="lazy"/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{item.title||'Untitled result'}</span><small>{item.source||'Unknown source'}</small></a>
+      <button type="button" className={styles.resultVisual} disabled={!isCurrent||busy===`flag:${item.candidateId}`||!item.candidateId} onClick={()=>onFlag(item.candidateId,flag?.intent!=='pin','pin')} aria-label={`${flag?.intent==='pin'?'Remove pin from':'Pin'} ${item.title||'this image'} for board`}>{item.thumbnail?<img src={item.thumbnail} alt="" loading="lazy"/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{flag?.intent==='pin'?'Pinned for rescue review':'Pin this image'}</span></button>
+      <a className={styles.resultSourceLink} href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.title||'Untitled result'} · {item.source||'Unknown source'} · Open source ↗</a>
       <span className={styles.resultState} data-state={state}>{stateLabel}</span>
       {rejection?.dropDetail&&<small className={styles.resultReason}>{rejection.dropDetail}</small>}
       {flag&&<small className={flag.disposition==='blocked'?styles.flagBlocked:styles.flagHonored}>{flag.disposition==='excluded'?'Excluded from rescue board':flag.disposition==='blocked'?`${flag.intent==='challenge'?'Challenge saved':'Preference saved'} · blocked by ${String(flag.blockedReason).replaceAll('_',' ')}; find a usable equivalent`:`${String(flag.intent||'pin').replaceAll('_',' ')} saved · eligible for provisional review`}<br/>{flag.reasons?.length?`${flag.reasons.map((reason:string)=>reason.replaceAll('_',' ')).join(' · ')} · `:''}{date(flag.createdAt)} · {flag.createdBy}</small>}
       <div className={styles.intentButtons} aria-label="Image-level editorial flags">
         {([['pin','Pin for board'],['hero','Hero candidate'],['supporting','Good supporting card'],['exclude','Exclude']] as Array<[string,string]>).map(([intent,label])=><button type="button" key={intent} className={flag?.intent===intent?styles.flagButtonActive:styles.flagButton} disabled={!isCurrent||busy===`flag:${item.candidateId}`||!item.candidateId} onClick={()=>onFlag(item.candidateId,flag?.intent!==intent,intent)}>{label}</button>)}
       </div>
-      {rejection&&<div className={styles.challengeControls}><select className={styles.challengeSelect} value={challengeByCandidate[item.candidateId]??flag?.reasons?.[0]??''} onChange={event=>setChallengeByCandidate(current=>({...current,[item.candidateId]:event.target.value}))} aria-label="Why challenge this rejection"><option value="">Why challenge this rejection?</option>{CHALLENGE_REASONS.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select><button type="button" className={flag?.intent==='challenge'?styles.flagButtonActive:styles.flagButton} disabled={!isCurrent||busy===`flag:${item.candidateId}`||!item.candidateId||!(challengeByCandidate[item.candidateId]??flag?.reasons?.[0])} onClick={()=>{const reason=challengeByCandidate[item.candidateId]??flag?.reasons?.[0];onFlag(item.candidateId,flag?.intent!=='challenge','challenge',reason?[reason]:[])}}>{flag?.intent==='challenge'?'Remove challenge':'Challenge rejection'}</button></div>}
+      {rejection&&<details className={styles.challengeControls}><summary>Optional: dispute the system’s rejection label</summary><select className={styles.challengeSelect} value={challengeByCandidate[item.candidateId]??flag?.reasons?.[0]??''} onChange={event=>setChallengeByCandidate(current=>({...current,[item.candidateId]:event.target.value}))} aria-label="Why is the rejection classification wrong?"><option value="">What did the rejection get wrong?</option>{CHALLENGE_REASONS.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select><button type="button" className={flag?.intent==='challenge'?styles.flagButtonActive:styles.flagButton} disabled={!isCurrent||busy===`flag:${item.candidateId}`||!item.candidateId||!(challengeByCandidate[item.candidateId]??flag?.reasons?.[0])} onClick={()=>{const reason=challengeByCandidate[item.candidateId]??flag?.reasons?.[0];onFlag(item.candidateId,flag?.intent!=='challenge','challenge',reason?[reason]:[])}}>{flag?.intent==='challenge'?'Remove classification dispute':'Save classification dispute'}</button></details>}
     </article>;
   })}</div>;
 }
@@ -211,10 +212,21 @@ function RequestedGridReview({run,isCurrent,busy,onSave}:{run:Run;isCurrent:bool
   const flags=feedback?.flags??[];
   const review=feedback?.requestedReview;
   const saved=feedback?.operatorRescueBoard;
-  const initialCandidates=(saved?.board?.candidates??review?.board?.candidates??[]) as AnyRecord[];
-  const signature=initialCandidates.map(item=>item.candidateId).join('|');
+  const savedMatchesCurrentFeedback=Boolean(saved?.feedbackHash&&review?.feedbackHash&&saved.feedbackHash===review.feedbackHash);
+  const reviewCandidates=review?.board?.candidates;
+  const savedCandidates=saved?.board?.candidates;
+  const initialCandidates=useMemo<AnyRecord[]>(()=>((savedMatchesCurrentFeedback
+    ? savedCandidates
+    : review
+      ? reviewCandidates
+      : [])??[]) as AnyRecord[],[
+    savedMatchesCurrentFeedback,
+    savedCandidates,
+    review,
+    reviewCandidates,
+  ]);
   const [candidates,setCandidates]=useState<AnyRecord[]>(initialCandidates);
-  useEffect(()=>setCandidates(initialCandidates),[run.runId,signature]);
+  useEffect(()=>setCandidates(initialCandidates),[initialCandidates]);
   if(!flags.length&&!saved)return null;
   const honorCount=flags.filter((item:any)=>item.disposition==='requested').length;
   const blockedCount=flags.filter((item:any)=>item.disposition==='blocked').length;
@@ -222,7 +234,8 @@ function RequestedGridReview({run,isCurrent,busy,onSave}:{run:Run;isCurrent:bool
   const move=(index:number,direction:-1|1)=>setCandidates(current=>{const target=index+direction;if(target<0||target>=current.length)return current;const next=[...current];[next[index],next[target]]=[next[target],next[index]];return next;});
   return <section className={styles.requestedReview}>
     <div className={styles.requestedReviewHeader}><div><h6>Operator rescue board</h6><p>Pin, hero, and supporting flags are preferences among candidates that still pass identity, single-frame, duplicate, availability, and Vibe-promise gates. Exclusions stay out. This never changes the frozen audit or Daily Drop eligibility.</p></div><span>{honorCount} reviewable · {blockedCount} blocked · {excludedCount} excluded</span></div>
-    {candidates.length===9?<><div className={styles.rescueGrid}>{candidates.map((item,index)=><article className={styles.rescueTile} data-hero={index===4} key={item.candidateId}><a href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.thumbnail?<img src={item.thumbnail} alt={item.title||`Rescue card ${index+1}`}/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{index===4?'Hero · ':''}{item.title||`Card ${index+1}`}</span></a><div><button type="button" disabled={index===0} onClick={()=>move(index,-1)} aria-label={`Move card ${index+1} earlier`}>←</button><button type="button" disabled={index===8} onClick={()=>move(index,1)} aria-label={`Move card ${index+1} later`}>→</button></div></article>)}</div><div className={styles.rescueActions}><button type="button" className={styles.buttonPrimary} disabled={!isCurrent||busy==='rescue-board'} onClick={()=>onSave(candidates.map(item=>item.candidateId))}>{busy==='rescue-board'?'Saving rescue board…':'Save this arrangement'}</button>{saved&&<span>Last saved {date(saved.savedAt)} by {saved.savedBy}</span>}</div></>:<p className={styles.boardEmpty}>{review?.summary||'The request receipt is saved. A provisional board has not formed.'}</p>}
+    {saved&&!savedMatchesCurrentFeedback&&<p className={styles.historicalNotice}>{review?'Your previous saved arrangement is retained as history. This board was rebuilt from the current image choices.':'Your previous saved arrangement is retained as history. Pin an image to start a new editable rescue board.'}</p>}
+    {candidates.length===9?<><div className={styles.rescueGrid}>{candidates.map((item,index)=><article className={styles.rescueTile} data-hero={index===4} key={item.candidateId}><a href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.thumbnail?<img src={item.thumbnail} alt={item.title||`Rescue card ${index+1}`}/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{index===4?'Hero · ':''}{item.title||`Card ${index+1}`}</span></a><div><button type="button" disabled={index===0} onClick={()=>move(index,-1)} aria-label={`Move card ${index+1} earlier`}>←</button><button type="button" disabled={index===8} onClick={()=>move(index,1)} aria-label={`Move card ${index+1} later`}>→</button></div></article>)}</div><div className={styles.rescueActions}><button type="button" className={styles.buttonPrimary} disabled={!isCurrent||busy==='rescue-board'} onClick={()=>onSave(candidates.map(item=>item.candidateId))}>{busy==='rescue-board'?'Saving rescue board…':'Save this arrangement'}</button>{savedMatchesCurrentFeedback&&saved&&<span>Last saved {date(saved.savedAt)} by {saved.savedBy}</span>}</div></>:<p className={styles.boardEmpty}>{review?.summary||'The request receipt is saved. A provisional board has not formed.'}</p>}
     {review?.board&&<p className={styles.requestedSummary}>{review.summary}</p>}
     {blockedCount>0&&<div className={styles.blockedFlags}>{flags.filter((item:any)=>item.disposition==='blocked').map((item:any)=><span key={item.candidateId}><strong>{item.candidate?.title||item.candidateId}</strong> remains blocked by {String(item.blockedReason||'a hard rule').replaceAll('_',' ')}. The receipt requests a usable equivalent rather than placing the rejected asset.</span>)}</div>}
   </section>;

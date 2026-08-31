@@ -73,14 +73,22 @@ function searchResults(query) {
   }));
 }
 
-function curation({ sufficient = true, curationFailure = false, hardRejected = false } = {}) {
-  return async ranked => {
-    const rawCandidates = (ranked[0]?.results.slice(0, 9) || []).map(result => ({
+function curation({
+  sufficient = true,
+  curationFailure = false,
+  hardRejected = false,
+  duplicateRejected = false,
+  onOptions = () => {},
+} = {}) {
+  return async (ranked, options = {}) => {
+    onOptions(structuredClone(options));
+    const rawCandidates = ranked.flatMap(batch => (batch.results || []).map(result => ({
       ...result,
       candidateId: candidateIdForResult({
         ...result,
-        batchKey: result.batchKey || ranked[0].query,
+        batchKey: result.batchKey || batch.query,
       }),
+      query: batch.query,
       dropReason: null,
       promise: {
         coreSatisfied: true,
@@ -88,12 +96,25 @@ function curation({ sufficient = true, curationFailure = false, hardRejected = f
         incompatibleCluster: false,
         singleFrameRatio: 1,
       },
-    }));
+    }))).slice(0, 36);
+    if (duplicateRejected && rawCandidates[0]) {
+      rawCandidates[0].provisionalCandidateId = "canonical-source";
+      rawCandidates.splice(1, 0, {
+        ...rawCandidates[0],
+        provisionalCandidateId: "dropped-copy-source",
+        title: "Duplicate source result",
+        link: "https://duplicate-source.example/result",
+      });
+    }
+    const boardCandidates = [...new Map(rawCandidates.map(candidate =>
+      [candidate.candidateId, candidate])).values()].slice(0, 9);
     const dropped = hardRejected && rawCandidates[0]
       ? [{ ...rawCandidates[0], dropReason: "composite_image", dropDetail: "Visible panel seams." }]
+      : duplicateRejected && rawCandidates[1]
+        ? [{ ...rawCandidates[1], dropReason: "exact_duplicate", dropDetail: "A canonical copy was retained." }]
       : [{ title: "bad frame", source: "stock.example", thumbnail: "https://images.example/bad.jpg", dropReason: "unusable_image" }];
     return ({
-    displayResults: sufficient ? ranked[0].results.slice(0, 9) : [],
+    displayResults: sufficient ? boardCandidates : [],
     curation: sufficient
       ? { mode: "compiled", version: CURATION_VERSION, rationale: "A varied set won.", signals: ["source range"] }
       : null,
@@ -101,8 +122,8 @@ function curation({ sufficient = true, curationFailure = false, hardRejected = f
       rawCandidates,
       dropped,
       eventFamilies: [{ id: "event-family-1", strength: 0.8, size: 9, candidates: [] }],
-      strongestEvent: sufficient ? { score: 0.7, scoreBreakdown: { familyStrength: { value: 0.8, weight: 0.55, contribution: 0.44 } }, candidates: ranked[0].results.slice(0, 9) } : null,
-      strongestCompiled: sufficient ? { score: 0.8, scoreBreakdown: { sourceRange: { value: 1, weight: 0.2, contribution: 0.2 } }, candidates: ranked[0].results.slice(0, 9).reverse() } : null,
+      strongestEvent: sufficient ? { score: 0.7, scoreBreakdown: { familyStrength: { value: 0.8, weight: 0.55, contribution: 0.44 } }, candidates: boardCandidates } : null,
+      strongestCompiled: sufficient ? { score: 0.8, scoreBreakdown: { sourceRange: { value: 1, weight: 0.2, contribution: 0.2 } }, candidates: [...boardCandidates].reverse() } : null,
       boardDiagnostics: {
         event: {
           available: sufficient,
@@ -117,13 +138,20 @@ function curation({ sufficient = true, curationFailure = false, hardRejected = f
       },
       winner: sufficient ? "compiled" : null,
       alternate: sufficient ? "event" : null,
-      receipt: { rawCount: 9, analyzedCount: sufficient || curationFailure ? 9 : 0, curationVersion: CURATION_VERSION },
+      receipt: { rawCount: rawCandidates.length, analyzedCount: sufficient || curationFailure ? rawCandidates.length : 0, curationVersion: CURATION_VERSION },
     },
     });
   };
 }
 
-function harness({ sufficient = true, curationFailure = false, hardRejected = false, authorized = true } = {}) {
+function harness({
+  sufficient = true,
+  curationFailure = false,
+  hardRejected = false,
+  duplicateRejected = false,
+  authorized = true,
+  onCurateOptions = () => {},
+} = {}) {
   const store = memoryStore();
   let runNumber = 0;
   const auth = {
@@ -155,7 +183,13 @@ function harness({ sufficient = true, curationFailure = false, hardRejected = fa
       let feedbackNumber = 0;
       return () => `feedback-${++feedbackNumber}`;
     })(),
-    curate: curation({ sufficient, curationFailure, hardRejected }),
+    curate: curation({
+      sufficient,
+      curationFailure,
+      hardRejected,
+      duplicateRejected,
+      onOptions: onCurateOptions,
+    }),
   });
   return { handler, store };
 }
@@ -422,9 +456,124 @@ test("run-scoped image flags persist as append-only feedback without rewriting c
   assert.equal(unflagResponse.status, 200);
   assert.equal(unflagged.currentRun.editorialFeedback.eventCount, 2);
   assert.deepEqual(unflagged.currentRun.editorialFeedback.flags, []);
+  assert.equal(unflagged.currentRun.editorialFeedback.requestedReview, null);
+  assert.ok(unflagged.currentRun.editorialFeedback.operatorRescueBoard);
   assert.equal([...store.records.keys()]
     .filter(key => key.startsWith(auditFeedbackPrefix(pairActor.id, 0, "run-1"))).length, 2);
   assert.deepEqual(unflagged.currentRun.blindReview, calibrationBefore);
+});
+
+test("excluding an original board image removes it from rescue boards and rejects it on save", async () => {
+  const { handler } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const chosen = await choiceResponse.json();
+  const sourceBoardCandidate = chosen.currentRun.strongestCompiled.candidates[0];
+  const sourceBoardIds = new Set(chosen.currentRun.strongestCompiled.candidates
+    .map(candidate => candidate.candidateId));
+  const omittedCandidate = chosen.currentRun.rawResults.find(candidate =>
+    !sourceBoardIds.has(candidate.candidateId));
+
+  await handler(request("POST", {
+    action: "flag_candidate",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: omittedCandidate.candidateId,
+    intent: "pin",
+    flagged: true,
+  }), {});
+  const excludeResponse = await handler(request("POST", {
+    action: "flag_candidate",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: sourceBoardCandidate.candidateId,
+    intent: "exclude",
+    flagged: true,
+  }), {});
+  const excluded = await excludeResponse.json();
+  assert.equal(excludeResponse.status, 200, JSON.stringify(excluded));
+  const rescueIds = excluded.currentRun.editorialFeedback.requestedReview.board.candidates
+    .map(candidate => candidate.candidateId);
+  assert.equal(rescueIds.includes(sourceBoardCandidate.candidateId), false);
+
+  const invalidIds = [...rescueIds];
+  invalidIds[0] = sourceBoardCandidate.candidateId;
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds: invalidIds,
+  }), {});
+  const saveBody = await saveResponse.json();
+  assert.notEqual(saveResponse.status, 200, JSON.stringify(saveBody));
+  assert.match(saveBody.error, /non-excluded candidates/i);
+});
+
+test("a retained image left out of both boards can be pinned for the next review", async () => {
+  const curateOptions = [];
+  const { handler } = harness({ onCurateOptions: options => curateOptions.push(options) });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const chosen = await choiceResponse.json();
+  const selectedIds = new Set([
+    ...chosen.currentRun.strongestEvent.candidates,
+    ...chosen.currentRun.strongestCompiled.candidates,
+  ].map(item => item.candidateId));
+  const omitted = chosen.currentRun.rawResults.find(item => !selectedIds.has(item.candidateId));
+  assert.ok(omitted, "fixture should retain candidates that neither board selected");
+
+  const flagResponse = await handler(request("POST", {
+    action: "flag_candidate",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: omitted.candidateId,
+    flagged: true,
+    intent: "pin",
+  }), {});
+  const flagged = await flagResponse.json();
+  assert.equal(flagResponse.status, 200, JSON.stringify(flagged));
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].disposition, "requested");
+  assert.ok(flagged.currentRun.editorialFeedback.requestedReview.board.candidates
+    .some(item => item.candidateId === omitted.candidateId));
+
+  const rerunResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  assert.equal(rerunResponse.status, 200);
+  assert.deepEqual(curateOptions[1].preferredCandidateIds, [omitted.candidateId]);
+});
+
+test("rendered evidence uses the exact frozen ranked curation snapshot", async () => {
+  const { handler } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "event",
+  }), {});
+  const chosen = await choiceResponse.json();
+  assert.equal(chosen.currentRun.rawResults.length, 27);
+  assert.deepEqual(
+    chosen.currentRun.rawResults.map(item => item.candidateId),
+    chosen.currentRun.curationReceipt.rawCandidates.map(item => item.candidateId),
+  );
+  assert.ok(chosen.currentRun.rawResults.some(item =>
+    item.query === pairActor.vibes[0].queries[2]));
 });
 
 test("hard-gated image flags remain visibly blocked and cannot create a requested board", async () => {
@@ -471,6 +620,48 @@ test("hard-gated image flags remain visibly blocked and cannot create a requeste
   assert.equal(flagged.currentRun.editorialFeedback.requestedReview.status, "blocked");
   assert.equal(flagged.currentRun.editorialFeedback.requestedReview.board, null);
   assert.equal(flagged.currentRun.blindReview.choice, "event");
+});
+
+test("an exact-copy source can pin its canonical retained image without duplicating a board slot", async () => {
+  const { handler } = harness({ duplicateRejected: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const chosen = await choiceResponse.json();
+  const duplicate = chosen.currentRun.rawResults.find(item =>
+    chosen.currentRun.rejections.some(entry =>
+      entry.kind === "image"
+      && entry.reason === "exact_duplicate"
+      && entry.candidateId === item.candidateId));
+  assert.ok(duplicate);
+  assert.notEqual(duplicate.link, "https://duplicate-source.example/result");
+
+  const flagResponse = await handler(request("POST", {
+    action: "flag_candidate",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: duplicate.candidateId,
+    flagged: true,
+    intent: "pin",
+  }), {});
+  const flagged = await flagResponse.json();
+  assert.equal(flagResponse.status, 200, JSON.stringify(flagged));
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].disposition, "requested");
+  assert.equal(flagged.currentRun.editorialFeedback.flags[0].originalRejection.reason, "exact_duplicate");
+  assert.notEqual(
+    flagged.currentRun.editorialFeedback.flags[0].candidate.link,
+    "https://duplicate-source.example/result",
+  );
+  assert.equal(
+    flagged.currentRun.editorialFeedback.requestedReview.board.candidates
+      .filter(item => item.candidateId === duplicate.candidateId).length,
+    1,
+  );
 });
 
 test("a rejection challenge requires a structured reason", async () => {
@@ -646,7 +837,7 @@ test("runs without two complete boards fail clearly and cannot be approved", asy
   const report = await detail.json();
   assert.equal(report.currentRun.blindReview.status, "unavailable");
   assert.equal(report.currentRun.queryRuns.length, 4);
-  assert.equal(report.currentRun.rawResults.length, 36);
+  assert.equal(report.currentRun.rawResults.length, 27);
   assert.ok(report.currentRun.curationReceipt);
   assert.equal(report.currentRun.boardDiagnostics.event.reasonCode, "no_bounded_role_family");
   assert.equal(report.currentRun.boardDiagnostics.compiled.reasonCode, "too_few_usable_images");

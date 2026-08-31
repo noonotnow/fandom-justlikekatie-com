@@ -62,8 +62,11 @@ test('retained evidence exposes image-level editorial intents after review', () 
   assert.match(source, /Hero candidate/);
   assert.match(source, /Good supporting card/);
   assert.match(source, /Exclude/);
-  assert.match(source, /Challenge rejection/);
-  assert.match(source, /Why challenge this rejection/);
+  assert.match(source, /Optional: dispute the system’s rejection label/);
+  assert.match(source, /Save classification dispute/);
+  assert.match(source, /className=\{styles.resultVisual\}/);
+  assert.match(source, /className=\{styles.resultSourceLink\}/);
+  assert.match(source, /Pin this image/);
   assert.match(source, /flag\?\.reasons/);
 });
 
@@ -75,4 +78,6 @@ test('the rescue board explains hard blocks and preserves the frozen audit bound
   assert.match(source, /action:'save_rescue_board'/);
   assert.match(source, /Save this arrangement/);
   assert.match(source, /Move card \$\{index\+1\} earlier/);
+  assert.match(source, /savedMatchesCurrentFeedback/);
+  assert.match(source, /previous saved arrangement is retained as history/);
 });

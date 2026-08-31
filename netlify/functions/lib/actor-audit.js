@@ -49,6 +49,12 @@ const MAX_IDENTITY_ITEMS = 36;
 const MAX_FEEDBACK_EVENTS = 72;
 const MAX_FEEDBACK_NOTE_LENGTH = 400;
 const FEEDBACK_INTENTS = new Set(["pin", "hero", "supporting", "exclude", "challenge"]);
+const HARD_IMAGE_REJECTIONS = new Set([
+  "composite_image",
+  "hard_anti_anchor",
+  "image_load_failed",
+  "unusable_image",
+]);
 const CHALLENGE_REASONS = new Set([
   "stronger_vibe_match",
   "better_silhouette",
@@ -135,11 +141,14 @@ export function createActorAuditHandler({
       if (input.action === "run") {
         const scope = parseScope(input.scope);
         if (!scope) return json(400, { error: "Audit scope must be representative or full." });
+        const previous = await readReport(store, pair);
+        const preferredCandidateIds = nextReviewPreferenceIds(previous.currentRun, pair);
         const run = await runPreflight(pair, searchOneQuery, {
           now,
           createRunId,
           scope,
           curate,
+          preferredCandidateIds,
         });
         const report = await appendRun(store, pair, run);
         await writeEligibility(store, pair, null);
@@ -384,7 +393,9 @@ export function createActorAuditHandler({
         }
         const receiptReasons = requestedIntent === "challenge" ? challengeReasons : [];
         const candidate = (run.rawResults || []).find(item =>
-          candidateIdForResult({ ...item, batchKey: item.query }) === input.candidateId);
+          item.candidateId === input.candidateId
+          || (!item.candidateId
+            && candidateIdForResult({ ...item, batchKey: item.query }) === input.candidateId));
         if (!candidate) {
           return json(404, { error: "That image is not part of this audit's retained evidence." });
         }
@@ -547,6 +558,7 @@ export async function runPreflight(
     createRunId = () => randomUUID(),
     scope = "full",
     curate = curateDisplayResults,
+    preferredCandidateIds = [],
   } = {},
 ) {
   const startedAt = now().toISOString();
@@ -577,6 +589,7 @@ export async function runPreflight(
       diagnostics: true,
       promise: vibePromiseFor(pair.actor, pair.vibeIdx),
       profileVersions,
+      preferredCandidateIds,
     })
     : { displayResults: [], curation: null, diagnostics: null };
   const diagnostics = curated.diagnostics || emptyDiagnostics();
@@ -608,6 +621,7 @@ export async function runPreflight(
     completedAt,
     queryCount: queries.length,
     queryRuns,
+    inheritedPreferenceCandidateIds: preferredCandidateIds,
     rawResults: boundedRawResults(candidates, diagnostics),
     rejections: buildRejectionLedger(queryRuns, diagnostics),
     identityEvidence,
@@ -660,30 +674,55 @@ function queryRun(candidate, receipt, rankIndex) {
 }
 
 function boundedRawResults(candidates, diagnostics = {}) {
-  const analyzed = new Map((diagnostics.rawCandidates || []).map(item => [
-    item.provisionalCandidateId
-      || candidateIdForResult({ ...item, batchKey: item.batchKey || item.query, digest: "" }),
-    {
-      candidateId: item.candidateId || null,
-      imageDigest: item.imageDigest || null,
-    },
-  ]));
-  return candidates.flatMap(candidate => (candidate.results || []).map(result => {
-    const batchKey = result.batchKey || candidate.query;
-    const fallbackId = candidateIdForResult({ ...result, batchKey, digest: "" });
-    const analysis = analyzed.get(fallbackId);
-    const digest = analysis?.imageDigest || null;
-    return {
-    candidateId: analysis?.candidateId || candidateIdForResult({ ...result, batchKey, digest }),
-    imageDigest: digest,
+  const frozen = Array.isArray(diagnostics.rawCandidates) ? diagnostics.rawCandidates : [];
+  if (frozen.length) {
+    const droppedExactCopies = new Set((diagnostics.dropped || [])
+      .filter(item => item.dropReason === "exact_duplicate")
+      .map(item => item.provisionalCandidateId)
+      .filter(Boolean));
+    const unique = [];
+    const indexById = new Map();
+    for (const item of frozen) {
+      const candidateId = item.candidateId
+        || candidateIdForResult({ ...item, batchKey: item.query, digest: item.imageDigest });
+      const next = { ...item, candidateId };
+      const existingIndex = indexById.get(candidateId);
+      if (existingIndex === undefined) {
+        indexById.set(candidateId, unique.length);
+        unique.push(next);
+      } else if (
+        droppedExactCopies.has(unique[existingIndex].provisionalCandidateId)
+        && !droppedExactCopies.has(item.provisionalCandidateId)
+      ) {
+        unique[existingIndex] = next;
+      }
+    }
+    return unique.slice(0, MAX_RAW_RESULTS).map(item => ({
+      candidateId: item.candidateId
+        || candidateIdForResult({ ...item, batchKey: item.query, digest: item.imageDigest }),
+      provisionalCandidateId: item.provisionalCandidateId || null,
+      imageDigest: String(item.imageDigest || "").slice(0, 256) || null,
+      query: String(item.query || "").slice(0, 500),
+      title: String(item.title || "").slice(0, 240),
+      description: String(item.description || "").slice(0, 400),
+      source: String(item.source || "").slice(0, 120),
+      link: String(item.link || "").slice(0, 700),
+      thumbnail: String(item.thumbnail || "").slice(0, 700),
+      dropReason: item.dropReason || null,
+      dropDetail: String(item.dropDetail || "").slice(0, 400) || null,
+      promise: item.promise || null,
+    }));
+  }
+  return candidates.flatMap(candidate => (candidate.results || []).map(result => ({
+    candidateId: candidateIdForResult({ ...result, batchKey: result.batchKey || candidate.query }),
+    imageDigest: null,
     query: String(candidate.query || "").slice(0, 500),
     title: String(result.title || "").slice(0, 240),
     description: String(result.description || "").slice(0, 400),
     source: String(result.source || "").slice(0, 120),
     link: String(result.link || "").slice(0, 700),
     thumbnail: String(result.thumbnail || "").slice(0, 700),
-    };
-  })).slice(0, MAX_RAW_RESULTS);
+  }))).slice(0, MAX_RAW_RESULTS);
 }
 
 function buildRejectionLedger(queryRuns, diagnostics) {
@@ -1003,16 +1042,29 @@ function feedbackHash(flags) {
   }))).slice(0, 32);
 }
 
+function nextReviewPreferenceIds(run, pair) {
+  if (!run || !currentRunMatchesCurrentContract(run, pair)) return [];
+  return [...new Set((run.editorialFeedback?.flags || [])
+    .filter(flag =>
+      flag.disposition === "requested"
+      && ["pin", "hero", "supporting"].includes(flag.intent)
+      && typeof flag.candidateId === "string")
+    .map(flag => flag.candidateId))];
+}
+
 function candidateGate(run, candidateId) {
   const raw = (run.rawResults || []).find(item =>
-    candidateIdForResult({ ...item, batchKey: item.query }) === candidateId);
+    item.candidateId === candidateId
+    || (!item.candidateId && candidateIdForResult({ ...item, batchKey: item.query }) === candidateId));
   if (!raw) return { disposition: "blocked", blockedReason: "not_retained" };
   const rawCandidates = run.curationReceipt?.rawCandidates || [];
   const dropped = (run.curationReceipt?.dropped || []).find(item =>
     item.candidateId === candidateId);
   const analyzed = rawCandidates.find(item => item.candidateId === candidateId);
   const reason = dropped?.dropReason || analyzed?.dropReason || null;
-  if (reason) return { disposition: "blocked", blockedReason: reason };
+  if (reason && HARD_IMAGE_REJECTIONS.has(reason)) {
+    return { disposition: "blocked", blockedReason: reason };
+  }
   if (!analyzed) return { disposition: "blocked", blockedReason: "not_analyzed_in_audit" };
   return { disposition: "requested", blockedReason: null };
 }
@@ -1025,7 +1077,7 @@ async function persistRequestedReview(store, pair, run, now) {
   const existing = await store.get(key, { type: "json", consistency: "strong" });
   if (existing) return existing;
   const eligibleFlags = flags.filter(flag => flag.disposition === "requested");
-  const board = buildFrozenRescueBoard(run, flags);
+  const board = eligibleFlags.length ? buildFrozenRescueBoard(run, flags) : null;
   const review = {
     schemaVersion: 1,
     sourceRunId: run.runId,
@@ -1069,19 +1121,13 @@ function feedbackDisposition(receipt, gate) {
 
 function buildFrozenRescueBoard(run, flags) {
   const droppedIds = new Set((run.curationReceipt?.dropped || [])
-    .filter(item => item.dropReason)
+    .filter(item => HARD_IMAGE_REJECTIONS.has(item.dropReason))
     .map(item => item.candidateId));
   const excludedIds = new Set(flags
     .filter(flag => flag.disposition === "excluded")
     .map(flag => flag.candidateId));
-  const approved = (run.curationReceipt?.rawCandidates || [])
-    .filter(candidate =>
-      candidate.candidateId
-      && !candidate.dropReason
-      && !droppedIds.has(candidate.candidateId)
-      && !excludedIds.has(candidate.candidateId)
-      && Number(candidate.promise?.singleFrameRatio ?? 1) >= 0.99);
-  const byId = new Map(approved.map(candidate => [candidate.candidateId, candidate]));
+  const byId = canonicalFrozenCandidates(run, excludedIds, droppedIds);
+  const approved = [...byId.values()];
   const requested = flags
     .filter(flag => flag.disposition === "requested" && byId.has(flag.candidateId))
     .sort((left, right) => intentPriority(left.intent) - intentPriority(right.intent)
@@ -1151,16 +1197,9 @@ function validateRescueArrangement(run, candidateIds) {
     .filter(flag => flag.disposition === "excluded")
     .map(flag => flag.candidateId));
   const droppedIds = new Set((run.curationReceipt?.dropped || [])
-    .filter(item => item.dropReason)
+    .filter(item => HARD_IMAGE_REJECTIONS.has(item.dropReason))
     .map(item => item.candidateId));
-  const approved = new Map((run.curationReceipt?.rawCandidates || [])
-    .filter(candidate =>
-      candidate.candidateId
-      && !candidate.dropReason
-      && !droppedIds.has(candidate.candidateId)
-      && !excludedIds.has(candidate.candidateId)
-      && Number(candidate.promise?.singleFrameRatio ?? 1) >= 0.99)
-    .map(candidate => [candidate.candidateId, candidate]));
+  const approved = canonicalFrozenCandidates(run, excludedIds, droppedIds);
   const candidates = candidateIds.map(candidateId => approved.get(candidateId));
   if (candidates.some(candidate => !candidate)) {
     return {
@@ -1195,6 +1234,43 @@ function validateRescueArrangement(run, candidateIds) {
       },
     },
   };
+}
+
+function canonicalFrozenCandidates(run, excludedIds = new Set(), droppedIds = new Set()) {
+  const exactDroppedProvisionalIds = new Set((run.curationReceipt?.dropped || [])
+    .filter(item => item.dropReason === "exact_duplicate")
+    .map(item => item.provisionalCandidateId)
+    .filter(Boolean));
+  const boardCandidates = [
+    ...(run.strongestEvent?.candidates || []),
+    ...(run.strongestCompiled?.candidates || []),
+  ];
+  const canonicalById = new Map();
+  for (const candidate of boardCandidates) {
+    if (candidate?.candidateId
+      && !HARD_IMAGE_REJECTIONS.has(candidate.dropReason)
+      && !droppedIds.has(candidate.candidateId)
+      && !excludedIds.has(candidate.candidateId)
+      && Number(candidate.promise?.singleFrameRatio ?? 1) >= 0.99
+      && !canonicalById.has(candidate.candidateId)) {
+      canonicalById.set(candidate.candidateId, candidate);
+    }
+  }
+  for (const candidate of run.curationReceipt?.rawCandidates || []) {
+    if (!candidate.candidateId
+      || HARD_IMAGE_REJECTIONS.has(candidate.dropReason)
+      || droppedIds.has(candidate.candidateId)
+      || excludedIds.has(candidate.candidateId)
+      || Number(candidate.promise?.singleFrameRatio ?? 1) < 0.99) continue;
+    const existing = canonicalById.get(candidate.candidateId);
+    if (!existing || (
+      exactDroppedProvisionalIds.has(existing.provisionalCandidateId)
+      && !exactDroppedProvisionalIds.has(candidate.provisionalCandidateId)
+    )) {
+      canonicalById.set(candidate.candidateId, candidate);
+    }
+  }
+  return canonicalById;
 }
 
 function intentPriority(intent) {

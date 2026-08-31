@@ -1,6 +1,50 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CURATION_VERSION, curateDisplayResults } from "./grid-curation.js";
+import { candidateIdForResult, CURATION_VERSION, curateDisplayResults } from "./grid-curation.js";
+
+test("analyzed candidate identity follows the image digest across metadata and query changes", () => {
+  const first = candidateIdForResult({
+    digest: "same-image-bytes",
+    batchKey: "actor birthday emoji pack",
+    title: "First search title",
+    link: "https://photo.sina.cn/album/first",
+    thumbnail: "https://cdn.example/first.jpg?token=old",
+  });
+  const second = candidateIdForResult({
+    digest: "same-image-bytes",
+    batchKey: "different query",
+    title: "Corrected title",
+    link: "https://photo.sina.cn/album/canonical",
+    thumbnail: "https://cdn.example/renewed.jpg?token=new",
+  });
+  assert.equal(first, second);
+});
+
+test("a prior digest-backed preference can break a close next-review board tie", async () => {
+  const candidates = Array.from({ length: 10 }, (_, index) => result(`preference-${index}`, {
+    source: `publisher-${index}.test`,
+    title: `刘宇宁 editorial portrait ${index}`,
+    fp: fingerprint(`preference-${index}`, {
+      ones: spreadBits(`preference-${index}`, 96),
+      quality: 220,
+      sharpness: 12,
+    }),
+  }));
+  const baseline = await curate(candidates, { diagnostics: true });
+  const selectedIds = new Set(
+    baseline.diagnostics.strongestCompiled.candidates.map(candidate => candidate.candidateId),
+  );
+  const omitted = baseline.diagnostics.rawCandidates.find(candidate =>
+    !selectedIds.has(candidate.candidateId));
+  assert.ok(omitted, "the ten-image pool should leave one valid candidate out");
+
+  const preferred = await curate(candidates, {
+    diagnostics: true,
+    preferredCandidateIds: [omitted.candidateId],
+  });
+  assert.ok(preferred.diagnostics.strongestCompiled.candidates.some(candidate =>
+    candidate.candidateId === omitted.candidateId));
+});
 
 const DIFFERENCE_COUNT = 256;
 
