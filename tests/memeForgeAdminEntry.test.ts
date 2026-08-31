@@ -7,18 +7,11 @@ import path from 'node:path';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const readSource = (relativePath: string) => readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
 
-test('Vibe Atlas has a public, direct MemeForge entry point', () => {
+test('Vibe Atlas keeps MemeForge out of its product navigation', () => {
   const appSource = readSource('src/App.tsx');
   const entryIndex = appSource.indexOf('className="memeforge-workbench-link"');
 
-  assert.notEqual(entryIndex, -1, 'Vibe Atlas must render a MemeForge workbench link');
-  const entry = appSource.slice(Math.max(0, entryIndex - 250), entryIndex + 350);
-  assert.ok(!entry.includes('isAdmin &&'), 'the MemeForge entry must be publicly discoverable');
-  assert.ok(entry.includes('href="/memeforge/middle-earth"'), 'the entry must go directly to the Middle-earth route');
-  assert.ok(
-    entry.includes('Reaction studio'),
-    'the entry must describe MemeForge in public product language',
-  );
+  assert.equal(entryIndex, -1, 'Vibe Atlas must not render a MemeForge workbench link');
 });
 
 test('MemeForge discovery and workspace copy avoid private workflow architecture', () => {

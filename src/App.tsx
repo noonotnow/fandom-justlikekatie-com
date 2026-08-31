@@ -361,13 +361,6 @@ function VibeAtlasApp({ adminEntry = false }: { adminEntry?: boolean }) {
             <span>Membership</span><small>Founding Member</small>
           </button>
         </div>
-        <a
-          className="memeforge-workbench-link"
-          href="/memeforge/middle-earth"
-        >
-          <span>Middle-earth MemeForge</span>
-          <small>Reaction studio</small>
-        </a>
       </nav>
 
       {view === 'daily' ? (
