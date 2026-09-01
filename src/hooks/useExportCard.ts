@@ -1,27 +1,49 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { StarOfDayData } from './useStarOfDay';
-import { saveShareCard, buildExportPayload, classifyEditionTier, type ExportVariant } from '../utils/exportCanvas';
+import {
+  areExportImagesReady,
+  buildExportPayload,
+  classifyEditionTier,
+  downloadShareCard,
+  exportShareCard,
+  type ExportAction,
+  type ExportVariant,
+} from '../utils/exportCanvas';
 import { dbSaveGrid } from '../utils/collectionDB';
 import { collectionGridFromStar } from '../utils/collectionHistory';
 import { schedulePublicCollectionSync } from '../utils/publicAccount';
 import { uploadExportedCard } from '../utils/gridExportLog';
 
 export interface UseExportCardReturn {
-  exportCard: (data: StarOfDayData, variant?: ExportVariant) => Promise<void>;
+  exportCard: (variant?: ExportVariant, action?: ExportAction) => Promise<void>;
   isExporting: boolean;
   error: string | null;
   toastMessage: string | null;
+  imagesReady: boolean;
   dismissToast: () => void;
 }
 
-export function useExportCard(): UseExportCardReturn {
+export function useExportCard(data: StarOfDayData): UseExportCardReturn {
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [imagesReady, setImagesReady] = useState(false);
 
   const dismissToast = useCallback(() => setToastMessage(null), []);
 
-  const exportCard = useCallback(async (data: StarOfDayData, variant: ExportVariant = 'full') => {
+  useEffect(() => {
+    let active = true;
+    setImagesReady(false);
+    void areExportImagesReady(data, 'full').then((ready) => {
+      if (active) setImagesReady(ready);
+    });
+    return () => { active = false; };
+  }, [data]);
+
+  const exportCard = useCallback(async (
+    variant: ExportVariant = 'full',
+    action: ExportAction = 'share',
+  ) => {
     if (isExporting) return;
     setIsExporting(true);
     setError(null);
@@ -30,7 +52,8 @@ export function useExportCard(): UseExportCardReturn {
     try {
       // Pre-compute the grid so the same id is used for both dbSaveGrid and the upload.
       const grid = collectionGridFromStar(data);
-      const msg = await saveShareCard(data, variant, (blob) => {
+      const exportFn = action === 'download' ? downloadShareCard : exportShareCard;
+      const msg = await exportFn(data, variant, (blob) => {
         // Fire-and-forget: upload the rendered PNG for durable server-side storage so
         // the card appears in the Collection "Past exports" list like any other export.
         const tier = classifyEditionTier(buildExportPayload(data).chosen);
@@ -52,7 +75,7 @@ export function useExportCard(): UseExportCardReturn {
     } finally {
       setIsExporting(false);
     }
-  }, [isExporting]);
+  }, [data, isExporting]);
 
-  return { exportCard, isExporting, error, toastMessage, dismissToast };
+  return { exportCard, isExporting, error, toastMessage, imagesReady, dismissToast };
 }

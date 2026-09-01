@@ -15,6 +15,43 @@
   line-height: 1.4;
 }
 
+.exportActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.65rem;
+}
+
+.downloadButton {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: transparent;
+  color: #c9a96e;
+  border: 1px solid rgba(201, 169, 110, 0.5);
+  padding: 0.75rem 1.25rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 200ms ease, transform 100ms ease;
+  line-height: 1.4;
+}
+
+.downloadButton:hover {
+  background: rgba(201, 169, 110, 0.12);
+}
+
+.downloadButton:active {
+  transform: scale(0.98);
+}
+
+.downloadButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .exportButton:hover {
   opacity: 0.9;
 }
@@ -42,7 +79,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .exportButton {
+  .exportButton,
+  .downloadButton {
     transition: none;
   }
 }

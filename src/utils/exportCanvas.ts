@@ -146,48 +146,6 @@ function drawCoverImageRounded(
   ctx.restore();
 }
 
-function drawPlaceholderTileRounded(
-  ctx: CanvasRenderingContext2D,
-  x: number, y: number, w: number, h: number, r: number, fillColor: string,
-) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-  ctx.fillStyle = fillColor;
-  ctx.fill();
-  ctx.clip();
-
-  const glyphColor = 'rgba(255,255,255,0.16)';
-  const cx = x + w / 2;
-  const cy = y + h / 2;
-  const iconSize = Math.min(w, h) * 0.4;
-
-  ctx.strokeStyle = glyphColor;
-  ctx.lineWidth = Math.max(2, iconSize * 0.06);
-  ctx.strokeRect(cx - iconSize / 2, cy - iconSize / 2, iconSize, iconSize);
-
-  ctx.fillStyle = glyphColor;
-  ctx.beginPath();
-  ctx.arc(cx - iconSize * 0.18, cy - iconSize * 0.18, iconSize * 0.1, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.moveTo(cx - iconSize / 2, cy + iconSize / 2);
-  ctx.lineTo(cx - iconSize * 0.05, cy - iconSize * 0.05);
-  ctx.lineTo(cx + iconSize * 0.2, cy + iconSize * 0.15);
-  ctx.lineTo(cx + iconSize * 0.45, cy - iconSize * 0.15);
-  ctx.lineTo(cx + iconSize / 2, cy + iconSize / 2);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.restore();
-}
-
 function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
   if (!text) return [];
   const tokens = text.match(/[\u3000-\u9fff\uff00-\uffef]|[^\u3000-\u9fff\uff00-\uffef\s]+|\s+/g) || [text];
@@ -392,6 +350,7 @@ interface ExportPayload {
   accentColor: string;
   vibeEmoji: string;
   vibeLabel: string;
+  vibeLabelEn: string;
   vibeSubtitle: string;
   chosen: RankedBatch;
   date: string;
@@ -409,8 +368,8 @@ export interface ExportArtifact {
 
 function exportResults(data: StarOfDayData, variant: ExportVariant): RankedBatch['results'] {
   const payload = buildExportPayload(data);
-  const results = payload.chosen?.results?.slice(0, variant === 'teaser' ? 6 : 9) ?? [];
-  if (variant === 'full' && results.length !== 9) {
+  const results = payload.chosen?.results?.slice(0, variant === 'teaser' ? 6 : 12) ?? [];
+  if (variant === 'full' && results.length < 9) {
     throw new Error('This approved board is not complete yet. A share card requires all nine images.');
   }
   return results;
@@ -433,7 +392,7 @@ export async function areExportImagesReady(
   try {
     const results = exportResults(data, variant);
     const images = await Promise.all(results.map(result => loadProxiedImage(result.thumbnail)));
-    return images.length === (variant === 'full' ? 9 : results.length)
+    return images.length === results.length
       && images.every(Boolean);
   } catch {
     return false;
@@ -458,7 +417,7 @@ async function createExportArtifact(
   const filenameTier = tier !== 'standard' ? 'star-of-day_' + tier : 'star-of-day';
   const fileName = buildExportFilename(
     payload.date, payload.actorNameEn, editionStamp.rankNum, variant, filenameTier,
-    payload.vibeLabel, boardShortId(data),
+    payload.vibeLabelEn || payload.vibeLabel, boardShortId(data),
   );
   return { blob, file: new File([blob], fileName, { type: 'image/png' }), fileName };
 }
@@ -485,6 +444,7 @@ export function buildExportPayload(data: StarOfDayData): ExportPayload {
     accentColor: data.actorAccentColor,
     vibeEmoji: data.vibeEmoji,
     vibeLabel: data.vibeLabel,
+    vibeLabelEn: data.vibeLabelEn,
     vibeSubtitle: data.vibeSubtitle,
     chosen,
     date: data.date || new Date().toISOString().slice(0, 10),
@@ -499,6 +459,9 @@ export function buildExportPayload(data: StarOfDayData): ExportPayload {
 
 async function renderFullExportCanvas(payload: ExportPayload): Promise<HTMLCanvasElement> {
   const results = payload.chosen?.results?.slice(0, 12) ?? [];
+  if (results.length < 9) {
+    throw new Error('This approved board is not complete yet. A share card requires all nine images.');
+  }
   const cols = results.length > 9 ? 4 : 3;
   const rows = 3;
   const dateStr = payload.date;
@@ -860,7 +823,6 @@ export type ExportAction = 'share' | 'download';
 async function createAndLogExport(
   data: StarOfDayData,
   variant: ExportVariant,
-  onBlob?: (blob: Blob) => void,
 ): Promise<{ artifact: ExportArtifact; payload: ExportPayload; tier: string }> {
   const payload = buildExportPayload(data);
   const tier = classifyEditionTier(payload.chosen);
@@ -869,14 +831,16 @@ async function createAndLogExport(
   // Log the export now that we know the canvas rendered successfully.
   logGridExportFireAndForget(payload, tier);
 
-  if (onBlob) {
-    try {
-      onBlob(artifact.blob);
-    } catch {
-      // Persistence hooks must never interfere with the export path.
-    }
-  }
   return { artifact, payload, tier };
+}
+
+function notifyExportBlob(onBlob: ((blob: Blob) => void) | undefined, blob: Blob): void {
+  if (!onBlob) return;
+  try {
+    onBlob(blob);
+  } catch {
+    // Persistence hooks must never interfere with the export path.
+  }
 }
 
 function tierMessage(tier: string): string {
@@ -891,7 +855,8 @@ export async function exportShareCard(
   variant: ExportVariant = 'full',
   onBlob?: (blob: Blob) => void,
 ): Promise<string> {
-  const { artifact } = await createAndLogExport(data, variant, onBlob);
+  const { artifact } = await createAndLogExport(data, variant);
+  notifyExportBlob(onBlob, artifact.blob);
   const canShareFiles = typeof navigator !== 'undefined'
     && typeof navigator.share === 'function'
     && typeof navigator.canShare === 'function'
@@ -922,7 +887,8 @@ export async function downloadShareCard(
   variant: ExportVariant = 'full',
   onBlob?: (blob: Blob) => void,
 ): Promise<string> {
-  const { artifact, tier } = await createAndLogExport(data, variant, onBlob);
+  const { artifact, tier } = await createAndLogExport(data, variant);
+  notifyExportBlob(onBlob, artifact.blob);
   downloadExportArtifact(artifact);
   return tierMessage(tier);
 }
@@ -936,5 +902,27 @@ export async function saveShareCard(
   variant: ExportVariant = 'full',
   onBlob?: (blob: Blob) => void,
 ): Promise<string> {
-  return exportShareCard(data, variant, onBlob);
+  const { artifact } = await createAndLogExport(data, variant);
+  const blob = artifact.blob;
+  const canShareFiles = typeof navigator !== 'undefined'
+    && typeof navigator.share === 'function'
+    && typeof navigator.canShare === 'function'
+    && navigator.canShare({ files: [artifact.file] });
+  if (onBlob) {
+    try {
+      onBlob(blob);
+    } catch {
+      // Persistence hooks must never interfere with the export path.
+    }
+  }
+  if (canShareFiles) {
+    await navigator.share!({
+      files: [artifact.file],
+      title: '今日氛围图鉴',
+      text: '🔮 今日之星 · 氛围格子',
+    });
+    return '分享成功 ✓';
+  }
+  downloadExportArtifact(artifact);
+  return '此设备不支持直接分享图片，PNG 已下载 · File sharing unavailable; PNG downloaded';
 }

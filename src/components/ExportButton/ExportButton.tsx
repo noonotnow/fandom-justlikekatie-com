@@ -9,24 +9,40 @@ interface ExportButtonProps {
 }
 
 export const ExportButton: React.FC<ExportButtonProps> = ({ rawData }) => {
-  const { exportCard, isExporting, toastMessage, dismissToast } = useExportCard();
+  const { exportCard, isExporting, imagesReady, toastMessage, dismissToast } = useExportCard(rawData);
 
-  const handleClick = () => {
-    exportCard(rawData, 'full');
-  };
+  const handleShare = () => { void exportCard('full', 'share'); };
+  const handleDownload = () => { void exportCard('full', 'download'); };
 
   return (
     <>
-      <button
-        className={styles.exportButton}
-        onClick={handleClick}
-        disabled={isExporting}
-        aria-label="Export full share card"
-      >
-        📤 导出完整分享卡
-        <span className={styles.enHelper}>Export full share card</span>
-      </button>
-      <p className={styles.autoSaveNote}>导出后自动存入收藏 · Auto-saves to your collection</p>
+      <div className={styles.exportActions}>
+        <button
+          className={styles.exportButton}
+          onClick={handleShare}
+          disabled={isExporting || !imagesReady}
+          aria-label="Share or copy full image"
+        >
+          📤 Share / Copy image
+          <span className={styles.enHelper}>原生分享 / Copy image</span>
+        </button>
+        <button
+          className={styles.downloadButton}
+          onClick={handleDownload}
+          disabled={isExporting || !imagesReady}
+          aria-label="Download full PNG"
+        >
+          ⬇️ Download PNG
+          <span className={styles.enHelper}>下载 PNG</span>
+        </button>
+      </div>
+      <p className={styles.autoSaveNote}>
+        {isExporting
+          ? '正在准备九张原图…… · Preparing all nine images…'
+          : imagesReady
+            ? '九张原图已就绪 · All nine images loaded'
+            : '等待九张原图全部加载；不会导出占位图 · Waiting for all nine images; placeholders are blocked'}
+      </p>
       {toastMessage && <Toast message={toastMessage} onClose={dismissToast} />}
     </>
   );
