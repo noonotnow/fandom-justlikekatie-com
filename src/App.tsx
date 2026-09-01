@@ -102,7 +102,10 @@ function VibeAtlasApp({ adminEntry = false }: { adminEntry?: boolean }) {
   );
   const [archiveOpen, setArchiveOpen] = useState(
     () => initialVibeAtlasView(window.location.search) === 'daily'
-      && hasInvalidVibeAtlasEditionDate(window.location.search),
+      && (
+        hasInvalidVibeAtlasEditionDate(window.location.search)
+        || Boolean(initialVibeAtlasEditionDate(window.location.search))
+      ),
   );
   const [view, setView] = useState<'daily' | 'collection' | 'plan' | 'membership'>(
     () => initialVibeAtlasView(window.location.search),
@@ -228,9 +231,13 @@ function VibeAtlasApp({ adminEntry = false }: { adminEntry?: boolean }) {
       setLightboxIndex(null);
       setDailyGridZoomOpen(false);
       setImageTiers({});
-      setSelectedEditionDate(
-        restoredView === 'daily' ? initialVibeAtlasEditionDate(window.location.search) : null,
-      );
+      const restoredEditionDate = restoredView === 'daily'
+        ? initialVibeAtlasEditionDate(window.location.search)
+        : null;
+      setSelectedEditionDate(restoredEditionDate);
+      if (restoredView === 'daily' && restoredEditionDate) {
+        setArchiveOpen(true);
+      }
       if (restoredView === 'daily' && invalidEditionDate) {
         syncVibeAtlasEditionUrl(null, true);
         openArchivePicker();
