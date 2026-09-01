@@ -2358,6 +2358,56 @@ test("runs without two complete boards fail clearly and cannot be approved", asy
   assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).eligible, false);
 });
 
+test("a saved retained-evidence board can be approved without a curator comparison", async () => {
+  const { handler, store } = harness({ sufficient: false });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const detail = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const report = await detail.json();
+  const candidateIds = report.currentRun.rawResults
+    .slice(0, 9)
+    .map(candidate => candidate.candidateId);
+
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds,
+  }), {});
+  const saved = await saveResponse.json();
+  assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+  const receiptId = saved.currentRun.editorialFeedback.operatorRescueBoard.receiptId;
+
+  const approvalResponse = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+    vibeConfirmed: true,
+    publishableConfirmed: true,
+    rescuePreferred: true,
+    rescueReceiptId: receiptId,
+  }), {});
+  const approval = await approvalResponse.json();
+  assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+  assert.equal(approval.currentRun.operatorVerdict.publicationSource.type, "operator_rescue");
+  assert.equal(approval.currentRun.operatorVerdict.publicationSource.rescueReceiptId, receiptId);
+
+  const eligibility = store.records.get(eligibilityKey(pairActor.id, 0));
+  assert.equal(eligibility.eligible, true);
+  assert.equal(eligibility.verdict, "approved");
+  assert.equal(eligibility.publicationSource.type, "operator_rescue");
+  assert.equal(eligibility.publicationSource.rescueReceiptId, receiptId);
+});
+
 test("an approval from a legacy profile contract is visibly marked for reapproval", async () => {
   assert.equal(CURATION_VERSION, PREVIOUS_CURATION_VERSION + 1);
   const { handler, store } = harness();

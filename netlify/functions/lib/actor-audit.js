@@ -272,6 +272,11 @@ export function createActorAuditHandler({
           }
         }
         const hasComparableBoards = comparableBoards(report.currentRun);
+        const operatorBoardApproval = Boolean(
+          plainApproval
+          && !hasComparableBoards
+          && preferredRescueBoard,
+        );
         const blindReview = report.currentRun.blindReview;
         if (hasComparableBoards && !blindReview?.choice) {
           return json(409, { error: "Choose the more compelling board before recording a scheduling verdict." });
@@ -280,10 +285,14 @@ export function createActorAuditHandler({
           && !blindReview?.reasonCodes?.length) {
           return json(409, { error: "Capture at least one disagreement reason before recording a scheduling verdict." });
         }
-        if (!hasComparableBoards && APPROVED_VERDICTS.has(input.verdict)) {
-          return json(409, { error: "A pairing without two complete boards cannot be approved." });
+        if (!hasComparableBoards && APPROVED_VERDICTS.has(input.verdict) && !operatorBoardApproval) {
+          return json(409, {
+            error: "Without two complete boards, approval requires one saved nine-card retained-evidence board.",
+          });
         }
-        if (input.verdict === "approved" && !report.currentRun.materialSufficient) {
+        if (input.verdict === "approved"
+          && !report.currentRun.materialSufficient
+          && !operatorBoardApproval) {
           return json(409, { error: "Insufficient material cannot be approved without an override." });
         }
         if (APPROVED_VERDICTS.has(input.verdict)
@@ -346,6 +355,12 @@ export function createActorAuditHandler({
           vibeConfirmed,
           publishableConfirmed,
           rescuePreference,
+          publicationSource: operatorBoardApproval ? {
+            type: "operator_rescue",
+            rescueReceiptId,
+            boardHash: boardHash(preferredRescueBoard.board),
+            feedbackHash: preferredRescueBoard.feedbackHash,
+          } : null,
           decidedAt: stamp,
           decidedBy: operator.user.accountId,
           calibration: blindReview
@@ -414,6 +429,7 @@ export function createActorAuditHandler({
             })
             : null,
           materialSufficient: report.currentRun.materialSufficient,
+          publicationSource: operatorVerdict.publicationSource,
           eligible: APPROVED_VERDICTS.has(input.verdict),
           decidedAt: stamp,
         });

@@ -33,10 +33,10 @@ import {
 // real cache key and reads whatever the winner produced. This is what stops
 // simultaneous requests right after midnight from each independently
 // re-running the whole search+rank ladder.
-const VERSION = "v9";
-// Legacy entries remain readable as historical editions; today's key is v9 so
+const VERSION = "v10";
+// Legacy entries remain readable as historical editions; today's key is v10 so
 // no pre-audit cache can satisfy the current day's scheduler.
-const LEGACY_READ_VERSIONS = ["v8", "v7", "v6", "v5"];
+const LEGACY_READ_VERSIONS = ["v9", "v8", "v7", "v6", "v5"];
 export const MIN_RELEASE_READY_PAIRS = 2;
 export const RELEASE_COHORT_ACTOR_ID = "liu-xueyi";
 const STORE_NAME = "star-of-day";
@@ -92,6 +92,40 @@ export async function buildPayloadForDate(
     if (approval?.verdict !== "approved") {
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
+    }
+    if (approval.publicationSource?.type === "operator_rescue") {
+      const displayResults = approval.publicationBoard?.candidates || [];
+      if (displayResults.length !== 9) {
+        excluded.add(`${actor.id}:${seed.vIdx}`);
+        continue;
+      }
+      return {
+        version: VERSION,
+        date: dateString,
+        actorId: actor.id,
+        actorIdx: seed.aIdx,
+        actorName: actor.name,
+        actorShortNameEn: actor.shortName_en,
+        actorAccentColor: actor.accentColor,
+        vibeIdx: seed.vIdx,
+        vibeEmoji: vibe.emoji,
+        vibeLabel: vibe.label,
+        vibeLabelEn: vibe.label_en,
+        vibeSubtitle: vibe.subtitle,
+        vibeSubtitleEn: vibe.subtitle_en,
+        vibeSupportingCopy: vibe.supportingCopy,
+        vibeSupportingCopyEn: vibe.supportingCopy_en,
+        generationPrompt: vibe.mjPrompt,
+        generationQuery: displayResults[0]?.query,
+        rankedBatches: displayResults,
+        displayResults,
+        curation: {
+          mode: "operator_rescue",
+          receiptId: approval.publicationSource.rescueReceiptId,
+          boardHash: approval.publicationSource.boardHash,
+        },
+        generatedAt: generatedAt(),
+      };
     }
 
     const candidates = await evaluate(vibe.queries, search);

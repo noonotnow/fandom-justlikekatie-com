@@ -10,6 +10,7 @@ import starOfDay, {
 import {
   auditHeadKey,
   auditCalibrationKey,
+  auditRescueBoardKey,
   auditRunKey,
   auditVerdictKey,
   eligibilityKey,
@@ -162,6 +163,45 @@ function approvedEligibility(actor, vibeIdx, verdict = "approved") {
   };
 }
 
+function operatorBoardEligibility(actor, vibeIdx) {
+  const entries = approvedEligibility(actor, vibeIdx);
+  const actorId = actor.id;
+  const runId = `${actorId}-${vibeIdx}-run`;
+  const vibeKey = `${actorId}:${vibeIdx}`;
+  const candidates = Array.from({ length: 9 }, (_, index) => ({
+    candidateId: `${actorId}-${vibeIdx}-manual-${index}`,
+    query: `manual query ${index}`,
+    thumbnail: `https://images.test/${actorId}-${vibeIdx}-manual-${index}.jpg`,
+    title: `Manual frame ${index}`,
+    source: `manual-${index}.test`,
+    batchRank: index,
+  }));
+  const receiptId = `${actorId}-${vibeIdx}-rescue`;
+  const board = { mode: "operator_rescue", candidates };
+  const publicationSource = {
+    type: "operator_rescue",
+    rescueReceiptId: receiptId,
+    boardHash: boardSnapshot(board, "operator_rescue").boardHash,
+    feedbackHash: "feedback-hash",
+  };
+  entries[eligibilityKey(actorId, vibeIdx)].publicationSource = publicationSource;
+  entries[auditRunKey(actorId, vibeIdx, runId)].strongestEvent = null;
+  entries[auditRunKey(actorId, vibeIdx, runId)].strongestCompiled = null;
+  entries[auditRunKey(actorId, vibeIdx, runId)].winner = null;
+  entries[auditVerdictKey(actorId, vibeIdx, runId)].publicationSource = publicationSource;
+  entries[auditVerdictKey(actorId, vibeIdx, runId)].calibration = null;
+  delete entries[auditCalibrationKey(actorId, vibeIdx, runId)];
+  entries[auditRescueBoardKey(actorId, vibeIdx, runId, receiptId)] = {
+    receiptId,
+    runId,
+    actorId,
+    vibeKey,
+    feedbackHash: "feedback-hash",
+    board,
+  };
+  return entries;
+}
+
 function boardSnapshot(board, mode) {
   const boardHash = createHash("sha256").update(JSON.stringify(
     board.candidates.map(candidate => ({
@@ -310,6 +350,53 @@ test("the builder skips a failed approved pairing and preserves the public 3x3 p
   assert.equal("identityProfile" in payload, false);
   assert.equal("audit" in payload, false);
   assert.equal("eligibility" in payload, false);
+});
+
+test("the builder publishes the exact human-approved retained-evidence board without searching", async () => {
+  const packs = [
+    {
+      id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
+      vibes: [{ label: "A0", label_en: "A0", queries: ["unused-a"] }],
+    },
+    {
+      id: "actor-b", name: "Actor B", shortName_en: "B", accentColor: "#222",
+      vibes: [{ label: "B0", label_en: "B0", queries: ["unused-b"] }],
+    },
+  ];
+  const eligibilityStore = makeStore({
+    ...operatorBoardEligibility(packs[0], 0),
+    ...operatorBoardEligibility(packs[1], 0),
+  });
+  let searches = 0;
+  const payload = await buildPayloadForDate("2026-09-01", eligibilityStore, {
+    packs,
+    evaluate: async () => {
+      searches += 1;
+      return [];
+    },
+    generatedAt: () => "2026-09-01T12:00:00.000Z",
+  });
+
+  assert.equal(searches, 0);
+  assert.equal(payload.displayResults.length, 9);
+  assert.equal(payload.curation.mode, "operator_rescue");
+  assert.ok(payload.displayResults.every(candidate =>
+    candidate.candidateId.startsWith(`${payload.actorId}-0-manual-`)));
+});
+
+test("a changed retained-evidence receipt fails closed after human approval", async () => {
+  const actor = {
+    id: "actor-a", name: "Actor A", shortName_en: "A",
+    vibes: [{ label: "A0", label_en: "A0", queries: ["unused"] }],
+  };
+  const entries = operatorBoardEligibility(actor, 0);
+  const runId = `${actor.id}-0-run`;
+  const receiptId = `${actor.id}-0-rescue`;
+  entries[auditRescueBoardKey(actor.id, 0, runId, receiptId)].board.candidates[0].thumbnail =
+    "https://images.test/tampered.jpg";
+  const store = makeStore(entries);
+
+  assert.equal(await hasReleaseReadyCohort([actor], store, 1), false);
 });
 
 test("the builder does not search when no pairing has a current approval", async () => {

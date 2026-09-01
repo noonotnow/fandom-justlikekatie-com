@@ -77,33 +77,56 @@ export async function getEligibility(store, actor, vibeIdx) {
   ]);
   if (!snapshot || !head?.currentRunId || snapshot.runId !== head.currentRunId) return null;
 
-  const [run, verdict, calibration, reasons, rescueCalibrations, rescueCalibrationRetirements] = await Promise.all([
+  const [run, verdict, calibration, reasons, rescueCalibrations, rescueCalibrationRetirements, publicationReceipt] = await Promise.all([
     store.get(auditRunKey(actorId, vibeIdx, head.currentRunId), { type: "json", consistency: "strong" }),
     readFirstReceipt(store, auditVerdictPrefix(actorId, vibeIdx, head.currentRunId), "decidedAt"),
     readFirstReceipt(store, auditCalibrationPrefix(actorId, vibeIdx, head.currentRunId), "chosenAt"),
     readFirstReceipt(store, auditCalibrationReasonsPrefix(actorId, vibeIdx, head.currentRunId), "annotatedAt"),
     readReceipts(store, auditRescueCalibrationPrefix(actorId, vibeIdx), "confirmedAt"),
     readReceipts(store, auditRescueCalibrationRetirementPrefix(actorId, vibeIdx), "retiredAt"),
+    snapshot.publicationSource?.type === "operator_rescue"
+      ? store.get(
+        auditRescueBoardKey(
+          actorId,
+          vibeIdx,
+          head.currentRunId,
+          snapshot.publicationSource.rescueReceiptId,
+        ),
+        { type: "json", consistency: "strong" },
+      )
+      : null,
   ]);
+  const operatorPublication = snapshot.publicationSource?.type === "operator_rescue";
   const disagreement = calibration?.choice !== run?.winner?.mode;
   const expectedFingerprint = pairingFingerprintFor(actor, vibeIdx);
   if (
     !run
     || !verdict
-    || !calibration
-    || calibration.runId !== run.runId
-    || !["event", "compiled", "neither"].includes(calibration.choice)
-    || (disagreement && !reasons?.reasonCodes?.length)
-    || !validFinalCalibration({
-      actor,
-      vibeIdx,
-      run,
-      verdict,
-      calibration,
-      reasons,
-      snapshot,
-    })
-    || snapshot.calibrationVersion !== 1
+    || (operatorPublication
+      ? !validOperatorPublication({
+        actor,
+        vibeIdx,
+        run,
+        verdict,
+        snapshot,
+        publicationReceipt,
+      })
+      : (
+        !calibration
+        || calibration.runId !== run.runId
+        || !["event", "compiled", "neither"].includes(calibration.choice)
+        || (disagreement && !reasons?.reasonCodes?.length)
+        || !validFinalCalibration({
+          actor,
+          vibeIdx,
+          run,
+          verdict,
+          calibration,
+          reasons,
+          snapshot,
+        })
+        || snapshot.calibrationVersion !== 1
+      ))
     || run.profileVersion !== IDENTITY_PROFILE_VERSION
     || run.identityProfileVersion !== IDENTITY_PROFILE_VERSION
     || run.aestheticClusterVersion !== AESTHETIC_CLUSTER_VERSION
@@ -130,7 +153,48 @@ export async function getEligibility(store, actor, vibeIdx) {
       snapshot,
     )
   ) return null;
-  return snapshot;
+  return operatorPublication
+    ? { ...snapshot, publicationBoard: publicationReceipt.board }
+    : snapshot;
+}
+
+function validOperatorPublication({
+  actor,
+  vibeIdx,
+  run,
+  verdict,
+  snapshot,
+  publicationReceipt,
+}) {
+  const source = snapshot.publicationSource;
+  const verdictSource = verdict?.publicationSource;
+  const candidates = publicationReceipt?.board?.candidates;
+  return Boolean(
+    snapshot.verdict === "approved"
+    && snapshot.vibeConfirmed === true
+    && snapshot.publishableConfirmed === true
+    && source?.type === "operator_rescue"
+    && typeof source.rescueReceiptId === "string"
+    && source.rescueReceiptId.length > 0
+    && verdictSource?.type === source.type
+    && verdictSource.rescueReceiptId === source.rescueReceiptId
+    && verdictSource.boardHash === source.boardHash
+    && verdictSource.feedbackHash === source.feedbackHash
+    && publicationReceipt
+    && publicationReceipt.receiptId === source.rescueReceiptId
+    && publicationReceipt.runId === run.runId
+    && publicationReceipt.actorId === actor.id
+    && publicationReceipt.vibeKey === auditVibeKey(actor.id, vibeIdx)
+    && publicationReceipt.feedbackHash === source.feedbackHash
+    && Array.isArray(candidates)
+    && candidates.length === 9
+    && new Set(candidates.map(candidate => candidate?.candidateId)).size === 9
+    && candidates.every(candidate =>
+      typeof candidate?.candidateId === "string"
+      && typeof candidate?.thumbnail === "string"
+      && candidate.thumbnail.length > 0)
+    && boardHash(publicationReceipt.board) === source.boardHash
+  );
 }
 
 function validRescueCalibrationProof(
