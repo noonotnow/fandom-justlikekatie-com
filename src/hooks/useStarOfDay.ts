@@ -164,6 +164,12 @@ export const useStarOfDay = (editionDate: string | null = null): UseStarOfDayRet
           return;
         }
 
+        if (data.error === 'no_acceptable_batch') {
+          setError('Today’s Star of the Day is waiting for one approved Liu Xueyi pairing. Complete both human confirmations in the private approval desk to publish it.');
+          setLoading(false);
+          return;
+        }
+
         if (!data.rankedBatches?.length) {
           setError('No images found for today\'s vibe. Try refreshing!');
           setLoading(false);
