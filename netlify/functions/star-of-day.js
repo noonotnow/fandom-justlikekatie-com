@@ -33,7 +33,8 @@ import {
 // real cache key and reads whatever the winner produced. This is what stops
 // simultaneous requests right after midnight from each independently
 // re-running the whole search+rank ladder.
-const VERSION = "v10";
+export const STAR_OF_DAY_VERSION = "v10";
+const VERSION = STAR_OF_DAY_VERSION;
 // Legacy entries remain readable as historical editions; today's key is v10 so
 // no pre-audit cache can satisfy the current day's scheduler.
 const LEGACY_READ_VERSIONS = ["v9", "v8", "v7", "v6", "v5"];

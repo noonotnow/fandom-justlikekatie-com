@@ -2829,6 +2829,77 @@ function sameFinalVerdict(left, right) {
   );
 }
 
+function isUsableBackfillDate(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function publicBackfillResult(candidate) {
+  return {
+    title: candidate.title || "",
+    thumbnail: candidate.thumbnail || "",
+    link: candidate.link || "",
+    source: candidate.source || "",
+    ...(candidate.familyId ? { familyId: candidate.familyId } : {}),
+    ...(candidate.familyLabel ? { familyLabel: candidate.familyLabel } : {}),
+    ...(candidate.familyEvidence ? { familyEvidence: candidate.familyEvidence } : {}),
+    ...(candidate.query ? { query: candidate.query } : {}),
+    ...(candidate.batchKey ? { batchKey: candidate.batchKey } : {}),
+  };
+}
+
+function backfillPayloadForDate(date, pair, board) {
+  const publicResults = board.candidates.map(publicBackfillResult);
+  return {
+    version: STAR_OF_DAY_VERSION,
+    date,
+    actorId: pair.actor.id,
+    actorIdx: null,
+    actorName: pair.actor.name,
+    actorShortNameEn: pair.actor.shortName_en,
+    actorAccentColor: pair.actor.accentColor,
+    vibeIdx: pair.vibeIdx,
+    vibeEmoji: pair.vibe.emoji,
+    vibeLabel: pair.vibe.label,
+    vibeLabelEn: pair.vibe.label_en,
+    vibeSubtitle: pair.vibe.subtitle,
+    vibeSubtitleEn: pair.vibe.subtitle_en,
+    vibeSupportingCopy: pair.vibe.supportingCopy,
+    vibeSupportingCopyEn: pair.vibe.supportingCopy_en,
+    generationPrompt: pair.vibe.mjPrompt,
+    rankedBatches: [{
+      query: "editorial-backfill",
+      results: publicResults,
+      count: publicResults.length,
+      distinctSources: new Set(publicResults.map(candidate => candidate.source).filter(Boolean)).size,
+      provider: null,
+    }],
+    displayResults: publicResults,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+function samePublicPayload(left, right) {
+  return Boolean(
+    left?.date === right?.date
+    && left?.actorId === right?.actorId
+    && left?.vibeIdx === right?.vibeIdx
+    && JSON.stringify(left?.displayResults || []) === JSON.stringify(right?.displayResults || []),
+  );
+}
+
+function publicBackfillSummary(payload) {
+  return {
+    date: payload.date,
+    actorName: payload.actorName,
+    actorShortNameEn: payload.actorShortNameEn,
+    vibeLabel: payload.vibeLabel,
+    vibeLabelEn: payload.vibeLabelEn,
+    generatedAt: payload.generatedAt,
+  };
+}
+
 function rescuePreferenceIdentityFor(receipt) {
   return {
     runId: receipt?.runId || null,

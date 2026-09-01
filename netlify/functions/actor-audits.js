@@ -9,6 +9,7 @@ const auth = createPublicAuth({ getStore: getBlobStore });
 export default createActorAuditHandler({
   auth,
   getStore: getBlobStore,
+  getPublicationStore: context => getBlobStore("star-of-day", context),
   actorPacks: ACTOR_PACKS,
   searchOneQuery,
 });
