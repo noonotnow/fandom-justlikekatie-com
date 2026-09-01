@@ -1077,6 +1077,58 @@ test("Court Menace requires institutional threat instead of accepting assorted h
   assert.equal(output.diagnostics.strongestCompiled.promise.heroFulfillment, 1);
 });
 
+test("Court Menace permits contextual weapons, romantic proximity, and divine styling as supporting evidence", async () => {
+  const actor = {
+    id: "liu-xueyi",
+    name: "刘学义",
+    shortName_en: "Liu Xueyi",
+    vibes: [{}, { label: "权臣压迫感", label_en: "Court Menace" }],
+  };
+  const promise = vibePromiseFor(actor, 1);
+  const contextualSupports = [
+    "sword used while exercising princely authority",
+    "intimidating romantic proximity during political command",
+    "divine styling with official rank and institutional consequence",
+  ];
+  const candidates = Array.from({ length: 9 }, (_, index) => result(`court-support-${index}`, {
+    source: `court-support-${index % 3}.test`,
+    title: `刘学义 court official styling ornate collar calculating political threat ${contextualSupports[index % 3]} ${index}`,
+    fp: fingerprint(`court-support-${index}`, { ones: spreadBits(`court-support-${index}`, 94) }),
+  }));
+
+  const output = await curateBatches([
+    { query: "刘学义 权臣 朝堂 剧照", results: candidates },
+  ], { diagnostics: true, promise });
+
+  assert.equal(output.displayResults.length, 9);
+  assert.equal(output.diagnostics.strongestCompiled.promise.coreCount, 9);
+  assert.equal(output.diagnostics.dropped.some(item => item.dropReason === "hard_anti_anchor"), false);
+});
+
+test("a bounded Shen Zaiye political arc can qualify as a Court Menace Event", async () => {
+  const actor = {
+    id: "liu-xueyi",
+    name: "刘学义",
+    shortName_en: "Liu Xueyi",
+    vibes: [{}, { label: "权臣压迫感", label_en: "Court Menace" }],
+  };
+  const promise = vibePromiseFor(actor, 1);
+  const shenZaiye = Array.from({ length: 9 }, (_, index) => result(`shen-zaiye-court-${index}`, {
+    source: `shen-zaiye-publisher-${index}.test`,
+    link: `https://shen-zaiye-publisher-${index}.test/桃花映江山/沈在野/${index}`,
+    title: `刘学义 桃花映江山 沈在野 court official robes calculating strategic command institutional consequence ${index}`,
+    fp: fingerprint(`shen-zaiye-court-${index}`, { ones: spreadBits(`shen-zaiye-court-${index}`, 96) }),
+  }));
+
+  const output = await curateBatches([
+    { query: "刘学义 沈在野 桃花映江山 权谋", results: shenZaiye },
+  ], { diagnostics: true, promise });
+
+  assert.equal(output.diagnostics.strongestEvent.candidates.length, 9);
+  assert.equal(output.diagnostics.strongestEvent.promise.coreCount, 9);
+  assert.equal(output.diagnostics.strongestEvent.promise.heroFulfillment, 1);
+});
+
 test("professionally-devastated-but-make-it-corporate-networking rejects a random technically complete board", async () => {
   const actor = {
     id: "liu-xueyi",

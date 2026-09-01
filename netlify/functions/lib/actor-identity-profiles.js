@@ -1,8 +1,8 @@
 // Private operational metadata. Do not add this to ACTOR_PACKS or public APIs.
 // These are search-disambiguation heuristics, not identity verification.
 export const IDENTITY_PROFILE_VERSION = 2;
-export const AESTHETIC_CLUSTER_VERSION = 5;
-export const VIBE_PROMISE_CONTRACT_VERSION = 6;
+export const AESTHETIC_CLUSTER_VERSION = 6;
+export const VIBE_PROMISE_CONTRACT_VERSION = 7;
 
 const LIU_YUNING_CLUSTERS = [
   {
@@ -85,7 +85,24 @@ const LIU_XUEYI_CLUSTERS = [
     propAnchors: ["documents", "book", "seal", "fan", "throne"],
     settingAnchors: ["court", "palace", "official interior", "hearing", "throne", "朝堂", "宫廷"],
     sceneAnchors: ["political negotiation", "power exercised", "controlled proximity", "institutional consequence"],
-    antiAnchors: ["soft white immortal", "modern suit", "romantic intimacy", "collage", "subtitles"],
+    antiAnchors: ["modern imagery", "collage", "graphic treatment", "generic fantasy combat"],
+    vibeCompatibility: { "权臣压迫感": "strong_anchor" },
+  },
+  {
+    id: "shen-zaiye-political-strategist",
+    work: "桃花映江山",
+    character: "沈在野",
+    aliases: ["Shen Zaiye", "political strategist", "court strategist"],
+    look: ["ministerial elegance", "official styling", "ranked costume"],
+    emotionalStates: ["calculating", "assessing", "strategic control", "commanding"],
+    mood: ["controlled", "calculating", "watchful", "dangerous"],
+    palette: ["deep green", "teal", "black", "restrained gold"],
+    wardrobeAnchors: ["official robes", "ministerial robes", "ornate collar"],
+    propAnchors: ["documents", "book", "seal", "fan", "weapon"],
+    settingAnchors: ["court", "palace", "official interior", "朝堂", "宫廷"],
+    relationshipAnchors: ["political intimidation", "another character under pressure"],
+    sceneAnchors: ["political negotiation", "strategic command", "institutional consequence"],
+    antiAnchors: ["modern imagery", "collage", "graphic treatment", "generic fantasy combat"],
     vibeCompatibility: { "权臣压迫感": "strong_anchor" },
   },
   {
@@ -282,18 +299,18 @@ const COURT_MENACE_CONTRACT = {
     "documents", "document", "book", "seal", "fan", "throne", "palace",
     "official interior", "another character", "controlled proximity",
     "calm", "scrutiny", "deep green", "teal", "black", "restrained gold",
-    "ornate collar", "institutional power", "consequence",
+    "ornate collar", "institutional power", "consequence", "sword", "weapon",
+    "blade", "romantic proximity", "intimidating proximity", "romantic tension",
+    "divine styling", "celestial styling", "divine regalia",
   ],
   hardAntiAnchors: [
     "modern suit", "modern suits", "modern event", "award ceremony",
     "bts", "behind the scenes", "production equipment", "fire truck",
     "collage", "contact sheet", "multi-panel", "subtitles", "platform overlay",
-    "拼图", "九宫格", "组图", "字幕", "软仙君",
+    "拼图", "九宫格", "组图", "字幕", "generic fantasy combat", "fantasy combat",
   ],
   softContradictions: [
-    "generic black costume", "dark fantasy", "battlefield", "battle scene",
-    "sword only", "weapon only", "romantic intimacy", "kiss", "soft white immortal",
-    "white immortal", "modern", "random villain", "neutral portrait",
+    "random villain", "neutral portrait", "authority unclear", "no political context",
   ],
   hero: {
     requireExplicit: true,
@@ -302,7 +319,11 @@ const COURT_MENACE_CONTRACT = {
       "jurisdiction", "power exercised", "掌控", "审视", "威压", "权臣",
     ],
   },
-  clusterIds: ["murong-jinghe-dark-commander", "court-menace-political-authority"],
+  clusterIds: [
+    "murong-jinghe-dark-commander",
+    "court-menace-political-authority",
+    "shen-zaiye-political-strategist",
+  ],
 };
 
 const PROFESSIONALLY_DEVASTATED_CONTRACT = {

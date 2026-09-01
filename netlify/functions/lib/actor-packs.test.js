@@ -57,11 +57,11 @@ test("Court Menace searches stay grounded in institutional threat rather than ge
 
   assert.deepEqual(vibe.queries, [
     "刘学义 慕容璟和 春花焰 权臣",
+    "刘学义 沈在野 桃花映江山 权谋",
+    "沈在野 桃花映江山 朝堂 谋略",
     "刘学义 权臣 朝堂 剧照",
     "刘学义 宫廷 权谋 造型",
-    "刘学义 皇子 官服 剧照",
     "刘学义 深绿 朝堂 造型",
-    "刘学义 黑衣 谋略 剧照",
     "刘学义 权力 审视 古装",
   ]);
   assert.ok(vibe.queries.every(query => !query.endsWith("写真")));

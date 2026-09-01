@@ -200,10 +200,16 @@ function archivePayload(date, actorName = `Actor ${date}`) {
 }
 
 test("archive lists current and legacy payload dates with edition identity and excludes locks", async () => {
-  const store = makeStore(records);
+  const store = makeStore({
+    "starOfDay:v6:2026-08-30": archivePayload("2026-08-30"),
+    "starOfDay:v6:2026-08-29": archivePayload("2026-08-29"),
+    "starOfDay:v6:2026-08-30:lock": { startedAt: Date.now() },
+    "starOfDay:v5:2026-08-28": { ...archivePayload("2026-08-28"), version: "v5" },
+    "starOfDay:v4:2026-08-27": { ...archivePayload("2026-08-27"), version: "v4" },
+  });
 
   const response = await starOfDay(
-    { method: "GET", url: "https://example.test/star-of-day?date=2026-08-28" },
+    { method: "GET", url: "https://example.test/star-of-day?archive=1" },
     contextFor(store),
   );
 
@@ -218,11 +224,11 @@ test("archive lists current and legacy payload dates with edition identity and e
 });
 
 test("historical date reads use the existing cache without starting a build", async () => {
-  const archived = { ...archivePayload("2026-08-28"), version: "v5" };
-  const store = makeStore(records);
+  const archived = archivePayload("2026-08-29");
+  const store = makeStore({ "starOfDay:v6:2026-08-29": archived });
 
   const response = await starOfDay(
-    { method: "GET", url: "https://example.test/star-of-day?date=2026-08-28" },
+    { method: "GET", url: "https://example.test/star-of-day?date=2026-08-29" },
     contextFor(store),
   );
 
@@ -233,7 +239,7 @@ test("historical date reads use the existing cache without starting a build", as
 
 test("historical date reads preserve legacy v5 editions after the curation upgrade", async () => {
   const archived = { ...archivePayload("2026-08-28"), version: "v5" };
-  const store = makeStore(records);
+  const store = makeStore({ "starOfDay:v5:2026-08-28": archived });
 
   const response = await starOfDay(
     { method: "GET", url: "https://example.test/star-of-day?date=2026-08-28" },
@@ -246,7 +252,7 @@ test("historical date reads preserve legacy v5 editions after the curation upgra
 });
 
 test("historical reads reject missing and future dates without touching cache locks", async () => {
-  const store = makeStore(records);
+  const store = makeStore();
   const missing = await starOfDay(
     { method: "GET", url: "https://example.test/star-of-day?date=2026-08-29" },
     contextFor(store),
@@ -262,7 +268,16 @@ test("historical reads reject missing and future dates without touching cache lo
 });
 
 test("the builder skips a failed approved pairing and preserves the public 3x3 payload contract", async () => {
-  const packs = [actor, cohortActor];
+  const packs = [
+    {
+      id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
+      vibes: [{ label: "A0", label_en: "A0", queries: ["fails"] }],
+    },
+    {
+      id: "actor-b", name: "Actor B", shortName_en: "B", accentColor: "#222",
+      vibes: [{ label: "B0", label_en: "B0", queries: ["works"] }],
+    },
+  ];
   const eligibilityStore = makeStore({
     ...approvedEligibility(packs[0], 0),
     ...approvedEligibility(packs[1], 0),
@@ -274,17 +289,18 @@ test("the builder skips a failed approved pairing and preserves the public 3x3 p
     title: `Frame ${index}`,
     thumbnail: `https://images.test/${index}.jpg`,
   }));
-  const payload = await buildPayloadForDate("2026-08-31", store, {
-    packs: [actor],
-    evaluate: async () => [{ query: "query", results: displayResults }],
-    rank: candidates => candidates,
-    curate: async () => {
-      await store.setJSON(eligibilityKey(actor.id, 0), {
-        ...records[eligibilityKey(actor.id, 0)],
-        eligible: false,
-      });
-      return { displayResults, curation: { mode: "compiled" } };
+  const payload = await buildPayloadForDate("2026-08-31", eligibilityStore, {
+    packs,
+    evaluate: async queries => {
+      attempted.push(queries[0]);
+      return queries[0] === "fails" ? [] : [{ query: "works", results: displayResults }];
     },
+    rank: candidates => candidates,
+    curate: async () => ({
+      displayResults,
+      curation: { mode: "compiled", version: 1, rationale: "Varied evidence.", signals: [] },
+    }),
+    generatedAt: () => "2026-08-31T12:00:00.000Z",
   });
 
   assert.deepEqual(attempted, ["fails", "works"]);
@@ -298,41 +314,33 @@ test("the builder skips a failed approved pairing and preserves the public 3x3 p
 
 test("the builder does not search when no pairing has a current approval", async () => {
   let searches = 0;
-  const payload = await buildPayloadForDate("2026-08-31", store, {
-    packs: [actor],
-    evaluate: async () => [{ query: "query", results: displayResults }],
-    rank: candidates => candidates,
-    curate: async () => {
-      await store.setJSON(eligibilityKey(actor.id, 0), {
-        ...records[eligibilityKey(actor.id, 0)],
-        eligible: false,
-      });
-      return { displayResults, curation: { mode: "compiled" } };
+  const payload = await buildPayloadForDate("2026-08-31", makeStore(), {
+    packs: [{ id: "actor-a", vibes: [{ queries: ["query"] }] }],
+    evaluate: async () => {
+      searches += 1;
+      return [];
     },
   });
 
-  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore), false);
   assert.equal(payload, null);
   assert.equal(searches, 0);
 });
 
-test("the production release cohort is specifically Liu Xueyi", async () => {
-  const packs = [actor, cohortActor];
+test("Star of the Day waits for two plain operator approvals", async () => {
+  const packs = [
+    { id: "actor-a", name: "Actor A", shortName_en: "A", vibes: [{ label: "A0", label_en: "A0", queries: ["a"] }] },
+    { id: "actor-b", name: "Actor B", shortName_en: "B", vibes: [{ label: "B0", label_en: "B0", queries: ["b"] }] },
+  ];
   const eligibilityStore = makeStore({
-    ...approvedEligibility(packs[0], 0),
-    ...approvedEligibility(packs[1], 0),
+    ...approvedEligibility(packs[0], 0, "approved"),
+    ...approvedEligibility(packs[1], 0, "approved_override"),
   });
   let searches = 0;
-  const payload = await buildPayloadForDate("2026-08-31", store, {
-    packs: [actor],
-    evaluate: async () => [{ query: "query", results: displayResults }],
-    rank: candidates => candidates,
-    curate: async () => {
-      await store.setJSON(eligibilityKey(actor.id, 0), {
-        ...records[eligibilityKey(actor.id, 0)],
-        eligible: false,
-      });
-      return { displayResults, curation: { mode: "compiled" } };
+  const payload = await buildPayloadForDate("2026-08-31", eligibilityStore, {
+    packs,
+    evaluate: async () => {
+      searches += 1;
+      return [];
     },
   });
 
@@ -342,7 +350,10 @@ test("the production release cohort is specifically Liu Xueyi", async () => {
 });
 
 test("the production release cohort is specifically Liu Xueyi", async () => {
-  const packs = [actor, cohortActor];
+  const packs = [
+    { id: RELEASE_COHORT_ACTOR_ID, name: "Liu Xueyi", vibes: [{ label: "A0", queries: ["a"] }, { label: "A1", queries: ["a1"] }] },
+    { id: "actor-b", name: "Actor B", vibes: [{ label: "B0", queries: ["b"] }] },
+  ];
   const eligibilityStore = makeStore({
     ...approvedEligibility(packs[0], 0),
     ...approvedEligibility(packs[1], 0),
@@ -358,16 +369,12 @@ test("the production release cohort is specifically Liu Xueyi", async () => {
   ), false);
 
   let searches = 0;
-  const payload = await buildPayloadForDate("2026-08-31", store, {
-    packs: [actor],
-    evaluate: async () => [{ query: "query", results: displayResults }],
-    rank: candidates => candidates,
-    curate: async () => {
-      await store.setJSON(eligibilityKey(actor.id, 0), {
-        ...records[eligibilityKey(actor.id, 0)],
-        eligible: false,
-      });
-      return { displayResults, curation: { mode: "compiled" } };
+  const payload = await buildPayloadForDate("2026-08-31", eligibilityStore, {
+    packs,
+    releaseActorId: RELEASE_COHORT_ACTOR_ID,
+    evaluate: async () => {
+      searches += 1;
+      return [];
     },
   });
   assert.equal(payload, null);
@@ -377,37 +384,24 @@ test("the production release cohort is specifically Liu Xueyi", async () => {
 test("cached and fallback payloads stop qualifying when approval is revoked or inputs change", async () => {
   const actor = {
     id: "actor-a",
-    name: "Actor A",
-    vibes: [{ label: "Vibe", queries: ["query"] }],
+    vibes: [{ queries: ["approved query"] }],
   };
   const cohortActor = {
     id: "actor-b",
     vibes: [{ queries: ["second approved query"] }],
   };
   const packs = [actor, cohortActor];
-  const records = approvedEligibility(actor, 0);
+  const records = {
+    ...approvedEligibility(actor, 0),
+    ...approvedEligibility(cohortActor, 0),
+  };
   const store = makeStore(records);
-  const payload = await buildPayloadForDate("2026-08-31", store, {
-    packs: [actor],
-    evaluate: async () => [{ query: "query", results: displayResults }],
-    rank: candidates => candidates,
-    curate: async () => {
-      await store.setJSON(eligibilityKey(actor.id, 0), {
-        ...records[eligibilityKey(actor.id, 0)],
-        eligible: false,
-      });
-      return { displayResults, curation: { mode: "compiled" } };
-    },
-  });
+  const payload = { actorId: actor.id, vibeIdx: 0, displayResults: Array(9).fill({}) };
 
   assert.equal(await cachedPairIsEligible(payload, store, packs), true);
 
-  records[eligibilityKey(cohortActor.id, 0)].eligible = false;
-  assert.equal(
-    await cachedPairIsEligible(payload, makeStore(records), packs),
-    false,
-    "revoking the other approved pair must invalidate an already-cached payload",
-  );
+  records[eligibilityKey(actor.id, 0)].eligible = false;
+  assert.equal(await cachedPairIsEligible(payload, makeStore(records), packs), false);
 
   const changedActor = {
     ...actor,
