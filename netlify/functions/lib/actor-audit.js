@@ -235,12 +235,13 @@ export function createActorAuditHandler({
         };
         const existingVerdict = report.currentRun.operatorVerdict;
         if (existingVerdict) {
-          if (existingVerdict.verdict !== input.verdict
-            || existingVerdict.notes !== notes
-            || existingVerdict.vibeConfirmed !== vibeConfirmed
-            || existingVerdict.publishableConfirmed !== publishableConfirmed
-            || JSON.stringify(normalizeRescuePreference(existingVerdict.rescuePreference))
-              !== JSON.stringify(normalizeRescuePreference(rescuePreference))) {
+          if (!sameFinalVerdict(existingVerdict, {
+            verdict: input.verdict,
+            notes,
+            vibeConfirmed,
+            publishableConfirmed,
+            rescuePreference,
+          })) {
             return json(409, { error: "The final scheduling verdict for this audit run is immutable." });
           }
           return json(200, {
@@ -1658,12 +1659,13 @@ function emptyEditorialFeedback() {
 function reportWithRescueReceipt(report, pair, receipt) {
   if (!report?.currentRun || report.currentRun.runId !== receipt.runId) return report;
   const feedback = report.currentRun.editorialFeedback || emptyEditorialFeedback();
+  const responseReceipt = { ...receipt, calibrationEvidence: null };
   const existingBoards = Array.isArray(feedback.operatorRescueBoards)
     ? feedback.operatorRescueBoards
     : [];
   const boards = [
-    receipt,
-    ...existingBoards.filter(item => item?.receiptId !== receipt.receiptId),
+    responseReceipt,
+    ...existingBoards.filter(item => item?.receiptId !== responseReceipt.receiptId),
   ].sort((left, right) =>
     String(right.savedAt || "").localeCompare(String(left.savedAt || ""))
     || String(right.receiptId || "").localeCompare(String(left.receiptId || "")));
