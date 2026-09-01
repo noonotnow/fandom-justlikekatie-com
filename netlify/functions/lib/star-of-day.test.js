@@ -4,6 +4,8 @@ import { createHash } from "node:crypto";
 import starOfDay, {
   buildPayloadForDate,
   cachedPairIsEligible,
+  hasReleaseReadyCohort,
+  RELEASE_COHORT_ACTOR_ID,
 } from "../star-of-day.js";
 import {
   auditHeadKey,
@@ -53,7 +55,7 @@ function contextFor(store) {
   return { blobs: { getStore: () => store } };
 }
 
-function approvedEligibility(actor, vibeIdx) {
+function approvedEligibility(actor, vibeIdx, verdict = "approved") {
   const runId = `${actor.id}-${vibeIdx}-run`;
   const pairingFingerprint = pairingFingerprintFor(actor, vibeIdx);
   const actorId = actor.id;
@@ -111,15 +113,19 @@ function approvedEligibility(actor, vibeIdx) {
     disagreementNote: "",
     disagreementAnnotatedAt: null,
     disagreementAnnotatedBy: null,
-    finalSchedulingVerdict: "approved",
+    finalSchedulingVerdict: verdict,
     finalSchedulingNotes: "Approved fixture.",
+    vibeConfirmed: verdict === "approved",
+    publishableConfirmed: verdict === "approved",
     finalSchedulingAt: decidedAt,
     finalSchedulingBy: "operator-1",
   };
   return {
     [eligibilityKey(actorId, vibeIdx)]: {
       eligible: true,
-      verdict: "approved",
+      verdict,
+      vibeConfirmed: verdict === "approved",
+      publishableConfirmed: verdict === "approved",
       runId,
       profileVersion: IDENTITY_PROFILE_VERSION,
       identityProfileVersion: IDENTITY_PROFILE_VERSION,
@@ -144,8 +150,10 @@ function approvedEligibility(actor, vibeIdx) {
       curationReceipt: { curationVersion: CURATION_VERSION },
     },
     [auditVerdictKey(actorId, vibeIdx, runId)]: {
-      verdict: "approved",
+      verdict,
       notes: "Approved fixture.",
+      vibeConfirmed: verdict === "approved",
+      publishableConfirmed: verdict === "approved",
       decidedAt,
       decidedBy: "operator-1",
       calibration: finalCalibration,
@@ -180,6 +188,7 @@ function archivePayload(date, actorName = `Actor ${date}`) {
     vibeLabel: "夜色",
     vibeLabelEn: "Night",
     vibeSubtitleEn: "A midnight assignment",
+    vibeSupportingCopyEn: "A supporting archive line",
     rankedBatches: [{
       query: "archive query",
       results: [{ title: "Evidence", thumbnail: "https://images.test/evidence.jpg", link: "https://source.test", source: "Source" }],
@@ -273,6 +282,8 @@ test("the builder skips a failed approved pairing and preserves the public 3x3 p
     ...approvedEligibility(packs[0], 0),
     ...approvedEligibility(packs[1], 0),
   });
+  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore), true);
+  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore, 2, packs[0].id), false);
   const attempted = [];
   const displayResults = Array.from({ length: 9 }, (_, index) => ({
     title: `Frame ${index + 1}`,
@@ -305,6 +316,61 @@ test("the builder does not search when no pairing has a current approval", async
   let searches = 0;
   const payload = await buildPayloadForDate("2026-08-31", makeStore(), {
     packs: [{ id: "actor-a", vibes: [{ queries: ["query"] }] }],
+    evaluate: async () => {
+      searches += 1;
+      return [];
+    },
+  });
+  assert.equal(payload, null);
+  assert.equal(searches, 0);
+});
+
+test("Star of the Day waits for two plain operator approvals", async () => {
+  const packs = [
+    { id: "actor-a", name: "Actor A", shortName_en: "A", vibes: [{ label: "A0", label_en: "A0", queries: ["a"] }] },
+    { id: "actor-b", name: "Actor B", shortName_en: "B", vibes: [{ label: "B0", label_en: "B0", queries: ["b"] }] },
+  ];
+  const eligibilityStore = makeStore({
+    ...approvedEligibility(packs[0], 0, "approved"),
+    ...approvedEligibility(packs[1], 0, "approved_override"),
+  });
+  let searches = 0;
+  const payload = await buildPayloadForDate("2026-08-31", eligibilityStore, {
+    packs,
+    evaluate: async () => {
+      searches += 1;
+      return [];
+    },
+  });
+
+  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore), false);
+  assert.equal(payload, null);
+  assert.equal(searches, 0);
+});
+
+test("the production release cohort is specifically Liu Xueyi", async () => {
+  const packs = [
+    { id: RELEASE_COHORT_ACTOR_ID, name: "Liu Xueyi", vibes: [{ label: "A0", queries: ["a"] }, { label: "A1", queries: ["a1"] }] },
+    { id: "actor-b", name: "Actor B", vibes: [{ label: "B0", queries: ["b"] }] },
+  ];
+  const eligibilityStore = makeStore({
+    ...approvedEligibility(packs[0], 0),
+    ...approvedEligibility(packs[1], 0),
+  });
+
+  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore, 2, RELEASE_COHORT_ACTOR_ID), false);
+  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore), true);
+  assert.equal(await cachedPairIsEligible(
+    { actorId: packs[1].id, vibeIdx: 0 },
+    eligibilityStore,
+    packs,
+    RELEASE_COHORT_ACTOR_ID,
+  ), false);
+
+  let searches = 0;
+  const payload = await buildPayloadForDate("2026-08-31", eligibilityStore, {
+    packs,
+    releaseActorId: RELEASE_COHORT_ACTOR_ID,
     evaluate: async () => {
       searches += 1;
       return [];

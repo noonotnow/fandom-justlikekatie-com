@@ -136,17 +136,19 @@ export const ACTOR_PACKS = [
       {
         "emoji": "🌙",
         "label": "破碎感美人",
-        "label_en": "Shattered Beauty",
+        "label_en": "Professionally Devastated",
         "subtitle": "明明没说话，像已经疼了三生三世",
-        "subtitle_en": "Said nothing — but clearly hurting for three lifetimes",
+        "subtitle_en": "Born to suffer beautifully.",
+        "supportingCopy": "戏服会换，情绪废墟不换。",
+        "supportingCopy_en": "The costume changes. The emotional ruin remains.",
         "queries": [
-          "刘学义 采访 情绪",
-          "刘学义 角色 剧照",
-          "刘学义 斩荒 剧照",
-          "刘学义 天启 剧照",
-          "刘学义 源仲 剧照",
-          "刘学义 秋蝉 林小庄",
-          "刘学义 春花焰 慕容璟和"
+          "刘学义 慕容璟和 春花焰 受伤",
+          "慕容璟和 眉林 婚服 抱",
+          "慕容璟和 崩溃 哭戏",
+          "刘学义 沈在野 桃花映江山 受伤",
+          "沈在野 姜桃花 吐血 狼狈",
+          "刘学义 锦绣 落花时节又逢君 红凝 受伤",
+          "锦绣 红凝 抱 哭戏"
         ],
         "shareFragment": "破碎感美人学义，三生三世都是他",
         "mjPrompt": ""

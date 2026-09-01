@@ -908,17 +908,17 @@ test("a Vibe promise gate beats technically varied contradictory cards", async (
   assert.equal("queryRange" in output.diagnostics.strongestCompiled.scoreBreakdown, false);
 });
 
-test("shattered-beauty-but-make-it-corporate-networking rejects a random technically complete board", async () => {
+test("professionally-devastated-but-make-it-corporate-networking rejects a random technically complete board", async () => {
   const actor = {
     id: "liu-xueyi",
     name: "刘学义",
     shortName_en: "Liu Xueyi",
-    vibes: [{}, {}, {}, { queries: ["刘学义 破碎感"] }],
+    vibes: [{}, {}, {}, { queries: ["刘学义 慕容璟和 春花焰 受伤"] }],
   };
   const promise = vibePromiseFor(actor, 3);
   const valid = Array.from({ length: 4 }, (_, index) => result(`shattered-valid-${index}`, {
     source: `wounded-${index}.test`,
-    title: `刘学义 wounded bloodied tearful close-up frame ${index}`,
+    title: `刘学义 慕容璟和 wounded bloodied tearful grief close-up frame ${index}`,
     fp: fingerprint(`shattered-valid-${index}`, { ones: spreadBits(`shattered-valid-${index}`, 92) }),
   }));
   const contaminated = [
@@ -949,10 +949,10 @@ test("shattered-beauty-but-make-it-corporate-networking rejects a random technic
   ];
 
   const output = await curateBatches([
-    { query: "刘学义 破碎感", results: [...contaminated, ...valid] },
+    { query: "刘学义 慕容璟和 春花焰 受伤", results: [...contaminated, ...valid] },
   ], { diagnostics: true, promise });
 
-  assert.equal(promise.id, "liu-xueyi-shattered-beauty");
+  assert.equal(promise.id, "liu-xueyi-professionally-devastated");
   assert.equal(output.displayResults.length, 0);
   assert.equal(output.diagnostics.boardDiagnostics.compiled.reasonCode, "too_few_usable_images");
   assert.equal(output.diagnostics.dropped.filter(item =>
@@ -963,6 +963,86 @@ test("shattered-beauty-but-make-it-corporate-networking rejects a random technic
     item.dropReason === "hard_anti_anchor" && /women|woman/i.test(item.dropDetail)), true);
   assert.equal(output.diagnostics.dropped.some(item =>
     item.dropReason === "hard_anti_anchor" && /neutral|clean/i.test(item.dropDetail)), true);
+});
+
+test("generic distress cannot fulfill Professionally Devastated without a named character state", async () => {
+  const actor = {
+    id: "liu-xueyi",
+    name: "刘学义",
+    shortName_en: "Liu Xueyi",
+    vibes: [{}, {}, {}, { queries: ["刘学义 emotional costume portrait"] }],
+  };
+  const promise = vibePromiseFor(actor, 3);
+  const genericDistress = Array.from({ length: 9 }, (_, index) => result(`generic-distress-${index}`, {
+    title: `刘学义 wounded tearful grief costume portrait ${index}`,
+    fp: fingerprint(`generic-distress-${index}`, { ones: spreadBits(`generic-distress-${index}`, 92) }),
+  }));
+  const output = await curateBatches([
+    { query: "刘学义 emotional costume portrait", results: genericDistress },
+  ], { diagnostics: true, promise });
+
+  assert.equal(output.displayResults.length, 0);
+  assert.equal(output.diagnostics.strongestCompiled, null);
+  assert.equal(output.diagnostics.boardDiagnostics.compiled.reasonCode, "promise_not_fulfilled");
+  assert.match(output.diagnostics.boardDiagnostics.compiled.summary, /only 0 of 9 cards/i);
+});
+
+test("a named heartbreak cluster still needs an emotionally legible hero", async () => {
+  const actor = {
+    id: "liu-xueyi",
+    name: "刘学义",
+    shortName_en: "Liu Xueyi",
+    vibes: [{}, {}, {}, { queries: ["刘学义 慕容璟和 春花焰 悲痛"] }],
+  };
+  const promise = vibePromiseFor(actor, 3);
+  const mutedGrief = Array.from({ length: 9 }, (_, index) => result(`muted-grief-${index}`, {
+    title: `刘学义 慕容璟和 grief romantic devastation dark robes frame ${index}`,
+    fp: fingerprint(`muted-grief-${index}`, { ones: spreadBits(`muted-grief-${index}`, 92) }),
+  }));
+  const output = await curateBatches([
+    { query: "刘学义 慕容璟和 春花焰 悲痛", results: mutedGrief },
+  ], { diagnostics: true, promise });
+
+  assert.equal(output.displayResults.length, 0);
+  assert.equal(output.diagnostics.boardDiagnostics.compiled.reasonCode, "promise_not_fulfilled");
+  assert.equal(output.diagnostics.boardDiagnostics.compiled.coreAnchorCount, 9);
+});
+
+test("Jinxiu qualifies by emotional state instead of one permanent Vibe", async () => {
+  const actor = {
+    id: "liu-xueyi",
+    name: "刘学义",
+    shortName_en: "Liu Xueyi",
+    vibes: [{ queries: ["刘学义 锦绣 白衣"] }, {}, {}, { queries: ["刘学义 锦绣 红凝 受伤"] }],
+  };
+  const coldJade = vibePromiseFor(actor, 0);
+  const professionallyDevastated = vibePromiseFor(actor, 3);
+  const devastatedJinxiu = Array.from({ length: 9 }, (_, index) => result(`devastated-jinxiu-${index}`, {
+    title: `刘学义 锦绣 carrying Hongning romantic devastation tearful pale robes frame ${index}`,
+    fp: fingerprint(`devastated-jinxiu-${index}`, { ones: spreadBits(`devastated-jinxiu-${index}`, 92) }),
+  }));
+  const aloofJinxiu = Array.from({ length: 9 }, (_, index) => result(`aloof-jinxiu-${index}`, {
+    title: `刘学义 锦绣 controlled aloof flower deity pale robes celestial frame ${index}`,
+    fp: fingerprint(`aloof-jinxiu-${index}`, { ones: spreadBits(`aloof-jinxiu-${index}`, 92) }),
+  }));
+
+  const devastatedAsHeartbreak = await curateBatches([
+    { query: "刘学义 锦绣 红凝 受伤", results: devastatedJinxiu },
+  ], { diagnostics: true, promise: professionallyDevastated });
+  const devastatedAsColdJade = await curateBatches([
+    { query: "刘学义 锦绣 白衣", results: devastatedJinxiu },
+  ], { diagnostics: true, promise: coldJade });
+  const aloofAsColdJade = await curateBatches([
+    { query: "刘学义 锦绣 白衣", results: aloofJinxiu },
+  ], { diagnostics: true, promise: coldJade });
+  const aloofAsHeartbreak = await curateBatches([
+    { query: "刘学义 锦绣 红凝 受伤", results: aloofJinxiu },
+  ], { diagnostics: true, promise: professionallyDevastated });
+
+  assert.equal(devastatedAsHeartbreak.displayResults.length, 9);
+  assert.equal(devastatedAsColdJade.displayResults.length, 0);
+  assert.equal(aloofAsColdJade.displayResults.length, 9);
+  assert.equal(aloofAsHeartbreak.displayResults.length, 0);
 });
 
 test("character query provenance cannot prove cluster membership without result evidence", async () => {

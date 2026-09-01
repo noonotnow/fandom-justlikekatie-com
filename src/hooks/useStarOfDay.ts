@@ -32,6 +32,8 @@ export interface StarOfDayData {
   vibeLabelEn: string;
   vibeSubtitle: string;
   vibeSubtitleEn: string;
+  vibeSupportingCopy?: string;
+  vibeSupportingCopyEn?: string;
   rankedBatches: RankedBatch[];
   displayResults?: StarOfDayResult[];
   date: string;
@@ -110,6 +112,8 @@ export interface UseStarOfDayReturn {
     vibeLabelEn: string;
     vibeSubtitle: string;
     vibeSubtitleEn: string;
+    vibeSupportingCopy?: string;
+    vibeSupportingCopyEn?: string;
     date: string;
     stale: boolean;
   } | null;
@@ -177,6 +181,8 @@ export const useStarOfDay = (editionDate: string | null = null): UseStarOfDayRet
           vibeLabelEn: data.vibeLabelEn,
           vibeSubtitle: data.vibeSubtitle,
           vibeSubtitleEn: data.vibeSubtitleEn,
+          vibeSupportingCopy: data.vibeSupportingCopy,
+          vibeSupportingCopyEn: data.vibeSupportingCopyEn,
           date: data.date,
           stale: data.stale ?? false,
         });

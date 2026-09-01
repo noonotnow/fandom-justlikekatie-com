@@ -194,6 +194,14 @@ export function createActorAuditHandler({
         if (notes === null) {
           return json(400, { error: "Notes must be text under 2000 characters." });
         }
+        const plainApproval = input.verdict === "approved";
+        const vibeConfirmed = plainApproval && input.vibeConfirmed === true;
+        const publishableConfirmed = plainApproval && input.publishableConfirmed === true;
+        if (input.verdict === "approved" && (!vibeConfirmed || !publishableConfirmed)) {
+          return json(409, {
+            error: "Approval requires both “Yes, that’s the Vibe” and “Yes, this is publishable.”",
+          });
+        }
         const report = await readReport(store, pair);
         if (!report?.currentRun || input.runId !== report.currentRun.runId) {
           return json(409, { error: "This verdict is not for the current audit run. Refresh and try again." });
@@ -205,7 +213,10 @@ export function createActorAuditHandler({
         const blindReview = report.currentRun.blindReview;
         const existingVerdict = report.currentRun.operatorVerdict;
         if (existingVerdict) {
-          if (existingVerdict.verdict !== input.verdict || existingVerdict.notes !== notes) {
+          if (existingVerdict.verdict !== input.verdict
+            || existingVerdict.notes !== notes
+            || existingVerdict.vibeConfirmed !== vibeConfirmed
+            || existingVerdict.publishableConfirmed !== publishableConfirmed) {
             return json(409, { error: "The final scheduling verdict for this audit run is immutable." });
           }
           return json(200, {
@@ -238,10 +249,20 @@ export function createActorAuditHandler({
         const operatorVerdict = {
           verdict: input.verdict,
           notes,
+          vibeConfirmed,
+          publishableConfirmed,
           decidedAt: stamp,
           decidedBy: operator.user.accountId,
           calibration: blindReview
-            ? calibrationSnapshot(blindReview, input.verdict, notes, stamp, operator.user.accountId)
+            ? calibrationSnapshot(
+              blindReview,
+              input.verdict,
+              notes,
+              vibeConfirmed,
+              publishableConfirmed,
+              stamp,
+              operator.user.accountId,
+            )
             : null,
         };
         const verdictWrite = await store.setJSON(
@@ -261,7 +282,9 @@ export function createActorAuditHandler({
         }
         const next = await readReport(store, pair);
         if (next.currentRun?.operatorVerdict?.verdict !== input.verdict
-          || next.currentRun?.operatorVerdict?.notes !== notes) {
+          || next.currentRun?.operatorVerdict?.notes !== notes
+          || next.currentRun?.operatorVerdict?.vibeConfirmed !== vibeConfirmed
+          || next.currentRun?.operatorVerdict?.publishableConfirmed !== publishableConfirmed) {
           return json(409, { error: "Another operator finalized this audit run first." });
         }
         await writeEligibility(store, pair, {
@@ -277,6 +300,8 @@ export function createActorAuditHandler({
           runId: report.currentRun.runId,
           pairingFingerprint: report.currentRun.pairingFingerprint,
           verdict: input.verdict,
+          vibeConfirmed,
+          publishableConfirmed,
           calibrationVersion: 1,
           calibrationHash: recordHash(operatorVerdict.calibration),
           rescueCalibrationVersion: report.calibrationProfile?.calibrationVersion || null,
@@ -2333,7 +2358,15 @@ function isDisagreement(run, review) {
   return Boolean(review?.choice && review.choice !== run?.winner?.mode);
 }
 
-function calibrationSnapshot(review, verdict, notes, decidedAt, decidedBy) {
+function calibrationSnapshot(
+  review,
+  verdict,
+  notes,
+  vibeConfirmed,
+  publishableConfirmed,
+  decidedAt,
+  decidedBy,
+) {
   return {
     schemaVersion: review.schemaVersion || 1,
     auditRunId: review.experiment?.auditRunId || review.runId,
@@ -2357,6 +2390,8 @@ function calibrationSnapshot(review, verdict, notes, decidedAt, decidedBy) {
     disagreementAnnotatedBy: review.annotatedBy || null,
     finalSchedulingVerdict: verdict,
     finalSchedulingNotes: notes,
+    vibeConfirmed,
+    publishableConfirmed,
     finalSchedulingAt: decidedAt,
     finalSchedulingBy: decidedBy,
   };

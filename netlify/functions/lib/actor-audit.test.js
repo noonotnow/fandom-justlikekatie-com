@@ -28,7 +28,7 @@ import {
 import { candidateIdForResult, CURATION_VERSION } from "./grid-curation.js";
 
 const ORIGIN = "https://fandom.example";
-const PREVIOUS_CURATION_VERSION = 5;
+const PREVIOUS_CURATION_VERSION = 6;
 const pairActor = {
   id: "liu-xueyi",
   name: "刘学义",
@@ -36,7 +36,7 @@ const pairActor = {
   shortName_en: "Liu Xueyi",
   vibes: [{
     label: "破碎感美人",
-    label_en: "Shattered Beauty",
+    label_en: "Professionally Devastated",
     queries: ["刘学义 query one", "刘学义 query two", "刘学义 query three", "刘学义 query four"],
   }],
 };
@@ -79,13 +79,16 @@ function memoryStore() {
 }
 
 function request(method = "GET", body, query = "") {
+  const payload = body?.action === "verdict" && body.verdict === "approved"
+    ? { vibeConfirmed: true, publishableConfirmed: true, ...body }
+    : body;
   return new Request(`${ORIGIN}/.netlify/functions/actor-audits${query}`, {
     method,
     headers: {
-      ...(body ? { "Content-Type": "application/json" } : {}),
+      ...(payload ? { "Content-Type": "application/json" } : {}),
       ...(method === "POST" ? { Origin: ORIGIN } : {}),
     },
-    ...(body ? { body: JSON.stringify(body) } : {}),
+    ...(payload ? { body: JSON.stringify(payload) } : {}),
   });
 }
 
@@ -396,13 +399,20 @@ test("every configured actor has a complete private identity profile", () => {
   assert.ok(yuning.aestheticClusters.some(cluster => cluster.id === "li-shiliu-masked-moonlight"));
   assert.ok(xueyi.aestheticClusters.some(cluster => cluster.id === "yuan-zhong-pale-ceremonial"));
   assert.ok(xueyi.aestheticClusters.some(cluster => cluster.id === "murong-jinghe-dark-commander"));
-  const shatteredBeauty = vibePromiseFor(ACTOR_PACKS.find(actor => actor.id === "liu-xueyi"), 3);
-  assert.equal(shatteredBeauty.id, "liu-xueyi-shattered-beauty");
-  assert.ok(shatteredBeauty.requiredCombinations.some(combination => combination.id === "visible-fracture"));
-  assert.ok(shatteredBeauty.hardAntiAnchors.includes("business suit"));
-  assert.ok(shatteredBeauty.hardAntiAnchors.includes("women-centered"));
-  assert.ok(shatteredBeauty.hardAntiAnchors.includes("neutral portrait"));
-  assert.ok(shatteredBeauty.hero.any.includes("wounded"));
+  const professionallyDevastated = vibePromiseFor(ACTOR_PACKS.find(actor => actor.id === "liu-xueyi"), 3);
+  assert.equal(professionallyDevastated.id, "liu-xueyi-professionally-devastated");
+  assert.ok(professionallyDevastated.requiredCombinations.some(combination => combination.id === "named-heartbroken-character"));
+  assert.ok(professionallyDevastated.requiredCombinations.some(combination => combination.id === "visible-romantic-devastation"));
+  assert.ok(professionallyDevastated.hardAntiAnchors.includes("business suit"));
+  assert.ok(professionallyDevastated.hardAntiAnchors.includes("women-centered"));
+  assert.ok(professionallyDevastated.hardAntiAnchors.includes("neutral portrait"));
+  assert.equal(professionallyDevastated.hero.requireExplicit, true);
+  assert.ok(professionallyDevastated.hero.any.includes("bloodied"));
+  assert.deepEqual(professionallyDevastated.clusterIds, [
+    "murong-jinghe-romantic-ruin",
+    "shen-zaiye-composure-breaking",
+    "jinxiu-devastated-devotion",
+  ]);
 });
 
 test("the audit surface is admin-only before any report store is read", async () => {
@@ -486,6 +496,18 @@ test("run, verdict, rerun, and retained-run inspection keep eligibility current"
   }), {});
   assert.equal(rewrittenChoice.status, 409);
 
+  const unconfirmedApproval = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+    vibeConfirmed: false,
+    publishableConfirmed: true,
+  }), {});
+  assert.equal(unconfirmedApproval.status, 409);
+  assert.match((await unconfirmedApproval.json()).error, /both.*Vibe.*publishable/i);
+
   const verdictResponse = await handler(request("POST", {
     action: "verdict",
     actorId: pairActor.id,
@@ -501,7 +523,11 @@ test("run, verdict, rerun, and retained-run inspection keep eligibility current"
   assert.equal(decided.currentRun.operatorVerdict.calibration.humanChoice, "compiled");
   assert.equal(decided.currentRun.operatorVerdict.calibration.systemWinner, "compiled");
   assert.equal(decided.currentRun.operatorVerdict.calibration.finalSchedulingVerdict, "approved");
+  assert.equal(decided.currentRun.operatorVerdict.calibration.vibeConfirmed, true);
+  assert.equal(decided.currentRun.operatorVerdict.calibration.publishableConfirmed, true);
   assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).eligible, true);
+  assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).vibeConfirmed, true);
+  assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).publishableConfirmed, true);
   const approvedEligibilityHistory = [...store.records.entries()]
     .filter(([key, value]) =>
       key.startsWith(auditEligibilityDecisionPrefix(pairActor.id, 0))
@@ -556,6 +582,43 @@ test("run, verdict, rerun, and retained-run inspection keep eligibility current"
   ), {});
   assert.equal(priorResponse.status, 200);
   assert.equal((await priorResponse.json()).run.operatorVerdict.verdict, "approved");
+});
+
+test("approved overrides cannot impersonate the two human confirmations", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "full",
+  }), {});
+  await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    choice: "compiled",
+  }), {});
+
+  const response = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved_override",
+    vibeConfirmed: true,
+    publishableConfirmed: true,
+  }), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.currentRun.operatorVerdict.vibeConfirmed, false);
+  assert.equal(body.currentRun.operatorVerdict.publishableConfirmed, false);
+  assert.equal(body.currentRun.operatorVerdict.calibration.vibeConfirmed, false);
+  assert.equal(body.currentRun.operatorVerdict.calibration.publishableConfirmed, false);
+  assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).vibeConfirmed, false);
+  assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).publishableConfirmed, false);
 });
 
 test("run-scoped image flags persist as append-only feedback without rewriting calibration", async () => {

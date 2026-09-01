@@ -1,3 +1,28 @@
+.approvalChecks {
+  display: grid;
+  gap: .55rem;
+  margin: 0;
+  padding: .85rem 1rem;
+  border: 1px solid var(--border, #d7d0c4);
+}
+
+.approvalChecks legend {
+  padding: 0 .35rem;
+  font-weight: 700;
+}
+
+.approvalChecks label {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+}
+
+.approvalChecks p {
+  margin: 0;
+  color: var(--muted, #706b63);
+  font-size: .78rem;
+}
+
 .lab { display:grid; gap:16px; padding:8px 0 28px; color:inherit; }
 .masthead { display:flex; justify-content:space-between; gap:20px; align-items:flex-end; padding:22px; border:1px solid color-mix(in srgb,#c9a96e 34%,transparent); border-radius:14px; background:linear-gradient(115deg,color-mix(in srgb,#c9a96e 15%,transparent),color-mix(in srgb,#6f8d83 10%,transparent)); }
 .eyebrow { margin:0 0 6px; color:#c9a96e; font-size:10px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }

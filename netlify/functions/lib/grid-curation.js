@@ -14,7 +14,7 @@ import {
  * intentionally heuristic: metadata and perceptual fingerprints can provide
  * evidence, but cannot prove actor identity, pose progression, or emotion.
  */
-export const CURATION_VERSION = 6;
+export const CURATION_VERSION = 7;
 export const DEFAULT_CURATION_LIMIT = 9;
 export const DEFAULT_CANDIDATE_LIMIT = 36;
 export const DEFAULT_ANALYSIS_CONCURRENCY = 4;
@@ -112,22 +112,44 @@ function clusterEvidence(result, promise) {
       cluster.character,
       ...(cluster.aliases || []),
     ].filter(Boolean);
-    const visualTerms = [
+    const stateTerms = [
+      ...(cluster.emotionalStates || []),
+      ...(cluster.relationshipAnchors || []),
+      ...(cluster.sceneAnchors || []),
+    ].filter(Boolean);
+    const appearanceTerms = [
+      ...(cluster.look || []),
       ...(cluster.mood || []),
       ...(cluster.palette || []),
       ...(cluster.wardrobeAnchors || []),
       ...(cluster.propAnchors || []),
       ...(cluster.settingAnchors || []),
     ].filter(Boolean);
+    const visualTerms = [...stateTerms, ...appearanceTerms];
     const identityMetadataMatches = matchingTerms(metadata, identityTerms);
     const visualMetadataMatches = matchingTerms(metadata, visualTerms);
+    const stateMetadataMatches = matchingTerms(metadata, stateTerms);
     const queryIdentityMatches = matchingTerms(query, identityTerms);
     // Generic styling words cannot claim a character look by themselves.
     // Query identity is only a bounded prior and needs two independent visual
     // anchors from the result itself before it can establish membership.
+    // Stateful clusters also cannot claim a character merely because the
+    // character name appeared: the result must evidence that emotional/scene
+    // state, otherwise one character's compatible states contradict each other.
+    const stateQualified = stateTerms.length > 0;
     const confidence = identityMetadataMatches.length
-      ? (visualMetadataMatches.length ? 1 : 0.8)
-      : queryIdentityMatches.length && visualMetadataMatches.length >= 2
+      ? stateQualified
+        ? stateMetadataMatches.length
+          ? 1
+          : visualMetadataMatches.length >= 2
+            ? 0.65
+            : 0.5
+        : visualMetadataMatches.length
+          ? 1
+          : 0.8
+      : queryIdentityMatches.length
+        && visualMetadataMatches.length >= 2
+        && (!stateQualified || stateMetadataMatches.length)
         ? 0.7
         : 0;
     return {
@@ -137,6 +159,7 @@ function clusterEvidence(result, promise) {
       metadataMatches: [...identityMetadataMatches, ...visualMetadataMatches],
       identityMetadataMatches,
       visualMetadataMatches,
+      stateMetadataMatches,
       queryMatches: queryIdentityMatches,
       compatibility: cluster.vibeCompatibility || {},
     };
@@ -172,9 +195,10 @@ function promiseEvidence(result, promise) {
     : requiredMatches.length === required.length
       && (!promise.clusterIds?.length || recognizedCluster);
   const heroTerms = promise.hero?.any || [];
+  const explicitHeroMatch = heroTerms.some(term => containsTerm(metadata, term));
   const heroSatisfied = (heroTerms.length === 0
-    || heroTerms.some(term => containsTerm(metadata, term))
-    || recognizedCluster)
+    || explicitHeroMatch
+    || (!promise.hero?.requireExplicit && recognizedCluster))
     && softContradictionMatches.length === 0
     && !incompatibleCluster;
   const promiseScore = clamp(

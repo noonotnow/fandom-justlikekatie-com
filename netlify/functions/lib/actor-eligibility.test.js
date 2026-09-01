@@ -23,7 +23,7 @@ const packs = [
   { id: "actor-a", vibes: [{}, {}] },
   { id: "actor-b", vibes: [{}, {}] },
 ];
-const PREVIOUS_CURATION_VERSION = 5;
+const PREVIOUS_CURATION_VERSION = 6;
 
 function storeWith(entries = {}) {
   return {
@@ -100,6 +100,8 @@ function approved(actor, vibeIdx) {
     disagreementAnnotatedBy: null,
     finalSchedulingVerdict: "approved",
     finalSchedulingNotes: "Approved fixture.",
+    vibeConfirmed: true,
+    publishableConfirmed: true,
     finalSchedulingAt: decidedAt,
     finalSchedulingBy: "operator-1",
   };
@@ -107,6 +109,8 @@ function approved(actor, vibeIdx) {
     [eligibilityKey(actorId, vibeIdx)]: {
       eligible: true,
       verdict: "approved",
+      vibeConfirmed: true,
+      publishableConfirmed: true,
       runId,
       profileVersion: IDENTITY_PROFILE_VERSION,
       identityProfileVersion: IDENTITY_PROFILE_VERSION,
@@ -133,6 +137,8 @@ function approved(actor, vibeIdx) {
     [auditVerdictKey(actorId, vibeIdx, runId)]: {
       verdict: "approved",
       notes: "Approved fixture.",
+      vibeConfirmed: true,
+      publishableConfirmed: true,
       decidedAt,
       decidedBy: "operator-1",
       calibration: finalCalibration,

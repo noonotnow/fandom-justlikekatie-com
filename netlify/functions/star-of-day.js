@@ -12,7 +12,7 @@ import {
 } from "./lib/actor-identity-profiles.js";
 import {
   ELIGIBILITY_STORE,
-  isPairEligible,
+  getEligibility,
   selectEligiblePair,
 } from "./lib/actor-eligibility.js";
 
@@ -33,10 +33,12 @@ import {
 // real cache key and reads whatever the winner produced. This is what stops
 // simultaneous requests right after midnight from each independently
 // re-running the whole search+rank ladder.
-const VERSION = "v8";
-// Legacy entries remain readable as historical editions; today's key is v7 so
+const VERSION = "v9";
+// Legacy entries remain readable as historical editions; today's key is v9 so
 // no pre-audit cache can satisfy the current day's scheduler.
-const LEGACY_READ_VERSIONS = ["v7", "v6", "v5"];
+const LEGACY_READ_VERSIONS = ["v8", "v7", "v6", "v5"];
+export const MIN_RELEASE_READY_PAIRS = 2;
+export const RELEASE_COHORT_ACTOR_ID = "liu-xueyi";
 const STORE_NAME = "star-of-day";
 const LOCK_TTL_MS = 25000; // a stale/abandoned lock is ignored after this long
 const POLL_INTERVAL_MS = 700;
@@ -76,14 +78,21 @@ export async function buildPayloadForDate(
     rank = rankCandidates,
     curate = curateDisplayResults,
     generatedAt = () => new Date().toISOString(),
+     releaseActorId = null,
   } = {},
 ) {
+  if (!await hasReleaseReadyCohort(packs, eligibilityStore, MIN_RELEASE_READY_PAIRS, releaseActorId)) return null;
   const excluded = new Set();
   while (true) {
     const seed = await selectEligiblePair(packs, dateString, eligibilityStore, excluded);
     if (!seed) return null;
     const actor = packs[seed.aIdx];
     const vibe = actor.vibes[seed.vIdx];
+    const approval = await getEligibility(eligibilityStore, actor, seed.vIdx);
+    if (approval?.verdict !== "approved") {
+      excluded.add(`${actor.id}:${seed.vIdx}`);
+      continue;
+    }
 
     const candidates = await evaluate(vibe.queries, search);
     const ranked = rank(candidates).slice(0, RANKED_BATCH_LIMIT);
@@ -107,7 +116,7 @@ export async function buildPayloadForDate(
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
     }
-    if (!await isPairEligible(packs, actor.id, seed.vIdx, eligibilityStore)) {
+    if (!await pairIsReleaseReady(actor, seed.vIdx, eligibilityStore)) {
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
     }
@@ -126,6 +135,8 @@ export async function buildPayloadForDate(
       vibeLabelEn: vibe.label_en,
       vibeSubtitle: vibe.subtitle,
       vibeSubtitleEn: vibe.subtitle_en,
+      vibeSupportingCopy: vibe.supportingCopy,
+      vibeSupportingCopyEn: vibe.supportingCopy_en,
       generationPrompt: vibe.mjPrompt,
       generationQuery: ranked[0]?.query,
       rankedBatches: ranked,
@@ -216,7 +227,12 @@ export default async (req, context) => {
     const todayKey = cacheKeyFor(todayStr);
 
     const cached = await store.get(todayKey, { type: "json" });
-    if (cached && await cachedPairIsEligible(cached, eligibilityStore)) {
+    if (cached && await cachedPairIsEligible(
+      cached,
+      eligibilityStore,
+      actorPacks,
+      RELEASE_COHORT_ACTOR_ID,
+    )) {
       return jsonResponse(200, cached);
     }
     if (cached) await store.delete(todayKey);
@@ -225,7 +241,9 @@ export default async (req, context) => {
 
     if (gotLock) {
       try {
-        const payload = await buildPayloadForDate(todayStr, eligibilityStore);
+        const payload = await buildPayloadForDate(todayStr, eligibilityStore, {
+          releaseActorId: RELEASE_COHORT_ACTOR_ID,
+        });
         if (payload) {
           // First-write-wins re-check: because tryAcquireLock() is a best-effort
           // read-then-write check (not a strict atomic compare-and-swap — see
@@ -238,14 +256,29 @@ export default async (req, context) => {
           // to it and discard our own payload, so whichever build finished
           // first is the one that sticks for the rest of the day.
           const raceWinner = await store.get(todayKey, { type: "json" });
-          if (raceWinner && await cachedPairIsEligible(raceWinner, eligibilityStore)) {
+          if (raceWinner && await cachedPairIsEligible(
+            raceWinner,
+            eligibilityStore,
+            actorPacks,
+            RELEASE_COHORT_ACTOR_ID,
+          )) {
             return jsonResponse(200, raceWinner);
           }
           if (raceWinner) await store.delete(todayKey);
 
-          if (await cachedPairIsEligible(payload, eligibilityStore)) {
+          if (await cachedPairIsEligible(
+            payload,
+            eligibilityStore,
+            actorPacks,
+            RELEASE_COHORT_ACTOR_ID,
+          )) {
             await store.setJSON(todayKey, payload);
-            if (await cachedPairIsEligible(payload, eligibilityStore)) {
+            if (await cachedPairIsEligible(
+              payload,
+              eligibilityStore,
+              actorPacks,
+              RELEASE_COHORT_ACTOR_ID,
+            )) {
               return jsonResponse(200, payload);
             }
             await store.delete(todayKey);
@@ -338,7 +371,12 @@ async function pollForCache(store, eligibilityStore, todayKey) {
   while (Date.now() < deadline) {
     await sleep(POLL_INTERVAL_MS);
     const cached = await store.get(todayKey, { type: "json" });
-    if (cached && await cachedPairIsEligible(cached, eligibilityStore)) return cached;
+    if (cached && await cachedPairIsEligible(
+      cached,
+      eligibilityStore,
+      actorPacks,
+      RELEASE_COHORT_ACTOR_ID,
+    )) return cached;
   }
   return null;
 }
@@ -347,7 +385,12 @@ async function tryYesterdayFallback(store, eligibilityStore, todayStr) {
   try {
     const yesterdayStr = shanghaiYesterday(todayStr);
     const yesterdayCached = await getHistoricalPayload(store, yesterdayStr);
-    if (yesterdayCached && await cachedPairIsEligible(yesterdayCached, eligibilityStore)) {
+    if (yesterdayCached && await cachedPairIsEligible(
+      yesterdayCached,
+      eligibilityStore,
+      actorPacks,
+      RELEASE_COHORT_ACTOR_ID,
+    )) {
       return { ...yesterdayCached, stale: true, staleReason: "yesterday_fallback", date: todayStr, originalDate: yesterdayCached.date };
     }
   } catch (e) {
@@ -356,10 +399,46 @@ async function tryYesterdayFallback(store, eligibilityStore, todayStr) {
   return null;
 }
 
-export async function cachedPairIsEligible(payload, eligibilityStore, packs = actorPacks) {
-  return Number.isInteger(payload?.vibeIdx)
-    && typeof payload?.actorId === "string"
-    && isPairEligible(packs, payload.actorId, payload.vibeIdx, eligibilityStore);
+export async function cachedPairIsEligible(
+  payload,
+  eligibilityStore,
+  packs = actorPacks,
+  releaseActorId = null,
+) {
+  if (!Number.isInteger(payload?.vibeIdx) || typeof payload?.actorId !== "string") return false;
+  const actor = packs.find(item => item.id === payload.actorId);
+  return Boolean(actor?.vibes?.[payload.vibeIdx])
+    && await pairIsReleaseReady(actor, payload.vibeIdx, eligibilityStore)
+    && (releaseActorId === null
+      || await hasReleaseReadyCohort(packs, eligibilityStore, MIN_RELEASE_READY_PAIRS, releaseActorId));
+}
+
+async function pairIsReleaseReady(actor, vibeIdx, eligibilityStore) {
+  const snapshot = await getEligibility(eligibilityStore, actor, vibeIdx);
+  return snapshot?.eligible === true
+    && snapshot.verdict === "approved"
+    && snapshot.vibeConfirmed === true
+    && snapshot.publishableConfirmed === true;
+}
+
+export async function hasReleaseReadyCohort(
+  packs,
+  eligibilityStore,
+  minimum = MIN_RELEASE_READY_PAIRS,
+  releaseActorId = null,
+) {
+  let approved = 0;
+  const cohort = releaseActorId
+    ? packs.filter(actor => actor.id === releaseActorId)
+    : packs;
+  for (const actor of cohort) {
+    for (let vibeIdx = 0; vibeIdx < (actor.vibes || []).length; vibeIdx += 1) {
+      if (!await pairIsReleaseReady(actor, vibeIdx, eligibilityStore)) continue;
+      approved += 1;
+      if (approved >= minimum) return true;
+    }
+  }
+  return false;
 }
 
 function jsonResponse(statusCode, body) {

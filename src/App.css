@@ -234,6 +234,12 @@
   font-size: .76rem;
 }
 
+.atlas-edition__supporting-copy {
+  margin-top: .3rem;
+  color: #8b6256;
+  font: italic .78rem "Fraunces", serif;
+}
+
 .atlas-edition__stale {
   margin-top: .5rem;
   color: #a26b30;

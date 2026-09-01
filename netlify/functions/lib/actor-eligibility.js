@@ -94,6 +94,10 @@ export async function getEligibility(store, actor, vibeIdx) {
     || snapshot.curationVersion !== CURATION_VERSION
     || snapshot.pairingFingerprint !== expectedFingerprint
     || snapshot.verdict !== verdict.verdict
+    || snapshot.vibeConfirmed !== verdict.vibeConfirmed
+    || snapshot.publishableConfirmed !== verdict.publishableConfirmed
+    || (snapshot.verdict === "approved"
+      && (snapshot.vibeConfirmed !== true || snapshot.publishableConfirmed !== true))
     || !validRescueCalibrationProof(actor, vibeIdx, run, rescueCalibrations, snapshot)
   ) return null;
   return snapshot;
@@ -182,6 +186,8 @@ function validFinalCalibration({ actor, vibeIdx, run, verdict, calibration, reas
     && final.disagreementAnnotatedBy === (reasons?.annotatedBy || null)
     && final.finalSchedulingVerdict === verdict.verdict
     && final.finalSchedulingNotes === verdict.notes
+    && final.vibeConfirmed === verdict.vibeConfirmed
+    && final.publishableConfirmed === verdict.publishableConfirmed
     && final.finalSchedulingAt === verdict.decidedAt
     && final.finalSchedulingBy === verdict.decidedBy
     && snapshot.calibrationHash === recordHash(final)

@@ -439,6 +439,9 @@ function VibeAtlasApp({ adminEntry = false }: { adminEntry?: boolean }) {
             <div className="atlas-edition__subline">
               {meta.vibeLabelEn} — {meta.vibeSubtitleEn}
             </div>
+            {meta.vibeSupportingCopyEn && (
+              <div className="atlas-edition__supporting-copy">{meta.vibeSupportingCopyEn}</div>
+            )}
             {meta.stale && (
               <div className="atlas-edition__stale">
                 ⏳ Showing yesterday's picks while today's grid builds
