@@ -763,17 +763,16 @@ async function renderTeaserExportCanvas(payload: ExportPayload): Promise<HTMLCan
   const gridY = gridTop + Math.max(0, (gridAvailH - gridH) / 2);
 
   const imgArr = await imagesPromise;
+  if (imgArr.length !== results.length || imgArr.some((image) => !image)) {
+    throw new Error('The share card could not load every approved image. Nothing was exported.');
+  }
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const idx = r * cols + c;
       const tx = gridX + c * (tileSize + gridGap);
       const ty = gridY + r * (tileSize + gridGap);
       const img = imgArr[idx];
-      if (img) {
-        drawCoverImageRounded(ctx, img, tx, ty, tileSize, tileSize, 14);
-      } else {
-        drawPlaceholderTileRounded(ctx, tx, ty, tileSize, tileSize, 14, colors.bgCard);
-      }
+      drawCoverImageRounded(ctx, img!, tx, ty, tileSize, tileSize, 14);
     }
   }
 
@@ -856,84 +855,86 @@ function logGridExportFireAndForget(payload: ExportPayload, tier: string): void 
   }
 }
 
-export async function saveShareCard(
+export type ExportAction = 'share' | 'download';
+
+async function createAndLogExport(
   data: StarOfDayData,
-  variant: ExportVariant = 'full',
-  /**
-   * Optional hook invoked with the rendered PNG blob once rasterisation
-   * succeeds, before share/download.  Used by callers that persist the
-   * render server-side (fire-and-forget) — errors thrown by the hook are
-   * swallowed so persistence can never break the export itself.
-   */
+  variant: ExportVariant,
   onBlob?: (blob: Blob) => void,
-): Promise<string> {
+): Promise<{ artifact: ExportArtifact; payload: ExportPayload; tier: string }> {
   const payload = buildExportPayload(data);
   const tier = classifyEditionTier(payload.chosen);
-
-  const canvas = await renderExportCanvas(data, variant);
-
-  const blob = await new Promise<Blob | null>((resolve) => {
-    canvas.toBlob((b) => resolve(b), 'image/png');
-  });
-
-  if (!blob) {
-    throw new Error('分享卡生成失败，再试一次？');
-  }
+  const artifact = await createExportArtifact(data, variant);
 
   // Log the export now that we know the canvas rendered successfully.
   logGridExportFireAndForget(payload, tier);
 
   if (onBlob) {
     try {
-      onBlob(blob);
+      onBlob(artifact.blob);
     } catch {
       // Persistence hooks must never interfere with the export path.
     }
   }
+  return { artifact, payload, tier };
+}
 
-  const editionStamp = buildEditionStampLine(
-    payload.date, payload.actorName, payload.vibeLabel,
-    payload.rankIndex, payload.totalBatches, tier,
-  );
-  const filenameTier = tier !== 'standard' ? 'star-of-day_' + tier : 'star-of-day';
-  const fileName = buildExportFilename(
-    payload.date, payload.actorNameEn, editionStamp.rankNum, variant, filenameTier,
-  );
-
-  const file = new File([blob], fileName, { type: 'image/png' });
-
-  // Try native share (mobile)
-  let shared = false;
-  if (navigator.canShare?.({ files: [file] }) && navigator.share) {
-    try {
-      await navigator.share({
-        files: [file],
-        title: '今日氛围图鉴',
-        text: '🔮 今日之星 · 氛围格子',
-      });
-      shared = true;
-    } catch {
-      // User cancelled or platform rejected — fall through to download
-      shared = false;
-    }
-  }
-
-  if (shared) {
-    return '分享成功 ✓';
-  }
-
-  // Fallback: download
-  const objectUrl = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = objectUrl;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(objectUrl), 4000);
-
+function tierMessage(tier: string): string {
   if (tier === 'misprint') return '已导出稀有错版 · Misprint exported';
   if (tier === 'legendary') return '已导出传说级错版 · Legendary export';
   if (tier === 'legendary-misprint') return '已导出传说错版 · Intentional Legendary Misprint exported';
   return '分享卡已导出 ✓';
+}
+
+export async function exportShareCard(
+  data: StarOfDayData,
+  variant: ExportVariant = 'full',
+  onBlob?: (blob: Blob) => void,
+): Promise<string> {
+  const { artifact } = await createAndLogExport(data, variant, onBlob);
+  const canShareFiles = typeof navigator !== 'undefined'
+    && typeof navigator.share === 'function'
+    && typeof navigator.canShare === 'function'
+    && navigator.canShare({ files: [artifact.file] });
+
+  if (!canShareFiles) {
+    downloadExportArtifact(artifact);
+    return '此设备不支持直接分享图片，PNG 已下载 · File sharing unavailable; PNG downloaded';
+  }
+
+  try {
+    await navigator.share!({
+      files: [artifact.file],
+      title: '今日氛围图鉴',
+      text: '🔮 今日之星 · 氛围格子',
+    });
+    return '分享成功 ✓';
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('分享已取消，未下载文件 · Share cancelled; nothing downloaded');
+    }
+    throw new Error('原生分享失败，请使用“下载 PNG” · Native sharing failed; use Download PNG');
+  }
+}
+
+export async function downloadShareCard(
+  data: StarOfDayData,
+  variant: ExportVariant = 'full',
+  onBlob?: (blob: Blob) => void,
+): Promise<string> {
+  const { artifact, tier } = await createAndLogExport(data, variant, onBlob);
+  downloadExportArtifact(artifact);
+  return tierMessage(tier);
+}
+
+/**
+ * Backward-compatible single-action entry point for older callers. New UI
+ * should use exportShareCard or downloadShareCard so the choice is explicit.
+ */
+export async function saveShareCard(
+  data: StarOfDayData,
+  variant: ExportVariant = 'full',
+  onBlob?: (blob: Blob) => void,
+): Promise<string> {
+  return exportShareCard(data, variant, onBlob);
 }
