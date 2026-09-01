@@ -1,0 +1,532 @@
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { createServer as createTcpServer } from 'node:net';
+import { test } from 'node:test';
+import { chromium, type Browser, type Page } from '@playwright/test';
+import { createServer, type ViteDevServer } from 'vite';
+
+const ACTOR_ID = 'browser-test-actor';
+const VIBE_KEY = `${ACTOR_ID}:0`;
+const RESCUE_RECEIPT_ID = 'rescue-receipt-1';
+
+type AnyRecord = Record<string, any>;
+
+async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
+  const port = await findAvailablePort();
+  const server = await createServer({
+    configFile: 'vite.config.ts',
+    server: { host: '127.0.0.1', port, strictPort: true },
+  });
+  await server.listen();
+  return { server, origin: `http://127.0.0.1:${port}` };
+}
+
+function findAvailablePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createTcpServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address();
+      if (!address || typeof address === 'string') {
+        probe.close(() => reject(new Error('Could not reserve a test port.')));
+        return;
+      }
+      probe.close(error => error ? reject(error) : resolve(address.port));
+    });
+  });
+}
+
+async function launchBrowser(): Promise<Browser> {
+  try {
+    return await chromium.launch();
+  } catch (defaultLaunchError) {
+    const executablePath = process.env.PATH
+      ?.split(':')
+      .map(directory => `${directory}/chromium`)
+      .find(existsSync);
+    if (!executablePath) throw defaultLaunchError;
+    return chromium.launch({ executablePath, args: ['--no-sandbox'] });
+  }
+}
+
+function candidate(index: number): AnyRecord {
+  const candidateId = String(index + 1).padStart(2, '0').repeat(12);
+  return {
+    candidateId,
+    query: 'browser calibration query',
+    title: `Browser evidence card ${index + 1}`,
+    description: 'A retained test still.',
+    source: 'browser-evidence.test',
+    link: `https://browser-evidence.test/card-${index + 1}`,
+    thumbnail: `https://images.browser-evidence.test/card-${index + 1}.jpg`,
+  };
+}
+
+function candidates(): AnyRecord[] {
+  return Array.from({ length: 9 }, (_, index) => candidate(index));
+}
+
+function actor(pairingState: string, eligible = false): AnyRecord {
+  return {
+    actorId: ACTOR_ID,
+    canonicalName: 'Browser Test Actor',
+    romanizedName: 'Browser Test Actor',
+    profileVersion: 1,
+    aliases: ['Test'],
+    commonCollisions: [],
+    representativeWorks: ['Browser Test Drama'],
+    knownContamination: [],
+    productStockMeanings: [],
+    trustedSourcePatterns: ['browser-evidence.test'],
+    problematicSourcePatterns: [],
+    pairings: [{
+      vibeKey: VIBE_KEY,
+      labels: ['Browser Calibration Vibe'],
+      queryCount: 1,
+      auditState: pairingState,
+      eligible,
+      currentRunId: null,
+      calibrationEvidenceCount: pairingState === 'not_run' ? 0 : 1,
+      calibrationProof: null,
+    }],
+  };
+}
+
+function contract(): AnyRecord {
+  return {
+    status: 'current',
+    isCurrent: true,
+    isLegacy: false,
+    legacyReasons: [],
+    currentVersions: {
+      identityProfileVersion: 1,
+      aestheticClusterVersion: 1,
+      promiseContractVersion: 1,
+      curationVersion: 1,
+    },
+  };
+}
+
+function board(mode: string, items: AnyRecord[]): AnyRecord {
+  return {
+    boardId: `${mode}-browser-board`,
+    mode,
+    score: mode === 'compiled' ? 0.8 : 0.7,
+    candidates: items,
+    scoreBreakdown: {
+      sourceRange: { value: 1, weight: 0.2, contribution: 0.2 },
+    },
+    promise: {
+      coreCount: 9,
+      heroFulfillment: 1,
+      singleFrameRatio: 1,
+    },
+  };
+}
+
+function feedback(savedBoard?: AnyRecord, calibrationEvidence?: AnyRecord): AnyRecord {
+  const rescue = savedBoard
+    ? { ...savedBoard, ...(calibrationEvidence ? { calibrationEvidence } : {}) }
+    : null;
+  return {
+    schemaVersion: 1,
+    eventCount: savedBoard ? 0 : 0,
+    flags: [],
+    feedbackHash: 'browser-feedback-hash',
+    requestedReview: null,
+    operatorRescueBoard: rescue,
+    operatorRescueBoards: rescue ? [rescue] : [],
+  };
+}
+
+function calibrationProfile(): AnyRecord {
+  return {
+    calibrationVersion: 1,
+    evidenceCount: 1,
+    sourceReceiptIds: [RESCUE_RECEIPT_ID],
+    positiveCandidateIds: [candidate(0).candidateId],
+    negativeCandidateIds: [candidate(8).candidateId],
+    positiveQueries: ['browser calibration query'],
+    negativeQueries: [],
+    positiveSources: ['browser-evidence test'],
+    negativeSources: [],
+  };
+}
+
+function run(runId: string, revealed: boolean, proof = false): AnyRecord {
+  const retained = candidates();
+  const event = board('event', retained);
+  const compiled = board('compiled', [...retained].reverse());
+  const result: AnyRecord = {
+    runId,
+    schemaVersion: 1,
+    profileVersion: 1,
+    identityProfileVersion: 1,
+    aestheticClusterVersion: 1,
+    promiseContractVersion: 1,
+    curationVersion: 1,
+    pairingFingerprint: 'browser-pairing-fingerprint',
+    scope: 'representative',
+    startedAt: '2026-08-31T12:00:00.000Z',
+    completedAt: revealed ? '2026-08-31T12:01:00.000Z' : null,
+    queryCount: 1,
+    auditContract: contract(),
+    blindReview: revealed
+      ? {
+        status: 'revealed',
+        choice: 'compiled',
+        agreement: true,
+        systemWinner: 'compiled',
+        presentationOrder: ['event', 'compiled'],
+        boards: [
+          { mode: 'event', label: 'Event board', board: event },
+          { mode: 'compiled', label: 'Compiled board', board: compiled },
+        ],
+        experiment: {
+          eventBoard: { boardId: event.boardId },
+          compiledBoard: { boardId: compiled.boardId },
+          curationVersion: 1,
+        },
+      }
+      : {
+        status: 'pending',
+        presentationOrder: ['event', 'compiled'],
+        boards: [
+          { mode: 'event', label: 'Event board', board: event },
+          { mode: 'compiled', label: 'Compiled board', board: compiled },
+        ],
+      },
+  };
+
+  if (!revealed) return result;
+
+  result.queryRuns = [{ query: 'browser calibration query', provider: 'browser-test', rank: 0 }];
+  result.rawResults = retained;
+  result.rejections = [];
+  result.identityEvidence = {
+    collisionSignals: 0,
+    heuristic: 'Browser test evidence does not prove identity by itself.',
+  };
+  result.detectedEvents = [];
+  result.strongestEvent = event;
+  result.strongestCompiled = compiled;
+  result.winner = { mode: 'compiled', board: compiled };
+  result.alternate = { mode: 'event', board: event };
+  result.eventAlternatives = [];
+  result.compiledAlternatives = [];
+  result.curationReceipt = {
+    rawCandidates: retained,
+    sourceEvidenceCandidates: retained,
+    dropped: [],
+    curationVersion: 1,
+    calibrationSignals: proof
+      ? {
+        calibrationVersion: 1,
+        evidenceCount: 1,
+        affected: false,
+        selectedSignalCount: 1,
+        beyondExactSavedNineCount: 0,
+        scoreDelta: 0,
+        messages: ['Only exact saved candidates matched.'],
+        comparison: {
+          method: 'same_evidence_uncalibrated_control',
+          sameInput: true,
+          improved: false,
+          beyondExactSavedNineEffectCount: 0,
+          summary: 'The calibrated result did not improve new evidence through a transferable query, source, or visual-cluster signal.',
+        },
+      }
+      : null,
+  };
+  result.displayCount = 9;
+  result.materialSufficient = true;
+  result.suggestedState = 'needs_operator_verdict';
+  result.operatorVerdict = null;
+  result.editorialFeedback = feedback();
+  if (proof) {
+    result.calibrationProof = {
+      schemaVersion: 1,
+      calibrationVersion: 1,
+      sourceReceiptIds: [RESCUE_RECEIPT_ID],
+      evidenceCount: 1,
+      selectedSignalCount: 1,
+      beyondExactSavedNineCount: 0,
+      scoreDelta: 0,
+      ready: false,
+      status: 'reaudit_not_yet_reproduced',
+      summary: 'This run did not yet prove a positive operator signal on evidence beyond the exact saved nine.',
+      comparison: result.curationReceipt.calibrationSignals.comparison,
+    };
+  }
+  return result;
+}
+
+function rescueCalibrationDetails(): AnyRecord {
+  return {
+    schemaVersion: 1,
+    calibrationVersion: 1,
+    status: 'confirmed',
+    sourceRescueReceiptId: RESCUE_RECEIPT_ID,
+    sourceRunId: 'run-1',
+    confirmedAt: '2026-08-31T12:02:00.000Z',
+    confirmedBy: 'browser-operator',
+  };
+}
+
+function responseBody(
+  currentRun: AnyRecord | null,
+  pairingState: string,
+  savedBoard?: AnyRecord,
+  calibration?: AnyRecord,
+): AnyRecord {
+  return {
+    actor: actor(pairingState, false),
+    pairing: actor(pairingState).pairings[0],
+    actorId: ACTOR_ID,
+    vibeKey: VIBE_KEY,
+    currentRun,
+    priorRuns: [],
+    verdict: null,
+    notes: '',
+    verdictAt: null,
+    calibrationProfile: calibration ? calibrationProfile() : null,
+    ...(currentRun?.blindReview?.choice ? {
+      currentRun: {
+        ...currentRun,
+        editorialFeedback: savedBoard
+          ? feedback(savedBoard, calibration ? rescueCalibrationDetails() : undefined)
+          : currentRun.editorialFeedback,
+      },
+    } : {}),
+  };
+}
+
+async function configureNetwork(page: Page): Promise<{
+  auditRequests: AnyRecord[];
+  calibrationRequests: AnyRecord[];
+}> {
+  let activeRunId: string | null = null;
+  let savedBoard: AnyRecord | undefined;
+  let calibrationConfirmed = false;
+  let runNumber = 0;
+  let revealed = false;
+  const auditRequests: AnyRecord[] = [];
+  const calibrationRequests: AnyRecord[] = [];
+
+  await page.route('**/api/auth/session', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      user: {
+        accountId: 'browser-operator',
+        email: 'operator@example.test',
+        isAdmin: true,
+      },
+    }),
+  }));
+  await page.route('**/.netlify/functions/star-of-day**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      actorName: 'Browser Test Actor',
+      actorShortNameEn: 'Browser Test Actor',
+      vibeEmoji: '🧪',
+      vibeLabel: 'Browser Calibration Vibe',
+      vibeLabelEn: 'Browser Calibration Vibe',
+      vibeSubtitle: '',
+      vibeSubtitleEn: '',
+      rankedBatches: [{ query: 'browser test', results: [] }],
+      date: '2026-08-31',
+    }),
+  }));
+  await page.route('**/api/membership/status', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ state: 'inactive', isMember: false }),
+  }));
+  await page.route('**/.netlify/functions/actor-audits**', async route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() === 'GET') {
+      if (!url.searchParams.has('actorId')) {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            actors: [actor(calibrationConfirmed ? 'calibration_reaudit_required' : 'not_run')],
+          }),
+        });
+        return;
+      }
+      const current = activeRunId
+        ? run(activeRunId, revealed, activeRunId === 'run-2' && revealed)
+        : null;
+      const isFreshBlocked = activeRunId === 'run-2' && calibrationConfirmed && revealed;
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(responseBody(
+          isFreshBlocked ? run('run-2', true, true) : current,
+          isFreshBlocked ? 'calibration_reaudit_required' : calibrationConfirmed ? 'calibration_reaudit_required' : 'not_run',
+          activeRunId === 'run-1' ? savedBoard : undefined,
+          calibrationConfirmed ? rescueCalibrationDetails() : undefined,
+        )),
+      });
+      return;
+    }
+
+    const input = request.postDataJSON() as AnyRecord;
+    auditRequests.push(input);
+    if (input.action === 'run') {
+      runNumber += 1;
+      activeRunId = `run-${runNumber}`;
+      revealed = false;
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(responseBody(
+          run(activeRunId, false),
+          calibrationConfirmed ? 'calibration_reaudit_required' : 'blind_review_pending',
+          undefined,
+          calibrationConfirmed ? rescueCalibrationDetails() : undefined,
+        )),
+      });
+      return;
+    }
+    if (input.action === 'blind_choice') {
+      const selectedRunId = String(input.runId);
+      const proof = selectedRunId === 'run-2';
+      revealed = true;
+      const revealedRun = run(selectedRunId, true, proof);
+      if (selectedRunId === 'run-1' && savedBoard) {
+        revealedRun.editorialFeedback = feedback(savedBoard, calibrationConfirmed ? rescueCalibrationDetails() : undefined);
+      }
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(responseBody(
+          revealedRun,
+          calibrationConfirmed ? 'calibration_reaudit_required' : 'comparison_unavailable',
+          selectedRunId === 'run-1' ? savedBoard : undefined,
+          calibrationConfirmed ? rescueCalibrationDetails() : undefined,
+        )),
+      });
+      return;
+    }
+    if (input.action === 'save_rescue_board') {
+      assert.equal(input.runId, 'run-1');
+      assert.deepEqual(input.candidateIds, candidates().map(item => item.candidateId));
+      const savedRun = run('run-1', true);
+      savedBoard = {
+        schemaVersion: 1,
+        receiptId: RESCUE_RECEIPT_ID,
+        runId: 'run-1',
+        actorId: ACTOR_ID,
+        vibeKey: VIBE_KEY,
+        feedbackHash: 'browser-feedback-hash',
+        board: { mode: 'operator_rescue', candidates: candidates() },
+        savedAt: '2026-08-31T12:01:00.000Z',
+        savedBy: 'browser-operator',
+      };
+      savedRun.editorialFeedback = feedback(savedBoard);
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(responseBody(savedRun, 'needs_operator_verdict', savedBoard)),
+      });
+      return;
+    }
+    if (input.action === 'mark_rescue_calibration') {
+      calibrationRequests.push(input);
+      assert.equal(input.runId, 'run-1');
+      assert.equal(input.receiptId, RESCUE_RECEIPT_ID);
+      calibrationConfirmed = true;
+      const markedRun = run('run-1', true);
+      markedRun.editorialFeedback = feedback(savedBoard, rescueCalibrationDetails());
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...responseBody(markedRun, 'calibration_reaudit_required', savedBoard, rescueCalibrationDetails()),
+          actor: actor('calibration_reaudit_required'),
+          pairing: actor('calibration_reaudit_required').pairings[0],
+        }),
+      });
+      return;
+    }
+    throw new Error(`Unexpected actor audit action: ${String(input.action)}`);
+  });
+
+  return { auditRequests, calibrationRequests };
+}
+
+test('a signed-in operator keeps ordinary rescue records separate from calibration proof', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { auditRequests, calibrationRequests } = await configureNetwork(page);
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+
+    await page.getByRole('button', { name: 'Run audit', exact: true }).click();
+    await page.getByRole('button', { name: 'Choose Compiled', exact: true }).click();
+    await page.getByRole('button', { name: 'Choose nine to save', exact: true }).waitFor();
+
+    const addButtons = page.getByRole('button', { name: /Add$/ });
+    for (let index = 0; index < 9; index += 1) {
+      await addButtons.first().click();
+    }
+    await page.getByRole('button', { name: 'Save my nine', exact: true }).click();
+    await page.getByText('Saved rescue records', { exact: true }).waitFor();
+    assert.equal(
+      await page.getByText('Each record is immutable and records-only by default.', { exact: false }).isVisible(),
+      true,
+      'an ordinary rescue save must remain records-only',
+    );
+    assert.equal(
+      await page.getByRole('button', { name: 'Use as calibration evidence', exact: true }).count(),
+      2,
+      'calibration must be an explicit action on the saved receipt',
+    );
+    assert.equal(
+      auditRequests.filter(request => request.action === 'mark_rescue_calibration').length,
+      0,
+      'saving a rescue board must not calibrate it implicitly',
+    );
+
+    await page.getByRole('button', { name: 'Use as calibration evidence', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Calibration evidence confirmed', exact: true }).first().waitFor();
+    assert.equal(calibrationRequests.length, 1, 'one explicit calibration confirmation should be recorded');
+    assert.equal(
+      await page.getByRole('button', { name: 'Calibration evidence confirmed', exact: true }).first().isDisabled(),
+      true,
+      'confirmed calibration evidence must be immutable in the operator UI',
+    );
+    assert.equal(
+      await page.getByRole('button', { name: 'Use as calibration evidence', exact: true }).count(),
+      0,
+      'a confirmed receipt must not offer a second mutable calibration action',
+    );
+
+    await page.getByRole('button', { name: 'Run audit', exact: true }).click();
+    await page.getByRole('button', { name: 'Choose Compiled', exact: true }).click();
+    const signalDetails = page.locator('details').filter({ hasText: 'Operator-derived curation signals' });
+    const proofDetails = page.locator('details').filter({ hasText: 'Calibration transfer proof' });
+    await signalDetails.locator('summary').click();
+    await proofDetails.locator('summary').click();
+    assert.match(await signalDetails.locator('pre').innerText(), /same_evidence_uncalibrated_control/);
+    assert.match(await signalDetails.locator('pre').innerText(), /beyondExactSavedNineEffectCount/);
+    assert.match(await proofDetails.locator('pre').innerText(), /reaudit_not_yet_reproduced/);
+    assert.equal(
+      await page.getByText('Calibration reaudit required', { exact: true }).count() > 0,
+      true,
+      'the pairing must stay blocked when no transferable proof is reproduced',
+    );
+    assert.equal(
+      await page.getByRole('button', { name: 'Save scheduling verdict', exact: true }).count(),
+      0,
+      'the blocked pairing must not expose scheduling approval controls',
+    );
+    assert.equal(
+      auditRequests.filter(request => request.action === 'run').length,
+      2,
+      'the fresh audit must be a distinct audit request after calibration confirmation',
+    );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
