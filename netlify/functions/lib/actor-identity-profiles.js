@@ -414,6 +414,7 @@ export function vibePromiseFor(actor, vibeIdx) {
   };
   return {
     ...contract,
+    actorTerms,
     aestheticClusters: profile?.aestheticClusters || [],
   };
 }

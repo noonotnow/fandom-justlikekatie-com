@@ -961,6 +961,7 @@ export async function runPreflight(
     identityEvidence,
     detectedEvents: diagnostics.eventFamilies || [],
     boardDiagnostics: diagnostics.boardDiagnostics || null,
+    partialClusters: diagnostics.partialClusters || [],
     strongestEvent: diagnostics.strongestEvent || null,
     strongestCompiled: diagnostics.strongestCompiled || null,
     eventAlternatives: diagnostics.eventAlternatives || [],

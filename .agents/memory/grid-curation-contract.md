@@ -5,7 +5,7 @@ description: Editorial rules for deciding between coherent Event boards and vari
 
 **Rule:** Treat Event as a bounded, evidence-backed exception. A coherent Event may be one appearance, scene, shoot, look, or a character mood board bounded to a specific work/role and signature styling. Related queries for the same character/look may combine across publishers. Similarity alone, publisher alone, or a generic style query must not force Event.
 
-**Composition rule:** Character-look compatibility is placement-aware: hero and high-salience positions must satisfy every required Vibe-anchor combination, while supporting or contrasting clusters are bounded to secondary positions and cannot silently change the board thesis. Promise contracts must distinguish required combinations, supporting anchors, hard anti-anchors, soft contradictions, and hero-slot requirements; query provenance is bounded evidence, never proof. Every actor/Vibe pair needs an enforceable promise—never an empty allow-all fallback.
+**Composition rule:** Character-look compatibility is placement-aware: hero and high-salience positions must satisfy every required Vibe-anchor combination, while supporting or contrasting clusters are bounded to secondary positions and cannot silently change the board thesis. Promise contracts must distinguish required combinations, supporting anchors, hard anti-anchors, soft contradictions, and hero-slot requirements; query provenance is bounded evidence, never proof. Every actor/Vibe pair needs an enforceable promise—never an empty allow-all fallback. A coherent cluster below nine cards is a search lead, not a board: preserve its character/state evidence and turn its missing relationship, scene, emotional, or character coverage into targeted follow-up searches.
 
 **Character-state rule:** A character does not own one permanent Vibe. Resolve compatibility through actor → character → look → emotional/scene state → Vibe; identity or costume without the relevant state cannot claim or contradict a stateful cluster.
 
@@ -15,7 +15,11 @@ description: Editorial rules for deciding between coherent Event boards and vari
 
 **Why:** A diverse, technically clean board can still be editorially wrong when a conflicting character, palette, collage, or behind-the-scenes frame occupies a salient position. The board itself must fulfill the promise, not merely contain enough acceptable images.
 
+**Why:** Padding a promising partial cluster with generic portraits destroys the argument and hides exactly what evidence retrieval should seek next.
+
 **How to apply:** Allow actor-first searches with a shared specific character/role anchor to bind related look variants (for example Liu Yuning’s Li Shiliu mask, hat, and moonlight styling) into one cross-publisher Event. Corroborate the role and emotional/scene state; a shared work title or character name must never merge different characters or opposite states. Keep runners-up and scores hidden until the blind choice is stored. Version identity profiles, aesthetic inventories, promise contracts, and the curation algorithm separately in run fingerprints. Keep fixtures for strong Event, strong Compiled, generic-style rejection, publisher-only rejection, repetition, duplicates, determinism, shared build receipts, and cache-version separation.
+
+**How to apply:** Keep sub-nine clusters failed while showing operators why they are coherent, how many cards are missing, and searches anchored to the same character/work plus the under-covered evidence category.
 
 **Cold Jade rule:** Treat Cold Jade Immortal as a pale-robed celestial character/look study: cool restraint, clean silhouettes, divine distance, and visual authority across varied scenes. Yuan Zhong is the primary named cluster; aloof Jinxiu can qualify by state.
 

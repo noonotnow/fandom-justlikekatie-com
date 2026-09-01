@@ -115,6 +115,22 @@
 .partialBoards { display:grid; gap:8px; margin-top:14px; padding-top:12px; border-top:1px solid color-mix(in srgb,#9b5b4b 50%,var(--admin-border)); }
 .partialBoards h6 { margin:0; color:#c9a96e; font-size:12px; }
 .partialBoards > p { margin:0; color:#8d928f; font-size:11px; }
+.partialClusterReview { display:grid; gap:10px; margin-top:14px; padding-top:12px; border-top:1px solid color-mix(in srgb,#9b5b4b 50%,var(--admin-border)); }
+.partialClusterReview h6 { margin:0; color:#c9a96e; font-size:12px; }
+.partialClusterReview > div > p { margin:4px 0 0; color:#8d928f; font-size:11px; }
+.partialCluster { display:grid; gap:8px; padding:10px; border:1px solid color-mix(in srgb,#c9a96e 45%,var(--admin-border)); border-radius:7px; background:color-mix(in srgb,Canvas 96%,#c9a96e 4%); }
+.partialCluster > p { margin:0; color:#b9bfbb; font-size:10px; line-height:1.5; }
+.partialClusterHeader { display:flex; justify-content:space-between; gap:10px; align-items:baseline; }
+.partialClusterHeader strong { color:#e2c88e; font-size:11px; }
+.partialClusterHeader span { color:#b9bfbb; font-size:10px; }
+.partialClusterImages { display:grid; grid-template-columns:repeat(auto-fit,minmax(52px,1fr)); gap:5px; }
+.partialClusterImages a { display:block; aspect-ratio:1; overflow:hidden; border-radius:4px; background:#161918; }
+.partialClusterImages img { width:100%; height:100%; object-fit:cover; }
+.partialSearches { display:grid; gap:6px; }
+.partialSearches > strong { color:#e5b09a; font-size:10px; text-transform:uppercase; letter-spacing:.06em; }
+.partialSearches > div { display:grid; gap:3px; padding:7px 8px; border-radius:5px; background:color-mix(in srgb,#9b5b4b 11%,transparent); }
+.partialSearches code { color:#f1ddd5; font-size:10px; white-space:normal; }
+.partialSearches span { color:#b9bfbb; font-size:9px; }
 .revealSummary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:14px; padding-top:14px; border-top:1px solid var(--admin-border); }
 .revealSummary > div { display:grid; gap:5px; min-width:0; padding:10px; border:1px solid var(--admin-border); border-radius:7px; }
 .revealSummary strong { overflow-wrap:anywhere; font-size:11px; }

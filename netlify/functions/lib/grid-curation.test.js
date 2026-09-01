@@ -1271,6 +1271,65 @@ test("every required promise combination must match on each core card", async ()
   assert.equal(output.diagnostics.boardDiagnostics.compiled.reasonCode, "promise_not_fulfilled");
 });
 
+test("a coherent five-card state cluster becomes targeted searches, never a padded board", async () => {
+  const partialCluster = Array.from({ length: 5 }, (_, index) => result(`partial-cluster-${index}`, {
+    title: `刘学义 慕容璟和 grief editorial frame ${index}`,
+  }));
+  const filler = Array.from({ length: 4 }, (_, index) => result(`partial-filler-${index}`, {
+    title: `刘学义 unrelated formal editorial frame ${index}`,
+  }));
+  const output = await curateBatches([{
+    query: "刘学义 character stills",
+    results: [...partialCluster, ...filler],
+  }], {
+    diagnostics: true,
+    promise: {
+      id: "partial-romantic-ruin",
+      actorTerms: ["刘学义"],
+      requiredCombinations: [
+        { id: "character", any: ["慕容璟和"] },
+        { id: "emotion", any: ["grief"] },
+      ],
+      supportingAnchors: [],
+      hardAntiAnchors: [],
+      softContradictions: [],
+      hero: { any: ["grief"], requireExplicit: true },
+      clusterIds: ["murong-romantic-ruin"],
+      aestheticClusters: [{
+        id: "murong-romantic-ruin",
+        work: "春花焰",
+        character: "慕容璟和",
+        emotionalStates: ["grief"],
+        relationshipAnchors: ["眉林", "Mei Lin"],
+        sceneAnchors: ["wedding aftermath"],
+      }],
+    },
+  });
+
+  assert.equal(output.displayResults.length, 0);
+  assert.equal(output.curation, null);
+  assert.equal(output.diagnostics.boardDiagnostics.compiled.reasonCode, "promise_not_fulfilled");
+  assert.equal(output.diagnostics.partialClusters.length, 1);
+  assert.equal(output.diagnostics.partialClusters[0].cardCount, 5);
+  assert.match(output.diagnostics.partialClusters[0].summary, /5 clean frames/i);
+  assert.deepEqual(
+    output.diagnostics.partialClusters[0].missingEvidence.map(item => item.kind),
+    ["character", "relationship", "scene", "emotional_state"],
+  );
+  assert.equal(
+    output.diagnostics.partialClusters[0].missingEvidence
+      .find(item => item.kind === "relationship").neededCardCount,
+    9,
+  );
+  assert.ok(output.diagnostics.partialClusters[0].suggestedSearches.some(item =>
+    item.kind === "relationship"
+    && item.query.includes("慕容璟和")
+    && item.query.includes("眉林")));
+  assert.ok(output.diagnostics.partialClusters[0].suggestedSearches.some(item =>
+    item.kind === "scene"
+    && item.query.includes("wedding aftermath")));
+});
+
 test("incompatible character looks are confined to secondary slots", async () => {
   const core = Array.from({ length: 7 }, (_, index) => result(`yuan-core-${index}`, {
     title: `刘学义 源仲 白衣 silver editorial frame ${index}`,

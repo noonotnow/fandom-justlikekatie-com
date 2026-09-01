@@ -20,6 +20,7 @@ export const DEFAULT_CANDIDATE_LIMIT = 36;
 export const DEFAULT_ANALYSIS_CONCURRENCY = 4;
 export const MIN_PROMISE_CARDS = 7;
 
+const MIN_PARTIAL_CLUSTER_CARDS = 3;
 const MIN_DIMENSION = 128;
 const MIN_AREA = 24_000;
 const MIN_ASPECT_RATIO = 0.4;
@@ -128,6 +129,12 @@ function clusterEvidence(result, promise) {
     const visualTerms = [...stateTerms, ...appearanceTerms];
     const identityMetadataMatches = matchingTerms(metadata, identityTerms);
     const visualMetadataMatches = matchingTerms(metadata, visualTerms);
+    const emotionalMetadataMatches = matchingTerms(metadata, [
+      ...(cluster.emotionalStates || []),
+      ...(cluster.mood || []),
+    ]);
+    const relationshipMetadataMatches = matchingTerms(metadata, cluster.relationshipAnchors);
+    const sceneMetadataMatches = matchingTerms(metadata, cluster.sceneAnchors);
     const stateMetadataMatches = matchingTerms(metadata, stateTerms);
     const queryIdentityMatches = matchingTerms(query, identityTerms);
     // Generic styling words cannot claim a character look by themselves.
@@ -159,6 +166,9 @@ function clusterEvidence(result, promise) {
       metadataMatches: [...identityMetadataMatches, ...visualMetadataMatches],
       identityMetadataMatches,
       visualMetadataMatches,
+      emotionalMetadataMatches,
+      relationshipMetadataMatches,
+      sceneMetadataMatches,
       stateMetadataMatches,
       queryMatches: queryIdentityMatches,
       compatibility: cluster.vibeCompatibility || {},
@@ -220,6 +230,9 @@ function promiseEvidence(result, promise) {
   };
 }
 
+function uniqueValues(values = []) {
+  return [...new Set(values.filter(Boolean))];
+}
 function titleTokens(value) {
   const normalized = normalizeText(value);
   if (!normalized) return new Set();
@@ -912,6 +925,7 @@ function selectFromFrozenAnalysis(rawCandidates, frozenStates, {
   const candidates = replaceExactCopies(analyzed).sort(candidateOrder);
   const families = buildFamilies(candidates);
   const withFamilies = familyLabeledCandidates(candidates, families);
+  const partialClusters = partialClusterDiagnostics(candidates, promise, limit);
   const preferredIds = new Set(preferredCandidateIds.filter(Boolean));
   const eventProposals = selectEventBoards(families, limit, promise, preferredIds);
   const compiledProposals = selectCompiledBoards(withFamilies, limit, promise, preferredIds);
@@ -939,7 +953,7 @@ function selectFromFrozenAnalysis(rawCandidates, frozenStates, {
   };
   if (!eventCandidate && !compiledCandidate) {
     return diagnostics
-      ? { displayResults: [], curation: null, diagnostics: diagnosticReceipt(rankedRawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, null, boardDiagnostics, promise, profileVersions, calibrationProfile) }
+      ? { displayResults: [], curation: null, diagnostics: diagnosticReceipt(rankedRawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, null, boardDiagnostics, partialClusters, promise, profileVersions, calibrationProfile) }
       : { displayResults: [], curation: null };
   }
   const useEvent = Boolean(eventCandidate)
@@ -966,6 +980,7 @@ function selectFromFrozenAnalysis(rawCandidates, frozenStates, {
       compiledAlternatives,
       useEvent ? "event" : "compiled",
       boardDiagnostics,
+      partialClusters,
       promise,
       profileVersions,
       calibrationProfile,
@@ -1182,7 +1197,7 @@ function calibrationDiagnostics(profile, board = [], states = []) {
     messages,
   };
 }
-function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, winner, boardDiagnostics, promise, profileVersions, calibrationProfile) {
+function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, winner, boardDiagnostics, partialClusters, promise, profileVersions, calibrationProfile) {
   const summarize = candidate => ({
     candidateId: candidateIdForResult({ ...candidate.result, digest: candidate.fingerprint?.digest }),
     provisionalCandidateId: candidateIdForResult({ ...candidate.result, digest: "" }),
@@ -1206,6 +1221,11 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
       clusters: (candidate.editorial.clusters || []).map(cluster => ({
         id: cluster.id,
         confidence: Number(cluster.confidence.toFixed(3)),
+        compatible: cluster.compatible !== false,
+        identityMatches: cluster.identityMetadataMatches || [],
+        emotionalMatches: cluster.emotionalMetadataMatches || [],
+        relationshipMatches: cluster.relationshipMetadataMatches || [],
+        sceneMatches: cluster.sceneMetadataMatches || [],
       })),
       singleFrameRatio: Number((candidate.singleFrameRatio ?? 1).toFixed(3)),
       composite: candidate.composite ? {
@@ -1269,6 +1289,7 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
     eventAlternatives: eventAlternatives.slice(1, 4).map(item => board(item, "event")),
     compiledAlternatives: compiledAlternatives.slice(1, 4).map(item => board(item, "compiled")),
     boardDiagnostics,
+    partialClusters,
     winner,
     alternate: winner === "event" ? "compiled" : winner === "compiled" ? "event" : null,
     calibrationSignals: calibrationDiagnostics(
@@ -1448,3 +1469,118 @@ function candidateCalibration(candidate, profile) {
     negative: [...new Set(negative)],
   };
 }
+
+function partialClusterDiagnostics(candidates, promise, limit) {
+  if (!promise?.aestheticClusters?.length) return [];
+
+  const reports = promise.aestheticClusters.map(cluster => {
+    const members = candidates
+      .map(candidate => ({
+        candidate,
+        evidence: (candidate.editorial?.clusters || []).find(item =>
+          item.id === cluster.id
+          && item.compatible
+          && item.confidence >= 0.7),
+      }))
+      .filter(item => item.evidence);
+    if (members.length < MIN_PARTIAL_CLUSTER_CARDS || members.length >= limit) return null;
+
+    const identityMatches = uniqueValues(members.flatMap(item =>
+      item.evidence.identityMetadataMatches || []));
+    const relationshipMatches = uniqueValues(members.flatMap(item =>
+      item.evidence.relationshipMetadataMatches || []));
+    const sceneMatches = uniqueValues(members.flatMap(item =>
+      item.evidence.sceneMetadataMatches || []));
+    const emotionalMatches = uniqueValues(members.flatMap(item =>
+      item.evidence.emotionalMetadataMatches || []));
+    const evidenceNeeds = [
+      {
+        kind: "character",
+        terms: [cluster.character, ...(cluster.aliases || [])],
+        matchedCardCount: members.filter(item =>
+          item.evidence.identityMetadataMatches?.length).length,
+      },
+      {
+        kind: "relationship",
+        terms: cluster.relationshipAnchors || [],
+        matchedCardCount: members.filter(item =>
+          item.evidence.relationshipMetadataMatches?.length).length,
+      },
+      {
+        kind: "scene",
+        terms: cluster.sceneAnchors || [],
+        matchedCardCount: members.filter(item =>
+          item.evidence.sceneMetadataMatches?.length).length,
+      },
+      {
+        kind: "emotional_state",
+        terms: [
+          ...(cluster.emotionalStates || []),
+          ...(cluster.mood || []),
+        ],
+        matchedCardCount: members.filter(item =>
+          item.evidence.emotionalMetadataMatches?.length).length,
+      },
+    ];
+    const missingEvidence = evidenceNeeds
+      .filter(item => item.terms.length && item.matchedCardCount < limit)
+      .map(item => ({
+        kind: item.kind,
+        terms: uniqueValues(item.terms).slice(0, 6),
+        matchedCardCount: item.matchedCardCount,
+        neededCardCount: limit - item.matchedCardCount,
+      }));
+    const actorTerms = uniqueValues(promise.actorTerms || []);
+    const baseSearchTerms = [
+      ...actorTerms,
+      cluster.work,
+      cluster.character,
+    ].filter(Boolean);
+    const suggestedSearches = missingEvidence
+      .slice(0, MAX_PARTIAL_SEARCHES)
+      .map(item => ({
+        kind: item.kind,
+        query: uniqueValues([...baseSearchTerms, ...item.terms.slice(0, 2)]).join(" "),
+        terms: item.terms,
+        rationale: `Find ${item.neededCardCount} more distinct frame${item.neededCardCount === 1 ? "" : "s"} with ${item.kind.replace("_", " ")} evidence for ${cluster.character || cluster.id}.`,
+      }));
+    const averageConfidence = average(members.map(item => item.evidence.confidence));
+    const clusterLabel = [cluster.character, cluster.work].filter(Boolean).join(" · ") || cluster.id;
+    const missingLabels = missingEvidence.map(item => item.kind.replace("_", " "));
+    return {
+      id: cluster.id,
+      label: clusterLabel,
+      cardCount: members.length,
+      requiredCount: limit,
+      confidence: Number(averageConfidence.toFixed(3)),
+      candidateIds: members.map(item => candidateIdForResult({
+        ...item.candidate.result,
+        digest: item.candidate.fingerprint?.digest,
+      })),
+      evidence: {
+        character: identityMatches,
+        relationship: relationshipMatches,
+        scene: sceneMatches,
+        emotionalState: emotionalMatches,
+      },
+      missingEvidence,
+      suggestedSearches,
+      summary: `${members.length} clean frames form a coherent ${clusterLabel} cluster, but ${limit - members.length} more are needed. ${
+        missingLabels.length
+          ? `The next search should add ${missingLabels.join(", ")} evidence.`
+          : "The next search should add more distinct frames from this same cluster."
+      }`,
+    };
+  }).filter(Boolean);
+
+  return reports
+    .sort((left, right) =>
+      right.cardCount - left.cardCount
+      || right.confidence - left.confidence
+      || left.id.localeCompare(right.id))
+    .slice(0, MAX_PARTIAL_CLUSTERS);
+}
+
+const MAX_PARTIAL_CLUSTERS = 6;
+
+const MAX_PARTIAL_SEARCHES = 4;

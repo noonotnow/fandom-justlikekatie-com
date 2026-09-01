@@ -287,7 +287,7 @@ export default async (req, context) => {
 
         // Today's build produced nothing acceptable — graceful degrade to
         // yesterday's cached winner rather than a hard failure, if available.
-        const fallback = await tryYesterdayFallback(store, eligibilityStore, todayStr);
+    const fallback = await tryYesterdayFallback(store, eligibilityStore, todayStr);
         if (fallback) return jsonResponse(200, fallback);
 
         return jsonResponse(200, {
@@ -406,11 +406,16 @@ export async function cachedPairIsEligible(
   releaseActorId = null,
 ) {
   if (!Number.isInteger(payload?.vibeIdx) || typeof payload?.actorId !== "string") return false;
+  if (!await hasReleaseReadyCohort(packs, eligibilityStore)) return false;
   const actor = packs.find(item => item.id === payload.actorId);
   return Boolean(actor?.vibes?.[payload.vibeIdx])
     && await pairIsReleaseReady(actor, payload.vibeIdx, eligibilityStore)
-    && (releaseActorId === null
-      || await hasReleaseReadyCohort(packs, eligibilityStore, MIN_RELEASE_READY_PAIRS, releaseActorId));
+    && await hasReleaseReadyCohort(
+      packs,
+      eligibilityStore,
+      MIN_RELEASE_READY_PAIRS,
+      releaseActorId,
+    );
 }
 
 async function pairIsReleaseReady(actor, vibeIdx, eligibilityStore) {

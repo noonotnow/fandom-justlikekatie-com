@@ -11,7 +11,7 @@ type BlindReview = AnyRecord & { status?: 'pending'|'revealed'|'unavailable'; ch
 type BoardDiagnostic = { available?: boolean; requiredCount?: number; candidateCount?: number; usableCount?: number; distinctUsableCount?: number; largestFamilyCount?: number; largestDistinctFamilyCount?: number; reasonCodes?: string[]; reasonCode?: string|null; summary?: string };
 
 type AuditContract = { status?: 'current'|'legacy'; isCurrent?: boolean; isLegacy?: boolean; legacyReasons?: string[]; currentVersions?: AnyRecord };
-type Run = AnyRecord & { runId?: string; scope?: string; curationVersion?: number; identityProfileVersion?: number; aestheticClusterVersion?: number; promiseContractVersion?: number; queryRuns?: AnyRecord[]; rawResults?: AnyRecord[]; rejections?: AnyRecord[]; identityEvidence?: AnyRecord; detectedEvents?: AnyRecord[]; boardDiagnostics?: { event?: BoardDiagnostic; compiled?: BoardDiagnostic }; strongestEvent?: AnyRecord; strongestCompiled?: AnyRecord; winner?: AnyRecord; alternate?: AnyRecord; curationReceipt?: AnyRecord; blindReview?: BlindReview; auditContract?: AuditContract };
+type Run = AnyRecord & { runId?: string; scope?: string; curationVersion?: number; identityProfileVersion?: number; aestheticClusterVersion?: number; promiseContractVersion?: number; queryRuns?: AnyRecord[]; rawResults?: AnyRecord[]; rejections?: AnyRecord[]; identityEvidence?: AnyRecord; detectedEvents?: AnyRecord[]; boardDiagnostics?: { event?: BoardDiagnostic; compiled?: BoardDiagnostic }; partialClusters?: AnyRecord[]; strongestEvent?: AnyRecord; strongestCompiled?: AnyRecord; winner?: AnyRecord; alternate?: AnyRecord; curationReceipt?: AnyRecord; blindReview?: BlindReview; auditContract?: AuditContract };
 
 type RescueExport = {
   gridId: string;
@@ -239,7 +239,7 @@ function RunEvidence({
     {run ? <>
       {isLegacy&&<section className={styles.legacyAudit} role="status"><div className={styles.legacyAuditHeader}><span className={styles.legacyBadge}>Legacy audit</span><strong>Retained history — invalid under the current profile contract</strong></div><p>This board is preserved as historical evidence only. It cannot establish Daily Drop eligibility. Run a fresh audit to evaluate the current identity, cluster, promise, and curation versions.</p>{run.auditContract?.legacyReasons?.length?<small>Contract changes: {run.auditContract.legacyReasons.map(reason=>reason.replaceAll('_',' ')).join(' · ')}</small>:null}</section>}
       <p className={styles.muted}>{run.scope} scope · started {date(run.startedAt)} · completed {date(run.completedAt)} · identity v{run.identityProfileVersion ?? '—'} · cluster v{run.aestheticClusterVersion ?? '—'} · promise v{run.promiseContractVersion ?? '—'} · curation v{run.curationVersion ?? run.curationReceipt?.curationVersion ?? run.curationReceipt?.version ?? '—'}</p>
-      {review?.status === 'unavailable' ? <section className={styles.boardUnavailable}><strong>Blind comparison unavailable</strong><p>This run did not produce two complete nine-card boards. It cannot be approved; use the retained evidence to choose a rejection or query-work verdict.</p><BoardQualificationSummary run={run} /><PartialBoards run={run} /></section> : <section className={`${styles.boardReview} ${isLegacy?styles.legacyBoardReview:''}`} aria-label={isLegacy?'Historical visual board comparison':'Visual board comparison'}>
+      {review?.status === 'unavailable' ? <section className={styles.boardUnavailable}><strong>Blind comparison unavailable</strong><p>This run did not produce two complete nine-card boards. It cannot be approved; use the retained evidence to choose a rejection or query-work verdict.</p><BoardQualificationSummary run={run} /><PromisingPartialClusters run={run} /><PartialBoards run={run} /></section> : <section className={`${styles.boardReview} ${isLegacy?styles.legacyBoardReview:''}`} aria-label={isLegacy?'Historical visual board comparison':'Visual board comparison'}>
         <div className={styles.boardReviewHeader}>
           <div><h6>{revealed ? 'Independent choice recorded' : 'Blind board review'}</h6><p>{revealed ? `You chose ${review?.choice === 'neither' ? 'Neither' : review?.choice}. This result is frozen for this audit run.` : 'Both boards are equal-sized. Their left/right order is fixed for this run.'}</p></div>
           {revealed && <div className={styles.revealBadges}><span className={styles.winnerBadge}>System winner: {review?.systemWinner}</span><span className={review?.agreement ? styles.agreeBadge : styles.disagreeBadge}>{review?.agreement ? 'You agreed' : 'You disagreed'}</span></div>}
@@ -384,6 +384,24 @@ function PartialBoards({run}:{run:Run}) {
   return <div className={styles.partialBoards}><h6>Available candidate board{boards.length > 1 ? 's' : ''}</h6><p>These images survived curation, but the missing counterpart means this run is not eligible for blind calibration.</p><div className={styles.boardComparison}>{boards.map(item=><BoardPreview key={item.label} label={item.label} board={item.board} isWinner={false} revealed={false} />)}</div></div>;
 }
 
+function PromisingPartialClusters({run}:{run:Run}) {
+  const clusters = Array.isArray(run.partialClusters) ? run.partialClusters : [];
+  const rawResults = Array.isArray(run.rawResults) ? run.rawResults : [];
+  if (!clusters.length) return null;
+  return <section className={styles.partialClusterReview} aria-label="Promising partial clusters">
+    <div><h6>Promising partial evidence</h6><p>These coherent clusters are leads, not boards. They remain ineligible for the Daily Drop until nine distinct cards pass every gate.</p></div>
+    {clusters.map((cluster:AnyRecord) => {
+      const candidateIds = new Set(cluster.candidateIds ?? []);
+      const candidates = rawResults.filter((item:AnyRecord)=>candidateIds.has(item.candidateId));
+      return <article className={styles.partialCluster} key={cluster.id}>
+        <div className={styles.partialClusterHeader}><strong>{cluster.label ?? cluster.id}</strong><span>{cluster.cardCount ?? candidates.length}/{cluster.requiredCount ?? 9} coherent cards</span></div>
+        <p>{cluster.summary}</p>
+        {candidates.length > 0 && <div className={styles.partialClusterImages}>{candidates.map((item:AnyRecord,index:number)=><a href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer" key={item.candidateId||index}>{item.thumbnail?<img src={item.thumbnail} alt={item.title||`${cluster.label} evidence ${index+1}`} loading="lazy"/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}</a>)}</div>}
+        {Array.isArray(cluster.suggestedSearches)&&cluster.suggestedSearches.length>0&&<div className={styles.partialSearches}><strong>Search next</strong>{cluster.suggestedSearches.map((suggestion:AnyRecord,index:number)=><div key={`${suggestion.kind}-${index}`}><code>{suggestion.query}</code><span>{suggestion.rationale}</span></div>)}</div>}
+      </article>;
+    })}
+  </section>;
+}
 function BoardQualificationSummary({run}:{run:Run}) {
   const diagnostics = run.boardDiagnostics || {};
   const modes: Array<['event'|'compiled', string]> = [['event', 'Event'], ['compiled', 'Compiled']];
