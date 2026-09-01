@@ -503,7 +503,11 @@ button { font: inherit; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .promo-media__video { display: none; }
-  .promo-media__poster { position: relative; }
+  /*
+   * Respect reduced motion by disabling autoplay in lg01.js, not by hiding
+   * the media. Keeping the actual video visible preserves the user's controls
+   * and makes the motion preview available on demand.
+   */
+  .promo-media__poster { display: none; }
   .promo-media__toggle { display: none; }
 }

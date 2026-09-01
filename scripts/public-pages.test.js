@@ -285,8 +285,8 @@ test("LG01 promo media uses published assets with an accessible reduced-motion f
   assert.match(html, /\bplaysinline\b/);
   assert.match(html, /data-autoplay="normal-motion-only"/);
   assert.match(html, /Video unavailable\./);
-  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.promo-media__video \{ display: none; \}/);
-  assert.match(styles, /\.promo-media__poster \{ position: relative; \}/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.promo-media__poster \{ display: none; \}/);
+  assert.doesNotMatch(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.promo-media__video \{ display: none; \}/);
   assert.match(styles, /\.promo-media__toggle \{ display: none; \}/);
   assert.match(script, /matchMedia\("\(prefers-reduced-motion: reduce\)"\)\.matches/);
   assert.match(script, /if \(!reducedMotion\)/);
