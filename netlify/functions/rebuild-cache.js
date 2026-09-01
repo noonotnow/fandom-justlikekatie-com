@@ -17,9 +17,11 @@ import { getShanghaiDateString } from "./lib/date-seed.js";
 import {
   buildPayloadForDate,
   cachedPairIsEligible,
+  RELEASE_COHORT_ACTOR_ID,
+  STAR_OF_DAY_VERSION,
 } from "./star-of-day.js";
 
-const VERSION = "v7";
+const VERSION = STAR_OF_DAY_VERSION;
 const STORE_NAME = "star-of-day";
 
 function cacheKeyFor(dateString) {
@@ -71,7 +73,9 @@ export default async (req, context) => {
     }
 
     // Build fresh payload
-    const payload = await buildPayloadForDate(todayStr, eligibilityStore);
+    const payload = await buildPayloadForDate(todayStr, eligibilityStore, {
+      releaseActorId: RELEASE_COHORT_ACTOR_ID,
+    });
     if (!payload) {
       return jsonResponse(500, {
         error: "Rebuild produced no acceptable results",
@@ -79,7 +83,12 @@ export default async (req, context) => {
       });
     }
 
-    if (!await cachedPairIsEligible(payload, eligibilityStore)) {
+    if (!await cachedPairIsEligible(
+      payload,
+      eligibilityStore,
+      undefined,
+      RELEASE_COHORT_ACTOR_ID,
+    )) {
       return jsonResponse(409, {
         error: "Pairing approval changed while the rebuild was running",
         date: todayStr,
@@ -87,7 +96,12 @@ export default async (req, context) => {
     }
 
     await store.setJSON(todayKey, payload);
-    if (!await cachedPairIsEligible(payload, eligibilityStore)) {
+    if (!await cachedPairIsEligible(
+      payload,
+      eligibilityStore,
+      undefined,
+      RELEASE_COHORT_ACTOR_ID,
+    )) {
       await store.delete(todayKey);
       return jsonResponse(409, {
         error: "Pairing approval changed before the rebuild completed",

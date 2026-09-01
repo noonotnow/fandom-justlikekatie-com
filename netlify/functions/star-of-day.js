@@ -27,12 +27,11 @@ import {
 // changes, so old-format entries are never read back as if they were current.
 //
 // Concurrency: a short-lived lock key (`<cacheKey>:lock`) is written before
-// doing the expensive work (see tryAcquireLock() for why this is a best-effort
-// read-then-write check rather than a strict atomic compare-and-swap). Only
-// the request that wins the lock computes; everyone else briefly polls the
-// real cache key and reads whatever the winner produced. This is what stops
-// simultaneous requests right after midnight from each independently
-// re-running the whole search+rank ladder.
+// doing the expensive work using Netlify Blobs' conditional writes. Only the
+// request that wins the lock computes; everyone else briefly polls the real
+// cache key and reads whatever the winner produced. This stops simultaneous
+// requests right after midnight from each independently re-running the
+// whole search+rank ladder.
 export const STAR_OF_DAY_VERSION = "v10";
 const VERSION = STAR_OF_DAY_VERSION;
 // Legacy entries remain readable as historical editions; today's key is v10 so
@@ -217,34 +216,41 @@ function publicDisplayResult(candidate) {
 // returned `{ modified }` flag (per @netlify/blobs' documented API), but the
 // Blobs store instance obtained via the V2 function `context.blobs` on this
 // project's deploy previews does not return that result object at all
-// (`result` came back `undefined`, unlike the documented behavior for the
-// standalone `getStore()` API). Rather than depend on unconfirmed atomic
-// semantics, this uses a plain read-then-write check instead. Worst case
-// under true simultaneous first-of-the-day requests, two requests could both
-// think they won the lock and both run the (idempotent, harmless) build —
-// whichever writes the real cache key last simply "wins", and everyone else
-// still reads a valid cached result. This is a deliberate, documented
-// trade-off: correctness of the cached data is unaffected, only the
-// "at most once" guarantee becomes "usually once, rarely twice".
 async function tryAcquireLock(store, dateString) {
   const lockKey = lockKeyFor(dateString);
-  try {
-    const existing = await store.get(lockKey, { type: "json" });
-    if (existing && Date.now() - existing.startedAt <= LOCK_TTL_MS) {
-      // Someone else holds a fresh-enough lock — let them build.
-      return false;
-    }
-  } catch (e) {
-    // If we can't read the lock, proceed optimistically and try to take it.
-  }
+  const now = Date.now();
+  const token = `${now}-${Math.random().toString(36).slice(2)}`;
+  const lock = {
+    startedAt: now,
+    token,
+  };
 
-  await store.setJSON(lockKey, { startedAt: Date.now() });
-  return true;
+  // Conditional writes are the compare-and-swap primitive exposed by
+  // Netlify Blobs. Reclaim an expired lock only if the ETag we read is still
+  // current; otherwise another request owns it and must build or poll.
+  const existing = typeof store.getWithMetadata === "function"
+    ? await store.getWithMetadata(lockKey, { type: "json", consistency: "strong" })
+    : null;
+  if (existing?.data?.startedAt && now - existing.data.startedAt <= LOCK_TTL_MS) {
+    return null;
+  }
+  const write = await store.setJSON(
+    lockKey,
+    lock,
+    existing?.etag ? { onlyIfMatch: existing.etag } : { onlyIfNew: true },
+  );
+  if (write?.modified === false) return null;
+  return lock;
 }
 
-async function releaseLock(store, dateString) {
+async function releaseLock(store, dateString, lock) {
   try {
-    await store.delete(lockKeyFor(dateString));
+    const current = typeof store.get === "function"
+      ? await store.get(lockKeyFor(dateString), { type: "json", consistency: "strong" })
+      : null;
+    if (!lock || current?.token === lock.token) {
+      await store.delete(lockKeyFor(dateString));
+    }
   } catch (e) {
     // Non-fatal — an abandoned lock just expires via LOCK_TTL_MS.
   }
@@ -298,9 +304,9 @@ export default async (req, context) => {
     }
     if (cached) await store.delete(todayKey);
 
-    const gotLock = await tryAcquireLock(store, todayStr);
+    const lock = await tryAcquireLock(store, todayStr);
 
-    if (gotLock) {
+    if (lock) {
       try {
         const payload = await buildPayloadForDate(todayStr, eligibilityStore, {
           releaseActorId: RELEASE_COHORT_ACTOR_ID,
@@ -358,7 +364,7 @@ export default async (req, context) => {
           rankedBatches: []
         });
       } finally {
-        await releaseLock(store, todayStr);
+        await releaseLock(store, todayStr, lock);
       }
     }
 
