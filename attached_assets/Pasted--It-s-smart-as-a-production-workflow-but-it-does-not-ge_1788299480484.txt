@@ -1,0 +1,90 @@
+**It’s smart as a production workflow, but it does not get around the rights problem.** Firefly can improve the files; it cannot manufacture permission.
+
+There are at least three separate rights layers:
+
+1. **Your grid**
+    - You own your original layout, typography, copy, taxonomy, sequencing, and overall compilation.
+2. **The source image**
+    - The photographer, studio, broadcaster, magazine, platform, or another publisher may own the copyright.
+    - Upscaling creates an edited/derivative version; it does not replace the original owner’s copyright.
+    - Crediting the source is good practice, but it is not a license.
+3. **The actor’s likeness**
+    - Publicity, endorsement, and personality rights vary by country and jurisdiction.
+    - Editorial discussion or commentary is generally a stronger position than using the actor’s face to sell unrelated merchandise or imply sponsorship.
+    - A Firefly license does not grant likeness rights.
+
+So **“Adobe processed it” is not a legal bridge between “I own the grid” and “I can commercially exploit every photograph inside it.”** Adobe’s permission covers using its service and eligible outputs—not any rights missing from your inputs.
+
+## Where your concept is strongest
+
+Vibe Atlas is more defensible when it behaves like an editorial fandom publication:
+
+- Curated visual criticism and commentary
+- Meaningful original captions and Vibe analysis
+- Images supporting a specific editorial argument
+- Clear source attribution
+- No claim that the actor endorses Vibe Atlas
+- No selling the individual images as stock, posters, or downloadable photo packs
+- No removing watermarks or ownership marks
+- Limited image resolution where full-resolution reproduction is unnecessary
+
+It becomes riskier when you:
+
+- Sell cards, prints, wallpapers, or merchandise primarily featuring the photographs
+- Put actor images directly into advertisements for membership or unrelated products
+- Offer high-resolution image downloads
+- Enhance and redistribute magazine photography or fan edits
+- Use branding that implies an official partnership
+- Remove watermarks, signatures, or credits
+
+A paid membership does not automatically destroy an editorial argument—newspapers and magazines charge—but the product has to genuinely remain editorial rather than becoming a paid image library.
+
+## Enhancement can actually increase the concern
+
+If you upscale a low-resolution third-party image and then provide a beautiful high-resolution download, you may be reproducing more market value from the photograph—not transforming away the underlying rights.
+
+Therefore, I would separate:
+
+- **Internal production enhancement:** reasonable operational step
+- **Public compressed grid:** editorial presentation
+- **Downloadable high-resolution source cards:** do not offer without permission
+- **Commercial merchandise:** license first
+
+## Your granularity problem is real
+
+You should not have to process the whole grid. The studio needs a per-card production stage:
+
+> Approved exact nine → open each card → inspect source and rights status → enhance or keep original → approve derivative → render final grid
+> 
+
+Each card should have:
+
+- **View original**
+- **Download source for production**
+- **Send to enhancement**
+- Before/after scrubber
+- **Use enhanced**
+- **Keep original**
+- Source owner and URL
+- Rights/provenance status
+- “Do not enhance” for watermarked, fan-edited, or unclear material
+
+The enhanced files should be used only to render the final grid—not exposed as nine independent high-resolution downloads.
+
+## Practical recommendation
+
+Don’t buy an Adobe enterprise entitlement because you think it solves likeness licensing. It doesn’t.
+
+Buy or integrate the API **only if it solves the per-image production bottleneck**. Separately, create a rights policy and eventually have an IP/media attorney review the actual Vibe Atlas presentation and monetization model.
+
+For launch, I’d prioritize:
+
+1. Official promotional stills and studio-released publicity images.
+2. Sources with explicit editorial or promotional-use terms.
+3. Original editorial commentary around every grid.
+4. No high-resolution individual-image downloads.
+5. No merchandise until the relevant photograph and likeness licensing is understood.
+6. A takedown/contact process.
+7. A real legal review before scaling paid products.
+
+So your instinct is half right: **the enhancement scrub makes the edition more polished and controllable. It does not make the underlying photographs yours.** The smartest version is editorial curation plus provenance and selective licensing—not trying to transform the rights question away.
