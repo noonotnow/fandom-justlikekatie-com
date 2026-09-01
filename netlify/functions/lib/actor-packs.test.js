@@ -39,6 +39,9 @@ test("Professionally Devastated uses character-grounded Liu Xueyi search ladders
     "沈在野 姜桃花 吐血 狼狈",
     "刘学义 锦绣 落花时节又逢君 红凝 受伤",
     "锦绣 红凝 抱 哭戏",
+    "刘学义 慕容璟和 帅气 剧照",
+    "刘学义 沈在野 帅气 剧照",
+    "刘学义 锦绣 帅气 剧照",
   ]);
   assert.ok(vibe.queries.every(query => /慕容璟和|沈在野|锦绣/.test(query)));
 
