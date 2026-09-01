@@ -32,6 +32,25 @@ export const auditRescueBoardPrefix = (actorId, vibeIdx, runId) => `rescue-board
 export const auditRescueBoardKey = (actorId, vibeIdx, runId, receiptId) => `${auditRescueBoardPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
 export const auditRescueCalibrationPrefix = (actorId, vibeIdx) => `rescue-calibrations/${actorId}/${vibeIdx}/`;
 export const auditRescueCalibrationKey = (actorId, vibeIdx, receiptId) => `${auditRescueCalibrationPrefix(actorId, vibeIdx)}${encodeURIComponent(receiptId)}`;
+export const auditRescueCalibrationRetirementPrefix = (actorId, vibeIdx) => `rescue-calibration-retirements/${actorId}/${vibeIdx}/`;
+export const auditRescueCalibrationRetirementKey = (actorId, vibeIdx, receiptId) =>
+  `${auditRescueCalibrationRetirementPrefix(actorId, vibeIdx)}${encodeURIComponent(receiptId)}`;
+
+export function rescueCalibrationRetirementHash(retirements = []) {
+  return createHash("sha256").update(JSON.stringify(
+    retirements
+      .filter(retirement => retirement?.status === "retired"
+        && typeof retirement?.sourceRescueReceiptId === "string")
+      .map(retirement => ({
+        retirementId: retirement.retirementId || null,
+        sourceRescueReceiptId: retirement.sourceRescueReceiptId,
+        retiredAt: retirement.retiredAt || null,
+      }))
+      .sort((left, right) =>
+        left.sourceRescueReceiptId.localeCompare(right.sourceRescueReceiptId)
+        || String(left.retirementId).localeCompare(String(right.retirementId))),
+  )).digest("hex");
+}
 
 export function pairingFingerprintFor(actor, vibeIdx) {
   return createHash("sha256").update(JSON.stringify({
@@ -55,12 +74,13 @@ export async function getEligibility(store, actor, vibeIdx) {
   ]);
   if (!snapshot || !head?.currentRunId || snapshot.runId !== head.currentRunId) return null;
 
-  const [run, verdict, calibration, reasons, rescueCalibrations] = await Promise.all([
+  const [run, verdict, calibration, reasons, rescueCalibrations, rescueCalibrationRetirements] = await Promise.all([
     store.get(auditRunKey(actorId, vibeIdx, head.currentRunId), { type: "json", consistency: "strong" }),
     readFirstReceipt(store, auditVerdictPrefix(actorId, vibeIdx, head.currentRunId), "decidedAt"),
     readFirstReceipt(store, auditCalibrationPrefix(actorId, vibeIdx, head.currentRunId), "chosenAt"),
     readFirstReceipt(store, auditCalibrationReasonsPrefix(actorId, vibeIdx, head.currentRunId), "annotatedAt"),
     readReceipts(store, auditRescueCalibrationPrefix(actorId, vibeIdx), "confirmedAt"),
+    readReceipts(store, auditRescueCalibrationRetirementPrefix(actorId, vibeIdx), "retiredAt"),
   ]);
   const disagreement = calibration?.choice !== run?.winner?.mode;
   const expectedFingerprint = pairingFingerprintFor(actor, vibeIdx);
@@ -98,14 +118,28 @@ export async function getEligibility(store, actor, vibeIdx) {
     || snapshot.publishableConfirmed !== verdict.publishableConfirmed
     || (snapshot.verdict === "approved"
       && (snapshot.vibeConfirmed !== true || snapshot.publishableConfirmed !== true))
-    || !validRescueCalibrationProof(actor, vibeIdx, run, rescueCalibrations, snapshot)
+    || !validRescueCalibrationProof(
+      actor,
+      vibeIdx,
+      run,
+      rescueCalibrations,
+      rescueCalibrationRetirements,
+      snapshot,
+    )
   ) return null;
   return snapshot;
 }
 
-function validRescueCalibrationProof(actor, vibeIdx, run, calibrations, snapshot) {
+function validRescueCalibrationProof(
+  actor,
+  vibeIdx,
+  run,
+  calibrations,
+  retirements,
+  snapshot,
+) {
   const expectedFingerprint = pairingFingerprintFor(actor, vibeIdx);
-  const confirmed = calibrations.filter(record =>
+  const currentConfirmed = calibrations.filter(record =>
     record?.status === "confirmed"
     && record?.calibrationVersion === 1
     && typeof record?.sourceRescueReceiptId === "string"
@@ -114,7 +148,32 @@ function validRescueCalibrationProof(actor, vibeIdx, run, calibrations, snapshot
     && record?.contract?.aestheticClusterVersion === AESTHETIC_CLUSTER_VERSION
     && record?.contract?.promiseContractVersion === VIBE_PROMISE_CONTRACT_VERSION
     && record?.contract?.pairingFingerprint === expectedFingerprint);
+  const currentReceiptIds = new Set(currentConfirmed.map(record =>
+    record.sourceRescueReceiptId));
+  const validRetirements = (retirements || []).filter(retirement =>
+    retirement?.status === "retired"
+    && typeof retirement?.sourceRescueReceiptId === "string"
+    && retirement?.actorId === actor.id
+    && retirement?.vibeKey === auditVibeKey(actor.id, vibeIdx)
+    && currentReceiptIds.has(retirement.sourceRescueReceiptId));
+  const retiredReceiptIds = new Set(validRetirements.map(retirement =>
+    retirement.sourceRescueReceiptId));
+  const confirmed = currentConfirmed.filter(record =>
+    !retiredReceiptIds.has(record.sourceRescueReceiptId));
   if (!confirmed.length) {
+    if (validRetirements.length) {
+      const retirementHash = rescueCalibrationRetirementHash(validRetirements);
+      return Boolean(
+        run?.calibrationProof?.ready === true
+        && run.calibrationProof.calibrationVersion === 1
+        && sameRecord(run.calibrationProof.sourceReceiptIds || [], [])
+        && sameRecord(run.calibrationProof.retiredReceiptIds || [], [...retiredReceiptIds].sort())
+        && run.calibrationProof.retirementHash === retirementHash
+        && snapshot.rescueCalibrationEvidenceCount === 0
+        && snapshot.rescueCalibrationRetiredEvidenceCount === validRetirements.length
+        && snapshot.rescueCalibrationRetirementHash === retirementHash
+      );
+    }
     return snapshot.rescueCalibrationEvidenceCount === undefined
       || snapshot.rescueCalibrationEvidenceCount === 0;
   }
@@ -127,6 +186,14 @@ function validRescueCalibrationProof(actor, vibeIdx, run, calibrations, snapshot
     && sameRecord(proofIds, sourceReceiptIds)
     && snapshot.rescueCalibrationVersion === 1
     && snapshot.rescueCalibrationEvidenceCount === confirmed.length
+    && (!validRetirements.length
+      || (
+        snapshot.rescueCalibrationRetiredEvidenceCount === validRetirements.length
+        && snapshot.rescueCalibrationRetirementHash === rescueCalibrationRetirementHash(validRetirements)
+        && run.calibrationProof.retiredReceiptIds?.join("|")
+          === [...retiredReceiptIds].sort().join("|")
+        && run.calibrationProof.retirementHash === rescueCalibrationRetirementHash(validRetirements)
+      ))
     && snapshot.rescueCalibrationHash === recordHash({
       sourceReceiptIds,
       proofStatus: run.calibrationProof.status,

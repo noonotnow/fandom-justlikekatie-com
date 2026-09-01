@@ -25,11 +25,14 @@ import {
   auditRescueBoardPrefix,
   auditRescueCalibrationKey,
   auditRescueCalibrationPrefix,
+  auditRescueCalibrationRetirementKey,
+  auditRescueCalibrationRetirementPrefix,
   auditVerdictKey,
   auditVerdictPrefix,
   auditVibeKey,
   eligibilityKey,
   pairingFingerprintFor,
+  rescueCalibrationRetirementHash,
 } from "./actor-eligibility.js";
 import {
   evaluateCandidates,
@@ -46,6 +49,8 @@ import {
 const MAX_BODY_BYTES = 48 * 1024;
 const MAX_NOTE_LENGTH = 2000;
 const MAX_CALIBRATION_NOTE_LENGTH = 1000;
+
+const MAX_CALIBRATION_RETIREMENT_REASON_LENGTH = 1000;
 const MAX_RETAINED_RUNS = 12;
 const MAX_RAW_RESULTS = 36;
 const MAX_IDENTITY_ITEMS = 36;
@@ -239,7 +244,8 @@ export function createActorAuditHandler({
           return json(409, { error: "Insufficient material cannot be approved without an override." });
         }
         if (APPROVED_VERDICTS.has(input.verdict)
-          && report.calibrationProfile?.evidenceCount
+          && (report.calibrationProfile?.evidenceCount
+            || report.calibrationProfile?.requiresFreshAudit)
           && !calibrationProofCoversProfile(report.currentRun, report.calibrationProfile)) {
           return json(409, {
             error: "Run a fresh audit that reproduces positive calibration signals beyond the exact saved nine before approving this pairing.",
@@ -306,6 +312,10 @@ export function createActorAuditHandler({
           calibrationHash: recordHash(operatorVerdict.calibration),
           rescueCalibrationVersion: report.calibrationProfile?.calibrationVersion || null,
           rescueCalibrationEvidenceCount: report.calibrationProfile?.evidenceCount || 0,
+          rescueCalibrationRetiredEvidenceCount:
+            report.calibrationProfile?.retiredEvidenceCount || 0,
+          rescueCalibrationRetirementHash:
+            report.calibrationProfile?.retirementHash || null,
           rescueCalibrationHash: report.calibrationProfile
             ? recordHash({
               sourceReceiptIds: [...report.calibrationProfile.sourceReceiptIds].sort(),
@@ -657,6 +667,74 @@ export function createActorAuditHandler({
           if (write?.modified === false) {
             return json(409, { error: "Another operator marked this rescue board first." });
           }
+        }
+        const next = await readReport(store, pair);
+        return json(200, {
+          actor: await actorSummary(store, actorPacks, pair.actor),
+          pairing: pairingSummary(pair, next),
+          ...detailResponse(pair, next),
+        });
+      }
+
+      if (input.action === "retire_rescue_calibration") {
+        if (typeof input.receiptId !== "string"
+          || !/^[A-Za-z0-9_-]{1,128}$/.test(input.receiptId)) {
+          return json(400, { error: "A confirmed calibration receipt is required." });
+        }
+        const reason = boundedText(input.reason, MAX_CALIBRATION_RETIREMENT_REASON_LENGTH);
+        if (!reason) {
+          return json(400, {
+            error: "Explain why this calibration evidence should no longer guide future audits.",
+          });
+        }
+        const calibration = await store.get(
+          auditRescueCalibrationKey(pair.actor.id, pair.vibeIdx, input.receiptId),
+          { type: "json", consistency: "strong" },
+        );
+        if (!calibration
+          || calibration.sourceRescueReceiptId !== input.receiptId
+          || calibration.actor?.id !== pair.actor.id
+          || calibration.vibePack?.key !== pair.vibeKey
+          || calibration.status !== "confirmed"
+          || calibration.calibrationVersion !== RESCUE_CALIBRATION_VERSION) {
+          return json(404, { error: "That confirmed calibration receipt was not found for this pairing." });
+        }
+        const retirementKey = auditRescueCalibrationRetirementKey(
+          pair.actor.id,
+          pair.vibeIdx,
+          input.receiptId,
+        );
+        const existing = await store.get(retirementKey, {
+          type: "json",
+          consistency: "strong",
+        });
+        if (existing) {
+          if (existing.reason !== reason) {
+            return json(409, { error: "That calibration retirement receipt is immutable." });
+          }
+          const next = await readReport(store, pair);
+          return json(200, {
+            actor: await actorSummary(store, actorPacks, pair.actor),
+            pairing: pairingSummary(pair, next),
+            ...detailResponse(pair, next),
+          });
+        }
+        const retirement = {
+          schemaVersion: 1,
+          retirementVersion: 1,
+          retirementId: createFeedbackId(),
+          status: "retired",
+          sourceRescueReceiptId: input.receiptId,
+          sourceRunId: calibration.sourceRunId || null,
+          actorId: pair.actor.id,
+          vibeKey: pair.vibeKey,
+          reason,
+          retiredAt: now().toISOString(),
+          retiredBy: operator.user.accountId,
+        };
+        const write = await store.setJSON(retirementKey, retirement, { onlyIfNew: true });
+        if (write?.modified === false) {
+          return json(409, { error: "Another operator retired this calibration evidence first." });
         }
         const next = await readReport(store, pair);
         return json(200, {
@@ -1156,7 +1234,8 @@ function pairingSummary(pair, report) {
   const auditContract = current ? auditContractFor(current, pair) : null;
   const needsReapproval = Boolean(auditContract?.isLegacy);
   const calibrationNeedsRerun = Boolean(
-    report?.calibrationProfile?.evidenceCount
+    (report?.calibrationProfile?.requiresFreshAudit
+      || report?.calibrationProfile?.evidenceCount)
     && !calibrationProofCoversProfile(current, report.calibrationProfile),
   );
   const eligible = Boolean(
@@ -1467,7 +1546,7 @@ async function readEditorialFeedback(store, pair, run) {
       ...feedbackDisposition(receipt, candidateGate(run, receipt.candidateId)),
     }))
     .sort((left, right) => left.candidateId.localeCompare(right.candidateId));
-  const [savedBoards, calibrations] = await Promise.all([
+  const [savedBoards, calibrations, retirements] = await Promise.all([
     readReceipts(
       store,
       auditRescueBoardPrefix(pair.actor.id, pair.vibeIdx, run.runId),
@@ -1478,17 +1557,34 @@ async function readEditorialFeedback(store, pair, run) {
       auditRescueCalibrationPrefix(pair.actor.id, pair.vibeIdx),
       "confirmedAt",
     ),
+    readReceipts(
+      store,
+      auditRescueCalibrationRetirementPrefix(pair.actor.id, pair.vibeIdx),
+      "retiredAt",
+    ),
   ]);
   const calibrationByReceipt = new Map(calibrations
     .filter(calibration => calibration.sourceRunId === run.runId)
     .map(calibration => [calibration.sourceRescueReceiptId, calibration]));
+  const retirementByReceipt = new Map(retirements
+    .filter(retirement =>
+      retirement.status === "retired"
+      && retirement.actorId === pair.actor.id
+      && retirement.vibeKey === pair.vibeKey
+      && typeof retirement.sourceRescueReceiptId === "string")
+    .map(retirement => [retirement.sourceRescueReceiptId, retirement]));
   const operatorRescueBoards = savedBoards.filter(receipt =>
     receipt.runId === run.runId
     && receipt.actorId === pair.actor.id
     && receipt.vibeKey === pair.vibeKey
   ).map(receipt => ({
     ...receipt,
-    calibrationEvidence: calibrationByReceipt.get(receipt.receiptId) || null,
+    calibrationEvidence: calibrationByReceipt.has(receipt.receiptId)
+      ? {
+        ...calibrationByReceipt.get(receipt.receiptId),
+        retirement: retirementByReceipt.get(receipt.receiptId) || null,
+      }
+      : null,
   }));
   const feedback = {
     schemaVersion: 1,
@@ -1803,18 +1899,41 @@ function rescueCalibrationMatchesCurrentContract(record, pair) {
 }
 
 async function readRescueCalibrationProfile(store, pair) {
-  const records = (await readReceipts(
-    store,
-    auditRescueCalibrationPrefix(pair.actor.id, pair.vibeIdx),
-    "confirmedAt",
-  )).filter(record =>
+  const [confirmedReceipts, retirementReceipts] = await Promise.all([
+    readReceipts(
+      store,
+      auditRescueCalibrationPrefix(pair.actor.id, pair.vibeIdx),
+      "confirmedAt",
+    ),
+    readReceipts(
+      store,
+      auditRescueCalibrationRetirementPrefix(pair.actor.id, pair.vibeIdx),
+      "retiredAt",
+    ),
+  ]);
+  const currentRecords = confirmedReceipts.filter(record =>
     record.status === "confirmed"
     && record.calibrationVersion === RESCUE_CALIBRATION_VERSION
     && record.actor?.id === pair.actor.id
     && record.vibePack?.key === pair.vibeKey
     && rescueCalibrationMatchesCurrentContract(record, pair)
   );
-  if (!records.length) return null;
+  if (!currentRecords.length) return null;
+  const currentReceiptIds = new Set(currentRecords.map(record =>
+    record.sourceRescueReceiptId));
+  const retirements = retirementReceipts.filter(retirement =>
+    retirement.status === "retired"
+    && retirement.actorId === pair.actor.id
+    && retirement.vibeKey === pair.vibeKey
+    && currentReceiptIds.has(retirement.sourceRescueReceiptId));
+  const retirementByReceipt = new Map(retirements.map(retirement =>
+    [retirement.sourceRescueReceiptId, retirement]));
+  const records = currentRecords.filter(record =>
+    !retirementByReceipt.has(record.sourceRescueReceiptId));
+  const retiredReceiptIds = [...retirementByReceipt.keys()].sort();
+  const retirementHash = retirements.length
+    ? rescueCalibrationRetirementHash(retirements)
+    : null;
   const positive = key => records.flatMap(record => record.signals?.positive?.[key] || []);
   const negative = key => records.flatMap(record => record.signals?.negative?.[key] || []);
   const candidateIds = preferredSignals(positive("candidateIds"), negative("candidateIds"));
@@ -1851,7 +1970,44 @@ async function readRescueCalibrationProfile(store, pair) {
     actorId: pair.actor.id,
     vibeKey: pair.vibeKey,
     evidenceCount: records.length,
-    sourceReceiptIds: records.map(record => record.sourceRescueReceiptId),
+    totalConfirmedEvidenceCount: currentRecords.length,
+    retiredEvidenceCount: retirements.length,
+    requiresFreshAudit: retirements.length > 0,
+    sourceReceiptIds: records.map(record => record.sourceRescueReceiptId).sort(),
+    retiredReceiptIds,
+    retirementReceiptIds: retirements.map(retirement => retirement.retirementId).filter(Boolean).sort(),
+    retirementHash,
+    evidenceLedger: currentRecords
+      .map(record => {
+        const retirement = retirementByReceipt.get(record.sourceRescueReceiptId) || null;
+        return {
+          sourceRescueReceiptId: record.sourceRescueReceiptId,
+          sourceRunId: record.sourceRunId || null,
+          status: retirement ? "retired" : "active",
+          confirmedAt: record.confirmedAt || null,
+          confirmedBy: record.confirmedBy || null,
+          retirement,
+        };
+      })
+      .sort((left, right) =>
+        String(right.confirmedAt || "").localeCompare(String(left.confirmedAt || ""))
+        || left.sourceRescueReceiptId.localeCompare(right.sourceRescueReceiptId)),
+    diagnostics: {
+      activeEvidenceCount: records.length,
+      retiredEvidenceCount: retirements.length,
+      excludedReceiptIds: retiredReceiptIds,
+      exclusions: retirements.map(retirement => ({
+        reasonCode: "operator_retired_calibration_evidence",
+        sourceRescueReceiptId: retirement.sourceRescueReceiptId,
+        retirementId: retirement.retirementId || null,
+        reason: retirement.reason,
+        retiredAt: retirement.retiredAt,
+        retiredBy: retirement.retiredBy,
+      })),
+      summary: retirements.length
+        ? `${retirements.length} confirmed calibration receipt${retirements.length === 1 ? " was" : "s were"} excluded after an operator retirement receipt.`
+        : "No confirmed calibration evidence is retired.",
+    },
     positiveCandidateIds: candidateIds.positive,
     negativeCandidateIds: candidateIds.negative,
     sourceEvidenceCandidateIds: [...new Set(records.flatMap(record =>
@@ -1884,28 +2040,37 @@ async function readRescueCalibrationProfile(store, pair) {
 }
 
 function calibrationProofFromDiagnostics(profile, diagnostics, materialSufficient) {
-  if (!profile?.evidenceCount) return null;
+  if (!profile || (!profile.evidenceCount && !profile.requiresFreshAudit)) return null;
   const comparison = diagnostics?.comparison || null;
   const beyondExactSavedNineCount = Number(comparison?.beyondExactSavedNineEffectCount) || 0;
   const scoreDelta = Number(diagnostics?.scoreDelta) || 0;
-  const ready = Boolean(
-    materialSufficient
+  const activeEvidenceReady = profile.evidenceCount > 0
     && comparison?.improved === true
-    && beyondExactSavedNineCount > 0
-  );
+    && beyondExactSavedNineCount > 0;
+  const retiredOnlyReady = profile.evidenceCount === 0 && profile.requiresFreshAudit;
+  const ready = Boolean(materialSufficient && (activeEvidenceReady || retiredOnlyReady));
   return {
     schemaVersion: 1,
     calibrationVersion: profile.calibrationVersion,
     sourceReceiptIds: profile.sourceReceiptIds,
+    retiredReceiptIds: profile.retiredReceiptIds || [],
+    retirementReceiptIds: profile.retirementReceiptIds || [],
+    retirementHash: profile.retirementHash || null,
     evidenceCount: profile.evidenceCount,
     selectedSignalCount: Number(diagnostics?.selectedSignalCount) || 0,
     beyondExactSavedNineCount,
     scoreDelta,
     comparison,
     ready,
-    status: ready ? "reproduced_beyond_saved_nine" : "reaudit_not_yet_reproduced",
+    status: ready
+      ? retiredOnlyReady
+        ? "retired_evidence_excluded"
+        : "reproduced_beyond_saved_nine"
+      : "reaudit_not_yet_reproduced",
     summary: ready
-      ? "Fresh evidence beyond the exact saved nine inherited positive operator signals."
+      ? retiredOnlyReady
+        ? "A fresh audit covered the active receipt set after retired calibration evidence was excluded."
+        : "Fresh evidence beyond the exact saved nine inherited positive operator signals."
       : "This run did not yet prove a positive operator signal on evidence beyond the exact saved nine.",
   };
 }
@@ -2023,13 +2188,18 @@ export function compareCalibrationOutcomes(profile, baseline, calibrated, input 
 }
 
 function calibrationProofCoversProfile(run, profile) {
-  if (!profile?.evidenceCount) return true;
+  if (!profile) return true;
+  if (!profile.evidenceCount && !profile.requiresFreshAudit) return true;
   const expected = [...new Set(profile.sourceReceiptIds || [])].sort();
   const proved = [...new Set(run?.calibrationProof?.sourceReceiptIds || [])].sort();
+  const expectedRetired = [...new Set(profile.retiredReceiptIds || [])].sort();
+  const provedRetired = [...new Set(run?.calibrationProof?.retiredReceiptIds || [])].sort();
   return Boolean(
     run?.calibrationProof?.ready === true
     && run.calibrationProof.calibrationVersion === profile.calibrationVersion
-    && JSON.stringify(proved) === JSON.stringify(expected),
+    && JSON.stringify(proved) === JSON.stringify(expected)
+    && JSON.stringify(provedRetired) === JSON.stringify(expectedRetired)
+    && run.calibrationProof.retirementHash === (profile.retirementHash || null)
   );
 }
 

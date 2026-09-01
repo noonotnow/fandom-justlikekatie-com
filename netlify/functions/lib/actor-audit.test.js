@@ -14,6 +14,7 @@ import {
   auditRescueBoardKey,
   auditRescueBoardPrefix,
   auditRescueCalibrationPrefix,
+  auditRescueCalibrationRetirementPrefix,
   auditRunKey,
   auditRunPrefix,
   auditVerdictPrefix,
@@ -1073,6 +1074,212 @@ test("only explicitly confirmed rescue boards calibrate a fresh audit and requir
     notes: "Fresh evidence transferred the operator signal.",
   }), {});
   assert.equal(verdictResponse.status, 200, JSON.stringify(await verdictResponse.clone().json()));
+});
+
+test("retiring calibration evidence appends a reason receipt, excludes it from profiles, and invalidates old proof", async () => {
+  const curateOptions = [];
+  const { handler, store } = harness({
+    freshEvidenceOnRerun: true,
+    onCurateOptions: options => curateOptions.push(options),
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const chosen = await choiceResponse.json();
+  const selectedSource = chosen.currentRun.rawResults.at(-1).source;
+  const selectedIds = chosen.currentRun.rawResults
+    .filter(candidate => candidate.source === selectedSource)
+    .slice(0, 9)
+    .map(candidate => candidate.candidateId);
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds: selectedIds,
+  }), {});
+  const rescueReceipt = (await saveResponse.json())
+    .currentRun.editorialFeedback.operatorRescueBoard;
+  await handler(request("POST", {
+    action: "mark_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId: rescueReceipt.receiptId,
+  }), {});
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-2", choice: "compiled",
+  }), {});
+  const approvedResponse = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-2",
+    verdict: "approved",
+    notes: "Proof covered the original active receipt set.",
+  }), {});
+  assert.equal(approvedResponse.status, 200);
+
+  const originalRun = structuredClone(store.records.get(
+    auditRunKey(pairActor.id, 0, "run-2"),
+  ));
+  const originalCalibrationKey = [...store.records.keys()].find(key =>
+    key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0)));
+  const originalCalibration = structuredClone(store.records.get(originalCalibrationKey));
+  const originalEligibility = structuredClone(store.records.get(
+    eligibilityKey(pairActor.id, 0),
+  ));
+  const reason = "The selected source was later found to publish mislabeled actor images.";
+  const retirementResponse = await handler(request("POST", {
+    action: "retire_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    receiptId: rescueReceipt.receiptId,
+    reason,
+  }), {});
+  const retired = await retirementResponse.json();
+  assert.equal(retirementResponse.status, 200, JSON.stringify(retired));
+  assert.equal(retired.pairing.auditState, "calibration_reaudit_required");
+  assert.equal(retired.pairing.eligible, false);
+  assert.equal(retired.calibrationProfile.evidenceCount, 0);
+  assert.equal(retired.calibrationProfile.totalConfirmedEvidenceCount, 1);
+  assert.equal(retired.calibrationProfile.retiredEvidenceCount, 1);
+  assert.deepEqual(retired.calibrationProfile.sourceReceiptIds, []);
+  assert.deepEqual(retired.calibrationProfile.diagnostics.excludedReceiptIds, [
+    rescueReceipt.receiptId,
+  ]);
+  assert.equal(retired.calibrationProfile.diagnostics.exclusions[0].reason, reason);
+  const historicalRescue = retired.priorRuns
+    .find(run => run.runId === "run-1")
+    .editorialFeedback.operatorRescueBoards
+    .find(receipt => receipt.receiptId === rescueReceipt.receiptId);
+  assert.equal(historicalRescue.calibrationEvidence.status, "confirmed");
+  assert.equal(historicalRescue.calibrationEvidence.retirement.reason, reason);
+
+  const retirementKeys = [...store.records.keys()].filter(key =>
+    key.startsWith(auditRescueCalibrationRetirementPrefix(pairActor.id, 0)));
+  assert.equal(retirementKeys.length, 1);
+  const retirementReceipt = store.records.get(retirementKeys[0]);
+  assert.equal(retirementReceipt.status, "retired");
+  assert.equal(retirementReceipt.sourceRescueReceiptId, rescueReceipt.receiptId);
+  assert.equal(retirementReceipt.reason, reason);
+  assert.deepEqual(store.records.get(originalCalibrationKey), originalCalibration);
+  assert.deepEqual(store.records.get(auditRunKey(pairActor.id, 0, "run-2")), originalRun);
+  assert.deepEqual(store.records.get(eligibilityKey(pairActor.id, 0)), originalEligibility);
+
+  const immutableRetirement = await handler(request("POST", {
+    action: "retire_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    receiptId: rescueReceipt.receiptId,
+    reason: "A different reason cannot replace the first one.",
+  }), {});
+  assert.equal(immutableRetirement.status, 409);
+  assert.equal([...store.records.keys()].filter(key =>
+    key.startsWith(auditRescueCalibrationRetirementPrefix(pairActor.id, 0))).length, 1);
+
+  const freshResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const fresh = await freshResponse.json();
+  assert.equal(freshResponse.status, 200, JSON.stringify(fresh));
+  const retiredProfile = curateOptions.at(-1).calibrationProfile;
+  assert.equal(retiredProfile.evidenceCount, 0);
+  assert.deepEqual(retiredProfile.positiveCandidateIds, []);
+  assert.equal(retiredProfile.diagnostics.exclusions[0].reason, reason);
+  assert.equal(fresh.pairing.auditState, "blind_review_pending");
+  const freshChoiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-3", choice: "compiled",
+  }), {});
+  const freshChoice = await freshChoiceResponse.json();
+  assert.equal(freshChoice.currentRun.calibrationProof.ready, true);
+  assert.equal(freshChoice.currentRun.calibrationProof.status, "retired_evidence_excluded");
+  assert.deepEqual(freshChoice.currentRun.calibrationProof.sourceReceiptIds, []);
+  assert.deepEqual(freshChoice.currentRun.calibrationProof.retiredReceiptIds, [
+    rescueReceipt.receiptId,
+  ]);
+  assert.notEqual(freshChoice.pairing.auditState, "calibration_reaudit_required");
+});
+
+test("calibration remains discoverable and retireable after its source run leaves retained history", async () => {
+  const { handler } = harness({ freshEvidenceOnRerun: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const chosen = await choiceResponse.json();
+  const source = chosen.currentRun.rawResults.at(-1).source;
+  const candidateIds = chosen.currentRun.rawResults
+    .filter(candidate => candidate.source === source)
+    .slice(0, 9)
+    .map(candidate => candidate.candidateId);
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds,
+  }), {});
+  const receiptId = (await saveResponse.json())
+    .currentRun.editorialFeedback.operatorRescueBoard.receiptId;
+  await handler(request("POST", {
+    action: "mark_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId,
+  }), {});
+
+  for (let index = 0; index < 13; index += 1) {
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+  }
+  const detailResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const detail = await detailResponse.json();
+  assert.equal(detailResponse.status, 200);
+  assert.notEqual(detail.currentRun.runId, "run-1");
+  assert.equal(detail.priorRuns.some(run => run.runId === "run-1"), false);
+  assert.equal(detail.calibrationProfile.evidenceCount, 1);
+  assert.deepEqual(detail.calibrationProfile.evidenceLedger, [{
+    sourceRescueReceiptId: receiptId,
+    sourceRunId: "run-1",
+    status: "active",
+    confirmedAt: detail.calibrationProfile.evidenceLedger[0].confirmedAt,
+    confirmedBy: "operator-1",
+    retirement: null,
+  }]);
+
+  const retirementResponse = await handler(request("POST", {
+    action: "retire_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    receiptId,
+    reason: "An old source audit revealed a misleading calibration example.",
+  }), {});
+  const retired = await retirementResponse.json();
+  assert.equal(retirementResponse.status, 200, JSON.stringify(retired));
+  assert.equal(retired.calibrationProfile.evidenceCount, 0);
+  assert.equal(retired.calibrationProfile.evidenceLedger[0].status, "retired");
+  assert.equal(
+    retired.calibrationProfile.evidenceLedger[0].retirement.sourceRescueReceiptId,
+    receiptId,
+  );
+  assert.equal(retired.priorRuns.some(run => run.runId === "run-1"), false);
 });
 
 test("confirmed calibration becomes records-only after its source contract is superseded", async () => {
