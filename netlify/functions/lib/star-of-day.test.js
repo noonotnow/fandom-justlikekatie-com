@@ -379,9 +379,14 @@ test("the builder publishes the exact human-approved retained-evidence board wit
 
   assert.equal(searches, 0);
   assert.equal(payload.displayResults.length, 9);
-  assert.equal(payload.curation.mode, "operator_rescue");
+  assert.equal("curation" in payload, false);
+  assert.equal(JSON.stringify(payload).includes("0/9"), false);
+  assert.equal(JSON.stringify(payload).includes("coreCount"), false);
+  assert.equal(JSON.stringify(payload).includes("boardHash"), false);
+  assert.equal(payload.rankedBatches[0].query, "editorial-board");
   assert.ok(payload.displayResults.every(candidate =>
-    candidate.candidateId.startsWith(`${payload.actorId}-0-manual-`)));
+    candidate.thumbnail.includes(`${payload.actorId}-0-manual-`)));
+  assert.ok(payload.displayResults.every(candidate => !("candidateId" in candidate)));
 });
 
 test("a changed retained-evidence receipt fails closed after human approval", async () => {

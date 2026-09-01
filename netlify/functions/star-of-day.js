@@ -99,6 +99,7 @@ export async function buildPayloadForDate(
         excluded.add(`${actor.id}:${seed.vIdx}`);
         continue;
       }
+      const publicResults = displayResults.map(publicDisplayResult);
       return {
         version: VERSION,
         date: dateString,
@@ -116,14 +117,14 @@ export async function buildPayloadForDate(
         vibeSupportingCopy: vibe.supportingCopy,
         vibeSupportingCopyEn: vibe.supportingCopy_en,
         generationPrompt: vibe.mjPrompt,
-        generationQuery: displayResults[0]?.query,
-        rankedBatches: displayResults,
-        displayResults,
-        curation: {
-          mode: "operator_rescue",
-          receiptId: approval.publicationSource.rescueReceiptId,
-          boardHash: approval.publicationSource.boardHash,
-        },
+        rankedBatches: [{
+          query: "editorial-board",
+          results: publicResults,
+          count: publicResults.length,
+          distinctSources: new Set(publicResults.map(candidate => candidate.source).filter(Boolean)).size,
+          provider: null,
+        }],
+        displayResults: publicResults,
         generatedAt: generatedAt(),
       };
     }
@@ -179,6 +180,20 @@ export async function buildPayloadForDate(
       generatedAt: generatedAt(),
     };
   }
+}
+
+function publicDisplayResult(candidate) {
+  return {
+    title: candidate.title || "",
+    thumbnail: candidate.thumbnail || "",
+    link: candidate.link || "",
+    source: candidate.source || "",
+    ...(candidate.familyId ? { familyId: candidate.familyId } : {}),
+    ...(candidate.familyLabel ? { familyLabel: candidate.familyLabel } : {}),
+    ...(candidate.familyEvidence ? { familyEvidence: candidate.familyEvidence } : {}),
+    ...(candidate.query ? { query: candidate.query } : {}),
+    ...(candidate.batchKey ? { batchKey: candidate.batchKey } : {}),
+  };
 }
 
 // Attempts to acquire the build lock for a date. Returns true if this request
