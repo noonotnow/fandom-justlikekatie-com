@@ -97,6 +97,8 @@ export async function getEligibility(store, actor, vibeIdx) {
       : null,
   ]);
   const operatorPublication = snapshot.publicationSource?.type === "operator_rescue";
+  const curatedPublication = snapshot.publicationSource?.type === "curated_board";
+  const frozenPublication = operatorPublication || curatedPublication;
   const disagreement = calibration?.choice !== run?.winner?.mode;
   const expectedFingerprint = pairingFingerprintFor(actor, vibeIdx);
   if (
@@ -111,6 +113,14 @@ export async function getEligibility(store, actor, vibeIdx) {
         snapshot,
         publicationReceipt,
       })
+      : curatedPublication
+        ? !validCuratedPublication({
+          actor,
+          vibeIdx,
+          run,
+          verdict,
+          snapshot,
+        })
       : (
         !calibration
         || calibration.runId !== run.runId
@@ -144,7 +154,7 @@ export async function getEligibility(store, actor, vibeIdx) {
     || snapshot.publishableConfirmed !== verdict.publishableConfirmed
     || (snapshot.verdict === "approved"
       && (snapshot.vibeConfirmed !== true || snapshot.publishableConfirmed !== true))
-    || (!operatorPublication && !validRescueCalibrationProof(
+    || (!frozenPublication && !validRescueCalibrationProof(
       actor,
       vibeIdx,
       run,
@@ -153,9 +163,14 @@ export async function getEligibility(store, actor, vibeIdx) {
       snapshot,
     ))
   ) return null;
-  return operatorPublication
-    ? { ...snapshot, publicationBoard: publicationReceipt.board }
-    : snapshot;
+  if (operatorPublication) return { ...snapshot, publicationBoard: publicationReceipt.board };
+  if (curatedPublication) {
+    const publicationBoard = run[snapshot.publicationSource.mode === "event"
+      ? "strongestEvent"
+      : "strongestCompiled"];
+    return { ...snapshot, publicationBoard };
+  }
+  return snapshot;
 }
 
 function validOperatorPublication({
@@ -194,6 +209,44 @@ function validOperatorPublication({
       && typeof candidate?.thumbnail === "string"
       && candidate.thumbnail.length > 0)
     && boardHash(publicationReceipt.board) === source.boardHash
+  );
+}
+
+function validCuratedPublication({
+  actor,
+  vibeIdx,
+  run,
+  verdict,
+  snapshot,
+}) {
+  const source = snapshot.publicationSource;
+  const verdictSource = verdict?.publicationSource;
+  const board = source?.mode === "event"
+    ? run?.strongestEvent
+    : source?.mode === "compiled"
+      ? run?.strongestCompiled
+      : null;
+  const candidates = board?.candidates;
+  return Boolean(
+    snapshot.verdict === "approved"
+    && snapshot.vibeConfirmed === true
+    && snapshot.publishableConfirmed === true
+    && source?.type === "curated_board"
+    && (source.mode === "event" || source.mode === "compiled")
+    && verdictSource?.type === source.type
+    && verdictSource.mode === source.mode
+    && verdictSource.boardHash === source.boardHash
+    && board
+    && boardHash(board) === source.boardHash
+    && Array.isArray(candidates)
+    && candidates.length === 9
+    && new Set(candidates.map(candidate => candidate?.candidateId)).size === 9
+    && candidates.every(candidate =>
+      typeof candidate?.candidateId === "string"
+      && typeof candidate?.thumbnail === "string"
+      && candidate.thumbnail.length > 0)
+    && actor?.id
+    && Number.isInteger(vibeIdx)
   );
 }
 
@@ -409,7 +462,13 @@ export async function isPairEligible(actorPacks, actorId, vibeIdx, store) {
 
 // Does not mutate or reorder ACTOR_PACKS. The first probe remains the legacy
 // hash pair; remaining pairs are a stable rotation of the flattened roster.
-export async function selectEligiblePair(actorPacks, dateString, store, excluded = new Set()) {
+export async function selectEligiblePair(
+  actorPacks,
+  dateString,
+  store,
+  excluded = new Set(),
+  allowedActorId = null,
+) {
   const legacy = getRandomForDate(actorPacks, dateString);
   if (!legacy) return null;
   const all = actorPacks.flatMap((actor, aIdx) => actor.vibes.map((_, vIdx) => ({ aIdx, vIdx })));
@@ -418,6 +477,7 @@ export async function selectEligiblePair(actorPacks, dateString, store, excluded
     .filter((pair, index, pairs) => index === pairs.findIndex(other => other.aIdx === pair.aIdx && other.vIdx === pair.vIdx));
   for (const pair of order) {
     const actor = actorPacks[pair.aIdx];
+    if (allowedActorId && actor.id !== allowedActorId) continue;
     const key = `${actor.id}:${pair.vIdx}`;
     if (excluded.has(key)) continue;
     if (isApproved(await getEligibility(store, actor, pair.vIdx))) {

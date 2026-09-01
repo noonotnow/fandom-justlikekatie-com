@@ -25,4 +25,4 @@ Pairing publishability, exact-board approval, curator calibration, and completed
 
 **Why:** Publishing is an editorial decision about an exact frozen edition, while calibration measures whether automation can reproduce that taste later. Coupling them lets an unfinished classifier hold a valid edition hostage.
 
-**How to apply:** Label counters as automated recognition, never as objective Vibe truth. Permit two exact approved pairings to satisfy launch readiness even when curator calibration remains incomplete.
+**How to apply:** Label counters as automated recognition, never as objective Vibe truth. Permit one exact approved pairing to satisfy launch readiness; treat a second approved pairing as optional range and reserve inventory.

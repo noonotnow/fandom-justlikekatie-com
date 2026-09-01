@@ -202,6 +202,30 @@ function operatorBoardEligibility(actor, vibeIdx) {
   return entries;
 }
 
+function curatedBoardEligibility(actor, vibeIdx) {
+  const entries = approvedEligibility(actor, vibeIdx);
+  const actorId = actor.id;
+  const runId = `${actorId}-${vibeIdx}-run`;
+  const run = entries[auditRunKey(actorId, vibeIdx, runId)];
+  const candidates = run.strongestEvent.candidates.map((candidate, index) => ({
+    ...candidate,
+    candidateId: `${actorId}-${vibeIdx}-curated-${index}`,
+  }));
+  run.strongestEvent = { candidates };
+  run.strongestCompiled = null;
+  run.winner = { mode: "event" };
+  const source = {
+    type: "curated_board",
+    mode: "event",
+    boardHash: boardSnapshot({ candidates }, "event").boardHash,
+  };
+  entries[eligibilityKey(actorId, vibeIdx)].publicationSource = source;
+  entries[auditVerdictKey(actorId, vibeIdx, runId)].publicationSource = source;
+  entries[auditVerdictKey(actorId, vibeIdx, runId)].calibration = null;
+  delete entries[auditCalibrationKey(actorId, vibeIdx, runId)];
+  return entries;
+}
+
 function boardSnapshot(board, mode) {
   const boardHash = createHash("sha256").update(JSON.stringify(
     board.candidates.map(candidate => ({
@@ -389,6 +413,29 @@ test("the builder publishes the exact human-approved retained-evidence board wit
   assert.ok(payload.displayResults.every(candidate => !("candidateId" in candidate)));
 });
 
+test("the builder publishes one approved curated board without searching", async () => {
+  const actor = {
+    id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
+    vibes: [{ label: "A0", label_en: "A0", queries: ["unused"] }],
+  };
+  const eligibilityStore = makeStore(curatedBoardEligibility(actor, 0));
+  let searches = 0;
+  const payload = await buildPayloadForDate("2026-09-01", eligibilityStore, {
+    packs: [actor],
+    evaluate: async () => {
+      searches += 1;
+      return [];
+    },
+    generatedAt: () => "2026-09-01T12:00:00.000Z",
+  });
+
+  assert.equal(searches, 0);
+  assert.equal(payload.displayResults.length, 9);
+  assert.equal(payload.rankedBatches[0].query, "curated-event-board");
+  assert.equal("curation" in payload, false);
+  assert.ok(payload.displayResults.every(candidate => !("candidateId" in candidate)));
+});
+
 test("a changed retained-evidence receipt fails closed after human approval", async () => {
   const actor = {
     id: "actor-a", name: "Actor A", shortName_en: "A",
@@ -418,7 +465,7 @@ test("the builder does not search when no pairing has a current approval", async
   assert.equal(searches, 0);
 });
 
-test("Star of the Day waits for two plain operator approvals", async () => {
+test("Star of the Day accepts one plain operator approval", async () => {
   const packs = [
     { id: "actor-a", name: "Actor A", shortName_en: "A", vibes: [{ label: "A0", label_en: "A0", queries: ["a"] }] },
     { id: "actor-b", name: "Actor B", shortName_en: "B", vibes: [{ label: "B0", label_en: "B0", queries: ["b"] }] },
@@ -436,9 +483,9 @@ test("Star of the Day waits for two plain operator approvals", async () => {
     },
   });
 
-  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore), false);
+  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore), true);
   assert.equal(payload, null);
-  assert.equal(searches, 0);
+  assert.equal(searches, 1);
 });
 
 test("the production release cohort is specifically Liu Xueyi", async () => {
@@ -452,6 +499,7 @@ test("the production release cohort is specifically Liu Xueyi", async () => {
   });
 
   assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore, 2, RELEASE_COHORT_ACTOR_ID), false);
+  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore, 1, RELEASE_COHORT_ACTOR_ID), true);
   assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore), true);
   assert.equal(await cachedPairIsEligible(
     { actorId: packs[1].id, vibeIdx: 0 },
@@ -470,7 +518,7 @@ test("the production release cohort is specifically Liu Xueyi", async () => {
     },
   });
   assert.equal(payload, null);
-  assert.equal(searches, 0);
+  assert.equal(searches, 1);
 });
 
 test("cached and fallback payloads stop qualifying when approval is revoked or inputs change", async () => {

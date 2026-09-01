@@ -272,11 +272,18 @@ export function createActorAuditHandler({
           }
         }
         const hasComparableBoards = comparableBoards(report.currentRun);
+        const singleCuratedBoard = singleCuratedBoardFor(report.currentRun);
         const operatorBoardApproval = Boolean(
           plainApproval
           && !hasComparableBoards
           && preferredRescueBoard,
         );
+        const curatedBoardApproval = Boolean(
+          plainApproval
+          && !hasComparableBoards
+          && singleCuratedBoard,
+        );
+        const exactBoardApproval = operatorBoardApproval || curatedBoardApproval;
         const blindReview = report.currentRun.blindReview;
         if (hasComparableBoards && !blindReview?.choice) {
           return json(409, { error: "Choose the more compelling board before recording a scheduling verdict." });
@@ -285,20 +292,20 @@ export function createActorAuditHandler({
           && !blindReview?.reasonCodes?.length) {
           return json(409, { error: "Capture at least one disagreement reason before recording a scheduling verdict." });
         }
-        if (!hasComparableBoards && APPROVED_VERDICTS.has(input.verdict) && !operatorBoardApproval) {
+        if (!hasComparableBoards && APPROVED_VERDICTS.has(input.verdict) && !exactBoardApproval) {
           return json(409, {
-            error: "Without two complete boards, approval requires one saved nine-card retained-evidence board.",
+            error: "Approval requires one complete nine-card curated board or one saved nine-card retained-evidence board.",
           });
         }
         if (input.verdict === "approved"
           && !report.currentRun.materialSufficient
-          && !operatorBoardApproval) {
+          && !exactBoardApproval) {
           return json(409, { error: "Insufficient material cannot be approved without an override." });
         }
         if (APPROVED_VERDICTS.has(input.verdict)
           && (report.calibrationProfile?.evidenceCount
             || report.calibrationProfile?.requiresFreshAudit)
-          && !operatorBoardApproval
+          && !exactBoardApproval
           && !calibrationProofCoversProfile(report.currentRun, report.calibrationProfile)) {
           return json(409, {
             error: "Run a fresh audit that reproduces positive calibration signals beyond the exact saved nine before approving this pairing.",
@@ -356,12 +363,20 @@ export function createActorAuditHandler({
           vibeConfirmed,
           publishableConfirmed,
           rescuePreference,
-          publicationSource: operatorBoardApproval ? {
-            type: "operator_rescue",
-            rescueReceiptId,
-            boardHash: boardHash(preferredRescueBoard.board),
-            feedbackHash: preferredRescueBoard.feedbackHash,
-          } : null,
+          publicationSource: operatorBoardApproval
+            ? {
+              type: "operator_rescue",
+              rescueReceiptId,
+              boardHash: boardHash(preferredRescueBoard.board),
+              feedbackHash: preferredRescueBoard.feedbackHash,
+            }
+            : curatedBoardApproval
+              ? {
+                type: "curated_board",
+                mode: singleCuratedBoard.mode,
+                boardHash: boardHash(singleCuratedBoard.board),
+              }
+              : null,
           decidedAt: stamp,
           decidedBy: operator.user.accountId,
           calibration: blindReview
@@ -2567,6 +2582,14 @@ function boardDiagnosticsFromRetainedEvidence(run) {
 function comparableBoards(run) {
   return [run?.strongestEvent, run?.strongestCompiled]
     .every(board => Array.isArray(board?.candidates) && board.candidates.length >= 9);
+}
+
+function singleCuratedBoardFor(run) {
+  const boards = [
+    { mode: "event", board: run?.strongestEvent },
+    { mode: "compiled", board: run?.strongestCompiled },
+  ].filter(({ board }) => Array.isArray(board?.candidates) && board.candidates.length >= 9);
+  return boards.length === 1 ? boards[0] : null;
 }
 
 function presentationOrderFor(runId) {

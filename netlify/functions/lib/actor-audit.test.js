@@ -2292,7 +2292,7 @@ test("disagreements and Neither require structured reasons before scheduling", a
   assert.deepEqual(persisted.currentRun.blindReview.reasonCodes, ["wrong_vibe", "other_editorial_instinct"]);
 });
 
-test("runs without two complete boards fail clearly and cannot be approved", async () => {
+test("runs without a complete publication board fail clearly and cannot be approved", async () => {
   const { handler, store } = harness({ sufficient: false });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   await handler(request("POST", {
@@ -2333,7 +2333,7 @@ test("runs without two complete boards fail clearly and cannot be approved", asy
     rescuePreferred: false,
   }), {});
   assert.equal(ordinary.status, 409);
-  assert.match((await ordinary.json()).error, /without two complete boards/i);
+  assert.match((await ordinary.json()).error, /one complete nine-card curated board/i);
 
   const override = await handler(request("POST", {
     action: "verdict",

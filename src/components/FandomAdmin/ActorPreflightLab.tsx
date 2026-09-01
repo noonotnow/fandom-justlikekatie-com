@@ -105,7 +105,7 @@ export const ActorPreflightLab: React.FC = () => {
       setDisagreementReasons([]);
       setEditorialNote('');
       setNotice(nextRun.blindReview?.status==='unavailable'
-        ? `${nextScope === 'full' ? 'Full' : 'Representative'} audit completed, but it did not produce two complete boards. Review the retained evidence below.`
+        ? `${nextScope === 'full' ? 'Full' : 'Representative'} audit completed, but it did not produce two complete boards. Review the retained evidence below; one complete board can still ship after both human confirmations.`
         : `${nextScope === 'full' ? 'Full' : 'Representative'} audit completed. Choose between the two boards below.`);
       requestAnimationFrame(()=>document.getElementById('actor-audit-evidence')?.scrollIntoView({behavior:'smooth',block:'start'}));
     } catch(e:any) {
@@ -173,11 +173,15 @@ export const ActorPreflightLab: React.FC = () => {
   const disagreementNeedsReasons = Boolean(review?.choice && review.agreement !== true && !review.reasonCodes?.length);
   const savedRescueBoards = (currentRun?.editorialFeedback?.operatorRescueBoards ?? EMPTY_RECORDS) as AnyRecord[];
   const operatorPublication = run?.operatorVerdict?.publicationSource?.type === 'operator_rescue';
+  const singleCuratedBoardAvailable = review?.status === 'unavailable' && [
+    run?.strongestEvent,
+    run?.strongestCompiled,
+  ].filter((board:any)=>Array.isArray(board?.candidates)&&board.candidates.length>=9).length===1;
   const operatorBoardCandidate = review?.status === 'unavailable' && savedRescueBoards.length > 0;
   const requiresFreshAudit = Boolean(run?.auditContract?.isLegacy) || (selectedIsCurrent && pairing?.auditState === 'calibration_reaudit_required' && !operatorPublication && !operatorBoardCandidate);
   const currentRunIsLegacy = Boolean(currentRun?.auditContract?.isLegacy);
   const verdictAvailable = selectedIsCurrent && !requiresFreshAudit && (review?.status === 'unavailable' || (review?.choice && !disagreementNeedsReasons));
-  const operatorBoardRequired = review?.status === 'unavailable';
+  const operatorBoardRequired = review?.status === 'unavailable' && !singleCuratedBoardAvailable;
   const verdictOptions = operatorBoardRequired
     ? VERDICTS.filter(value=>value!=='approved_override'&&(value!=='approved'||savedRescueBoards.length>0))
     : VERDICTS;
@@ -254,7 +258,7 @@ function RunEvidence({
     {run ? <>
       {isLegacy&&<section className={styles.legacyAudit} role="status"><div className={styles.legacyAuditHeader}><span className={styles.legacyBadge}>Legacy audit</span><strong>Retained history — invalid under the current profile contract</strong></div><p>This board is preserved as historical evidence only. It cannot establish Daily Drop eligibility. Run a fresh audit to evaluate the current identity, cluster, promise, and curation versions.</p>{run.auditContract?.legacyReasons?.length?<small>Contract changes: {run.auditContract.legacyReasons.map(reason=>reason.replaceAll('_',' ')).join(' · ')}</small>:null}</section>}
       <p className={styles.muted}>{run.scope} scope · started {date(run.startedAt)} · completed {date(run.completedAt)} · identity v{run.identityProfileVersion ?? '—'} · cluster v{run.aestheticClusterVersion ?? '—'} · promise v{run.promiseContractVersion ?? '—'} · curation v{run.curationVersion ?? run.curationReceipt?.curationVersion ?? run.curationReceipt?.version ?? '—'}</p>
-      {review?.status === 'unavailable' ? <section className={styles.boardUnavailable}><strong>Blind comparison unavailable</strong><p>This run did not produce two complete nine-card boards. It cannot be approved; use the retained evidence to choose a rejection or query-work verdict.</p><BoardQualificationSummary run={run} /><PromisingPartialClusters run={run} /><PartialBoards run={run} /><RunnerUpDiagnostics run={run} /></section> : <section className={`${styles.boardReview} ${isLegacy?styles.legacyBoardReview:''}`} aria-label={isLegacy?'Historical visual board comparison':'Visual board comparison'}>
+       {review?.status === 'unavailable' ? <section className={styles.boardUnavailable}><strong>Blind comparison unavailable</strong><p>{[run?.strongestEvent,run?.strongestCompiled].filter((board:any)=>Array.isArray(board?.candidates)&&board.candidates.length>=9).length===1?'This run produced one complete nine-card curated board. It can be approved for publication after both human confirmations; a second board is preferred for range, not required.':'This run did not produce a complete nine-card curated board. Use the retained evidence to choose a rejection, query-work verdict, or save an exact nine-card board for publication.'}</p><BoardQualificationSummary run={run} /><PromisingPartialClusters run={run} /><PartialBoards run={run} /><RunnerUpDiagnostics run={run} /></section> : <section className={`${styles.boardReview} ${isLegacy?styles.legacyBoardReview:''}`} aria-label={isLegacy?'Historical visual board comparison':'Visual board comparison'}>
         <div className={styles.boardReviewHeader}>
           <div><h6>{revealed ? 'Independent choice recorded' : 'Blind board review'}</h6><p>{revealed ? `You chose ${review?.choice === 'neither' ? 'Neither' : review?.choice}. This result is frozen for this audit run.` : 'Both boards are equal-sized. Their left/right order is fixed for this run.'}</p></div>
           {revealed && <div className={styles.revealBadges}><span className={styles.winnerBadge}>System winner: {review?.systemWinner}</span><span className={review?.agreement ? styles.agreeBadge : styles.disagreeBadge}>{review?.agreement ? 'You agreed' : 'You disagreed'}</span></div>}
@@ -395,8 +399,8 @@ function PartialBoards({run}:{run:Run}) {
     run.strongestEvent ? { label: 'Event candidate', board: run.strongestEvent } : null,
     run.strongestCompiled ? { label: 'Compiled candidate', board: run.strongestCompiled } : null,
   ].filter(Boolean) as Array<{label:string;board:AnyRecord}>;
-  if (!boards.length) return <p className={styles.boardEmpty}>No candidate board reached nine images.</p>;
-  return <div className={styles.partialBoards}><h6>Available candidate board{boards.length > 1 ? 's' : ''}</h6><p>These images survived curation, but the missing counterpart means this run is not eligible for blind calibration.</p><div className={styles.boardComparison}>{boards.map(item=><BoardPreview key={item.label} label={item.label} board={item.board} isWinner={false} revealed={false} />)}</div></div>;
+   if (!boards.length) return <p className={styles.boardEmpty}>No candidate board reached nine images.</p>;
+   return <div className={styles.partialBoards}><h6>Available candidate board{boards.length > 1 ? 's' : ''}</h6><p>{boards.length===1?'This complete board is eligible for human publication approval. A second board would add range and reserve inventory, but is not required.':'These images survived curation, but the missing counterpart means this run is not eligible for blind calibration.'}</p><div className={styles.boardComparison}>{boards.map(item=><BoardPreview key={item.label} label={item.label} board={item.board} isWinner={false} revealed={false} />)}</div></div>;
 }
 
 function PromisingPartialClusters({run}:{run:Run}) {

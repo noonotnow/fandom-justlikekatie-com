@@ -37,7 +37,9 @@ const VERSION = "v10";
 // Legacy entries remain readable as historical editions; today's key is v10 so
 // no pre-audit cache can satisfy the current day's scheduler.
 const LEGACY_READ_VERSIONS = ["v9", "v8", "v7", "v6", "v5"];
-export const MIN_RELEASE_READY_PAIRS = 2;
+// One excellent, human-approved board is enough to release. A second approved
+// pairing remains useful inventory and range, but it is not a publication gate.
+export const MIN_RELEASE_READY_PAIRS = 1;
 export const RELEASE_COHORT_ACTOR_ID = "liu-xueyi";
 const STORE_NAME = "star-of-day";
 const LOCK_TTL_MS = 25000; // a stale/abandoned lock is ignored after this long
@@ -84,7 +86,13 @@ export async function buildPayloadForDate(
   if (!await hasReleaseReadyCohort(packs, eligibilityStore, MIN_RELEASE_READY_PAIRS, releaseActorId)) return null;
   const excluded = new Set();
   while (true) {
-    const seed = await selectEligiblePair(packs, dateString, eligibilityStore, excluded);
+    const seed = await selectEligiblePair(
+      packs,
+      dateString,
+      eligibilityStore,
+      excluded,
+      releaseActorId,
+    );
     if (!seed) return null;
     const actor = packs[seed.aIdx];
     const vibe = actor.vibes[seed.vIdx];
@@ -93,7 +101,8 @@ export async function buildPayloadForDate(
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
     }
-    if (approval.publicationSource?.type === "operator_rescue") {
+    if (approval.publicationSource?.type === "operator_rescue"
+      || approval.publicationSource?.type === "curated_board") {
       const displayResults = approval.publicationBoard?.candidates || [];
       if (displayResults.length !== 9) {
         excluded.add(`${actor.id}:${seed.vIdx}`);
@@ -118,7 +127,9 @@ export async function buildPayloadForDate(
         vibeSupportingCopyEn: vibe.supportingCopy_en,
         generationPrompt: vibe.mjPrompt,
         rankedBatches: [{
-          query: "editorial-board",
+          query: approval.publicationSource.type === "curated_board"
+            ? `curated-${approval.publicationSource.mode}-board`
+            : "editorial-board",
           results: publicResults,
           count: publicResults.length,
           distinctSources: new Set(publicResults.map(candidate => candidate.source).filter(Boolean)).size,
@@ -455,6 +466,7 @@ export async function cachedPairIsEligible(
   releaseActorId = null,
 ) {
   if (!Number.isInteger(payload?.vibeIdx) || typeof payload?.actorId !== "string") return false;
+  if (releaseActorId && payload.actorId !== releaseActorId) return false;
   if (!await hasReleaseReadyCohort(packs, eligibilityStore)) return false;
   const actor = packs.find(item => item.id === payload.actorId);
   return Boolean(actor?.vibes?.[payload.vibeIdx])
