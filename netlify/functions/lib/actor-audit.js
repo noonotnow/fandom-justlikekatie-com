@@ -966,6 +966,7 @@ export async function runPreflight(
     strongestCompiled: diagnostics.strongestCompiled || null,
     eventAlternatives: diagnostics.eventAlternatives || [],
     compiledAlternatives: diagnostics.compiledAlternatives || [],
+    runnerUpDiagnostics: diagnostics.runnerUpDiagnostics || null,
     winner: diagnostics.winner
       ? { mode: diagnostics.winner, board: diagnostics[diagnostics.winner === "event" ? "strongestEvent" : "strongestCompiled"] }
       : null,
@@ -1356,6 +1357,7 @@ function emptyDiagnostics() {
     strongestCompiled: null,
     eventAlternatives: [],
     compiledAlternatives: [],
+    runnerUpDiagnostics: null,
     boardDiagnostics: null,
     winner: null,
     alternate: null,

@@ -14,13 +14,14 @@ import {
  * intentionally heuristic: metadata and perceptual fingerprints can provide
  * evidence, but cannot prove actor identity, pose progression, or emotion.
  */
-export const CURATION_VERSION = 7;
+export const CURATION_VERSION = 8;
 export const DEFAULT_CURATION_LIMIT = 9;
 export const DEFAULT_CANDIDATE_LIMIT = 36;
 export const DEFAULT_ANALYSIS_CONCURRENCY = 4;
 export const MIN_PROMISE_CARDS = 7;
 
 const MIN_PARTIAL_CLUSTER_CARDS = 3;
+export const MIN_RUNNER_UP_CARD_DIFFERENCE = 3;
 const MIN_DIMENSION = 128;
 const MIN_AREA = 24_000;
 const MIN_ASPECT_RATIO = 0.4;
@@ -693,6 +694,13 @@ function boardKey(board) {
     .join("\u0001");
 }
 
+function candidateIdentity(candidate) {
+  return candidateIdForResult({
+    ...candidate.result,
+    digest: candidate.fingerprint?.digest,
+  });
+}
+
 function boardRangeTieBreak(board) {
   return uniqueCount(board, candidate => sourceKey(candidate.result))
     + uniqueCount(board, candidate => batchKey(candidate.result)) * 0.1;
@@ -785,7 +793,7 @@ function greedyBoards(candidates, limit, score, incompatible, promise) {
   return [...unique.values()].sort((left, right) =>
     right.score - left.score
     || boardRangeTieBreak(right.board) - boardRangeTieBreak(left.board)
-    || boardKey(left.board).localeCompare(boardKey(right.board))).slice(0, 6);
+    || boardKey(left.board).localeCompare(boardKey(right.board)));
 }
 
 function preferredBoardBonus(board, preferredCandidateIds) {
@@ -823,11 +831,16 @@ function selectEventBoards(families, limit, promise, preferredCandidateIds) {
       () => false,
       promise,
     );
-    return selected.map(item => ({ ...item, familyStrength: family.familyStrength }));
+    const familyBoundary = eventBoundaryForFamily(family);
+    return selected.map(item => ({
+      ...item,
+      familyStrength: family.familyStrength,
+      familyBoundary,
+    }));
   });
   return alternatives.sort((left, right) =>
     right.score - left.score
-    || boardKey(left.board).localeCompare(boardKey(right.board))).slice(0, 6);
+    || boardKey(left.board).localeCompare(boardKey(right.board)));
 }
 
 function selectCompiledBoards(candidates, limit, promise, preferredCandidateIds) {
@@ -929,10 +942,24 @@ function selectFromFrozenAnalysis(rawCandidates, frozenStates, {
   const preferredIds = new Set(preferredCandidateIds.filter(Boolean));
   const eventProposals = selectEventBoards(families, limit, promise, preferredIds);
   const compiledProposals = selectCompiledBoards(withFamilies, limit, promise, preferredIds);
-  const eventAlternatives = eventProposals.filter(item => promiseQualified(item.board, promise, limit));
-  const compiledAlternatives = compiledProposals.filter(item => promiseQualified(item.board, promise, limit));
+  const eventRunnerUps = meaningfulRunnerUps(
+    "event",
+    eventProposals.filter(item => promiseQualified(item.board, promise, limit)),
+    limit,
+  );
+  const compiledRunnerUps = meaningfulRunnerUps(
+    "compiled",
+    compiledProposals.filter(item => promiseQualified(item.board, promise, limit)),
+    limit,
+  );
+  const eventAlternatives = eventRunnerUps.selections;
+  const compiledAlternatives = compiledRunnerUps.selections;
   const eventCandidate = eventAlternatives[0] || null;
   const compiledCandidate = compiledAlternatives[0] || null;
+  const runnerUpDiagnostics = {
+    event: eventRunnerUps.diagnostics,
+    compiled: compiledRunnerUps.diagnostics,
+  };
   const boardDiagnostics = {
     event: boardDiagnostic("event", eventCandidate, {
       limit,
@@ -953,7 +980,7 @@ function selectFromFrozenAnalysis(rawCandidates, frozenStates, {
   };
   if (!eventCandidate && !compiledCandidate) {
     return diagnostics
-      ? { displayResults: [], curation: null, diagnostics: diagnosticReceipt(rankedRawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, null, boardDiagnostics, partialClusters, promise, profileVersions, calibrationProfile) }
+      ? { displayResults: [], curation: null, diagnostics: diagnosticReceipt(rankedRawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, runnerUpDiagnostics, null, boardDiagnostics, partialClusters, promise, profileVersions, calibrationProfile) }
       : { displayResults: [], curation: null };
   }
   const useEvent = Boolean(eventCandidate)
@@ -978,6 +1005,7 @@ function selectFromFrozenAnalysis(rawCandidates, frozenStates, {
       compiledCandidate,
       eventAlternatives,
       compiledAlternatives,
+      runnerUpDiagnostics,
       useEvent ? "event" : "compiled",
       boardDiagnostics,
       partialClusters,
@@ -1197,7 +1225,7 @@ function calibrationDiagnostics(profile, board = [], states = []) {
     messages,
   };
 }
-function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, winner, boardDiagnostics, partialClusters, promise, profileVersions, calibrationProfile) {
+function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, runnerUpDiagnostics, winner, boardDiagnostics, partialClusters, promise, profileVersions, calibrationProfile) {
   const summarize = candidate => ({
     candidateId: candidateIdForResult({ ...candidate.result, digest: candidate.fingerprint?.digest }),
     provisionalCandidateId: candidateIdForResult({ ...candidate.result, digest: "" }),
@@ -1257,6 +1285,15 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
       } } : {}),
     },
     promise: boardPromiseMetrics(selection.board, promise),
+    editorialArgument: selection.editorialArgument ? {
+      thesis: selection.editorialArgument.thesis,
+      signals: selection.editorialArgument.signals,
+      clusterMix: selection.editorialArgument.clusterMix,
+      changedCardCount: selection.editorialArgument.changedCardCount ?? null,
+      sharedCardCount: selection.editorialArgument.sharedCardCount ?? null,
+      distinctFrom: selection.editorialArgument.distinctFrom || null,
+      explanation: selection.editorialArgument.explanation || null,
+    } : null,
     candidates: selection.board.slice(0, DEFAULT_CURATION_LIMIT).map(summarize),
   } : null;
   const sourceEvidenceCandidates = states.map(state => ({
@@ -1288,6 +1325,7 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
     strongestCompiled: board(compiledCandidate, "compiled"),
     eventAlternatives: eventAlternatives.slice(1, 4).map(item => board(item, "event")),
     compiledAlternatives: compiledAlternatives.slice(1, 4).map(item => board(item, "compiled")),
+    runnerUpDiagnostics,
     boardDiagnostics,
     partialClusters,
     winner,
@@ -1468,6 +1506,207 @@ function candidateCalibration(candidate, profile) {
     positive: [...new Set(positive)],
     negative: [...new Set(negative)],
   };
+}
+
+function boardClusterMix(board) {
+  const counts = new Map();
+  for (const candidate of board) {
+    for (const cluster of candidate.editorial?.clusters || []) {
+      if (!cluster.compatible || cluster.confidence < 0.7) continue;
+      counts.set(cluster.id, (counts.get(cluster.id) || 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([id, count]) => ({ id, count }));
+}
+
+function meaningfulRunnerUps(mode, qualifiedProposals, limit) {
+  const primary = qualifiedProposals[0] || null;
+  const minimumCardDifference = Math.min(MIN_RUNNER_UP_CARD_DIFFERENCE, limit);
+  if (!primary) {
+    return {
+      selections: [],
+      diagnostics: {
+        available: false,
+        minimumCardDifference,
+        qualifiedProposalCount: 0,
+        meaningfulAlternativeCount: 0,
+        rejectedForCardOverlap: 0,
+        rejectedForSameArgument: 0,
+        summary: `No meaningful ${mode === "event" ? "Event" : "Compiled"} runner-up exists because no board qualified.`,
+      },
+    };
+  }
+
+  const primaryArgument = editorialArgumentFor(mode, primary);
+  const selections = [{ ...primary, editorialArgument: primaryArgument }];
+  let rejectedForCardOverlap = 0;
+  let rejectedForSameArgument = 0;
+
+  for (const proposal of qualifiedProposals.slice(1)) {
+    const argument = editorialArgumentFor(mode, proposal);
+    const changedCardCounts = selections.map(reference =>
+      boardCardDifference(reference.board, proposal.board));
+    if (changedCardCounts.some(count => count < minimumCardDifference)) {
+      rejectedForCardOverlap += 1;
+      continue;
+    }
+    if (selections.some(reference =>
+      reference.editorialArgument.clusterMixKey === argument.clusterMixKey
+      && reference.editorialArgument.thesisKey === argument.thesisKey)) {
+      rejectedForSameArgument += 1;
+      continue;
+    }
+    const changedCardCount = boardCardDifference(primary.board, proposal.board);
+    selections.push({
+      ...proposal,
+      editorialArgument: {
+        ...argument,
+        changedCardCount,
+        sharedCardCount: Math.max(0, limit - changedCardCount),
+        distinctFrom: `strongest_${mode}`,
+        explanation: `${changedCardCount} cards change; ${argument.thesis}`,
+      },
+    });
+    if (selections.length >= 4) break;
+  }
+
+  const meaningfulAlternativeCount = selections.length - 1;
+  const label = mode === "event" ? "Event" : "Compiled";
+  let summary;
+  if (meaningfulAlternativeCount) {
+    summary = `${meaningfulAlternativeCount} meaningful ${label} runner-up${meaningfulAlternativeCount === 1 ? "" : "s"} qualified; each changes at least ${minimumCardDifference} cards and makes a different editorial argument.`;
+  } else if (qualifiedProposals.length === 1) {
+    summary = `No meaningful ${label} runner-up exists; only one board qualified.`;
+  } else if (rejectedForCardOverlap && rejectedForSameArgument) {
+    summary = `No meaningful ${label} runner-up exists; the remaining proposals changed fewer than ${minimumCardDifference} cards or repeated the same cluster mix and thesis.`;
+  } else if (rejectedForCardOverlap) {
+    summary = `No meaningful ${label} runner-up exists; the remaining proposals changed fewer than ${minimumCardDifference} cards.`;
+  } else {
+    summary = `No meaningful ${label} runner-up exists; the remaining proposals repeated the same cluster mix and editorial thesis.`;
+  }
+  return {
+    selections,
+    diagnostics: {
+      available: meaningfulAlternativeCount > 0,
+      minimumCardDifference,
+      qualifiedProposalCount: qualifiedProposals.length,
+      meaningfulAlternativeCount,
+      rejectedForCardOverlap,
+      rejectedForSameArgument,
+      summary,
+    },
+  };
+}
+
+function editorialArgumentFor(mode, selection) {
+  const board = selection.board;
+  const clusterMix = boardClusterMix(board);
+  const clusterMixKey = clusterMix.map(cluster => `${cluster.id}:${cluster.count}`).join("|");
+  const [dominantQuery, dominantQueryCount] = mostCommonValue(
+    board.map(candidate => batchKey(candidate.result)),
+  );
+  const sourceCount = uniqueCount(board, candidate => sourceKey(candidate.result));
+  const queryCount = uniqueCount(board, candidate => batchKey(candidate.result));
+  let thesisKey;
+  let thesis;
+  const signals = [];
+
+  if (mode === "event") {
+    const boundary = selection.familyBoundary || {
+      key: "event-family",
+      thesis: "Treat this bounded visual family as one continuous editorial sequence.",
+      signal: "bounded visual family",
+    };
+    thesisKey = boundary.key;
+    thesis = boundary.thesis;
+    signals.push(boundary.signal, "frame-to-frame continuity");
+  } else if (clusterMix.length) {
+    const dominant = clusterMix[0];
+    thesisKey = `cluster-focus:${dominant.id}`;
+    thesis = clusterMix.length === 1
+      ? `Concentrate the varied board on the ${dominant.id} visual cluster.`
+      : `Lead with the ${dominant.id} cluster while using the remaining clusters as contrast.`;
+    signals.push(`dominant cluster: ${dominant.id}`, `${clusterMix.length} represented visual clusters`);
+  } else if (dominantQuery && dominantQueryCount >= Math.ceil(board.length / 3)) {
+    thesisKey = `query-focus:${dominantQuery}`;
+    thesis = `Use “${dominantQuery}” as the board's editorial spine, then widen the visual evidence around it.`;
+    signals.push(`dominant search: ${dominantQuery}`, `${queryCount} represented searches`);
+  } else {
+    thesisKey = sourceCount >= 3 ? "source-range" : "visual-range";
+    thesis = sourceCount >= 3
+      ? "Prioritize a cross-source reading of the Vibe Pack over one editorial family."
+      : "Prioritize visual range across the qualifying evidence.";
+    signals.push(`${sourceCount} represented sources`, `${queryCount} represented searches`);
+  }
+
+  return {
+    thesis,
+    thesisKey,
+    clusterMix,
+    clusterMixKey,
+    signals,
+  };
+}
+
+function eventBoundaryForFamily(family) {
+  const candidates = family.candidates || [];
+  const [article, articleCount] = mostCommonValue(
+    candidates.map(candidate => canonicalLinkKey(candidate.result)),
+  );
+  if (article && articleCount >= 2) {
+    return {
+      key: `article:${article}`,
+      thesis: "Stay inside one editorial article and treat its frame progression as the argument.",
+      signal: "single editorial article",
+    };
+  }
+  const [roleQuery, roleCount] = mostCommonValue(
+    candidates.map(candidate => boundedRoleBatchKey(candidate.result)),
+  );
+  if (roleQuery && roleCount >= 2) {
+    return {
+      key: `role:${roleQuery}`,
+      thesis: `Build the board around the bounded role or work search “${roleQuery}”.`,
+      signal: `bounded role family: ${roleQuery}`,
+    };
+  }
+  const [source, sourceCount] = mostCommonValue(
+    candidates.map(candidate => sourceKey(candidate.result)),
+  );
+  if (source && sourceCount >= 2) {
+    return {
+      key: `source:${source}`,
+      thesis: `Let the related ${source} frame family carry the board as one visual sequence.`,
+      signal: `related source family: ${source}`,
+    };
+  }
+  const signature = createHash("sha256")
+    .update(candidates.map(candidateIdentity).sort().join("\u0000"))
+    .digest("hex")
+    .slice(0, 16);
+  return {
+    key: `visual-family:${signature}`,
+    thesis: "Treat this bounded visual family as one continuous editorial sequence.",
+    signal: "bounded visual family",
+  };
+}
+
+function mostCommonValue(values) {
+  const counts = new Map();
+  for (const value of values.filter(Boolean)) counts.set(value, (counts.get(value) || 0) + 1);
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0]
+    || ["", 0];
+}
+
+function boardCardDifference(left, right) {
+  const rightIds = new Set(right.map(candidateIdentity));
+  return left.reduce(
+    (count, candidate) => count + Number(!rightIds.has(candidateIdentity(candidate))),
+    0,
+  );
 }
 
 function partialClusterDiagnostics(candidates, promise, limit) {

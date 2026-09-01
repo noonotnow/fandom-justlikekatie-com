@@ -58,6 +58,13 @@ test('an unavailable comparison is not described as ready for a blind choice', (
   assert.match(source, /function BoardQualificationSummary/);
   assert.match(source, /board missing/);
   assert.match(source, /diagnostic\?\.summary/);
+  const unavailableStart = source.indexOf("review?.status === 'unavailable'");
+  const unavailableEnd = source.indexOf(': <section', unavailableStart);
+  const unavailableBranch = source.slice(unavailableStart, unavailableEnd);
+  assert.match(unavailableBranch, /<RunnerUpDiagnostics run=\{run\}/);
+  assert.match(source, /aria-label="Runner-up availability"/);
+  assert.match(source, /diagnostics\[mode\]\?\.summary/);
+  assert.match(source, /No meaningful \$\{mode === 'event' \? 'Event' : 'Compiled'\} runner-up/);
 });
 
 test('retained evidence exposes image-level editorial intents after review', () => {

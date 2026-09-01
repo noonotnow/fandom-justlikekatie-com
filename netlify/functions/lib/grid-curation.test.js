@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { candidateIdForResult, CURATION_VERSION, curateDisplayResults } from "./grid-curation.js";
+import {
+  candidateIdForResult,
+  CURATION_VERSION,
+  curateDisplayResults,
+  MIN_RUNNER_UP_CARD_DIFFERENCE,
+} from "./grid-curation.js";
 import { vibePromiseFor } from "./actor-identity-profiles.js";
 import { fingerprintImage } from "./image-dedup.js";
 
@@ -353,6 +358,67 @@ test("a generic actor style query cannot manufacture an Event family", async () 
   assert.equal(curated.diagnostics.boardDiagnostics.event.reasonCode, "no_bounded_role_family");
   assert.match(curated.diagnostics.boardDiagnostics.event.summary, /more specific/i);
   assert.equal(curated.diagnostics.boardDiagnostics.compiled.available, true);
+});
+
+test("runner-ups cannot disguise a repeated board as a new editorial choice", async () => {
+  const candidates = Array.from({ length: 12 }, (_, index) => result(`same-thesis-${index}`, {
+    source: `publisher-${index}.test`,
+    title: `刘学义 varied editorial portrait ${index}`,
+    fp: fingerprint(`same-thesis-${index}`, { ones: spreadBits(`same-thesis-${index}`, 104) }),
+  }));
+
+  const curated = await curateBatches([
+    { query: "刘学义 西装 写真", results: candidates },
+  ], { diagnostics: true });
+
+  assert.equal(curated.diagnostics.compiledAlternatives.length, 0);
+  assert.equal(curated.diagnostics.runnerUpDiagnostics.compiled.available, false);
+  assert.equal(
+    curated.diagnostics.runnerUpDiagnostics.compiled.minimumCardDifference,
+    MIN_RUNNER_UP_CARD_DIFFERENCE,
+  );
+  assert.match(curated.diagnostics.runnerUpDiagnostics.compiled.summary, /no meaningful compiled runner-up/i);
+});
+
+test("every published runner-up changes enough cards and states its distinct argument", async () => {
+  const promise = {
+    id: "two-cluster-runner-ups",
+    requiredCombinations: [],
+    supportingAnchors: [],
+    hardAntiAnchors: [],
+    softContradictions: [],
+    hero: { any: [] },
+    clusterIds: ["moonlight", "armor"],
+    aestheticClusters: [
+      { id: "moonlight", work: "moonlight", look: ["silver robe"], vibeCompatibility: {} },
+      { id: "armor", work: "armor", look: ["black armor"], vibeCompatibility: {} },
+    ],
+  };
+  const moonlight = Array.from({ length: 9 }, (_, index) => result(`runner-moon-${index}`, {
+    title: `刘学义 silver robe moonlight portrait ${index}`,
+    fp: fingerprint(`runner-moon-${index}`, { ones: spreadBits(`runner-moon-${index}`, 104) }),
+  }));
+  const armor = Array.from({ length: 9 }, (_, index) => result(`runner-armor-${index}`, {
+    title: `刘学义 black armor portrait ${index}`,
+    fp: fingerprint(`runner-armor-${index}`, { ones: spreadBits(`runner-armor-${index}`, 104) }),
+  }));
+
+  const curated = await curateBatches([
+    { query: "刘学义 silver robe", results: moonlight },
+    { query: "刘学义 black armor", results: armor },
+  ], { diagnostics: true, promise });
+
+  const primaryIds = new Set(
+    curated.diagnostics.strongestCompiled.candidates.map(candidate => candidate.candidateId),
+  );
+  assert.ok(curated.diagnostics.compiledAlternatives.length > 0);
+  for (const runnerUp of curated.diagnostics.compiledAlternatives) {
+    const changed = runnerUp.candidates.filter(candidate => !primaryIds.has(candidate.candidateId));
+    assert.ok(changed.length >= MIN_RUNNER_UP_CARD_DIFFERENCE);
+    assert.equal(runnerUp.editorialArgument.changedCardCount, changed.length);
+    assert.match(runnerUp.editorialArgument.thesis, /\S/);
+    assert.match(runnerUp.editorialArgument.explanation, /cards change/i);
+  }
 });
 
 test("related character and look queries can combine into one Event mood board", async () => {

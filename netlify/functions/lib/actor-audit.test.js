@@ -29,7 +29,7 @@ import {
 import { candidateIdForResult, CURATION_VERSION } from "./grid-curation.js";
 
 const ORIGIN = "https://fandom.example";
-const PREVIOUS_CURATION_VERSION = 6;
+const PREVIOUS_CURATION_VERSION = 7;
 const pairActor = {
   id: "liu-xueyi",
   name: "刘学义",

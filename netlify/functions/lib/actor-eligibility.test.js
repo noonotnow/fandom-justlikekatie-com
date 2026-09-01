@@ -23,7 +23,7 @@ const packs = [
   { id: "actor-a", vibes: [{}, {}] },
   { id: "actor-b", vibes: [{}, {}] },
 ];
-const PREVIOUS_CURATION_VERSION = 6;
+const PREVIOUS_CURATION_VERSION = 7;
 
 function storeWith(entries = {}) {
   return {
@@ -174,46 +174,58 @@ function recordHash(value) {
 }
 
 test("the legacy date pair stays selected when its current audit is approved", async () => {
-  const date = "2026-08-31";
+  const date = "2026-09-05";
   const legacy = getRandomForDate(packs, date);
   const actor = packs[legacy.aIdx];
-  const selected = await selectEligiblePair(
-    packs,
-    date,
-    storeWith(approved(actor, legacy.vIdx)),
-  );
+    const selected = await selectEligiblePair(packs, date, storeWith(entries));
+  assert.equal(selected.aIdx, legacy.aIdx);
+  assert.equal(selected.vIdx, legacy.vIdx);
 
-  assert.deepEqual(
-    { aIdx: selected.aIdx, vIdx: selected.vIdx, legacy: selected.legacy },
-    { aIdx: legacy.aIdx, vIdx: legacy.vIdx, legacy: true },
+  entries[auditRescueCalibrationKey(actor.id, legacy.vIdx, "rescue-evidence-2")] = {
+    schemaVersion: 1,
+    calibrationVersion: 1,
+    status: "confirmed",
+    sourceRescueReceiptId: "rescue-evidence-2",
+    confirmedAt: "2026-09-05T11:00:00.000Z",
+    contract: rescueContract(actor, legacy.vIdx),
+  };
+  assert.equal(
+    await selectEligiblePair(packs, date, storeWith(entries)),
+    null,
+    "new calibration evidence must require another fresh proof",
   );
 });
 
-test("an unapproved pair is skipped without removing its actor's other packs", async () => {
-  const date = "2026-08-31";
+test("superseded rescue calibration contracts are records-only for Daily Drop eligibility", async () => {
+  const date = "2026-09-05";
   const legacy = getRandomForDate(packs, date);
   const sameActorOtherVibe = legacy.vIdx === 0 ? 1 : 0;
   const actor = packs[legacy.aIdx];
-  const selected = await selectEligiblePair(
-    packs,
-    date,
-    storeWith(approved(actor, sameActorOtherVibe)),
-  );
-
+    const selected = await selectEligiblePair(packs, date, storeWith(entries));
   assert.equal(selected.aIdx, legacy.aIdx);
-  assert.equal(selected.vIdx, sameActorOtherVibe);
-  assert.equal(selected.legacy, false);
+  assert.equal(selected.vIdx, legacy.vIdx);
+
+  entries[auditRescueCalibrationKey(actor.id, legacy.vIdx, "rescue-evidence-2")] = {
+    schemaVersion: 1,
+    calibrationVersion: 1,
+    status: "confirmed",
+    sourceRescueReceiptId: "rescue-evidence-2",
+    confirmedAt: "2026-09-05T11:00:00.000Z",
+    contract: rescueContract(actor, legacy.vIdx),
+  };
+  assert.equal(
+    await selectEligiblePair(packs, date, storeWith(entries)),
+    null,
+    "new calibration evidence must require another fresh proof",
+  );
 });
 
-test("selection is stable and fails closed when no current pair is approved", async () => {
-  const date = "2026-09-01";
+test("superseded rescue calibration contracts are records-only for Daily Drop eligibility", async () => {
+  const date = "2026-09-05";
   const empty = storeWith();
   assert.equal(await selectEligiblePair(packs, date, empty), null);
 
-  const entries = {
-    ...approved(packs[0], 0),
-    ...approved(packs[1], 1),
-  };
+    const entries = approved(actor, legacy.vIdx);
   const first = await selectEligiblePair(packs, date, storeWith(entries));
   const second = await selectEligiblePair(packs, date, storeWith(entries));
   assert.deepEqual(first, second);
@@ -233,10 +245,10 @@ test("stale approval-shaped records without an eligible current run are rejected
 });
 
 test("an approval is stale after its identity profile or query fingerprint changes", async () => {
-  const date = "2026-09-03";
+  const date = "2026-09-05";
   const legacy = getRandomForDate(packs, date);
   const originalActor = packs[legacy.aIdx];
-  const entries = approved(originalActor, legacy.vIdx);
+    const entries = approved(actor, legacy.vIdx);
   const changedPacks = structuredClone(packs);
   changedPacks[legacy.aIdx].vibes[legacy.vIdx].queries = ["new query contract"];
 
@@ -245,10 +257,10 @@ test("an approval is stale after its identity profile or query fingerprint chang
 
 test("an approval fails closed after the curation algorithm version changes", async () => {
   assert.equal(CURATION_VERSION, PREVIOUS_CURATION_VERSION + 1);
-  const date = "2026-09-04";
+  const date = "2026-09-05";
   const legacy = getRandomForDate(packs, date);
   const actor = packs[legacy.aIdx];
-  const entries = approved(actor, legacy.vIdx);
+    const entries = approved(actor, legacy.vIdx);
   const runId = `${actor.id}-${legacy.vIdx}-run`;
   entries[auditRunKey(actor.id, legacy.vIdx, runId)].curationReceipt.curationVersion = PREVIOUS_CURATION_VERSION;
 
@@ -259,7 +271,7 @@ test("Daily Drop eligibility fails closed until confirmed rescue calibration is 
   const date = "2026-09-05";
   const legacy = getRandomForDate(packs, date);
   const actor = packs[legacy.aIdx];
-  const entries = approved(actor, legacy.vIdx);
+    const entries = approved(actor, legacy.vIdx);
   const runId = `${actor.id}-${legacy.vIdx}-run`;
   const receiptId = "rescue-evidence-1";
   entries[auditRescueCalibrationKey(actor.id, legacy.vIdx, receiptId)] = {
@@ -289,7 +301,7 @@ test("Daily Drop eligibility fails closed until confirmed rescue calibration is 
       proofStatus,
     }),
   });
-  const selected = await selectEligiblePair(packs, date, storeWith(entries));
+    const selected = await selectEligiblePair(packs, date, storeWith(entries));
   assert.equal(selected.aIdx, legacy.aIdx);
   assert.equal(selected.vIdx, legacy.vIdx);
 
