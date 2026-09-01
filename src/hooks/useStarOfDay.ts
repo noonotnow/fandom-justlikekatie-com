@@ -165,7 +165,7 @@ export const useStarOfDay = (editionDate: string | null = null): UseStarOfDayRet
         }
 
         if (data.error === 'no_acceptable_batch') {
-          setError('Today’s Star of the Day is waiting for one approved Liu Xueyi pairing. Complete both human confirmations in the private approval desk to publish it.');
+          setError('Today’s Star of the Day is waiting for the exact editorial board to be published. Use the private approval desk to publish the rescue board for this edition.');
           setLoading(false);
           return;
         }
