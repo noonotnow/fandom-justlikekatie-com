@@ -1,0 +1,48 @@
+**YES—this is exactly where the Adobe enhancement scrub belongs.** After editorial approval, before the final social export.
+
+But enhance the **nine individual cards**, not the completed grid. If Firefly processes the full composite, it may distort the typography, spacing, faces, or card boundaries. The clean pipeline is:
+
+1. **Approve the exact nine**
+    - Selection, order, and hero position are frozen.
+2. **Prepare the nine source files**
+    - Download each original at the best available resolution.
+3. **Run the Firefly enhancement scrub**
+    - Denoise, upscale, improve clarity, and gently normalize exposure/color.
+    - Scrub before/after on each card.
+4. **Accept or reject each enhancement individually**
+    - Rejected enhancement falls back to the original.
+5. **Freeze the accepted production assets**
+    - Link them to the original approved receipt without changing its history.
+6. **Render the final 3×3**
+    - Use enhanced files, exact approved order, clean typography, and no audit diagnostics.
+
+The Firefly guardrails should be strict:
+
+- Preserve Liu Xueyi’s actual face and expression.
+- Preserve costume, hair, blood, injuries, props, and background.
+- No invented facial detail or beauty-filter face.
+- No generative costume repair.
+- No changing the emotional evidence.
+- No combining or replacing scenes.
+- Enhancement may improve legibility; it may not rewrite the card.
+
+This also solves part of the export problem beautifully: once the accepted enhancements are stored as your own production assets, the exporter no longer has to draw nine hostile third-party URLs into a browser canvas.
+
+So the product stage should be called something like:
+
+> **Approved board → Enhancement scrub → Final publication edition**
+> 
+
+And each card gets:
+
+- Original
+- Enhanced preview
+- Before/after scrubber
+- **Use enhanced**
+- **Keep original**
+- **Redo**
+- **Revert anytime**
+
+The original exact-nine receipt remains immutable. The enhanced edition becomes a **derived publication receipt** tied to it. That preserves accountability while letting the final drop look expensive.
+
+This is not the algorithm getting another vote. **Curation is finished; now the studio polishes the approved evidence.**

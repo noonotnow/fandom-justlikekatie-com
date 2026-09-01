@@ -619,17 +619,16 @@ async function renderFullExportCanvas(payload: ExportPayload): Promise<HTMLCanva
   const gridY = gridTop + Math.max(0, (gridAvailH - gridH) / 2);
 
   const images = await imagesPromise;
+  if (images.length !== results.length || images.some((image) => !image)) {
+    throw new Error('The share card could not load all nine approved images. Nothing was exported.');
+  }
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
       const idx = row * cols + col;
       const tx = gridX + col * (tileSize + gridGap);
       const ty = gridY + row * (tileSize + gridGap);
       const img = images[idx];
-      if (img) {
-        drawCoverImageRounded(ctx, img, tx, ty, tileSize, tileSize, 14);
-      } else {
-        drawPlaceholderTileRounded(ctx, tx, ty, tileSize, tileSize, 14, colors.bgCard);
-      }
+      drawCoverImageRounded(ctx, img!, tx, ty, tileSize, tileSize, 14);
     }
   }
 
