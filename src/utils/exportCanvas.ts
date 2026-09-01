@@ -93,7 +93,9 @@ function loadProxiedImage(originalUrl: string): Promise<HTMLImageElement | null>
     img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = () => resolve(null);
-    img.src = `/.netlify/functions/image-proxy?url=${encodeURIComponent(originalUrl)}`;
+    img.src = originalUrl.startsWith('/.netlify/functions/image-proxy?')
+      ? originalUrl
+      : `/.netlify/functions/image-proxy?url=${encodeURIComponent(originalUrl)}`;
   });
 }
 
@@ -369,12 +371,17 @@ export function buildExportFilename(
   rankNum: number,
   variant: 'full' | 'teaser',
   tier: string,
+  vibeLabel = '',
+  boardShortId = '',
 ): string {
   const slug = actorFilenameSlug(actorNameEn);
+  const vibeSlug = actorFilenameSlug(vibeLabel);
   const nn = pad2(rankNum);
   const tierTag = (tier && tier !== 'standard') ? ('_' + tier) : '';
   const suffix = variant === 'teaser' ? '_teaser' : '';
-  return 'vibe-guide_' + dateStr + '_' + slug + tierTag + '_ep' + nn + suffix + '.png';
+  const boardTag = boardShortId ? '_' + actorFilenameSlug(boardShortId).slice(0, 16) : '';
+  return 'vibe-guide_' + dateStr + '_' + slug + (vibeSlug ? '_' + vibeSlug : '')
+    + boardTag + tierTag + '_ep' + nn + suffix + '.png';
 }
 
 // ── Export payload construction from StarOfDayData ─────────────────
@@ -392,6 +399,79 @@ interface ExportPayload {
   totalBatches: number | null;
   badgeTier: string;
   editorial?: StarOfDayData['editorial'];
+}
+
+export interface ExportArtifact {
+  blob: Blob;
+  file: File;
+  fileName: string;
+}
+
+function exportResults(data: StarOfDayData, variant: ExportVariant): RankedBatch['results'] {
+  const payload = buildExportPayload(data);
+  const results = payload.chosen?.results?.slice(0, variant === 'teaser' ? 6 : 9) ?? [];
+  if (variant === 'full' && results.length !== 9) {
+    throw new Error('This approved board is not complete yet. A share card requires all nine images.');
+  }
+  return results;
+}
+
+function boardShortId(data: StarOfDayData): string {
+  const supplied = (data as StarOfDayData & { publicationReceiptShortId?: string }).publicationReceiptShortId;
+  if (supplied) return supplied;
+  const payload = buildExportPayload(data);
+  const source = payload.chosen?.results?.slice(0, 9)
+    .map(result => `${result.link}|${result.thumbnail}`)
+    .join('||') || `${data.date}|${data.actorId}|${data.vibeLabel}`;
+  return hashStringToUint(`frozen-board:${source}`).toString(16).padStart(8, '0');
+}
+
+export async function areExportImagesReady(
+  data: StarOfDayData,
+  variant: ExportVariant = 'full',
+): Promise<boolean> {
+  try {
+    const results = exportResults(data, variant);
+    const images = await Promise.all(results.map(result => loadProxiedImage(result.thumbnail)));
+    return images.length === (variant === 'full' ? 9 : results.length)
+      && images.every(Boolean);
+  } catch {
+    return false;
+  }
+}
+
+async function createExportArtifact(
+  data: StarOfDayData,
+  variant: ExportVariant,
+): Promise<ExportArtifact> {
+  const payload = buildExportPayload(data);
+  const tier = classifyEditionTier(payload.chosen);
+  const canvas = await renderExportCanvas(data, variant);
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((b) => resolve(b), 'image/png');
+  });
+  if (!blob) throw new Error('分享卡生成失败，再试一次？');
+  const editionStamp = buildEditionStampLine(
+    payload.date, payload.actorName, payload.vibeLabel,
+    payload.rankIndex, payload.totalBatches, tier,
+  );
+  const filenameTier = tier !== 'standard' ? 'star-of-day_' + tier : 'star-of-day';
+  const fileName = buildExportFilename(
+    payload.date, payload.actorNameEn, editionStamp.rankNum, variant, filenameTier,
+    payload.vibeLabel, boardShortId(data),
+  );
+  return { blob, file: new File([blob], fileName, { type: 'image/png' }), fileName };
+}
+
+function downloadExportArtifact(artifact: ExportArtifact): void {
+  const objectUrl = URL.createObjectURL(artifact.blob);
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  a.download = artifact.fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 4000);
 }
 
 export function buildExportPayload(data: StarOfDayData): ExportPayload {
