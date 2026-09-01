@@ -14,3 +14,9 @@ A separate exact-board path applies when the curator cannot form two complete bo
 **Why:** Visual editorial judgment can recognize a coherent narrative that brittle per-card metadata reports as 0/9. Publishing only the exact confirmed receipt fixes that false negative without granting blanket access to hidden, unavailable, excluded, changed, or future evidence.
 
 **How to apply:** Keep ordinary preference metadata non-eligibility-bearing. For exact-board approval, verify the current run and contract, nine distinct candidates, receipt identity and board hash, both human confirmations, and fail closed if the stored receipt changes or disappears. Daily Drop must use that exact frozen board without rerunning search.
+
+The algorithm is a scout and first draft, not the editor-in-chief: semantic scoring may surface useful evidence while making an absurd narrative leap, so the human-approved board owns the final Vibe judgment.
+
+**Why:** Automated relevance can produce entertaining but plainly wrong interpretations, such as treating a person-to-melon transformation as evidence for a character Vibe.
+
+**How to apply:** Use algorithmic results to discover and filter retained evidence; never present an automatic score as the public meaning of a human-approved board, and keep an explicit editorial approval path for coherent boards the scorer misses.
