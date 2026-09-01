@@ -34,6 +34,7 @@ import {
   eligibilityKey,
   pairingFingerprintFor,
   rescueCalibrationRetirementHash,
+  getEligibility,
 } from "./actor-eligibility.js";
 import {
   evaluateCandidates,
@@ -46,6 +47,7 @@ import {
   CURATION_VERSION,
   curateDisplayResults,
 } from "./grid-curation.js";
+import { STAR_OF_DAY_VERSION } from "../star-of-day.js";
 
 const MAX_BODY_BYTES = 48 * 1024;
 const MAX_NOTE_LENGTH = 2000;
@@ -98,6 +100,7 @@ const DISAGREEMENT_REASONS = new Set([
 export function createActorAuditHandler({
   auth,
   getStore,
+  getPublicationStore = getStore,
   actorPacks,
   searchOneQuery,
   now = () => new Date(),
@@ -398,6 +401,20 @@ export function createActorAuditHandler({
           { onlyIfNew: true },
         );
         if (verdictWrite?.modified === false) {
+          const raced = await readReport(store, pair);
+          if (sameFinalVerdict(raced.currentRun?.operatorVerdict, {
+            verdict: input.verdict,
+            notes,
+            vibeConfirmed,
+            publishableConfirmed,
+            rescuePreference,
+          })) {
+            return json(200, {
+              actor: await actorSummary(store, actorPacks, pair.actor),
+              pairing: pairingSummary(pair, raced),
+              ...detailResponse(pair, raced),
+            });
+          }
           return json(409, { error: "Another operator finalized this audit run first." });
         }
         const currentHead = await store.get(auditHeadKey(pair.actor.id, pair.vibeIdx), {
@@ -408,12 +425,13 @@ export function createActorAuditHandler({
           return json(409, { error: "A newer audit run became current. Review that run before scheduling." });
         }
         const next = await readReport(store, pair);
-        if (next.currentRun?.operatorVerdict?.verdict !== input.verdict
-          || next.currentRun?.operatorVerdict?.notes !== notes
-          || next.currentRun?.operatorVerdict?.vibeConfirmed !== vibeConfirmed
-            || next.currentRun?.operatorVerdict?.publishableConfirmed !== publishableConfirmed
-            || JSON.stringify(normalizeRescuePreference(next.currentRun?.operatorVerdict?.rescuePreference))
-              !== JSON.stringify(normalizeRescuePreference(rescuePreference))) {
+        if (!sameFinalVerdict(next.currentRun?.operatorVerdict, {
+          verdict: input.verdict,
+          notes,
+          vibeConfirmed,
+          publishableConfirmed,
+          rescuePreference,
+        })) {
           return json(409, { error: "Another operator finalized this audit run first." });
         }
         await writeEligibility(store, pair, {
@@ -752,6 +770,55 @@ export function createActorAuditHandler({
           actor: await actorSummary(store, actorPacks, pair.actor),
           pairing: pairingSummary(pair, responseReport),
           ...detailResponse(pair, responseReport),
+        });
+      }
+
+      if (input.action === "publish_backfill") {
+        if (!isUsableBackfillDate(input.date)) {
+          return json(400, { error: "Backfill date must be a valid YYYY-MM-DD calendar date." });
+        }
+        if (typeof input.runId !== "string" || !input.runId
+          || typeof input.rescueReceiptId !== "string"
+          || !/^[A-Za-z0-9_-]{1,128}$/.test(input.rescueReceiptId)) {
+          return json(400, { error: "A current audit run and saved rescue receipt are required." });
+        }
+        const report = await readReport(store, pair);
+        const run = report.currentRun;
+        const approval = await getEligibility(store, pair.actor, pair.vibeIdx);
+        if (!run || run.runId !== input.runId
+          || run.operatorVerdict?.verdict !== "approved"
+          || run.operatorVerdict?.vibeConfirmed !== true
+          || run.operatorVerdict?.publishableConfirmed !== true
+          || approval?.eligible !== true
+          || approval.publicationSource?.type !== "operator_rescue"
+          || approval.publicationSource.rescueReceiptId !== input.rescueReceiptId
+          || !approval.publicationBoard
+          || approval.publicationBoard.candidates?.length !== 9) {
+          return json(409, {
+            error: "Backfill requires the current saved rescue board to have an approved verdict and both human confirmations.",
+          });
+        }
+        const payload = backfillPayloadForDate(input.date, pair, approval.publicationBoard);
+        const publicationStore = getPublicationStore(context);
+        const key = `starOfDay:${STAR_OF_DAY_VERSION}:${input.date}`;
+        const existing = await publicationStore.get(key, { type: "json", consistency: "strong" });
+        if (existing) {
+          if (samePublicPayload(existing, payload)) {
+            return json(200, {
+              backfill: { date: input.date, status: "already_published" },
+              payload: publicBackfillSummary(existing),
+            });
+          }
+          return json(409, { error: "That edition date already contains a different published board." });
+        }
+        await publicationStore.setJSON(key, payload, { onlyIfNew: true });
+        const written = await publicationStore.get(key, { type: "json", consistency: "strong" });
+        if (!written || !samePublicPayload(written, payload)) {
+          return json(409, { error: "The backfill could not be verified after writing. Refresh the archive before trying again." });
+        }
+        return json(200, {
+          backfill: { date: input.date, status: "published" },
+          payload: publicBackfillSummary(written),
         });
       }
 
@@ -2748,6 +2815,18 @@ function normalizeRescuePreference(value) {
       ? preference.rescueReceiptId
       : null,
   };
+}
+
+function sameFinalVerdict(left, right) {
+  return Boolean(
+    left
+    && left.verdict === right.verdict
+    && left.notes === right.notes
+    && left.vibeConfirmed === right.vibeConfirmed
+    && left.publishableConfirmed === right.publishableConfirmed
+    && JSON.stringify(normalizeRescuePreference(left.rescuePreference))
+      === JSON.stringify(normalizeRescuePreference(right.rescuePreference)),
+  );
 }
 
 function rescuePreferenceIdentityFor(receipt) {
