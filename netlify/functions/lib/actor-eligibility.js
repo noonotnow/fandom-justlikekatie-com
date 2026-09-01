@@ -30,6 +30,9 @@ export const auditRequestedReviewPrefix = (actorId, vibeIdx, runId) => `requeste
 export const auditRequestedReviewKey = (actorId, vibeIdx, runId, feedbackHash) => `${auditRequestedReviewPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(feedbackHash)}`;
 export const auditRescueBoardPrefix = (actorId, vibeIdx, runId) => `rescue-boards/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
 export const auditRescueBoardKey = (actorId, vibeIdx, runId, receiptId) => `${auditRescueBoardPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
+export const auditRescuePreferencePrefix = (actorId, vibeIdx, runId) => `rescue-preferences/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
+export const auditRescuePreferenceKey = (actorId, vibeIdx, runId, receiptId = "canonical") =>
+  `${auditRescuePreferencePrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
 export const auditRescueCalibrationPrefix = (actorId, vibeIdx) => `rescue-calibrations/${actorId}/${vibeIdx}/`;
 export const auditRescueCalibrationKey = (actorId, vibeIdx, receiptId) => `${auditRescueCalibrationPrefix(actorId, vibeIdx)}${encodeURIComponent(receiptId)}`;
 export const auditRescueCalibrationRetirementPrefix = (actorId, vibeIdx) => `rescue-calibration-retirements/${actorId}/${vibeIdx}/`;

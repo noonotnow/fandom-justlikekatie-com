@@ -23,6 +23,7 @@ import {
   auditRequestedReviewKey,
   auditRescueBoardKey,
   auditRescueBoardPrefix,
+  auditRescuePreferenceKey,
   auditRescueCalibrationKey,
   auditRescueCalibrationPrefix,
   auditRescueCalibrationRetirementKey,
@@ -202,6 +203,20 @@ export function createActorAuditHandler({
         const plainApproval = input.verdict === "approved";
         const vibeConfirmed = plainApproval && input.vibeConfirmed === true;
         const publishableConfirmed = plainApproval && input.publishableConfirmed === true;
+        if (input.rescuePreferred !== undefined && typeof input.rescuePreferred !== "boolean") {
+          return json(400, { error: "Rescue preference must be true or false." });
+        }
+        const rescuePreferred = input.rescuePreferred === true;
+        const rescueReceiptId = rescuePreferred ? input.rescueReceiptId : null;
+        if (rescuePreferred && (
+          typeof rescueReceiptId !== "string"
+          || !/^[A-Za-z0-9_-]{1,128}$/.test(rescueReceiptId)
+        )) {
+          return json(400, { error: "Choose a saved rescue board when recording a rescue preference." });
+        }
+        if (!rescuePreferred && input.rescueReceiptId !== undefined && input.rescueReceiptId !== null) {
+          return json(400, { error: "A rescue board can only be selected when rescue preference is enabled." });
+        }
         if (input.verdict === "approved" && (!vibeConfirmed || !publishableConfirmed)) {
           return json(409, {
             error: "Approval requires both “Yes, that’s the Vibe” and “Yes, this is publishable.”",
@@ -214,14 +229,18 @@ export function createActorAuditHandler({
         if (!currentRunMatchesCurrentContract(report.currentRun, pair)) {
           return json(409, { error: "This audit is invalid under the current profile contract. Run a fresh audit before recording a scheduling verdict." });
         }
-        const hasComparableBoards = comparableBoards(report.currentRun);
-        const blindReview = report.currentRun.blindReview;
+        const rescuePreference = {
+          preferred: rescuePreferred,
+          rescueReceiptId,
+        };
         const existingVerdict = report.currentRun.operatorVerdict;
         if (existingVerdict) {
           if (existingVerdict.verdict !== input.verdict
             || existingVerdict.notes !== notes
             || existingVerdict.vibeConfirmed !== vibeConfirmed
-            || existingVerdict.publishableConfirmed !== publishableConfirmed) {
+            || existingVerdict.publishableConfirmed !== publishableConfirmed
+            || JSON.stringify(normalizeRescuePreference(existingVerdict.rescuePreference))
+              !== JSON.stringify(normalizeRescuePreference(rescuePreference))) {
             return json(409, { error: "The final scheduling verdict for this audit run is immutable." });
           }
           return json(200, {
@@ -230,6 +249,30 @@ export function createActorAuditHandler({
             ...detailResponse(pair, report),
           });
         }
+        let preferredRescueBoard = null;
+        if (rescuePreferred) {
+          preferredRescueBoard = await store.get(
+            auditRescueBoardKey(pair.actor.id, pair.vibeIdx, report.currentRun.runId, rescueReceiptId),
+            { type: "json", consistency: "strong" },
+          );
+          const currentFeedbackHash = feedbackHash(report.currentRun.editorialFeedback?.flags || []);
+          if (!preferredRescueBoard
+            || preferredRescueBoard.receiptId !== rescueReceiptId
+            || preferredRescueBoard.runId !== report.currentRun.runId
+            || preferredRescueBoard.actorId !== pair.actor.id
+            || preferredRescueBoard.vibeKey !== pair.vibeKey
+            || preferredRescueBoard.feedbackHash !== currentFeedbackHash
+            || !validateRescueArrangement(
+              report.currentRun,
+              preferredRescueBoard.board?.candidates?.map(candidate => candidate?.candidateId),
+            ).ok) {
+            return json(409, {
+              error: "The preferred rescue board is stale or unavailable. Rebuild and save it from the current image choices before recording this preference.",
+            });
+          }
+        }
+        const hasComparableBoards = comparableBoards(report.currentRun);
+        const blindReview = report.currentRun.blindReview;
         if (hasComparableBoards && !blindReview?.choice) {
           return json(409, { error: "Choose the more compelling board before recording a scheduling verdict." });
         }
@@ -252,11 +295,57 @@ export function createActorAuditHandler({
           });
         }
         const stamp = now().toISOString();
+        const rescuePreferenceIdentity = {
+          runId: report.currentRun.runId,
+          actorId: pair.actor.id,
+          vibeKey: pair.vibeKey,
+          preferred: rescuePreferred,
+          rescueReceiptId,
+          feedbackHash: preferredRescueBoard?.feedbackHash || null,
+        };
+        const preferenceReceiptId = recordHash(rescuePreferenceIdentity).slice(0, 24);
+        let rescuePreferenceReceipt = {
+          schemaVersion: 1,
+          receiptId: preferenceReceiptId,
+          ...rescuePreferenceIdentity,
+          createdAt: stamp,
+          createdBy: operator.user.accountId,
+        };
+        rescuePreference.receiptId = preferenceReceiptId;
+        const preferenceWrite = await store.setJSON(
+          auditRescuePreferenceKey(
+            pair.actor.id,
+            pair.vibeIdx,
+            report.currentRun.runId,
+            preferenceReceiptId,
+          ),
+          rescuePreferenceReceipt,
+          { onlyIfNew: true },
+        );
+        if (preferenceWrite?.modified === false) {
+          const existingPreference = await store.get(
+            auditRescuePreferenceKey(
+              pair.actor.id,
+              pair.vibeIdx,
+              report.currentRun.runId,
+              preferenceReceiptId,
+            ),
+            { type: "json", consistency: "strong" },
+          );
+          if (!existingPreference
+            || existingPreference.receiptId !== preferenceReceiptId
+            || recordHash(rescuePreferenceIdentityFor(existingPreference))
+              !== recordHash(rescuePreferenceIdentity)) {
+            return json(409, { error: "The rescue preference receipt could not be verified." });
+          }
+          rescuePreferenceReceipt = existingPreference;
+        }
         const operatorVerdict = {
           verdict: input.verdict,
           notes,
           vibeConfirmed,
           publishableConfirmed,
+          rescuePreference,
           decidedAt: stamp,
           decidedBy: operator.user.accountId,
           calibration: blindReview
@@ -290,7 +379,9 @@ export function createActorAuditHandler({
         if (next.currentRun?.operatorVerdict?.verdict !== input.verdict
           || next.currentRun?.operatorVerdict?.notes !== notes
           || next.currentRun?.operatorVerdict?.vibeConfirmed !== vibeConfirmed
-          || next.currentRun?.operatorVerdict?.publishableConfirmed !== publishableConfirmed) {
+            || next.currentRun?.operatorVerdict?.publishableConfirmed !== publishableConfirmed
+            || JSON.stringify(normalizeRescuePreference(next.currentRun?.operatorVerdict?.rescuePreference))
+              !== JSON.stringify(normalizeRescuePreference(rescuePreference))) {
           return json(409, { error: "Another operator finalized this audit run first." });
         }
         await writeEligibility(store, pair, {
@@ -2567,6 +2658,31 @@ function calibrationSnapshot(
     publishableConfirmed,
     finalSchedulingAt: decidedAt,
     finalSchedulingBy: decidedBy,
+  };
+}
+
+function normalizeRescuePreference(value) {
+  const preference = value?.rescuePreference ?? value;
+  if (!preference || typeof preference !== "object") {
+    return { preferred: false, rescueReceiptId: null };
+  }
+  return {
+    preferred: preference.preferred === true,
+    rescueReceiptId: preference.preferred === true
+      && typeof preference.rescueReceiptId === "string"
+      ? preference.rescueReceiptId
+      : null,
+  };
+}
+
+function rescuePreferenceIdentityFor(receipt) {
+  return {
+    runId: receipt?.runId || null,
+    actorId: receipt?.actorId || null,
+    vibeKey: receipt?.vibeKey || null,
+    preferred: receipt?.preferred === true,
+    rescueReceiptId: receipt?.preferred === true ? receipt?.rescueReceiptId || null : null,
+    feedbackHash: receipt?.feedbackHash || null,
   };
 }
 

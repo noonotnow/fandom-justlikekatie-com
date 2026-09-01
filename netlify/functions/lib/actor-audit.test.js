@@ -13,6 +13,8 @@ import {
   auditFeedbackPrefix,
   auditRescueBoardKey,
   auditRescueBoardPrefix,
+  auditRescuePreferenceKey,
+  auditRescuePreferencePrefix,
   auditRescueCalibrationPrefix,
   auditRescueCalibrationRetirementPrefix,
   auditRunKey,
@@ -526,6 +528,18 @@ test("run, verdict, rerun, and retained-run inspection keep eligibility current"
   assert.equal(decided.currentRun.operatorVerdict.calibration.finalSchedulingVerdict, "approved");
   assert.equal(decided.currentRun.operatorVerdict.calibration.vibeConfirmed, true);
   assert.equal(decided.currentRun.operatorVerdict.calibration.publishableConfirmed, true);
+  assert.equal(decided.currentRun.operatorVerdict.rescuePreference.preferred, false);
+  assert.equal(decided.currentRun.operatorVerdict.rescuePreference.rescueReceiptId, null);
+  assert.match(decided.currentRun.operatorVerdict.rescuePreference.receiptId, /^[a-f0-9]{24}$/);
+  assert.equal(
+    store.records.get(auditRescuePreferenceKey(
+      pairActor.id,
+      0,
+      "run-1",
+      decided.currentRun.operatorVerdict.rescuePreference.receiptId,
+    )).preferred,
+    false,
+  );
   assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).eligible, true);
   assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).vibeConfirmed, true);
   assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).publishableConfirmed, true);
@@ -583,6 +597,147 @@ test("run, verdict, rerun, and retained-run inspection keep eligibility current"
   ), {});
   assert.equal(priorResponse.status, 200);
   assert.equal((await priorResponse.json()).run.operatorVerdict.verdict, "approved");
+});
+
+test("a publishable curator board can be approved while a rescue board is preferred separately", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    choice: "compiled",
+  }), {});
+  const chosen = await choiceResponse.json();
+  const systemWinnerBefore = structuredClone(chosen.currentRun.winner);
+  const candidateIds = chosen.currentRun.rawResults.slice(3, 12)
+    .map(candidate => candidate.candidateId);
+  const rescueResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds,
+  }), {});
+  const rescued = await rescueResponse.json();
+  assert.equal(rescueResponse.status, 200, JSON.stringify(rescued));
+  const rescueReceipt = rescued.currentRun.editorialFeedback.operatorRescueBoard;
+
+  const verdictResponse = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+    notes: "The curator result is publishable; the rescue arrangement is still my editorial preference.",
+    vibeConfirmed: true,
+    publishableConfirmed: true,
+    rescuePreferred: true,
+    rescueReceiptId: rescueReceipt.receiptId,
+  }), {});
+  const decided = await verdictResponse.json();
+  assert.equal(verdictResponse.status, 200, JSON.stringify(decided));
+  assert.equal(decided.pairing.eligible, true);
+  assert.deepEqual(decided.currentRun.winner, systemWinnerBefore);
+  assert.equal(decided.currentRun.operatorVerdict.verdict, "approved");
+  assert.equal(decided.currentRun.operatorVerdict.rescuePreference.preferred, true);
+  assert.equal(
+    decided.currentRun.operatorVerdict.rescuePreference.rescueReceiptId,
+    rescueReceipt.receiptId,
+  );
+  assert.equal(decided.currentRun.operatorVerdict.calibration.rescuePreference, undefined);
+  const preferenceReceipt = store.records.get(
+    auditRescuePreferenceKey(
+      pairActor.id,
+      0,
+      "run-1",
+      decided.currentRun.operatorVerdict.rescuePreference.receiptId,
+    ),
+  );
+  assert.equal(preferenceReceipt.preferred, true);
+  assert.equal(preferenceReceipt.rescueReceiptId, rescueReceipt.receiptId);
+  assert.equal(preferenceReceipt.feedbackHash, rescueReceipt.feedbackHash);
+  assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).eligible, true);
+  assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).rescuePreference, undefined);
+
+  const reloadResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const reloaded = await reloadResponse.json();
+  assert.equal(reloadResponse.status, 200);
+  assert.equal(reloaded.currentRun.operatorVerdict.rescuePreference.preferred, true);
+  assert.equal(
+    reloaded.currentRun.operatorVerdict.rescuePreference.rescueReceiptId,
+    rescueReceipt.receiptId,
+  );
+
+  store.records.delete(auditRescuePreferenceKey(
+    pairActor.id,
+    0,
+    "run-1",
+    decided.currentRun.operatorVerdict.rescuePreference.receiptId,
+  ));
+  store.records.delete(auditRescueBoardKey(
+    pairActor.id,
+    0,
+    "run-1",
+    rescueReceipt.receiptId,
+  ));
+  const idempotentRetry = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+    notes: "The curator result is publishable; the rescue arrangement is still my editorial preference.",
+    vibeConfirmed: true,
+    publishableConfirmed: true,
+    rescuePreferred: true,
+    rescueReceiptId: rescueReceipt.receiptId,
+  }), {});
+  assert.equal(idempotentRetry.status, 200);
+  const eligibilityAfterPreferenceLoss = await handler(request(), {});
+  const eligibilityBody = await eligibilityAfterPreferenceLoss.json();
+  assert.equal(eligibilityAfterPreferenceLoss.status, 200);
+  assert.equal(
+    eligibilityBody.actors[0].pairings[0].eligible,
+    true,
+    "rescue preference evidence cannot grant or revoke curator eligibility",
+  );
+});
+
+test("rescue preference cannot point at a missing or stale rescue board", async () => {
+  const { handler } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    choice: "compiled",
+  }), {});
+  const response = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+    vibeConfirmed: true,
+    publishableConfirmed: true,
+    rescuePreferred: true,
+    rescueReceiptId: "missing-receipt",
+  }), {});
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).error, /stale or unavailable/i);
 });
 
 test("approved overrides cannot impersonate the two human confirmations", async () => {
@@ -1597,6 +1752,25 @@ test("legacy rescue receipts remain records-only and cannot calibrate the curren
   assert.match((await markResponse.json()).error, /legacy rescue boards remain historical records/i);
   assert.equal([...store.records.keys()]
     .filter(key => key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0))).length, 0);
+
+  const legacyVerdict = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+    vibeConfirmed: true,
+    publishableConfirmed: true,
+    rescuePreferred: true,
+    rescueReceiptId: receiptId,
+  }), {});
+  assert.equal(legacyVerdict.status, 409);
+  assert.match((await legacyVerdict.json()).error, /invalid under the current profile contract/i);
+  assert.equal(
+    [...store.records.keys()].filter(key =>
+      key.startsWith(auditRescuePreferencePrefix(pairActor.id, 0, "run-1"))).length,
+    0,
+  );
 });
 
 test("excluding an original board image removes it from rescue boards and rejects it on save", async () => {
@@ -2149,9 +2323,17 @@ test("runs without two complete boards fail clearly and cannot be approved", asy
   assert.equal(blindChoice.status, 409);
 
   const ordinary = await handler(request("POST", {
-    action: "verdict", actorId: pairActor.id, vibeKey, runId: "run-1", verdict: "approved",
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+    vibeConfirmed: true,
+    publishableConfirmed: true,
+    rescuePreferred: false,
   }), {});
   assert.equal(ordinary.status, 409);
+  assert.match((await ordinary.json()).error, /without two complete boards/i);
 
   const override = await handler(request("POST", {
     action: "verdict",
