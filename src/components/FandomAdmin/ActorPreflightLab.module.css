@@ -33,6 +33,10 @@
 .approvalOutcome span { color:#8d928f; font-size:10px; line-height:1.45; }
 .approvalOutcome[data-rescue-preferred=true] { border-color:#c9a96e; background:color-mix(in srgb,#c9a96e 10%,transparent); }
 .approvalOutcome[data-rescue-preferred=true] strong { color:#c9a96e; }
+.backfill { display:grid; gap:12px; margin-top:14px; padding:14px; border:1px solid color-mix(in srgb,#c9a96e 55%,var(--admin-border)); border-radius:10px; background:color-mix(in srgb,#c9a96e 7%,transparent); }
+.backfill h5 { margin:0; color:#c9a96e; font-size:13px; }
+.backfill p:not(.eyebrow) { max-width:720px; margin:4px 0 0; color:#b9bfbb; font-size:11px; line-height:1.5; }
+.backfill .buttonPrimary { justify-self:start; }
 
 .lab { display:grid; gap:16px; padding:8px 0 28px; color:inherit; }
 .masthead { display:flex; justify-content:space-between; gap:20px; align-items:flex-end; padding:22px; border:1px solid color-mix(in srgb,#c9a96e 34%,transparent); border-radius:14px; background:linear-gradient(115deg,color-mix(in srgb,#c9a96e 15%,transparent),color-mix(in srgb,#6f8d83 10%,transparent)); }
