@@ -712,6 +712,51 @@ test("a publishable curator board can be approved while a rescue board is prefer
   );
 });
 
+test("saving a rescue board returns the new receipt even when the blob listing lags", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    choice: "compiled",
+  }), {});
+  const chosen = await choiceResponse.json();
+  const candidateIds = chosen.currentRun.rawResults.slice(3, 12)
+    .map(candidate => candidate.candidateId);
+
+  const originalList = store.list.bind(store);
+  store.list = async options => {
+    const result = await originalList(options);
+    if (options?.prefix === auditRescueBoardPrefix(pairActor.id, 0, "run-1")) {
+      return { ...result, blobs: [] };
+    }
+    return result;
+  };
+
+  const rescueResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds,
+  }), {});
+  const rescued = await rescueResponse.json();
+  assert.equal(rescueResponse.status, 200, JSON.stringify(rescued));
+  assert.equal(rescued.currentRun.editorialFeedback.operatorRescueBoards.length, 1);
+  assert.equal(
+    rescued.currentRun.editorialFeedback.operatorRescueBoard.receiptId,
+    store.records.get(
+      [...store.records.keys()].find(key =>
+        key.startsWith(auditRescueBoardPrefix(pairActor.id, 0, "run-1"))),
+    ).receiptId,
+  );
+});
+
 test("rescue preference cannot point at a missing or stale rescue board", async () => {
   const { handler } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
