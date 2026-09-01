@@ -21,6 +21,12 @@ description: Editorial rules for deciding between coherent Event boards and vari
 
 **How to apply:** Keep sub-nine clusters failed while showing operators why they are coherent, how many cards are missing, and searches anchored to the same character/work plus the under-covered evidence category.
 
+**Professionally Devastated rule:** A compatible named role plus result-visible narrative state can corroborate Liu Xueyi when a search result omits his name. Blood/injury, collapse, protection, romantic aftermath, exhaustion, grief, and explicit devastation qualify; query terms, palette, costume, generic beauty, and saved-card identity do not.
+
+**Why:** Strong role-grounded tragedy was already present in fresh search evidence, but requiring every result title to repeat the actor name produced a false 0/9 promise failure.
+
+**How to apply:** Require role and emotional/relationship/scene evidence in the result metadata itself, keep the center hero on an unmistakable devastation signal, and preserve image safety as an earlier independent gate.
+
 **Cold Jade rule:** Treat Cold Jade Immortal as a pale-robed celestial character/look study: cool restraint, clean silhouettes, divine distance, and visual authority across varied scenes. Yuan Zhong is the primary named cluster; aloof Jinxiu can qualify by state.
 
 **Why:** A real audit formed complete boards from a strong pale-robed family but rejected every card because the promise classifier could not interpret the visual continuity. The material was promising; recognition failed.

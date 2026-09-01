@@ -2,7 +2,7 @@
 // These are search-disambiguation heuristics, not identity verification.
 export const IDENTITY_PROFILE_VERSION = 2;
 export const AESTHETIC_CLUSTER_VERSION = 6;
-export const VIBE_PROMISE_CONTRACT_VERSION = 7;
+export const VIBE_PROMISE_CONTRACT_VERSION = 8;
 
 const LIU_YUNING_CLUSTERS = [
   {
@@ -341,14 +341,44 @@ const PROFESSIONALLY_DEVASTATED_CONTRACT = {
       any: [
         "wounded", "bloodied", "bleeding", "injured", "injury", "tearful", "tears",
         "exhausted", "disheveled", "distressed", "devastated", "grief", "rage",
-        "collapse", "collapsing", "kneeling", "haunted", "blood", "wound",
-        "crying", "carrying", "holding", "protecting", "sacrifice", "separation",
-        "wedding", "aftermath", "romantic devastation",
+        "heartbroken", "heartbreak", "broken", "shattered", "suffering", "despair",
+        "desperate", "collapse", "collapsed", "collapsing", "fainting", "fainted",
+        "fallen", "kneeling", "haunted", "blood", "wound", "crying",
+        "carrying", "holding", "protecting", "protection", "sacrifice", "separation",
+        "parting", "wedding tragedy", "wedding aftermath", "aftermath",
+        "romantic aftermath", "romantic devastation", "love aftermath",
         "伤", "血", "受伤", "流血", "落泪", "含泪", "疲惫", "凌乱", "崩溃",
-        "悲痛", "暴怒", "跪", "狼狈", "憔悴", "哭戏", "吐血", "婚服", "抱",
+        "悲痛", "暴怒", "心碎", "绝望", "痛苦", "失神", "濒死", "重伤",
+        "倒下", "昏迷", "跪", "狼狈", "憔悴", "哭戏", "吐血",
+        "婚礼悲剧", "婚后悲痛", "诀别", "离别", "失去", "抱", "保护", "守护",
       ],
     },
   ],
+  // These are narrative/physical signals, not search or styling signals.
+  // A result needs one of them in its own title or description; query
+  // provenance and colors are deliberately not represented here.
+  narrativeEvidence: {
+    physical: [
+      "wounded", "bloodied", "bleeding", "injured", "injury", "blood", "wound",
+      "fainting", "fainted", "fallen", "collapse", "collapsed", "collapsing",
+      "kneeling", "伤", "血", "受伤", "流血", "吐血", "重伤", "倒下", "昏迷", "跪",
+    ],
+    protection: [
+      "carrying", "holding", "protecting", "protection", "sacrifice",
+      "carrying her", "holding her", "protecting her", "抱", "保护", "守护",
+    ],
+    aftermath: [
+      "separation", "parting", "aftermath", "romantic aftermath", "love aftermath",
+      "wedding tragedy", "wedding aftermath", "romantic devastation",
+      "婚礼悲剧", "婚后悲痛", "诀别", "离别", "失去",
+    ],
+    emotional: [
+      "exhausted", "disheveled", "distressed", "devastated", "grief", "rage",
+      "heartbroken", "heartbreak", "broken", "shattered", "suffering", "despair",
+      "desperate", "haunted", "tearful", "crying", "疲惫", "凌乱", "崩溃",
+      "悲痛", "暴怒", "心碎", "绝望", "痛苦", "失神", "狼狈", "憔悴", "哭戏",
+    ],
+  },
   supportingAnchors: [
     "red", "black", "white", "desaturated blue", "bruised purple",
     "rain", "snow", "night", "smoke", "firelight", "close-up", "closeup",
@@ -378,8 +408,10 @@ const PROFESSIONALLY_DEVASTATED_CONTRACT = {
     requireExplicit: true,
     any: [
       "bloodied", "bleeding", "tearful", "crying", "collapsing", "carrying",
-      "holding", "desperate", "devastated", "rage", "blood", "wound",
-      "流血", "落泪", "含泪", "崩溃", "悲痛", "暴怒", "吐血", "婚服", "抱", "哭戏",
+      "holding", "desperate", "devastated", "heartbroken", "shattered", "suffering",
+      "despair", "rage", "blood", "wound", "fainted", "fallen",
+      "流血", "落泪", "含泪", "崩溃", "悲痛", "暴怒", "心碎", "绝望", "痛苦",
+      "吐血", "倒下", "昏迷", "婚礼悲剧", "婚后悲痛", "抱", "哭戏",
     ],
   },
   clusterIds: [

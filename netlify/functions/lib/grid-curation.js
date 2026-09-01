@@ -116,6 +116,7 @@ function clusterEvidence(result, promise) {
     ].filter(Boolean);
     const stateTerms = [
       ...(cluster.emotionalStates || []),
+      ...(cluster.mood || []),
       ...(cluster.relationshipAnchors || []),
       ...(cluster.sceneAnchors || []),
     ].filter(Boolean);
@@ -191,7 +192,6 @@ function promiseEvidence(result, promise) {
   }
   const metadata = resultText(result, false);
   const required = promise.requiredCombinations || [];
-  const requiredMatches = required.filter(combination => matchesCombination(metadata, combination));
   const supportingMatches = matchingTerms(metadata, promise.supportingAnchors);
   const hardAntiMatches = matchingTerms(metadata, promise.hardAntiAnchors);
   if (BTS_TEXT.test(metadata) && !hardAntiMatches.includes("bts")) hardAntiMatches.push("behind_the_scenes");
@@ -201,9 +201,40 @@ function promiseEvidence(result, promise) {
     cluster.compatible && cluster.confidence >= 0.7);
   const incompatibleCluster = clusters.some(cluster =>
     !cluster.compatible && cluster.confidence >= 0.7);
+  // A search result often names the role and scene but omits the actor name.
+  // Let a compatible, state-qualified cluster corroborate that identity. The
+  // query is not enough: clusterEvidence requires role/state terms in the
+  // result metadata, so generic or query-only results still fail closed.
+  const clusterBackedIdentity = clusters.some(cluster =>
+    cluster.compatible
+    && cluster.confidence >= 0.7
+    && cluster.identityMetadataMatches?.length
+    && (
+      cluster.emotionalMetadataMatches?.length
+      || cluster.relationshipMetadataMatches?.length
+      || cluster.sceneMetadataMatches?.length
+    ));
+  const requiredMatches = required.filter(combination =>
+    matchesCombination(metadata, combination)
+    || (
+      combination.id === "liu-xueyi-identity"
+      && clusterBackedIdentity
+    ));
+  const narrativeMatches = Object.fromEntries(
+    Object.entries(promise.narrativeEvidence || {}).map(([category, terms]) => [
+      category,
+      matchingTerms(metadata, terms),
+    ]),
+  );
+  const narrativeCategories = Object.entries(narrativeMatches)
+    .filter(([, matches]) => matches.length)
+    .map(([category]) => category);
+  const narrativeSatisfied = !promise.narrativeEvidence
+    || narrativeCategories.length > 0;
   const coreSatisfied = required.length === 0
     ? (!promise.clusterIds?.length || recognizedCluster)
     : requiredMatches.length === required.length
+      && narrativeSatisfied
       && (!promise.clusterIds?.length || recognizedCluster);
   const heroTerms = promise.hero?.any || [];
   const explicitHeroMatch = heroTerms.some(term => containsTerm(metadata, term));
@@ -221,6 +252,9 @@ function promiseEvidence(result, promise) {
   return {
     coreSatisfied,
     requiredMatches: requiredMatches.map(item => item.id),
+    narrativeMatches,
+    narrativeCategories,
+    narrativeSatisfied,
     supportingMatches,
     hardAntiMatches,
     softContradictionMatches,
@@ -1243,6 +1277,9 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
       heroSatisfied: candidate.editorial.heroSatisfied,
       incompatibleCluster: candidate.editorial.incompatibleCluster === true,
       requiredMatches: candidate.editorial.requiredMatches || [],
+      narrativeMatches: candidate.editorial.narrativeMatches || {},
+      narrativeCategories: candidate.editorial.narrativeCategories || [],
+      narrativeSatisfied: candidate.editorial.narrativeSatisfied !== false,
       supportingMatches: candidate.editorial.supportingMatches || [],
       hardAntiMatches: candidate.editorial.hardAntiMatches || [],
       softContradictionMatches: candidate.editorial.softContradictionMatches || [],

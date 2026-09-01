@@ -1332,6 +1332,71 @@ test("Jinxiu qualifies by emotional state instead of one permanent Vibe", async 
   assert.equal(aloofAsHeartbreak.displayResults.length, 0);
 });
 
+test("Professionally Devastated recognizes fresh role-grounded tragedy without repeating the actor name", async () => {
+  const actor = {
+    id: "liu-xueyi",
+    name: "刘学义",
+    shortName_en: "Liu Xueyi",
+    vibes: [{}, {}, {}, { queries: ["刘学义 慕容璟和 春花焰 受伤"] }],
+  };
+  const promise = vibePromiseFor(actor, 3);
+  const freshScenes = [
+    "慕容璟和 bloodied collapse wedding aftermath frame",
+    "慕容璟和 injured carrying 眉林 frame",
+    "慕容璟和 heartbroken shattered romantic devastation frame",
+    "沈在野 exhausted desperate protection frame",
+    "沈在野 bloodied carrying 姜桃花 frame",
+    "沈在野 exhausted grief aftermath frame",
+    "锦绣 carrying 红凝 across lifetimes frame",
+    "锦绣 devastated romantic aftermath frame",
+    "锦绣 tearful sacrifice frame",
+  ].map((title, index) => result(`fresh-devastation-${index}`, {
+    source: `fresh-scene-${index}.test`,
+    title,
+    fp: fingerprint(`fresh-devastation-${index}`, { ones: spreadBits(`fresh-devastation-${index}`, 92) }),
+  }));
+
+  const output = await curateBatches([{
+    query: "刘学义 角色 受伤",
+    results: freshScenes,
+  }], { diagnostics: true, promise });
+
+  assert.equal(output.displayResults.length, 9);
+  assert.equal(output.diagnostics.strongestCompiled.promise.coreCount, 9);
+  assert.equal(output.diagnostics.strongestCompiled.promise.heroFulfillment, 1);
+  assert.ok(output.diagnostics.rawCandidates.every(candidate =>
+    candidate.promise.narrativeSatisfied === true));
+  assert.ok(output.displayResults.every(item =>
+    !item.title.includes("刘学义") && /慕容璟和|沈在野|锦绣/.test(item.title)));
+});
+
+test("Professionally Devastated does not mistake query state, costume color, or generic beauty for tragedy", async () => {
+  const actor = {
+    id: "liu-xueyi",
+    name: "刘学义",
+    shortName_en: "Liu Xueyi",
+    vibes: [{}, {}, {}, { queries: ["刘学义 慕容璟和 受伤"] }],
+  };
+  const promise = vibePromiseFor(actor, 3);
+  const genericBeauty = Array.from({ length: 9 }, (_, index) => result(`generic-beauty-${index}`, {
+    source: `generic-beauty-${index}.test`,
+    title: `${index % 2 ? "慕容璟和 red black" : "沈在野 pale gold white"} beautiful handsome costume portrait frame ${index}`,
+    fp: fingerprint(`generic-beauty-${index}`, { ones: spreadBits(`generic-beauty-${index}`, 92) }),
+  }));
+
+  const output = await curateBatches([{
+    query: "刘学义 慕容璟和 受伤",
+    results: genericBeauty,
+  }], { diagnostics: true, promise });
+
+  assert.equal(output.displayResults.length, 0);
+  assert.equal(output.diagnostics.strongestCompiled, null);
+  assert.equal(output.diagnostics.boardDiagnostics.compiled.reasonCode, "promise_not_fulfilled");
+  assert.equal(output.diagnostics.boardDiagnostics.compiled.coreAnchorCount, 0);
+  assert.ok(output.diagnostics.rawCandidates.every(candidate =>
+    candidate.promise.narrativeSatisfied === false));
+});
+
 test("character query provenance cannot prove cluster membership without result evidence", async () => {
   const unrelated = Array.from({ length: 9 }, (_, index) => result(`query-prior-${index}`, {
     title: `刘学义 unrelated dark commander frame ${index}`,
