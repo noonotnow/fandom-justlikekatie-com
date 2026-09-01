@@ -5,9 +5,10 @@ import { fetchSafeImage } from "./canonical-render.js";
 const HASH_WIDTH = 17;
 const HASH_HEIGHT = 16;
 const SAMPLE_SIZE = HASH_HEIGHT * (HASH_WIDTH - 1);
+const COMPOSITE_SAMPLE_SIZE = 96;
 const DEFAULT_CANDIDATE_LIMIT = 18;
 export const VISUAL_COMPOSITE_SCORE_THRESHOLD = 0.68;
-export const MIN_SINGLE_FRAME_RATIO = 0.55;
+export const MIN_SINGLE_FRAME_RATIO = 0.32;
 
 function separatedPeaks(values, threshold) {
   const peaks = [];
@@ -22,28 +23,140 @@ function separatedPeaks(values, threshold) {
   return peaks;
 }
 
-function compositeSignals(data, info) {
+function axisTransitions(data, info, axis) {
+  const length = axis === "vertical" ? info.width : info.height;
+  const span = axis === "vertical" ? info.height : info.width;
+  const transitions = [];
+  for (let position = 1; position < length; position += 1) {
+    let total = 0;
+    let strongPixels = 0;
+    for (let offset = 0; offset < span; offset += 1) {
+      const current = axis === "vertical"
+        ? (offset * info.width + position) * info.channels
+        : (position * info.width + offset) * info.channels;
+      const previous = axis === "vertical"
+        ? current - info.channels
+        : current - info.width * info.channels;
+      let difference = 0;
+      for (let channel = 0; channel < Math.min(3, info.channels); channel += 1) {
+        difference += Math.abs(data[current + channel] - data[previous + channel]);
+      }
+      difference /= Math.min(3, info.channels);
+      total += difference;
+      if (difference >= 30) strongPixels += 1;
+    }
+    transitions.push({
+      position,
+      mean: total / span,
+      coverage: strongPixels / span,
+    });
+  }
+  return transitions;
+}
+
+function axisDetail(data, info, axis) {
+  const length = axis === "vertical" ? info.width : info.height;
+  const span = axis === "vertical" ? info.height : info.width;
+  const detail = [];
+  for (let position = 0; position < length; position += 1) {
+    let total = 0;
+    for (let offset = 1; offset < span; offset += 1) {
+      const current = axis === "vertical"
+        ? (offset * info.width + position) * info.channels
+        : (position * info.width + offset) * info.channels;
+      const previous = axis === "vertical"
+        ? current - info.width * info.channels
+        : current - info.channels;
+      total += Math.abs(data[current] - data[previous]);
+    }
+    detail.push(total / Math.max(1, span - 1));
+  }
+  return detail;
+}
+
+function averageRange(values, start, end) {
+  const range = values.slice(Math.max(0, start), Math.min(values.length, end));
+  return range.reduce((total, value) => total + value, 0) / Math.max(1, range.length);
+}
+
+function layoutSeams(data, info, axis) {
+  const transitions = axisTransitions(data, info, axis);
+  const detail = axisDetail(data, info, axis);
+  const baseline = transitions.reduce((total, item) => total + item.mean, 0)
+    / Math.max(1, transitions.length);
+  const window = Math.max(3, Math.round(detail.length * 0.08));
+  const candidates = transitions.filter(item => {
+    const ratio = item.position / detail.length;
+    if (ratio < 0.12 || ratio > 0.88) return false;
+    if (item.mean < Math.max(25, baseline * 1.65) || item.coverage < 0.35) return false;
+    const before = averageRange(detail, item.position - window, item.position);
+    const after = averageRange(detail, item.position, item.position + window);
+    item.sideDetail = Math.min(before, after);
+    return item.sideDetail >= 5;
+  });
+  const peaks = candidates.filter(item => {
+    const transitionIndex = item.position - 1;
+    return item.mean >= (transitions[transitionIndex - 1]?.mean || 0)
+      && item.mean >= (transitions[transitionIndex + 1]?.mean || 0);
+  });
+  return peaks.map(item => ({
+    ...item,
+    strongSceneJoin: item.mean >= 35
+      && item.coverage >= 0.55
+      && item.sideDetail >= 9.5,
+  }));
+}
+
+function halfHashDistance(data, info, axis) {
+  const width = axis === "vertical" ? Math.floor(info.width / 2) : info.width;
+  const height = axis === "horizontal" ? Math.floor(info.height / 2) : info.height;
+  const bits = [[], []];
+  for (let half = 0; half < 2; half += 1) {
+    const startX = axis === "vertical" ? half * width : 0;
+    const startY = axis === "horizontal" ? half * height : 0;
+    for (let y = 0; y < 8; y += 1) {
+      for (let x = 0; x < 8; x += 1) {
+        const sampleX = startX + Math.min(width - 1, Math.floor((x + 0.5) * width / 8));
+        const nextX = startX + Math.min(width - 1, Math.floor((x + 1.5) * width / 8));
+        const sampleY = startY + Math.min(height - 1, Math.floor((y + 0.5) * height / 8));
+        const nextY = startY + Math.min(height - 1, Math.floor((y + 1.5) * height / 8));
+        const current = (sampleY * info.width + sampleX) * info.channels;
+        const next = axis === "vertical"
+          ? (sampleY * info.width + nextX) * info.channels
+          : (nextY * info.width + sampleX) * info.channels;
+        bits[half].push(data[current] > data[next] ? 1 : 0);
+      }
+    }
+  }
+  let mismatches = 0;
+  for (let index = 0; index < bits[0].length; index += 1) {
+    if (bits[0][index] !== bits[1][index]) mismatches += 1;
+  }
+  return mismatches / bits[0].length;
+}
+
+function compositeSignals(hashData, hashInfo, layoutData, layoutInfo) {
   const vertical = [];
   const horizontal = [];
-  for (let x = 1; x < info.width; x += 1) {
+  for (let x = 1; x < hashInfo.width; x += 1) {
     let total = 0;
-    for (let y = 0; y < info.height; y += 1) {
+    for (let y = 0; y < hashInfo.height; y += 1) {
       total += Math.abs(
-        data[(y * info.width + x) * info.channels]
-        - data[(y * info.width + x - 1) * info.channels],
+        hashData[(y * hashInfo.width + x) * hashInfo.channels]
+        - hashData[(y * hashInfo.width + x - 1) * hashInfo.channels],
       );
     }
-    vertical.push(total / info.height);
+    vertical.push(total / hashInfo.height);
   }
-  for (let y = 1; y < info.height; y += 1) {
+  for (let y = 1; y < hashInfo.height; y += 1) {
     let total = 0;
-    for (let x = 0; x < info.width; x += 1) {
+    for (let x = 0; x < hashInfo.width; x += 1) {
       total += Math.abs(
-        data[(y * info.width + x) * info.channels]
-        - data[((y - 1) * info.width + x) * info.channels],
+        hashData[(y * hashInfo.width + x) * hashInfo.channels]
+        - hashData[((y - 1) * hashInfo.width + x) * hashInfo.channels],
       );
     }
-    horizontal.push(total / info.width);
+    horizontal.push(total / hashInfo.width);
   }
   const edges = [...vertical, ...horizontal];
   const baseline = edges.reduce((total, value) => total + value, 0) / Math.max(1, edges.length);
@@ -52,14 +165,45 @@ function compositeSignals(data, info) {
     + separatedPeaks(horizontal, threshold).length;
   const maximum = Math.max(0, ...edges);
   const dominance = maximum / Math.max(1, baseline);
-  const score = Math.max(0, Math.min(1,
+  const legacyScore = Math.max(0, Math.min(1,
     (Math.max(0, seamCount - 1) * 0.24)
     + (Math.max(0, dominance - 2.5) * 0.12),
   ));
+  const verticalLayoutSeams = layoutSeams(layoutData, layoutInfo, "vertical");
+  const horizontalLayoutSeams = layoutSeams(layoutData, layoutInfo, "horizontal");
+  const verticalSceneJoins = verticalLayoutSeams.filter(item => item.strongSceneJoin);
+  const horizontalSceneJoins = horizontalLayoutSeams.filter(item => item.strongSceneJoin);
+  const sceneJoinCount = verticalSceneJoins.length + horizontalSceneJoins.length;
+  const horizontalSceneJoinGroups = horizontalSceneJoins
+    .filter(item => item.position / layoutInfo.height >= 0.15
+      && item.position / layoutInfo.height <= 0.85)
+    .reduce((groups, item) => {
+      const position = item.position / layoutInfo.height;
+      if (!groups.length || position - groups[groups.length - 1] > 0.08) groups.push(position);
+      return groups;
+    }, []);
+  const repeatedPanelDistance = Math.min(
+    halfHashDistance(layoutData, layoutInfo, "horizontal"),
+    halfHashDistance(layoutData, layoutInfo, "vertical"),
+  );
+  const repeatedPanelLayout = seamCount >= 2 && repeatedPanelDistance <= 0.42;
+  const layoutScore = verticalSceneJoins.length > 0 || horizontalSceneJoinGroups.length >= 2
+    ? 0.86
+    : repeatedPanelLayout
+      ? 0.72
+      : 0;
+  const score = Math.max(legacyScore, layoutScore);
   return {
     compositeScore: Number(score.toFixed(4)),
     singleFrameRatio: Number((1 - score).toFixed(4)),
     seamCount,
+    layoutSeamCount: verticalLayoutSeams.length + horizontalLayoutSeams.length,
+    sceneJoinCount,
+    verticalSceneJoinPositions: verticalSceneJoins.map(item =>
+      Number((item.position / layoutInfo.width).toFixed(3))),
+    horizontalSceneJoinPositions: horizontalSceneJoins.map(item =>
+      Number((item.position / layoutInfo.height).toFixed(3))),
+    repeatedPanelDistance: Number(repeatedPanelDistance.toFixed(4)),
   };
 }
 
@@ -74,6 +218,18 @@ export async function fingerprintImage(buffer) {
     .clone()
     .grayscale()
     .resize(HASH_WIDTH, HASH_HEIGHT, { fit: "fill", kernel: sharp.kernel.lanczos3 })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const layoutWidth = metadata.width >= metadata.height
+    ? COMPOSITE_SAMPLE_SIZE
+    : Math.max(48, Math.round(COMPOSITE_SAMPLE_SIZE * metadata.width / metadata.height));
+  const layoutHeight = metadata.height > metadata.width
+    ? COMPOSITE_SAMPLE_SIZE
+    : Math.max(48, Math.round(COMPOSITE_SAMPLE_SIZE * metadata.height / metadata.width));
+  const { data: layoutData, info: layoutInfo } = await image
+    .clone()
+    .resize(layoutWidth, layoutHeight, { fit: "fill", kernel: sharp.kernel.lanczos3 })
+    .removeAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
   const differences = new Uint8Array(SAMPLE_SIZE);
@@ -91,7 +247,7 @@ export async function fingerprintImage(buffer) {
 
   const area = (metadata.width || 0) * (metadata.height || 0);
   const sharpness = edgeDetail / SAMPLE_SIZE;
-  const composite = compositeSignals(data, info);
+  const composite = compositeSignals(data, info, layoutData, layoutInfo);
   return {
     digest: createHash("sha256").update(buffer).digest("hex"),
     differences,

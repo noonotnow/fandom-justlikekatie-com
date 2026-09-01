@@ -31,3 +31,4 @@
 - [Actor image-query ladders](actor-image-query-ladders.md) — start broad, then add light role/style anchors; stacked show, character, mood, and wardrobe terms can erase a popular actor’s evidence.
 - [Long audit result handoff](long-audit-result-handoff.md) — after a long audit mutation, reload and validate the stored run before announcing that an editorial review is ready.
 - [Actor image feedback](actor-image-feedback.md) — automated picks stay weak; rescue boards are exact operator overrides from frozen displayable evidence without changing eligibility.
+- [Image safety before promise scoring](image-safety-ordering.md) — reject composites and unusable images before editorial promise evaluation so diagnostics identify the real failing gate.

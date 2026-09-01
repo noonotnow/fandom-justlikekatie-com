@@ -98,13 +98,21 @@ test("flags a multi-panel contact sheet instead of rewarding its seam density as
   assert.ok(fingerprint.seamCount >= 2);
 });
 
-test("reports current precision and recall against captured search-thumbnail fixtures", async (t) => {
+test("rejects captured composite shapes while preserving clean single-frame controls", async (t) => {
   const fixtureUrl = new URL("./fixtures/search-thumbnail-composite-corpus.json", import.meta.url);
   const fixtures = JSON.parse(await readFile(fixtureUrl, "utf8"));
   const categories = new Set(fixtures.map(fixture => fixture.category));
   assert.deepEqual(
     [...categories].sort(),
-    ["guttered-collage", "no-gutter-collage", "poster", "single-frame", "text-heavy-still"],
+    [
+      "collage",
+      "contact-sheet",
+      "poster",
+      "single-frame",
+      "split-panel",
+      "text-heavy-composite",
+      "text-heavy-still",
+    ],
   );
 
   const outcomes = [];
@@ -144,10 +152,10 @@ test("reports current precision and recall against captured search-thumbnail fix
 
   assert.deepEqual(
     { truePositives, falsePositives, falseNegatives, trueNegatives },
-    { truePositives: 1, falsePositives: 1, falseNegatives: 5, trueNegatives: 4 },
+    { truePositives: 6, falsePositives: 0, falseNegatives: 0, trueNegatives: 5 },
   );
-  assert.equal(Number(precision.toFixed(4)), 0.5);
-  assert.equal(Number(recall.toFixed(4)), 0.1667);
+  assert.equal(precision, 1);
+  assert.equal(recall, 1);
 
   const singleFrames = outcomes.filter(outcome => outcome.category === "single-frame");
   assert.equal(singleFrames.length > 0, true);

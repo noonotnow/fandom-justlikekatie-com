@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { candidateIdForResult, CURATION_VERSION, curateDisplayResults } from "./grid-curation.js";
 import { vibePromiseFor } from "./actor-identity-profiles.js";
+import { fingerprintImage } from "./image-dedup.js";
 
 test("analyzed candidate identity follows the image digest across metadata and query changes", () => {
   const first = candidateIdForResult({
@@ -866,6 +868,107 @@ test("composite thumbnails are rejected before their internal variety can earn s
   assert.equal(output.diagnostics.dropped.some(item => item.dropReason === "composite_image"), true);
   assert.equal(output.diagnostics.receipt.compositeRejectedCount, 1);
   assert.equal(output.diagnostics.strongestCompiled.promise.singleFrameRatio, 1);
+});
+
+test("captured composite shapes fail image safety before promise scoring", async () => {
+  const fixtureCases = [
+    ["collage", "../../../attached_assets/images_(10)_1787247161232.jpeg"],
+    ["split-panel", "../../../attached_assets/images_(2)_1787247161228.jpeg"],
+    ["contact-sheet", "../../../attached_assets/images_(9)_1787247161231.jpeg"],
+    ["text-heavy-composite", "../../../attached_assets/images_(16)_1787247161233.jpeg"],
+  ];
+  const promise = {
+    id: "captured-composite-gate",
+    requiredCombinations: [{ id: "actor", any: ["刘学义"] }],
+    supportingAnchors: ["源仲"],
+    hardAntiAnchors: [],
+    softContradictions: [],
+    hero: { any: ["刘学义"] },
+    clusterIds: [],
+    aestheticClusters: [],
+  };
+  const clean = Array.from({ length: 8 }, (_, index) => result(`fixture-clean-${index}`, {
+    title: `刘学义 源仲 clean single frame ${index}`,
+    fp: fingerprint(`fixture-clean-${index}`, {
+      ones: spreadBits(`fixture-clean-${index}`, 92),
+    }),
+  }));
+
+  for (const [shape, file] of fixtureCases) {
+    const composite = result(`captured-${shape}`, {
+      title: "刘学义 源仲 on-promise evidence",
+      fp: null,
+    });
+    const fixtureBuffers = new Map([
+      [composite.thumbnail, await readFile(new URL(file, import.meta.url))],
+    ]);
+    const output = await curateDisplayResults(
+      [{ query: "刘学义 念无双 源仲", results: [composite, ...clean] }],
+      {
+        diagnostics: true,
+        promise,
+        loadBuffer: async (_url, item) => fixtureBuffers.get(item.thumbnail) || item,
+        fingerprint: async (buffer, item) =>
+          Buffer.isBuffer(buffer) ? fingerprintImage(buffer) : item.fp,
+      },
+    );
+
+    const rejection = output.diagnostics.rawCandidates.find(candidate =>
+      candidate.thumbnail === composite.thumbnail);
+    assert.equal(output.displayResults.length, 0, shape);
+    assert.equal(rejection.dropReason, "composite_image", shape);
+    assert.equal(rejection.promise, null, `${shape} must be rejected before promise analysis`);
+    assert.equal(output.diagnostics.receipt.compositeRejectedCount, 1, shape);
+    assert.equal(output.diagnostics.boardDiagnostics.compiled.reasonCode, "too_few_usable_images", shape);
+    assert.equal(
+      output.diagnostics.boardDiagnostics.compiled.reasonCodes.includes("promise_not_fulfilled"),
+      false,
+      shape,
+    );
+  }
+});
+
+test("a captured clean single frame remains eligible for promise scoring", async () => {
+  const captured = result("captured-clean-control", {
+    title: "刘学义 源仲 clean single frame",
+    fp: null,
+  });
+  const capturedBuffer = await readFile(
+    new URL("../../../attached_assets/images_(6)_1787247161230.jpeg", import.meta.url),
+  );
+  const clean = Array.from({ length: 8 }, (_, index) => result(`control-clean-${index}`, {
+    title: `刘学义 源仲 clean single frame ${index}`,
+    fp: fingerprint(`control-clean-${index}`, {
+      ones: spreadBits(`control-clean-${index}`, 92),
+    }),
+  }));
+  const output = await curateDisplayResults(
+    [{ query: "刘学义 念无双 源仲", results: [captured, ...clean] }],
+    {
+      diagnostics: true,
+      promise: {
+        id: "captured-clean-control",
+        requiredCombinations: [{ id: "actor", any: ["刘学义"] }],
+        supportingAnchors: ["源仲"],
+        hardAntiAnchors: [],
+        softContradictions: [],
+        hero: { any: ["刘学义"] },
+        clusterIds: [],
+        aestheticClusters: [],
+      },
+      loadBuffer: async (_url, item) =>
+        item.thumbnail === captured.thumbnail ? capturedBuffer : item,
+      fingerprint: async (buffer, item) =>
+        Buffer.isBuffer(buffer) ? fingerprintImage(buffer) : item.fp,
+    },
+  );
+
+  const accepted = output.diagnostics.rawCandidates.find(candidate =>
+    candidate.thumbnail === captured.thumbnail);
+  assert.equal(output.displayResults.length, 9);
+  assert.equal(accepted.dropReason, null);
+  assert.equal(accepted.promise.coreSatisfied, true);
+  assert.equal(accepted.promise.composite.visualScore, 0);
 });
 
 test("a Vibe promise gate beats technically varied contradictory cards", async () => {

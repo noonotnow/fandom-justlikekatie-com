@@ -1013,23 +1013,26 @@ export async function curateDisplayResults(
       const imageFingerprint = await fingerprint(buffer, candidate.result);
       if (!usableFingerprint(imageFingerprint)) return { candidate, dropReason: "unusable_image" };
       const composite = compositeEvidence(candidate.result, imageFingerprint);
-      const editorial = promiseEvidence(candidate.result, promise);
-      const enriched = {
+      const imageSafeCandidate = {
         ...candidate,
         fingerprint: imageFingerprint,
-        editorial,
         singleFrameRatio: composite.singleFrameRatio,
         composite,
       };
       if (composite.composite) {
         return {
-          candidate: enriched,
+          candidate: imageSafeCandidate,
           dropReason: "composite_image",
           dropDetail: composite.metadataSignal
             ? `Result metadata indicates ${composite.declaredCount} images or a composite format.`
             : `Image seam analysis produced composite score ${composite.visualScore.toFixed(2)}.`,
         };
       }
+      const editorial = promiseEvidence(candidate.result, promise);
+      const enriched = {
+        ...imageSafeCandidate,
+        editorial,
+      };
       if (editorial.hardAntiMatches.length) {
         return {
           candidate: enriched,

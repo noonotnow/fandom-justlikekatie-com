@@ -8,42 +8,42 @@
   },
   {
     "id": "guttered-four-panel-thread",
-    "category": "guttered-collage",
+    "category": "contact-sheet",
     "expectedComposite": true,
     "file": "../../../../attached_assets/images_(9)_1787247161231.jpeg",
     "provenance": "internally captured search thumbnail"
   },
   {
     "id": "no-gutter-two-panel-group",
-    "category": "no-gutter-collage",
+    "category": "text-heavy-composite",
     "expectedComposite": true,
     "file": "../../../../attached_assets/images_(16)_1787247161233.jpeg",
     "provenance": "internally captured search thumbnail"
   },
   {
     "id": "no-gutter-two-panel-boromir",
-    "category": "no-gutter-collage",
+    "category": "split-panel",
     "expectedComposite": true,
     "file": "../../../../attached_assets/images_(1)_1787247161227.jpeg",
     "provenance": "internally captured search thumbnail"
   },
   {
     "id": "no-gutter-three-panel-work-shift",
-    "category": "no-gutter-collage",
+    "category": "split-panel",
     "expectedComposite": true,
     "file": "../../../../attached_assets/images_(2)_1787247161228.jpeg",
     "provenance": "internally captured search thumbnail"
   },
   {
     "id": "no-gutter-three-panel-friendship",
-    "category": "no-gutter-collage",
+    "category": "collage",
     "expectedComposite": true,
     "file": "../../../../attached_assets/images_(10)_1787247161232.jpeg",
     "provenance": "internally captured search thumbnail"
   },
   {
     "id": "no-gutter-two-panel-bilbo",
-    "category": "no-gutter-collage",
+    "category": "split-panel",
     "expectedComposite": true,
     "file": "../../../../attached_assets/images_(15)_1787247161233.jpeg",
     "provenance": "internally captured search thumbnail"
