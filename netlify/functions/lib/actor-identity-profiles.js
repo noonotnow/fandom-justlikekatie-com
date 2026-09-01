@@ -1,8 +1,8 @@
 // Private operational metadata. Do not add this to ACTOR_PACKS or public APIs.
 // These are search-disambiguation heuristics, not identity verification.
 export const IDENTITY_PROFILE_VERSION = 2;
-export const AESTHETIC_CLUSTER_VERSION = 4;
-export const VIBE_PROMISE_CONTRACT_VERSION = 5;
+export const AESTHETIC_CLUSTER_VERSION = 5;
+export const VIBE_PROMISE_CONTRACT_VERSION = 6;
 
 const LIU_YUNING_CLUSTERS = [
   {
@@ -58,13 +58,35 @@ const LIU_XUEYI_CLUSTERS = [
     work: "春花焰",
     character: "慕容璟和",
     aliases: ["Murong Jinghe", "dark commander"],
-    mood: ["severe", "dangerous", "wounded"],
-    palette: ["black", "red", "deep burgundy", "warm gold"],
-    wardrobeAnchors: ["commander robes", "armor", "dark costume"],
-    propAnchors: ["sword", "weapon"],
-    settingAnchors: ["court", "battlefield", "war"],
+    look: ["dark commander", "official styling", "institutional authority"],
+    emotionalStates: ["calculating", "strategic control", "commanding", "political threat"],
+    mood: ["severe", "dangerous", "calculating", "commanding"],
+    palette: ["black", "deep green", "teal", "restrained gold", "deep burgundy"],
+    wardrobeAnchors: ["commander robes", "official robes", "ornate collar", "ranked costume"],
+    propAnchors: ["seal", "document", "fan", "sword"],
+    settingAnchors: ["court", "palace", "official interior", "hearing", "throne", "朝堂", "宫廷"],
+    sceneAnchors: ["political negotiation", "commanding another character", "institutional threat"],
     antiAnchors: ["pale ceremonial", "white immortal", "modern event", "bts", "fire truck"],
     vibeCompatibility: { "权臣压迫感": "strong_anchor", "仙门冷玉": "conflict" },
+  },
+  {
+    id: "court-menace-political-authority",
+    work: "cross-character political authority",
+    character: "political authority",
+    aliases: [
+      "court menace", "institutional threat", "political threat",
+      "official authority", "court authority", "jurisdiction",
+    ],
+    look: ["official styling", "ornate collar", "ranked costume", "strategic elegance"],
+    emotionalStates: ["calculating", "assessing", "strategic control", "commanding", "political threat"],
+    mood: ["controlled", "calculating", "commanding", "dangerous"],
+    palette: ["deep green", "teal", "black", "restrained gold"],
+    wardrobeAnchors: ["official robes", "princely robes", "ornate collar", "formal robes"],
+    propAnchors: ["documents", "book", "seal", "fan", "throne"],
+    settingAnchors: ["court", "palace", "official interior", "hearing", "throne", "朝堂", "宫廷"],
+    sceneAnchors: ["political negotiation", "power exercised", "controlled proximity", "institutional consequence"],
+    antiAnchors: ["soft white immortal", "modern suit", "romantic intimacy", "collage", "subtitles"],
+    vibeCompatibility: { "权臣压迫感": "strong_anchor" },
   },
   {
     id: "murong-jinghe-romantic-ruin",
@@ -228,6 +250,61 @@ const LI_SHILIU_CONTRACT = {
   clusterIds: ["li-shiliu-masked-moonlight"],
 };
 
+const COURT_MENACE_CONTRACT = {
+  id: "liu-xueyi-court-menace",
+  requiredCombinations: [
+    { id: "liu-xueyi-identity", any: ["刘学义", "liu xueyi"] },
+    {
+      id: "court-or-official-context",
+      any: [
+        "court", "palace", "official", "minister", "prince", "aristocratic",
+        "institutional", "hearing", "throne", "朝堂", "宫廷", "权臣", "皇子", "官服",
+      ],
+    },
+    {
+      id: "strategic-control",
+      any: [
+        "calculating", "assessing", "strategic", "commanding", "political",
+        "authority", "jurisdiction", "power exercised", "political threat",
+        "掌控", "审视", "谋略", "权力", "威压", "权谋",
+      ],
+    },
+    {
+      id: "ranked-costume-language",
+      any: [
+        "official styling", "official robes", "princely robes", "formal robes",
+        "ornate collar", "ranked costume", "deep green", "teal", "restrained gold",
+        "官服", "华服",
+      ],
+    },
+  ],
+  supportingAnchors: [
+    "documents", "document", "book", "seal", "fan", "throne", "palace",
+    "official interior", "another character", "controlled proximity",
+    "calm", "scrutiny", "deep green", "teal", "black", "restrained gold",
+    "ornate collar", "institutional power", "consequence",
+  ],
+  hardAntiAnchors: [
+    "modern suit", "modern suits", "modern event", "award ceremony",
+    "bts", "behind the scenes", "production equipment", "fire truck",
+    "collage", "contact sheet", "multi-panel", "subtitles", "platform overlay",
+    "拼图", "九宫格", "组图", "字幕", "软仙君",
+  ],
+  softContradictions: [
+    "generic black costume", "dark fantasy", "battlefield", "battle scene",
+    "sword only", "weapon only", "romantic intimacy", "kiss", "soft white immortal",
+    "white immortal", "modern", "random villain", "neutral portrait",
+  ],
+  hero: {
+    requireExplicit: true,
+    any: [
+      "calculating", "assessing", "commanding", "political threat", "authority",
+      "jurisdiction", "power exercised", "掌控", "审视", "威压", "权臣",
+    ],
+  },
+  clusterIds: ["murong-jinghe-dark-commander", "court-menace-political-authority"],
+};
+
 const PROFESSIONALLY_DEVASTATED_CONTRACT = {
   id: "liu-xueyi-professionally-devastated",
   requiredCombinations: [
@@ -293,7 +370,7 @@ const PROFESSIONALLY_DEVASTATED_CONTRACT = {
 
 export const ACTOR_IDENTITY_PROFILES = {
   "liu-yuning": { canonicalNames: ["刘宇宁"], romanizedNames: ["Liu Yuning"], aliases: ["摩登兄弟刘宇宁", "宇宁"], commonCollisions: ["刘宇", "李大齐"], representativeWorks: ["书卷一梦", "一念关山"], knownContamination: ["李大齐", "成毅"], productStockMeanings: ["music products", "stock portraits"], trustedSourcePatterns: ["official", "studio", "drama", "magazine"], problematicSourcePatterns: ["finance", "stock", "product", "baike"], aestheticClusters: LIU_YUNING_CLUSTERS, vibeContracts: { "3": LI_SHILIU_CONTRACT } },
-  "liu-xueyi": { canonicalNames: ["刘学义"], romanizedNames: ["Liu Xueyi"], aliases: ["学义"], commonCollisions: ["刘宇", "刘天成", "刘宝"], representativeWorks: ["千古玦尘", "天乩之白蛇传说", "念无双", "春花焰", "桃花映江山", "落花时节又逢君"], knownContamination: ["成毅", "same-surname namesakes"], productStockMeanings: ["glasses catalog", "stock portraits"], trustedSourcePatterns: ["official", "studio", "drama", "magazine"], problematicSourcePatterns: ["finance", "stock", "product", "reference"], aestheticClusters: LIU_XUEYI_CLUSTERS, vibeContracts: { "0": COLD_JADE_CONTRACT, "3": PROFESSIONALLY_DEVASTATED_CONTRACT } },
+  "liu-xueyi": { canonicalNames: ["刘学义"], romanizedNames: ["Liu Xueyi"], aliases: ["学义"], commonCollisions: ["刘宇", "刘天成", "刘宝"], representativeWorks: ["千古玦尘", "天乩之白蛇传说", "念无双", "春花焰", "桃花映江山", "落花时节又逢君"], knownContamination: ["成毅", "same-surname namesakes"], productStockMeanings: ["glasses catalog", "stock portraits"], trustedSourcePatterns: ["official", "studio", "drama", "magazine"], problematicSourcePatterns: ["finance", "stock", "product", "reference"], aestheticClusters: LIU_XUEYI_CLUSTERS, vibeContracts: { "0": COLD_JADE_CONTRACT, "1": COURT_MENACE_CONTRACT, "3": PROFESSIONALLY_DEVASTATED_CONTRACT } },
   "song-weilong": { canonicalNames: ["宋威龙"], romanizedNames: ["Song Weilong"], aliases: ["威龙"], commonCollisions: ["威龙", "宋威"], representativeWorks: ["以家人之名", "下一站是幸福", "去有风的地方"], knownContamination: ["generic campus and basketball stock images"], productStockMeanings: ["Weilong food/snack brand", "stock photography"], trustedSourcePatterns: ["official", "studio", "drama", "magazine"], problematicSourcePatterns: ["commerce", "stock", "product"], aestheticClusters: [], vibeContracts: {} },
   "zhang-linghe": { canonicalNames: ["张凌赫"], romanizedNames: ["Zhang Linghe"], aliases: ["凌赫"], commonCollisions: ["张凌", "何苏叶"], representativeWorks: ["苍兰诀", "宁安如梦", "爱你"], knownContamination: ["谢彬彬", "doctor-role posters"], productStockMeanings: ["medical stock photos", "white-coat products"], trustedSourcePatterns: ["official", "studio", "drama", "magazine"], problematicSourcePatterns: ["commerce", "stock", "product", "reference"], aestheticClusters: [], vibeContracts: {} },
   "ao-ruipeng": { canonicalNames: ["敖瑞鹏"], romanizedNames: ["Ao Ruipeng"], aliases: ["瑞鹏"], commonCollisions: ["敖瑞", "瑞鹏"], representativeWorks: ["白月梵星", "少年江湖物语"], knownContamination: ["generic xianxia character art"], productStockMeanings: ["generic costume stock"], trustedSourcePatterns: ["official", "studio", "drama", "magazine"], problematicSourcePatterns: ["commerce", "stock", "illustration"], aestheticClusters: [], vibeContracts: {} },

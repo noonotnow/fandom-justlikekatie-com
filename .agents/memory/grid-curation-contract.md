@@ -22,3 +22,9 @@ description: Editorial rules for deciding between coherent Event boards and vari
 **Why:** A real audit formed complete boards from a strong pale-robed family but rejected every card because the promise classifier could not interpret the visual continuity. The material was promising; recognition failed.
 
 **How to apply:** Require both a named compatible character and explicit pale/cool, restrained celestial evidence. Reject dominant red, warm-gold courtliness, playful energy, generic dark intensity, modern imagery, composites, and emotional collapse belonging to Professionally Devastated.
+
+**Court Menace rule:** Court Menace means elegant institutional danger: historical characters whose threat comes through rank, strategic control, social position, or political authority—not merely weapons, dark clothing, or villainous expressions.
+
+**Why:** A real audit accepted a technically usable but editorially incoherent assortment of costume roles. The operator’s Compiled rescue proved the missing thesis was administrative power across varied characters, not one shared photoshoot.
+
+**How to apply:** Require court/official context, visible strategic control, rank-signaling costume, and implied consequence. Favor deep green, teal, black, restrained gold, official interiors, documents, scrutiny, and command. Reject generic fantasy, battle-only threat, soft immortals, modern suits, romance without power, collages, subtitles, and overlays.

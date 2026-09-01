@@ -50,3 +50,21 @@ test("Professionally Devastated uses character-grounded Liu Xueyi search ladders
     );
   }
 });
+
+test("Court Menace searches stay grounded in institutional threat rather than generic costume styling", () => {
+  const actor = ACTOR_PACKS.find(({ id }) => id === "liu-xueyi");
+  const vibe = actor.vibes.find(({ label_en }) => label_en === "Court Menace");
+
+  assert.deepEqual(vibe.queries, [
+    "刘学义 慕容璟和 春花焰 权臣",
+    "刘学义 权臣 朝堂 剧照",
+    "刘学义 宫廷 权谋 造型",
+    "刘学义 皇子 官服 剧照",
+    "刘学义 深绿 朝堂 造型",
+    "刘学义 黑衣 谋略 剧照",
+    "刘学义 权力 审视 古装",
+  ]);
+  assert.ok(vibe.queries.every(query => !query.endsWith("写真")));
+  assert.ok(vibe.queries.some(query => query.includes("朝堂")));
+  assert.ok(vibe.queries.some(query => query.includes("权谋")));
+});

@@ -116,9 +116,13 @@ export const ACTOR_PACKS = [
         "subtitle": "他一抬眼，朝堂都安静了",
         "subtitle_en": "One look from him and the whole court goes silent",
         "queries": [
-          "刘学义 古装 剧照",
-          "刘学义 权臣 造型",
-          "刘学义 黑衣 写真"
+          "刘学义 慕容璟和 春花焰 权臣",
+          "刘学义 权臣 朝堂 剧照",
+          "刘学义 宫廷 权谋 造型",
+          "刘学义 皇子 官服 剧照",
+          "刘学义 深绿 朝堂 造型",
+          "刘学义 黑衣 谋略 剧照",
+          "刘学义 权力 审视 古装"
         ],
         "shareFragment": "权臣压迫感学义，他一抬眼朝堂就安静了",
         "mjPrompt": ""

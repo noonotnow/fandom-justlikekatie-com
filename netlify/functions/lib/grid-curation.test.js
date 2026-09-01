@@ -1044,6 +1044,39 @@ test("Cold Jade recognizes a restrained Yuan Zhong character study without admit
   assert.equal(output.diagnostics.strongestCompiled.promise.heroFulfillment, 1);
 });
 
+test("Court Menace requires institutional threat instead of accepting assorted historical costumes", async () => {
+  const actor = {
+    id: "liu-xueyi",
+    name: "刘学义",
+    shortName_en: "Liu Xueyi",
+    vibes: [{}, { label: "权臣压迫感", label_en: "Court Menace" }],
+  };
+  const promise = vibePromiseFor(actor, 1);
+  const court = Array.from({ length: 9 }, (_, index) => result(`court-menace-${index}`, {
+    source: `court-${index % 4}.test`,
+    title: `刘学义 court official styling deep green ornate collar calculating political threat ${index}`,
+    fp: fingerprint(`court-menace-${index}`, { ones: spreadBits(`court-menace-${index}`, 90) }),
+  }));
+  const assortedCostumes = Array.from({ length: 9 }, (_, index) => result(`assorted-costume-${index}`, {
+    source: `assorted-${index}.test`,
+    title: `刘学义 historical costume ${index % 3 ? "soft white immortal" : "generic black costume"} ${index}`,
+    fp: fingerprint(`assorted-costume-${index}`, {
+      ones: spreadBits(`assorted-costume-${index}`, 128),
+      quality: 280,
+    }),
+  }));
+
+  const output = await curateBatches([
+    { query: "刘学义 权臣 朝堂 剧照", results: court },
+    { query: "刘学义 古装 剧照", results: assortedCostumes },
+  ], { diagnostics: true, promise });
+
+  assert.equal(output.displayResults.length, 9);
+  assert.equal(output.displayResults.every(item => /official styling deep green ornate collar calculating political threat/.test(item.title)), true);
+  assert.equal(output.diagnostics.strongestCompiled.promise.coreCount, 9);
+  assert.equal(output.diagnostics.strongestCompiled.promise.heroFulfillment, 1);
+});
+
 test("professionally-devastated-but-make-it-corporate-networking rejects a random technically complete board", async () => {
   const actor = {
     id: "liu-xueyi",
