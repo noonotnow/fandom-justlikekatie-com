@@ -743,10 +743,14 @@ export function createActorAuditHandler({
           return json(409, { error: "Another operator saved this rescue arrangement first." });
         }
         const next = await readReport(store, pair);
+        // Blob writes can become visible to list() after the write response.
+        // Include the receipt we just committed so the operator can immediately
+        // choose it for publication instead of seeing a stale approval form.
+        const responseReport = reportWithRescueReceipt(next, pair, receipt);
         return json(200, {
           actor: await actorSummary(store, actorPacks, pair.actor),
-          pairing: pairingSummary(pair, next),
-          ...detailResponse(pair, next),
+          pairing: pairingSummary(pair, responseReport),
+          ...detailResponse(pair, responseReport),
         });
       }
 
@@ -1648,6 +1652,31 @@ function emptyEditorialFeedback() {
     requestedReview: null,
     operatorRescueBoard: null,
     operatorRescueBoards: [],
+  };
+}
+
+function reportWithRescueReceipt(report, pair, receipt) {
+  if (!report?.currentRun || report.currentRun.runId !== receipt.runId) return report;
+  const feedback = report.currentRun.editorialFeedback || emptyEditorialFeedback();
+  const existingBoards = Array.isArray(feedback.operatorRescueBoards)
+    ? feedback.operatorRescueBoards
+    : [];
+  const boards = [
+    receipt,
+    ...existingBoards.filter(item => item?.receiptId !== receipt.receiptId),
+  ].sort((left, right) =>
+    String(right.savedAt || "").localeCompare(String(left.savedAt || ""))
+    || String(right.receiptId || "").localeCompare(String(left.receiptId || "")));
+  return {
+    ...report,
+    currentRun: {
+      ...report.currentRun,
+      editorialFeedback: {
+        ...feedback,
+        operatorRescueBoards: boards,
+        operatorRescueBoard: boards[0] || null,
+      },
+    },
   };
 }
 
