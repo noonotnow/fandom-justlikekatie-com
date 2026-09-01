@@ -1,0 +1,134 @@
+**OH, this one is incredibly revealing.** The system says **0 of 9 cards fulfilled the required anchors**, while I can plainly see a viable Cold Jade visual family sitting in the retained results—and you assembled most of it in approximately five minutes.
+
+This is **not insufficient material**. This is **promise-recognition failure**.
+
+## What the evidence actually contains
+
+There is an obvious pale-robed character/look cluster:
+
+- White, silver, gray, and ice-blue robes
+- Long, clean silhouettes
+- Controlled expressions
+- Celestial styling
+- Visual distance and restraint
+- Several strong close-ups
+- Several wider costume/environment shots
+- Enough angle and scale variation to prevent repetition
+
+That is the core promise of **Cold Jade Immortal**.
+
+The system even reports **three detected Event families**, yet still claims that neither proposal has a single qualifying card. That tells us its Event grouping may be finding continuity while its promise classifier is failing to understand what the continuity means.
+
+## Your rescue board is nearly the argument
+
+The board reads as:
+
+> Pale celestial beauty, emotionally unavailable by divine appointment.
+> 
+
+The center hero is strong: severe gaze, sculptural collar, cool neutral palette, excellent face-card authority. The white-and-blue cards around it support the same character world while changing crop and silhouette.
+
+### Cards that weaken it
+
+The saturated **red costume** is the obvious contradiction. It may be an excellent image for another Vibe, but here it breaks the cold palette and character-world continuity.
+
+The **cream-and-gold seated image** is attractive but warmer, softer, and more courtly. It could work as a bridge card if the surrounding eight were extremely cold, but it isn’t essential.
+
+The **fan image** has the right gray palette, but its playful energy may undercut “aloof immortal” unless we need movement and personality.
+
+So I see:
+
+- **Six or seven unquestionable Cold Jade cards**
+- One or two plausible supporting cards
+- One obvious anti-anchor
+- Several unchosen pale-robed candidates that might replace the weaker cards
+
+This may already contain a publishable nine with better selection—or at minimum an extremely strong Event seed requiring one more targeted query.
+
+## The Event thesis
+
+This does not need to be “nine images from one photoshoot.”
+
+It can be:
+
+> **Yuan Zhong’s pale-robed celestial character study**
+> 
+
+Same character, coherent costume language, related environments, controlled palette, varied scenes. That is exactly the broader Event ontology we established.
+
+The system should recognize this as a character/look Event across scenes and possibly publishers—not mistake the variation for unrelated material.
+
+## The audit language is contradicting itself
+
+It says:
+
+- Event formed a complete proposal
+- Compiled formed a complete proposal
+- Each contained nine cards
+- But “Event board missing”
+- “Compiled board missing”
+- “No candidate board reached nine images”
+
+That last sentence is simply untrue. The boards reached nine images; they did not reach the **promise threshold**.
+
+The accurate message would be:
+
+> **Complete proposals were formed, but neither met the current automated promise threshold. Review retained evidence to determine whether the material or classifier failed.**
+> 
+
+In this case, the classifier failed.
+
+Also, **“0 clean display images”** is misleading when the next section says:
+
+- 35 available
+- 0 unavailable
+- 0 excluded
+
+Apparently “clean” means “algorithmically eligible,” not “displayable.” The UI should say **0 curator-qualified cards**, because the images are clearly visible and usable.
+
+## What this teaches Cold Jade Immortal
+
+### Required visual anchors
+
+- White, silver, gray, or ice-blue robes
+- Restrained or distant expression
+- Celestial/historical styling
+- Clean, elegant silhouette
+- Cool or muted environment
+- Stillness, authority, or emotional reserve
+
+### Supporting anchors
+
+- Pale outdoor light
+- Mist, moonlight, water, stone, or greenery
+- Long sleeves and robe movement
+- Hair ornaments or divine regalia
+- Controlled close-ups
+- Wider costume-study frames
+
+### Anti-anchors
+
+- Saturated red as the dominant color
+- Warm gold courtliness
+- Smiling or overtly playful energy
+- Generic dark-costume intensity
+- Modern portraiture
+- Collages, posters, or text-heavy edits
+- Emotional collapse that belongs in **Professionally Devastated**
+
+## My verdict on this run
+
+- **Search material:** Promising and probably sufficient
+- **Strongest mode:** Event
+- **Event subtype:** Character/look study
+- **Operator board:** Strong calibration evidence; close to publishable
+- **Current curator diagnosis:** False negative
+- **Scheduling:** Not yet, because the curator did not generate the board
+- **Next action:** Learn from your selected cards, replace the red/warm outliers, run a fresh full audit
+
+This is the Cold Jade counterpart to the Professionally Devastated lesson:
+
+- **Professionally Devastated:** the curator falsely accepted generic styling as emotional ruin.
+- **Cold Jade Immortal:** the curator falsely rejected obvious visual fulfillment because it could not recognize the character/look cluster.
+
+One audit is teaching it **not to hallucinate a Vibe**. The other is teaching it **not to deny a Vibe that is visibly standing in front of it wearing nine miles of pale robes.**

@@ -2,6 +2,25 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ACTOR_PACKS } from "./actor-packs.js";
 
+test("Cold Jade Immortal searches stay grounded in Yuan Zhong's pale celestial character study", () => {
+  const actor = ACTOR_PACKS.find(({ id }) => id === "liu-xueyi");
+  assert.ok(actor, "Liu Xueyi actor pack must exist");
+
+  const vibe = actor.vibes.find(({ label_en }) => label_en === "Cold Jade Immortal");
+  assert.ok(vibe, "Cold Jade Immortal must exist");
+  assert.deepEqual(vibe.queries, [
+    "刘学义 念无双 源仲 白衣",
+    "源仲 念无双 白袍 剧照",
+    "刘学义 源仲 银白 造型",
+    "刘学义 源仲 清冷 剧照",
+    "源仲 念无双 月光 雪景",
+    "刘学义 源仲 冰蓝 长袍",
+    "源仲 念无双 仙门 全身 剧照",
+  ]);
+  assert.ok(vibe.queries.every(query => query.includes("源仲")));
+  assert.ok(vibe.queries.every(query => !query.endsWith("写真")));
+});
+
 test("Professionally Devastated uses character-grounded Liu Xueyi search ladders", () => {
   const actor = ACTOR_PACKS.find(({ id }) => id === "liu-xueyi");
   assert.ok(actor, "Liu Xueyi actor pack must exist");

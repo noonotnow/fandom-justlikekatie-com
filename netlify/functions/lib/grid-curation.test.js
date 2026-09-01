@@ -908,6 +908,39 @@ test("a Vibe promise gate beats technically varied contradictory cards", async (
   assert.equal("queryRange" in output.diagnostics.strongestCompiled.scoreBreakdown, false);
 });
 
+test("Cold Jade recognizes a restrained Yuan Zhong character study without admitting warm or devastated lookalikes", async () => {
+  const actor = {
+    id: "liu-xueyi",
+    name: "刘学义",
+    shortName_en: "Liu Xueyi",
+    vibes: [{ label: "仙门冷玉", label_en: "Cold Jade Immortal" }],
+  };
+  const promise = vibePromiseFor(actor, 0);
+  const coldJade = Array.from({ length: 9 }, (_, index) => result(`cold-jade-note-${index}`, {
+    source: `cold-jade-note-${index % 3}.test`,
+    title: `刘学义 念无双 源仲 白衣 silver controlled aloof celestial character study ${index}`,
+    fp: fingerprint(`cold-jade-note-${index}`, { ones: spreadBits(`cold-jade-note-${index}`, 92) }),
+  }));
+  const falseFriends = Array.from({ length: 9 }, (_, index) => result(`cold-jade-false-${index}`, {
+    source: `cold-jade-false-${index}.test`,
+    title: `刘学义 源仲 ${index % 2 ? "warm gold smiling playful court portrait" : "bloodied devastated emotional collapse"} ${index}`,
+    fp: fingerprint(`cold-jade-false-${index}`, {
+      ones: spreadBits(`cold-jade-false-${index}`, 124),
+      quality: 280,
+    }),
+  }));
+
+  const output = await curateBatches([
+    { query: "刘学义 念无双 源仲 白衣", results: coldJade },
+    { query: "刘学义 源仲 角色 剧照", results: falseFriends },
+  ], { diagnostics: true, promise });
+
+  assert.equal(output.displayResults.length, 9);
+  assert.equal(output.displayResults.every(item => /controlled aloof celestial/.test(item.title)), true);
+  assert.equal(output.diagnostics.strongestCompiled.promise.coreCount, 9);
+  assert.equal(output.diagnostics.strongestCompiled.promise.heroFulfillment, 1);
+});
+
 test("professionally-devastated-but-make-it-corporate-networking rejects a random technically complete board", async () => {
   const actor = {
     id: "liu-xueyi",

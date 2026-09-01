@@ -16,3 +16,9 @@ description: Editorial rules for deciding between coherent Event boards and vari
 **Why:** A diverse, technically clean board can still be editorially wrong when a conflicting character, palette, collage, or behind-the-scenes frame occupies a salient position. The board itself must fulfill the promise, not merely contain enough acceptable images.
 
 **How to apply:** Allow actor-first searches with a shared specific character/role anchor to bind related look variants (for example Liu Yuning’s Li Shiliu mask, hat, and moonlight styling) into one cross-publisher Event. Corroborate the role and emotional/scene state; a shared work title or character name must never merge different characters or opposite states. Keep runners-up and scores hidden until the blind choice is stored. Version identity profiles, aesthetic inventories, promise contracts, and the curation algorithm separately in run fingerprints. Keep fixtures for strong Event, strong Compiled, generic-style rejection, publisher-only rejection, repetition, duplicates, determinism, shared build receipts, and cache-version separation.
+
+**Cold Jade rule:** Treat Cold Jade Immortal as a pale-robed celestial character/look study: cool restraint, clean silhouettes, divine distance, and visual authority across varied scenes. Yuan Zhong is the primary named cluster; aloof Jinxiu can qualify by state.
+
+**Why:** A real audit formed complete boards from a strong pale-robed family but rejected every card because the promise classifier could not interpret the visual continuity. The material was promising; recognition failed.
+
+**How to apply:** Require both a named compatible character and explicit pale/cool, restrained celestial evidence. Reject dominant red, warm-gold courtliness, playful energy, generic dark intensity, modern imagery, composites, and emotional collapse belonging to Professionally Devastated.

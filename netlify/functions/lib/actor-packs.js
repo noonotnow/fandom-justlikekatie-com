@@ -98,9 +98,13 @@ export const ACTOR_PACKS = [
         "subtitle": "一身白衣，像规矩本身动了情",
         "subtitle_en": "All in white, like discipline itself caught feelings",
         "queries": [
-          "刘学义 古装 写真",
-          "刘学义 白衣 造型",
-          "刘学义 念无双 源仲"
+          "刘学义 念无双 源仲 白衣",
+          "源仲 念无双 白袍 剧照",
+          "刘学义 源仲 银白 造型",
+          "刘学义 源仲 清冷 剧照",
+          "源仲 念无双 月光 雪景",
+          "刘学义 源仲 冰蓝 长袍",
+          "源仲 念无双 仙门 全身 剧照"
         ],
         "shareFragment": "仙门冷玉学义，白衣一出天下寒",
         "mjPrompt": ""

@@ -1,8 +1,8 @@
 // Private operational metadata. Do not add this to ACTOR_PACKS or public APIs.
 // These are search-disambiguation heuristics, not identity verification.
 export const IDENTITY_PROFILE_VERSION = 2;
-export const AESTHETIC_CLUSTER_VERSION = 3;
-export const VIBE_PROMISE_CONTRACT_VERSION = 4;
+export const AESTHETIC_CLUSTER_VERSION = 4;
+export const VIBE_PROMISE_CONTRACT_VERSION = 5;
 
 const LIU_YUNING_CLUSTERS = [
   {
@@ -26,12 +26,31 @@ const LIU_XUEYI_CLUSTERS = [
     work: "念无双",
     character: "源仲",
     aliases: ["Yuan Zhong", "pale ceremonial immortal"],
-    mood: ["controlled", "aloof", "divine", "restrained"],
-    palette: ["white", "silver", "pale blue", "cool gray"],
-    wardrobeAnchors: ["white robes", "pale robes", "silver detailing", "fur trim"],
-    propAnchors: ["crown", "hair ornament", "fan"],
-    settingAnchors: ["temple", "snow", "moonlight", "mist", "ceremonial"],
-    antiAnchors: ["modern event", "bts", "production equipment", "red commander", "fire truck"],
+    look: [
+      "pale-robed celestial", "long clean silhouette", "sculptural collar",
+      "celestial styling", "historical styling",
+    ],
+    emotionalStates: [
+      "controlled", "aloof", "divine distance", "emotionally unavailable",
+      "visual distance", "restraint", "stillness", "authority",
+    ],
+    mood: ["controlled", "aloof", "divine", "restrained", "severe gaze", "emotionally reserved"],
+    palette: ["white", "silver", "gray", "pale blue", "ice blue", "cool neutral"],
+    wardrobeAnchors: [
+      "white robes", "pale robes", "silver detailing", "fur trim",
+      "ice-blue robes", "long sleeves", "clean silhouette",
+    ],
+    propAnchors: ["crown", "hair ornament", "divine regalia"],
+    settingAnchors: [
+      "temple", "snow", "moonlight", "mist", "water", "stone", "greenery",
+      "pale outdoor light", "cool muted environment", "ceremonial",
+    ],
+    sceneAnchors: ["celestial character study", "controlled close-up", "wide costume study"],
+    antiAnchors: [
+      "modern event", "bts", "production equipment", "red commander", "fire truck",
+      "saturated red", "warm gold", "smiling", "playful", "generic dark costume",
+      "collage", "poster", "text-heavy edit", "emotional collapse",
+    ],
     vibeCompatibility: { "仙门冷玉": "strong_anchor" },
   },
   {
@@ -153,12 +172,46 @@ const COLD_JADE_CONTRACT = {
   id: "cold-jade-immortal",
   requiredCombinations: [
     { id: "cold-immortal-character", any: ["源仲", "yuan zhong", "锦绣", "jinxiu"] },
-    { id: "pale-costume", any: ["白衣", "白袍", "pale robe", "white robe", "silver robe", "cool-toned costume"] },
+    {
+      id: "pale-celestial-look",
+      any: [
+        "白衣", "白袍", "银白", "冰蓝", "pale robe", "white robe", "silver robe",
+        "ice-blue robe", "cool-toned costume", "pale-robed celestial",
+      ],
+    },
+    {
+      id: "cold-immortal-state",
+      any: [
+        "清冷", "克制", "疏离", "威严", "controlled", "aloof", "restrained",
+        "divine distance", "visual distance", "stillness", "authority",
+        "emotionally unavailable", "severe gaze", "celestial character study",
+      ],
+    },
   ],
-  supportingAnchors: ["silver", "white", "gray", "pale blue", "fur", "restrained", "temple", "snow", "mist", "moonlight", "ceremonial"],
-  hardAntiAnchors: ["modern event", "award ceremony", "bts", "behind the scenes", "production equipment", "fire truck", "collage", "contact sheet", "拼图", "九宫格", "组图"],
-  softContradictions: ["red", "saturated red", "warm gold", "black armor", "dark commander", "purple robe", "慕容璟和", "murong jinghe"],
-  hero: { any: ["源仲", "yuan zhong", "锦绣", "jinxiu", "白衣", "白袍", "white robe", "pale ceremonial"] },
+  supportingAnchors: [
+    "silver", "white", "gray", "pale blue", "ice blue", "cool neutral", "fur",
+    "temple", "snow", "mist", "moonlight", "water", "stone", "greenery",
+    "pale outdoor light", "long sleeves", "hair ornament", "divine regalia",
+    "clean silhouette", "controlled close-up", "wide costume study", "ceremonial",
+  ],
+  hardAntiAnchors: [
+    "modern event", "award ceremony", "bts", "behind the scenes", "production equipment",
+    "fire truck", "collage", "contact sheet", "poster", "text-heavy edit",
+    "拼图", "九宫格", "组图", "海报", "saturated red", "dominant red", "red costume",
+  ],
+  softContradictions: [
+    "warm gold", "cream and gold", "smiling", "playful", "black armor",
+    "generic dark costume", "dark commander", "purple robe", "慕容璟和",
+    "murong jinghe", "bloodied", "crying", "devastated", "emotional collapse",
+  ],
+  hero: {
+    any: [
+      "清冷", "克制", "疏离", "威严", "controlled", "aloof", "restrained",
+      "divine distance", "stillness", "authority", "severe gaze",
+      "sculptural collar", "emotionally unavailable",
+    ],
+    requireExplicit: true,
+  },
   clusterIds: ["yuan-zhong-pale-ceremonial", "jinxiu-aloof-flower-deity"],
 };
 
