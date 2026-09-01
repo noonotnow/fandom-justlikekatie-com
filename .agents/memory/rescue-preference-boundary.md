@@ -20,3 +20,9 @@ The algorithm is a scout and first draft, not the editor-in-chief: semantic scor
 **Why:** Automated relevance can produce entertaining but plainly wrong interpretations, such as treating a person-to-melon transformation as evidence for a character Vibe.
 
 **How to apply:** Use algorithmic results to discover and filter retained evidence; never present an automatic score as the public meaning of a human-approved board, and keep an explicit editorial approval path for coherent boards the scorer misses.
+
+Pairing publishability, exact-board approval, curator calibration, and completed learning are four separate states. Human-approved publishing must not wait for independent curator reproduction; keep that unfinished reproduction measurable in the private studio.
+
+**Why:** Publishing is an editorial decision about an exact frozen edition, while calibration measures whether automation can reproduce that taste later. Coupling them lets an unfinished classifier hold a valid edition hostage.
+
+**How to apply:** Label counters as automated recognition, never as objective Vibe truth. Permit two exact approved pairings to satisfy launch readiness even when curator calibration remains incomplete.

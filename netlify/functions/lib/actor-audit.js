@@ -298,6 +298,7 @@ export function createActorAuditHandler({
         if (APPROVED_VERDICTS.has(input.verdict)
           && (report.calibrationProfile?.evidenceCount
             || report.calibrationProfile?.requiresFreshAudit)
+          && !operatorBoardApproval
           && !calibrationProofCoversProfile(report.currentRun, report.calibrationProfile)) {
           return json(409, {
             error: "Run a fresh audit that reproduces positive calibration signals beyond the exact saved nine before approving this pairing.",
@@ -1342,9 +1343,13 @@ function pairingSummary(pair, report) {
   const comparisonUnavailable = Boolean(current && !comparableBoards(current) && !currentVerdict);
   const auditContract = current ? auditContractFor(current, pair) : null;
   const needsReapproval = Boolean(auditContract?.isLegacy);
+  const operatorPublication = current?.operatorVerdict?.publicationSource?.type === "operator_rescue";
   const calibrationNeedsRerun = Boolean(
+    !operatorPublication
+    && (
     (report?.calibrationProfile?.requiresFreshAudit
       || report?.calibrationProfile?.evidenceCount)
+    )
     && !calibrationProofCoversProfile(current, report.calibrationProfile),
   );
   const eligible = Boolean(
@@ -1352,7 +1357,7 @@ function pairingSummary(pair, report) {
     && auditContract?.isCurrent
     && !calibrationNeedsRerun
     && currentVerdict
-    && current.blindReview?.choice
+    && (operatorPublication || current.blindReview?.choice)
     && (!isDisagreement(current, current.blindReview) || current.blindReview.reasonCodes?.length)
     && APPROVED_VERDICTS.has(currentVerdict),
   );

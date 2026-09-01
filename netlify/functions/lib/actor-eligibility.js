@@ -144,14 +144,14 @@ export async function getEligibility(store, actor, vibeIdx) {
     || snapshot.publishableConfirmed !== verdict.publishableConfirmed
     || (snapshot.verdict === "approved"
       && (snapshot.vibeConfirmed !== true || snapshot.publishableConfirmed !== true))
-    || !validRescueCalibrationProof(
+    || (!operatorPublication && !validRescueCalibrationProof(
       actor,
       vibeIdx,
       run,
       rescueCalibrations,
       rescueCalibrationRetirements,
       snapshot,
-    )
+    ))
   ) return null;
   return operatorPublication
     ? { ...snapshot, publicationBoard: publicationReceipt.board }

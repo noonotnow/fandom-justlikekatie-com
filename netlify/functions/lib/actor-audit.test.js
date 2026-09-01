@@ -2385,6 +2385,18 @@ test("a saved retained-evidence board can be approved without a curator comparis
   assert.equal(saveResponse.status, 200, JSON.stringify(saved));
   const receiptId = saved.currentRun.editorialFeedback.operatorRescueBoard.receiptId;
 
+  const calibrationResponse = await handler(request("POST", {
+    action: "mark_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId,
+  }), {});
+  const calibration = await calibrationResponse.json();
+  assert.equal(calibrationResponse.status, 200, JSON.stringify(calibration));
+  assert.equal(calibration.calibrationProfile.evidenceCount, 1);
+  assert.notEqual(calibration.currentRun.calibrationProof?.ready, true);
+
   const approvalResponse = await handler(request("POST", {
     action: "verdict",
     actorId: pairActor.id,
@@ -2398,6 +2410,7 @@ test("a saved retained-evidence board can be approved without a curator comparis
   }), {});
   const approval = await approvalResponse.json();
   assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+  assert.equal(approval.pairing.eligible, true);
   assert.equal(approval.currentRun.operatorVerdict.publicationSource.type, "operator_rescue");
   assert.equal(approval.currentRun.operatorVerdict.publicationSource.rescueReceiptId, receiptId);
 
