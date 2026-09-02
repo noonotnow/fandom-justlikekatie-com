@@ -56,6 +56,59 @@ const pairActorWithAlternateVibe = {
   ],
 };
 
+function publicationManifest(date, vibeIdx = 0) {
+  const sourceCandidateIds = Array.from({ length: 9 }, (_, position) => `candidate-${date}-${position}`);
+  return {
+    schemaVersion: 1,
+    manifestVersion: "v1",
+    manifestId: `manifest-${date}`,
+    idempotencyKey: `vibe-atlas:daily-drop:${date}`,
+    kind: "vibe-atlas-daily-drop",
+    publicationDate: date,
+    publishedAt: `${date}T04:00:00.000Z`,
+    boardHash: "a".repeat(64),
+    actor: {
+      id: pairActor.id,
+      name: pairActor.name,
+      nameEn: pairActor.shortName_en,
+      accentColor: "#8d2638",
+    },
+    vibe: {
+      key: `${pairActor.id}:${vibeIdx}`,
+      idx: vibeIdx,
+      label: pairActorWithAlternateVibe.vibes[vibeIdx]?.label || "氛围",
+      labelEn: pairActorWithAlternateVibe.vibes[vibeIdx]?.label_en || "Vibe",
+    },
+    heroPosition: 4,
+    cardCount: 9,
+    retention: { policy: "permanent", deleteWithCollection: false },
+    provenance: { sourceCandidateIds },
+    cards: sourceCandidateIds.map((candidateId, position) => ({
+      position,
+      candidateId,
+      title: `Frame ${position}`,
+      source: "publisher.example",
+      link: `https://publisher.example/${position}`,
+      sourceUrl: `https://images.example/${date}-${position}.jpg`,
+      media: {
+        schemaVersion: 1,
+        assetId: `00000000-0000-4000-8000-${String(position + 1).padStart(12, "0")}`,
+        deliveryUrl: `https://media.example/assets/${date}-${position}.jpg`,
+        thumbnailUrl: `https://media.example/thumbs/${date}-${position}.jpg`,
+        mimeType: "image/jpeg",
+        sizeBytes: 100 + position,
+        checksum: String(position).padStart(64, "0"),
+        dimensions: { width: 1200, height: 1200 },
+        association: {
+          type: "publication",
+          id: `vibe-atlas:daily-drop:${date}`,
+          itemId: `card-${position}`,
+        },
+      },
+    })),
+  };
+}
+
 function memoryStore() {
   const records = new Map();
   const etags = new Map();
@@ -486,18 +539,14 @@ test("release inventory groups current curator approvals by actor pack", async (
 
 test("release inventory privately marks a release-ready pairing used in a recent Daily Drop", async () => {
   const publicationStore = memoryStore();
-  await publicationStore.setJSON(gridManifestKey("2026-08-30"), {
-    publicationDate: "2026-08-30",
-    actor: { id: pairActor.id },
-    vibe: { idx: 0 },
-    cards: Array.from({ length: 9 }, (_, index) => ({ candidateId: `card-${index}` })),
-  });
-  await publicationStore.setJSON(gridManifestKey("2026-07-31"), {
-    publicationDate: "2026-07-31",
-    actor: { id: pairActor.id },
-    vibe: { idx: 0 },
-    cards: Array.from({ length: 9 }, (_, index) => ({ candidateId: `old-card-${index}` })),
-  });
+  await publicationStore.setJSON(
+    gridManifestKey("2026-08-30"),
+    publicationManifest("2026-08-30"),
+  );
+  await publicationStore.setJSON(
+    gridManifestKey("2026-07-31"),
+    publicationManifest("2026-07-31"),
+  );
   const { handler } = harness({ publicationStore });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   await handler(request("POST", {
@@ -526,12 +575,10 @@ test("release inventory privately marks a release-ready pairing used in a recent
 
 test("release inventory flags an actor repeat when a different Vibe pairing was published", async () => {
   const publicationStore = memoryStore();
-  await publicationStore.setJSON(gridManifestKey("2026-08-30"), {
-    publicationDate: "2026-08-30",
-    actor: { id: pairActor.id },
-    vibe: { idx: 1 },
-    cards: Array.from({ length: 9 }, (_, index) => ({ candidateId: `alternate-card-${index}` })),
-  });
+  await publicationStore.setJSON(
+    gridManifestKey("2026-08-30"),
+    publicationManifest("2026-08-30", 1),
+  );
   const { handler } = harness({
     publicationStore,
     actorPacks: [pairActorWithAlternateVibe],
@@ -562,12 +609,10 @@ test("release inventory flags an actor repeat when a different Vibe pairing was 
 
 test("release inventory keeps an actor's latest recorded Drop date beyond the warning window", async () => {
   const publicationStore = memoryStore();
-  await publicationStore.setJSON(gridManifestKey("2026-07-01"), {
-    publicationDate: "2026-07-01",
-    actor: { id: pairActor.id },
-    vibe: { idx: 1 },
-    cards: Array.from({ length: 9 }, (_, index) => ({ candidateId: `historical-card-${index}` })),
-  });
+  await publicationStore.setJSON(
+    gridManifestKey("2026-07-01"),
+    publicationManifest("2026-07-01", 1),
+  );
   const { handler } = harness({
     publicationStore,
     actorPacks: [pairActorWithAlternateVibe],

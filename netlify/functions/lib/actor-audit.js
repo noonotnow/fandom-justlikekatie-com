@@ -49,12 +49,12 @@ import {
   curateDisplayResults,
 } from "./grid-curation.js";
 import {
-  readDailyDropHistory,
   readRecentDailyDropHistory,
   RECENT_DAILY_DROP_WINDOW_DAYS,
   STAR_OF_DAY_VERSION,
 } from "../star-of-day.js";
 import { getShanghaiDateString } from "./date-seed.js";
+import { readLatestPublicationDatesByActor } from "./publication-manifest.js";
 
 const MAX_BODY_BYTES = 48 * 1024;
 const MAX_NOTE_LENGTH = 2000;
@@ -1500,13 +1500,16 @@ export async function releaseReadyInventory(
   } = {},
 ) {
   const throughDate = getShanghaiDateString(now());
-  const [recentManifests, dailyDropHistory] = await Promise.all([
+  const [recentManifests, latestDailyDropByActor] = await Promise.all([
     readRecentDailyDropHistory(
       publicationStore,
       throughDate,
       recentWindowDays,
     ),
-    readDailyDropHistory(publicationStore, throughDate),
+    readLatestPublicationDatesByActor(publicationStore, {
+      throughDate,
+      actorIds: actorPacks.map(actor => actor.id),
+    }),
   ]);
   const recentByPairing = new Map();
   const recentByActor = new Map();
@@ -1522,13 +1525,6 @@ export async function releaseReadyInventory(
     const dates = recentByPairing.get(key) || [];
     dates.push(manifest.publicationDate);
     recentByPairing.set(key, dates);
-  }
-  const lastDailyDropByActor = new Map();
-  for (const manifest of dailyDropHistory) {
-    const actorId = manifest?.actor?.id;
-    if (typeof actorId === "string" && !lastDailyDropByActor.has(actorId)) {
-      lastDailyDropByActor.set(actorId, manifest.publicationDate);
-    }
   }
   const actorResults = await Promise.all(actorPacks.map(async actor => {
     const pairings = (await Promise.all((actor.vibes || []).map(async (vibe, vibeIdx) => {
@@ -1571,7 +1567,7 @@ export async function releaseReadyInventory(
       recentDailyDropCount: recentDailyDropDates.length,
       recentDailyDropDates,
       recentlyUsed: recentDailyDropDates.length > 0,
-      lastDailyDropDate: lastDailyDropByActor.get(actor.id) || null,
+      lastDailyDropDate: latestDailyDropByActor.get(actor.id) || null,
       recentlyUsedPairingCount: pairings.filter(pair => pair.recentlyUsed).length,
       unusedWithinRecentWindowPairingCount: pairings.filter(pair => !pair.recentlyUsed).length,
       pairings,

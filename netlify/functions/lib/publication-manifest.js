@@ -11,6 +11,9 @@ import {
 export const GRID_MANIFEST_VERSION = "v1";
 export const GRID_MANIFEST_PREFIX = `vibeAtlas:grid-manifest:${GRID_MANIFEST_VERSION}:`;
 export const GRID_PENDING_PREFIX = `vibeAtlas:grid-pending:${GRID_MANIFEST_VERSION}:`;
+export const PUBLICATION_ACTOR_INDEX_VERSION = "v1";
+export const PUBLICATION_ACTOR_INDEX_KEY =
+  `vibeAtlas:grid-manifest-actor-index:${PUBLICATION_ACTOR_INDEX_VERSION}:latest`;
 const REQUIRED_CARD_COUNT = 9;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const PUBLICATION_LOCK_TTL_MS = 10 * 60 * 1000;
@@ -18,6 +21,420 @@ const PUBLICATION_LOCK_PREFIX = `vibeAtlas:grid-lock:${GRID_MANIFEST_VERSION}:`;
 
 export const gridManifestKey = date => `${GRID_MANIFEST_PREFIX}${date}`;
 export const gridPendingKey = date => `${GRID_PENDING_PREFIX}${date}`;
+export const publicationActorIndexKey = () => PUBLICATION_ACTOR_INDEX_KEY;
+
+/**
+ * The actor index is derived state, not another source of publication truth.
+ * Every entry points back to the immutable manifest that supplied its date.
+ */
+export function isPublicationActorIndex(value) {
+  if (!value || typeof value !== "object"
+    || value.schemaVersion !== 1
+    || value.indexVersion !== PUBLICATION_ACTOR_INDEX_VERSION
+    || value.kind !== "vibe-atlas-daily-drop-actor-index"
+    || !Number.isInteger(value.manifestCount)
+    || value.manifestCount < 0
+    || typeof value.manifestKeyHash !== "string"
+    || !/^[a-f0-9]{64}$/i.test(value.manifestKeyHash)
+    || (value.latestManifestDate !== null && !isPublicationDate(value.latestManifestDate))
+    || (value.actorDateThrough !== null && !isPublicationDate(value.actorDateThrough))
+    || !value.actors || typeof value.actors !== "object"
+    || Array.isArray(value.actors)) return false;
+  return Object.entries(value.actors).every(([actorId, entry]) =>
+    typeof actorId === "string"
+    && actorId.length > 0
+    && isPublicationActorIndexEntry(entry));
+}
+
+export async function readLatestPublicationDatesByActor(
+  store,
+  { throughDate = null, actorIds = null } = {},
+) {
+  const requestedActorIds = actorIds
+    ? new Set(actorIds.filter(actorId => typeof actorId === "string"))
+    : null;
+  let index = null;
+  try {
+    index = await store.get(publicationActorIndexKey(), {
+      type: "json",
+      consistency: "strong",
+    });
+  } catch {
+    // A transient index read failure should not make the private inventory
+    // claim that no actor has ever been published.
+  }
+
+  let stale = !isPublicationActorIndex(index);
+  if (!stale) {
+    try {
+      stale = await publicationActorIndexIsStale(
+        store,
+        index,
+        throughDate,
+        requestedActorIds,
+      );
+    } catch {
+      stale = true;
+    }
+  }
+  if (stale) {
+    index = await rebuildPublicationActorIndexSafely(store, throughDate);
+  }
+
+  return publicationDatesFromIndex(index, throughDate, requestedActorIds);
+}
+
+/**
+ * Rebuilds the actor index from the immutable manifest keys. This is also
+ * exported for an operator/admin repair path without making that path public.
+ */
+export async function rebuildPublicationActorIndex(
+  store,
+  { throughDate = null, now = () => new Date().toISOString() } = {},
+) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const existingWithMetadata = typeof store.getWithMetadata === "function"
+      ? await store.getWithMetadata(publicationActorIndexKey(), {
+        type: "json",
+        consistency: "strong",
+      })
+      : null;
+    const existing = existingWithMetadata?.data ?? await store.get(
+      publicationActorIndexKey(),
+      { type: "json", consistency: "strong" },
+    );
+    const [publicationScan, indexedManifests] = await Promise.all([
+      readPublicationManifestsForIndex(store, throughDate),
+      isPublicationActorIndex(existing)
+        ? readVerifiedIndexedManifests(store, existing)
+        : [],
+    ]);
+    const index = publicationActorIndexFromManifests(
+      [...publicationScan.manifests, ...indexedManifests],
+      now(),
+      [
+        ...publicationScan.coverageKeys,
+        ...indexedManifests.map(manifest => gridManifestKey(manifest.publicationDate)),
+      ],
+      throughDate,
+    );
+    const write = await store.setJSON(
+      publicationActorIndexKey(),
+      index,
+      existingWithMetadata?.etag
+        ? { onlyIfMatch: existingWithMetadata.etag }
+        : existing
+          ? {}
+          : { onlyIfNew: true },
+    );
+    if (write?.modified === false) continue;
+    const authoritative = await store.get(publicationActorIndexKey(), {
+      type: "json",
+      consistency: "strong",
+    });
+    if (isPublicationActorIndex(authoritative)) return authoritative;
+  }
+  throw requestError("The publication actor index could not be rebuilt safely.", 503);
+}
+
+async function rebuildPublicationActorIndexSafely(store, throughDate) {
+  try {
+    return await rebuildPublicationActorIndex(store, { throughDate });
+  } catch {
+    // The inventory can still be correct for this request when the derived
+    // write is unavailable. The next request will retry the rebuild.
+    try {
+      const scan = await readPublicationManifestsForIndex(store, throughDate);
+      return publicationActorIndexFromManifests(
+        scan.manifests,
+        new Date().toISOString(),
+        scan.coverageKeys,
+        throughDate,
+      );
+    } catch {
+      // Missing history is safer than presenting an unverified date.
+      return emptyPublicationActorIndex(new Date().toISOString());
+    }
+  }
+}
+
+async function updatePublicationActorIndex(store, manifest, now) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const existingWithMetadata = typeof store.getWithMetadata === "function"
+      ? await store.getWithMetadata(publicationActorIndexKey(), {
+        type: "json",
+        consistency: "strong",
+      })
+      : null;
+    let existing = existingWithMetadata?.data;
+    if (existing === undefined) {
+      existing = await store.get(publicationActorIndexKey(), {
+        type: "json",
+        consistency: "strong",
+      });
+    }
+    const validExisting = isPublicationActorIndex(existing)
+      && existing.actorDateThrough === null;
+    if (validExisting && publicationActorIndexCoversManifest(existing, manifest)) {
+      return existing;
+    }
+    let next;
+    if (validExisting) {
+      next = mergePublicationActorIndex(existing, manifest, asTimestamp(now()));
+    } else {
+      const scan = typeof store.list === "function"
+        ? await readPublicationManifestsForIndex(store, null)
+        : { manifests: [manifest], coverageKeys: [gridManifestKey(manifest.publicationDate)] };
+      next = mergePublicationActorIndex(
+        publicationActorIndexFromManifests(
+          scan.manifests,
+          now(),
+          scan.coverageKeys,
+        ),
+        manifest,
+        asTimestamp(now()),
+      );
+    }
+    if (JSON.stringify(next) === JSON.stringify(existing)) return existing;
+    const write = await store.setJSON(
+      publicationActorIndexKey(),
+      next,
+      existingWithMetadata?.etag
+        ? { onlyIfMatch: existingWithMetadata.etag }
+        : existing
+          ? {}
+          : { onlyIfNew: true },
+    );
+    if (write?.modified === false) continue;
+
+    const authoritative = await store.get(publicationActorIndexKey(), {
+      type: "json",
+      consistency: "strong",
+    });
+    if (isPublicationActorIndex(authoritative)
+      && publicationActorIndexEntryMatchesManifest(authoritative, manifest)) {
+      return authoritative;
+    }
+  }
+  throw requestError("The publication actor index could not be updated safely.", 503);
+}
+
+async function publicationActorIndexIsStale(store, index, throughDate, actorIds) {
+  if (throughDate && !isPublicationDate(throughDate)) return true;
+  const manifestKeys = await readPublicationManifestKeys(store);
+  const coverage = publicationManifestCoverage(manifestKeys);
+  if (coverage.manifestCount !== index.manifestCount
+    || coverage.manifestKeyHash !== index.manifestKeyHash) return true;
+  const needsCutoff = Boolean(
+    throughDate
+    && coverage.latestManifestDate
+    && coverage.latestManifestDate > throughDate,
+  );
+  if (needsCutoff && index.actorDateThrough !== throughDate) return true;
+  if (!needsCutoff && index.actorDateThrough !== null) return true;
+  const entries = Object.entries(index.actors)
+    .filter(([actorId]) => !actorIds || actorIds.has(actorId));
+  if (typeof store.get !== "function") return false;
+  const checks = await Promise.all(entries.map(async ([actorId, entry]) => {
+    if (throughDate && entry.latestPublicationDate > throughDate) return false;
+    const manifest = await store.get(gridManifestKey(entry.latestPublicationDate), {
+      type: "json",
+      consistency: "strong",
+    });
+    return publicationActorIndexEntryMatchesManifest(
+      { actors: { [actorId]: entry } },
+      manifest,
+    );
+  }));
+  return checks.some(isCurrent => !isCurrent);
+}
+
+function publicationActorIndexEntryMatchesManifest(index, manifest) {
+  const actorId = manifest?.actor?.id;
+  const entry = typeof actorId === "string" ? index.actors?.[actorId] : null;
+  if (!entry || !isIndexablePublicationManifest(manifest)
+    || entry.latestPublicationDate !== manifest.publicationDate) return false;
+  if (entry.manifestId && entry.manifestId !== manifest.manifestId) return false;
+  if (entry.boardHash && entry.boardHash !== manifest.boardHash) return false;
+  return true;
+}
+
+function publicationActorIndexCoversManifest(index, manifest) {
+  const entry = index.actors?.[manifest?.actor?.id];
+  if (!entry) return false;
+  if (entry.latestPublicationDate > manifest.publicationDate) return true;
+  return publicationActorIndexEntryMatchesManifest(index, manifest);
+}
+
+function publicationDatesFromIndex(index, throughDate, actorIds) {
+  return new Map(Object.entries(index.actors)
+    .filter(([actorId, entry]) =>
+      (!actorIds || actorIds.has(actorId))
+      && (!throughDate || entry.latestPublicationDate <= throughDate))
+    .map(([actorId, entry]) => [actorId, entry.latestPublicationDate]));
+}
+
+async function readPublicationManifestsForIndex(store, throughDate) {
+  const listedKeys = await readPublicationManifestKeys(store);
+  const recentKeys = throughDate && isPublicationDate(throughDate)
+    ? Array.from({ length: 30 }, (_, offset) =>
+      gridManifestKey(calendarDateOffset(throughDate, -offset)))
+    : [];
+  const keys = [...new Set([...listedKeys, ...recentKeys])];
+  const manifests = await Promise.all(keys.map(key => store.get(key, {
+    type: "json",
+    consistency: "strong",
+  })));
+  return {
+    manifests: manifests.filter(isGridManifest),
+    coverageKeys: listedKeys,
+  };
+}
+
+async function readPublicationManifestKeys(store) {
+  const listing = await store.list({ prefix: GRID_MANIFEST_PREFIX });
+  return (listing?.blobs || [])
+    .map(blob => blob?.key)
+    .filter(key => typeof key === "string")
+    .filter(key => isPublicationDate(key.slice(GRID_MANIFEST_PREFIX.length)));
+}
+
+async function readVerifiedIndexedManifests(store, index) {
+  const manifests = await Promise.all(Object.values(index.actors).map(entry =>
+    store.get(gridManifestKey(entry.latestPublicationDate), {
+      type: "json",
+      consistency: "strong",
+    })));
+  return manifests.filter(manifest =>
+    isGridManifest(manifest)
+    && publicationActorIndexEntryMatchesManifest(index, manifest));
+}
+
+function publicationActorIndexFromManifests(
+  manifests,
+  generatedAt,
+  coverageKeys = manifests.map(manifest => gridManifestKey(manifest.publicationDate)),
+  throughDate = null,
+) {
+  const actors = {};
+  const coverage = publicationManifestCoverage(coverageKeys);
+  const actorDateThrough = throughDate
+    && coverage.latestManifestDate
+    && coverage.latestManifestDate > throughDate
+    ? throughDate
+    : null;
+  for (const manifest of manifests.filter(item =>
+    !actorDateThrough || item.publicationDate <= actorDateThrough)) {
+    const actorId = manifest.actor.id;
+    const current = actors[actorId];
+    if (!current || manifest.publicationDate > current.latestPublicationDate) {
+      actors[actorId] = publicationActorIndexEntry(manifest);
+    }
+  }
+  return {
+    schemaVersion: 1,
+    indexVersion: PUBLICATION_ACTOR_INDEX_VERSION,
+    kind: "vibe-atlas-daily-drop-actor-index",
+    generatedAt: asTimestamp(generatedAt),
+    ...coverage,
+    actorDateThrough,
+    actors,
+  };
+}
+
+function emptyPublicationActorIndex(generatedAt) {
+  return publicationActorIndexFromManifests([], generatedAt);
+}
+
+function mergePublicationActorIndex(index, manifest, generatedAt) {
+  const current = index.actors[manifest.actor.id];
+  const addsManifest = !current || current.latestPublicationDate !== manifest.publicationDate;
+  const next = {
+    ...index,
+    generatedAt,
+    ...(addsManifest ? addPublicationManifestCoverage(index, manifest.publicationDate) : {}),
+    actors: { ...index.actors },
+  };
+  if (!current || manifest.publicationDate > current.latestPublicationDate) {
+    next.actors[manifest.actor.id] = publicationActorIndexEntry(manifest);
+  }
+  return next;
+}
+
+function publicationManifestCoverage(keys) {
+  const uniqueKeys = [...new Set(keys)].sort();
+  let hash = Buffer.alloc(32);
+  for (const key of uniqueKeys) {
+    hash = xorHashes(hash, createHash("sha256").update(key).digest());
+  }
+  return {
+    manifestCount: uniqueKeys.length,
+    manifestKeyHash: hash.toString("hex"),
+    latestManifestDate: uniqueKeys.length
+      ? uniqueKeys[uniqueKeys.length - 1].slice(GRID_MANIFEST_PREFIX.length)
+      : null,
+  };
+}
+
+function addPublicationManifestCoverage(index, publicationDate) {
+  const current = Buffer.from(index.manifestKeyHash, "hex");
+  const added = createHash("sha256").update(gridManifestKey(publicationDate)).digest();
+  return {
+    manifestCount: index.manifestCount + 1,
+    manifestKeyHash: xorHashes(current, added).toString("hex"),
+  };
+}
+
+function xorHashes(left, right) {
+  return Buffer.from(left.map((byte, index) => byte ^ right[index]));
+}
+
+function publicationActorIndexEntry(manifest) {
+  return {
+    latestPublicationDate: manifest.publicationDate,
+    manifestId: typeof manifest.manifestId === "string" ? manifest.manifestId : null,
+    boardHash: typeof manifest.boardHash === "string" ? manifest.boardHash : null,
+  };
+}
+
+function isPublicationActorIndexEntry(entry) {
+  return Boolean(
+    entry
+    && isPublicationDate(entry.latestPublicationDate)
+    && (entry.manifestId === null || typeof entry.manifestId === "string")
+    && (entry.boardHash === null || typeof entry.boardHash === "string"),
+  );
+}
+
+function isIndexablePublicationManifest(manifest) {
+  return isGridManifest(manifest);
+}
+
+function isPublicationDate(value) {
+  return typeof value === "string" && DATE_RE.test(value);
+}
+
+function asTimestamp(value) {
+  if (typeof value === "string") return value;
+  if (value instanceof Date) return value.toISOString();
+  return new Date().toISOString();
+}
+
+function calendarDateOffset(dateString, days) {
+  const [year, month, day] = dateString.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+async function updatePublicationActorIndexSafely(store, manifest, now) {
+  try {
+    await updatePublicationActorIndex(store, manifest, now);
+  } catch {
+    // The immutable manifest is authoritative. A derived-index outage must not
+    // change scheduler selection or the public Daily Drop response.
+  }
+}
 
 export async function materializePublicationManifest({
   store,
@@ -42,6 +459,7 @@ export async function materializePublicationManifest({
     if (!isGridManifest(existingManifest) || existingManifest.boardHash !== boardHashValue) {
       throw requestError("That publication date already contains a different immutable board.", 409);
     }
+    await updatePublicationActorIndexSafely(store, existingManifest, now);
     return { manifest: existingManifest, payload: manifestPayload(existingManifest) };
   }
   const lock = await acquirePublicationLock(store, date, boardHashValue, now);
@@ -54,6 +472,7 @@ export async function materializePublicationManifest({
     if (!isGridManifest(racedManifest) || racedManifest.boardHash !== boardHashValue) {
       throw requestError("That publication date already contains a different immutable board.", 409);
     }
+    await updatePublicationActorIndexSafely(store, racedManifest, now);
     return { manifest: racedManifest, payload: manifestPayload(racedManifest) };
   }
 
@@ -165,6 +584,7 @@ export async function materializePublicationManifest({
   if (!isGridManifest(authoritative) || authoritative.boardHash !== boardHashValue) {
     throw requestError("Another board won this publication date.", 409);
   }
+  await updatePublicationActorIndexSafely(store, authoritative, now);
   try {
     await store.delete(pendingKey);
   } catch {
