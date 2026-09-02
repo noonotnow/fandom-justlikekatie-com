@@ -51,8 +51,9 @@ test('Your Collection is the public Collection and Grid Builder workspace', () =
 
 test('the private operator console does not mount a duplicate Grid Builder', () => {
   assert.match(adminSource, /<h2>Operator Console<\/h2>/);
-  assert.match(appSource, /<FandomAdmin initialView="actor-preflight" \/>/);
-  assert.match(adminSource, /\(\{ initialView = 'actor-preflight' \}\)/);
+  assert.match(appSource, /<FandomAdmin initialView="release-desk" \/>/);
+  assert.match(adminSource, /\(\{ initialView = 'release-desk' \}\)/);
+  assert.doesNotMatch(adminSource, /from '\.\.\/Plan\/Plan'/);
   assert.doesNotMatch(adminSource, /from '\.\.\/GridBuilder\/GridBuilder'/);
   assert.doesNotMatch(adminSource, /allRecords=\{true\}/);
   assert.doesNotMatch(adminSource, /aria-selected=\{view === 'builder'\}/);
@@ -60,10 +61,9 @@ test('the private operator console does not mount a duplicate Grid Builder', () 
   assert.doesNotMatch(builderSource, /dbGetAllGrids|dbGetCardsByScope/);
 });
 
-test('Release Desk owns private inventory while PLAN and Actor Preflight remain separate', () => {
+test('Release Desk is the Admin workspace for private inventory', () => {
   assert.match(adminSource, /aria-selected=\{view === 'release-desk'\}/);
   assert.match(adminSource, />Release Desk<\/button>/);
-  assert.match(adminSource, />PLAN schedule<\/button>/);
   assert.match(adminSource, />Actor preflight<\/button>/);
   assert.match(adminSource, /view === 'release-desk' \? <ReleaseDesk \/>/);
   assert.match(releaseDeskSource, /aria-label="Release Desk view"/);
@@ -76,7 +76,7 @@ test('Release Desk owns private inventory while PLAN and Actor Preflight remain 
     appSource.indexOf('</div>', appSource.indexOf('<FandomAdmin')),
   );
   assert.match(privateGate, /!isAdmin \? \(\s*<AdminSignIn \/>/);
-  assert.match(privateGate, /<FandomAdmin initialView="actor-preflight" \/>/);
+  assert.match(privateGate, /<FandomAdmin initialView="release-desk" \/>/);
   assert.doesNotMatch(appSource, /<span>Release Desk<\/span>/);
 });
 

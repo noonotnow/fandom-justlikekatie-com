@@ -609,7 +609,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       ) : !isAdmin ? (
         <AdminSignIn />
       ) : (
-        <FandomAdmin initialView="actor-preflight" />
+        <FandomAdmin initialView="release-desk" />
       )}
     </div>
   );
