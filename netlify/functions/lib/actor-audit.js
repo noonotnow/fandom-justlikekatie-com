@@ -32,6 +32,7 @@ import {
   auditVerdictPrefix,
   auditVibeKey,
   eligibilityKey,
+  isReleaseReady,
   pairingFingerprintFor,
   rescueCalibrationRetirementHash,
   getEligibility,
@@ -121,6 +122,10 @@ export function createActorAuditHandler({
         const actorId = url.searchParams.get("actorId");
         const vibeKey = url.searchParams.get("vibeKey");
         if (!actorId && !vibeKey) {
+          const [actors, releaseInventory] = await Promise.all([
+            listActors(store, actorPacks),
+            releaseReadyInventory(store, actorPacks),
+          ]);
           return json(200, {
             schemaVersion: 1,
             profileVersion: IDENTITY_PROFILE_VERSION,
@@ -128,7 +133,8 @@ export function createActorAuditHandler({
             aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
             promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
             curationVersion: CURATION_VERSION,
-            actors: await listActors(store, actorPacks),
+            actors,
+            releaseInventory,
           });
         }
         const pair = resolvePair(actorPacks, actorId, vibeKey);
@@ -1437,6 +1443,94 @@ function compareAuditHeads(left, right) {
 
 async function listActors(store, actorPacks) {
   return Promise.all(actorPacks.map(actor => actorSummary(store, actorPacks, actor)));
+}
+
+function isPublishableRescueBoard(board) {
+  const candidates = board?.candidates;
+  return Boolean(
+    board?.publishable === true
+    && Array.isArray(candidates)
+    && candidates.length === 9
+    && new Set(candidates.map(candidate => candidate?.candidateId)).size === 9
+    && candidates.every(candidate =>
+      typeof candidate?.candidateId === "string"
+      && typeof candidate?.thumbnail === "string"
+      && candidate.thumbnail.length > 0),
+  );
+}
+
+function rescueBackupBoardsFor(snapshot) {
+  const boards = [
+    ...(snapshot?.calibrationProfile?.backupBoards || []),
+    ...(snapshot?.publicationSource?.type === "operator_rescue" && snapshot.publicationBoard
+      ? [{
+        sourceRescueReceiptId: snapshot.publicationSource.rescueReceiptId,
+        candidates: snapshot.publicationBoard.candidates,
+        publishable: true,
+      }]
+      : []),
+  ];
+  const seen = new Set();
+  return boards.filter(board => {
+    const receiptId = board.sourceRescueReceiptId || board.receiptId || null;
+    const identity = receiptId || JSON.stringify(board.candidates || []);
+    if (!isPublishableRescueBoard(board) || seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
+}
+
+export async function releaseReadyInventory(store, actorPacks) {
+  const actorResults = await Promise.all(actorPacks.map(async actor => {
+    const pairings = (await Promise.all((actor.vibes || []).map(async (vibe, vibeIdx) => {
+      const snapshot = await getEligibility(store, actor, vibeIdx);
+      if (!isReleaseReady(snapshot)) return null;
+      const rescueBackupBoards = rescueBackupBoardsFor(snapshot);
+      const freshCurator = snapshot.publicationSource?.type !== "operator_rescue";
+      return {
+        actorId: actor.id,
+        actorName: actor.name,
+        actorShortNameEn: actor.shortName_en || actor.shortName || actor.name,
+        vibeKey: vibeKeyFor(actor.id, vibeIdx),
+        vibeIdx,
+        vibeLabel: vibe.label_en || vibe.label || vibeKeyFor(actor.id, vibeIdx),
+        vibeLabelNative: vibe.label || vibe.label_en || vibeKeyFor(actor.id, vibeIdx),
+        releaseSource: freshCurator ? "fresh_curator" : "rescue_backup",
+        freshCurator,
+        rescueBackupBoardCount: rescueBackupBoards.length,
+        currentRunId: snapshot.runId,
+        decidedAt: snapshot.decidedAt || null,
+      };
+    }))).filter(Boolean);
+    return {
+      actorId: actor.id,
+      actorName: actor.name,
+      actorShortNameEn: actor.shortName_en || actor.shortName || actor.name,
+      releaseReadyPairingCount: pairings.length,
+      freshCuratorPairingCount: pairings.filter(pair => pair.freshCurator).length,
+      rescueBackupPairingCount: pairings.filter(pair => pair.rescueBackupBoardCount > 0).length,
+      rescueBackupBoardCount: pairings.reduce(
+        (count, pair) => count + pair.rescueBackupBoardCount,
+        0,
+      ),
+      pairings,
+    };
+  }));
+  const pairings = actorResults.flatMap(actor => actor.pairings);
+  return {
+    schemaVersion: 1,
+    timeZone: "Asia/Shanghai",
+    cutoff: "12:00",
+    releaseReadyPairingCount: pairings.length,
+    freshCuratorPairingCount: pairings.filter(pair => pair.freshCurator).length,
+    rescueBackupPairingCount: pairings.filter(pair => pair.rescueBackupBoardCount > 0).length,
+    rescueBackupBoardCount: pairings.reduce(
+      (count, pair) => count + pair.rescueBackupBoardCount,
+      0,
+    ),
+    actorPacks: actorResults,
+    pairings,
+  };
 }
 
 async function actorSummary(store, actorPacks, actor) {

@@ -13,6 +13,7 @@ import {
 import {
   ELIGIBILITY_STORE,
   getEligibility,
+  isReleaseReady,
   selectEligiblePair,
 } from "./lib/actor-eligibility.js";
 import {
@@ -804,11 +805,7 @@ export async function cachedPairIsEligible(
 }
 
 async function pairIsReleaseReady(actor, vibeIdx, eligibilityStore) {
-  const snapshot = await getEligibility(eligibilityStore, actor, vibeIdx);
-  return snapshot?.eligible === true
-    && snapshot.verdict === "approved"
-    && snapshot.vibeConfirmed === true
-    && snapshot.publishableConfirmed === true;
+  return isReleaseReady(await getEligibility(eligibilityStore, actor, vibeIdx));
 }
 
 export async function hasReleaseReadyCohort(

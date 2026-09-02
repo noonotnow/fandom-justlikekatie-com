@@ -338,6 +338,30 @@ async function configureNetwork(page: Page): Promise<{
           contentType: 'application/json',
           body: JSON.stringify({
             actors: [actor(calibrationConfirmed ? 'calibration_reaudit_required' : 'not_run')],
+            releaseInventory: {
+              schemaVersion: 1,
+              timeZone: 'Asia/Shanghai',
+              cutoff: '12:00',
+              releaseReadyPairingCount: 1,
+              freshCuratorPairingCount: 1,
+              rescueBackupPairingCount: 0,
+              rescueBackupBoardCount: 0,
+              actorPacks: [{
+                actorId: ACTOR_ID,
+                actorName: 'Browser Test Actor',
+                actorShortNameEn: 'Browser Test Actor',
+                releaseReadyPairingCount: 1,
+                freshCuratorPairingCount: 1,
+                rescueBackupPairingCount: 0,
+                rescueBackupBoardCount: 0,
+                pairings: [{
+                  vibeKey: VIBE_KEY,
+                  vibeLabel: 'Browser Calibration Vibe',
+                  freshCurator: true,
+                  rescueBackupBoardCount: 0,
+                }],
+              }],
+            },
           }),
         });
         return;
@@ -448,6 +472,9 @@ test('a signed-in operator keeps ordinary rescue records separate from calibrati
   try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+    await page.getByRole('heading', { name: 'Release inventory' }).waitFor();
+    assert.equal(await page.getByText('1', { exact: true }).first().isVisible(), true);
+    assert.equal(await page.getByText(/12:00 PM Asia\/Shanghai/).isVisible(), true);
 
     await page.getByRole('button', { name: 'Run audit', exact: true }).click();
     await page.getByRole('button', { name: 'Choose Compiled', exact: true }).click();

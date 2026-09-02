@@ -97,6 +97,15 @@ test('the rescue board is a manual operator override without changing the frozen
   assert.match(source, /previous saved arrangement is retained as history/);
 });
 
+test('the private preflight shows grouped release depth and the Shanghai noon cutoff', () => {
+  assert.match(source, /Release inventory/);
+  assert.match(source, /release-ready actor × Vibe pairings/);
+  assert.match(source, /fresh-curator pairings/);
+  assert.match(source, /explicit publishable rescue boards/);
+  assert.match(source, /12:00 PM Asia\/Shanghai/);
+  assert.match(source, /inventory\.actorPacks/);
+});
+
 test('saved rescue history exposes immutable records and Collection exports', () => {
   const exportBody = functionBody('exportRescueBoard');
   assert.match(exportBody, /action:'export_rescue_board'/);

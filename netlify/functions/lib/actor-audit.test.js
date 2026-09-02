@@ -437,6 +437,34 @@ test("the private actor register includes every pairing without exposing reports
   assert.equal(body.actors[0].canonicalName, "刘学义");
   assert.deepEqual(body.actors[0].pairings.map(item => item.vibeKey), ["liu-xueyi:0"]);
   assert.equal(body.actors[0].pairings[0].eligible, false);
+  assert.equal(body.releaseInventory.timeZone, "Asia/Shanghai");
+  assert.equal(body.releaseInventory.cutoff, "12:00");
+  assert.equal(body.releaseInventory.releaseReadyPairingCount, 0);
+  assert.equal(body.releaseInventory.actorPacks[0].releaseReadyPairingCount, 0);
+});
+
+test("release inventory groups current curator approvals by actor pack", async () => {
+  const { handler } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  await handler(request("POST", {
+    action: "verdict", actorId: pairActor.id, vibeKey, runId: "run-1", verdict: "approved",
+  }), {});
+
+  const response = await handler(request(), {});
+  const body = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(body));
+  assert.equal(body.releaseInventory.releaseReadyPairingCount, 1);
+  assert.equal(body.releaseInventory.freshCuratorPairingCount, 1);
+  assert.equal(body.releaseInventory.rescueBackupPairingCount, 0);
+  assert.equal(body.releaseInventory.rescueBackupBoardCount, 0);
+  assert.equal(body.releaseInventory.actorPacks[0].releaseReadyPairingCount, 1);
+  assert.equal(body.releaseInventory.actorPacks[0].pairings[0].releaseSource, "fresh_curator");
 });
 
 test("run, verdict, rerun, and retained-run inspection keep eligibility current", async () => {
@@ -2614,6 +2642,14 @@ test("a saved retained-evidence board can be approved without a curator comparis
     [],
     "manual calibration alone does not create a fallback publication source",
   );
+
+  const inventoryResponse = await handler(request(), {});
+  const inventory = (await inventoryResponse.json()).releaseInventory;
+  assert.equal(inventory.releaseReadyPairingCount, 1);
+  assert.equal(inventory.freshCuratorPairingCount, 0);
+  assert.equal(inventory.rescueBackupPairingCount, 1);
+  assert.equal(inventory.rescueBackupBoardCount, 1);
+  assert.equal(inventory.actorPacks[0].pairings[0].releaseSource, "rescue_backup");
 });
 
 test("an approval from a legacy profile contract is visibly marked for reapproval", async () => {

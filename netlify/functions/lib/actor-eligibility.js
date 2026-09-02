@@ -369,6 +369,17 @@ export function isApproved(snapshot) {
   );
 }
 
+export function isReleaseReady(snapshot) {
+  return Boolean(
+    snapshot
+    && snapshot.eligible === true
+    && snapshot.runId
+    && snapshot.verdict === "approved"
+    && snapshot.vibeConfirmed === true
+    && snapshot.publishableConfirmed === true,
+  );
+}
+
 export async function isPairEligible(actorPacks, actorId, vibeIdx, store) {
   const actor = actorPacks.find(item => item.id === actorId);
   if (!actor?.vibes?.[vibeIdx]) return false;
