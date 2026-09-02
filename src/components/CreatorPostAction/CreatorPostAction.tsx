@@ -30,9 +30,8 @@ interface Props {
 }
 
 /**
- * The single operator-facing entry point for a Vibe Atlas post.
- * Keeping selection and the in-flight lock here prevents Daily, Collection,
- * and Builder from drifting into different platform behavior.
+ * The Workstation handoff control owned exclusively by the Operator Console.
+ * Selection and the in-flight lock stay centralized at that private boundary.
  */
 export function CreatorPostAction({
   onSubmit,

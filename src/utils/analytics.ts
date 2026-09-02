@@ -19,7 +19,7 @@ interface DailyDropServerEvent {
   shareMethod?: DailyDropShareMethod;
 }
 
-export type CreatorHandoffEntryPoint = 'daily' | 'saved_grid' | 'builder';
+export type CreatorHandoffEntryPoint = 'operator_console';
 export type VeteranSubmissionRelation = 'entry' | 'prediction';
 type VeteranSubmissionFailureCategory =
   | 'validation'

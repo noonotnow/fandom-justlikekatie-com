@@ -93,11 +93,37 @@ async function seedSavedGrid(page: Page): Promise<void> {
   }, { accountId: ACCOUNT_ID, gridId: GRID_ID });
 }
 
-async function openSavedGrid(page: Page, origin: string): Promise<void> {
+async function mockReleaseDesk(page: Page): Promise<void> {
+  await page.route('**/.netlify/functions/actor-audits', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      releaseInventory: {
+        releaseReadyPairingCount: 0,
+        unusedWithinRecentWindowPairingCount: 0,
+        freshCuratorPairingCount: 0,
+        rescueBackupPairingCount: 0,
+        rescueBackupBoardCount: 0,
+        actorPacks: [],
+      },
+    }),
+  }));
+  await page.route('**/.netlify/functions/daily-drop-operations', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ editions: [] }),
+  }));
+}
+
+async function openOperatorConsole(page: Page, origin: string): Promise<void> {
   await page.goto(origin);
   await seedSavedGrid(page);
   await page.goto(`${origin}/vibe-atlas?view=collection`);
   await page.getByText('Packet flow actor').first().waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Make a post in Workstation' }).count(), 0);
+  await page.goto(`${origin}/vibe-atlas?admin=true`);
+  await page.getByRole('heading', { name: 'Release Desk' }).waitFor();
+  const gridSelect = page.getByLabel('Saved FANDOM grid');
+  await gridSelect.waitFor();
+  assert.equal(await gridSelect.inputValue(), GRID_ID);
 }
 
 async function mockSelectedGridSync(page: Page): Promise<() => number> {
@@ -165,7 +191,7 @@ async function mockCollectionMedia(page: Page): Promise<() => number> {
   return () => uploads;
 }
 
-test('Make a post sends one direct grid source and opens the Workstation draft', { timeout: 60_000 }, async () => {
+test('Operator Console sends one direct grid source and opens the Workstation draft', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();
   const page = await browser.newPage();
@@ -178,6 +204,7 @@ test('Make a post sends one direct grid source and opens the Workstation draft',
         user: { accountId: ACCOUNT_ID, email: 'packet@example.test', isAdmin: true },
       }),
     }));
+    await mockReleaseDesk(page);
     const getMediaUploads = await mockCollectionMedia(page);
     const getSyncRequests = await mockSelectedGridSync(page);
     await page.route('**/api/workstation-handoff', async route => {
@@ -212,7 +239,7 @@ test('Make a post sends one direct grid source and opens the Workstation draft',
       body: '<title>Workstation draft</title>',
     }));
 
-    await openSavedGrid(page, origin);
+    await openOperatorConsole(page, origin);
     await page.getByRole('checkbox', { name: /Weibo/ }).check();
     await page.getByRole('checkbox', { name: /Instagram/ }).check();
     await page.getByText('Selected for this draft: Rednote + Weibo + Instagram').waitFor();
@@ -254,7 +281,7 @@ for (const failure of [
     visibleMessage: 'Workstation returned an unreadable draft receipt.',
   },
 ]) {
-  test(`Make a post keeps results visible after ${failure.name}`, { timeout: 60_000 }, async () => {
+  test(`Operator Console keeps results visible after ${failure.name}`, { timeout: 60_000 }, async () => {
     const { server, origin } = await startApp();
     const browser = await launchBrowser();
     const page = await browser.newPage();
@@ -267,6 +294,7 @@ for (const failure of [
           user: { accountId: ACCOUNT_ID, email: 'packet@example.test', isAdmin: true },
         }),
       }));
+      await mockReleaseDesk(page);
       const getMediaUploads = await mockCollectionMedia(page);
       const getSyncRequests = await mockSelectedGridSync(page);
       await page.route('**/api/workstation-handoff', route => {
@@ -280,16 +308,16 @@ for (const failure of [
         });
       });
 
-      await openSavedGrid(page, origin);
+      await openOperatorConsole(page, origin);
       await page.getByRole('button', { name: 'Make a post in Workstation' }).click();
       await page.getByRole('alert').filter({ hasText: failure.visibleMessage }).waitFor();
       await page.getByRole('link', { name: 'Open Your Collection' }).waitFor();
       await page.getByRole('link', { name: 'Open Workstation' }).waitFor();
-      assert.equal(new URL(page.url()).search, '?view=collection');
+      assert.equal(new URL(page.url()).search, '?admin=true');
       assert.equal(createRequests, 1);
       assert.equal(getMediaUploads(), 1);
       assert.equal(getSyncRequests(), 1);
-      await page.getByText('Packet flow actor').first().waitFor();
+      assert.equal(await page.getByLabel('Saved FANDOM grid').inputValue(), GRID_ID);
     } finally {
       await browser.close();
       await server.close();
