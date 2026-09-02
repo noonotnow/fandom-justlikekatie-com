@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { createServer as createTcpServer } from 'node:net';
 import { test } from 'node:test';
 import { chromium, type Browser, type Page } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
@@ -12,28 +11,17 @@ const RESCUE_RECEIPT_ID = 'rescue-receipt-1';
 type AnyRecord = Record<string, any>;
 
 async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
-  const port = await findAvailablePort();
   const server = await createServer({
     configFile: 'vite.config.ts',
-    server: { host: '127.0.0.1', port, strictPort: true },
+    server: { host: '127.0.0.1', port: 5000, strictPort: false },
   });
   await server.listen();
-  return { server, origin: `http://127.0.0.1:${port}` };
-}
-
-function findAvailablePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createTcpServer();
-    probe.once('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const address = probe.address();
-      if (!address || typeof address === 'string') {
-        probe.close(() => reject(new Error('Could not reserve a test port.')));
-        return;
-      }
-      probe.close(error => error ? reject(error) : resolve(address.port));
-    });
-  });
+  const address = server.httpServer?.address();
+  if (!address || typeof address === 'string') {
+    await server.close();
+    throw new Error('The browser test server did not expose a TCP port.');
+  }
+  return { server, origin: `http://127.0.0.1:${address.port}` };
 }
 
 async function launchBrowser(): Promise<Browser> {

@@ -18,7 +18,7 @@
     "test:app": "node --import tsx/esm --test tests/*.test.ts",
     "test:functions": "node --test netlify/functions/lib/*.test.js",
     "test:scripts": "node --test scripts/*.test.js",
-    "test:browser": "node --import tsx/esm --test tests/browser/*.test.ts"
+    "test:browser": "node --import tsx/esm --test --test-concurrency=4 tests/browser/*.test.ts"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.12",
