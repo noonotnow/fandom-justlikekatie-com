@@ -38,6 +38,12 @@ export const auditRescueCalibrationKey = (actorId, vibeIdx, receiptId) => `${aud
 export const auditRescueCalibrationRetirementPrefix = (actorId, vibeIdx) => `rescue-calibration-retirements/${actorId}/${vibeIdx}/`;
 export const auditRescueCalibrationRetirementKey = (actorId, vibeIdx, receiptId) =>
   `${auditRescueCalibrationRetirementPrefix(actorId, vibeIdx)}${encodeURIComponent(receiptId)}`;
+export const productionReceiptPrefix = (actorId, vibeIdx, runId) =>
+  `production-receipts/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
+export const productionReceiptKey = (actorId, vibeIdx, runId, receiptId) =>
+  `${productionReceiptPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
+export const productionStateKey = (actorId, vibeIdx, runId) =>
+  `production-state/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}`;
 
 export function rescueCalibrationRetirementHash(retirements = []) {
   return createHash("sha256").update(JSON.stringify(
@@ -160,6 +166,12 @@ export async function getEligibility(store, actor, vibeIdx) {
   if (operatorPublication) return { ...snapshot, publicationBoard: publicationReceipt.board };
   if (curatedPublication) {
     const publicationBoard = run[snapshot.publicationSource.mode === "event"
+      ? "strongestEvent"
+      : "strongestCompiled"];
+    return { ...snapshot, publicationBoard };
+  }
+  if (calibration?.choice === "event" || calibration?.choice === "compiled") {
+    const publicationBoard = run[calibration.choice === "event"
       ? "strongestEvent"
       : "strongestCompiled"];
     return { ...snapshot, publicationBoard };

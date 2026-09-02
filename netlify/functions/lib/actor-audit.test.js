@@ -21,6 +21,8 @@ import {
   auditRunPrefix,
   auditVerdictPrefix,
   eligibilityKey,
+  productionReceiptPrefix,
+  productionStateKey,
 } from "./actor-eligibility.js";
 import {
   compareCalibrationOutcomes,
@@ -535,6 +537,83 @@ test("release inventory groups current curator approvals by actor pack", async (
   assert.equal(body.releaseInventory.unusedWithinRecentWindowPairingCount, 1);
   assert.equal(body.releaseInventory.actorPacks[0].releaseReadyPairingCount, 1);
   assert.equal(body.releaseInventory.actorPacks[0].pairings[0].releaseSource, "fresh_curator");
+});
+
+test("production readiness appends receipts without mutating the approved audit", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  await handler(request("POST", {
+    action: "verdict", actorId: pairActor.id, vibeKey, runId: "run-1", verdict: "approved",
+  }), {});
+
+  const before = await handler(request(), {});
+  const initial = (await before.json()).productionReadiness;
+  assert.equal(initial.candidateCount, 1);
+  assert.equal(initial.scheduleEligibleCount, 0);
+  assert.equal(initial.candidates[0].exactNineFrozen.status, "complete");
+  assert.deepEqual(
+    initial.candidates[0].blockers.map(blocker => blocker.stage),
+    ["asset", "enhancement", "render", "copy", "provenanceRights", "scheduleEligibility"],
+  );
+
+  let previousReceiptId = null;
+  for (const stage of ["asset", "enhancement", "render", "copy", "provenanceRights"]) {
+    const response = await handler(request("POST", {
+      action: "production_transition",
+      actorId: pairActor.id,
+      vibeKey,
+      stage,
+      status: "complete",
+      reason: `${stage} verified`,
+    }), {});
+    const body = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(body));
+    assert.equal(body.productionReadiness.receipt.previousReceiptId, previousReceiptId);
+    previousReceiptId = body.productionReadiness.receipt.receiptId;
+  }
+
+  const after = await handler(request(), {});
+  const body = await after.json();
+  assert.equal(body.productionReadiness.scheduleEligibleCount, 1);
+  assert.equal(body.productionReadiness.candidates[0].scheduleEligible, true);
+  assert.equal(body.productionReadiness.candidates[0].blockers.length, 0);
+  assert.equal(body.actors[0].pairings[0].verdict, "approved");
+  assert.equal(
+    store.records.get(productionStateKey(pairActor.id, 0, "run-1")).currentReceiptId,
+    previousReceiptId,
+  );
+  assert.equal(
+    [...store.records.keys()].filter(key =>
+      key.startsWith(productionReceiptPrefix(pairActor.id, 0, "run-1"))).length,
+    5,
+  );
+  assert.equal(
+    [...store.records.keys()].filter(key => key.startsWith(auditVerdictPrefix(pairActor.id, 0, "run-1"))).length,
+    1,
+  );
+});
+
+test("production transitions fail closed for candidates without a current approval", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const response = await handler(request("POST", {
+    action: "production_transition",
+    actorId: pairActor.id,
+    vibeKey,
+    stage: "asset",
+    status: "complete",
+  }), {});
+  assert.equal(response.status, 409);
+  assert.equal(
+    [...store.records.keys()].some(key => key.startsWith(productionReceiptPrefix(pairActor.id, 0, "run-1"))),
+    false,
+  );
 });
 
 test("release inventory privately marks a release-ready pairing used in a recent Daily Drop", async () => {

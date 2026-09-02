@@ -67,7 +67,19 @@ test('Release Desk is the Admin workspace for private inventory', () => {
   assert.match(adminSource, />Actor Preflight Lab<\/button>/);
   assert.match(adminSource, /view === 'release-desk' \? <ReleaseDesk \/>/);
   assert.match(releaseDeskSource, /aria-label="Release Desk view"/);
-  assert.match(releaseDeskSource, /role="tab" aria-selected="true">Inventory/);
+  assert.match(releaseDeskSource, /aria-selected=\{view === 'inventory'\}/);
+  assert.match(releaseDeskSource, />Inventory<small>Current candidates/);
+  assert.match(releaseDeskSource, /aria-selected=\{view === 'production'\}/);
+  assert.match(releaseDeskSource, />Production<small>Readiness blockers/);
+  assert.match(releaseDeskSource, /<h4 id="release-production-title">Production readiness<\/h4>/);
+  assert.match(releaseDeskSource, /label="Asset"/);
+  assert.match(releaseDeskSource, /label="Enhancement"/);
+  assert.match(releaseDeskSource, /label="Render"/);
+  assert.match(releaseDeskSource, /label="Copy"/);
+  assert.match(releaseDeskSource, /label="Provenance \/ rights"/);
+  assert.match(releaseDeskSource, /label="Schedule eligibility"/);
+  assert.match(releaseDeskSource, /PLAN remains the scheduling source of truth/);
+  assert.match(releaseDeskSource, /never changes the immutable approval, evidence, or board history/);
   assert.match(releaseDeskSource, /Private editorial context/);
   assert.doesNotMatch(actorPreflightSource, /ReleaseInventory|releaseInventory/);
 

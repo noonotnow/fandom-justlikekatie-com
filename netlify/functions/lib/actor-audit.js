@@ -36,6 +36,9 @@ import {
   pairingFingerprintFor,
   rescueCalibrationRetirementHash,
   getEligibility,
+  isApproved,
+  productionReceiptKey,
+  productionStateKey,
 } from "./actor-eligibility.js";
 import {
   evaluateCandidates,
@@ -69,6 +72,28 @@ const MAX_FEEDBACK_NOTE_LENGTH = 400;
 const RESCUE_CALIBRATION_VERSION = 1;
 const MIN_REUSABLE_SIGNAL_DELTA = 0.15;
 const MIN_REUSABLE_SIGNAL_SUPPORT = 2;
+const PRODUCTION_STAGES = new Set([
+  "asset",
+  "enhancement",
+  "render",
+  "copy",
+  "provenanceRights",
+]);
+const PRODUCTION_STATUSES = new Set(["pending", "blocked", "complete"]);
+const PRODUCTION_STAGE_LABELS = {
+  asset: "Asset",
+  enhancement: "Enhancement",
+  render: "Render",
+  copy: "Copy",
+  provenanceRights: "Provenance / rights",
+};
+const DEFAULT_PRODUCTION_REASONS = {
+  asset: "Secure nine immutable production assets in MEDIA.",
+  enhancement: "Record the enhancement scrub receipt for all nine cards.",
+  render: "Verify the final nine-card render and its delivery receipt.",
+  copy: "Complete the approved edition copy and metadata.",
+  provenanceRights: "Review source provenance and confirm rights for publication.",
+};
 const FEEDBACK_INTENTS = new Set(["pin", "hero", "supporting", "exclude", "challenge"]);
 const CHALLENGE_REASONS = new Set([
   "stronger_vibe_match",
@@ -129,12 +154,13 @@ export function createActorAuditHandler({
         const vibeKey = url.searchParams.get("vibeKey");
         if (!actorId && !vibeKey) {
           const publicationStore = getPublicationStore(context);
-          const [actors, releaseInventory] = await Promise.all([
+          const [actors, releaseInventory, productionReadiness] = await Promise.all([
             listActors(store, actorPacks),
             releaseReadyInventory(store, actorPacks, {
               publicationStore,
               now,
             }),
+            productionReadinessFor(store, actorPacks),
           ]);
           return json(200, {
             schemaVersion: 1,
@@ -145,6 +171,7 @@ export function createActorAuditHandler({
             curationVersion: CURATION_VERSION,
             actors,
             releaseInventory,
+            productionReadiness,
           });
         }
         const pair = resolvePair(actorPacks, actorId, vibeKey);
@@ -165,6 +192,40 @@ export function createActorAuditHandler({
       const input = await readJson(req);
       const pair = resolvePair(actorPacks, input.actorId, input.vibeKey);
       if (!pair) return json(400, { error: "Unknown actor or Vibe Pack." });
+
+      if (input.action === "production_transition") {
+        const stage = input.stage === "provenance_rights"
+          ? "provenanceRights"
+          : input.stage;
+        if (!PRODUCTION_STAGES.has(stage)) {
+          return json(400, { error: "Choose an asset, enhancement, render, copy, or provenance/rights stage." });
+        }
+        if (!PRODUCTION_STATUSES.has(input.status)) {
+          return json(400, { error: "Production status must be pending, blocked, or complete." });
+        }
+        const reason = boundedText(input.reason, MAX_NOTE_LENGTH);
+        if (reason === null) {
+          return json(400, { error: "The production note must be text under 2000 characters." });
+        }
+        if (input.status === "blocked" && !reason) {
+          return json(400, { error: "A blocker reason is required when a stage is blocked." });
+        }
+        const snapshot = await getEligibility(store, pair.actor, pair.vibeIdx);
+        if (!isApproved(snapshot)) {
+          return json(409, { error: "Only a current approved edition can enter production readiness." });
+        }
+        const production = await transitionProductionStage(store, pair, snapshot, {
+          stage,
+          status: input.status,
+          reason: reason || null,
+          createdBy: operator.user.accountId,
+          now,
+        });
+        return json(200, {
+          productionReadiness: production,
+          pairing: pairingSummary(pair, await readReport(store, pair)),
+        });
+      }
 
       if (input.action === "run") {
         const scope = parseScope(input.scope);
@@ -1488,6 +1549,230 @@ function rescueBackupBoardsFor(snapshot) {
     seen.add(identity);
     return true;
   });
+}
+
+function productionStagesFromReceipt(receipt) {
+  return {
+    asset: receipt?.stages?.asset || {
+      status: "blocked",
+      reason: DEFAULT_PRODUCTION_REASONS.asset,
+    },
+    enhancement: receipt?.stages?.enhancement || {
+      status: "blocked",
+      reason: DEFAULT_PRODUCTION_REASONS.enhancement,
+    },
+    render: receipt?.stages?.render || {
+      status: "blocked",
+      reason: DEFAULT_PRODUCTION_REASONS.render,
+    },
+    copy: receipt?.stages?.copy || {
+      status: "blocked",
+      reason: DEFAULT_PRODUCTION_REASONS.copy,
+    },
+    provenanceRights: receipt?.stages?.provenanceRights || {
+      status: "blocked",
+      reason: DEFAULT_PRODUCTION_REASONS.provenanceRights,
+    },
+  };
+}
+
+function productionReadinessFromSnapshot(pair, snapshot, receipt = null) {
+  const boardCandidates = snapshot?.publicationBoard?.candidates;
+  const exactNineFrozen = Array.isArray(boardCandidates)
+    && boardCandidates.length === 9
+    && new Set(boardCandidates.map(candidate => candidate?.candidateId)).size === 9;
+  const stages = productionStagesFromReceipt(receipt);
+  const blockers = [];
+  if (!isApproved(snapshot)) {
+    blockers.push({
+      stage: "editorialApproval",
+      label: "Editorial approval",
+      reason: "The current Actor Preflight approval is not valid for production.",
+    });
+  }
+  if (!exactNineFrozen) {
+    blockers.push({
+      stage: "exactNine",
+      label: "Exact nine frozen",
+      reason: "The approved publication board does not contain nine distinct cards.",
+    });
+  }
+  for (const stage of PRODUCTION_STAGES) {
+    if (stages[stage].status !== "complete") {
+      blockers.push({
+        stage,
+        label: PRODUCTION_STAGE_LABELS[stage],
+        status: stages[stage].status,
+        reason: stages[stage].reason || `The ${PRODUCTION_STAGE_LABELS[stage].toLowerCase()} stage is not complete.`,
+      });
+    }
+  }
+  const scheduleEligible = blockers.length === 0;
+  if (!scheduleEligible) {
+    blockers.push({
+      stage: "scheduleEligibility",
+      label: "Schedule eligibility",
+      status: "blocked",
+      reason: `${blockers.length} prerequisite${blockers.length === 1 ? "" : "s"} must be complete before PLAN can schedule this edition.`,
+    });
+  }
+  return {
+    schemaVersion: 1,
+    actorId: pair.actor.id,
+    actorName: pair.actor.name,
+    vibeKey: pair.vibeKey,
+    vibeIdx: pair.vibeIdx,
+    vibeLabel: pair.vibe.label_en || pair.vibe.label || pair.vibeKey,
+    runId: snapshot?.runId || null,
+    pairingFingerprint: snapshot?.pairingFingerprint || null,
+    approval: {
+      status: isApproved(snapshot) ? "approved" : "not_approved",
+      verdict: snapshot?.verdict || null,
+      decidedAt: snapshot?.decidedAt || null,
+      decisionId: snapshot?.decisionId || null,
+      publicationSource: snapshot?.publicationSource?.type || null,
+    },
+    exactNineFrozen: {
+      status: exactNineFrozen ? "complete" : "blocked",
+      cardCount: Array.isArray(boardCandidates) ? boardCandidates.length : 0,
+      reason: exactNineFrozen ? null : "The approval receipt is missing an exact nine-card board.",
+    },
+    stages,
+    scheduleEligible,
+    state: scheduleEligible ? "schedule_eligible" : "blocked",
+    blockers,
+    receipt: receipt
+      ? {
+        receiptId: receipt.receiptId,
+        previousReceiptId: receipt.previousReceiptId || null,
+        createdAt: receipt.createdAt,
+        createdBy: receipt.createdBy,
+      }
+      : null,
+  };
+}
+
+async function readProductionReceipt(store, pair, snapshot) {
+  if (!snapshot?.runId) return null;
+  const state = await store.get(
+    productionStateKey(pair.actor.id, pair.vibeIdx, snapshot.runId),
+    { type: "json", consistency: "strong" },
+  );
+  if (!state?.currentReceiptId) return null;
+  return store.get(
+    productionReceiptKey(pair.actor.id, pair.vibeIdx, snapshot.runId, state.currentReceiptId),
+    { type: "json", consistency: "strong" },
+  );
+}
+
+export async function productionReadinessFor(store, actorPacks) {
+  const candidates = [];
+  for (const actor of actorPacks) {
+    for (let vibeIdx = 0; vibeIdx < (actor.vibes || []).length; vibeIdx += 1) {
+      const pair = resolvePair(actorPacks, actor.id, vibeKeyFor(actor.id, vibeIdx));
+      const snapshot = await getEligibility(store, actor, vibeIdx);
+      if (!isApproved(snapshot)) continue;
+      const receipt = await readProductionReceipt(store, pair, snapshot);
+      candidates.push(productionReadinessFromSnapshot(pair, snapshot, receipt));
+    }
+  }
+  return {
+    schemaVersion: 1,
+    candidateCount: candidates.length,
+    scheduleEligibleCount: candidates.filter(candidate => candidate.scheduleEligible).length,
+    blockedCount: candidates.filter(candidate => !candidate.scheduleEligible).length,
+    candidates,
+  };
+}
+
+export async function transitionProductionStage(
+  store,
+  pair,
+  snapshot,
+  { stage, status, reason, createdBy, now = () => new Date() },
+) {
+  if (!isApproved(snapshot)) {
+    const error = new Error("Only a current approved edition can enter production readiness.");
+    error.status = 409;
+    throw error;
+  }
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const stateKey = productionStateKey(pair.actor.id, pair.vibeIdx, snapshot.runId);
+    const stateEntry = await getJSONEntry(store, stateKey);
+    const previousReceipt = stateEntry?.data?.currentReceiptId
+      ? await store.get(
+        productionReceiptKey(
+          pair.actor.id,
+          pair.vibeIdx,
+          snapshot.runId,
+          stateEntry.data.currentReceiptId,
+        ),
+        { type: "json", consistency: "strong" },
+      )
+      : null;
+    const stages = productionStagesFromReceipt(previousReceipt);
+    stages[stage] = { status, reason: reason || null };
+    const receiptIdentity = {
+      actorId: pair.actor.id,
+      vibeKey: pair.vibeKey,
+      vibeIdx: pair.vibeIdx,
+      runId: snapshot.runId,
+      pairingFingerprint: snapshot.pairingFingerprint,
+      previousReceiptId: previousReceipt?.receiptId || null,
+      stage,
+      status,
+      reason: reason || null,
+      stages,
+    };
+    const receiptId = recordHash(receiptIdentity).slice(0, 24);
+    const receipt = {
+      schemaVersion: 1,
+      receiptId,
+      ...receiptIdentity,
+      createdAt: now().toISOString(),
+      createdBy,
+    };
+    const receiptWrite = await store.setJSON(
+      productionReceiptKey(pair.actor.id, pair.vibeIdx, snapshot.runId, receiptId),
+      receipt,
+      { onlyIfNew: true },
+    );
+    if (receiptWrite?.modified === false) {
+      const existing = await store.get(
+        productionReceiptKey(pair.actor.id, pair.vibeIdx, snapshot.runId, receiptId),
+        { type: "json", consistency: "strong" },
+      );
+      if (recordHash(existing) !== recordHash(receipt)) {
+        const error = new Error("Production readiness receipts are immutable.");
+        error.status = 409;
+        throw error;
+      }
+    }
+    const state = {
+      schemaVersion: 1,
+      actorId: pair.actor.id,
+      vibeKey: pair.vibeKey,
+      vibeIdx: pair.vibeIdx,
+      runId: snapshot.runId,
+      pairingFingerprint: snapshot.pairingFingerprint,
+      currentReceiptId: receiptId,
+      updatedAt: receipt.createdAt,
+    };
+    const stateOptions = stateEntry?.etag
+      ? { onlyIfMatch: stateEntry.etag }
+      : stateEntry?.data
+        ? null
+        : { onlyIfNew: true };
+    if (!stateOptions) continue;
+    const stateWrite = await store.setJSON(stateKey, state, stateOptions);
+    if (stateWrite?.modified === false) continue;
+    const written = await store.get(stateKey, { type: "json", consistency: "strong" });
+    if (written?.currentReceiptId !== receiptId) continue;
+    return productionReadinessFromSnapshot(pair, snapshot, receipt);
+  }
+  const error = new Error("Another production update was recorded first. Refresh and try again.");
+  error.status = 409;
+  throw error;
 }
 
 export async function releaseReadyInventory(
