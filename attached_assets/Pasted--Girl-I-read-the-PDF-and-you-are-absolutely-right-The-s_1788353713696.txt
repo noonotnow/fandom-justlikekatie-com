@@ -1,0 +1,166 @@
+**Girl, I read the PDF—and you are absolutely right. The system’s own receipt disproves its conclusion.**
+
+For Dylan’s **High-volume face economy** audit, it says:
+
+- **Event formed a complete proposal**
+- **9 of 9 cards fulfilled the required anchors**
+- **Compiled formed a complete proposal**
+- **9 of 9 cards fulfilled the required anchors**
+- 36 retained results
+- 36 rescue-board images available
+- 0 unavailable
+- 8 detected Event families
+
+Then it somehow concludes:
+
+- “Event board missing”
+- “Compiled board missing”
+- “No candidate board reached nine images”
+- “0 clean display images”
+
+That is not an editorial judgment. **That is contradictory state calculation or contradictory UI copy.**
+
+## What probably happened
+
+The most likely culprit is the separate **on-promise hero gate**. Both boards met the 9/9 card threshold, but the selected hero may have failed a separate hero check.
+
+If so, the honest output would be:
+
+> Complete nine-card board formed with 9/9 automated anchor recognition, but the proposed hero did not pass automated hero recognition.
+> 
+
+It must **not** say:
+
+> No candidate board reached nine images.
+> 
+
+Because the candidates did reach nine. Twice.
+
+And even if the hero failed, the system should display both complete boards and let you:
+
+- Choose a different hero
+- Reorder the nine
+- Approve one exact board
+- Reject it editorially
+- Compare Event versus Compiled
+
+A weak proposed hero does not vaporize the other eight cards.
+
+## “0 clean display images” is also mislabeled
+
+The PDF simultaneously says:
+
+- 0 clean display images
+- 36 available
+- 0 unavailable
+- 0 excluded
+
+So “clean display images” clearly does **not** mean “images that can be displayed.” It appears to mean something closer to “images belonging to an automatically qualified board.”
+
+That label is misleading. These need to be separate:
+
+- **Displayable retained images: 36**
+- **Unavailable images: 0**
+- **Automatically qualified publication cards: whatever the model calculated**
+
+The system cannot call 36 visibly available images “0 clean display images.”
+
+## Editorially, Dylan is not the problem
+
+If Dylan repeatedly appears as **an implausibly attractive man framed against severe, expensive architecture**, that may genuinely be part of the visual promise.
+
+The algorithm should not manufacture a more complicated psychological story merely to prove it has sophisticated taste. A strong Vibe can be:
+
+> Beautiful face. Monumental environment. Severe styling. Completely unreasonable visual impact.
+> 
+
+The pack is called **High-volume face economy**. The evidence does not need to depict an elaborate character arc. It needs to argue that his face is doing economically consequential amounts of work.
+
+If architecture, scale, clean lines, urban polish, and Dylan’s face bind the cards together, that is a real editorial thesis. We should evaluate whether the board looks spectacular—not punish it because Dylan had the audacity to stand near another building.
+
+# The Star of the Day/release-inventory mess
+
+There were actually **two separate failures** in that Replit exchange.
+
+## 1. Deployment source drift
+
+The work existed on Replit’s `main`, but Netlify was reading GitHub’s `main`, which was behind.
+
+That means “implemented,” “merged,” and “live” were being treated as if they meant the same thing when they did not.
+
+You need three explicit states:
+
+- **Implemented in task workspace**
+- **Merged into repository source of truth**
+- **Deployed to production**
+
+A task should never be described as available on your site until the deployed Netlify revision is verified.
+
+## 2. The inventory was put in the wrong conceptual location
+
+The inventory existed inside **Actor preflight**, while Admin opened **PLAN schedule**.
+
+Your expectation was reasonable. Release Inventory governs what can ship; it is not merely another actor-calibration diagnostic.
+
+Making Actor Preflight the universal Admin landing screen makes the inventory visible, but it **papers over the information-architecture problem**. Release Inventory should ideally be:
+
+- Its own Operator Console subtab, **or**
+- A persistent top-level section available across PLAN schedule and Actor preflight
+
+It should not depend on knowing that “release inventory” secretly lives inside “actor preflight.”
+
+# The real protection Star of the Day needs
+
+The Release Inventory must be generated from **immutable approved publication receipts**, not from:
+
+- The latest audit status
+- Whether the curator can regenerate a board
+- The current route
+- Whatever code version happens to classify the pairing today
+- A rerun of image search
+
+For each approved item, inventory should show:
+
+- Actor
+- Vibe Pack
+- Event or Compiled
+- Exact publication receipt
+- Exact nine-card arrangement
+- Hero position
+- Both human confirmations
+- Asset readiness
+- Enhancement status
+- Export readiness
+- Scheduled date
+- Repeat-actor warning
+
+A future algorithm update can mark the curator as needing recalibration, but it cannot make an already approved exact board disappear.
+
+## Paste-ready correction for Replit
+
+> **Fix contradictory board qualification and Release Inventory architecture.**
+> 
+> 
+> Dylan’s High-volume face economy audit `ec2d3d3e-afa8-445d-a0b2-92ac76fbc8fa` reports that both Event and Compiled formed complete nine-card proposals with 9/9 required-anchor fulfillment. It nevertheless labels both boards missing, says no candidate reached nine images, and reports 0 clean display images despite 36 retained/displayable images, 36 rescue images available, and 0 unavailable.
+> 
+> Requirements:
+> 
+> 1. Whenever a nine-card proposal exists, display it for review even if it fails an automated publication gate.
+> 2. Never say “No candidate board reached nine images” when a complete proposal exists.
+> 3. If the only failure is the hero gate, state that explicitly and permit hero replacement/reordering.
+> 4. Separate displayability from automated qualification:
+>     - Displayable retained images
+>     - Unavailable images
+>     - Automatically qualified cards
+> 5. Do not label displayable images as “0 clean display images” merely because no board was automatically approved.
+> 6. Preserve the exact-board human approval path regardless of automated qualification.
+> 7. Build Release Inventory from immutable approved publication receipts, not current audit status or regenerated boards.
+> 8. Give Release Inventory a first-class Operator Console location rather than making its visibility depend on Actor Preflight being the default route.
+> 9. Show implemented, merged, deployed, and deployed revision as separate release states.
+> 10. Add regression coverage for:
+>     - Complete 9/9 board with failed hero recognition
+>     - Complete proposal shown despite automatic rejection
+>     - 36 displayable retained images never rendered as 0 display images
+>     - Approved exact receipt remaining in inventory after contract/version changes
+
+So yes: **they did not establish that none of those images could make a grid. Their own audit established the opposite.** The retrieval and board formation worked; the final gate/status language lied about what had already happened.
