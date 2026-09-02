@@ -514,9 +514,11 @@ function completeCompiledHeroReviewRun(): AnyRecord {
 
 async function configureCompleteHeroReviewNetwork(page: Page): Promise<{
   saveRequests: AnyRecord[];
+  verdictRequests: AnyRecord[];
 }> {
   let savedBoard: AnyRecord | undefined;
   const saveRequests: AnyRecord[] = [];
+  const verdictRequests: AnyRecord[] = [];
 
   await page.route('**/api/auth/session', route => route.fulfill({
     contentType: 'application/json',
@@ -590,45 +592,93 @@ async function configureCompleteHeroReviewNetwork(page: Page): Promise<{
     }
 
     const input = request.postDataJSON() as AnyRecord;
-    saveRequests.push(input);
-    assert.equal(input.action, 'save_rescue_board');
-    assert.equal(input.runId, 'complete-hero-review');
-    const retainedById = new Map(candidates().map(item => [item.candidateId, item]));
-    savedBoard = {
-      schemaVersion: 1,
-      receiptId: RESCUE_RECEIPT_ID,
-      runId: 'complete-hero-review',
-      actorId: ACTOR_ID,
-      vibeKey: VIBE_KEY,
-      feedbackHash: 'browser-feedback-hash',
-      board: {
-        mode: 'operator_rescue',
-        candidates: input.candidateIds.map((candidateId: string) => retainedById.get(candidateId)),
-      },
-      savedAt: '2026-08-31T12:01:00.000Z',
-      savedBy: 'browser-operator',
-    };
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        actor: actor('needs_operator_verdict'),
-        pairing: actor('needs_operator_verdict').pairings[0],
+    if (input.action === 'save_rescue_board') {
+      saveRequests.push(input);
+      assert.equal(input.runId, 'complete-hero-review');
+      const retainedById = new Map(candidates().map(item => [item.candidateId, item]));
+      savedBoard = {
+        schemaVersion: 1,
+        receiptId: RESCUE_RECEIPT_ID,
+        runId: 'complete-hero-review',
         actorId: ACTOR_ID,
         vibeKey: VIBE_KEY,
-        currentRun: {
-          ...completeCompiledHeroReviewRun(),
-          editorialFeedback: feedback(savedBoard),
+        feedbackHash: 'browser-feedback-hash',
+        board: {
+          mode: 'operator_rescue',
+          candidates: input.candidateIds.map((candidateId: string) => retainedById.get(candidateId)),
         },
-        priorRuns: [],
-        verdict: null,
-        notes: '',
-        verdictAt: null,
-        calibrationProfile: null,
-      }),
-    });
+        savedAt: '2026-08-31T12:01:00.000Z',
+        savedBy: 'browser-operator',
+      };
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          actor: actor('needs_operator_verdict'),
+          pairing: actor('needs_operator_verdict').pairings[0],
+          actorId: ACTOR_ID,
+          vibeKey: VIBE_KEY,
+          currentRun: {
+            ...completeCompiledHeroReviewRun(),
+            editorialFeedback: feedback(savedBoard),
+          },
+          priorRuns: [],
+          verdict: null,
+          notes: '',
+          verdictAt: null,
+          calibrationProfile: null,
+        }),
+      });
+      return;
+    }
+    if (input.action === 'verdict') {
+      verdictRequests.push(input);
+      assert.equal(input.runId, 'complete-hero-review');
+      assert.equal(input.verdict, 'approved');
+      assert.equal(input.vibeConfirmed, true);
+      assert.equal(input.publishableConfirmed, true);
+      assert.equal(input.rescuePreferred, true);
+      assert.equal(input.rescueReceiptId, RESCUE_RECEIPT_ID);
+      assert.ok(savedBoard, 'the scheduling verdict must follow the rescue-board save');
+      const approvedRun = {
+        ...completeCompiledHeroReviewRun(),
+        editorialFeedback: feedback(savedBoard),
+        operatorVerdict: {
+          verdict: 'approved',
+          notes: input.notes,
+          vibeConfirmed: true,
+          publishableConfirmed: true,
+          rescuePreference: {
+            preferred: true,
+            rescueReceiptId: RESCUE_RECEIPT_ID,
+          },
+          publicationSource: {
+            type: 'operator_rescue',
+            rescueReceiptId: RESCUE_RECEIPT_ID,
+            boardHash: 'browser-rescue-board-hash',
+            feedbackHash: 'browser-feedback-hash',
+          },
+        },
+      };
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          actor: actor('needs_operator_verdict', true),
+          pairing: actor('needs_operator_verdict', true).pairings[0],
+          actorId: ACTOR_ID,
+          vibeKey: VIBE_KEY,
+          currentRun: approvedRun,
+          priorRuns: [],
+          verdict: 'approved',
+          notes: input.notes,
+          calibrationProfile: null,
+        }),
+      });
+      return;
+    }
+    throw new Error(`Unexpected complete hero review action: ${String(input.action)}`);
   });
 
-  return { saveRequests };
+  return { saveRequests, verdictRequests };
 }
 
 test('a signed-in operator keeps ordinary rescue records separate from calibration proof', { timeout: 60_000 }, async () => {
@@ -722,7 +772,7 @@ test('an admin can hand off a complete compiled proposal that needs hero review'
   const { server, origin } = await startApp();
   const browser = await launchBrowser();
   const page = await browser.newPage();
-  const { saveRequests } = await configureCompleteHeroReviewNetwork(page);
+  const { saveRequests, verdictRequests } = await configureCompleteHeroReviewNetwork(page);
 
   try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
@@ -780,6 +830,39 @@ test('an admin can hand off a complete compiled proposal that needs hero review'
     await page.getByText('Saved rescue records', { exact: true }).waitFor();
     assert.equal(saveRequests.length, 1);
     assert.deepEqual(saveRequests[0].candidateIds, expectedIds, 'the handoff must save the exact edited board');
+
+    await page.getByLabel('Publication decision').selectOption('approved');
+    await page.getByLabel('Yes, that’s the Vibe.').check();
+    await page.getByLabel('Yes, this is publishable.').check();
+    const receiptSelect = page.getByLabel('Approved retained-evidence receipt');
+    await receiptSelect.selectOption(RESCUE_RECEIPT_ID);
+    assert.equal(await receiptSelect.inputValue(), RESCUE_RECEIPT_ID);
+
+    const verdictButton = page.getByRole('button', { name: 'Save scheduling verdict', exact: true });
+    assert.equal(await verdictButton.isEnabled(), true, 'both publication checks and the selected receipt must enable approval');
+    await verdictButton.click();
+    await page.getByText(
+      'Exact nine-card retained-evidence board approved for publication with both human confirmations.',
+      { exact: true },
+    ).waitFor();
+    assert.equal(verdictRequests.length, 1);
+    assert.deepEqual(verdictRequests[0], {
+      action: 'verdict',
+      actorId: ACTOR_ID,
+      vibeKey: VIBE_KEY,
+      runId: 'complete-hero-review',
+      verdict: 'approved',
+      notes: '',
+      vibeConfirmed: true,
+      publishableConfirmed: true,
+      rescuePreferred: true,
+      rescueReceiptId: RESCUE_RECEIPT_ID,
+    }, 'approval must submit the exact selected rescue receipt');
+    assert.equal(
+      await page.getByText(`Exact approved receipt ${RESCUE_RECEIPT_ID.slice(0, 8)} is the publication board.`, { exact: true }).isVisible(),
+      true,
+      'the approved receipt must remain the publication source after submission',
+    );
   } finally {
     await browser.close();
     await server.close();

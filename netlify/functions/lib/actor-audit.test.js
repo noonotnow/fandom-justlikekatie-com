@@ -2942,7 +2942,7 @@ test("a saved retained-evidence board can be approved without a curator comparis
 });
 
 test("a complete Compiled proposal with only a failed hero stays visible and reviewable", async () => {
-  const { handler } = harness({ sufficient: true, heroReview: true });
+  const { handler, store } = harness({ sufficient: true, heroReview: true });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   const runResponse = await handler(request("POST", {
     action: "run", actorId: pairActor.id, vibeKey, scope: "full",
@@ -3010,6 +3010,23 @@ test("a complete Compiled proposal with only a failed hero stays visible and rev
   const approval = await approvalResponse.json();
   assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
   assert.equal(approval.currentRun.operatorVerdict.publicationSource.type, "operator_rescue");
+  assert.equal(
+    approval.currentRun.operatorVerdict.publicationSource.rescueReceiptId,
+    receiptId,
+  );
+  assert.deepEqual(
+    approval.currentRun.editorialFeedback.operatorRescueBoard.board.candidates
+      .map(candidate => candidate.candidateId),
+    reorderedIds,
+    "approval must retain the exact saved rescue arrangement",
+  );
+  assert.equal(approval.currentRun.strongestCompiled, null);
+  assert.equal(approval.currentRun.winner, null);
+  assert.equal(
+    store.records.get(eligibilityKey(pairActor.id, 0)).publicationSource.rescueReceiptId,
+    receiptId,
+    "eligibility must point to the approved rescue receipt rather than the failed curator board",
+  );
 });
 
 test("an approval from a legacy profile contract is visibly marked for reapproval", async () => {
