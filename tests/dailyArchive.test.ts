@@ -32,3 +32,15 @@ test('every return to today clears per-image edition state', () => {
   assert.match(appSource, /params\.delete\('date'\)/);
   assert.match(appSource, /openArchivePicker\(\)/);
 });
+
+test('archived editions expose an accessible date-aware copy link, but today does not', () => {
+  assert.match(appSource, /const copyArchivedEditionLink = async \(\) =>/);
+  assert.match(appSource, /navigator\.clipboard\?\.writeText/);
+  assert.match(appSource, /new URL\('\/vibe-atlas', window\.location\.origin\)/);
+  assert.match(appSource, /shareUrl\.searchParams\.set\('date', selectedEditionDate\)/);
+  assert.match(appSource, /Copied link for \$\{formatEditionDate\(selectedEditionDate\)\}/);
+  assert.match(appSource, /Could not copy this archived edition link/);
+  assert.match(appSource, /role="status" aria-live="polite"/);
+  assert.match(appSource, /selectedEditionDate && isValidVibeAtlasEditionDate\(selectedEditionDate\)/);
+  assert.match(appSource, /Copy archived edition link/);
+});
