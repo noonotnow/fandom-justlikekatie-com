@@ -116,86 +116,6 @@ export async function buildPayloadForDate(
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
     }
-    if (approval.publicationSource?.type === "operator_rescue"
-      || approval.publicationSource?.type === "curated_board") {
-      const displayResults = approval.publicationBoard?.candidates || [];
-      if (displayResults.length !== 9) {
-        excluded.add(`${actor.id}:${seed.vIdx}`);
-        continue;
-      }
-      const publicResults = displayResults.map(publicDisplayResult);
-      if (publicationStore && materializePublication) {
-        try {
-          const materialized = await materializePublication({
-            store: publicationStore,
-            date: dateString,
-            actor: {
-              id: actor.id,
-              name: actor.name,
-              nameEn: actor.shortName_en || actor.shortName || actor.name,
-              accentColor: actor.accentColor || "#c9a96e",
-            },
-            vibe: {
-              key: `${actor.id}:${seed.vIdx}`,
-              idx: seed.vIdx,
-              label: vibe.label || vibe.label_en || `${actor.id}:${seed.vIdx}`,
-              labelEn: vibe.label_en || vibe.label || `${actor.id}:${seed.vIdx}`,
-              emoji: vibe.emoji || "✨",
-              subtitle: vibe.subtitle || "",
-              subtitleEn: vibe.subtitle_en || vibe.subtitle || "",
-              supportingCopy: vibe.supportingCopy || "",
-              supportingCopyEn: vibe.supportingCopy_en || "",
-              generationPrompt: vibe.mjPrompt || "",
-            },
-            board: approval.publicationBoard,
-            provenance: {
-              sourceType: approval.publicationSource.type,
-              runId: approval.runId || null,
-              rescueReceiptId: approval.publicationSource.rescueReceiptId || null,
-              rescueBoardHash: approval.publicationSource.boardHash || null,
-              feedbackHash: approval.publicationSource.feedbackHash || null,
-            },
-            env: mediaEnv,
-            fetchImpl,
-            now: generatedAt,
-          });
-          return materialized.payload;
-        } catch {
-          excluded.add(`${actor.id}:${seed.vIdx}`);
-          continue;
-        }
-      }
-      return {
-        version: VERSION,
-        date: dateString,
-        actorId: actor.id,
-        actorIdx: seed.aIdx,
-        actorName: actor.name,
-        actorShortNameEn: actor.shortName_en,
-        actorAccentColor: actor.accentColor,
-        vibeIdx: seed.vIdx,
-        vibeEmoji: vibe.emoji,
-        vibeLabel: vibe.label,
-        vibeLabelEn: vibe.label_en,
-        vibeSubtitle: vibe.subtitle,
-        vibeSubtitleEn: vibe.subtitle_en,
-        vibeSupportingCopy: vibe.supportingCopy,
-        vibeSupportingCopyEn: vibe.supportingCopy_en,
-        generationPrompt: vibe.mjPrompt,
-        rankedBatches: [{
-          query: approval.publicationSource.type === "curated_board"
-            ? `curated-${approval.publicationSource.mode}-board`
-            : "editorial-board",
-          results: publicResults,
-          count: publicResults.length,
-          distinctSources: new Set(publicResults.map(candidate => candidate.source).filter(Boolean)).size,
-          provider: null,
-        }],
-        displayResults: publicResults,
-        generatedAt: generatedAt(),
-      };
-    }
-
     const candidates = await evaluate(vibe.queries, search);
     const ranked = rank(candidates).slice(0, RANKED_BATCH_LIMIT);
 
@@ -297,20 +217,6 @@ export async function buildPayloadForDate(
       generatedAt: generatedAt(),
     };
   }
-}
-
-function publicDisplayResult(candidate) {
-  return {
-    title: candidate.title || "",
-    thumbnail: candidate.thumbnail || "",
-    link: candidate.link || "",
-    source: candidate.source || "",
-    ...(candidate.familyId ? { familyId: candidate.familyId } : {}),
-    ...(candidate.familyLabel ? { familyLabel: candidate.familyLabel } : {}),
-    ...(candidate.familyEvidence ? { familyEvidence: candidate.familyEvidence } : {}),
-    ...(candidate.query ? { query: candidate.query } : {}),
-    ...(candidate.batchKey ? { batchKey: candidate.batchKey } : {}),
-  };
 }
 
 // Attempts to acquire the build lock for a date. Returns true if this request

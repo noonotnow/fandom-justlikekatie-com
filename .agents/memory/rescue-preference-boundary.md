@@ -13,7 +13,7 @@ A separate exact-board path applies when the curator cannot form two complete bo
 
 **Why:** Visual editorial judgment can recognize a coherent narrative that brittle per-card metadata reports as 0/9. Publishing only the exact confirmed receipt fixes that false negative without granting blanket access to hidden, unavailable, excluded, changed, or future evidence.
 
-**How to apply:** Keep ordinary preference metadata non-eligibility-bearing. For exact-board approval, verify the current run and contract, nine distinct candidates, receipt identity and board hash, both human confirmations, and fail closed if the stored receipt changes or disappears. Daily Drop must use that exact frozen board without rerunning search.
+**How to apply:** Keep ordinary preference metadata non-eligibility-bearing. For exact-board approval, verify the current run and contract, nine distinct candidates, receipt identity and board hash, both human confirmations, and fail closed if the stored receipt changes or disappears. Use that exact frozen board only for an explicit publication/backfill action. The automatic Daily Drop must still run fresh search, learned ranking, and curation for the date-selected pairing; it must never default or fall back to a saved editorial board.
 
 The algorithm is a scout and first draft, not the editor-in-chief: semantic scoring may surface useful evidence while making an absurd narrative leap, so the human-approved board owns the final Vibe judgment.
 

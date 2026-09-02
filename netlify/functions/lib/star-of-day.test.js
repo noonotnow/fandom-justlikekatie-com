@@ -511,7 +511,7 @@ test("the builder skips a failed approved pairing and preserves the public 3x3 p
   assert.equal("eligibility" in payload, false);
 });
 
-test("the builder publishes the exact human-approved retained-evidence board without searching", async () => {
+test("the builder prefers fresh curation over an approved retained-evidence board", async () => {
   const packs = [
     {
       id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
@@ -527,28 +527,34 @@ test("the builder publishes the exact human-approved retained-evidence board wit
     ...operatorBoardEligibility(packs[1], 0),
   });
   let searches = 0;
+  const freshResults = Array.from({ length: 9 }, (_, index) => ({
+    candidateId: `fresh-${index}`,
+    title: `Fresh frame ${index}`,
+    thumbnail: `https://images.test/fresh-${index}.jpg`,
+    source: `fresh-${index}.test`,
+  }));
   const payload = await buildPayloadForDate("2026-09-01", eligibilityStore, {
     packs,
     evaluate: async () => {
       searches += 1;
-      return [];
+      return [{ query: "fresh query", results: freshResults }];
     },
+    rank: candidates => candidates,
+    curate: async () => ({
+      displayResults: freshResults,
+      curation: { mode: "compiled", version: 1, rationale: "Fresh evidence.", signals: [] },
+    }),
     generatedAt: () => "2026-09-01T12:00:00.000Z",
   });
 
-  assert.equal(searches, 0);
+  assert.equal(searches, 1);
   assert.equal(payload.displayResults.length, 9);
-  assert.equal("curation" in payload, false);
-  assert.equal(JSON.stringify(payload).includes("0/9"), false);
-  assert.equal(JSON.stringify(payload).includes("coreCount"), false);
-  assert.equal(JSON.stringify(payload).includes("boardHash"), false);
-  assert.equal(payload.rankedBatches[0].query, "editorial-board");
-  assert.ok(payload.displayResults.every(candidate =>
-    candidate.thumbnail.includes(`${payload.actorId}-0-manual-`)));
-  assert.ok(payload.displayResults.every(candidate => !("candidateId" in candidate)));
+  assert.equal(payload.rankedBatches[0].query, "fresh query");
+  assert.equal(payload.displayResults[0].thumbnail, "https://images.test/fresh-0.jpg");
+  assert.equal(payload.curation.mode, "compiled");
 });
 
-test("the builder publishes one approved curated board without searching", async () => {
+test("the builder does not fall back to an approved curated board when fresh search fails", async () => {
   const actor = {
     id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
     vibes: [{ label: "A0", label_en: "A0", queries: ["unused"] }],
@@ -564,11 +570,8 @@ test("the builder publishes one approved curated board without searching", async
     generatedAt: () => "2026-09-01T12:00:00.000Z",
   });
 
-  assert.equal(searches, 0);
-  assert.equal(payload.displayResults.length, 9);
-  assert.equal(payload.rankedBatches[0].query, "curated-event-board");
-  assert.equal("curation" in payload, false);
-  assert.ok(payload.displayResults.every(candidate => !("candidateId" in candidate)));
+  assert.equal(searches, 1);
+  assert.equal(payload, null);
 });
 
 test("a changed retained-evidence receipt fails closed after human approval", async () => {
