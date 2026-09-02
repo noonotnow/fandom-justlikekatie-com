@@ -942,7 +942,7 @@ function completedSourceVersion(record) {
     && Number.isSafeInteger(record.receipt?.sourceVersion)
     && record.receipt.sourceVersion >= 0
     ? record.receipt.sourceVersion
-    : 0;
+    : null;
 }
 
 async function withLock(key, work) {

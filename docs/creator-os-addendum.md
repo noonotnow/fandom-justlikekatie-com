@@ -42,7 +42,8 @@ Fandom emits `fandom.static-deliverable.v1` with `workflow: direct`,
 `outputId`, `deliverableId`, and `renderVariant`, numeric `sourceVersion` and
 receipt-store-derived `expectedSourceVersion`, ordered durable `sourceCards`,
 one canonical rendered cover in `mediaAttachments`, a `publicationBrief`, and
-a `draft` projection.
+a `draft` projection. A first create sends `expectedSourceVersion: null`;
+updates send the prior completed receipt's numeric `sourceVersion`.
 
 Each source card preserves `id`, `order`, `imageUrl`, `sourceUrl`, optional
 `title`, `creator`, `capturedAt`, and `provenance`, and adds the complete MEDIA

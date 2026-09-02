@@ -235,7 +235,7 @@ test("emits the exact direct live_grid contract and replays its durable receipt"
   assert.equal(body.renderVariant, "vibe-atlas-grid-cover-v1");
   assert.ok(Number.isSafeInteger(body.sourceVersion));
   assert.ok(body.sourceVersion > 0);
-  assert.equal(body.expectedSourceVersion, 0);
+  assert.equal(body.expectedSourceVersion, null);
   assert.equal(body.sourceFingerprint, source.sourceVersion);
   assert.equal(body.idempotencyKey, "fandom/direct/grid/grid-1/live-grid");
   assert.equal(options.headers["Idempotency-Key"], body.idempotencyKey);
