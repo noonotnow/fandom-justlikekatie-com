@@ -476,12 +476,16 @@ test('a signed-in operator keeps ordinary rescue records separate from calibrati
   try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
-    await page.getByRole('heading', { name: 'Release inventory' }).waitFor();
+    await page.getByRole('tab', { name: 'Release Desk', exact: true }).click();
+    await page.getByRole('heading', { name: 'Release Desk', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'Inventory', exact: true }).waitFor();
     assert.equal(await page.getByText('1', { exact: true }).first().isVisible(), true);
     assert.equal(await page.getByText(/12:00 PM Asia\/Shanghai/).isVisible(), true);
     assert.equal(await page.getByText('Actor repeat watch', { exact: true }).isVisible(), true);
     assert.equal(await page.getByText('Last Daily Drop · Aug 30, 2026', { exact: true }).isVisible(), true);
 
+    await page.getByRole('tab', { name: 'Actor preflight', exact: true }).click();
+    await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
     await page.getByRole('button', { name: 'Run audit', exact: true }).click();
     await page.getByRole('button', { name: 'Choose Compiled', exact: true }).click();
     await page.getByRole('button', { name: 'Choose nine to save', exact: true }).waitFor();

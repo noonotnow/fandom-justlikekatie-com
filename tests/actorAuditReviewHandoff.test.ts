@@ -9,6 +9,10 @@ const source = readFileSync(
   path.join(dirname, '../src/components/FandomAdmin/ActorPreflightLab.tsx'),
   'utf8',
 );
+const releaseDeskSource = readFileSync(
+  path.join(dirname, '../src/components/FandomAdmin/ReleaseDesk.tsx'),
+  'utf8',
+);
 
 function functionBody(name: string): string {
   const start = source.indexOf(`async function ${name}`);
@@ -102,16 +106,18 @@ test('the rescue board is a manual operator override without changing the frozen
   assert.match(source, /previous saved arrangement is retained as history/);
 });
 
-test('the private preflight shows grouped release depth and the Shanghai noon cutoff', () => {
-  assert.match(source, /Release inventory/);
-  assert.match(source, /release-ready actor × Vibe pairings/);
-  assert.match(source, /fresh-curator pairings/);
-  assert.match(source, /explicit publishable rescue boards/);
-  assert.match(source, /Actor repeat watch/);
-  assert.match(source, /Pair repeat ·/);
-  assert.match(source, /Last actor Daily Drop/);
-  assert.match(source, /12:00 PM Asia\/Shanghai/);
-  assert.match(source, /inventory\.actorPacks/);
+test('the Release Desk shows grouped release depth and the Shanghai noon cutoff', () => {
+  assert.match(releaseDeskSource, /<h3 id="release-desk-title">Release Desk<\/h3>/);
+  assert.match(releaseDeskSource, /<h4 id="release-inventory-title">Inventory<\/h4>/);
+  assert.match(releaseDeskSource, /release-ready actor × Vibe pairings/);
+  assert.match(releaseDeskSource, /fresh-curator pairings/);
+  assert.match(releaseDeskSource, /explicit publishable rescue boards/);
+  assert.match(releaseDeskSource, /Actor repeat watch/);
+  assert.match(releaseDeskSource, /Pair repeat ·/);
+  assert.match(releaseDeskSource, /Last actor Daily Drop/);
+  assert.match(releaseDeskSource, /12:00 PM Asia\/Shanghai/);
+  assert.match(releaseDeskSource, /inventory\.actorPacks/);
+  assert.doesNotMatch(source, /ReleaseInventory|releaseInventory/);
 });
 
 test('saved rescue history exposes immutable records and Collection exports', () => {

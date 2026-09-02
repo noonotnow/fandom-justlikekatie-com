@@ -9,9 +9,10 @@ import {
 } from '../../utils/courtRulings';
 import { WatchJournalCapture } from './WatchJournalCapture';
 import { ActorPreflightLab } from './ActorPreflightLab';
+import { ReleaseDesk } from './ReleaseDesk';
 import styles from './FandomAdmin.module.css';
 
-type AdminView = 'plan' | 'court' | 'watch-journal' | 'actor-preflight';
+type AdminView = 'plan' | 'court' | 'watch-journal' | 'actor-preflight' | 'release-desk';
 
 export const FandomAdmin: React.FC<{ initialView?: AdminView }> = ({ initialView = 'actor-preflight' }) => {
   const [view, setView] = useState<AdminView>(initialView);
@@ -20,13 +21,14 @@ export const FandomAdmin: React.FC<{ initialView?: AdminView }> = ({ initialView
       <header className={styles.header}>
         <div><h2>Operator Console</h2><p>Private publishing, policy, and first-watch tools.</p></div>
         <div className={styles.tabs} role="tablist" aria-label="Operator Console view">
+          <button type="button" role="tab" aria-selected={view === 'release-desk'} onClick={() => setView('release-desk')}>Release Desk</button>
           <button type="button" role="tab" aria-selected={view === 'plan'} onClick={() => setView('plan')}>PLAN schedule</button>
           <button type="button" role="tab" aria-selected={view === 'court'} onClick={() => setView('court')}>Court rulings</button>
           <button type="button" role="tab" aria-selected={view === 'watch-journal'} onClick={() => setView('watch-journal')}>Field Journal</button>
           <button type="button" role="tab" aria-selected={view === 'actor-preflight'} onClick={() => setView('actor-preflight')}>Actor preflight</button>
         </div>
       </header>
-      {view === 'plan' ? <Plan /> : view === 'court' ? <CourtRulingsEditor /> : view === 'watch-journal' ? <WatchJournalCapture /> : <ActorPreflightLab />}
+      {view === 'plan' ? <Plan /> : view === 'release-desk' ? <ReleaseDesk /> : view === 'court' ? <CourtRulingsEditor /> : view === 'watch-journal' ? <WatchJournalCapture /> : <ActorPreflightLab />}
     </section>
   );
 };

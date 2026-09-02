@@ -7,6 +7,14 @@ const adminSource = await readFile(
   new URL('../src/components/FandomAdmin/FandomAdmin.tsx', import.meta.url),
   'utf8',
 );
+const actorPreflightSource = await readFile(
+  new URL('../src/components/FandomAdmin/ActorPreflightLab.tsx', import.meta.url),
+  'utf8',
+);
+const releaseDeskSource = await readFile(
+  new URL('../src/components/FandomAdmin/ReleaseDesk.tsx', import.meta.url),
+  'utf8',
+);
 const collectionSource = await readFile(
   new URL('../src/components/Collection/Collection.tsx', import.meta.url),
   'utf8',
@@ -50,6 +58,26 @@ test('the private operator console does not mount a duplicate Grid Builder', () 
   assert.doesNotMatch(adminSource, /aria-selected=\{view === 'builder'\}/);
   assert.doesNotMatch(builderSource, /allRecords/);
   assert.doesNotMatch(builderSource, /dbGetAllGrids|dbGetCardsByScope/);
+});
+
+test('Release Desk owns private inventory while PLAN and Actor Preflight remain separate', () => {
+  assert.match(adminSource, /aria-selected=\{view === 'release-desk'\}/);
+  assert.match(adminSource, />Release Desk<\/button>/);
+  assert.match(adminSource, />PLAN schedule<\/button>/);
+  assert.match(adminSource, />Actor preflight<\/button>/);
+  assert.match(adminSource, /view === 'release-desk' \? <ReleaseDesk \/>/);
+  assert.match(releaseDeskSource, /aria-label="Release Desk view"/);
+  assert.match(releaseDeskSource, /role="tab" aria-selected="true">Inventory/);
+  assert.match(releaseDeskSource, /Private editorial context/);
+  assert.doesNotMatch(actorPreflightSource, /ReleaseInventory|releaseInventory/);
+
+  const privateGate = appSource.slice(
+    appSource.indexOf(': adminLoading ?'),
+    appSource.indexOf('</div>', appSource.indexOf('<FandomAdmin')),
+  );
+  assert.match(privateGate, /!isAdmin \? \(\s*<AdminSignIn \/>/);
+  assert.match(privateGate, /<FandomAdmin initialView="actor-preflight" \/>/);
+  assert.doesNotMatch(appSource, /<span>Release Desk<\/span>/);
 });
 
 test('public launchpad copy does not expose internal admin or CREATE architecture', () => {
