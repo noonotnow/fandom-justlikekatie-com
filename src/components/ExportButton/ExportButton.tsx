@@ -6,12 +6,17 @@ import styles from './ExportButton.module.css';
 
 interface ExportButtonProps {
   rawData: StarOfDayData;
+  onShareComplete?: () => void;
 }
 
-export const ExportButton: React.FC<ExportButtonProps> = ({ rawData }) => {
+export const ExportButton: React.FC<ExportButtonProps> = ({ rawData, onShareComplete }) => {
   const { exportCard, isExporting, imagesReady, toastMessage, dismissToast } = useExportCard(rawData);
 
-  const handleShare = () => { void exportCard('full', 'share'); };
+  const handleShare = () => {
+    void exportCard('full', 'share').then(outcome => {
+      if (outcome === 'shared') onShareComplete?.();
+    });
+  };
   const handleDownload = () => { void exportCard('full', 'download'); };
 
   return (

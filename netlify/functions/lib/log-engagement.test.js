@@ -41,13 +41,20 @@ function makeStoreContext() {
       if (opts && opts.type === "json") return JSON.parse(raw);
       return raw;
     },
-    async setJSON(key, value) {
+    async setJSON(key, value, options = {}) {
+      if (options.onlyIfNew && db.has(key)) return { modified: false };
       db.set(key, JSON.stringify(value));
+      return { modified: true };
     },
     /** Read back stored JSON for assertions. */
     _read(key) {
       const raw = db.get(key);
       return raw ? JSON.parse(raw) : null;
+    },
+    _values(prefix) {
+      return [...db.entries()]
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([, raw]) => JSON.parse(raw));
     },
   };
 
@@ -181,6 +188,88 @@ test("save event: valid payload returns 200 and stores imageUrl", async () => {
   const stored = store._read("batch-1:save");
   assert.ok(Array.isArray(stored));
   assert.equal(stored[0].imageUrl, "https://images.example/card.png");
+});
+
+test("Daily Drop events persist only their bounded measurement fields", async () => {
+  const { store, context } = makeStoreContext();
+  const batchKey = "vibe-atlas:2026-08-31";
+
+  await handler(req({
+    event: "daily_drop_engaged",
+    batchKey,
+    editionDate: "2026-08-31",
+    engagementReason: "three_cards",
+    email: "must-not-be-stored@example.com",
+  }), context);
+  await handler(req({
+    event: "daily_drop_card_save",
+    batchKey,
+    editionDate: "2026-08-31",
+    position: 4,
+    saved: true,
+    imageUrl: "https://images.example/private-card.png",
+  }), context);
+
+  const [engaged] = store._values(`${batchKey}:daily_drop_engaged:`);
+  assert.equal(engaged.editionDate, "2026-08-31");
+  assert.equal(engaged.engagementReason, "three_cards");
+  assert.equal(engaged.email, undefined);
+
+  const [saved] = store._values(`${batchKey}:daily_drop_card_save:`);
+  assert.equal(saved.position, 4);
+  assert.equal(saved.saved, true);
+  assert.equal(saved.imageUrl, undefined);
+});
+
+test("concurrent Daily Drop events are stored as distinct immutable records", async () => {
+  const { store, context } = makeStoreContext();
+  const payload = {
+    event: "daily_drop_view",
+    batchKey: "vibe-atlas:2026-08-31",
+    editionDate: "2026-08-31",
+  };
+
+  await Promise.all([
+    handler(req(payload), context),
+    handler(req(payload), context),
+  ]);
+
+  assert.equal(
+    store._values(`${payload.batchKey}:${payload.event}:`).length,
+    2,
+  );
+});
+
+test("Daily Drop events reject invalid dates and unbounded dimensions", async () => {
+  const { context } = makeStoreContext();
+  const invalidDate = await handler(req({
+    event: "daily_drop_view",
+    batchKey: "vibe-atlas:today",
+    editionDate: "today",
+  }), context);
+  const invalidPosition = await handler(req({
+    event: "daily_drop_card_save",
+    batchKey: "vibe-atlas:2026-08-31",
+    editionDate: "2026-08-31",
+    position: 99,
+    saved: true,
+  }), context);
+  const impossibleDate = await handler(req({
+    event: "daily_drop_view",
+    batchKey: "vibe-atlas:2026-99-99",
+    editionDate: "2026-99-99",
+  }), context);
+  const invalidReason = await handler(req({
+    event: "daily_drop_engaged",
+    batchKey: "vibe-atlas:2026-08-31",
+    editionDate: "2026-08-31",
+    engagementReason: "arbitrary-user-input",
+  }), context);
+
+  assert.equal(invalidDate.status, 400);
+  assert.equal(impossibleDate.status, 400);
+  assert.equal(invalidPosition.status, 400);
+  assert.equal(invalidReason.status, 400);
 });
 
 test("public fandom game event stores only its bounded content fields", async () => {

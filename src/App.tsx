@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ImageTier } from './types';
 import FandomLaunchpad from './components/FandomLaunchpad/FandomLaunchpad';
 import { MiddleEarthWorkspace } from './components/MiddleEarthWorkspace/MiddleEarthWorkspace';
@@ -37,12 +37,20 @@ import {
 import './App.css';
 import { VeteranSubmissionForm } from './components/VeteranSubmissionForm/VeteranSubmissionForm';
 import {
+  trackCollectionOpened,
   trackDailyArchiveEditionSelected,
   trackDailyArchiveOpened,
+  trackDailyDropCardSave,
+  trackDailyDropEngaged,
+  trackDailyDropShared,
+  trackDailyDropViewed,
+  trackGridBuilderPreviewOpened,
+  trackUpgradeStarted,
 } from './utils/analytics';
 
 /** Number of columns in the grid — used to calculate preview row insertion */
 const GRID_COLS = 3;
+const LAST_SAVED_EDITION_KEY = 'fandom_vibe_atlas_last_saved_edition';
 
 function formatEditionDate(value: string): string {
   const date = new Date(`${value}T00:00:00Z`);
@@ -126,7 +134,13 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   } = useStarOfDay(archivePage && !selectedEditionDate ? undefined : selectedEditionDate);
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
   const [isMember, setIsMember] = useState(false);
+  const [membershipResolved, setMembershipResolved] = useState(false);
   const [editionShareNotice, setEditionShareNotice] = useState('');
+  const dropEngagement = useRef({
+    editionDate: '',
+    openedCards: new Set<string>(),
+    tracked: false,
+  });
 
   // Whole-board (share-card) manual tier override — distinct from per-image
   // `imageTiers` above. Resets automatically whenever a new board (new
@@ -134,12 +148,24 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   const boardKey = rawData ? boardIdentity(rawData) : null;
   const { tier: wholeCardTier, setTier: setWholeCardTier } = useWholeCardTier(boardKey);
   const exportData = rawData ? applyWholeCardTierOverride(rawData, wholeCardTier) : null;
+  const refreshMembership = useCallback(async () => {
+    setMembershipResolved(false);
+    try {
+      const status = await getMembershipStatus();
+      setIsMember(status.isMember);
+    } catch {
+      setIsMember(false);
+    } finally {
+      setMembershipResolved(true);
+    }
+  }, []);
 
   useEffect(() => {
     void Promise.all([migrateBookmarks(), migrateLegacyGridHistory()]);
     void consumeMagicLinkFromLocation()
-      .then(destination => {
+      .then(async destination => {
         if (destination) {
+          await refreshMembership();
           // Recheck the admin session with the freshly-issued cookie so that
           // useIsAdmin transitions to isAdmin=true before the Admin view renders.
           recheckAdmin();
@@ -153,7 +179,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         );
         setView('collection');
       });
-  }, []);
+  }, [refreshMembership]);
 
   useEffect(() => {
     // Keep old PLAN URLs usable, but do not leave the retired product name in
@@ -166,8 +192,52 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   }, []);
 
   useEffect(() => {
-    void getMembershipStatus().then(status => setIsMember(status.isMember)).catch(() => setIsMember(false));
+    void refreshMembership();
+  }, [refreshMembership]);
+
+  useEffect(() => {
+    if (view !== 'daily' || !rawData?.date) return;
+
+    const editionDate = rawData.date;
+    dropEngagement.current = {
+      editionDate,
+      openedCards: new Set<string>(),
+      tracked: false,
+    };
+    const archiveDate = new URLSearchParams(window.location.search).get('date');
+    trackDailyDropViewed(editionDate, archiveDate === editionDate);
+
+    const timer = window.setTimeout(() => {
+      if (
+        dropEngagement.current.editionDate === editionDate
+        && !dropEngagement.current.tracked
+      ) {
+        dropEngagement.current.tracked = true;
+        trackDailyDropEngaged(editionDate, 'twenty_seconds');
+      }
+    }, 20_000);
+    return () => window.clearTimeout(timer);
+  }, [rawData?.date, view]);
+
+  useEffect(() => {
+    if (view !== 'collection') return;
+    const lastSavedEdition = window.localStorage.getItem(LAST_SAVED_EDITION_KEY) ?? undefined;
+    trackCollectionOpened(
+      lastSavedEdition && isValidVibeAtlasEditionDate(lastSavedEdition)
+        ? lastSavedEdition
+        : undefined,
+    );
   }, [view]);
+
+  useEffect(() => {
+    if (
+      membershipResolved
+      && view === 'collection'
+      && collectionTab === 'builder'
+    ) {
+      trackGridBuilderPreviewOpened(isMember);
+    }
+  }, [collectionTab, isMember, membershipResolved, view]);
 
   useEffect(() => {
     const privateView = window.location.pathname === '/auth/verify'
@@ -238,6 +308,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
       await navigator.clipboard.writeText(shareUrl.toString());
       setEditionShareNotice(`Copied link for ${formatEditionDate(selectedEditionDate)}.`);
+      trackDailyDropShared(selectedEditionDate, 'edition_link');
     } catch {
       setEditionShareNotice(
         'Could not copy this archived edition link. Please copy the address from your browser.',
@@ -326,6 +397,25 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
 
   const handleItemClick = (itemId: string) => {
     setExpandedId((prev) => (prev === itemId ? null : itemId));
+    if (
+      rawData?.date
+      && dropEngagement.current.editionDate === rawData.date
+      && !dropEngagement.current.tracked
+    ) {
+      dropEngagement.current.openedCards.add(itemId);
+      if (dropEngagement.current.openedCards.size >= 3) {
+        dropEngagement.current.tracked = true;
+        trackDailyDropEngaged(rawData.date, 'three_cards');
+      }
+    }
+  };
+
+  const handleCardSaveChange = (position: number, saved: boolean) => {
+    if (!rawData?.date) return;
+    trackDailyDropCardSave(rawData.date, position, saved);
+    if (saved) {
+      window.localStorage.setItem(LAST_SAVED_EDITION_KEY, rawData.date);
+    }
   };
 
   const handleViewFull = (index: number) => {
@@ -350,6 +440,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           {...item}
           tier={imageTiers[item.id] ?? null}
           onImageClick={() => handleItemClick(item.id)}
+          onSaveChange={(saved) => handleCardSaveChange(i, saved)}
         />,
       );
 
@@ -537,7 +628,10 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
               <WholeCardTierControls tier={wholeCardTier} onTierChange={setWholeCardTier} />
               <WholeCardTierBadge tier={wholeCardTier} />
               <div className="daily-actions__primary">
-                <ExportButton rawData={exportData} />
+                <ExportButton
+                  rawData={exportData}
+                  onShareComplete={() => trackDailyDropShared(exportData.date, 'image')}
+                />
                 {isAdmin && (
                   <CreatorPostAction
                     entryPoint="daily"
@@ -609,11 +703,18 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           initialType={collectionTab}
           isAdmin={isAdmin}
           isMember={isMember}
-          onUpgrade={() => navigateAtlas('membership')}
+          onUpgrade={() => {
+            trackUpgradeStarted('grid_builder');
+            navigateAtlas('membership');
+          }}
+          onTypeChange={setCollectionTab}
           onCreateFromGrid={makeCreatorPostFromGrid}
         />
       ) : view === 'membership' ? (
-        <Membership onStatusChange={status => setIsMember(status.isMember)} />
+        <Membership onStatusChange={status => {
+          setIsMember(status.isMember);
+          setMembershipResolved(true);
+        }} />
       ) : adminLoading ? (
         <div className="admin-gate-loading" aria-label="Checking admin session…" />
       ) : !isAdmin ? (

@@ -727,13 +727,19 @@ button:hover {
 
 /* Editorial membership view */
 .membership { max-width: 1050px; margin: 0 auto; padding: clamp(3rem, 8vw, 7rem) 0 4rem; }
-.membership__hero { max-width: 650px; }
-.membership__eyebrow, .membership__label { margin: 0 0 .7rem; color: #b35f49; font: 600 .64rem "DM Mono", monospace; letter-spacing: .13em; text-transform: uppercase; }
-.membership__hero h1 { margin: 0; color: #263e40; font: 600 clamp(3.2rem, 8vw, 6.7rem)/.88 "Fraunces", serif; letter-spacing: -.07em; }
+.membership__hero { max-width: 760px; }
+.membership__label { margin: 0 0 .7rem; color: #b35f49; font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.membership__hero h1 { margin: 0; color: #263e40; font: 600 clamp(2.8rem, 7vw, 5.8rem)/.94 "Fraunces", serif; letter-spacing: -.04em; text-wrap: balance; }
 .membership__hero h1 em { color: #b35f49; font-weight: 500; }
-.membership__hero > p:last-child { max-width: 52ch; margin: 1.6rem 0 0; color: #687371; font-size: 1rem; line-height: 1.65; }
-.membership__notice { max-width: 700px; margin: 2rem 0 0; padding: .85rem 1rem; border-left: 3px solid #d3ae62; background: rgba(211,174,98,.13); color: #5b5d56; font-size: .88rem; }
-.membership__plans { display: grid; grid-template-columns: 1fr 1.12fr; gap: 1rem; margin-top: 3rem; }
+.membership__hero > p:last-child { max-width: 68ch; margin: 1.6rem 0 0; color: #687371; font-size: 1.05rem; line-height: 1.65; }
+.membership__notice { max-width: 700px; margin: 2rem 0 0; padding: .85rem 1rem; border: 1px solid rgba(179,95,73,.32); background: rgba(211,174,98,.13); color: #5b5d56; font-size: .88rem; }
+.membership__journey { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: clamp(3rem, 7vw, 5rem); border-block: 1px solid rgba(36,45,52,.16); }
+.membership__journey article { padding: 1.6rem 1.5rem 1.8rem 0; }
+.membership__journey article + article { padding-left: 1.5rem; border-left: 1px solid rgba(36,45,52,.16); }
+.membership__journey span { color: #b35f49; font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.membership__journey h2 { margin: .7rem 0 .6rem; color: #263e40; font: 600 clamp(1.25rem, 2vw, 1.75rem)/1.05 "Fraunces", serif; letter-spacing: -.03em; }
+.membership__journey p { margin: 0; color: #687371; font-size: .88rem; line-height: 1.55; }
+.membership__plans { display: grid; grid-template-columns: 1fr 1.12fr; gap: 1rem; margin-top: 2.5rem; }
 .membership__plans article { padding: clamp(1.4rem, 4vw, 2.4rem); border: 1px solid rgba(36,45,52,.16); border-radius: 3px; background: rgba(255,255,255,.32); }
 .membership__plans .membership__featured { border: 2px solid #c96d54; box-shadow: 10px 10px 0 rgba(201,109,84,.12); }
 .membership__plans h2 { margin: 0; color: #263e40; font: 600 clamp(1.7rem, 3vw, 2.4rem) "Fraunces", serif; letter-spacing: -.04em; }
@@ -747,10 +753,17 @@ button:hover {
 .membership__join, .membership__member { display: flex; align-items: flex-start; gap: .8rem; flex-wrap: wrap; color: #65706d; font-size: .78rem; }
 .membership__join span, .membership__member span { flex-basis: 100%; }
 .membership__join b { color: #b35f49; }
-.dark .membership__hero h1, .dark .membership__plans h2 { color: #d6e3dd; }
-.dark .membership__hero > p:last-child, .dark .membership__plans ul, .dark .membership__join, .dark .membership__member { color: #b3b7b1; }
+.dark .membership__hero h1, .dark .membership__plans h2, .dark .membership__journey h2 { color: #d6e3dd; }
+.dark .membership__hero > p:last-child, .dark .membership__plans ul, .dark .membership__join, .dark .membership__member, .dark .membership__journey p { color: #b3b7b1; }
+.dark .membership__journey { border-color: rgba(236,231,221,.2); }
+.dark .membership__journey article + article { border-color: rgba(236,231,221,.2); }
 .dark .membership__plans article { border-color: rgba(236,231,221,.2); background: rgba(255,255,255,.03); }
 .dark .membership__notice { color: #d8d5cc; }
+@media (max-width: 760px) {
+  .membership__journey { grid-template-columns: 1fr; }
+  .membership__journey article { padding: 1.4rem 0; }
+  .membership__journey article + article { padding-left: 0; border-left: 0; border-top: 1px solid rgba(36,45,52,.16); }
+}
 @media (max-width: 520px) {
   .membership__plans { grid-template-columns: 1fr; }
   .membership__sign-in div { flex-direction: column; }
