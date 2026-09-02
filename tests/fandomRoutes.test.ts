@@ -6,6 +6,7 @@ import {
   initialVibeAtlasEditionDate,
   initialVibeAtlasView,
   isAdminEntryLocation,
+  isVibeAtlasArchiveLocation,
   isValidVibeAtlasEditionDate,
   resolveFandomProductRoute,
 } from '../src/utils/fandomRoutes.ts';
@@ -18,6 +19,7 @@ test('resolves the three Fandom product routes and keeps magic-link verification
   assert.equal(isAdminEntryLocation('/auth/verify', '', '#token=redacted&next=collection'), false);
   assert.equal(resolveFandomProductRoute('/vibe-atlas'), 'vibe-atlas');
   assert.equal(resolveFandomProductRoute('/vibe-atlas/'), 'vibe-atlas');
+  assert.equal(resolveFandomProductRoute('/vibe-atlas/archive'), 'vibe-atlas');
   assert.equal(resolveFandomProductRoute('/memeforge/middle-earth'), 'middle-earth');
   assert.equal(resolveFandomProductRoute('/auth/verify'), 'vibe-atlas');
   assert.equal(resolveFandomProductRoute('/vibe-atlas/veteran-journal'), 'veteran-journal');
@@ -53,4 +55,10 @@ test('collection links open the requested Vibe Atlas tool', () => {
   assert.equal(initialCollectionType('?view=results'), 'results');
   assert.equal(initialCollectionType('?view=builder'), 'builder');
   assert.equal(initialCollectionType(''), 'grids');
+});
+
+test('the archive has a dedicated public route', () => {
+  assert.equal(isVibeAtlasArchiveLocation('/vibe-atlas/archive'), true);
+  assert.equal(isVibeAtlasArchiveLocation('/vibe-atlas/archive/'), true);
+  assert.equal(isVibeAtlasArchiveLocation('/vibe-atlas'), false);
 });

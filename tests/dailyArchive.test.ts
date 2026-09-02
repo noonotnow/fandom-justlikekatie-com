@@ -6,9 +6,11 @@ const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'ut
 const hookSource = await readFile(new URL('../src/hooks/useStarOfDay.ts', import.meta.url), 'utf8');
 
 test('daily archive selection reuses the daily payload renderer and keeps today as the default', () => {
-  assert.match(hookSource, /useStarOfDay = \(editionDate: string \| null = null\)/);
+  assert.match(hookSource, /useStarOfDay = \(editionDate: string \| null \| undefined = null\)/);
   assert.match(hookSource, /star-of-day\$\{query\}/);
-  assert.match(appSource, /useStarOfDay\(selectedEditionDate\)/);
+  assert.match(appSource, /useStarOfDay\(archivePage && !selectedEditionDate \? undefined : selectedEditionDate\)/);
+  assert.match(appSource, /isVibeAtlasArchiveLocation/);
+  assert.match(appSource, /href=\{`\/vibe-atlas\?date=\$\{encodeURIComponent\(edition\.date\)\}`\}/);
   assert.match(appSource, /selectedEditionDate \? `Archived card drop/);
   assert.match(appSource, /initialVibeAtlasEditionDate\(window\.location\.search\)/);
   assert.match(appSource, /params\.set\('date', date\)/);

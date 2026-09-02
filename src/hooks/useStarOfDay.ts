@@ -127,7 +127,7 @@ export interface UseStarOfDayReturn {
   error: string | null;
 }
 
-export const useStarOfDay = (editionDate: string | null = null): UseStarOfDayReturn => {
+export const useStarOfDay = (editionDate: string | null | undefined = null): UseStarOfDayReturn => {
   const [items, setItems] = useState<GridItemData[]>([]);
   const [meta, setMeta] = useState<UseStarOfDayReturn['meta']>(null);
   const [rawData, setRawData] = useState<StarOfDayData | null>(null);
@@ -144,6 +144,11 @@ export const useStarOfDay = (editionDate: string | null = null): UseStarOfDayRet
     setRawData(null);
     setLoading(true);
     setError(null);
+
+    if (editionDate === undefined) {
+      setLoading(false);
+      return () => { cancelled = true; };
+    }
 
     async function fetchStarOfDay() {
       try {

@@ -15,6 +15,7 @@ test('the response layer excludes private query views but not the public daily r
   assert.equal(shouldNoindexUrl('https://fandom.justlikekatie.com/vibe-atlas?view=builder'), true);
   assert.equal(shouldNoindexUrl('https://fandom.justlikekatie.com/vibe-atlas?view=plan'), true);
   assert.equal(shouldNoindexUrl('https://fandom.justlikekatie.com/vibe-atlas?account=member'), true);
+  assert.equal(shouldNoindexUrl('https://fandom.justlikekatie.com/vibe-atlas/archive?date=2026-09-01'), true);
   assert.equal(shouldNoindexUrl('https://fandom.justlikekatie.com/auth/verify?token=opaque'), true);
   assert.equal(shouldNoindexUrl('https://fandom.justlikekatie.com/memeforge/middle-earth?view=collection'), true);
 });
@@ -37,7 +38,8 @@ test('the public daily HTML remains indexable and advertises its own route', asy
 
   assert.equal(response.headers.get('x-robots-tag'), null);
   assert.match(await response.text(), /<meta name="robots" content="index,follow/);
-  assert.match(appSource, /canonical\.href = 'https:\/\/fandom\.justlikekatie\.com\/vibe-atlas'/);
+  assert.match(appSource, /canonical\.href = archivePage/);
+  assert.match(appSource, /https:\/\/fandom\.justlikekatie\.com\/vibe-atlas\/archive/);
 });
 
 test('Netlify applies the response rule to each SPA studio entry point', () => {
@@ -52,5 +54,6 @@ test('robots lets crawlers observe noindex while the sitemap omits private views
   assert.doesNotMatch(robots, /Disallow: \/vibe-atlas/);
   assert.doesNotMatch(robots, /Disallow: \/memeforge\/middle-earth/);
   assert.match(sitemap, /<loc>https:\/\/fandom\.justlikekatie\.com\/vibe-atlas<\/loc>/);
+  assert.match(sitemap, /<loc>https:\/\/fandom\.justlikekatie\.com\/vibe-atlas\/archive<\/loc>/);
   assert.doesNotMatch(sitemap, /view=(?:collection|builder|plan|membership)/);
 });

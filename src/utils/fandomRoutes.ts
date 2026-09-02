@@ -10,11 +10,16 @@ export function isAdminEntryLocation(pathname: string, search = '', hash = ''): 
 
 export function resolveFandomProductRoute(pathname: string, search = ''): FandomProductRoute {
   const normalized = pathname.replace(/\/+$/, '') || '/';
-  if (normalized === '/vibe-atlas' || normalized === '/auth/verify') return 'vibe-atlas';
+  if (normalized === '/vibe-atlas' || normalized === '/vibe-atlas/archive' || normalized === '/auth/verify') return 'vibe-atlas';
   if (normalized === '/' && isAdminEntryLocation(normalized, search)) return 'vibe-atlas';
   if (normalized === '/vibe-atlas/veteran-journal') return 'veteran-journal';
   if (normalized === '/memeforge/middle-earth') return 'middle-earth';
   return 'launchpad';
+}
+
+export function isVibeAtlasArchiveLocation(pathname: string): boolean {
+  const normalized = pathname.replace(/\/+$/, '') || '/';
+  return normalized === '/vibe-atlas/archive';
 }
 
 export function initialVibeAtlasView(search: string): 'daily' | 'collection' | 'plan' | 'membership' {

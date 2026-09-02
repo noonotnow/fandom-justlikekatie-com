@@ -32,6 +32,7 @@ import {
   initialVibeAtlasView,
   isValidVibeAtlasEditionDate,
   isAdminEntryLocation,
+  isVibeAtlasArchiveLocation,
   resolveFandomProductRoute,
 } from './utils/fandomRoutes';
 import './App.css';
@@ -77,7 +78,9 @@ function App() {
     window.location.hash,
   );
   const route = resolveFandomProductRoute(window.location.pathname, window.location.search);
-  if (route === 'vibe-atlas') return <VibeAtlasApp adminEntry={adminEntry} />;
+  if (route === 'vibe-atlas') {
+    return <VibeAtlasApp adminEntry={adminEntry} archiveEntry={isVibeAtlasArchiveLocation(window.location.pathname)} />;
+  }
   if (route === 'middle-earth') return <MiddleEarthApp />;
   if (route === 'veteran-journal') return <VeteranSubmissionForm />;
   return <FandomLaunchpad />;
@@ -91,7 +94,7 @@ function MiddleEarthApp() {
   return <MiddleEarthWorkspace isAdmin={isAdmin} />;
 }
 
-function VibeAtlasApp({ adminEntry = false }: { adminEntry?: boolean }) {
+function VibeAtlasApp({ adminEntry = false, archiveEntry = false }: { adminEntry?: boolean; archiveEntry?: boolean }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [dailyGridZoomOpen, setDailyGridZoomOpen] = useState(false);
@@ -101,12 +104,13 @@ function VibeAtlasApp({ adminEntry = false }: { adminEntry?: boolean }) {
       : null,
   );
   const [archiveOpen, setArchiveOpen] = useState(
-    () => initialVibeAtlasView(window.location.search) === 'daily'
+    () => archiveEntry || (initialVibeAtlasView(window.location.search) === 'daily'
       && (
         hasInvalidVibeAtlasEditionDate(window.location.search)
         || Boolean(initialVibeAtlasEditionDate(window.location.search))
-      ),
+      )),
   );
+  const [archivePage, setArchivePage] = useState(archiveEntry);
   const [view, setView] = useState<'daily' | 'collection' | 'plan' | 'membership'>(
     () => initialVibeAtlasView(window.location.search),
   );
@@ -125,7 +129,7 @@ function VibeAtlasApp({ adminEntry = false }: { adminEntry?: boolean }) {
     loadArchive,
     loading,
     error,
-  } = useStarOfDay(selectedEditionDate);
+  } = useStarOfDay(archivePage && !selectedEditionDate ? undefined : selectedEditionDate);
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
   const [isMember, setIsMember] = useState(false);
 
@@ -166,8 +170,10 @@ function VibeAtlasApp({ adminEntry = false }: { adminEntry?: boolean }) {
       || view === 'collection'
       || view === 'plan'
       || view === 'membership';
-    const title = view === 'daily'
-      ? 'Vibe Atlas | A Daily C-Drama Card Drop'
+    const title = archivePage
+      ? 'Vibe Atlas Archive | Fandom Vibes'
+      : view === 'daily'
+        ? 'Vibe Atlas | A Daily C-Drama Card Drop'
       : view === 'membership'
         ? 'Vibe Atlas Founding Member | Fandom Vibes'
         : view === 'collection'
@@ -183,8 +189,14 @@ function VibeAtlasApp({ adminEntry = false }: { adminEntry?: boolean }) {
     const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')
       ?? document.head.appendChild(document.createElement('link'));
     canonical.rel = 'canonical';
-    canonical.href = 'https://fandom.justlikekatie.com/vibe-atlas';
-  }, [view]);
+    canonical.href = archivePage
+      ? 'https://fandom.justlikekatie.com/vibe-atlas/archive'
+      : 'https://fandom.justlikekatie.com/vibe-atlas';
+  }, [archivePage, view]);
+
+  useEffect(() => {
+    if (archivePage && !archive.length && !archiveLoading) void loadArchive();
+  }, [archivePage, archive.length, archiveLoading, loadArchive]);
 
   const openArchivePicker = useCallback(() => {
     setArchiveOpen(true);
@@ -202,8 +214,20 @@ function VibeAtlasApp({ adminEntry = false }: { adminEntry?: boolean }) {
       openArchivePicker();
       return;
     }
+    setArchivePage(false);
     syncVibeAtlasEditionUrl(date);
     setSelectedEditionDate(date);
+  };
+
+  const openArchivePage = () => {
+    setArchivePage(true);
+    setArchiveOpen(true);
+    setSelectedEditionDate(null);
+    setExpandedId(null);
+    setLightboxIndex(null);
+    setDailyGridZoomOpen(false);
+    window.history.pushState({}, '', '/vibe-atlas/archive');
+    if (!archive.length && !archiveLoading) void loadArchive();
   };
 
   const navigateAtlas = (
@@ -216,6 +240,7 @@ function VibeAtlasApp({ adminEntry = false }: { adminEntry?: boolean }) {
         ? '?view=membership'
       : `?view=${tab === 'grids' ? 'collection' : tab}`;
     window.history.pushState({}, '', `/vibe-atlas${search}`);
+    setArchivePage(false);
     setCollectionTab(tab);
     setView(destination);
     if (destination === 'daily') selectEdition(null);
@@ -224,21 +249,23 @@ function VibeAtlasApp({ adminEntry = false }: { adminEntry?: boolean }) {
   useEffect(() => {
     const restoreUrlState = () => {
       const restoredView = initialVibeAtlasView(window.location.search);
+      const restoredArchivePage = isVibeAtlasArchiveLocation(window.location.pathname);
       const invalidEditionDate = hasInvalidVibeAtlasEditionDate(window.location.search);
+      setArchivePage(restoredArchivePage);
       setView(restoredView);
       setCollectionTab(initialCollectionType(window.location.search));
       setExpandedId(null);
       setLightboxIndex(null);
       setDailyGridZoomOpen(false);
       setImageTiers({});
-      const restoredEditionDate = restoredView === 'daily'
+      const restoredEditionDate = restoredView === 'daily' && !restoredArchivePage
         ? initialVibeAtlasEditionDate(window.location.search)
         : null;
       setSelectedEditionDate(restoredEditionDate);
-      if (restoredView === 'daily' && restoredEditionDate) {
+      if (restoredArchivePage || (restoredView === 'daily' && restoredEditionDate)) {
         setArchiveOpen(true);
       }
-      if (restoredView === 'daily' && invalidEditionDate) {
+      if (restoredView === 'daily' && !restoredArchivePage && invalidEditionDate) {
         syncVibeAtlasEditionUrl(null, true);
         openArchivePicker();
       }
@@ -251,8 +278,8 @@ function VibeAtlasApp({ adminEntry = false }: { adminEntry?: boolean }) {
     if (!hasInvalidVibeAtlasEditionDate(window.location.search)) return;
     syncVibeAtlasEditionUrl(null, true);
     setSelectedEditionDate(null);
-    if (view === 'daily') openArchivePicker();
-  }, [openArchivePicker, view]);
+    if (view === 'daily' && !archivePage) openArchivePicker();
+  }, [archivePage, openArchivePicker, view]);
 
   useEffect(() => {
     // A valid date can still point at a cache entry that has been retired or
@@ -348,9 +375,17 @@ function VibeAtlasApp({ adminEntry = false }: { adminEntry?: boolean }) {
             type="button"
             aria-label="今日之星 · Daily"
             onClick={() => navigateAtlas('daily')}
-            className={view === 'daily' ? 'fandom-atlas-nav__active' : ''}
+            className={view === 'daily' && !archivePage ? 'fandom-atlas-nav__active' : ''}
           >
             <span>Daily card drop</span><small>今日之星</small>
+          </button>
+          <button
+            type="button"
+            aria-label="Vibe Atlas archive"
+            onClick={openArchivePage}
+            className={archivePage ? 'fandom-atlas-nav__active' : ''}
+          >
+            <span>Archive</span><small>往期图鉴</small>
           </button>
           <button
             type="button"
@@ -370,7 +405,13 @@ function VibeAtlasApp({ adminEntry = false }: { adminEntry?: boolean }) {
         </div>
       </nav>
 
-      {view === 'daily' ? (
+      {archivePage ? (
+        <ArchivePage
+          archive={archive}
+          archiveLoading={archiveLoading}
+          archiveError={archiveError}
+        />
+      ) : view === 'daily' ? (
         <>
       <header className="atlas-hero">
         <div className="atlas-hero__eyebrow"><span>Fandom Vibes / studio 01</span><i /></div>
@@ -424,6 +465,7 @@ function VibeAtlasApp({ adminEntry = false }: { adminEntry?: boolean }) {
                   ))}
                 </div>
               )}
+              <a className="daily-archive__full-link" href="/vibe-atlas/archive">Open the full archive →</a>
               {selectedEditionDate && (
                 <button type="button" className="daily-archive__today" onClick={() => selectEdition(null)}>
                   ← Return to today’s drop
@@ -552,19 +594,16 @@ function ArchiveEditionButton({
   isSelected,
   isLatest,
   onSelect,
+  href,
 }: {
   edition: StarOfDayArchiveEntry;
   isSelected: boolean;
   isLatest: boolean;
-  onSelect: () => void;
+  onSelect?: () => void;
+  href?: string;
 }) {
-  return (
-    <button
-      type="button"
-      className={`daily-archive__edition${isSelected ? ' daily-archive__edition--selected' : ''}`}
-      aria-pressed={isSelected}
-      onClick={onSelect}
-    >
+  const content = (
+    <>
       <span className="daily-archive__date">
         {formatEditionDate(edition.date)}
         {isLatest && <small>Latest</small>}
@@ -572,7 +611,75 @@ function ArchiveEditionButton({
       <strong>{edition.vibeEmoji} {edition.actorName}</strong>
       <span>{edition.vibeLabel} · {edition.vibeLabelEn}</span>
       {isSelected && <b>Viewing</b>}
+    </>
+  );
+  const className = `daily-archive__edition${isSelected ? ' daily-archive__edition--selected' : ''}`;
+  if (href) {
+    return <a className={className} href={href} onClick={onSelect}>{content}</a>;
+  }
+  return (
+    <button type="button" className={className} aria-pressed={isSelected} onClick={onSelect}>
+      {content}
     </button>
+  );
+}
+
+function ArchivePage({
+  archive,
+  archiveLoading,
+  archiveError,
+}: {
+  archive: StarOfDayArchiveEntry[];
+  archiveLoading: boolean;
+  archiveError: string | null;
+}) {
+  return (
+    <main className="atlas-archive-page">
+      <header className="atlas-hero atlas-archive-page__hero">
+        <div className="atlas-hero__eyebrow"><span>Fandom Vibes / studio 01</span><i /></div>
+        <div className="atlas-hero__title-row">
+          <div>
+            <p className="atlas-hero__universe">Published Vibe Atlas editions</p>
+            <h1>Archive <span>往期图鉴</span></h1>
+          </div>
+          <p className="atlas-hero__thesis">Every star. Every assignment.</p>
+        </div>
+        <p className="atlas-hero__intro">
+          A record of Daily Drop editions that were actually published. Choose a date to open its exact nine-card board; unpublished or still-building days stay out of this list.
+        </p>
+      </header>
+
+      <section className="daily-archive daily-archive--page" aria-labelledby="archive-page-title">
+        <div className="daily-archive__intro">
+          <div>
+            <p className="daily-archive__kicker">The Vibe Atlas archive</p>
+            <h2 id="archive-page-title">Published editions</h2>
+          </div>
+          <p>Historical boards are read-only and keep their original date, star, and Vibe Pack.</p>
+        </div>
+        {archiveLoading ? (
+          <p className="daily-archive__status">Loading published editions…</p>
+        ) : archiveError ? (
+          <p className="daily-archive__status daily-archive__status--error" role="alert">{archiveError}</p>
+        ) : archive.length === 0 ? (
+          <p className="daily-archive__status">No published editions are available yet.</p>
+        ) : (
+          <div className="daily-archive__list">
+            {archive.map((edition, index) => (
+              <ArchiveEditionButton
+                key={edition.date}
+                edition={edition}
+                isSelected={false}
+                isLatest={index === 0}
+                href={`/vibe-atlas?date=${encodeURIComponent(edition.date)}`}
+                onSelect={() => trackDailyArchiveEditionSelected(edition.date, index === 0)}
+              />
+            ))}
+          </div>
+        )}
+        <a className="daily-archive__today" href="/vibe-atlas">← Return to today’s drop</a>
+      </section>
+    </main>
   );
 }
 

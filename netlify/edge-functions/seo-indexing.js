@@ -12,6 +12,7 @@ export function shouldNoindexUrl(input) {
   if (pathname === "/auth/verify" || pathname.startsWith("/auth/")) return true;
 
   const isStudioRoute = pathname === "/vibe-atlas"
+    || pathname === "/vibe-atlas/archive"
     || pathname === "/memeforge/middle-earth";
   return isStudioRoute && url.search.length > 0;
 }
