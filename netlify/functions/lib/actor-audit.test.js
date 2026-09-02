@@ -757,6 +757,71 @@ test("saving a rescue board returns the new receipt even when the blob listing l
   );
 });
 
+test("an approved rescue backfill uses direct canonical reads when blob listings lag", async () => {
+  const { handler, store } = harness({ sufficient: false });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const detailResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const detail = await detailResponse.json();
+  const candidateIds = detail.currentRun.rawResults
+    .slice(0, 9)
+    .map(candidate => candidate.candidateId);
+  const rescueResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds,
+  }), {});
+  const rescued = await rescueResponse.json();
+  const rescueReceiptId = rescued.currentRun.editorialFeedback.operatorRescueBoard.receiptId;
+  const verdictResponse = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+    vibeConfirmed: true,
+    publishableConfirmed: true,
+    rescuePreferred: true,
+    rescueReceiptId,
+  }), {});
+  assert.equal(verdictResponse.status, 200, await verdictResponse.text());
+
+  const originalList = store.list.bind(store);
+  store.list = async options => {
+    const result = await originalList(options);
+    if (options?.prefix === auditRunPrefix(pairActor.id, 0)
+      || options?.prefix === auditVerdictPrefix(pairActor.id, 0, "run-1")) {
+      return { ...result, blobs: [] };
+    }
+    return result;
+  };
+
+  const publishResponse = await handler(request("POST", {
+    action: "publish_backfill",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    rescueReceiptId,
+    date: "2026-09-01",
+  }), {});
+  const published = await publishResponse.json();
+  assert.equal(publishResponse.status, 200, JSON.stringify(published));
+  assert.equal(published.backfill.status, "published");
+  assert.equal(published.payload.date, "2026-09-01");
+  const publicationKey = [...store.records.keys()].find(key =>
+    key.startsWith("starOfDay:") && key.endsWith(":2026-09-01"));
+  assert.ok(publicationKey);
+  assert.equal(store.records.get(publicationKey).displayResults.length, 9);
+});
+
 test("rescue preference cannot point at a missing or stale rescue board", async () => {
   const { handler } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
