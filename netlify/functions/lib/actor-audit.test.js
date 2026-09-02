@@ -316,6 +316,7 @@ function harness({
   runIdFactory = null,
   freshEvidenceOnRerun = false,
   hiddenSourceTransfer = false,
+  materializePublication = null,
 } = {}) {
   const store = memoryStore();
   let runNumber = 0;
@@ -368,6 +369,7 @@ function harness({
       let feedbackNumber = 0;
       return () => `feedback-${++feedbackNumber}`;
     })(),
+    materializePublication,
     curate: async (...args) => {
       const delay = curationDelays[curateCall++] || 0;
       if (delay) await new Promise(resolve => setTimeout(resolve, delay));
@@ -758,7 +760,40 @@ test("saving a rescue board returns the new receipt even when the blob listing l
 });
 
 test("an approved rescue backfill uses direct canonical reads when blob listings lag", async () => {
-  const { handler, store } = harness({ sufficient: false });
+  let materialized = null;
+  const { handler, store } = harness({
+    sufficient: false,
+    materializePublication: async input => {
+      materialized = input;
+      const displayResults = input.board.candidates.map(candidate => ({
+        title: candidate.title || "",
+        thumbnail: candidate.thumbnail || "",
+        link: candidate.link || "",
+        source: candidate.source || "",
+      }));
+      return {
+        manifest: { boardHash: "verified" },
+        payload: {
+          version: "v10",
+          date: input.date,
+          actorId: input.actor.id,
+          actorIdx: null,
+          actorName: input.actor.name,
+          actorShortNameEn: input.actor.nameEn,
+          actorAccentColor: input.actor.accentColor,
+          vibeIdx: input.vibe.idx,
+          vibeEmoji: input.vibe.emoji,
+          vibeLabel: input.vibe.label,
+          vibeLabelEn: input.vibe.labelEn,
+          vibeSubtitle: input.vibe.subtitle,
+          vibeSubtitleEn: input.vibe.subtitleEn,
+          rankedBatches: [],
+          displayResults,
+          generatedAt: "2026-09-01T12:00:00.000Z",
+        },
+      };
+    },
+  });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   await handler(request("POST", {
     action: "run", actorId: pairActor.id, vibeKey, scope: "full",
@@ -816,6 +851,9 @@ test("an approved rescue backfill uses direct canonical reads when blob listings
   assert.equal(publishResponse.status, 200, JSON.stringify(published));
   assert.equal(published.backfill.status, "published");
   assert.equal(published.payload.date, "2026-09-01");
+  assert.equal(materialized.date, "2026-09-01");
+  assert.equal(materialized.board.candidates.length, 9);
+  assert.equal(materialized.provenance.rescueReceiptId, rescueReceiptId);
   const publicationKey = [...store.records.keys()].find(key =>
     key.startsWith("starOfDay:") && key.endsWith(":2026-09-01"));
   assert.ok(publicationKey);

@@ -24,6 +24,7 @@ import {
   VIBE_PROMISE_CONTRACT_VERSION,
 } from "./actor-identity-profiles.js";
 import { CURATION_VERSION } from "./grid-curation.js";
+import { gridManifestKey } from "./publication-manifest.js";
 
 function makeStore(entries = {}) {
   const values = new Map(Object.entries(entries));
@@ -299,6 +300,70 @@ function archivePayload(date, actorName = `Actor ${date}`) {
   };
 }
 
+function publicationManifest(date) {
+  const sourceCandidateIds = Array.from({ length: 9 }, (_, position) => `candidate-${position}`);
+  return {
+    schemaVersion: 1,
+    manifestVersion: "v1",
+    manifestId: `manifest-${date}`,
+    idempotencyKey: `vibe-atlas:daily-drop:${date}`,
+    kind: "vibe-atlas-daily-drop",
+    publicationDate: date,
+    publishedAt: `${date}T04:00:00.000Z`,
+    boardHash: "a".repeat(64),
+    actor: {
+      id: "liu-xueyi",
+      name: "刘学义",
+      nameEn: "Liu Xueyi",
+      accentColor: "#8d2638",
+    },
+    vibe: {
+      key: "liu-xueyi:3",
+      idx: 3,
+      label: "破碎感美人",
+      labelEn: "Professionally Devastated",
+      emoji: "🌙",
+      subtitle: "",
+      subtitleEn: "Born to suffer beautifully.",
+      supportingCopy: "",
+      supportingCopyEn: "",
+      generationPrompt: "",
+    },
+    heroPosition: 4,
+    cardCount: 9,
+    retention: { policy: "permanent", deleteWithCollection: false },
+    provenance: {
+      sourceType: "operator_rescue",
+      runId: "run-1",
+      rescueReceiptId: "receipt-1",
+      sourceCandidateIds,
+    },
+    cards: sourceCandidateIds.map((candidateId, position) => ({
+      position,
+      candidateId,
+      title: `Manifest frame ${position}`,
+      source: `publisher-${position}`,
+      link: `https://publisher.example/${position}`,
+      sourceUrl: `https://images.example/source-${position}.jpg?size=large`,
+      media: {
+        schemaVersion: 1,
+        assetId: `00000000-0000-4000-8000-${String(position + 1).padStart(12, "0")}`,
+        deliveryUrl: `https://media.example/assets/${position}.jpg`,
+        thumbnailUrl: `https://media.example/thumbs/${position}.jpg`,
+        mimeType: "image/jpeg",
+        sizeBytes: 100 + position,
+        checksum: String(position).padStart(64, "0"),
+        dimensions: { width: 1200, height: 1200 },
+        association: {
+          type: "publication",
+          id: `vibe-atlas:daily-drop:${date}`,
+          itemId: `card-${position}`,
+        },
+      },
+    })),
+  };
+}
+
 test("archive lists current and legacy payload dates with edition identity and excludes locks", async () => {
   const store = makeStore({
     "starOfDay:v6:2026-08-30": archivePayload("2026-08-30"),
@@ -349,6 +414,40 @@ test("historical date reads preserve legacy v5 editions after the curation upgra
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), archived);
   assert.deepEqual(store.stats(), { listCalls: 0, setCalls: 0 });
+});
+
+test("historical and archive reads prefer the verified publication manifest over transient cache URLs", async () => {
+  const date = "2026-08-29";
+  const transient = archivePayload(date, "Transient Actor");
+  transient.actorId = "different-actor";
+  transient.displayResults = Array.from({ length: 9 }, (_, position) => ({
+    title: `Transient ${position}`,
+    thumbnail: `https://temporary.example/${position}.jpg`,
+  }));
+  const store = makeStore({
+    [`starOfDay:v10:${date}`]: transient,
+    [gridManifestKey(date)]: publicationManifest(date),
+  });
+
+  const historical = await starOfDay(
+    { method: "GET", url: `https://example.test/star-of-day?date=${date}` },
+    contextFor(store),
+  );
+  const payload = await historical.json();
+  assert.equal(historical.status, 200);
+  assert.equal(payload.actorId, "liu-xueyi");
+  assert.equal(payload.displayResults.length, 9);
+  assert.ok(payload.displayResults.every(result =>
+    result.thumbnail.startsWith("https://media.example/thumbs/")));
+  assert.equal(payload.displayResults[4].title, "Manifest frame 4");
+
+  const archive = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1" },
+    contextFor(store),
+  );
+  const archived = await archive.json();
+  assert.equal(archived.editions[0].actorName, "刘学义");
+  assert.equal(archived.editions[0].vibeLabelEn, "Professionally Devastated");
 });
 
 test("historical reads reject missing and future dates without touching cache locks", async () => {

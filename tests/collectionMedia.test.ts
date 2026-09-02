@@ -87,6 +87,25 @@ test('accepts only complete stable MEDIA provenance and re-associates the same a
     id: 'middle-earth',
     itemId: 'local-1',
   });
+
+  const publishedMedia: MediaReference = {
+    ...media,
+    association: {
+      type: 'publication',
+      id: 'vibe-atlas:daily-drop:2026-09-03',
+      itemId: 'card-4',
+    },
+  };
+  assert.equal(isVerifiedMediaReference(publishedMedia), true);
+  assert.deepEqual(reassignMediaToCollection(
+    publishedMedia,
+    'vibe-atlas',
+    'saved-grid-card-4',
+  ).association, {
+    type: 'collection',
+    id: 'vibe-atlas',
+    itemId: 'saved-grid-card-4',
+  });
 });
 
 test('copies each grid image independently and retains remote provenance on partial failure', async () => {

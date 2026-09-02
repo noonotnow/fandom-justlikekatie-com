@@ -20,6 +20,7 @@ import {
   RELEASE_COHORT_ACTOR_ID,
   STAR_OF_DAY_VERSION,
 } from "./star-of-day.js";
+import { materializePublicationManifest } from "./lib/publication-manifest.js";
 
 const VERSION = STAR_OF_DAY_VERSION;
 const STORE_NAME = "star-of-day";
@@ -75,6 +76,9 @@ export default async (req, context) => {
     // Build fresh payload
     const payload = await buildPayloadForDate(todayStr, eligibilityStore, {
       releaseActorId: RELEASE_COHORT_ACTOR_ID,
+      publicationStore: store,
+      materializePublication: materializePublicationManifest,
+      mediaEnv: process.env,
     });
     if (!payload) {
       return jsonResponse(500, {

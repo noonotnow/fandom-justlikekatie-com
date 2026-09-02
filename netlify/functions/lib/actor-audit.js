@@ -107,6 +107,9 @@ export function createActorAuditHandler({
   createRunId = () => randomUUID(),
   createFeedbackId = () => randomUUID(),
   curate = curateDisplayResults,
+  materializePublication = null,
+  env = process.env,
+  fetchImpl = fetch,
 }) {
   return async (req, context) => {
     try {
@@ -796,20 +799,84 @@ export function createActorAuditHandler({
             error: "A newer audit run became current. Review that run before publishing the backfill.",
           });
         }
-        const payload = backfillPayloadForDate(input.date, pair, approval.publicationBoard);
         const publicationStore = getPublicationStore(context);
         const key = `starOfDay:${STAR_OF_DAY_VERSION}:${input.date}`;
         const existing = await publicationStore.get(key, { type: "json", consistency: "strong" });
+        const legacyPayload = backfillPayloadForDate(input.date, pair, approval.publicationBoard);
+        if (existing
+          && existing.rankedBatches?.[0]?.query !== "verified-publication-manifest"
+          && !sameBoardAsPublicPayload(existing, approval.publicationBoard)) {
+          return json(409, { error: "That edition date already contains a different published board." });
+        }
+
+        let payload = legacyPayload;
+        if (materializePublication) {
+          try {
+            const materialized = await materializePublication({
+              store: publicationStore,
+              date: input.date,
+              actor: {
+                id: pair.actor.id,
+                name: pair.actor.name,
+                nameEn: pair.actor.shortName_en || pair.actor.shortName || pair.actor.name,
+                accentColor: pair.actor.accentColor || "#c9a96e",
+              },
+              vibe: {
+                key: pair.vibeKey,
+                idx: pair.vibeIdx,
+                label: pair.vibe.label || pair.vibe.label_en || pair.vibeKey,
+                labelEn: pair.vibe.label_en || pair.vibe.label || pair.vibeKey,
+                emoji: pair.vibe.emoji || "✨",
+                subtitle: pair.vibe.subtitle || "",
+                subtitleEn: pair.vibe.subtitle_en || pair.vibe.subtitle || "",
+                supportingCopy: pair.vibe.supportingCopy || "",
+                supportingCopyEn: pair.vibe.supportingCopy_en || "",
+                generationPrompt: pair.vibe.mjPrompt || "",
+              },
+              board: approval.publicationBoard,
+              provenance: {
+                sourceType: "operator_rescue",
+                runId: input.runId,
+                rescueReceiptId: input.rescueReceiptId,
+                rescueBoardHash: approval.publicationSource.boardHash || null,
+                feedbackHash: approval.publicationSource.feedbackHash || null,
+              },
+              env,
+              fetchImpl,
+              now: () => now().toISOString(),
+            });
+            payload = materialized.payload;
+          } catch (error) {
+            const status = error?.status || 503;
+            return json(status, {
+              error: error?.message || "The approved board could not be materialized in MEDIA.",
+              retryable: status >= 500,
+            });
+          }
+        }
         if (existing) {
-          if (samePublicPayload(existing, payload)) {
+          if (samePublicPayload(existing, payload) || sameBoardAsPublicPayload(existing, approval.publicationBoard)) {
+            if (materializePublication && !samePublicPayload(existing, payload)) {
+              await publicationStore.setJSON(key, payload);
+            }
             return json(200, {
               backfill: { date: input.date, status: "already_published" },
-              payload: publicBackfillSummary(existing),
+              payload: publicBackfillSummary(payload),
             });
           }
           return json(409, { error: "That edition date already contains a different published board." });
         }
-        await publicationStore.setJSON(key, payload, { onlyIfNew: true });
+        const write = await publicationStore.setJSON(key, payload, { onlyIfNew: true });
+        if (write?.modified === false) {
+          const raced = await publicationStore.get(key, { type: "json", consistency: "strong" });
+          if (!raced || !sameBoardAsPublicPayload(raced, approval.publicationBoard)) {
+            return json(409, { error: "Another board won that edition date." });
+          }
+          return json(200, {
+            backfill: { date: input.date, status: "already_published" },
+            payload: publicBackfillSummary(raced),
+          });
+        }
         const written = await publicationStore.get(key, { type: "json", consistency: "strong" });
         if (!written || !samePublicPayload(written, payload)) {
           return json(409, { error: "The backfill could not be verified after writing. Refresh the archive before trying again." });
@@ -2899,6 +2966,21 @@ function samePublicPayload(left, right) {
     && left?.actorId === right?.actorId
     && left?.vibeIdx === right?.vibeIdx
     && JSON.stringify(left?.displayResults || []) === JSON.stringify(right?.displayResults || []),
+  );
+}
+
+function sameBoardAsPublicPayload(payload, board) {
+  const candidates = board?.candidates || [];
+  return Boolean(
+    payload?.actorId
+    && Array.isArray(payload?.displayResults)
+    && payload.displayResults.length === candidates.length
+    && payload.displayResults.every((result, position) => (
+      result?.thumbnail === candidates[position]?.thumbnail
+      && (result?.title || "") === (candidates[position]?.title || "")
+      && (result?.link || "") === (candidates[position]?.link || "")
+      && (result?.source || "") === (candidates[position]?.source || "")
+    )),
   );
 }
 

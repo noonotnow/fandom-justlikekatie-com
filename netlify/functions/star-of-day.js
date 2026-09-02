@@ -3,7 +3,7 @@ import { ACTOR_PACKS as actorPacks } from "./lib/actor-packs.js";
 import { searchOneQuery } from "./preview-search.js";
 import { evaluateCandidates, rankCandidates, RANKED_BATCH_LIMIT } from "./lib/ranking.js";
 import { getShanghaiDateString, shanghaiYesterday } from "./lib/date-seed.js";
-import { curateDisplayResults } from "./lib/grid-curation.js";
+import { candidateIdForResult, curateDisplayResults } from "./lib/grid-curation.js";
 import {
   AESTHETIC_CLUSTER_VERSION,
   IDENTITY_PROFILE_VERSION,
@@ -15,6 +15,12 @@ import {
   getEligibility,
   selectEligiblePair,
 } from "./lib/actor-eligibility.js";
+import {
+  GRID_MANIFEST_PREFIX,
+  gridManifestKey,
+  manifestPayload,
+  materializePublicationManifest,
+} from "./lib/publication-manifest.js";
 
 // Server-side daily cache for "Star of the Day".
 //
@@ -52,6 +58,11 @@ function cacheKeyFor(dateString) {
 }
 
 async function getHistoricalPayload(store, dateString) {
+  const manifested = manifestPayload(await store.get(gridManifestKey(dateString), {
+    type: "json",
+    consistency: "strong",
+  }), VERSION);
+  if (manifested) return manifested;
   for (const version of [VERSION, ...LEGACY_READ_VERSIONS]) {
     const payload = await store.get(`starOfDay:${version}:${dateString}`, { type: "json" });
     if (payload) return payload;
@@ -80,7 +91,11 @@ export async function buildPayloadForDate(
     rank = rankCandidates,
     curate = curateDisplayResults,
     generatedAt = () => new Date().toISOString(),
-     releaseActorId = null,
+    releaseActorId = null,
+    publicationStore = null,
+    materializePublication = null,
+    mediaEnv = process.env,
+    fetchImpl = fetch,
   } = {},
 ) {
   if (!await hasReleaseReadyCohort(packs, eligibilityStore, MIN_RELEASE_READY_PAIRS, releaseActorId)) return null;
@@ -109,6 +124,47 @@ export async function buildPayloadForDate(
         continue;
       }
       const publicResults = displayResults.map(publicDisplayResult);
+      if (publicationStore && materializePublication) {
+        try {
+          const materialized = await materializePublication({
+            store: publicationStore,
+            date: dateString,
+            actor: {
+              id: actor.id,
+              name: actor.name,
+              nameEn: actor.shortName_en || actor.shortName || actor.name,
+              accentColor: actor.accentColor || "#c9a96e",
+            },
+            vibe: {
+              key: `${actor.id}:${seed.vIdx}`,
+              idx: seed.vIdx,
+              label: vibe.label || vibe.label_en || `${actor.id}:${seed.vIdx}`,
+              labelEn: vibe.label_en || vibe.label || `${actor.id}:${seed.vIdx}`,
+              emoji: vibe.emoji || "✨",
+              subtitle: vibe.subtitle || "",
+              subtitleEn: vibe.subtitle_en || vibe.subtitle || "",
+              supportingCopy: vibe.supportingCopy || "",
+              supportingCopyEn: vibe.supportingCopy_en || "",
+              generationPrompt: vibe.mjPrompt || "",
+            },
+            board: approval.publicationBoard,
+            provenance: {
+              sourceType: approval.publicationSource.type,
+              runId: approval.runId || null,
+              rescueReceiptId: approval.publicationSource.rescueReceiptId || null,
+              rescueBoardHash: approval.publicationSource.boardHash || null,
+              feedbackHash: approval.publicationSource.feedbackHash || null,
+            },
+            env: mediaEnv,
+            fetchImpl,
+            now: generatedAt,
+          });
+          return materialized.payload;
+        } catch {
+          excluded.add(`${actor.id}:${seed.vIdx}`);
+          continue;
+        }
+      }
       return {
         version: VERSION,
         date: dateString,
@@ -165,6 +221,56 @@ export async function buildPayloadForDate(
     if (!await pairIsReleaseReady(actor, seed.vIdx, eligibilityStore)) {
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
+    }
+
+    if (publicationStore && materializePublication) {
+      try {
+        const publicationBoard = {
+          mode: curation?.mode || "compiled",
+          candidates: displayResults.slice(0, 9).map(candidate => ({
+            ...candidate,
+            candidateId: candidate.candidateId || candidateIdForResult({
+              ...candidate,
+              batchKey: candidate.batchKey || candidate.query || "daily-drop",
+            }),
+          })),
+        };
+        const materialized = await materializePublication({
+          store: publicationStore,
+          date: dateString,
+          actor: {
+            id: actor.id,
+            name: actor.name,
+            nameEn: actor.shortName_en || actor.shortName || actor.name,
+            accentColor: actor.accentColor || "#c9a96e",
+          },
+          vibe: {
+            key: `${actor.id}:${seed.vIdx}`,
+            idx: seed.vIdx,
+            label: vibe.label || vibe.label_en || `${actor.id}:${seed.vIdx}`,
+            labelEn: vibe.label_en || vibe.label || `${actor.id}:${seed.vIdx}`,
+            emoji: vibe.emoji || "✨",
+            subtitle: vibe.subtitle || "",
+            subtitleEn: vibe.subtitle_en || vibe.subtitle || "",
+            supportingCopy: vibe.supportingCopy || "",
+            supportingCopyEn: vibe.supportingCopy_en || "",
+            generationPrompt: vibe.mjPrompt || "",
+          },
+          board: publicationBoard,
+          provenance: {
+            sourceType: "daily_curation",
+            runId: approval.runId || null,
+            curationVersion: curation?.curationVersion || null,
+          },
+          env: mediaEnv,
+          fetchImpl,
+          now: generatedAt,
+        });
+        return materialized.payload;
+      } catch {
+        excluded.add(`${actor.id}:${seed.vIdx}`);
+        continue;
+      }
     }
 
     return {
@@ -292,6 +398,11 @@ export default async (req, context) => {
     }
 
     const todayKey = cacheKeyFor(todayStr);
+    const manifested = manifestPayload(await store.get(gridManifestKey(todayStr), {
+      type: "json",
+      consistency: "strong",
+    }), VERSION);
+    if (manifested) return jsonResponse(200, manifested);
 
     const cached = await store.get(todayKey, { type: "json" });
     if (cached && await cachedPairIsEligible(
@@ -310,6 +421,9 @@ export default async (req, context) => {
       try {
         const payload = await buildPayloadForDate(todayStr, eligibilityStore, {
           releaseActorId: RELEASE_COHORT_ACTOR_ID,
+          publicationStore: store,
+          materializePublication: materializePublicationManifest,
+          mediaEnv: process.env,
         });
         if (payload) {
           // First-write-wins re-check: because tryAcquireLock() is a best-effort
@@ -370,7 +484,7 @@ export default async (req, context) => {
 
     // Someone else is building — poll the real cache key briefly instead of
     // duplicating the expensive work.
-    const waited = await pollForCache(store, eligibilityStore, todayKey);
+    const waited = await pollForCache(store, eligibilityStore, todayKey, todayStr);
     if (waited) return jsonResponse(200, waited);
 
     // Still building after our patience budget — try yesterday's cache so the
@@ -397,7 +511,10 @@ function isUsableDate(value) {
 }
 
 async function listArchivedEditions(store, todayStr) {
-  const listing = await store.list({ prefix: "starOfDay:" });
+  const [listing, manifestListing] = await Promise.all([
+    store.list({ prefix: "starOfDay:" }),
+    store.list({ prefix: GRID_MANIFEST_PREFIX }),
+  ]);
   const availableVersions = new Set([VERSION, ...LEGACY_READ_VERSIONS]);
   const versionsByDate = new Map();
   (listing?.blobs || [])
@@ -409,9 +526,21 @@ async function listArchivedEditions(store, todayStr) {
       const existing = versionsByDate.get(match[2]);
       if (!existing || match[1] === VERSION) versionsByDate.set(match[2], match[1]);
     });
+  (manifestListing?.blobs || [])
+    .map(blob => blob?.key)
+    .filter(key => typeof key === "string")
+    .forEach(key => {
+      const date = key.slice(GRID_MANIFEST_PREFIX.length);
+      if (isUsableDate(date) && date <= todayStr) versionsByDate.set(date, "manifest");
+    });
 
   const editions = await Promise.all([...versionsByDate].map(async ([date, version]) => {
-    const payload = await store.get(`starOfDay:${version}:${date}`, { type: "json" });
+    const payload = version === "manifest"
+      ? manifestPayload(await store.get(gridManifestKey(date), {
+        type: "json",
+        consistency: "strong",
+      }), VERSION)
+      : await store.get(`starOfDay:${version}:${date}`, { type: "json" });
     if (!payload || payload.date !== date || !payload.actorName || !payload.vibeLabel) return null;
     return {
       date,
@@ -433,10 +562,15 @@ async function listArchivedEditions(store, todayStr) {
   };
 }
 
-async function pollForCache(store, eligibilityStore, todayKey) {
+async function pollForCache(store, eligibilityStore, todayKey, todayStr) {
   const deadline = Date.now() + POLL_MAX_WAIT_MS;
   while (Date.now() < deadline) {
     await sleep(POLL_INTERVAL_MS);
+    const manifested = manifestPayload(await store.get(gridManifestKey(todayStr), {
+      type: "json",
+      consistency: "strong",
+    }), VERSION);
+    if (manifested) return manifested;
     const cached = await store.get(todayKey, { type: "json" });
     if (cached && await cachedPairIsEligible(
       cached,

@@ -1,4 +1,6 @@
-export type MediaAssociation = { type: 'collection'; id: string; itemId: string };
+export type MediaAssociation =
+  | { type: 'collection'; id: string; itemId: string }
+  | { type: 'publication'; id: string; itemId: string };
 
 export interface MediaReference {
   schemaVersion: 1;
@@ -59,7 +61,7 @@ export function reassignMediaToCollection(
 function isMediaAssociation(value: unknown): value is MediaAssociation {
   if (!value || typeof value !== 'object') return false;
   const association = value as Partial<MediaAssociation>;
-  return association.type === 'collection'
+  return (association.type === 'collection' || association.type === 'publication')
     && typeof association.id === 'string'
     && typeof association.itemId === 'string';
 }
