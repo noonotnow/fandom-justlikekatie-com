@@ -47,8 +47,7 @@ import {
   type PublicUser,
 } from '../../utils/publicAccount';
 import styles from './Collection.module.css';
-import type { CreatorDraftResult } from '../../utils/creatorDraft';
-import type { CreatorPlatform } from '../../utils/creatorDraft';
+import type { CreatorDraftProgress, CreatorDraftResult, CreatorPlatform } from '../../utils/creatorDraft';
 import { CreatorPostAction } from '../CreatorPostAction/CreatorPostAction';
 
 const UNDO_WINDOW_MS = 8_000;
@@ -62,7 +61,11 @@ interface Props {
   isMember?: boolean;
   onUpgrade?: () => void;
   onTypeChange?: (type: 'grids' | 'results' | 'builder') => void;
-  onCreateFromGrid?: (grid: GridRecord, platforms: CreatorPlatform[]) => Promise<CreatorDraftResult>;
+  onCreateFromGrid?: (
+    grid: GridRecord,
+    platforms: CreatorPlatform[],
+    onProgress?: (progress: CreatorDraftProgress) => void,
+  ) => Promise<CreatorDraftResult>;
 }
 
 type ExpandedArtifact =
@@ -759,10 +762,10 @@ export const Collection: React.FC<Props> = ({
                     <CreatorPostAction
                       entryPoint="saved_grid"
                       disabled={Boolean(busyKey)}
-                      onSubmit={async platforms => {
+                      onSubmit={async (platforms, onProgress) => {
                         setBusyKey(`create:${grid.id}`);
                         try {
-                          return await onCreateFromGrid(grid, platforms);
+                          return await onCreateFromGrid(grid, platforms, onProgress);
                         } finally {
                           setBusyKey('');
                         }

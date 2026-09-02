@@ -1,5 +1,9 @@
 import { useRef, useState } from 'react';
-import type { CreatorDraftResult, CreatorPlatform } from '../../utils/creatorDraft';
+import type {
+  CreatorDraftProgress,
+  CreatorDraftResult,
+  CreatorPlatform,
+} from '../../utils/creatorDraft';
 import {
   trackCreatorHandoffAttempt,
   trackCreatorHandoffFailure,
@@ -15,7 +19,10 @@ const PLATFORMS: Array<{ value: CreatorPlatform; label: string; detail: string }
 ];
 
 interface Props {
-  onSubmit: (platforms: CreatorPlatform[]) => Promise<CreatorDraftResult>;
+  onSubmit: (
+    platforms: CreatorPlatform[],
+    onProgress: (progress: CreatorDraftProgress) => void,
+  ) => Promise<CreatorDraftResult>;
   entryPoint: CreatorHandoffEntryPoint;
   disabled?: boolean;
   label?: string;
@@ -37,6 +44,13 @@ export function CreatorPostAction({
   const [selected, setSelected] = useState<CreatorPlatform[]>(['rednote']);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [progress, setProgress] = useState<CreatorDraftProgress | null>(null);
+  const [readinessFailures, setReadinessFailures] = useState<Array<{
+    gridPosition: number;
+    title: string;
+    message: string;
+  }>>([]);
+  const [ready, setReady] = useState<CreatorDraftResult | null>(null);
   const inFlight = useRef(false);
 
   function toggle(platform: CreatorPlatform) {
@@ -45,6 +59,7 @@ export function CreatorPostAction({
       ? current.filter(value => value !== platform)
       : canonicalPlatforms([...current, platform]));
     setError('');
+    setReady(null);
   }
 
   async function submit() {
@@ -56,20 +71,27 @@ export function CreatorPostAction({
     inFlight.current = true;
     setBusy(true);
     setError('');
+    setReadinessFailures([]);
+    setReady(null);
+    setProgress({ phase: 'preparing-media' });
     const destinations = canonicalPlatforms(selected);
     trackCreatorHandoffAttempt(entryPoint, destinations);
     try {
-      const result = await onSubmit(destinations);
+      const result = await onSubmit(destinations, setProgress);
       // completeCreatorDraftHandoff has validated this receipt before the
       // result reaches this shared action boundary.
       trackCreatorHandoffSuccess(entryPoint, result.source.platforms);
       onSuccess?.();
+      setReady(result);
+      setProgress(null);
       // The receipt has already been validated against the canonical
-      // Workstation/Creator composer host by the handoff client.
-      window.location.assign(result.receipt.createUrl);
+      // Workstation composer host by the handoff client.
+      window.location.assign(result.receipt.deepLink);
     } catch (caught) {
       trackCreatorHandoffFailure(entryPoint, destinations, caught);
+      setReadinessFailures(readinessFailuresFrom(caught));
       setError(recoveryMessage(caught));
+      setProgress(null);
     } finally {
       inFlight.current = false;
       setBusy(false);
@@ -98,7 +120,9 @@ export function CreatorPostAction({
         </div>
       </fieldset>
       <p className={styles.confirmation} role="status" aria-live="polite">
-        {selectedLabels.length
+        {progress
+          ? progressMessage(progress)
+          : selectedLabels.length
           ? `Selected for this draft: ${selectedLabels.join(' + ')}`
           : 'Select at least one destination.'}
       </p>
@@ -107,13 +131,34 @@ export function CreatorPostAction({
         onClick={() => void submit()}
         disabled={busy || disabled || selected.length === 0}
       >
-        {busy ? 'Creating draft…' : label}
+        {busy ? progressButtonLabel(progress) : ready ? 'Open Workstation draft' : label}
       </button>
+      {ready && (
+        <div className={styles.ready} role="status">
+          <strong>{readyMessage(ready)}</strong>
+          {ready.receipt.mediaSyncState === 'operator-diverged' && (
+            <p>Workstation kept operator edits instead of replacing its media projection.</p>
+          )}
+          {ready.receipt.warnings.map(warning => <p key={warning}>{warning}</p>)}
+          <a href={ready.receipt.deepLink}>Open the ready draft</a>
+        </div>
+      )}
       {error && (
         <div className={styles.recovery} role="alert">
           <p>{error}</p>
           <span>This grid is still saved.</span>
+          {readinessFailures.length > 0 && (
+            <ol className={styles.failures}>
+              {readinessFailures.map(failure => (
+                <li key={`${failure.gridPosition}:${failure.title}`}>
+                  <strong>Position {failure.gridPosition + 1}: {failure.title}</strong>
+                  <span>{failure.message}</span>
+                </li>
+              ))}
+            </ol>
+          )}
           <nav aria-label="Post recovery links">
+            <button type="button" onClick={() => void submit()}>Retry preparation</button>
             <a href="/vibe-atlas?view=collection">Open Your Collection</a>
             <a href="https://workstation.justlikekatie.com" target="_blank" rel="noreferrer">Open Workstation</a>
           </nav>
@@ -139,5 +184,43 @@ function recoveryMessage(value: unknown): string {
   if (/rejected|returned http|intake failed|handoff failed/i.test(message)) {
     return 'Workstation rejected this draft handoff. Retry after checking the intake configuration.';
   }
+  if (/not durably available in MEDIA/i.test(message)) {
+    return 'Workstation handoff is paused until every grid image is durably available.';
+  }
   return message || 'The Workstation draft could not be created. Retry or open the saved grid below.';
+}
+
+function readinessFailuresFrom(value: unknown) {
+  if (!value || typeof value !== 'object') return [];
+  const failures = Reflect.get(value, 'failures');
+  if (!Array.isArray(failures)) return [];
+  return failures.filter(failure => (
+    failure
+    && typeof failure === 'object'
+    && Number.isInteger(Reflect.get(failure, 'gridPosition'))
+    && typeof Reflect.get(failure, 'title') === 'string'
+    && typeof Reflect.get(failure, 'message') === 'string'
+  ));
+}
+
+function progressMessage(progress: CreatorDraftProgress): string {
+  if (progress.phase === 'preparing-media') return 'Preparing durable MEDIA assets…';
+  if (progress.phase === 'syncing-collection') {
+    return progress.copiedCount > 0
+      ? `${progress.copiedCount} new MEDIA ${progress.copiedCount === 1 ? 'asset is' : 'assets are'} ready. Syncing Collection…`
+      : 'Durable MEDIA assets are ready. Syncing Collection…';
+  }
+  return 'Collection is synced. Creating or updating the Workstation draft…';
+}
+
+function progressButtonLabel(progress: CreatorDraftProgress | null): string {
+  if (progress?.phase === 'preparing-media') return 'Preparing assets…';
+  if (progress?.phase === 'syncing-collection') return 'Syncing Collection…';
+  return 'Creating or updating draft…';
+}
+
+function readyMessage(result: CreatorDraftResult): string {
+  if (result.receipt.disposition === 'replayed') return 'Existing Workstation draft is ready to open.';
+  if (result.receipt.disposition === 'updated') return 'Workstation draft was updated and is ready to open.';
+  return 'New Workstation draft is ready to open.';
 }
