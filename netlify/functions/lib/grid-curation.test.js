@@ -1291,8 +1291,11 @@ test("a named heartbreak cluster still needs an emotionally legible hero", async
   ], { diagnostics: true, promise });
 
   assert.equal(output.displayResults.length, 0);
-  assert.equal(output.diagnostics.boardDiagnostics.compiled.reasonCode, "promise_not_fulfilled");
+  assert.equal(output.diagnostics.boardDiagnostics.compiled.reasonCode, "hero_not_fulfilled");
   assert.equal(output.diagnostics.boardDiagnostics.compiled.coreAnchorCount, 9);
+  assert.equal(output.diagnostics.boardDiagnostics.compiled.completeProposalAvailable, true);
+  assert.equal(output.diagnostics.boardDiagnostics.compiled.proposal.candidates.length, 9);
+  assert.match(output.diagnostics.boardDiagnostics.compiled.summary, /proposed hero was not recognized/i);
 });
 
 test("Jinxiu qualifies by emotional state instead of one permanent Vibe", async () => {

@@ -910,6 +910,9 @@ function boardDiagnosticSummary(mode, reasonCode, metrics) {
   if (reasonCode === "event_family_too_small") {
     return `The strongest Event family had ${metrics.largestFamilyCount} frames (${metrics.largestDistinctFamilyCount} after copy collapse); ${metrics.requiredCount} distinct frames are required.`;
   }
+  if (reasonCode === "hero_not_fulfilled") {
+    return `${label} formed a complete ${metrics.requiredCount}-card proposal and all ${metrics.coreAnchorCount} cards fulfilled the Vibe Pack's required anchors, but the proposed hero was not recognized as on-promise. The proposal remains available for human review, hero replacement, and reordering.`;
+  }
   if (reasonCode === "promise_not_fulfilled") {
     return `${label} formed a complete proposal, but only ${metrics.coreAnchorCount} of ${metrics.requiredCount} cards fulfilled the Vibe Pack's required anchors; at least ${Math.min(MIN_PROMISE_CARDS, metrics.requiredCount)} plus an on-promise hero are required.`;
   }
@@ -1333,6 +1336,15 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
     } : null,
     candidates: selection.board.slice(0, DEFAULT_CURATION_LIMIT).map(summarize),
   } : null;
+  const serializedBoardDiagnostics = Object.fromEntries(
+    Object.entries(boardDiagnostics || {}).map(([mode, diagnostic]) => {
+      const { proposalSelection, ...publicDiagnostic } = diagnostic || {};
+      return [mode, {
+        ...publicDiagnostic,
+        proposal: board(proposalSelection, mode),
+      }];
+    }),
+  );
   const sourceEvidenceCandidates = states.map(state => ({
     ...summarize(state.candidate),
     dropReason: state.dropReason || null,
@@ -1363,7 +1375,7 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
     eventAlternatives: eventAlternatives.slice(1, 4).map(item => board(item, "event")),
     compiledAlternatives: compiledAlternatives.slice(1, 4).map(item => board(item, "compiled")),
     runnerUpDiagnostics,
-    boardDiagnostics,
+    boardDiagnostics: serializedBoardDiagnostics,
     partialClusters,
     winner,
     alternate: winner === "event" ? "compiled" : winner === "compiled" ? "event" : null,
@@ -1408,15 +1420,18 @@ function boardDiagnostic(mode, selection, {
     ),
     0,
   );
+  const proposal = proposals[0] || null;
+  const proposalPromise = proposal?.board
+    ? boardPromiseMetrics(proposal.board, promise)
+    : null;
   const metrics = {
     requiredCount: limit,
     usableCount,
     distinctUsableCount,
     largestFamilyCount,
     largestDistinctFamilyCount,
-    coreAnchorCount: proposals[0]?.board
-      ? boardPromiseMetrics(proposals[0].board, promise).coreCount
-      : 0,
+    coreAnchorCount: proposalPromise?.coreCount || 0,
+    heroFulfillment: proposalPromise?.heroFulfillment || 0,
   };
   const reasonCodes = [];
 
@@ -1449,7 +1464,12 @@ function boardDiagnostic(mode, selection, {
   }
 
   if (!selection && proposals.length && promise) {
-    reasonCodes.unshift("promise_not_fulfilled");
+    reasonCodes.unshift(
+      metrics.coreAnchorCount >= Math.min(MIN_PROMISE_CARDS, limit)
+        && metrics.heroFulfillment !== 1
+        ? "hero_not_fulfilled"
+        : "promise_not_fulfilled",
+    );
   }
 
   if (!selection && !reasonCodes.length) reasonCodes.push("board_not_selected");
@@ -1457,6 +1477,8 @@ function boardDiagnostic(mode, selection, {
   const reasonCode = uniqueReasonCodes[0] || null;
   return {
     available: Boolean(selection),
+    completeProposalAvailable: Boolean(proposal?.board?.length >= limit),
+    proposalSelection: !selection ? proposal : null,
     requiredCount: limit,
     candidateCount: selection?.board.length || 0,
     usableCount,
@@ -1464,6 +1486,7 @@ function boardDiagnostic(mode, selection, {
     largestFamilyCount,
     largestDistinctFamilyCount,
     coreAnchorCount: metrics.coreAnchorCount,
+    heroFulfillment: metrics.heroFulfillment,
     reasonCodes: uniqueReasonCodes,
     reasonCode,
     summary: reasonCode

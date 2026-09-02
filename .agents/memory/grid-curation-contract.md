@@ -7,6 +7,12 @@ description: Editorial rules for deciding between coherent Event boards and vari
 
 **Composition rule:** Character-look compatibility is placement-aware: hero and high-salience positions must satisfy every required Vibe-anchor combination, while supporting or contrasting clusters are bounded to secondary positions and cannot silently change the board thesis. Promise contracts must distinguish required combinations, supporting anchors, hard anti-anchors, soft contradictions, and hero-slot requirements; query provenance is bounded evidence, never proof. Every actor/Vibe pair needs an enforceable promise—never an empty allow-all fallback. A coherent cluster below nine cards is a search lead, not a board: preserve its character/state evidence and turn its missing relationship, scene, emotional, or character coverage into targeted follow-up searches.
 
+**Proposal integrity rule:** Reaching nine distinct cards and passing automated publication qualification are separate states. Preserve and show every complete proposal even when its hero or promise gate fails; name the failed gate, and never rewrite that result as “did not reach nine.” Count displayable retained images separately from automatically qualified publication cards.
+
+**Why:** A real audit formed both Event and Compiled nine-card proposals with 9/9 anchor recognition, but a failed hero check nulled the qualified-board fields. The UI then falsely reported that no candidate reached nine and called 36 selectable images “0 clean display images.”
+
+**How to apply:** Persist the exact rejected proposal in the diagnostic receipt, keep it available for human review and rescue-board reordering, and distinguish older receipts that prove a proposal existed but did not retain its arrangement. A fresh audit should preserve the exact proposal.
+
 **Character-state rule:** A character does not own one permanent Vibe. Resolve compatibility through actor → character → look → emotional/scene state → Vibe; identity or costume without the relevant state cannot claim or contradict a stateful cluster.
 
 **Release rule:** A blind preference records only which proposal is better. Plain approval separately requires the operator to confirm both “Yes, that’s the Vibe” and “Yes, this is publishable.” Liu Xueyi enters Star of the Day only after two fresh pairings earn both confirmations; scores, comparative wins, rescue boards, and overrides do not count.

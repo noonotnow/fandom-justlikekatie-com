@@ -54,9 +54,14 @@ test('an unavailable comparison is not described as ready for a blind choice', (
   assert.match(startAudit, /did not produce two complete boards/);
   assert.match(startAudit, /Choose between the two boards below/);
   assert.match(source, /function PartialBoards/);
-  assert.match(source, /Available candidate board/);
+  assert.match(source, /Complete nine-card proposal/);
+  assert.match(source, /automated gate not passed/);
+  assert.match(source, /older audit format did not retain its exact arrangement/);
+  assert.match(source, /displayable retained images/);
+  assert.match(source, /automatically qualified publication cards/);
+  assert.doesNotMatch(source, /No candidate board reached nine images/);
   assert.match(source, /function BoardQualificationSummary/);
-  assert.match(source, /board missing/);
+  assert.match(source, /proposal missing/);
   assert.match(source, /diagnostic\?\.summary/);
   const unavailableStart = source.indexOf("review?.status === 'unavailable'");
   const unavailableEnd = source.indexOf(': <section', unavailableStart);
