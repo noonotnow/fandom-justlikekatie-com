@@ -31,7 +31,6 @@ import {
   initialVibeAtlasEditionDate,
   initialVibeAtlasView,
   isValidVibeAtlasEditionDate,
-  isAdminEntryLocation,
   isVibeAtlasArchiveLocation,
   resolveFandomProductRoute,
 } from './utils/fandomRoutes';
@@ -72,14 +71,9 @@ function syncVibeAtlasEditionUrl(date: string | null, replace = false) {
 }
 
 function App() {
-  const adminEntry = isAdminEntryLocation(
-    window.location.pathname,
-    window.location.search,
-    window.location.hash,
-  );
   const route = resolveFandomProductRoute(window.location.pathname, window.location.search);
   if (route === 'vibe-atlas') {
-    return <VibeAtlasApp adminEntry={adminEntry} archiveEntry={isVibeAtlasArchiveLocation(window.location.pathname)} />;
+    return <VibeAtlasApp archiveEntry={isVibeAtlasArchiveLocation(window.location.pathname)} />;
   }
   if (route === 'middle-earth') return <MiddleEarthApp />;
   if (route === 'veteran-journal') return <VeteranSubmissionForm />;
@@ -94,7 +88,7 @@ function MiddleEarthApp() {
   return <MiddleEarthWorkspace isAdmin={isAdmin} />;
 }
 
-function VibeAtlasApp({ adminEntry = false, archiveEntry = false }: { adminEntry?: boolean; archiveEntry?: boolean }) {
+function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [dailyGridZoomOpen, setDailyGridZoomOpen] = useState(false);
@@ -583,7 +577,7 @@ function VibeAtlasApp({ adminEntry = false, archiveEntry = false }: { adminEntry
       ) : !isAdmin ? (
         <AdminSignIn />
       ) : (
-        <FandomAdmin initialView={adminEntry ? 'actor-preflight' : 'plan'} />
+        <FandomAdmin initialView="actor-preflight" />
       )}
     </div>
   );

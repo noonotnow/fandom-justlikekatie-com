@@ -43,6 +43,8 @@ test('Your Collection is the public Collection and Grid Builder workspace', () =
 
 test('the private operator console does not mount a duplicate Grid Builder', () => {
   assert.match(adminSource, /<h2>Operator Console<\/h2>/);
+  assert.match(appSource, /<FandomAdmin initialView="actor-preflight" \/>/);
+  assert.match(adminSource, /\(\{ initialView = 'actor-preflight' \}\)/);
   assert.doesNotMatch(adminSource, /from '\.\.\/GridBuilder\/GridBuilder'/);
   assert.doesNotMatch(adminSource, /allRecords=\{true\}/);
   assert.doesNotMatch(adminSource, /aria-selected=\{view === 'builder'\}/);

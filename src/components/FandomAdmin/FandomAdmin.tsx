@@ -13,7 +13,7 @@ import styles from './FandomAdmin.module.css';
 
 type AdminView = 'plan' | 'court' | 'watch-journal' | 'actor-preflight';
 
-export const FandomAdmin: React.FC<{ initialView?: AdminView }> = ({ initialView = 'plan' }) => {
+export const FandomAdmin: React.FC<{ initialView?: AdminView }> = ({ initialView = 'actor-preflight' }) => {
   const [view, setView] = useState<AdminView>(initialView);
   return (
     <section className={styles.admin}>
