@@ -1166,7 +1166,13 @@ export async function runPreflight(
     ranked.findIndex(item => item.query === candidate.query),
   ));
   const completedAt = now().toISOString();
-  const materialSufficient = curated.displayResults.length >= 9;
+  const publicationQualified = curated.displayResults.length >= 9;
+  const retainedProposal = bestRetainedProposal(diagnostics);
+  const proposalResults = Array.isArray(curated.proposalResults)
+    ? curated.proposalResults
+    : retainedProposal?.candidates?.map(candidate => candidate.result || candidate) || [];
+  const proposalComplete = proposalResults.length >= 9;
+  const materialSufficient = publicationQualified;
   const calibrationComparison = compareCalibrationOutcomes(
     calibrationProfile,
     curated.controlDiagnostics,
@@ -1239,7 +1245,15 @@ export async function runPreflight(
       ? { mode: diagnostics.alternate, board: diagnostics[diagnostics.alternate === "event" ? "strongestEvent" : "strongestCompiled"] }
       : null,
     curationReceipt,
+    curatorProposal: proposalComplete && !publicationQualified ? {
+      ...(curated.proposalCuration || {}),
+      ...(retainedProposal || {}),
+      candidates: retainedProposal?.candidates?.slice(0, 9) || proposalResults.slice(0, 9),
+    } : null,
     displayCount: curated.displayResults.length,
+    proposalCount: proposalResults.length,
+    proposalComplete,
+    publicationQualified,
     materialSufficient,
     suggestedState: materialSufficient
       ? identityEvidence.collisionSignals > 0 ? "identity_risk" : "needs_operator_verdict"
@@ -1248,6 +1262,19 @@ export async function runPreflight(
         : "insufficient_material",
     operatorVerdict: null,
   };
+}
+
+function bestRetainedProposal(diagnostics) {
+  return Object.entries(diagnostics?.boardDiagnostics || {})
+    .map(([mode, diagnostic]) => ({
+      mode,
+      reasonCode: diagnostic?.reasonCode || null,
+      ...diagnostic?.proposal,
+    }))
+    .filter(proposal => Array.isArray(proposal.candidates) && proposal.candidates.length >= 9)
+    .sort((left, right) =>
+      Number(right.score || 0) - Number(left.score || 0)
+      || left.mode.localeCompare(right.mode))[0] || null;
 }
 
 function queryRun(candidate, receipt, rankIndex) {

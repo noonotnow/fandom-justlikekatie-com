@@ -283,6 +283,11 @@ function curation({
         },
         compiled: {
           available: sufficient,
+          completeProposalAvailable: curationFailure,
+          proposal: curationFailure ? {
+            score: 0.6,
+            candidates: [...boardCandidates].reverse(),
+          } : null,
           reasonCode: sufficient ? null : curationFailure ? "promise_not_fulfilled" : "too_few_usable_images",
           summary: sufficient ? "A complete 9-card Compiled board qualified." : curationFailure ? "A complete proposal failed the Vibe promise." : "Compiled had 0 usable images; 9 are required.",
         },
@@ -2963,6 +2968,11 @@ test("useful evidence with failed board selection records Needs curation work", 
   assert.equal(run.currentRun.blindReview.status, "unavailable");
   assert.equal(run.currentRun.suggestedState, "needs_curation_work");
   assert.equal(run.currentRun.boardDiagnostics.compiled.reasonCode, "promise_not_fulfilled");
+  assert.equal(run.currentRun.proposalComplete, true);
+  assert.equal(run.currentRun.proposalCount, 9);
+  assert.equal(run.currentRun.publicationQualified, false);
+  assert.equal(run.currentRun.displayCount, 0);
+  assert.equal(run.currentRun.curatorProposal.candidates.length, 9);
 
   const verdictResponse = await handler(request("POST", {
     action: "verdict",

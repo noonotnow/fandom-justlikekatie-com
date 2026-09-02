@@ -1015,19 +1015,50 @@ function selectFromFrozenAnalysis(rawCandidates, frozenStates, {
       promise,
     }),
   };
+  const strongestProposal = [eventProposals[0], compiledProposals[0]]
+    .filter(Boolean)
+    .sort((left, right) =>
+      right.score - left.score
+      || boardKey(left.board).localeCompare(boardKey(right.board)))[0] || null;
+  const strongestProposalMode = strongestProposal === eventProposals[0]
+    ? "event"
+    : strongestProposal ? "compiled" : null;
   if (!eventCandidate && !compiledCandidate) {
+    const blockedProposal = strongestProposal ? {
+      proposalResults: strongestProposal.board.map(candidate => candidate.result),
+      proposalCuration: {
+        ...rationaleFor(strongestProposalMode, eventProposals[0], compiledProposals[0]),
+        ...(profileVersions || {}),
+        publicationEligible: false,
+        publicationBlockReason: boardDiagnostics[strongestProposalMode]?.reasonCode || "board_not_selected",
+        calibrationProfileVersion: calibrationProfile?.calibrationVersion || null,
+        calibrationEvidenceCount: calibrationProfile?.evidenceCount || 0,
+      },
+    } : {
+      proposalResults: [],
+      proposalCuration: null,
+    };
     return diagnostics
-      ? { displayResults: [], curation: null, diagnostics: diagnosticReceipt(rankedRawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, runnerUpDiagnostics, null, boardDiagnostics, partialClusters, promise, profileVersions, calibrationProfile) }
-      : { displayResults: [], curation: null };
+      ? { displayResults: [], curation: null, ...blockedProposal, diagnostics: diagnosticReceipt(rankedRawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, runnerUpDiagnostics, null, boardDiagnostics, partialClusters, promise, profileVersions, calibrationProfile) }
+      : { displayResults: [], curation: null, ...blockedProposal };
   }
   const useEvent = Boolean(eventCandidate)
     && (!compiledCandidate || eventCandidate.score >= compiledCandidate.score);
   const winner = useEvent ? eventCandidate : compiledCandidate;
   const result = {
     displayResults: winner.board.map(candidate => candidate.result),
+    proposalResults: winner.board.map(candidate => candidate.result),
     curation: {
       ...rationaleFor(useEvent ? "event" : "compiled", eventCandidate, compiledCandidate),
       ...(profileVersions || {}),
+      calibrationProfileVersion: calibrationProfile?.calibrationVersion || null,
+      calibrationEvidenceCount: calibrationProfile?.evidenceCount || 0,
+    },
+    proposalCuration: {
+      ...rationaleFor(useEvent ? "event" : "compiled", eventCandidate, compiledCandidate),
+      ...(profileVersions || {}),
+      publicationEligible: true,
+      publicationBlockReason: null,
       calibrationProfileVersion: calibrationProfile?.calibrationVersion || null,
       calibrationEvidenceCount: calibrationProfile?.evidenceCount || 0,
     },
@@ -1616,7 +1647,7 @@ function meaningfulRunnerUps(mode, qualifiedProposals, limit) {
         meaningfulAlternativeCount: 0,
         rejectedForCardOverlap: 0,
         rejectedForSameArgument: 0,
-        summary: `No meaningful ${mode === "event" ? "Event" : "Compiled"} runner-up exists because no board qualified.`,
+        summary: `No meaningful ${mode === "event" ? "Event" : "Compiled"} runner-up exists because no proposal passed every automated publication gate.`,
       },
     };
   }
