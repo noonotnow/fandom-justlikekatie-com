@@ -46,6 +46,26 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
+localPort = 5001
+externalPort = 3002
+exposeLocalhost = true
+
+[[ports]]
+localPort = 5002
+externalPort = 3003
+exposeLocalhost = true
+
+[[ports]]
+localPort = 5003
+externalPort = 4200
+exposeLocalhost = true
+
+[[ports]]
+localPort = 5004
+externalPort = 5000
+exposeLocalhost = true
+
+[[ports]]
 localPort = 5173
 externalPort = 5173
 exposeLocalhost = true
