@@ -790,12 +790,22 @@ export function createActorAuditHandler({
           || run.operatorVerdict?.vibeConfirmed !== true
           || run.operatorVerdict?.publishableConfirmed !== true
           || approval?.eligible !== true
+          || approval.runId !== input.runId
           || approval.publicationSource?.type !== "operator_rescue"
           || approval.publicationSource.rescueReceiptId !== input.rescueReceiptId
           || !approval.publicationBoard
           || approval.publicationBoard.candidates?.length !== 9) {
           return json(409, {
             error: "Backfill requires the current saved rescue board to have an approved verdict and both human confirmations.",
+          });
+        }
+        const currentHead = await store.get(auditHeadKey(pair.actor.id, pair.vibeIdx), {
+          type: "json",
+          consistency: "strong",
+        });
+        if (currentHead?.currentRunId !== input.runId) {
+          return json(409, {
+            error: "A newer audit run became current. Review that run before publishing the backfill.",
           });
         }
         const payload = backfillPayloadForDate(input.date, pair, approval.publicationBoard);
@@ -1570,14 +1580,24 @@ async function readReport(store, pair) {
     consistency: "strong",
   });
   const listing = await store.list({ prefix: auditRunPrefix(pair.actor.id, pair.vibeIdx) });
-  const runs = (await Promise.all((listing?.blobs || []).map(async blob => {
+  const listedRuns = (await Promise.all((listing?.blobs || []).map(async blob => {
     if (typeof blob?.key !== "string") return null;
     const run = await store.get(blob.key, { type: "json", consistency: "strong" });
     return run ? attachVerdict(store, pair, run) : null;
   })))
     .filter(Boolean)
     .sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)));
-  const currentRun = runs.find(run => run.runId === head?.currentRunId) || null;
+  let currentRun = listedRuns.find(run => run.runId === head?.currentRunId) || null;
+  if (!currentRun && head?.currentRunId) {
+    const directRun = await store.get(
+      auditRunKey(pair.actor.id, pair.vibeIdx, head.currentRunId),
+      { type: "json", consistency: "strong" },
+    );
+    currentRun = directRun ? await attachVerdict(store, pair, directRun) : null;
+  }
+  const runs = currentRun
+    ? [currentRun, ...listedRuns.filter(run => run.runId !== currentRun.runId)]
+    : listedRuns;
   const currentVerdict = currentRun?.operatorVerdict || null;
   const calibrationProfile = await readRescueCalibrationProfile(store, pair);
   return {
@@ -1606,7 +1626,12 @@ async function readRun(store, pair, runId) {
 async function attachVerdict(store, pair, run) {
   const normalizedRun = normalizeLegacyRunEvidence(run);
   const [operatorVerdict, calibration, reasons, editorialFeedback] = await Promise.all([
-    readFirstReceipt(store, auditVerdictPrefix(pair.actor.id, pair.vibeIdx, normalizedRun.runId), "decidedAt"),
+    readCanonicalReceipt(
+      store,
+      auditVerdictKey(pair.actor.id, pair.vibeIdx, normalizedRun.runId),
+      auditVerdictPrefix(pair.actor.id, pair.vibeIdx, normalizedRun.runId),
+      "decidedAt",
+    ),
     readFirstReceipt(store, auditCalibrationPrefix(pair.actor.id, pair.vibeIdx, normalizedRun.runId), "chosenAt"),
     readFirstReceipt(store, auditCalibrationReasonsPrefix(pair.actor.id, pair.vibeIdx, normalizedRun.runId), "annotatedAt"),
     readEditorialFeedback(store, pair, normalizedRun),
@@ -2970,6 +2995,11 @@ async function readFirstReceipt(store, prefix, timestampField) {
     String(left.value[timestampField] || "").localeCompare(String(right.value[timestampField] || ""))
     || left.key.localeCompare(right.key));
   return receipts[0]?.value || null;
+}
+
+async function readCanonicalReceipt(store, key, prefix, timestampField) {
+  const canonical = await store.get(key, { type: "json", consistency: "strong" });
+  return canonical || readFirstReceipt(store, prefix, timestampField);
 }
 
 async function readReceipts(store, prefix, timestampField) {

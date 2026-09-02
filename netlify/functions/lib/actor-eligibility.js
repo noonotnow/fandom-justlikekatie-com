@@ -79,7 +79,12 @@ export async function getEligibility(store, actor, vibeIdx) {
 
   const [run, verdict, calibration, reasons, rescueCalibrations, rescueCalibrationRetirements, publicationReceipt] = await Promise.all([
     store.get(auditRunKey(actorId, vibeIdx, head.currentRunId), { type: "json", consistency: "strong" }),
-    readFirstReceipt(store, auditVerdictPrefix(actorId, vibeIdx, head.currentRunId), "decidedAt"),
+    readCanonicalReceipt(
+      store,
+      auditVerdictKey(actorId, vibeIdx, head.currentRunId),
+      auditVerdictPrefix(actorId, vibeIdx, head.currentRunId),
+      "decidedAt",
+    ),
     readFirstReceipt(store, auditCalibrationPrefix(actorId, vibeIdx, head.currentRunId), "chosenAt"),
     readFirstReceipt(store, auditCalibrationReasonsPrefix(actorId, vibeIdx, head.currentRunId), "annotatedAt"),
     readReceipts(store, auditRescueCalibrationPrefix(actorId, vibeIdx), "confirmedAt"),
@@ -430,6 +435,11 @@ async function readFirstReceipt(store, prefix, timestampField) {
     String(left.value[timestampField] || "").localeCompare(String(right.value[timestampField] || ""))
     || left.key.localeCompare(right.key));
   return receipts[0]?.value || null;
+}
+
+async function readCanonicalReceipt(store, key, prefix, timestampField) {
+  const canonical = await store.get(key, { type: "json", consistency: "strong" });
+  return canonical || readFirstReceipt(store, prefix, timestampField);
 }
 
 async function readReceipts(store, prefix, timestampField) {
