@@ -5,6 +5,7 @@ import starOfDay, {
   buildPayloadForDate,
   cachedPairIsEligible,
   hasReleaseReadyCohort,
+  readRecentDailyDropHistory,
   RELEASE_COHORT_ACTOR_ID,
   releaseLock,
   tryAcquireLock,
@@ -450,6 +451,37 @@ test("historical and archive reads prefer the verified publication manifest over
   assert.equal(archived.editions[0].vibeLabelEn, "Professionally Devastated");
 });
 
+test("recent Daily Drop history uses the inclusive 30-day calendar window", async () => {
+  const store = makeStore({
+    [gridManifestKey("2026-08-31")]: {
+      publicationDate: "2026-08-31",
+      actor: { id: "actor-a" },
+      vibe: { idx: 0 },
+      cards: Array(9).fill({}),
+    },
+    [gridManifestKey("2026-08-02")]: {
+      publicationDate: "2026-08-02",
+      actor: { id: "actor-a" },
+      vibe: { idx: 0 },
+      cards: Array(9).fill({}),
+    },
+    [gridManifestKey("2026-08-01")]: {
+      publicationDate: "2026-08-01",
+      actor: { id: "actor-a" },
+      vibe: { idx: 0 },
+      cards: Array(9).fill({}),
+    },
+  });
+
+  const history = await readRecentDailyDropHistory(store, "2026-08-31");
+
+  assert.deepEqual(
+    history.map(manifest => manifest.publicationDate),
+    ["2026-08-31", "2026-08-02"],
+  );
+  assert.equal(store.stats().listCalls, 0);
+});
+
 test("historical reads reject missing and future dates without touching cache locks", async () => {
   const store = makeStore();
   const missing = await starOfDay(
@@ -509,6 +541,8 @@ test("the builder skips a failed approved pairing and preserves the public 3x3 p
   assert.equal("identityProfile" in payload, false);
   assert.equal("audit" in payload, false);
   assert.equal("eligibility" in payload, false);
+  assert.equal("recentlyUsed" in payload, false);
+  assert.equal("recentDailyDropDates" in payload, false);
 });
 
 test("the builder prefers fresh curation over an approved retained-evidence board", async () => {

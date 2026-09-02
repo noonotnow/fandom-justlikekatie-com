@@ -29,6 +29,7 @@ import {
   vibeKeyFor,
 } from "./actor-audit.js";
 import { candidateIdForResult, CURATION_VERSION } from "./grid-curation.js";
+import { gridManifestKey } from "./publication-manifest.js";
 
 const ORIGIN = "https://fandom.example";
 const PREVIOUS_CURATION_VERSION = 7;
@@ -317,6 +318,7 @@ function harness({
   freshEvidenceOnRerun = false,
   hiddenSourceTransfer = false,
   materializePublication = null,
+  publicationStore = null,
 } = {}) {
   const store = memoryStore();
   let runNumber = 0;
@@ -345,6 +347,7 @@ function harness({
   const handler = createActorAuditHandler({
     auth,
     getStore: () => store,
+    getPublicationStore: () => publicationStore || store,
     actorPacks: [pairActor],
     searchOneQuery: async query => {
       const pass = Math.floor(searchCall++ / pairActor.vibes[0].queries.length);
@@ -463,8 +466,50 @@ test("release inventory groups current curator approvals by actor pack", async (
   assert.equal(body.releaseInventory.freshCuratorPairingCount, 1);
   assert.equal(body.releaseInventory.rescueBackupPairingCount, 0);
   assert.equal(body.releaseInventory.rescueBackupBoardCount, 0);
+  assert.equal(body.releaseInventory.recentlyUsedPairingCount, 0);
+  assert.equal(body.releaseInventory.unusedWithinRecentWindowPairingCount, 1);
   assert.equal(body.releaseInventory.actorPacks[0].releaseReadyPairingCount, 1);
   assert.equal(body.releaseInventory.actorPacks[0].pairings[0].releaseSource, "fresh_curator");
+});
+
+test("release inventory privately marks a release-ready pairing used in a recent Daily Drop", async () => {
+  const publicationStore = memoryStore();
+  await publicationStore.setJSON(gridManifestKey("2026-08-30"), {
+    publicationDate: "2026-08-30",
+    actor: { id: pairActor.id },
+    vibe: { idx: 0 },
+    cards: Array.from({ length: 9 }, (_, index) => ({ candidateId: `card-${index}` })),
+  });
+  await publicationStore.setJSON(gridManifestKey("2026-07-31"), {
+    publicationDate: "2026-07-31",
+    actor: { id: pairActor.id },
+    vibe: { idx: 0 },
+    cards: Array.from({ length: 9 }, (_, index) => ({ candidateId: `old-card-${index}` })),
+  });
+  const { handler } = harness({ publicationStore });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  await handler(request("POST", {
+    action: "verdict", actorId: pairActor.id, vibeKey, runId: "run-1", verdict: "approved",
+  }), {});
+
+  const response = await handler(request(), {});
+  const inventory = (await response.json()).releaseInventory;
+
+  assert.equal(inventory.recentDailyDropWindowDays, 30);
+  assert.equal(inventory.recentDailyDropThroughDate, "2026-08-31");
+  assert.equal(inventory.releaseReadyPairingCount, 1);
+  assert.equal(inventory.recentlyUsedPairingCount, 1);
+  assert.equal(inventory.unusedWithinRecentWindowPairingCount, 0);
+  assert.deepEqual(inventory.pairings[0].recentDailyDropDates, ["2026-08-30"]);
+  assert.equal(inventory.pairings[0].recentlyUsed, true);
+  assert.equal(inventory.pairings[0].lastDailyDropDate, "2026-08-30");
+  assert.equal(inventory.actorPacks[0].unusedWithinRecentWindowPairingCount, 0);
 });
 
 test("run, verdict, rerun, and retained-run inspection keep eligibility current", async () => {

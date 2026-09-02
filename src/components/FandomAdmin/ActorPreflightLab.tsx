@@ -271,11 +271,14 @@ function ReleaseInventory({inventory}:{inventory:AnyRecord}) {
   const cutoffLabel=useMemo(()=>nextShanghaiNoonLabel(),[]);
   const actorPacks=(inventory.actorPacks??EMPTY_RECORDS) as AnyRecord[];
   const readyCount=Number(inventory.releaseReadyPairingCount??0);
+  const recentWindowDays=Number(inventory.recentDailyDropWindowDays??30);
+  const unusedCount=Number(inventory.unusedWithinRecentWindowPairingCount??0);
   const depthLabel=readyCount===0?'No current release-ready pairing':readyCount===1?'One current pairing — concentrated inventory':'Multiple current pairing options';
   return <section className={styles.releaseInventory} aria-labelledby="release-inventory-title">
-    <div className={styles.inventoryHeader}><div><p className={styles.eyebrow}>Tomorrow’s Daily Drop</p><h4 id="release-inventory-title">Release inventory</h4><p>{depthLabel}. Counts come from the same current, fail-closed eligibility receipts used by the scheduler.</p></div><div className={styles.cutoff}><span>Next operator cutoff</span><strong>{cutoffLabel}</strong><small>Public scheduling behavior is unchanged.</small></div></div>
+    <div className={styles.inventoryHeader}><div><p className={styles.eyebrow}>Tomorrow’s Daily Drop</p><h4 id="release-inventory-title">Release inventory</h4><p>{depthLabel}. Counts come from the same current, fail-closed eligibility receipts used by the scheduler.</p><p className={styles.privateInventoryNote}>Private editorial context · recent use does not change scheduler selection or public payloads.</p></div><div className={styles.cutoff}><span>Next operator cutoff</span><strong>{cutoffLabel}</strong><small>Public scheduling behavior is unchanged.</small></div></div>
     <div className={styles.inventoryMetrics}>
       <div><strong>{readyCount}</strong><span>release-ready actor × Vibe pairings</span></div>
+      <div data-kind={unusedCount===readyCount?'fresh':'recent'}><strong>{unusedCount}</strong><span>unused in the last {recentWindowDays} days</span></div>
       <div data-kind="fresh"><strong>{inventory.freshCuratorPairingCount??0}</strong><span>fresh-curator pairings</span></div>
       <div data-kind="rescue"><strong>{inventory.rescueBackupPairingCount??0}</strong><span>pairings with rescue backup</span></div>
       <div data-kind="rescue"><strong>{inventory.rescueBackupBoardCount??0}</strong><span>explicit publishable rescue boards</span></div>
@@ -283,9 +286,15 @@ function ReleaseInventory({inventory}:{inventory:AnyRecord}) {
     <div className={styles.inventoryPacks}>{actorPacks.map(pack=><article className={styles.inventoryPack} data-empty={!pack.releaseReadyPairingCount} key={pack.actorId}>
       <header><div><strong>{pack.actorName}</strong><span>{pack.actorShortNameEn}</span></div><b>{pack.releaseReadyPairingCount??0} ready</b></header>
       <p>{pack.freshCuratorPairingCount??0} fresh curator · {pack.rescueBackupPairingCount??0} rescue-backed pairing{pack.rescueBackupPairingCount===1?'':'s'} · {pack.rescueBackupBoardCount??0} backup board{pack.rescueBackupBoardCount===1?'':'s'}</p>
-      {pack.pairings?.length?<ul>{pack.pairings.map((pair:AnyRecord)=><li key={pair.vibeKey}><span>{pair.vibeLabel}</span><div>{pair.freshCurator&&<em data-kind="fresh">Fresh curator</em>}{pair.rescueBackupBoardCount>0&&<em data-kind="rescue">{pair.rescueBackupBoardCount} rescue backup{pair.rescueBackupBoardCount===1?'':'s'}</em>}</div></li>)}</ul>:<small>No current release-ready pairings in this actor pack.</small>}
+       {pack.pairings?.length?<ul>{pack.pairings.map((pair:AnyRecord)=><li key={pair.vibeKey}><span>{pair.vibeLabel}</span><div>{pair.freshCurator&&<em data-kind="fresh">Fresh curator</em>}{pair.rescueBackupBoardCount>0&&<em data-kind="rescue">{pair.rescueBackupBoardCount} rescue backup{pair.rescueBackupBoardCount===1?'':'s'}</em>}{pair.recentlyUsed?<em data-kind="recent">Recent Drop · {formatEditionDate(pair.lastDailyDropDate)}{pair.recentDailyDropCount>1?` · ${pair.recentDailyDropCount} appearances`:''}</em>:<em data-kind="unused">Unused · last {recentWindowDays} days</em>}</div>{pair.recentlyUsed&&<small className={styles.recentUseDates}>Appeared {pair.recentDailyDropDates.map(formatEditionDate).join(' · ')}</small>}</li>)}</ul>:<small>No current release-ready pairings in this actor pack.</small>}
     </article>)}</div>
   </section>;
+}
+
+function formatEditionDate(value:unknown) {
+  if(!value)return 'Unknown date';
+  const parsed=new Date(`${String(value)}T12:00:00+08:00`);
+  return Number.isNaN(parsed.getTime())?String(value):new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Shanghai',month:'short',day:'numeric',year:'numeric'}).format(parsed);
 }
 
 function InfoCard({title,data,keys}:{title:string;data:AnyRecord;keys:string[]}) { return <article className={`${styles.card} ${styles.cardWide}`}><h5>{title}</h5><div className={styles.grid}>{keys.map(key=><div key={key}><p className={styles.muted}>{key.replace(/[A-Z]/g,m=>` ${m}`).toUpperCase()}</p><div className={styles.chips}>{(Array.isArray(data[key])?data[key]:[data[key]]).filter(Boolean).map((item:any,index:number)=><span className={styles.chip} key={index}>{text(item)}</span>)}</div></div>)}</div></article>; }

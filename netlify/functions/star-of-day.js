@@ -42,6 +42,7 @@ import {
 // whole search+rank ladder.
 export const STAR_OF_DAY_VERSION = "v10";
 const VERSION = STAR_OF_DAY_VERSION;
+export const RECENT_DAILY_DROP_WINDOW_DAYS = 30;
 // Legacy entries remain readable as historical editions; today's key is v10 so
 // no pre-audit cache can satisfy the current day's scheduler.
 const LEGACY_READ_VERSIONS = ["v9", "v8", "v7", "v6", "v5"];
@@ -393,22 +394,14 @@ async function buildEditorialBackup({
 }
 
 async function readPublishedBoardHashes(store, beforeDate) {
-  const listing = await store.list({ prefix: GRID_MANIFEST_PREFIX });
-  const manifests = await Promise.all((listing?.blobs || [])
-    .filter(blob => typeof blob?.key === "string"
-      && blob.key.slice(GRID_MANIFEST_PREFIX.length) < beforeDate)
-    .map(blob => store.get(blob.key, { type: "json", consistency: "strong" })));
+  const manifests = await readPublicationManifests(store, beforeDate);
   return new Set(manifests
     .map(manifest => manifest?.boardHash)
     .filter(hash => typeof hash === "string"));
 }
 
 async function readPairPublicationHistory(store, actorId, vibeIdx, beforeDate) {
-  const listing = await store.list({ prefix: GRID_MANIFEST_PREFIX });
-  const manifests = await Promise.all((listing?.blobs || [])
-    .filter(blob => typeof blob?.key === "string"
-      && blob.key.slice(GRID_MANIFEST_PREFIX.length) < beforeDate)
-    .map(blob => store.get(blob.key, { type: "json", consistency: "strong" })));
+  const manifests = await readPublicationManifests(store, beforeDate);
   return manifests
     .filter(manifest =>
       manifest?.actor?.id === actorId
@@ -417,6 +410,41 @@ async function readPairPublicationHistory(store, actorId, vibeIdx, beforeDate) {
       && manifest.cards.length === 9)
     .sort((left, right) =>
       String(right.publicationDate || "").localeCompare(String(left.publicationDate || "")));
+}
+
+export async function readRecentDailyDropHistory(
+  store,
+  throughDate,
+  windowDays = RECENT_DAILY_DROP_WINDOW_DAYS,
+) {
+  const safeWindowDays = Number.isInteger(windowDays) && windowDays > 0
+    ? windowDays
+    : RECENT_DAILY_DROP_WINDOW_DAYS;
+  const dates = Array.from(
+    { length: safeWindowDays },
+    (_, offset) => calendarDateOffset(throughDate, -offset),
+  );
+  const manifests = await Promise.all(dates.map(date =>
+    store.get(gridManifestKey(date), { type: "json", consistency: "strong" })));
+  return manifests
+    .filter(manifest => manifest?.publicationDate && dates.includes(manifest.publicationDate))
+    .sort((left, right) =>
+      String(right.publicationDate || "").localeCompare(String(left.publicationDate || "")));
+}
+
+async function readPublicationManifests(store, beforeDate) {
+  const listing = await store.list({ prefix: GRID_MANIFEST_PREFIX });
+  return Promise.all((listing?.blobs || [])
+    .filter(blob => typeof blob?.key === "string"
+      && blob.key.slice(GRID_MANIFEST_PREFIX.length) < beforeDate)
+    .map(blob => store.get(blob.key, { type: "json", consistency: "strong" })));
+}
+
+function calendarDateOffset(dateString, days) {
+  const [year, month, day] = String(dateString).split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 function candidateKeys(candidate) {

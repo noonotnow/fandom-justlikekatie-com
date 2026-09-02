@@ -48,7 +48,12 @@ import {
   CURATION_VERSION,
   curateDisplayResults,
 } from "./grid-curation.js";
-import { STAR_OF_DAY_VERSION } from "../star-of-day.js";
+import {
+  readRecentDailyDropHistory,
+  RECENT_DAILY_DROP_WINDOW_DAYS,
+  STAR_OF_DAY_VERSION,
+} from "../star-of-day.js";
+import { getShanghaiDateString } from "./date-seed.js";
 
 const MAX_BODY_BYTES = 48 * 1024;
 const MAX_NOTE_LENGTH = 2000;
@@ -122,9 +127,13 @@ export function createActorAuditHandler({
         const actorId = url.searchParams.get("actorId");
         const vibeKey = url.searchParams.get("vibeKey");
         if (!actorId && !vibeKey) {
+          const publicationStore = getPublicationStore(context);
           const [actors, releaseInventory] = await Promise.all([
             listActors(store, actorPacks),
-            releaseReadyInventory(store, actorPacks),
+            releaseReadyInventory(store, actorPacks, {
+              publicationStore,
+              now,
+            }),
           ]);
           return json(200, {
             schemaVersion: 1,
@@ -1480,13 +1489,38 @@ function rescueBackupBoardsFor(snapshot) {
   });
 }
 
-export async function releaseReadyInventory(store, actorPacks) {
+export async function releaseReadyInventory(
+  store,
+  actorPacks,
+  {
+    publicationStore = store,
+    now = () => new Date(),
+    recentWindowDays = RECENT_DAILY_DROP_WINDOW_DAYS,
+  } = {},
+) {
+  const throughDate = getShanghaiDateString(now());
+  const recentManifests = await readRecentDailyDropHistory(
+    publicationStore,
+    throughDate,
+    recentWindowDays,
+  );
+  const recentByPairing = new Map();
+  for (const manifest of recentManifests) {
+    const actorId = manifest?.actor?.id;
+    const vibeIdx = manifest?.vibe?.idx;
+    if (typeof actorId !== "string" || !Number.isInteger(vibeIdx)) continue;
+    const key = `${actorId}:${vibeIdx}`;
+    const dates = recentByPairing.get(key) || [];
+    dates.push(manifest.publicationDate);
+    recentByPairing.set(key, dates);
+  }
   const actorResults = await Promise.all(actorPacks.map(async actor => {
     const pairings = (await Promise.all((actor.vibes || []).map(async (vibe, vibeIdx) => {
       const snapshot = await getEligibility(store, actor, vibeIdx);
       if (!isReleaseReady(snapshot)) return null;
       const rescueBackupBoards = rescueBackupBoardsFor(snapshot);
       const freshCurator = snapshot.publicationSource?.type !== "operator_rescue";
+      const recentDailyDropDates = recentByPairing.get(`${actor.id}:${vibeIdx}`) || [];
       return {
         actorId: actor.id,
         actorName: actor.name,
@@ -1500,6 +1534,10 @@ export async function releaseReadyInventory(store, actorPacks) {
         rescueBackupBoardCount: rescueBackupBoards.length,
         currentRunId: snapshot.runId,
         decidedAt: snapshot.decidedAt || null,
+        recentDailyDropCount: recentDailyDropDates.length,
+        recentDailyDropDates,
+        recentlyUsed: recentDailyDropDates.length > 0,
+        lastDailyDropDate: recentDailyDropDates[0] || null,
       };
     }))).filter(Boolean);
     return {
@@ -1513,6 +1551,8 @@ export async function releaseReadyInventory(store, actorPacks) {
         (count, pair) => count + pair.rescueBackupBoardCount,
         0,
       ),
+      recentlyUsedPairingCount: pairings.filter(pair => pair.recentlyUsed).length,
+      unusedWithinRecentWindowPairingCount: pairings.filter(pair => !pair.recentlyUsed).length,
       pairings,
     };
   }));
@@ -1528,6 +1568,10 @@ export async function releaseReadyInventory(store, actorPacks) {
       (count, pair) => count + pair.rescueBackupBoardCount,
       0,
     ),
+    recentDailyDropWindowDays: recentWindowDays,
+    recentDailyDropThroughDate: throughDate,
+    recentlyUsedPairingCount: pairings.filter(pair => pair.recentlyUsed).length,
+    unusedWithinRecentWindowPairingCount: pairings.filter(pair => !pair.recentlyUsed).length,
     actorPacks: actorResults,
     pairings,
   };
