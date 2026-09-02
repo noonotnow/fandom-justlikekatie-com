@@ -1228,6 +1228,13 @@ export async function runPreflight(
   ));
   const completedAt = now().toISOString();
   const materialSufficient = curated.displayResults.length >= 9;
+  const completeProposalCardCount = Math.max(
+    0,
+    ...Object.values(diagnostics.boardDiagnostics || {}).map(diagnostic =>
+      diagnostic?.completeProposalAvailable && Array.isArray(diagnostic?.proposal?.candidates)
+        ? diagnostic.proposal.candidates.length
+        : 0),
+  );
   const calibrationComparison = compareCalibrationOutcomes(
     calibrationProfile,
     curated.controlDiagnostics,
@@ -1301,9 +1308,12 @@ export async function runPreflight(
       : null,
     curationReceipt,
     displayCount: curated.displayResults.length,
+    completeProposalCardCount,
     materialSufficient,
     suggestedState: materialSufficient
       ? identityEvidence.collisionSignals > 0 ? "identity_risk" : "needs_operator_verdict"
+      : completeProposalCardCount >= 9
+        ? "needs_operator_verdict"
       : Number(diagnostics.receipt?.analyzedCount) >= 9
         ? "needs_curation_work"
         : "insufficient_material",

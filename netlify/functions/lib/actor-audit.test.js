@@ -175,6 +175,7 @@ function searchResults(query) {
 function curation({
   sufficient = true,
   curationFailure = false,
+  heroReview = false,
   hardRejected = false,
   unavailableRejected = false,
   duplicateRejected = false,
@@ -249,6 +250,9 @@ function curation({
         || Number(Boolean(left.calibration?.negative?.length))
         - Number(Boolean(right.calibration?.negative?.length)))
       : uniqueCandidates).slice(0, 9);
+    if (heroReview && boardCandidates[4]) {
+      boardCandidates[4].promise.heroSatisfied = false;
+    }
     const dropped = unavailableRejected && rawCandidates[0]
       ? [{ ...rawCandidates[0], dropReason: "image_load_failed", dropDetail: "The source did not return image bytes." }]
       : hardRejected && rawCandidates[0]
@@ -305,6 +309,41 @@ function curation({
       receipt: { rawCount: rawCandidates.length, analyzedCount: sufficient || curationFailure ? rawCandidates.length : 0, curationVersion: CURATION_VERSION },
     },
     };
+    if (heroReview) {
+      output.displayResults = [];
+      output.curation = null;
+      output.diagnostics.strongestEvent = null;
+      output.diagnostics.strongestCompiled = null;
+      output.diagnostics.boardDiagnostics = {
+        event: {
+          available: false,
+          completeProposalAvailable: false,
+          proposal: null,
+          requiredCount: 9,
+          candidateCount: 0,
+          reasonCode: "no_bounded_role_family",
+          summary: "No bounded work or role family produced enough distinct frames for an Event board.",
+        },
+        compiled: {
+          available: false,
+          completeProposalAvailable: true,
+          proposal: {
+            score: 0.8,
+            promise: { coreCount: 9, heroFulfillment: 0 },
+            candidates: boardCandidates,
+          },
+          requiredCount: 9,
+          candidateCount: 0,
+          coreAnchorCount: 9,
+          heroFulfillment: 0,
+          reasonCodes: ["hero_not_fulfilled"],
+          reasonCode: "hero_not_fulfilled",
+          summary: "Compiled formed a complete 9-card proposal and all 9 cards fulfilled the required anchors, but the proposed hero was not recognized. The proposal remains available for human review.",
+        },
+      };
+      output.diagnostics.winner = null;
+      output.diagnostics.alternate = null;
+    }
     if (options.calibrationControl) {
       const controlRanks = options.calibrationControl.batchRanks || {};
       const controlCandidates = [...uniqueCandidates]
@@ -373,6 +412,7 @@ function curation({
 function harness({
   sufficient = true,
   curationFailure = false,
+  heroReview = false,
   hardRejected = false,
   unavailableRejected = false,
   duplicateRejected = false,
@@ -404,6 +444,7 @@ function harness({
   const curateFixture = curation({
     sufficient,
     curationFailure,
+    heroReview,
     hardRejected,
     unavailableRejected,
     duplicateRejected,
@@ -2898,6 +2939,77 @@ test("a saved retained-evidence board can be approved without a curator comparis
   assert.equal(inventory.rescueBackupPairingCount, 1);
   assert.equal(inventory.rescueBackupBoardCount, 1);
   assert.equal(inventory.actorPacks[0].pairings[0].releaseSource, "rescue_backup");
+});
+
+test("a complete Compiled proposal with only a failed hero stays visible and reviewable", async () => {
+  const { handler } = harness({ sufficient: true, heroReview: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const report = await runResponse.json();
+
+  assert.equal(runResponse.status, 200, JSON.stringify(report));
+  assert.equal(report.currentRun.blindReview.status, "unavailable");
+  assert.equal(report.currentRun.strongestEvent, null);
+  assert.equal(report.currentRun.strongestCompiled, null);
+  assert.equal(report.currentRun.displayCount, 0);
+  assert.equal(report.currentRun.completeProposalCardCount, 9);
+  assert.equal(report.currentRun.materialSufficient, false);
+  assert.equal(report.currentRun.suggestedState, "needs_operator_verdict");
+  assert.equal(report.currentRun.boardDiagnostics.event.reasonCode, "no_bounded_role_family");
+  assert.equal(report.currentRun.boardDiagnostics.event.proposal, null);
+  assert.equal(report.currentRun.boardDiagnostics.compiled.reasonCode, "hero_not_fulfilled");
+  assert.equal(report.currentRun.boardDiagnostics.compiled.coreAnchorCount, 9);
+  assert.equal(report.currentRun.boardDiagnostics.compiled.proposal.candidates.length, 9);
+
+  const proposedIds = report.currentRun.boardDiagnostics.compiled.proposal.candidates
+    .map(candidate => candidate.candidateId);
+  const reorderedIds = [
+    proposedIds[0],
+    proposedIds[1],
+    proposedIds[2],
+    proposedIds[3],
+    proposedIds[0],
+    proposedIds[5],
+    proposedIds[6],
+    proposedIds[7],
+    proposedIds[8],
+  ];
+  const replacementId = report.currentRun.rawResults
+    .find(candidate => !proposedIds.includes(candidate.candidateId))?.candidateId;
+  reorderedIds[4] = replacementId;
+
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds: reorderedIds,
+  }), {});
+  const saved = await saveResponse.json();
+  assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+  const receiptId = saved.currentRun.editorialFeedback.operatorRescueBoard.receiptId;
+  assert.deepEqual(
+    saved.currentRun.editorialFeedback.operatorRescueBoard.board.candidates
+      .map(candidate => candidate.candidateId),
+    reorderedIds,
+  );
+
+  const approvalResponse = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+    vibeConfirmed: true,
+    publishableConfirmed: true,
+    rescuePreferred: true,
+    rescueReceiptId: receiptId,
+  }), {});
+  const approval = await approvalResponse.json();
+  assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+  assert.equal(approval.currentRun.operatorVerdict.publicationSource.type, "operator_rescue");
 });
 
 test("an approval from a legacy profile contract is visibly marked for reapproval", async () => {

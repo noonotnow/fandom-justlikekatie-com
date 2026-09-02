@@ -92,6 +92,14 @@ test('Release Desk is the Admin workspace for private inventory', () => {
   assert.doesNotMatch(appSource, /<span>Release Desk<\/span>/);
 });
 
+test('Actor Preflight keeps hero-only failures complete and reviewable', () => {
+  assert.match(actorPreflightSource, /complete proposal cards/);
+  assert.match(actorPreflightSource, /automatically publication-ready cards/);
+  assert.match(actorPreflightSource, /complete board · Hero review needed/);
+  assert.match(actorPreflightSource, /review\?\.board\?\.candidates \?\? retainedProposal\?\.candidates/);
+  assert.match(actorPreflightSource, /Compiled complete board · Hero review needed/);
+});
+
 test('public launchpad copy does not expose internal admin or CREATE architecture', () => {
   assert.match(launchpadSource, /daily C-drama card drop/);
   assert.match(launchpadSource, /One star, one vibe, nine pieces of evidence/);

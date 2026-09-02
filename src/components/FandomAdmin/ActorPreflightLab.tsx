@@ -26,6 +26,19 @@ function confirmsCompleteProposal(diagnostic?: BoardDiagnostic) {
   );
 }
 
+function completeProposalCardCount(run?: Run|null) {
+  if (Number.isFinite(Number(run?.completeProposalCardCount))) {
+    return Number(run?.completeProposalCardCount);
+  }
+  return Math.max(
+    0,
+    ...Object.values(run?.boardDiagnostics ?? {}).map(diagnostic =>
+      confirmsCompleteProposal(diagnostic) && Array.isArray(diagnostic?.proposal?.candidates)
+        ? diagnostic.proposal.candidates.length
+        : 0),
+  );
+}
+
 type RescueExport = {
   gridId: string;
   runId: string;
@@ -277,6 +290,7 @@ function RunEvidence({
   const rawResults = Array.isArray(run?.rawResults) ? run.rawResults : [];
   const unavailableIds = new Set((run?.rejections ?? []).filter((entry:AnyRecord)=>entry.kind==='image'&&entry.reason==='image_load_failed').map((entry:AnyRecord)=>entry.candidateId));
   const displayableCount = rawResults.filter((item:AnyRecord)=>item.thumbnail&&!unavailableIds.has(item.candidateId)).length;
+  const proposedCardCount = completeProposalCardCount(run);
   const sections: Array<[string, unknown]>=[['Query ladder',run?.queryRuns],['Bounded raw results',run?.rawResults],['Rejection ledger',run?.rejections],['Identity evidence',run?.identityEvidence],['Detected event families',run?.detectedEvents],['Strongest Event board',run?.strongestEvent],['Strongest Compiled board',run?.strongestCompiled],['Winner',run?.winner],['Alternate',run?.alternate],['Operator-derived curation signals',run?.curationReceipt?.calibrationSignals],['Calibration transfer proof',run?.calibrationProof],['Curation receipt',run?.curationReceipt],['Blind calibration receipt',run?.blindReview],['Scheduling verdict',run?.operatorVerdict]];
   const boards = review?.boards ?? [];
   const disagreed = revealed && review?.agreement !== true;
@@ -306,7 +320,7 @@ function RunEvidence({
         </form>}
         {disagreed && isCurrent && run.operatorVerdict && <p className={styles.historicalNotice}>The scheduling receipt is finalized, so its calibration reasons stay frozen. Image-level pins and exclusions below remain editable as separate review receipts.</p>}
       </section>}
-      {evidenceAvailable && <><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{run.displayCount ?? 0}</strong><span>automatically qualified publication cards</span><strong>{run.queryCount ?? run.queryRuns?.length ?? 0}</strong><span>queries audited</span><strong>{rawResults.length}</strong><span>retained results</span></div><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration}/><div className={styles.evidence}>{sections.map(([label,value])=><details key={label}><summary>{label} <span className={styles.muted}>{Array.isArray(value)?`${value.length} records`:''}</span></summary>{label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} busy={busy} onFlag={onFlag}/> : <pre>{text(value)}</pre>}</details>)}</div></>}
+      {evidenceAvailable && <><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{proposedCardCount}</strong><span>complete proposal cards</span><strong>{run.displayCount ?? 0}</strong><span>automatically publication-ready cards</span><strong>{run.queryCount ?? run.queryRuns?.length ?? 0}</strong><span>queries audited</span><strong>{rawResults.length}</strong><span>retained results</span></div><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration}/><div className={styles.evidence}>{sections.map(([label,value])=><details key={label}><summary>{label} <span className={styles.muted}>{Array.isArray(value)?`${value.length} records`:''}</span></summary>{label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} busy={busy} onFlag={onFlag}/> : <pre>{text(value)}</pre>}</details>)}</div></>}
     </> : <p className={styles.empty}>Run an audit to open a blinded Event versus Compiled comparison.</p>}
     {currentRun&&<label className={styles.label}>Audit run<select className={styles.select} value={run?.runId ?? ''} onChange={e=>{const selected=[currentRun,...priorRuns].find(item=>item.runId===e.target.value);if(selected)onSelect(selected)}}><option value={currentRun.runId}>{currentRun.auditContract?.isLegacy?'Legacy history':'Current'} · {currentRun.runId} · {date(currentRun.completedAt)}</option>{priorRuns.map(item=><option key={item.runId} value={item.runId}>{item.auditContract?.isLegacy?'Legacy history':'Retained'} · {item.runId} · {date(item.completedAt)}</option>)}</select></label>}
   </article>;
@@ -346,6 +360,9 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
   const feedback=run.editorialFeedback;
   const flags=feedback?.flags??EMPTY_RECORDS;
   const review=feedback?.requestedReview;
+  const retainedProposal=run.boardDiagnostics?.compiled?.proposal
+    ?? run.boardDiagnostics?.event?.proposal
+    ?? null;
   const saved=feedback?.operatorRescueBoard;
   const savedReceipts=useMemo<AnyRecord[]>(()=>{
     const receipts=Array.isArray(feedback?.operatorRescueBoards)?feedback.operatorRescueBoards:[];
@@ -368,12 +385,13 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
       .map(item=>{const analyzed=analyzedById.get(item.candidateId);return {...item,...(analyzed??{}),link:analyzed?.link||item.link,thumbnail:item.thumbnail};});
   },[rawResults,run.curationReceipt?.rawCandidates,excludedIds,unavailableIds]);
   const poolIds=useMemo(()=>new Set(candidatePool.map(item=>item.candidateId)),[candidatePool]);
-  const reviewCandidates=review?.board?.candidates;
-  const initialCandidates=useMemo<AnyRecord[]>(()=>((review
+  const reviewCandidates=review?.board?.candidates ?? retainedProposal?.candidates;
+  const initialCandidates=useMemo<AnyRecord[]>(()=>(((review || retainedProposal)
     ? reviewCandidates
     : [])??[]).filter((item:any)=>poolIds.has(item.candidateId)).slice(0,9) as AnyRecord[],[
     review,
     reviewCandidates,
+    retainedProposal,
     poolIds,
   ]);
   const [candidates,setCandidates]=useState<AnyRecord[]>(initialCandidates);
@@ -418,7 +436,7 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
     <div className={styles.rescuePicker}>{candidatePool.map(item=>{const selectedIndex=candidates.findIndex(candidate=>candidate.candidateId===item.candidateId);const selected=selectedIndex>=0;return <button type="button" className={selected?styles.rescuePickSelected:styles.rescuePick} aria-pressed={selected} disabled={!selected&&candidates.length>=9} onClick={()=>toggleCandidate(item)} key={item.candidateId}><img src={item.thumbnail} alt={item.title||'Retained rescue candidate'}/><span>{selected?`Chosen ${selectedIndex+1}`:'Add'}</span></button>;})}</div>
     {candidates.length>0?<div className={styles.rescueGrid}>{candidates.map((item,index)=><article className={styles.rescueTile} data-hero={index===4} key={item.candidateId}><a href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.thumbnail?<img src={item.thumbnail} alt={item.title||`Rescue card ${index+1}`}/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{index===4?'Hero · ':''}{item.title||`Card ${index+1}`}</span></a><div><button type="button" disabled={index===0} onClick={()=>move(index,-1)} aria-label={`Move card ${index+1} earlier`}>←</button><button type="button" disabled={candidates.length<5||index===4} onClick={()=>setHero(index)} aria-label={`Make card ${index+1} the hero`}>Hero</button><button type="button" disabled={index===candidates.length-1} onClick={()=>move(index,1)} aria-label={`Move card ${index+1} later`}>→</button></div></article>)}</div>:<p className={styles.boardEmpty}>Choose the first image for this rescue board.</p>}
     <div className={styles.rescueActions}><button type="button" className={styles.buttonPrimary} disabled={!isCurrent||busy==='rescue-board'||candidates.length!==9} onClick={()=>onSave(candidates.map(item=>item.candidateId))}>{busy==='rescue-board'?'Saving rescue board…':candidates.length===9?'Save my nine':'Choose nine to save'}</button><button type="button" className={styles.buttonSecondary} disabled={!candidates.length} onClick={()=>setCandidates([])}>Clear board</button>{savedMatchesCurrentFeedback&&saved&&<><button type="button" className={styles.buttonSecondary} disabled={!isCurrent||Boolean(busy)} onClick={()=>onExport(saved.receiptId)}>{busy==='export-rescue-board'?'Exporting to Collection…':'Export saved board to Collection'}</button><span>Last saved {date(saved.savedAt)} by {saved.savedBy}</span></>}</div>
-    {review?.board&&<p className={styles.requestedSummary}>The suggested starting arrangement is editable. Your saved nine are the operator override.</p>}
+    {(review?.board||retainedProposal)&&<p className={styles.requestedSummary}>The suggested starting arrangement is editable. Your saved nine are the operator override.</p>}
     {blockedCount>0&&<div className={styles.blockedFlags}>{[...unavailableIds].map(candidateId=>{const item=rawResults.find(candidate=>candidate.candidateId===candidateId);return <span key={candidateId}><strong>{item?.title||candidateId}</strong> is unavailable because the audit could not load a usable image from its retained URL.</span>;})}</div>}
   </section>;
 }
@@ -426,7 +444,7 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
 function PartialBoards({run}:{run:Run}) {
   const boards = [
     run.strongestEvent ? { label: 'Event qualified board', board: run.strongestEvent } : run.boardDiagnostics?.event?.proposal ? { label: 'Event complete proposal · automated gate not passed', board: run.boardDiagnostics.event.proposal } : null,
-    run.strongestCompiled ? { label: 'Compiled qualified board', board: run.strongestCompiled } : run.boardDiagnostics?.compiled?.proposal ? { label: 'Compiled complete proposal · automated gate not passed', board: run.boardDiagnostics.compiled.proposal } : null,
+    run.strongestCompiled ? { label: 'Compiled qualified board', board: run.strongestCompiled } : run.boardDiagnostics?.compiled?.proposal ? { label: run.boardDiagnostics.compiled.reasonCode==='hero_not_fulfilled'?'Compiled complete board · Hero review needed':'Compiled complete proposal · automated gate not passed', board: run.boardDiagnostics.compiled.proposal } : null,
   ].filter(Boolean) as Array<{label:string;board:AnyRecord}>;
    if (!boards.length) return Object.values(run.boardDiagnostics??{}).some(diagnostic=>confirmsCompleteProposal(diagnostic))
      ? <p className={styles.boardEmpty}>This historical receipt confirms that a complete nine-card proposal formed, but the older audit format did not retain its exact arrangement. Rerun the audit to preserve proposed boards, or arrange the 36 retained images below.</p>
@@ -459,7 +477,8 @@ function BoardQualificationSummary({run}:{run:Run}) {
     const diagnostic = diagnostics[mode];
     const available = diagnostic?.available ?? Boolean(run[mode === 'event' ? 'strongestEvent' : 'strongestCompiled']);
     const completeProposal = confirmsCompleteProposal(diagnostic);
-    return <div className={styles.boardQualificationRow} key={mode}><strong>{available ? `${label} board automatically qualified` : completeProposal ? `${label} complete proposal · automated gate not passed` : `${label} proposal missing`}</strong><span>{available ? `${diagnostic?.candidateCount ?? 9} usable frames qualified.` : diagnostic?.summary || `No complete ${label} proposal formed.`}</span>{completeProposal&&!diagnostic?.proposal&&<small>Exact arrangement not retained by this older audit receipt; rerun to preserve it.</small>}</div>;
+    const heroReviewNeeded = diagnostic?.reasonCode === 'hero_not_fulfilled' && completeProposal;
+    return <div className={styles.boardQualificationRow} data-condition={heroReviewNeeded?'hero-review-needed':available?'qualified':completeProposal?'review-needed':'missing'} key={mode}><strong>{available ? `${label} board automatically qualified` : heroReviewNeeded ? `${label} complete board · Hero review needed` : completeProposal ? `${label} complete proposal · automated gate not passed` : `${label} proposal missing`}</strong><span>{available ? `${diagnostic?.candidateCount ?? 9} usable frames qualified.` : diagnostic?.summary || `No complete ${label} proposal formed.`}</span>{completeProposal&&!diagnostic?.proposal&&<small>Exact arrangement not retained by this older audit receipt; rerun to preserve it.</small>}</div>;
   })}</div>;
 }
 
