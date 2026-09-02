@@ -77,7 +77,7 @@ export async function getEligibility(store, actor, vibeIdx) {
   ]);
   if (!snapshot || !head?.currentRunId || snapshot.runId !== head.currentRunId) return null;
 
-  const [run, verdict, calibration, reasons, rescueCalibrations, rescueCalibrationRetirements, publicationReceipt] = await Promise.all([
+  const [run, verdict, calibration, reasons, publicationReceipt] = await Promise.all([
     store.get(auditRunKey(actorId, vibeIdx, head.currentRunId), { type: "json", consistency: "strong" }),
     readCanonicalReceipt(
       store,
@@ -87,8 +87,6 @@ export async function getEligibility(store, actor, vibeIdx) {
     ),
     readFirstReceipt(store, auditCalibrationPrefix(actorId, vibeIdx, head.currentRunId), "chosenAt"),
     readFirstReceipt(store, auditCalibrationReasonsPrefix(actorId, vibeIdx, head.currentRunId), "annotatedAt"),
-    readReceipts(store, auditRescueCalibrationPrefix(actorId, vibeIdx), "confirmedAt"),
-    readReceipts(store, auditRescueCalibrationRetirementPrefix(actorId, vibeIdx), "retiredAt"),
     snapshot.publicationSource?.type === "operator_rescue"
       ? store.get(
         auditRescueBoardKey(
@@ -103,7 +101,6 @@ export async function getEligibility(store, actor, vibeIdx) {
   ]);
   const operatorPublication = snapshot.publicationSource?.type === "operator_rescue";
   const curatedPublication = snapshot.publicationSource?.type === "curated_board";
-  const frozenPublication = operatorPublication || curatedPublication;
   const disagreement = calibration?.choice !== run?.winner?.mode;
   const expectedFingerprint = pairingFingerprintFor(actor, vibeIdx);
   if (
@@ -159,14 +156,6 @@ export async function getEligibility(store, actor, vibeIdx) {
     || snapshot.publishableConfirmed !== verdict.publishableConfirmed
     || (snapshot.verdict === "approved"
       && (snapshot.vibeConfirmed !== true || snapshot.publishableConfirmed !== true))
-    || (!frozenPublication && !validRescueCalibrationProof(
-      actor,
-      vibeIdx,
-      run,
-      rescueCalibrations,
-      rescueCalibrationRetirements,
-      snapshot,
-    ))
   ) return null;
   if (operatorPublication) return { ...snapshot, publicationBoard: publicationReceipt.board };
   if (curatedPublication) {
@@ -252,77 +241,6 @@ function validCuratedPublication({
       && candidate.thumbnail.length > 0)
     && actor?.id
     && Number.isInteger(vibeIdx)
-  );
-}
-
-function validRescueCalibrationProof(
-  actor,
-  vibeIdx,
-  run,
-  calibrations,
-  retirements,
-  snapshot,
-) {
-  const expectedFingerprint = pairingFingerprintFor(actor, vibeIdx);
-  const currentConfirmed = calibrations.filter(record =>
-    record?.status === "confirmed"
-    && record?.calibrationVersion === 1
-    && typeof record?.sourceRescueReceiptId === "string"
-    && record?.contract?.curationVersion === CURATION_VERSION
-    && record?.contract?.identityProfileVersion === IDENTITY_PROFILE_VERSION
-    && record?.contract?.aestheticClusterVersion === AESTHETIC_CLUSTER_VERSION
-    && record?.contract?.promiseContractVersion === VIBE_PROMISE_CONTRACT_VERSION
-    && record?.contract?.pairingFingerprint === expectedFingerprint);
-  const currentReceiptIds = new Set(currentConfirmed.map(record =>
-    record.sourceRescueReceiptId));
-  const validRetirements = (retirements || []).filter(retirement =>
-    retirement?.status === "retired"
-    && typeof retirement?.sourceRescueReceiptId === "string"
-    && retirement?.actorId === actor.id
-    && retirement?.vibeKey === auditVibeKey(actor.id, vibeIdx)
-    && currentReceiptIds.has(retirement.sourceRescueReceiptId));
-  const retiredReceiptIds = new Set(validRetirements.map(retirement =>
-    retirement.sourceRescueReceiptId));
-  const confirmed = currentConfirmed.filter(record =>
-    !retiredReceiptIds.has(record.sourceRescueReceiptId));
-  if (!confirmed.length) {
-    if (validRetirements.length) {
-      const retirementHash = rescueCalibrationRetirementHash(validRetirements);
-      return Boolean(
-        run?.calibrationProof?.ready === true
-        && run.calibrationProof.calibrationVersion === 1
-        && sameRecord(run.calibrationProof.sourceReceiptIds || [], [])
-        && sameRecord(run.calibrationProof.retiredReceiptIds || [], [...retiredReceiptIds].sort())
-        && run.calibrationProof.retirementHash === retirementHash
-        && snapshot.rescueCalibrationEvidenceCount === 0
-        && snapshot.rescueCalibrationRetiredEvidenceCount === validRetirements.length
-        && snapshot.rescueCalibrationRetirementHash === retirementHash
-      );
-    }
-    return snapshot.rescueCalibrationEvidenceCount === undefined
-      || snapshot.rescueCalibrationEvidenceCount === 0;
-  }
-  const sourceReceiptIds = [...new Set(confirmed
-    .map(record => record.sourceRescueReceiptId))].sort();
-  const proofIds = [...new Set(run?.calibrationProof?.sourceReceiptIds || [])].sort();
-  return Boolean(
-    run?.calibrationProof?.ready === true
-    && run.calibrationProof.calibrationVersion === 1
-    && sameRecord(proofIds, sourceReceiptIds)
-    && snapshot.rescueCalibrationVersion === 1
-    && snapshot.rescueCalibrationEvidenceCount === confirmed.length
-    && (!validRetirements.length
-      || (
-        snapshot.rescueCalibrationRetiredEvidenceCount === validRetirements.length
-        && snapshot.rescueCalibrationRetirementHash === rescueCalibrationRetirementHash(validRetirements)
-        && run.calibrationProof.retiredReceiptIds?.join("|")
-          === [...retiredReceiptIds].sort().join("|")
-        && run.calibrationProof.retirementHash === rescueCalibrationRetirementHash(validRetirements)
-      ))
-    && snapshot.rescueCalibrationHash === recordHash({
-      sourceReceiptIds,
-      proofStatus: run.calibrationProof.status,
-    })
   );
 }
 
@@ -440,19 +358,6 @@ async function readFirstReceipt(store, prefix, timestampField) {
 async function readCanonicalReceipt(store, key, prefix, timestampField) {
   const canonical = await store.get(key, { type: "json", consistency: "strong" });
   return canonical || readFirstReceipt(store, prefix, timestampField);
-}
-
-async function readReceipts(store, prefix, timestampField) {
-  const listing = await store.list({ prefix });
-  const receipts = (await Promise.all((listing?.blobs || []).map(async blob => {
-    if (typeof blob?.key !== "string") return null;
-    const value = await store.get(blob.key, { type: "json", consistency: "strong" });
-    return value ? { key: blob.key, value } : null;
-  }))).filter(Boolean);
-  receipts.sort((left, right) =>
-    String(left.value[timestampField] || "").localeCompare(String(right.value[timestampField] || ""))
-    || left.key.localeCompare(right.key));
-  return receipts.map(receipt => receipt.value);
 }
 
 export function isApproved(snapshot) {

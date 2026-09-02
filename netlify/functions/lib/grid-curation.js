@@ -1495,6 +1495,7 @@ function candidateCalibration(candidate, profile) {
   const source = sourceKey(candidate.result);
   const clusters = (candidate.editorial?.clusters || []).map(cluster => normalizeText(cluster.id));
   const antiAnchors = (candidate.editorial?.hardAntiMatches || []).map(normalizeText);
+  const definitions = definitionCuesForCandidate(candidate.result);
   const positive = [];
   const negative = [];
   const positiveIds = new Set(profile.positiveCandidateIds || []);
@@ -1513,6 +1514,12 @@ function candidateCalibration(candidate, profile) {
   for (const anchor of antiAnchors) {
     match(anchor, "positiveAntiAnchors", "negativeAntiAnchors", `anti-anchor:${anchor}`);
   }
+  const positiveDefinition = definitions.find(cue =>
+    calibrationSet(profile, "positiveDefinitions").has(cue));
+  const negativeDefinition = definitions.find(cue =>
+    calibrationSet(profile, "negativeDefinitions").has(cue));
+  if (positiveDefinition) positive.push(`definition:${positiveDefinition}`);
+  if (negativeDefinition) negative.push(`definition:${negativeDefinition}`);
   const exactSavedCandidate = positiveIds.has(candidateId);
   if (exactSavedCandidate) positive.push("exact-saved-candidate");
   if (negativeIds.has(candidateId)) negative.push("omitted-candidate");
@@ -1543,6 +1550,21 @@ function candidateCalibration(candidate, profile) {
     positive: [...new Set(positive)],
     negative: [...new Set(negative)],
   };
+}
+
+function definitionCuesForCandidate(result) {
+  const text = normalizeText(`${result?.title || ""} ${result?.description || ""}`);
+  const stop = new Set([
+    "actor", "actress", "china", "chinese", "drama", "episode", "official",
+    "photo", "picture", "image", "images", "scene", "still", "video", "watch",
+    "with", "from", "that", "this", "their", "there", "about",
+  ]);
+  const words = text.split(" ")
+    .filter(word => word.length >= 4 && !stop.has(word) && !/^\d+$/.test(word));
+  return [...new Set([
+    ...words,
+    ...words.slice(0, -1).map((word, index) => `${word} ${words[index + 1]}`),
+  ])].slice(0, 24);
 }
 
 function boardClusterMix(board) {

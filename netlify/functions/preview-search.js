@@ -427,11 +427,23 @@ export async function searchOneQuery(
     fetchImpl = globalThis.fetch,
     baiduOptions = {},
     providerPolicy = "default",
+    cacheMode = "default",
   } = {},
 ) {
   if (!q) {
     throw new Error("Missing query parameter");
   }
+  const providerFetch = cacheMode === "refresh"
+    ? (url, init = {}) => fetchImpl(url, {
+      ...init,
+      cache: "no-store",
+      headers: {
+        ...(init.headers || {}),
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+    })
+    : fetchImpl;
 
   const googleFirst = providerPolicy === "middle-earth";
   const middleEarthFallback = providerPolicy === "middle-earth-fallback";
@@ -439,7 +451,7 @@ export async function searchOneQuery(
   const baiduAttemptLog = createBaiduAttemptLog(baiduEligible);
   if (baiduEligible) {
     try {
-      const baidu = await searchBaiduProvider(q, { fetchImpl, baiduOptions });
+      const baidu = await searchBaiduProvider(q, { fetchImpl: providerFetch, baiduOptions });
       recordBaiduSuccess(baiduAttemptLog, baidu);
       if (baidu.qualified) {
         return baiduResponse(q, baidu, baiduAttemptLog, debug);
@@ -469,7 +481,7 @@ export async function searchOneQuery(
 
     const braveResp = googleFirst || !braveKey
       ? { ok: false, status: 0, json: async () => ({}) }
-      : await fetchImpl(braveUrl, {
+      : await providerFetch(braveUrl, {
           method: "GET",
           headers: {
             Accept: "application/json",
@@ -582,7 +594,7 @@ export async function searchOneQuery(
 
             serpApiUrlNoKey = serpUrl.replace(serpKey, "[REDACTED]");
 
-            const serpResp = await fetchImpl(serpUrl);
+            const serpResp = await providerFetch(serpUrl);
             serpApiHttpStatus = serpResp.status;
             engineLog.httpStatus = serpResp.status;
             const serpData = await serpResp.json();

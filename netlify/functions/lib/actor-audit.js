@@ -309,15 +309,6 @@ export function createActorAuditHandler({
           && !exactBoardApproval) {
           return json(409, { error: "Insufficient material cannot be approved without an override." });
         }
-        if (APPROVED_VERDICTS.has(input.verdict)
-          && (report.calibrationProfile?.evidenceCount
-            || report.calibrationProfile?.requiresFreshAudit)
-          && !exactBoardApproval
-          && !calibrationProofCoversProfile(report.currentRun, report.calibrationProfile)) {
-          return json(409, {
-            error: "Run a fresh audit that reproduces positive calibration signals beyond the exact saved nine before approving this pairing.",
-          });
-        }
         const stamp = now().toISOString();
         const rescuePreferenceIdentity = {
           runId: report.currentRun.runId,
@@ -427,6 +418,17 @@ export function createActorAuditHandler({
         if (currentHead?.currentRunId !== report.currentRun.runId) {
           return json(409, { error: "A newer audit run became current. Review that run before scheduling." });
         }
+        if (plainApproval && preferredRescueBoard) {
+          await ensureRescueCalibration(
+            store,
+            pair,
+            report.currentRun,
+            preferredRescueBoard,
+            operator,
+            now,
+            operatorBoardApproval,
+          );
+        }
         const next = await readReport(store, pair);
         if (!sameFinalVerdict(next.currentRun?.operatorVerdict, {
           verdict: input.verdict,
@@ -454,18 +456,19 @@ export function createActorAuditHandler({
           publishableConfirmed,
           calibrationVersion: 1,
           calibrationHash: recordHash(operatorVerdict.calibration),
-          rescueCalibrationVersion: report.calibrationProfile?.calibrationVersion || null,
-          rescueCalibrationEvidenceCount: report.calibrationProfile?.evidenceCount || 0,
+          rescueCalibrationVersion: next.calibrationProfile?.calibrationVersion || null,
+          rescueCalibrationEvidenceCount: next.calibrationProfile?.evidenceCount || 0,
           rescueCalibrationRetiredEvidenceCount:
-            report.calibrationProfile?.retiredEvidenceCount || 0,
+            next.calibrationProfile?.retiredEvidenceCount || 0,
           rescueCalibrationRetirementHash:
-            report.calibrationProfile?.retirementHash || null,
-          rescueCalibrationHash: report.calibrationProfile
+            next.calibrationProfile?.retirementHash || null,
+          rescueCalibrationHash: next.calibrationProfile
             ? recordHash({
-              sourceReceiptIds: [...report.calibrationProfile.sourceReceiptIds].sort(),
+              sourceReceiptIds: [...next.calibrationProfile.sourceReceiptIds].sort(),
               proofStatus: report.currentRun.calibrationProof?.status || null,
             })
             : null,
+          calibrationProfile: dailyCalibrationProfile(next.calibrationProfile),
           materialSufficient: report.currentRun.materialSufficient,
           publicationSource: operatorVerdict.publicationSource,
           eligible: APPROVED_VERDICTS.has(input.verdict),
@@ -913,21 +916,7 @@ export function createActorAuditHandler({
           || receipt.vibeKey !== pair.vibeKey) {
           return json(404, { error: "That saved rescue arrangement was not found for this pairing." });
         }
-        const key = auditRescueCalibrationKey(pair.actor.id, pair.vibeIdx, receipt.receiptId);
-        const existing = await store.get(key, { type: "json", consistency: "strong" });
-        if (!existing) {
-          const calibration = createRescueCalibration(
-            pair,
-            run,
-            receipt,
-            operator,
-            now,
-          );
-          const write = await store.setJSON(key, calibration, { onlyIfNew: true });
-          if (write?.modified === false) {
-            return json(409, { error: "Another operator marked this rescue board first." });
-          }
-        }
+        await ensureRescueCalibration(store, pair, run, receipt, operator, now);
         const next = await readReport(store, pair);
         return json(200, {
           actor: await actorSummary(store, actorPacks, pair.actor),
@@ -1115,7 +1104,7 @@ export async function runPreflight(
     }
   });
   const baselineRanked = rankCandidates(candidates);
-  const ranked = applyCalibrationQueryRanking(baselineRanked, calibrationProfile);
+  const ranked = baselineRanked;
   const baselineTop = baselineRanked.slice(0, RANKED_BATCH_LIMIT);
   const calibratedTop = ranked.slice(0, RANKED_BATCH_LIMIT);
   const comparisonQueries = new Set([
@@ -1267,25 +1256,6 @@ function queryRun(candidate, receipt, rankIndex) {
     acceptedForCuration: rankIndex >= 0 && rankIndex < RANKED_BATCH_LIMIT,
     rejectionReasons: [...new Set(reasons)],
   };
-}
-
-function applyCalibrationQueryRanking(ranked, profile) {
-  if (!profile?.evidenceCount) return ranked;
-  const positive = new Set(profile.positiveQueries || []);
-  const negative = new Set(profile.negativeQueries || []);
-  return ranked
-    .map((candidate, index) => {
-      const query = signalText(candidate.query);
-      return {
-        candidate,
-        index,
-        calibrationRank: Number(positive.has(query)) - Number(negative.has(query)),
-      };
-    })
-    .sort((left, right) =>
-      right.calibrationRank - left.calibrationRank
-      || left.index - right.index)
-    .map(item => item.candidate);
 }
 
 function boundedRawResults(candidates, diagnostics = {}) {
@@ -1507,7 +1477,6 @@ function pairingSummary(pair, report) {
   const eligible = Boolean(
     current
     && auditContract?.isCurrent
-    && !calibrationNeedsRerun
     && currentVerdict
     && (operatorPublication || current.blindReview?.choice)
     && (!isDisagreement(current, current.blindReview) || current.blindReview.reasonCodes?.length)
@@ -1520,8 +1489,6 @@ function pairingSummary(pair, report) {
     queryCount: pair.vibe.queries.length,
     auditState: needsReapproval
       ? "needs_reapproval"
-      : calibrationNeedsRerun
-        ? "calibration_reaudit_required"
       : reviewPending
         ? "blind_review_pending"
         : comparisonUnavailable
@@ -1532,9 +1499,10 @@ function pairingSummary(pair, report) {
     verdict: currentVerdict,
     notes: currentVerdict ? report.notes : "",
     verdictAt: currentVerdict ? report.verdictAt : null,
-    eligible: needsReapproval || calibrationNeedsRerun ? false : reviewPending ? null : eligible,
+    eligible: needsReapproval ? false : reviewPending ? null : eligible,
     auditContract,
     calibrationEvidenceCount: report?.calibrationProfile?.evidenceCount || 0,
+    calibrationLearningPending: calibrationNeedsRerun,
     calibrationProof: current?.calibrationProof || null,
   };
 }
@@ -1971,6 +1939,7 @@ function signalValues(candidates) {
       .map(cluster => signalText(cluster.id))),
     antiAnchors: flattenedValues(candidate => (candidate.promise?.hardAntiMatches || [])
       .map(signalText)),
+    definitions: flattenedValues(definitionCues),
   };
 }
 
@@ -1983,7 +1952,23 @@ function signalValuesForCandidate(candidate, key) {
   if (key === "antiAnchors") {
     return (candidate.promise?.hardAntiMatches || []).map(signalText).filter(Boolean);
   }
+  if (key === "definitions") return definitionCues(candidate);
   return [];
+}
+
+function definitionCues(candidate) {
+  const text = signalText(`${candidate.title || ""} ${candidate.description || ""}`);
+  const stop = new Set([
+    "actor", "actress", "china", "chinese", "drama", "episode", "official",
+    "photo", "picture", "image", "images", "scene", "still", "video", "watch",
+    "with", "from", "that", "this", "their", "there", "about",
+  ]);
+  const words = text.split(" ")
+    .filter(word => word.length >= 4 && !stop.has(word) && !/^\d+$/.test(word));
+  return [...new Set([
+    ...words,
+    ...words.slice(0, -1).map((word, index) => `${word} ${words[index + 1]}`),
+  ])].slice(0, 24);
 }
 
 function reusableSignalPreferences(records, key) {
@@ -2079,7 +2064,7 @@ export function rescueCalibrationBasis(run, board) {
     .map(calibrationCandidateSnapshot);
   const hero = selectedNine[4] || null;
   const reusableSignals = Object.fromEntries(
-    ["queries", "sources", "clusters", "antiAnchors"].map(key => [
+    ["queries", "sources", "clusters", "antiAnchors", "definitions"].map(key => [
       key,
       reusableSignalPreferences([{ selectedNine, omittedAlternatives }], key),
     ]),
@@ -2185,7 +2170,37 @@ function createRescueCalibration(pair, run, receipt, operator, now) {
     contract: basis.contract,
     confirmedAt: now().toISOString(),
     confirmedBy: operator.user.accountId,
+    publishable: false,
   };
+}
+
+async function ensureRescueCalibration(
+  store,
+  pair,
+  run,
+  receipt,
+  operator,
+  now,
+  publishable = false,
+) {
+  const key = auditRescueCalibrationKey(pair.actor.id, pair.vibeIdx, receipt.receiptId);
+  const existing = await store.get(key, { type: "json", consistency: "strong" });
+  if (existing) return existing;
+  const calibration = {
+    ...createRescueCalibration(pair, run, receipt, operator, now),
+    publishable: publishable === true,
+  };
+  await store.setJSON(key, calibration, { onlyIfNew: true });
+  const authoritative = await store.get(key, { type: "json", consistency: "strong" });
+  if (!authoritative
+    || authoritative.sourceRescueReceiptId !== receipt.receiptId
+    || authoritative.actor?.id !== pair.actor.id
+    || authoritative.vibePack?.key !== pair.vibeKey) {
+    const error = new Error("The rescue calibration receipt could not be verified.");
+    error.status = 409;
+    throw error;
+  }
+  return authoritative;
 }
 
 function preferredSignals(positiveValues, negativeValues) {
@@ -2249,6 +2264,7 @@ async function readRescueCalibrationProfile(store, pair) {
   const sources = reusableSignalPreferences(records, "sources");
   const clusters = reusableSignalPreferences(records, "clusters");
   const antiAnchors = reusableSignalPreferences(records, "antiAnchors");
+  const definitions = reusableSignalPreferences(records, "definitions");
   const rankingContrasts = records.flatMap(record =>
     record.rankingContrasts || record.signals?.rankingContrasts || []).slice(0, 512);
   const rankingWins = {};
@@ -2334,16 +2350,52 @@ async function readRescueCalibrationProfile(store, pair) {
     negativeClusters: clusters.negative,
     positiveAntiAnchors: antiAnchors.positive,
     negativeAntiAnchors: antiAnchors.negative,
+    positiveDefinitions: definitions.positive,
+    negativeDefinitions: definitions.negative,
     reusableSignalDeltas: {
       queries: queries.deltas,
       sources: sources.deltas,
       clusters: clusters.deltas,
       antiAnchors: antiAnchors.deltas,
+      definitions: definitions.deltas,
     },
     rankingContrasts,
     rankingWins,
     rankingLosses,
     preferredPositions,
+    backupBoards: records
+      .filter(record => record.publishable === true)
+      .map(record => ({
+        sourceRescueReceiptId: record.sourceRescueReceiptId,
+        sourceRunId: record.sourceRunId || null,
+        candidates: record.selectedNine || [],
+        publishable: true,
+      })),
+  };
+}
+
+function dailyCalibrationProfile(profile) {
+  if (!profile?.evidenceCount) return null;
+  return {
+    calibrationVersion: profile.calibrationVersion,
+    evidenceCount: profile.evidenceCount,
+    positiveCandidateIds: profile.positiveCandidateIds,
+    negativeCandidateIds: profile.negativeCandidateIds,
+    heroCandidateIds: profile.heroCandidateIds,
+    positiveQueries: profile.positiveQueries,
+    negativeQueries: profile.negativeQueries,
+    positiveSources: profile.positiveSources,
+    negativeSources: profile.negativeSources,
+    positiveClusters: profile.positiveClusters,
+    negativeClusters: profile.negativeClusters,
+    positiveAntiAnchors: profile.positiveAntiAnchors,
+    negativeAntiAnchors: profile.negativeAntiAnchors,
+    positiveDefinitions: profile.positiveDefinitions,
+    negativeDefinitions: profile.negativeDefinitions,
+    rankingWins: profile.rankingWins,
+    rankingLosses: profile.rankingLosses,
+    preferredPositions: profile.preferredPositions,
+    backupBoards: profile.backupBoards,
   };
 }
 

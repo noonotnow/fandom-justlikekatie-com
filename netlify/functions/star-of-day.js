@@ -17,6 +17,7 @@ import {
 } from "./lib/actor-eligibility.js";
 import {
   GRID_MANIFEST_PREFIX,
+  boardHash as publicationBoardHash,
   gridManifestKey,
   manifestPayload,
   materializePublicationManifest,
@@ -116,25 +117,87 @@ export async function buildPayloadForDate(
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
     }
+    const pairHistory = publicationStore
+      ? await readPairPublicationHistory(publicationStore, actor.id, seed.vIdx, dateString)
+      : [];
+    const tryEditorialBackup = () => buildEditorialBackup({
+      dateString,
+      actor,
+      vibe,
+      seed,
+      approval,
+      eligibilityStore,
+      publicationStore,
+      materializePublication,
+      mediaEnv,
+      fetchImpl,
+      generatedAt,
+    });
     const candidates = await evaluate(vibe.queries, search);
-    const ranked = rank(candidates).slice(0, RANKED_BATCH_LIMIT);
+    let ranked = rank(candidates).slice(0, RANKED_BATCH_LIMIT);
 
     if (!ranked.length) {
-      // Nothing acceptable came back for this approved pairing. Continue through
-      // the deterministic eligible order without changing ACTOR_PACKS indices.
+      const backup = await tryEditorialBackup();
+      if (backup) return backup;
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
     }
 
-    const { displayResults, curation } = await curate(ranked, {
+    let { displayResults, curation } = await curate(ranked, {
       promise: vibePromiseFor(actor, seed.vIdx),
+      calibrationProfile: approval.calibrationProfile || null,
+      preferredCandidateIds: approval.calibrationProfile?.positiveCandidateIds || [],
       profileVersions: {
         identityProfileVersion: IDENTITY_PROFILE_VERSION,
         aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
         promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
       },
     });
+    if (displayResults.length >= 9 && pairHistory.length) {
+      const initialOverlap = greatestBoardOverlap(displayResults, pairHistory);
+      if (initialOverlap >= 7) {
+        const refreshedCandidates = await evaluate(
+          vibe.queries,
+          query => search(query, { cacheMode: "refresh" }),
+        );
+        const refreshedRanked = rank(refreshedCandidates).slice(0, RANKED_BATCH_LIMIT);
+        if (refreshedRanked.length) {
+          const refreshed = await curate(refreshedRanked, {
+            promise: vibePromiseFor(actor, seed.vIdx),
+            calibrationProfile: approval.calibrationProfile || null,
+            preferredCandidateIds: approval.calibrationProfile?.positiveCandidateIds || [],
+            profileVersions: {
+              identityProfileVersion: IDENTITY_PROFILE_VERSION,
+              aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+              promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+            },
+          });
+          const refreshedOverlap = greatestBoardOverlap(refreshed.displayResults, pairHistory);
+          if (refreshed.displayResults.length >= 9 && refreshedOverlap < initialOverlap) {
+            ranked = refreshedRanked;
+            displayResults = refreshed.displayResults;
+            curation = refreshed.curation;
+          }
+        }
+        curation = {
+          ...curation,
+          searchCacheRefreshed: true,
+          priorPairingEditionCount: pairHistory.length,
+        };
+      }
+      if (sameNineAsAny(displayResults, pairHistory)) {
+        displayResults = rearrangeRepeatedNine(displayResults, pairHistory.length);
+        curation = {
+          ...curation,
+          repeatedNineRearranged: true,
+          priorPairingEditionCount: pairHistory.length,
+          signals: [...new Set([...(curation?.signals || []), "repeat nine rearranged"])],
+        };
+      }
+    }
     if (displayResults.length < 9) {
+      const backup = await tryEditorialBackup();
+      if (backup) return backup;
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
     }
@@ -188,6 +251,8 @@ export async function buildPayloadForDate(
         });
         return materialized.payload;
       } catch {
+        const backup = await tryEditorialBackup();
+        if (backup) return backup;
         excluded.add(`${actor.id}:${seed.vIdx}`);
         continue;
       }
@@ -217,6 +282,218 @@ export async function buildPayloadForDate(
       generatedAt: generatedAt(),
     };
   }
+}
+
+async function buildEditorialBackup({
+  dateString,
+  actor,
+  vibe,
+  seed,
+  approval,
+  eligibilityStore,
+  publicationStore,
+  materializePublication,
+  mediaEnv,
+  fetchImpl,
+  generatedAt,
+}) {
+  if (!await pairIsReleaseReady(actor, seed.vIdx, eligibilityStore)) return null;
+  const candidates = [
+    ...(approval.calibrationProfile?.backupBoards || [])
+      .filter(board => board.publishable === true),
+    ...(approval.publicationSource?.type === "operator_rescue" && approval.publicationBoard
+      ? [{
+        sourceRescueReceiptId: approval.publicationSource.rescueReceiptId,
+        sourceRunId: approval.runId || null,
+        candidates: approval.publicationBoard.candidates,
+        publishable: true,
+      }]
+      : []),
+  ];
+  const publishedHashes = publicationStore
+    ? await readPublishedBoardHashes(publicationStore, dateString)
+    : new Set();
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const board = {
+      mode: "operator_rescue_backup",
+      candidates: (candidate.candidates || []).slice(0, 9).map(item => ({
+        ...item,
+        candidateId: item.candidateId || candidateIdForResult({
+          ...item,
+          batchKey: item.batchKey || item.query || "editorial-backup",
+        }),
+      })),
+    };
+    if (board.candidates.length !== 9
+      || new Set(board.candidates.map(item => item.candidateId)).size !== 9
+      || board.candidates.some(item => !item.thumbnail)) continue;
+    const hash = publicationBoardHash(board);
+    if (seen.has(hash) || publishedHashes.has(hash)) continue;
+    seen.add(hash);
+    const provenance = {
+      sourceType: "operator_rescue_backup",
+      runId: approval.runId || candidate.sourceRunId || null,
+      rescueReceiptId: candidate.sourceRescueReceiptId || null,
+      calibrationEvidence: true,
+      explicitlyPublishable: true,
+    };
+    if (publicationStore && materializePublication) {
+      try {
+        const materialized = await materializePublication({
+          store: publicationStore,
+          date: dateString,
+          actor: {
+            id: actor.id,
+            name: actor.name,
+            nameEn: actor.shortName_en || actor.shortName || actor.name,
+            accentColor: actor.accentColor || "#c9a96e",
+          },
+          vibe: {
+            key: `${actor.id}:${seed.vIdx}`,
+            idx: seed.vIdx,
+            label: vibe.label || vibe.label_en || `${actor.id}:${seed.vIdx}`,
+            labelEn: vibe.label_en || vibe.label || `${actor.id}:${seed.vIdx}`,
+            emoji: vibe.emoji || "✨",
+            subtitle: vibe.subtitle || "",
+            subtitleEn: vibe.subtitle_en || vibe.subtitle || "",
+            supportingCopy: vibe.supportingCopy || "",
+            supportingCopyEn: vibe.supportingCopy_en || "",
+            generationPrompt: vibe.mjPrompt || "",
+          },
+          board,
+          provenance,
+          env: mediaEnv,
+          fetchImpl,
+          now: generatedAt,
+        });
+        return materialized.payload;
+      } catch {
+        continue;
+      }
+    }
+    return dailyPayload({
+      dateString,
+      actor,
+      vibe,
+      seed,
+      ranked: [],
+      displayResults: board.candidates,
+      curation: {
+        mode: "operator_rescue_backup",
+        version: 1,
+        rationale: "Fresh curation was unavailable, so an unused approved editorial board was published.",
+        signals: [],
+      },
+      generatedAt,
+    });
+  }
+  return null;
+}
+
+async function readPublishedBoardHashes(store, beforeDate) {
+  const listing = await store.list({ prefix: GRID_MANIFEST_PREFIX });
+  const manifests = await Promise.all((listing?.blobs || [])
+    .filter(blob => typeof blob?.key === "string"
+      && blob.key.slice(GRID_MANIFEST_PREFIX.length) < beforeDate)
+    .map(blob => store.get(blob.key, { type: "json", consistency: "strong" })));
+  return new Set(manifests
+    .map(manifest => manifest?.boardHash)
+    .filter(hash => typeof hash === "string"));
+}
+
+async function readPairPublicationHistory(store, actorId, vibeIdx, beforeDate) {
+  const listing = await store.list({ prefix: GRID_MANIFEST_PREFIX });
+  const manifests = await Promise.all((listing?.blobs || [])
+    .filter(blob => typeof blob?.key === "string"
+      && blob.key.slice(GRID_MANIFEST_PREFIX.length) < beforeDate)
+    .map(blob => store.get(blob.key, { type: "json", consistency: "strong" })));
+  return manifests
+    .filter(manifest =>
+      manifest?.actor?.id === actorId
+      && manifest?.vibe?.idx === vibeIdx
+      && Array.isArray(manifest.cards)
+      && manifest.cards.length === 9)
+    .sort((left, right) =>
+      String(right.publicationDate || "").localeCompare(String(left.publicationDate || "")));
+}
+
+function candidateKeys(candidate) {
+  return [
+    candidate?.candidateId,
+    candidate?.thumbnail,
+    candidate?.sourceUrl,
+  ].filter(Boolean);
+}
+
+function manifestCandidateKeys(manifest) {
+  return new Set((manifest?.cards || []).flatMap(candidateKeys));
+}
+
+function greatestBoardOverlap(displayResults, history) {
+  if (!Array.isArray(displayResults) || displayResults.length < 9) return 0;
+  return Math.max(0, ...history.map(manifest => {
+    const prior = manifestCandidateKeys(manifest);
+    return displayResults.slice(0, 9).filter(candidate =>
+      candidateKeys(candidate).some(key => prior.has(key))).length;
+  }));
+}
+
+function sameNineAsAny(displayResults, history) {
+  if (!Array.isArray(displayResults) || displayResults.length < 9) return false;
+  return history.some(manifest => {
+    const prior = manifestCandidateKeys(manifest);
+    return displayResults.slice(0, 9).every(candidate =>
+      candidateKeys(candidate).some(key => prior.has(key)));
+  });
+}
+
+function rearrangeRepeatedNine(displayResults, priorPairingEditionCount) {
+  const board = displayResults.slice(0, 9);
+  const hero = board[4];
+  const outer = board.filter((_, index) => index !== 4);
+  const shift = (priorPairingEditionCount % outer.length) + 1;
+  const rotated = [...outer.slice(shift), ...outer.slice(0, shift)];
+  return [
+    ...rotated.slice(0, 4),
+    hero,
+    ...rotated.slice(4),
+  ];
+}
+
+function dailyPayload({
+  dateString,
+  actor,
+  vibe,
+  seed,
+  ranked,
+  displayResults,
+  curation,
+  generatedAt,
+}) {
+  return {
+    version: VERSION,
+    date: dateString,
+    actorId: actor.id,
+    actorIdx: seed.aIdx,
+    actorName: actor.name,
+    actorShortNameEn: actor.shortName_en,
+    actorAccentColor: actor.accentColor,
+    vibeIdx: seed.vIdx,
+    vibeEmoji: vibe.emoji,
+    vibeLabel: vibe.label,
+    vibeLabelEn: vibe.label_en,
+    vibeSubtitle: vibe.subtitle,
+    vibeSubtitleEn: vibe.subtitle_en,
+    vibeSupportingCopy: vibe.supportingCopy,
+    vibeSupportingCopyEn: vibe.supportingCopy_en,
+    generationPrompt: vibe.mjPrompt,
+    generationQuery: ranked[0]?.query,
+    rankedBatches: ranked,
+    displayResults,
+    curation,
+    generatedAt: generatedAt(),
+  };
 }
 
 // Attempts to acquire the build lock for a date. Returns true if this request

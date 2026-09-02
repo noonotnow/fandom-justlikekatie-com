@@ -644,6 +644,20 @@ test("a publishable curator board can be approved while a rescue board is prefer
   const decided = await verdictResponse.json();
   assert.equal(verdictResponse.status, 200, JSON.stringify(decided));
   assert.equal(decided.pairing.eligible, true);
+  assert.equal(decided.calibrationProfile.evidenceCount, 1);
+  assert.deepEqual(
+    decided.calibrationProfile.backupBoards,
+    [],
+    "a rescue preference beside a publishable curator board is calibration-only",
+  );
+  assert.equal(
+    decided.currentRun.editorialFeedback.operatorRescueBoard.calibrationEvidence.status,
+    "confirmed",
+  );
+  assert.equal(
+    store.records.get(eligibilityKey(pairActor.id, 0)).calibrationProfile.evidenceCount,
+    1,
+  );
   assert.deepEqual(decided.currentRun.winner, systemWinnerBefore);
   assert.equal(decided.currentRun.operatorVerdict.verdict, "approved");
   assert.equal(decided.currentRun.operatorVerdict.rescuePreference.preferred, true);
@@ -1235,7 +1249,7 @@ test("an operator can save and reload an exact nine-card rescue board without im
   assert.deepEqual(reloaded.currentRun.blindReview, calibrationBefore);
 });
 
-test("only explicitly confirmed rescue boards calibrate a fresh audit and require transfer beyond the saved nine", async () => {
+test("confirmed rescue boards calibrate the next fresh audit without becoming an eligibility gate", async () => {
   const curateOptions = [];
   const { handler, store } = harness({
     freshEvidenceOnRerun: true,
@@ -1327,7 +1341,8 @@ test("only explicitly confirmed rescue boards calibrate a fresh audit and requir
   assert.deepEqual(evidence.rankingContrasts, receipt.calibrationBasis.rankingContrasts);
   assert.ok(evidence.provenance.selectedQueries.length);
   assert.equal(evidence.contract.curationVersion, CURATION_VERSION);
-  assert.equal(marked.pairing.auditState, "calibration_reaudit_required");
+  assert.equal(marked.pairing.calibrationLearningPending, true);
+  assert.notEqual(marked.pairing.auditState, "calibration_reaudit_required");
   assert.deepEqual(store.records.get(auditRunKey(pairActor.id, 0, "run-1")), immutableRunBefore);
   assert.deepEqual(store.records.get(eligibilityKey(pairActor.id, 0)), eligibilityBefore);
 
@@ -1449,8 +1464,9 @@ test("retiring calibration evidence appends a reason receipt, excludes it from p
   }), {});
   const retired = await retirementResponse.json();
   assert.equal(retirementResponse.status, 200, JSON.stringify(retired));
-  assert.equal(retired.pairing.auditState, "calibration_reaudit_required");
-  assert.equal(retired.pairing.eligible, false);
+  assert.equal(retired.pairing.auditState, "approved");
+  assert.equal(retired.pairing.eligible, true);
+  assert.equal(retired.pairing.calibrationLearningPending, true);
   assert.equal(retired.calibrationProfile.evidenceCount, 0);
   assert.equal(retired.calibrationProfile.totalConfirmedEvidenceCount, 1);
   assert.equal(retired.calibrationProfile.retiredEvidenceCount, 1);
@@ -1637,7 +1653,7 @@ test("confirmed calibration becomes records-only after its source contract is su
   assert.equal(store.records.get(calibrationKey).status, "confirmed");
 });
 
-test("approval remains blocked when calibration only reorders selected or omitted source evidence", async () => {
+test("advisory calibration does not require transfer proof before approval", async () => {
   const { handler } = harness({ calibrationTransfers: true });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   await handler(request("POST", {
@@ -1682,8 +1698,10 @@ test("approval remains blocked when calibration only reorders selected or omitte
     verdict: "approved",
     notes: "",
   }), {});
-  assert.equal(verdictResponse.status, 409);
-  assert.match((await verdictResponse.json()).error, /beyond the exact saved nine/i);
+  const verdict = await verdictResponse.json();
+  assert.equal(verdictResponse.status, 200, JSON.stringify(verdict));
+  assert.equal(verdict.pairing.eligible, true);
+  assert.equal(verdict.currentRun.calibrationProof.ready, false);
 });
 
 test("a promoted candidate beyond the source audit display cap cannot prove transfer", async () => {
@@ -1860,6 +1878,30 @@ test("shared source and cluster signals survive when selected evidence has a mea
     assert.equal(delta.omittedCount, 2);
     assert.ok(delta.delta >= 0.8);
   }
+});
+
+test("broad human visual choices become advisory definition cues", () => {
+  const selected = Array.from({ length: 9 }, (_, index) => ({
+    candidateId: `selected-${index}`,
+    title: `Handsome man beside a modern building ${index}`,
+    description: "Editorial portrait with architectural context",
+    source: "selected.example",
+  }));
+  const omitted = Array.from({ length: 9 }, (_, index) => ({
+    candidateId: `omitted-${index}`,
+    title: `Historical costume closeup ${index}`,
+    description: "Studio character portrait",
+    source: "omitted.example",
+  }));
+  const basis = rescueCalibrationBasis({
+    rawResults: [...selected, ...omitted],
+    queryRuns: [],
+    pairingFingerprint: "fingerprint",
+  }, { candidates: selected });
+
+  assert.ok(basis.signals.reusable.definitions.positive.includes("handsome"));
+  assert.ok(basis.signals.reusable.definitions.positive.includes("building"));
+  assert.ok(basis.signals.reusable.definitions.negative.includes("historical"));
 });
 
 test("legacy rescue receipts remain records-only and cannot calibrate the current profile", async () => {
@@ -2567,6 +2609,11 @@ test("a saved retained-evidence board can be approved without a curator comparis
   assert.equal(eligibility.verdict, "approved");
   assert.equal(eligibility.publicationSource.type, "operator_rescue");
   assert.equal(eligibility.publicationSource.rescueReceiptId, receiptId);
+  assert.deepEqual(
+    approval.calibrationProfile.backupBoards,
+    [],
+    "manual calibration alone does not create a fallback publication source",
+  );
 });
 
 test("an approval from a legacy profile contract is visibly marked for reapproval", async () => {

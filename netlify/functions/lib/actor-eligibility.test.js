@@ -255,7 +255,7 @@ test("an approval fails closed after the curation algorithm version changes", as
   assert.equal(await selectEligiblePair(packs, date, storeWith(entries)), null);
 });
 
-test("Daily Drop eligibility fails closed until confirmed rescue calibration is reproduced on a fresh run", async () => {
+test("advisory rescue calibration does not invalidate Daily Drop eligibility", async () => {
   const date = "2026-09-05";
   const legacy = getRandomForDate(packs, date);
   const actor = packs[legacy.aIdx];
@@ -271,7 +271,9 @@ test("Daily Drop eligibility fails closed until confirmed rescue calibration is 
     contract: rescueContract(actor, legacy.vIdx),
   };
 
-  assert.equal(await selectEligiblePair(packs, date, storeWith(entries)), null);
+  const initiallySelected = await selectEligiblePair(packs, date, storeWith(entries));
+  assert.equal(initiallySelected.aIdx, legacy.aIdx);
+  assert.equal(initiallySelected.vIdx, legacy.vIdx);
 
   const proofStatus = "reproduced_beyond_saved_nine";
 
@@ -301,11 +303,9 @@ test("Daily Drop eligibility fails closed until confirmed rescue calibration is 
     confirmedAt: "2026-09-05T11:00:00.000Z",
     contract: rescueContract(actor, legacy.vIdx),
   };
-  assert.equal(
-    await selectEligiblePair(packs, date, storeWith(entries)),
-    null,
-    "new calibration evidence must require another fresh proof",
-  );
+  const selectedWithNewEvidence = await selectEligiblePair(packs, date, storeWith(entries));
+  assert.equal(selectedWithNewEvidence.aIdx, legacy.aIdx);
+  assert.equal(selectedWithNewEvidence.vIdx, legacy.vIdx);
 });
 
 test("superseded rescue calibration contracts are records-only for Daily Drop eligibility", async () => {

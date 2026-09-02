@@ -24,7 +24,7 @@ import {
   VIBE_PROMISE_CONTRACT_VERSION,
 } from "./actor-identity-profiles.js";
 import { CURATION_VERSION } from "./grid-curation.js";
-import { gridManifestKey } from "./publication-manifest.js";
+import { boardHash, gridManifestKey } from "./publication-manifest.js";
 
 function makeStore(entries = {}) {
   const values = new Map(Object.entries(entries));
@@ -522,11 +522,19 @@ test("the builder prefers fresh curation over an approved retained-evidence boar
       vibes: [{ label: "B0", label_en: "B0", queries: ["unused-b"] }],
     },
   ];
-  const eligibilityStore = makeStore({
-    ...operatorBoardEligibility(packs[0], 0),
-    ...operatorBoardEligibility(packs[1], 0),
-  });
+  const actorAEntries = operatorBoardEligibility(packs[0], 0);
+  const actorBEntries = operatorBoardEligibility(packs[1], 0);
+  const calibrationProfile = {
+    calibrationVersion: 1,
+    evidenceCount: 1,
+    positiveCandidateIds: ["saved-example"],
+    positiveDefinitions: ["modern building"],
+  };
+  actorAEntries[eligibilityKey(packs[0].id, 0)].calibrationProfile = calibrationProfile;
+  actorBEntries[eligibilityKey(packs[1].id, 0)].calibrationProfile = calibrationProfile;
+  const eligibilityStore = makeStore({ ...actorAEntries, ...actorBEntries });
   let searches = 0;
+  let curateOptions = null;
   const freshResults = Array.from({ length: 9 }, (_, index) => ({
     candidateId: `fresh-${index}`,
     title: `Fresh frame ${index}`,
@@ -540,10 +548,13 @@ test("the builder prefers fresh curation over an approved retained-evidence boar
       return [{ query: "fresh query", results: freshResults }];
     },
     rank: candidates => candidates,
-    curate: async () => ({
-      displayResults: freshResults,
-      curation: { mode: "compiled", version: 1, rationale: "Fresh evidence.", signals: [] },
-    }),
+    curate: async (_ranked, options) => {
+      curateOptions = options;
+      return {
+        displayResults: freshResults,
+        curation: { mode: "compiled", version: 1, rationale: "Fresh evidence.", signals: [] },
+      };
+    },
     generatedAt: () => "2026-09-01T12:00:00.000Z",
   });
 
@@ -552,6 +563,126 @@ test("the builder prefers fresh curation over an approved retained-evidence boar
   assert.equal(payload.rankedBatches[0].query, "fresh query");
   assert.equal(payload.displayResults[0].thumbnail, "https://images.test/fresh-0.jpg");
   assert.equal(payload.curation.mode, "compiled");
+  assert.deepEqual(curateOptions.calibrationProfile, calibrationProfile);
+  assert.deepEqual(curateOptions.preferredCandidateIds, ["saved-example"]);
+});
+
+test("a repeated pairing refreshes search and rearranges the same nine when refresh cannot improve them", async () => {
+  const actor = {
+    id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
+    vibes: [{ label: "A0", label_en: "A0", queries: ["repeat-query"] }],
+  };
+  const entries = approvedEligibility(actor, 0);
+  const repeated = Array.from({ length: 9 }, (_, index) => ({
+    candidateId: `repeat-${index}`,
+    title: `Repeated ${index}`,
+    thumbnail: `https://images.test/repeat-${index}.jpg`,
+    source: `source-${index}.test`,
+  }));
+  const publicationStore = makeStore({
+    [gridManifestKey("2026-08-31")]: {
+      publicationDate: "2026-08-31",
+      boardHash: "prior-hash",
+      actor: { id: actor.id },
+      vibe: { idx: 0 },
+      cards: repeated.map(candidate => ({
+        candidateId: candidate.candidateId,
+        sourceUrl: candidate.thumbnail,
+      })),
+    },
+  });
+  const searchModes = [];
+  let publishedBoard = null;
+
+  const payload = await buildPayloadForDate("2026-09-01", makeStore(entries), {
+    packs: [actor],
+    search: async (_query, options = {}) => {
+      searchModes.push(options.cacheMode || "default");
+      return { results: repeated, provider: "fixture" };
+    },
+    evaluate: async (queries, search) => {
+      const result = await search(queries[0]);
+      return [{ query: queries[0], results: result.results, count: 9, distinctSources: 9 }];
+    },
+    rank: candidates => candidates,
+    curate: async ranked => ({
+      displayResults: ranked[0].results,
+      curation: { mode: "compiled", version: 1, signals: [] },
+    }),
+    publicationStore,
+    materializePublication: async ({ board }) => {
+      publishedBoard = board;
+      return { payload: { source: "materialized" } };
+    },
+  });
+
+  assert.deepEqual(searchModes, ["default", "refresh"]);
+  assert.equal(payload.source, "materialized");
+  assert.equal(publishedBoard.candidates[4].candidateId, "repeat-4");
+  assert.notDeepEqual(
+    publishedBoard.candidates.map(candidate => candidate.candidateId),
+    repeated.map(candidate => candidate.candidateId),
+  );
+});
+
+test("a repeated pairing uses refreshed search when it materially reduces prior-grid overlap", async () => {
+  const actor = {
+    id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
+    vibes: [{ label: "A0", label_en: "A0", queries: ["repeat-query"] }],
+  };
+  const entries = approvedEligibility(actor, 0);
+  const repeated = Array.from({ length: 9 }, (_, index) => ({
+    candidateId: `repeat-${index}`,
+    title: `Repeated ${index}`,
+    thumbnail: `https://images.test/repeat-${index}.jpg`,
+    source: `old-${index}.test`,
+  }));
+  const refreshed = Array.from({ length: 9 }, (_, index) => ({
+    candidateId: `refreshed-${index}`,
+    title: `Refreshed ${index}`,
+    thumbnail: `https://images.test/refreshed-${index}.jpg`,
+    source: `new-${index}.test`,
+  }));
+  const publicationStore = makeStore({
+    [gridManifestKey("2026-08-31")]: {
+      publicationDate: "2026-08-31",
+      boardHash: "prior-hash",
+      actor: { id: actor.id },
+      vibe: { idx: 0 },
+      cards: repeated.map(candidate => ({
+        candidateId: candidate.candidateId,
+        sourceUrl: candidate.thumbnail,
+      })),
+    },
+  });
+  let publishedBoard = null;
+
+  await buildPayloadForDate("2026-09-01", makeStore(entries), {
+    packs: [actor],
+    search: async (_query, options = {}) => ({
+      results: options.cacheMode === "refresh" ? refreshed : repeated,
+      provider: "fixture",
+    }),
+    evaluate: async (queries, search) => {
+      const result = await search(queries[0]);
+      return [{ query: queries[0], results: result.results, count: 9, distinctSources: 9 }];
+    },
+    rank: candidates => candidates,
+    curate: async ranked => ({
+      displayResults: ranked[0].results,
+      curation: { mode: "compiled", version: 1, signals: [] },
+    }),
+    publicationStore,
+    materializePublication: async ({ board }) => {
+      publishedBoard = board;
+      return { payload: { source: "materialized" } };
+    },
+  });
+
+  assert.deepEqual(
+    publishedBoard.candidates.map(candidate => candidate.candidateId),
+    refreshed.map(candidate => candidate.candidateId),
+  );
 });
 
 test("the builder does not fall back to an approved curated board when fresh search fails", async () => {
@@ -572,6 +703,130 @@ test("the builder does not fall back to an approved curated board when fresh sea
 
   assert.equal(searches, 1);
   assert.equal(payload, null);
+});
+
+test("a calibration-only rescue board is never used as a Daily Drop fallback", async () => {
+  const actor = {
+    id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
+    vibes: [{ label: "A0", label_en: "A0", queries: ["fresh-search"] }],
+  };
+  const entries = operatorBoardEligibility(actor, 0);
+  const eligibility = entries[eligibilityKey(actor.id, 0)];
+  const rescue = entries[auditRescueBoardKey(
+    actor.id,
+    0,
+    `${actor.id}-0-run`,
+    `${actor.id}-0-rescue`,
+  )];
+  eligibility.publicationSource = null;
+  eligibility.publicationBoard = null;
+  eligibility.calibrationProfile = {
+    calibrationVersion: 1,
+    evidenceCount: 1,
+    backupBoards: [{
+      sourceRescueReceiptId: rescue.receiptId,
+      sourceRunId: rescue.runId,
+      candidates: rescue.board.candidates,
+      publishable: false,
+    }],
+  };
+
+  const payload = await buildPayloadForDate("2026-09-01", makeStore(entries), {
+    packs: [actor],
+    evaluate: async () => [],
+  });
+
+  assert.equal(payload, null);
+});
+
+test("the builder uses an unused rescue calibration board only after fresh search fails", async () => {
+  const actor = {
+    id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
+    vibes: [{ label: "A0", label_en: "A0", queries: ["fresh-search"] }],
+  };
+  const entries = operatorBoardEligibility(actor, 0);
+  const eligibility = entries[eligibilityKey(actor.id, 0)];
+  const rescue = entries[auditRescueBoardKey(
+    actor.id,
+    0,
+    `${actor.id}-0-run`,
+    `${actor.id}-0-rescue`,
+  )];
+  eligibility.calibrationProfile = {
+    calibrationVersion: 1,
+    evidenceCount: 1,
+    backupBoards: [{
+      sourceRescueReceiptId: rescue.receiptId,
+      sourceRunId: rescue.runId,
+      candidates: rescue.board.candidates,
+      publishable: true,
+    }],
+  };
+
+  const payload = await buildPayloadForDate("2026-09-01", makeStore(entries), {
+    packs: [actor],
+    evaluate: async () => [],
+    generatedAt: () => "2026-09-01T12:00:00.000Z",
+  });
+
+  assert.equal(payload.curation.mode, "operator_rescue_backup");
+  assert.equal(payload.displayResults.length, 9);
+  assert.deepEqual(
+    payload.displayResults.map(candidate => candidate.candidateId),
+    rescue.board.candidates.map(candidate => candidate.candidateId),
+  );
+});
+
+test("a rescue board already published as Star of the Day is not reused as backup", async () => {
+  const actor = {
+    id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
+    vibes: [{ label: "A0", label_en: "A0", queries: ["fresh-search"] }],
+  };
+  const entries = operatorBoardEligibility(actor, 0);
+  const eligibility = entries[eligibilityKey(actor.id, 0)];
+  const rescue = entries[auditRescueBoardKey(
+    actor.id,
+    0,
+    `${actor.id}-0-run`,
+    `${actor.id}-0-rescue`,
+  )];
+  eligibility.calibrationProfile = {
+    calibrationVersion: 1,
+    evidenceCount: 1,
+    backupBoards: [{
+      sourceRescueReceiptId: rescue.receiptId,
+      sourceRunId: rescue.runId,
+      candidates: rescue.board.candidates,
+      publishable: true,
+    }],
+  };
+  const publishedBoard = {
+    mode: "operator_rescue_backup",
+    candidates: rescue.board.candidates,
+  };
+  const publicationStore = makeStore({
+    [gridManifestKey("2026-08-31")]: {
+      boardHash: boardHash(publishedBoard),
+      provenance: {
+        sourceType: "operator_rescue_backup",
+        rescueReceiptId: rescue.receiptId,
+      },
+    },
+  });
+  let materializations = 0;
+
+  const payload = await buildPayloadForDate("2026-09-01", makeStore(entries), {
+    packs: [actor],
+    evaluate: async () => [],
+    publicationStore,
+    materializePublication: async () => {
+      materializations += 1;
+      throw new Error("A published rescue board should have been filtered first.");
+    },
+  });
+
+  assert.equal(payload, null);
+  assert.equal(materializations, 0);
 });
 
 test("a changed retained-evidence receipt fails closed after human approval", async () => {
