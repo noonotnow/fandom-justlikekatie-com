@@ -467,6 +467,170 @@ async function configureNetwork(page: Page): Promise<{
   return { auditRequests, calibrationRequests };
 }
 
+function completeCompiledHeroReviewRun(): AnyRecord {
+  const retained = candidates();
+  const compiledProposal = board('compiled', retained);
+  compiledProposal.promise.heroFulfillment = 0;
+  const result = run('complete-hero-review', true);
+  result.blindReview = {
+    status: 'unavailable',
+    presentationOrder: ['event', 'compiled'],
+    boards: [],
+  };
+  result.strongestEvent = null;
+  result.strongestCompiled = null;
+  result.winner = null;
+  result.alternate = null;
+  result.boardDiagnostics = {
+    event: {
+      available: false,
+      completeProposalAvailable: false,
+      proposal: null,
+      requiredCount: 9,
+      candidateCount: 0,
+      usableCount: 0,
+      summary: 'No complete Event proposal formed.',
+    },
+    compiled: {
+      available: false,
+      completeProposalAvailable: true,
+      proposal: compiledProposal,
+      requiredCount: 9,
+      candidateCount: 9,
+      usableCount: 9,
+      distinctUsableCount: 9,
+      heroFulfillment: 0,
+      reasonCode: 'hero_not_fulfilled',
+      summary: 'A complete Compiled board formed, but its proposed hero did not fulfill the promise.',
+    },
+  };
+  result.rawResults = retained;
+  result.rejections = [];
+  result.completeProposalCardCount = 9;
+  result.displayCount = 0;
+  result.editorialFeedback = feedback();
+  return result;
+}
+
+async function configureCompleteHeroReviewNetwork(page: Page): Promise<{
+  saveRequests: AnyRecord[];
+}> {
+  let savedBoard: AnyRecord | undefined;
+  const saveRequests: AnyRecord[] = [];
+
+  await page.route('**/api/auth/session', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      user: {
+        accountId: 'browser-operator',
+        email: 'operator@example.test',
+        isAdmin: true,
+      },
+    }),
+  }));
+  await page.route('**/.netlify/functions/star-of-day**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      actorName: 'Browser Test Actor',
+      actorShortNameEn: 'Browser Test Actor',
+      vibeEmoji: '🧪',
+      vibeLabel: 'Browser Calibration Vibe',
+      vibeLabelEn: 'Browser Calibration Vibe',
+      vibeSubtitle: '',
+      vibeSubtitleEn: '',
+      rankedBatches: [{ query: 'browser test', results: [] }],
+      date: '2026-08-31',
+    }),
+  }));
+  await page.route('**/api/membership/status', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ state: 'inactive', isMember: false }),
+  }));
+  await page.route('**/.netlify/functions/actor-audits**', async route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() === 'GET') {
+      if (!url.searchParams.has('actorId')) {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            actors: [actor('needs_operator_verdict')],
+            releaseInventory: {
+              schemaVersion: 1,
+              timeZone: 'Asia/Shanghai',
+              cutoff: '12:00',
+              releaseReadyPairingCount: 0,
+              freshCuratorPairingCount: 0,
+              rescueBackupPairingCount: 0,
+              rescueBackupBoardCount: 0,
+              actorPacks: [],
+            },
+          }),
+        });
+        return;
+      }
+      const currentRun = completeCompiledHeroReviewRun();
+      if (savedBoard) currentRun.editorialFeedback = feedback(savedBoard);
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          actor: actor('needs_operator_verdict'),
+          pairing: actor('needs_operator_verdict').pairings[0],
+          actorId: ACTOR_ID,
+          vibeKey: VIBE_KEY,
+          currentRun,
+          priorRuns: [],
+          verdict: null,
+          notes: '',
+          verdictAt: null,
+          calibrationProfile: null,
+        }),
+      });
+      return;
+    }
+
+    const input = request.postDataJSON() as AnyRecord;
+    saveRequests.push(input);
+    assert.equal(input.action, 'save_rescue_board');
+    assert.equal(input.runId, 'complete-hero-review');
+    const retainedById = new Map(candidates().map(item => [item.candidateId, item]));
+    savedBoard = {
+      schemaVersion: 1,
+      receiptId: RESCUE_RECEIPT_ID,
+      runId: 'complete-hero-review',
+      actorId: ACTOR_ID,
+      vibeKey: VIBE_KEY,
+      feedbackHash: 'browser-feedback-hash',
+      board: {
+        mode: 'operator_rescue',
+        candidates: input.candidateIds.map((candidateId: string) => retainedById.get(candidateId)),
+      },
+      savedAt: '2026-08-31T12:01:00.000Z',
+      savedBy: 'browser-operator',
+    };
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        actor: actor('needs_operator_verdict'),
+        pairing: actor('needs_operator_verdict').pairings[0],
+        actorId: ACTOR_ID,
+        vibeKey: VIBE_KEY,
+        currentRun: {
+          ...completeCompiledHeroReviewRun(),
+          editorialFeedback: feedback(savedBoard),
+        },
+        priorRuns: [],
+        verdict: null,
+        notes: '',
+        verdictAt: null,
+        calibrationProfile: null,
+      }),
+    });
+  });
+
+  return { saveRequests };
+}
+
 test('a signed-in operator keeps ordinary rescue records separate from calibration proof', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();
@@ -548,6 +712,74 @@ test('a signed-in operator keeps ordinary rescue records separate from calibrati
       2,
       'the fresh audit must be a distinct audit request after calibration confirmation',
     );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('an admin can hand off a complete compiled proposal that needs hero review', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { saveRequests } = await configureCompleteHeroReviewNetwork(page);
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+
+    const qualification = page.getByLabel('Board qualification diagnostics');
+    await qualification.getByText('Compiled complete board · Hero review needed', { exact: true }).waitFor();
+    assert.equal(await qualification.getByText('Event proposal missing', { exact: true }).isVisible(), true);
+    assert.equal(await qualification.getByText('Compiled complete board · Hero review needed', { exact: true }).isVisible(), true);
+
+    const publicationReadyLabel = page.getByText('automatically publication-ready cards', { exact: true });
+    const publicationReadyCount = publicationReadyLabel.locator('xpath=preceding-sibling::strong[1]');
+    assert.equal(await publicationReadyCount.innerText(), '0');
+
+    const rescueBoard = page.locator('[aria-label="Editable rescue board"]');
+    assert.deepEqual(
+      (await rescueBoard.locator('a').allInnerTexts()).map(title => title.replace(/^Hero · /, '')),
+      candidates().map(item => item.title),
+      'the editable rescue board must start with the exact proposed nine',
+    );
+    assert.equal(
+      (await rescueBoard.locator('[data-hero="true"] a').innerText()).replace(/^Hero · /, ''),
+      candidate(4).title,
+      'the proposed fifth card must be the initial hero slot',
+    );
+
+    await page.getByRole('button', { name: 'Move card 1 later', exact: true }).click();
+    await page.getByRole('button', { name: 'Make card 2 the hero', exact: true }).click();
+
+    const expectedIds = [
+      candidate(1).candidateId,
+      candidate(4).candidateId,
+      candidate(2).candidateId,
+      candidate(3).candidateId,
+      candidate(0).candidateId,
+      candidate(5).candidateId,
+      candidate(6).candidateId,
+      candidate(7).candidateId,
+      candidate(8).candidateId,
+    ];
+    assert.deepEqual(
+      (await rescueBoard.locator('a').allInnerTexts()).map(title => title.replace(/^Hero · /, '')),
+      expectedIds.map(candidateId => candidates().find(item => item.candidateId === candidateId)?.title),
+      'hero replacement and card reorder must update the live rescue board',
+    );
+    assert.equal(
+      (await rescueBoard.locator('[data-hero="true"] a').innerText()).replace(/^Hero · /, ''),
+      candidate(0).title,
+    );
+
+    const saveButton = page.getByRole('button', { name: 'Save my nine', exact: true });
+    assert.equal(await saveButton.isEnabled(), true, 'the complete edited board must enable saving');
+    await saveButton.click();
+    await page.getByText('Saved rescue records', { exact: true }).waitFor();
+    assert.equal(saveRequests.length, 1);
+    assert.deepEqual(saveRequests[0].candidateIds, expectedIds, 'the handoff must save the exact edited board');
   } finally {
     await browser.close();
     await server.close();
