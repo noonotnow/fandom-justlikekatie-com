@@ -1,0 +1,233 @@
+**Yes—you’re right.** I collapsed **Creator OS / Workstation** into the Fandom Vibes membership experience, and that violates the separation we had established.
+
+**Using Fandom Vibes should not require Creator OS.** Grid building, downloading, and sharing a Vibe Atlas creation must work natively inside Fandom Vibes.
+
+# Correct product boundary
+
+## Fandom Vibes
+
+A standalone fandom product and service.
+
+### Public environment
+
+- Star of the Day
+- Daily Drop
+- Archive
+- Actor and Vibe pages
+- Public sharing and viewing
+
+### Member environment
+
+- Collection
+- Native Grid Builder
+- Save and arrange cards
+- Event/Compiled/Hybrid preferences
+- Personal taste profile
+- Native image export
+- Native device share sheet
+- Premium fandom features
+
+A member does **not** need Creator OS to build or share a grid.
+
+### Operator environment
+
+- Actor Preflight
+- Release Desk
+- Field Journal
+- Court Rulings
+- Fandom Vibes scheduling and publication state
+
+This environment owns Fandom Vibes’ editorial canon and production approvals.
+
+## Creator OS
+
+A separate standalone creator-operations product.
+
+It can contain **Workstation** as its production environment:
+
+- Multi-platform content planning
+- Cross-product asset management
+- Campaigns
+- Social channel scheduling
+- Caption variants
+- Production tasks
+- Distribution history
+- Analytics
+- Work spanning Fandom Vibes and other brands/projects
+
+Creator OS must also provide value without Fandom Vibes. It cannot merely be “the place required to finish a Fandom Vibes post.”
+
+# How they work together
+
+Fandom Vibes should be able to hand Creator OS a **publication package** after an edition is ready.
+
+That package might contain:
+
+- Immutable edition ID
+- Actor and Vibe Pack
+- Event or Compiled label
+- Exact nine-card arrangement
+- Hero position
+- Final rendered grid
+- Platform-safe image variants
+- Approved editorial copy
+- Credits and source information
+- Rights/provenance status
+- Release date or scheduling constraints
+- Repeat-actor warning
+- Enhancement and export status
+
+Creator OS can then:
+
+- Import the package into Workstation
+- Create Rednote, Instagram, Pinterest, or other channel variants
+- Schedule distribution
+- Track publication URLs
+- Collect performance data
+- Return distribution status to Fandom Vibes
+
+But Creator OS should **not**:
+
+- Re-run the curator
+- Change the approved nine
+- Replace the hero
+- Alter the canonical Vibe classification
+- Approve an unapproved board
+- Become the only way to download or share the grid
+
+# Standalone behavior
+
+The test should be:
+
+### Fandom Vibes without Creator OS
+
+A member or operator can still:
+
+- Build a grid
+- Save it
+- Download it
+- Open the native share sheet
+- Post it manually to social media
+- Publish and archive a Daily Drop within Fandom Vibes
+
+### Creator OS without Fandom Vibes
+
+A creator can still:
+
+- Manage other brands and projects
+- Import unrelated assets
+- Plan campaigns
+- Produce social variants
+- Schedule content
+- Track distribution and results
+
+### Both together
+
+They gain a clean handoff:
+
+> **Fandom Vibes decides what the edition is. Creator OS helps distribute and operate it across channels.**
+> 
+
+# Where Workstation belongs
+
+**Workstation belongs to Creator OS**, unless we deliberately reuse that word for a separate Fandom Vibes concept—which I would avoid.
+
+Inside Fandom Vibes, use its own native names:
+
+- **Collection**
+- **Grid Builder**
+- **Release Desk**
+- **Operator Console**
+
+That prevents the product from implying:
+
+> “To share this Fandom Vibes grid, now go subscribe to and learn an entirely different product.”
+> 
+
+Creator OS can make publishing more powerful, but it must remain an **optional interoperable service**, not a dependency.
+
+# Premium Fandom Vibes value
+
+Premium membership should come from deeper participation in the fandom product itself:
+
+- Expanded Collection
+- Advanced Grid Builder controls
+- Personal taste profile
+- Alternate approved cards or editions
+- Event/Compiled/Hybrid controls
+- Higher-quality native exports
+- More saved grids
+- Editorial extras
+- Member-only customization
+- Potential participation in blinded preference learning
+
+It should not be:
+
+- Access to internal audit machinery
+- A watered-down Operator Console
+- Mandatory Creator OS access
+- The ability to perform basic sharing that the product should already support
+
+A Creator OS bundle could exist later, but it would be a separate value proposition.
+
+# Revised architecture
+
+```
+Fandom Vibes
+├── Public experience
+│   ├── Daily Drop
+│   ├── Archive
+│   └── Shareable editions
+├── Member experience
+│   ├── Collection
+│   ├── Grid Builder
+│   ├── Taste profile
+│   └── Native export/share
+└── Operator Console
+    ├── Release Desk
+    ├── Actor Preflight
+    ├── Field Journal
+    └── Court Rulings
+
+Creator OS
+└── Workstation
+    ├── Projects and campaigns
+    ├── Cross-product assets
+    ├── Channel production
+    ├── Scheduling
+    └── Distribution analytics
+
+Optional interface
+Fandom Vibes publication package → Creator OS Workstation
+Creator OS publication status/analytics → Fandom Vibes
+```
+
+## Correction to send Replit
+
+> Pause any architecture that treats Workstation as the Fandom Vibes member interface or as a requirement for Grid Builder, export, or social sharing.
+> 
+> 
+> Fandom Vibes and Creator OS are separate standalone products:
+> 
+> - Fandom Vibes owns its public experience, membership, Collection, native Grid Builder, native export/share, editorial approvals, Release Desk, and Operator Console.
+> - Creator OS owns Workstation, cross-product creator operations, multi-channel production, scheduling, and distribution analytics.
+> - Fandom Vibes must remain fully usable without Creator OS.
+> - Creator OS must remain useful without Fandom Vibes.
+> - Their optional integration should use a defined publication-package handoff rather than shared hidden state or direct ownership of each other’s workflows.
+> 
+> Release Desk belongs inside the Fandom Vibes Operator Console because it governs what Fandom Vibes can canonically ship. Once an edition is production-ready, it may optionally be handed to Creator OS Workstation for broader channel operations.
+> 
+> Before implementing the Release Desk refactor, document:
+> 
+> 1. Fandom Vibes public, member, and operator environments
+> 2. Creator OS and Workstation responsibilities
+> 3. Native Fandom Vibes Grid Builder and share/export guarantees
+> 4. The optional publication-package interface
+> 5. Which system owns canonical approvals
+> 6. Which system owns distribution status and analytics
+> 7. Behavior when either service is unavailable
+> 
+> Do not create a hard dependency between the products.
+> 
+
+So yes: **Release Desk is internal to Fandom Vibes. Workstation is part of Creator OS. Grid Builder and ordinary social sharing remain native Fandom Vibes capabilities.**

@@ -1,0 +1,331 @@
+**You were right to stop them.** Their A/B/C framing is close, but it still treats the main decision as “where should this tab go?” The larger decision is:
+
+> **Who is doing what, with which assets, and at what stage of the publishing lifecycle?**
+> 
+
+I would not choose A, B, or C exactly as written. I’d propose a **D**.
+
+# Recommended architecture
+
+## Fandom Vibes
+
+The overall product world and brand.
+
+It can contain multiple editorial products or universes:
+
+- **Vibe Atlas**
+- **MemeForge**
+- Future fandom formats
+
+These are not “workbenches.” They are the experiences and editorial worlds people come to consume and participate in.
+
+## Public Vibe Atlas
+
+The published experience:
+
+- Star of the Day
+- Daily Drop
+- Archive
+- Public Vibe pages
+- Public actor pages
+- Shareable editions
+
+This contains only released material. No audit language, rejected images, promise counters, or operator receipts.
+
+## Member Collection
+
+The member’s personal library:
+
+- Saved cards
+- Saved editions
+- Favorite actors and Vibes
+- Personal rankings
+- Taste history
+- Event/Compiled/Hybrid preferences
+
+This is memory and identity: **what the member loves**.
+
+## Member Workstation
+
+This is where premium members **do things** with the published universe:
+
+- Build personal grids from cleared/released material
+- Rearrange cards
+- Create personal Event or Compiled sets
+- Compare editions
+- Export or share member creations
+- Maintain personal taste profiles
+- Potentially unlock alternate approved cards or extended editorial sets
+
+Workstation is not “Admin with fewer buttons.” Its value is personal authorship and play.
+
+> **Collection is what I kept. Workstation is what I can make.**
+> 
+
+That is strong premium membership value.
+
+## Admin access
+
+**Admin is an access boundary**, not a destination and not a product identity.
+
+It unlocks the private Operator Console. You can eventually replace the visible “Admin” tab with something subtler like **Operator**, but that naming decision does not need to block the structure.
+
+## Operator Console
+
+The private internal shell for running Fandom Vibes.
+
+Its workspaces should correspond to actual jobs—not every individual data panel.
+
+### 1. Actor Preflight
+
+**Question:** What pairings deserve to become possible releases?
+
+Contains:
+
+- Actor profiles
+- Query ladders
+- Event-family detection
+- Curator proposals
+- Rescue boards
+- Calibration receipts
+- Pairing approval
+- Curator learning diagnostics
+
+Its output is an immutable approved publication candidate.
+
+Actor Preflight should **not own the release inventory**. It hands approved work downstream.
+
+### 2. Release Desk
+
+**Question:** What can ship, what needs work, and what ships next?
+
+This should replace the proposed standalone “Release Inventory” tab and absorb the useful parts of PLAN schedule.
+
+Release Inventory becomes the first view inside Release Desk:
+
+- **Inventory**
+- **Production**
+- **Schedule**
+- **Published**
+- **Held/retired**
+
+The flow becomes:
+
+> Approved in Preflight → enters Release Desk → assets prepared → enhanced → exported → scheduled → published
+> 
+
+That is much more durable than making “inventory” and “schedule” unrelated sibling tabs.
+
+### 3. Field Journal
+
+Editorial observation and research:
+
+- First-watch notes
+- Reaction capture
+- Prediction receipts
+- Trope observations
+- Story seeds
+
+### 4. Court Rulings
+
+Policy and precedent:
+
+- Editorial decisions
+- Rights decisions
+- Naming precedents
+- Product rules
+- Exceptions
+- Reversals
+
+It is governance and institutional memory—not a daily production queue.
+
+# What should be retired
+
+“Retired” should not mean deleted. Different things require different retirement scopes.
+
+## Hold this exact edition
+
+The board remains approved but is temporarily removed from scheduling.
+
+Examples:
+
+- Needs better image files
+- Enhancement incomplete
+- Too close to another actor’s release
+- Seasonal timing
+- Copy unfinished
+
+It remains in Release Desk under **Held**.
+
+## Retire this edition
+
+This exact nine is no longer a publication candidate.
+
+- Preserve its receipt.
+- Preserve its approval history.
+- Record a reason.
+- Optionally link to the replacement edition.
+
+It should not reappear in the active queue.
+
+## Retire this actor × Vibe pairing
+
+The existing editions remain historical, but the pairing is no longer suggested for new Daily Drops.
+
+This does not retire the actor or the Vibe Pack globally.
+
+## Retire a Vibe Pack
+
+A larger editorial decision:
+
+- Remove it from future curation
+- Preserve published editions in the archive
+- Preserve member saves
+- Display a successor name if it was renamed or merged
+
+For example, Shattered Beauty should behave as a renamed predecessor of **Professionally Devastated**, not as if its history never existed.
+
+## Rights withdrawal
+
+This is different from editorial retirement.
+
+If an asset must be removed for rights reasons:
+
+- Remove or replace the public image
+- Remove it from Workstation
+- Preserve the private receipt and reason
+- Show an appropriate public tombstone or revised edition
+- Do not silently rewrite publication history
+
+# What belongs in Release Desk
+
+Each exact publication candidate should have clear stages:
+
+1. **Editorially approved**
+2. **Exact nine frozen**
+3. **Source/provenance reviewed**
+4. **Production assets secured**
+5. **Enhancement scrub complete**
+6. **Final render verified**
+7. **Copy complete**
+8. **Schedule eligible**
+9. **Scheduled**
+10. **Published**
+11. **Held or retired**
+
+That makes the Star of the Day problem visible. A board can be editorially excellent while still being:
+
+- Missing exportable assets
+- Awaiting enhancement
+- Missing copy
+- Too close to another release by the same actor
+- Blocked by rights review
+
+Those are production states—not reasons to send it backward into Actor Preflight.
+
+# Where Dylan’s board belongs
+
+Dylan’s preflight can produce and display complete proposed grids even if the automated hero gate fails.
+
+Once you approve an exact nine with both confirmations:
+
+- That frozen board enters **Release Desk → Inventory**
+- Preflight retains the audit and calibration problem
+- Release Desk owns whether the edition is production-ready
+- Workstation sees nothing until the edition or its assets are published/cleared
+
+The curator’s failure cannot remove the approved edition from Release Desk.
+
+# Premium membership boundary
+
+The cleanest principle is:
+
+> **Operators decide what enters the canon. Members decide what the canon means to them.**
+> 
+
+Premium members can:
+
+- Save
+- Sort
+- Compare
+- Remix
+- Build
+- Express preferences
+- Export personal editions
+- Receive deeper or alternate published material
+
+Premium members should not automatically see:
+
+- Unreleased source pools
+- Rejected images
+- Audit diagnostics
+- Query ladders
+- Rights notes
+- Operator disagreements
+- Unapproved rescue boards
+
+That material is not premium content. It is internal production machinery.
+
+# What I would tell Replit
+
+> Pause the current Release Inventory extraction. Do not make Release Inventory a standalone sibling tab yet, and do not make Actor Preflight the permanent Admin landing page as a substitute for information architecture.
+> 
+> 
+> Use this model:
+> 
+> - Admin = private access boundary
+> - Operator Console = private shell
+> - Actor Preflight = evidence, calibration, board formation, and exact editorial approval
+> - Release Desk = approved inventory, asset production, enhancement, export, scheduling, publishing, holds, and retirement
+> - Field Journal = editorial capture and first-watch material
+> - Court Rulings = policy and precedent
+> - Member Collection = what a member saves
+> - Member Workstation = what a member makes from released/cleared material
+> 
+> Release Inventory should become the first view inside a new **Release Desk**, not remain inside Actor Preflight and not become an isolated tab beside PLAN schedule. Fold PLAN schedule into Release Desk as its Schedule view.
+> 
+> For now, make no destructive moves. Document the proposed routes, ownership boundaries, state transitions, and migration plan before refactoring components.
+> 
+> The migration must preserve:
+> 
+> - Existing immutable audit receipts
+> - Exact approved-board receipts
+> - Human confirmations
+> - Hero positions and arrangements
+> - Release readiness indicators
+> - Same-actor warnings
+> - Existing scheduled items
+> - Historical published editions
+> 
+> Proposed private structure:
+> 
+> ```
+> Admin access
+> └── Operator Console
+>     ├── Release Desk
+>     │   ├── Inventory
+>     │   ├── Production
+>     │   ├── Schedule
+>     │   ├── Published
+>     │   └── Held / retired
+>     ├── Actor Preflight
+>     ├── Field Journal
+>     └── Court Rulings
+> ```
+> 
+> First return an architecture proposal identifying:
+> 
+> 1. Existing components and data owners
+> 2. Which component becomes Release Desk
+> 3. What moves out of Actor Preflight
+> 4. What moves from PLAN schedule
+> 5. What remains unchanged
+> 6. Route and deep-link behavior
+> 7. Retirement states and their persistence rules
+> 8. Boundaries between Operator Console and member Workstation
+> 9. A staged migration that avoids half-moved production state
+> 
+> Do not implement until this proposal is approved.
+> 
+
+**That is the conversation worth having.** A new inventory tab would solve today’s navigation annoyance. A Release Desk gives you the actual publishing system you are building.
