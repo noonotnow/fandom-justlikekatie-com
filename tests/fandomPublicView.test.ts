@@ -64,7 +64,7 @@ test('the private operator console does not mount a duplicate Grid Builder', () 
 test('Release Desk is the Admin workspace for private inventory', () => {
   assert.match(adminSource, /aria-selected=\{view === 'release-desk'\}/);
   assert.match(adminSource, />Release Desk<\/button>/);
-  assert.match(adminSource, />Actor preflight<\/button>/);
+  assert.match(adminSource, />Actor Preflight Lab<\/button>/);
   assert.match(adminSource, /view === 'release-desk' \? <ReleaseDesk \/>/);
   assert.match(releaseDeskSource, /aria-label="Release Desk view"/);
   assert.match(releaseDeskSource, /role="tab" aria-selected="true">Inventory/);

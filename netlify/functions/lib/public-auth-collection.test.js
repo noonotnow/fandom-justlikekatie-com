@@ -182,17 +182,17 @@ test("admin magic-link end-to-end: request with next=plan → link URL carries n
   assert.equal(sessionBody.user.isAdmin, true, "session must have isAdmin:true for an admin email");
 
   // Step 6: consumeMagicLinkFromLocation reads `next` from the fragment and
-  // returns 'plan' when next === 'plan'. Confirm that the value we extracted
-  // in step 2 triggers the plan branch, i.e. the view the client navigates to.
-  const clientDestination = extractedNext === "plan" ? "plan" : "collection";
+  // Legacy next=plan is accepted but resolves to the canonical Admin
+  // destination, which opens the Release Desk.
+  const clientDestination = extractedNext === "plan" ? "admin" : "collection";
   assert.equal(
     clientDestination,
-    "plan",
-    "consumeMagicLinkFromLocation must resolve to 'plan' so setView routes the admin to the plan view",
+    "admin",
+    "consumeMagicLinkFromLocation must resolve legacy next=plan to the Admin view",
   );
 });
 
-test("magic-link URL contains next=plan when next=plan is posted, enabling the plan redirect", async () => {
+test("legacy magic-link requests still contain next=plan for compatibility", async () => {
   const stores = new Map();
   const getStore = name => {
     if (!stores.has(name)) stores.set(name, memoryStore());

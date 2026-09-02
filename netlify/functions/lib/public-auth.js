@@ -81,7 +81,9 @@ export function createPublicAuth({
       const { email, next } = await readJson(req);
       const normalizedEmail = normalizeEmail(email);
       // Only a strict allowlist of destinations is honoured; anything else is ignored.
-      const nextView = next === "plan" || next === "membership" ? next : null;
+      // "plan" is retained only as a legacy input so old links remain usable;
+      // all new Admin links use the canonical "admin" destination.
+      const nextView = next === "admin" || next === "plan" || next === "membership" ? next : null;
       const current = now();
       const { magic, limits } = stores(context);
       const limited = await isRateLimited(limits, req, normalizedEmail, env.FANDOM_AUTH_ID_SECRET, current);

@@ -15,6 +15,7 @@ test('resolves the three Fandom product routes and keeps magic-link verification
   assert.equal(resolveFandomProductRoute('/'), 'launchpad');
   assert.equal(resolveFandomProductRoute('/', '?admin=true'), 'vibe-atlas');
   assert.equal(isAdminEntryLocation('/', '?admin=true'), true);
+  assert.equal(isAdminEntryLocation('/auth/verify', '', '#token=redacted&next=admin'), true);
   assert.equal(isAdminEntryLocation('/auth/verify', '', '#token=redacted&next=plan'), true);
   assert.equal(isAdminEntryLocation('/auth/verify', '', '#token=redacted&next=collection'), false);
   assert.equal(resolveFandomProductRoute('/vibe-atlas'), 'vibe-atlas');
@@ -29,8 +30,9 @@ test('resolves the three Fandom product routes and keeps magic-link verification
 
 test('reads the requested Vibe Atlas section without allowing arbitrary views', () => {
   assert.equal(initialVibeAtlasView('?view=membership'), 'membership');
-  assert.equal(initialVibeAtlasView('?view=plan'), 'plan');
-  assert.equal(initialVibeAtlasView('?admin=true'), 'plan');
+  assert.equal(initialVibeAtlasView('?view=plan'), 'admin');
+  assert.equal(initialVibeAtlasView('?admin=true'), 'admin');
+  assert.equal(initialVibeAtlasView('?view=admin'), 'admin');
   assert.equal(initialVibeAtlasView('?view=collection'), 'collection');
   assert.equal(initialVibeAtlasView('?view=results'), 'collection');
   assert.equal(initialVibeAtlasView('?view=builder'), 'collection');

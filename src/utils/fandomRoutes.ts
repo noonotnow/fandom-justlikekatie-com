@@ -5,7 +5,7 @@ const EDITION_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export function isAdminEntryLocation(pathname: string, search = '', hash = ''): boolean {
   if (new URLSearchParams(search).get('admin') === 'true') return true;
   return pathname === '/auth/verify'
-    && new URLSearchParams(hash.replace(/^#/, '')).get('next') === 'plan';
+    && ['admin', 'plan'].includes(new URLSearchParams(hash.replace(/^#/, '')).get('next') || '');
 }
 
 export function resolveFandomProductRoute(pathname: string, search = ''): FandomProductRoute {
@@ -22,12 +22,12 @@ export function isVibeAtlasArchiveLocation(pathname: string): boolean {
   return normalized === '/vibe-atlas/archive';
 }
 
-export function initialVibeAtlasView(search: string): 'daily' | 'collection' | 'plan' | 'membership' {
+export function initialVibeAtlasView(search: string): 'daily' | 'collection' | 'admin' | 'membership' {
   const params = new URLSearchParams(search);
-  if (params.get('admin') === 'true') return 'plan';
+  if (params.get('admin') === 'true') return 'admin';
   const view = params.get('view');
   if (view === 'collection' || view === 'results' || view === 'builder') return 'collection';
-  return view === 'plan' || view === 'membership' ? view : 'daily';
+  return view === 'plan' || view === 'admin' ? 'admin' : view === 'membership' ? 'membership' : 'daily';
 }
 
 export function isValidVibeAtlasEditionDate(value: string): boolean {

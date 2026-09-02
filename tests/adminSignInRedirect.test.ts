@@ -2,8 +2,8 @@
  * Tests for the post-auth redirect logic in App.tsx / consumeMagicLinkFromLocation.
  *
  * Coverage:
- *   - When consumeMagicLinkFromLocation resolves to 'plan', setView is called
- *     with 'plan' (admin lands on the plan view)
+ *   - When consumeMagicLinkFromLocation resolves to 'admin', setView is called
+ *     with 'admin' (admin lands on the Release Desk workspace)
  *   - When there is no next param (normal collection sign-in),
  *     consumeMagicLinkFromLocation returns 'collection' and setView is called
  *     with 'collection'
@@ -67,22 +67,22 @@ function extractUseEffectBody(src: string, anchor: string): string {
 const magicLinkEffect = extractUseEffectBody(appSource, 'consumeMagicLinkFromLocation');
 
 // ---------------------------------------------------------------------------
-// 1. plan destination — setView is called with the value returned by
-//    consumeMagicLinkFromLocation (which can be 'plan') without any remapping.
+// 1. Admin destination — setView is called with the value returned by
+//    consumeMagicLinkFromLocation without any remapping.
 // ---------------------------------------------------------------------------
 
-test('setView receives destination directly so a plan result lands on the plan view', () => {
+test('setView receives destination directly so an admin result lands on Release Desk', () => {
   // The .then handler must pass `destination` (not a hardcoded string) to setView,
   // so whatever consumeMagicLinkFromLocation returns is what the view becomes.
   assert.ok(
     magicLinkEffect.includes('setView(destination)'),
-    'useEffect .then handler must call setView(destination) so \'plan\' routes to plan',
+    'useEffect .then handler must call setView(destination) so \'admin\' routes to the Operator Console',
   );
 });
 
 test('recheckAdmin is called on success before navigating', () => {
   // recheckAdmin() must appear before setView(destination) so the admin hook
-  // transitions to isAdmin=true before the plan view renders.
+  // transitions to isAdmin=true before the Admin view renders.
   const recheckIdx = magicLinkEffect.indexOf('recheckAdmin()');
   const setViewIdx = magicLinkEffect.indexOf('setView(destination)');
   assert.ok(recheckIdx !== -1, 'useEffect .then handler must call recheckAdmin()');
@@ -101,13 +101,13 @@ test('recheckAdmin is called on success before navigating', () => {
 test('consumeMagicLinkFromLocation returns collection when next param is absent', () => {
   assert.match(
     accountSource,
-    /next === 'plan' \? 'plan' : next === 'membership' \? 'membership' : 'collection'/,
-    "consumeMagicLinkFromLocation must preserve plan and membership while defaulting to collection",
+    /next === 'plan' \|\| next === 'admin'[\s\S]*return next === 'plan' \|\| next === 'admin' \? 'admin' : next === 'membership' \? 'membership' : 'collection'/,
+    "consumeMagicLinkFromLocation must preserve admin and membership while defaulting to collection",
   );
 });
 
 // ---------------------------------------------------------------------------
-// AdminSignIn component — form submit must pass 'plan' as the next argument
+// AdminSignIn component — form submit must pass 'admin' as the next argument
 // ---------------------------------------------------------------------------
 
 /**
@@ -132,12 +132,12 @@ function extractFunctionBody(src: string, name: string): string {
 
 const adminSignInBody = extractFunctionBody(appSource, 'AdminSignIn');
 
-test('AdminSignIn handleSubmit calls requestMagicLink with email and the literal string plan', () => {
-  // The call site must be  requestMagicLink(email, 'plan')  — any other second
+test('AdminSignIn handleSubmit calls requestMagicLink with email and the literal string admin', () => {
+  // The call site must be  requestMagicLink(email, 'admin')  — any other second
   // argument (or no second argument) would send admins to the wrong view.
   assert.ok(
-    adminSignInBody.includes("requestMagicLink(email, 'plan')"),
-    "AdminSignIn must call requestMagicLink(email, 'plan') so the magic-link URL carries next=plan",
+    adminSignInBody.includes("requestMagicLink(email, 'admin')"),
+    "AdminSignIn must call requestMagicLink(email, 'admin') so the magic-link URL carries next=admin",
   );
 });
 

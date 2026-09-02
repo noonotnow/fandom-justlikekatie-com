@@ -105,7 +105,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       )),
   );
   const [archivePage, setArchivePage] = useState(archiveEntry);
-  const [view, setView] = useState<'daily' | 'collection' | 'plan' | 'membership'>(
+  const [view, setView] = useState<'daily' | 'collection' | 'admin' | 'membership'>(
     () => initialVibeAtlasView(window.location.search),
   );
   const [collectionTab, setCollectionTab] = useState<'grids' | 'results' | 'builder'>(
@@ -141,7 +141,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       .then(destination => {
         if (destination) {
           // Recheck the admin session with the freshly-issued cookie so that
-          // useIsAdmin transitions to isAdmin=true before the plan view renders.
+          // useIsAdmin transitions to isAdmin=true before the Admin view renders.
           recheckAdmin();
           setView(destination);
         }
@@ -156,6 +156,16 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   }, []);
 
   useEffect(() => {
+    // Keep old PLAN URLs usable, but do not leave the retired product name in
+    // the browser location after routing them to the Operator Console.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('view') !== 'plan') return;
+    params.delete('view');
+    params.set('admin', 'true');
+    window.history.replaceState({}, '', `/vibe-atlas?${params.toString()}`);
+  }, []);
+
+  useEffect(() => {
     void getMembershipStatus().then(status => setIsMember(status.isMember)).catch(() => setIsMember(false));
   }, [view]);
 
@@ -163,7 +173,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     const privateView = window.location.pathname === '/auth/verify'
       || window.location.search.length > 0
       || view === 'collection'
-      || view === 'plan'
+      || view === 'admin'
       || view === 'membership';
     const title = archivePage
       ? 'Vibe Atlas Archive | Fandom Vibes'
@@ -173,7 +183,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         ? 'Vibe Atlas Founding Member | Fandom Vibes'
         : view === 'collection'
           ? 'Your Vibe Atlas Studio | Fandom Vibes'
-          : 'Private Studio Plan | Fandom Vibes';
+          : 'Operator Console | Fandom Vibes';
     document.title = title;
 
     const robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]')
@@ -720,7 +730,7 @@ function AdminSignIn() {
     setBusy(true);
     setNotice('');
     try {
-      const message = await requestMagicLink(email, 'plan');
+      const message = await requestMagicLink(email, 'admin');
       setNotice(message);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not send the sign-in link.');

@@ -23,7 +23,7 @@ export const FandomAdmin: React.FC<{ initialView?: AdminView }> = ({ initialView
           <button type="button" role="tab" aria-selected={view === 'release-desk'} onClick={() => setView('release-desk')}>Release Desk</button>
           <button type="button" role="tab" aria-selected={view === 'court'} onClick={() => setView('court')}>Court rulings</button>
           <button type="button" role="tab" aria-selected={view === 'watch-journal'} onClick={() => setView('watch-journal')}>Field Journal</button>
-          <button type="button" role="tab" aria-selected={view === 'actor-preflight'} onClick={() => setView('actor-preflight')}>Actor preflight</button>
+          <button type="button" role="tab" aria-selected={view === 'actor-preflight'} onClick={() => setView('actor-preflight')}>Actor Preflight Lab</button>
         </div>
       </header>
       {view === 'release-desk' ? <ReleaseDesk /> : view === 'court' ? <CourtRulingsEditor /> : view === 'watch-journal' ? <WatchJournalCapture /> : <ActorPreflightLab />}
