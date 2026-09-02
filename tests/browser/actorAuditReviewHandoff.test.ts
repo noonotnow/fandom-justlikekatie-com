@@ -360,6 +360,10 @@ async function configureNetwork(page: Page): Promise<{
                   freshCurator: true,
                   rescueBackupBoardCount: 0,
                 }],
+                 recentlyUsed: true,
+                 recentDailyDropCount: 1,
+                 recentDailyDropDates: ['2026-08-30'],
+                 lastDailyDropDate: '2026-08-30',
               }],
             },
           }),
@@ -475,6 +479,8 @@ test('a signed-in operator keeps ordinary rescue records separate from calibrati
     await page.getByRole('heading', { name: 'Release inventory' }).waitFor();
     assert.equal(await page.getByText('1', { exact: true }).first().isVisible(), true);
     assert.equal(await page.getByText(/12:00 PM Asia\/Shanghai/).isVisible(), true);
+    assert.equal(await page.getByText('Actor repeat watch', { exact: true }).isVisible(), true);
+    assert.equal(await page.getByText('Last Daily Drop · Aug 30, 2026', { exact: true }).isVisible(), true);
 
     await page.getByRole('button', { name: 'Run audit', exact: true }).click();
     await page.getByRole('button', { name: 'Choose Compiled', exact: true }).click();

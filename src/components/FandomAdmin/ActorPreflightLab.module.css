@@ -69,6 +69,11 @@
 .inventoryPack header span,.inventoryPack > small { color:#8d928f; font-size:9px; }
 .inventoryPack header b { color:#9fc2b5; font-size:11px; }
 .inventoryPack > p { margin:0; color:#aeb4b0; font-size:9px; line-height:1.45; }
+.actorRepeatWarning,.actorLastDrop { display:grid; gap:3px; margin-top:2px; padding:7px 8px; border-left:2px solid #b49ad8; background:color-mix(in srgb,#8d70b8 12%,transparent); }
+.actorRepeatWarning strong { color:#d0b9ef; font-size:9px; letter-spacing:.05em; text-transform:uppercase; }
+.actorRepeatWarning span,.actorLastDrop span { color:#c0b5d0; font-size:9px; }
+.actorLastDrop { border-left-color:var(--admin-border); background:color-mix(in srgb,Canvas 94%,currentColor 6%); }
+.actorLastDrop strong { color:#aeb4b0; font-size:9px; letter-spacing:.05em; text-transform:uppercase; }
 .inventoryPack ul { display:grid; gap:5px; margin:2px 0 0; padding:0; list-style:none; }
 .inventoryPack li { display:grid; gap:4px; padding-top:6px; border-top:1px solid var(--admin-border); }
 .inventoryPack li > span { color:#d6d9d6; font-size:10px; }

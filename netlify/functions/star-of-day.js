@@ -432,6 +432,18 @@ export async function readRecentDailyDropHistory(
       String(right.publicationDate || "").localeCompare(String(left.publicationDate || "")));
 }
 
+export async function readDailyDropHistory(store, throughDate) {
+  const listing = await store.list({ prefix: GRID_MANIFEST_PREFIX });
+  const manifests = await Promise.all((listing?.blobs || [])
+    .filter(blob => typeof blob?.key === "string"
+      && blob.key.slice(GRID_MANIFEST_PREFIX.length) <= throughDate)
+    .map(blob => store.get(blob.key, { type: "json", consistency: "strong" })));
+  return manifests
+    .filter(manifest => manifest?.publicationDate && manifest.publicationDate <= throughDate)
+    .sort((left, right) =>
+      String(right.publicationDate || "").localeCompare(String(left.publicationDate || "")));
+}
+
 async function readPublicationManifests(store, beforeDate) {
   const listing = await store.list({ prefix: GRID_MANIFEST_PREFIX });
   return Promise.all((listing?.blobs || [])

@@ -44,6 +44,17 @@ const pairActor = {
     queries: ["刘学义 query one", "刘学义 query two", "刘学义 query three", "刘学义 query four"],
   }],
 };
+const pairActorWithAlternateVibe = {
+  ...pairActor,
+  vibes: [
+    ...pairActor.vibes,
+    {
+      label: "另一种氛围",
+      label_en: "Alternate Vibe",
+      queries: ["alternate query one", "alternate query two", "alternate query three", "alternate query four"],
+    },
+  ],
+};
 
 function memoryStore() {
   const records = new Map();
@@ -319,6 +330,7 @@ function harness({
   hiddenSourceTransfer = false,
   materializePublication = null,
   publicationStore = null,
+  actorPacks = [pairActor],
 } = {}) {
   const store = memoryStore();
   let runNumber = 0;
@@ -348,9 +360,9 @@ function harness({
     auth,
     getStore: () => store,
     getPublicationStore: () => publicationStore || store,
-    actorPacks: [pairActor],
+    actorPacks,
     searchOneQuery: async query => {
-      const pass = Math.floor(searchCall++ / pairActor.vibes[0].queries.length);
+      const pass = Math.floor(searchCall++ / actorPacks[0].vibes[0].queries.length);
       const results = searchResults(query).map(result => freshEvidenceOnRerun && pass > 0 ? {
         ...result,
         link: `${result.link}?fresh=${pass}`,
@@ -510,6 +522,73 @@ test("release inventory privately marks a release-ready pairing used in a recent
   assert.equal(inventory.pairings[0].recentlyUsed, true);
   assert.equal(inventory.pairings[0].lastDailyDropDate, "2026-08-30");
   assert.equal(inventory.actorPacks[0].unusedWithinRecentWindowPairingCount, 0);
+});
+
+test("release inventory flags an actor repeat when a different Vibe pairing was published", async () => {
+  const publicationStore = memoryStore();
+  await publicationStore.setJSON(gridManifestKey("2026-08-30"), {
+    publicationDate: "2026-08-30",
+    actor: { id: pairActor.id },
+    vibe: { idx: 1 },
+    cards: Array.from({ length: 9 }, (_, index) => ({ candidateId: `alternate-card-${index}` })),
+  });
+  const { handler } = harness({
+    publicationStore,
+    actorPacks: [pairActorWithAlternateVibe],
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  await handler(request("POST", {
+    action: "verdict", actorId: pairActor.id, vibeKey, runId: "run-1", verdict: "approved",
+  }), {});
+
+  const response = await handler(request(), {});
+  const inventory = (await response.json()).releaseInventory;
+  const actorPack = inventory.actorPacks[0];
+  const pairing = inventory.pairings.find(item => item.vibeIdx === 0);
+
+  assert.equal(inventory.recentlyUsedActorCount, 1);
+  assert.equal(actorPack.recentlyUsed, true);
+  assert.equal(actorPack.lastDailyDropDate, "2026-08-30");
+  assert.deepEqual(actorPack.recentDailyDropDates, ["2026-08-30"]);
+  assert.equal(pairing.recentlyUsed, false);
+  assert.equal(pairing.lastDailyDropDate, null);
+});
+
+test("release inventory keeps an actor's latest recorded Drop date beyond the warning window", async () => {
+  const publicationStore = memoryStore();
+  await publicationStore.setJSON(gridManifestKey("2026-07-01"), {
+    publicationDate: "2026-07-01",
+    actor: { id: pairActor.id },
+    vibe: { idx: 1 },
+    cards: Array.from({ length: 9 }, (_, index) => ({ candidateId: `historical-card-${index}` })),
+  });
+  const { handler } = harness({
+    publicationStore,
+    actorPacks: [pairActorWithAlternateVibe],
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  await handler(request("POST", {
+    action: "verdict", actorId: pairActor.id, vibeKey, runId: "run-1", verdict: "approved",
+  }), {});
+
+  const response = await handler(request(), {});
+  const actorPack = (await response.json()).releaseInventory.actorPacks[0];
+
+  assert.equal(actorPack.recentlyUsed, false);
+  assert.equal(actorPack.lastDailyDropDate, "2026-07-01");
+  assert.deepEqual(actorPack.recentDailyDropDates, []);
 });
 
 test("run, verdict, rerun, and retained-run inspection keep eligibility current", async () => {

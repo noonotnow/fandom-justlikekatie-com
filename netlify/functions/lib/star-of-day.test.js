@@ -5,6 +5,7 @@ import starOfDay, {
   buildPayloadForDate,
   cachedPairIsEligible,
   hasReleaseReadyCohort,
+  readDailyDropHistory,
   readRecentDailyDropHistory,
   RELEASE_COHORT_ACTOR_ID,
   releaseLock,
@@ -480,6 +481,31 @@ test("recent Daily Drop history uses the inclusive 30-day calendar window", asyn
     ["2026-08-31", "2026-08-02"],
   );
   assert.equal(store.stats().listCalls, 0);
+});
+
+test("Daily Drop history returns the latest recorded manifest beyond the recent window", async () => {
+  const store = makeStore({
+    [gridManifestKey("2026-08-31")]: {
+      publicationDate: "2026-08-31",
+      actor: { id: "actor-a" },
+    },
+    [gridManifestKey("2026-06-01")]: {
+      publicationDate: "2026-06-01",
+      actor: { id: "actor-b" },
+    },
+    [gridManifestKey("2026-09-01")]: {
+      publicationDate: "2026-09-01",
+      actor: { id: "actor-c" },
+    },
+  });
+
+  const history = await readDailyDropHistory(store, "2026-08-31");
+
+  assert.deepEqual(
+    history.map(manifest => manifest.publicationDate),
+    ["2026-08-31", "2026-06-01"],
+  );
+  assert.equal(store.stats().listCalls, 1);
 });
 
 test("historical reads reject missing and future dates without touching cache locks", async () => {

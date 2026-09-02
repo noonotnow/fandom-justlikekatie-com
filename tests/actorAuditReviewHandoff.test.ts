@@ -102,6 +102,9 @@ test('the private preflight shows grouped release depth and the Shanghai noon cu
   assert.match(source, /release-ready actor × Vibe pairings/);
   assert.match(source, /fresh-curator pairings/);
   assert.match(source, /explicit publishable rescue boards/);
+  assert.match(source, /Actor repeat watch/);
+  assert.match(source, /Pair repeat ·/);
+  assert.match(source, /Last actor Daily Drop/);
   assert.match(source, /12:00 PM Asia\/Shanghai/);
   assert.match(source, /inventory\.actorPacks/);
 });
