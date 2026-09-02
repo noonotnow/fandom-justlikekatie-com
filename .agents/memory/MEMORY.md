@@ -35,3 +35,4 @@
 - [Image safety before promise scoring](image-safety-ordering.md) — reject composites and unusable images before editorial promise evaluation so diagnostics identify the real failing gate.
 - [Rescue preference boundary](rescue-preference-boundary.md) — a saved rescue can be preferred as point-in-time editorial metadata without changing curator approval or Daily Drop eligibility.
 - [Adobe Firefly entitlement](adobe-firefly-entitlement.md) — connector discovery does not guarantee Firefly Services API access; check the Adobe project/license entitlement first.
+- [Netlify Blob canonical reads](netlify-blob-canonical-reads.md) — fetch known immutable run and verdict keys directly; prefix listings can lag behind successful writes.
