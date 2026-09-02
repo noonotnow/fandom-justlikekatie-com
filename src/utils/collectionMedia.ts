@@ -6,6 +6,7 @@ import {
   dbReplaceCardImage,
   dbReplaceGridImage,
   dbSaveCardMediaRecovery,
+  dbSaveGrid,
   dbSaveGridMediaRecovery,
 } from './collectionDB';
 import type {
@@ -32,6 +33,19 @@ export interface CollectionMediaRecoveryResult<T> {
   record: T;
   recovery: CollectionMediaRecovery;
   reusedExistingMedia: boolean;
+}
+
+export interface CollectionGridMediaFailure {
+  gridPosition: number;
+  resultId: string;
+  title: string;
+  message: string;
+}
+
+export interface CollectionGridMediaPersistenceResult {
+  record: GridRecord;
+  copiedCount: number;
+  failures: CollectionGridMediaFailure[];
 }
 
 export function classifyCollectionMedia(
@@ -114,6 +128,85 @@ export async function recoverCollectionGrid(
     await dbSaveGridMediaRecovery(grid.id, recovery);
     return { record: { ...grid, localId, mediaRecovery: recovery }, recovery, reusedExistingMedia: false };
   }
+}
+
+/**
+ * Copy every image in a saved grid into MEDIA without changing its source
+ * relationship. Each result is saved as it completes so a failed copy never
+ * removes the locally saved grid or the copies that did succeed.
+ */
+export async function persistGridImagesToMedia(
+  grid: GridRecord,
+  collectionId: CollectionScope = 'vibe-atlas',
+): Promise<CollectionGridMediaPersistenceResult> {
+  const localId = grid.localId || await dbEnsureGridLocalId(grid.id);
+  if (!localId) throw new Error('Saved grid is no longer available for MEDIA persistence.');
+
+  let record: GridRecord = { ...grid, localId };
+  const failures: CollectionGridMediaFailure[] = [];
+  let copiedCount = 0;
+
+  for (const image of record.images) {
+    if (image.media && isVerifiedMediaReference(image.media)) {
+      const media = reassignMediaToCollection(
+        image.media,
+        collectionId,
+        mediaItemId(localId, image.gridPosition),
+      );
+      if (
+        image.imageUrl !== media.deliveryUrl
+        || image.media.association.id !== media.association.id
+        || image.media.association.itemId !== media.association.itemId
+      ) {
+        record = {
+          ...record,
+          images: record.images.map(candidate => candidate === image
+            ? { ...candidate, imageUrl: media.deliveryUrl, media }
+            : candidate),
+        };
+        await dbSaveGrid(record);
+      }
+      continue;
+    }
+
+    const originalImageUrl = image.imageUrl;
+    let persistedImage = image;
+    try {
+      const media = await registerCollectionImage(
+        originalImageUrl,
+        collectionId,
+        mediaItemId(localId, image.gridPosition),
+      );
+      persistedImage = {
+        ...image,
+        imageUrl: media.deliveryUrl,
+        media,
+        mediaRecovery: recoveredState('url-only', media, originalImageUrl),
+      };
+      copiedCount += 1;
+    } catch (error) {
+      const recovery = unrecoverableState('url-only', error, originalImageUrl);
+      persistedImage = { ...image, mediaRecovery: recovery };
+      failures.push({
+        gridPosition: image.gridPosition,
+        resultId: image.resultId,
+        title: image.title,
+        message: recovery.message || 'The original image could not be recovered.',
+      });
+    }
+
+    record = {
+      ...record,
+      images: record.images.map(candidate => candidate === image ? persistedImage : candidate),
+    };
+    await dbSaveGrid(record);
+  }
+
+  return { record, copiedCount, failures };
+}
+
+function mediaItemId(localId: string, gridPosition: number): string {
+  return `${localId}-${gridPosition}`;
 }
 
 export async function uploadCollectionImage(

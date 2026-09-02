@@ -90,6 +90,7 @@ export interface GridMediaSnapshot {
   familyEvidence?: 'persisted-event' | 'batch' | 'publisher' | 'fallback';
   gridPosition: number;
   media?: MediaReference;
+  mediaRecovery?: CollectionMediaRecovery;
   legendaryMisprint?: LegendaryMisprint;
 }
 

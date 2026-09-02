@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyCollectionMedia } from '../src/utils/collectionMedia.ts';
+import { IDBFactory } from 'fake-indexeddb';
+import {
+  classifyCollectionMedia,
+  persistGridImagesToMedia,
+} from '../src/utils/collectionMedia.ts';
+import { dbGetAllGrids, dbSaveGrid } from '../src/utils/collectionDB.ts';
 import {
   isVerifiedMediaReference,
   reassignMediaToCollection,
@@ -73,6 +78,7 @@ test('classifies saved records without treating a plain URL as verified MEDIA', 
   assert.equal(classifyCollectionMedia(grid()), 'url-only');
 });
 
+
 test('accepts only complete stable MEDIA provenance and re-associates the same asset safely', () => {
   assert.equal(isVerifiedMediaReference(media), true);
   assert.equal(isVerifiedMediaReference({ ...media, checksum: 'not-a-checksum' }), false);
@@ -81,4 +87,73 @@ test('accepts only complete stable MEDIA provenance and re-associates the same a
     id: 'middle-earth',
     itemId: 'local-1',
   });
+});
+
+test('copies each grid image independently and retains remote provenance on partial failure', async () => {
+  const originalFetch = globalThis.fetch;
+  Object.assign(globalThis, { indexedDB: new IDBFactory() });
+  const imageBytes = Uint8Array.from([1, 2, 3, 4]);
+  const imageChecksum = 'b'.repeat(64);
+  let uploadCount = 0;
+  globalThis.fetch = async input => {
+    const url = String(input);
+    if (url.startsWith('data:image/png;base64,')) {
+      return new Response(imageBytes, { status: 200, headers: { 'content-type': 'image/png' } });
+    }
+    if (url.startsWith('/.netlify/functions/image-proxy?url=')) {
+      const position = decodeURIComponent(url).includes('gone') ? 1 : 0;
+      if (position === 1) throw new Error('The publisher image is gone.');
+      return new Response(imageBytes, { status: 200, headers: { 'content-type': 'image/png' } });
+    }
+    if (url.startsWith('/api/collection/media?')) {
+      uploadCount += 1;
+      return new Response(JSON.stringify({
+        media: {
+          ...media,
+          assetId: `aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeee${uploadCount}`,
+          deliveryUrl: `https://media.justlikekatie.com/images/sha256/${imageChecksum}-${uploadCount}.png`,
+          thumbnailUrl: `https://media.justlikekatie.com/images/sha256/${imageChecksum}-${uploadCount}-thumb.png`,
+          mimeType: 'image/png',
+          sizeBytes: imageBytes.byteLength,
+          checksum: imageChecksum,
+          association: { type: 'collection', id: 'vibe-atlas', itemId: `grid-local-${uploadCount - 1}` },
+        },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+
+  const savedGrid = grid({
+    id: 'partial-media-grid',
+    localId: 'grid-local',
+    images: [0, 1, 2].map(gridPosition => ({
+      resultId: `candidate-${gridPosition}`,
+      imageUrl: `/.netlify/functions/image-proxy?url=${encodeURIComponent(`https://images.example/${gridPosition === 1 ? 'gone' : 'kept'}.jpg`)}`,
+      sourceUrl: `https://publisher.example/story-${gridPosition}`,
+      title: `Candidate ${gridPosition}`,
+      batchKey: `query-${gridPosition}`,
+      gridPosition,
+    })),
+  });
+
+  try {
+    await dbSaveGrid(savedGrid);
+    const result = await persistGridImagesToMedia(savedGrid);
+    assert.equal(result.copiedCount, 2);
+    assert.deepEqual(result.failures.map(failure => failure.gridPosition), [1]);
+    assert.equal(uploadCount, 2);
+
+    const persisted = (await dbGetAllGrids()).find(item => item.id === savedGrid.id);
+    assert.ok(persisted);
+    assert.match(persisted!.images[0].imageUrl, /^https:\/\/media\.justlikekatie\.com\//);
+    assert.equal(persisted!.images[0].sourceUrl, savedGrid.images[0].sourceUrl);
+    assert.equal(persisted!.images[0].resultId, savedGrid.images[0].resultId);
+    assert.equal(persisted!.images[0].batchKey, savedGrid.images[0].batchKey);
+    assert.equal(persisted!.images[0].gridPosition, savedGrid.images[0].gridPosition);
+    assert.equal(persisted!.images[1].imageUrl, savedGrid.images[1].imageUrl);
+    assert.equal(persisted!.images[1].mediaRecovery?.status, 'unrecoverable');
+    assert.equal(persisted!.images[1].sourceUrl, savedGrid.images[1].sourceUrl);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

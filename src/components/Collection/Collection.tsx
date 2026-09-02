@@ -714,6 +714,19 @@ export const Collection: React.FC<Props> = ({
                       </button>
                     </div>
                   )}
+                   {(() => {
+                     const remoteImages = grid.images.filter(image => image.mediaRecovery?.status === 'unrecoverable');
+                     if (!remoteImages.length) return null;
+                     return (
+                       <div className={styles.mediaRecovery} role="status">
+                         <strong>Image status: MEDIA copy incomplete</strong>
+                         <span>
+                           {remoteImages.length} image{remoteImages.length === 1 ? '' : 's'} still depend{remoteImages.length === 1 ? 's' : ''} on remote sources:
+                           {' '}{remoteImages.map(image => image.title || `position ${image.gridPosition + 1}`).join(', ')}.
+                         </span>
+                       </div>
+                     );
+                   })()}
                 </div>
                 <div className={styles.gridActions}>
                   <button
@@ -1028,7 +1041,7 @@ function GridVisual({
       aria-hidden="true"
     >
        {grid.images.slice(0, 12).map(image => (
-         <img key={image.resultId} src={image.imageUrl} alt="" onError={onImageError} />
+          <img key={image.resultId} src={image.media?.deliveryUrl || image.imageUrl} alt="" onError={onImageError} />
       ))}
     </span>
   );

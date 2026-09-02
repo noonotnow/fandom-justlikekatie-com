@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { dbSaveGrid, type GridRecord } from '../../utils/collectionDB';
+import { persistGridImagesToMedia } from '../../utils/collectionMedia';
 import { getPublicSession, syncPublicGrid } from '../../utils/publicAccount';
 import styles from './ActorPreflightLab.module.css';
 
@@ -158,16 +159,25 @@ export const ActorPreflightLab: React.FC = () => {
       const result=await api({action:'export_rescue_board',actorId,vibeKey,runId:currentRun.runId,receiptId});
       const grid=collectionGridFromRescueExport(result.rescueExport);
       await dbSaveGrid(grid);
+       const mediaResult=await persistGridImagesToMedia(grid);
       const session=await getPublicSession();
       if(session) {
         try {
-          await syncPublicGrid(session,grid.id);
+           await syncPublicGrid(session,grid.id);
         } catch(error:any) {
-          setNotice(`Rescue grid saved to this device, but account sync failed: ${error?.message || 'try again from Collection.'}`);
+           const mediaNotice=mediaResult.failures.length
+             ? ` ${mediaResult.failures.length} image${mediaResult.failures.length===1?'':'s'} still depend${mediaResult.failures.length===1?'s':''} on remote sources: ${mediaResult.failures.map(item=>item.title||`position ${item.gridPosition+1}`).join(', ')}.`
+             : '';
+           setNotice(`Rescue grid saved to this device, but account sync failed: ${error?.message || 'try again from Collection.'}${mediaNotice}`);
           return;
         }
       }
-      setNotice(session?'Rescue arrangement exported and synced to Collection.':'Rescue arrangement exported to this device’s Collection.');
+       const mediaNotice=mediaResult.failures.length
+         ? ` Exported locally, but ${mediaResult.failures.length} image${mediaResult.failures.length===1?'':'s'} still depend${mediaResult.failures.length===1?'s':''} on remote sources: ${mediaResult.failures.map(item=>item.title||`position ${item.gridPosition+1}`).join(', ')}.`
+         : ' All nine images are backed by durable MEDIA delivery URLs.';
+       setNotice(session
+         ? `Rescue arrangement exported and synced to Collection.${mediaNotice}`
+         : `Rescue arrangement exported to this device’s Collection.${mediaNotice}`);
     } catch(e:any){setNotice(e.message)} finally{setBusy('')}
   }
   const selectedIsCurrent = Boolean(run?.runId && currentRun?.runId === run.runId);
