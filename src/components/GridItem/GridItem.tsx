@@ -10,10 +10,19 @@ interface GridItemProps {
   publisher?: string;
   url: string;
   onImageClick?: () => void;
+  onSaveChange?: (saved: boolean) => void;
   tier?: ImageTier;
 }
 
-export const GridItem: React.FC<GridItemProps> = ({ id, title, thumbnail, publisher, onImageClick, tier }) => {
+export const GridItem: React.FC<GridItemProps> = ({
+  id,
+  title,
+  thumbnail,
+  publisher,
+  onImageClick,
+  onSaveChange,
+  tier,
+}) => {
   const handleClick = () => {
     onImageClick?.();
   };
@@ -40,7 +49,7 @@ export const GridItem: React.FC<GridItemProps> = ({ id, title, thumbnail, publis
           {tier === 'legendary' ? '🔥 传说' : '🫠 错版'}
         </span>
       )}
-      <SaveButton itemId={id} />
+      <SaveButton itemId={id} onSaveChange={onSaveChange} />
       <h3 className={styles.title}>{title}</h3>
       {publisher && <p className={styles.publisher}>{publisher}</p>}
     </div>

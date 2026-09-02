@@ -67,21 +67,37 @@ export function Membership({ onStatusChange }: Props) {
   return (
     <main className="membership">
       <header className="membership__hero">
-        <p className="membership__eyebrow">Vibe Atlas Membership</p>
-        <h1>Keep every card<br /><em>worth saving.</em></h1>
-        <p>Daily discovery stays free. Founding Members can sync collections across devices, build grids from saved cards, and export premium share cards.</p>
+        <h1>Keep what moves you.<br /><em>Make it unmistakably yours.</em></h1>
+        <p>Browse and save freely. A free account keeps your Collection with you. Membership unlocks the tools that turn those finds into finished worlds and helps shape what the Atlas explores next.</p>
       </header>
       {(returnNotice || notice) && <p className="membership__notice" role="status">{returnNotice || notice}</p>}
+      <section className="membership__journey" aria-label="How Vibe Atlas grows with you">
+        <article>
+          <span>Remember</span>
+          <h2>Your Collection follows you.</h2>
+          <p>Sign in free to preserve saved cards and grids across devices.</p>
+        </article>
+        <article>
+          <span>Create</span>
+          <h2>Turn saved finds into a world.</h2>
+          <p>Members can compose Grid Builder boards and export finished share cards.</p>
+        </article>
+        <article>
+          <span>Shape</span>
+          <h2>Teach the curator what belongs.</h2>
+          <p>Member corrections and priority requests will guide future curation without rewriting published editions.</p>
+        </article>
+      </section>
       <section className="membership__plans" aria-label="Membership options">
         <article>
-          <p className="membership__label">Free</p>
-          <h2>Always yours to explore</h2>
-          <ul><li>Daily browsing and sharing</li><li>Basic saves on this device</li><li>Every daily edition</li></ul>
+          <p className="membership__label">Free account</p>
+          <h2>Remember every find</h2>
+          <ul><li>Daily browsing and sharing</li><li>Local saves without an account</li><li>Full Collection sync after sign-in</li></ul>
         </article>
         <article className="membership__featured">
           <p className="membership__label">Founding Member</p>
           <h2>$9 <small>/ month</small></h2>
-          <ul><li>Cloud Collection sync across devices</li><li>Grid Builder for your saved worlds</li><li>Premium share-card exports</li></ul>
+          <ul><li>Turn saved cards into Grid Builder worlds</li><li>Export finished boards designed to be shared</li><li>Teach your curator and influence what comes next</li></ul>
           {!user ? (
             <form onSubmit={sendLink} className="membership__sign-in">
               <label htmlFor="membership-email">Sign in to join</label>

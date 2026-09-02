@@ -6,14 +6,16 @@ import styles from './SaveButton.module.css';
 interface SaveButtonProps {
   itemId: string;
   onClick?: (e: React.MouseEvent) => void;
+  onSaveChange?: (saved: boolean) => void;
 }
 
-export const SaveButton: React.FC<SaveButtonProps> = ({ itemId, onClick }) => {
+export const SaveButton: React.FC<SaveButtonProps> = ({ itemId, onClick, onSaveChange }) => {
   const { isSaved, isLoading, toggleSave, showToast, toastMessage, hideToast } = useSaveItem(itemId);
 
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    toggleSave();
+    const saved = await toggleSave();
+    if (saved !== undefined) onSaveChange?.(saved);
     onClick?.(e);
   };
 

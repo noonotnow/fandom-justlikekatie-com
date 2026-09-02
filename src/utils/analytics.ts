@@ -1,6 +1,23 @@
 import type { CreatorPlatform } from './creatorDraft';
 
 type AnalyticsData = Record<string, string | number | boolean>;
+type DailyDropEngagementReason = 'three_cards' | 'twenty_seconds';
+type DailyDropShareMethod = 'edition_link' | 'image';
+
+interface DailyDropServerEvent {
+  event:
+    | 'daily_drop_view'
+    | 'daily_drop_engaged'
+    | 'daily_drop_card_save'
+    | 'daily_drop_share'
+    | 'daily_drop_collection_open';
+  batchKey: string;
+  editionDate: string;
+  position?: number;
+  saved?: boolean;
+  engagementReason?: DailyDropEngagementReason;
+  shareMethod?: DailyDropShareMethod;
+}
 
 export type CreatorHandoffEntryPoint = 'daily' | 'saved_grid' | 'builder';
 export type VeteranSubmissionRelation = 'entry' | 'prediction';
@@ -52,6 +69,30 @@ export function trackEvent(name: string, data?: AnalyticsData): void {
   }
 }
 
+function recordDailyDropEvent(event: DailyDropServerEvent): void {
+  try {
+    void window.fetch('/.netlify/functions/log-engagement', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(event),
+      keepalive: true,
+    }).catch(() => undefined);
+  } catch {
+    // Analytics must never interrupt the visitor's action.
+  }
+}
+
+function dailyDropEvent(
+  editionDate: string,
+  event: DailyDropServerEvent['event'],
+): Pick<DailyDropServerEvent, 'event' | 'batchKey' | 'editionDate'> {
+  return {
+    event,
+    batchKey: `vibe-atlas:${editionDate}`,
+    editionDate,
+  };
+}
+
 export function trackDailyArchiveOpened(): void {
   trackEvent('daily_archive_opened');
 }
@@ -64,6 +105,76 @@ export function trackDailyArchiveEditionSelected(
     edition_date: editionDate,
     is_latest: isLatest,
   });
+}
+
+export function trackDailyDropViewed(editionDate: string, isArchive: boolean): void {
+  trackEvent('daily_drop_viewed', {
+    edition_date: editionDate,
+    is_archive: isArchive,
+  });
+  recordDailyDropEvent(dailyDropEvent(editionDate, 'daily_drop_view'));
+}
+
+export function trackDailyDropEngaged(
+  editionDate: string,
+  reason: DailyDropEngagementReason,
+): void {
+  trackEvent('daily_drop_engaged', {
+    edition_date: editionDate,
+    engagement_reason: reason,
+  });
+  recordDailyDropEvent({
+    ...dailyDropEvent(editionDate, 'daily_drop_engaged'),
+    engagementReason: reason,
+  });
+}
+
+export function trackDailyDropCardSave(
+  editionDate: string,
+  position: number,
+  saved: boolean,
+): void {
+  trackEvent('daily_drop_card_save_changed', {
+    edition_date: editionDate,
+    position,
+    saved,
+  });
+  recordDailyDropEvent({
+    ...dailyDropEvent(editionDate, 'daily_drop_card_save'),
+    position,
+    saved,
+  });
+}
+
+export function trackDailyDropShared(
+  editionDate: string,
+  method: DailyDropShareMethod,
+): void {
+  trackEvent('daily_drop_shared', {
+    edition_date: editionDate,
+    share_method: method,
+  });
+  recordDailyDropEvent({
+    ...dailyDropEvent(editionDate, 'daily_drop_share'),
+    shareMethod: method,
+  });
+}
+
+export function trackCollectionOpened(lastSavedEdition?: string): void {
+  trackEvent('collection_opened', lastSavedEdition
+    ? { last_saved_edition: lastSavedEdition }
+    : undefined);
+  if (!lastSavedEdition) return;
+
+  recordDailyDropEvent(dailyDropEvent(lastSavedEdition, 'daily_drop_collection_open'));
+}
+
+export function trackGridBuilderPreviewOpened(isMember: boolean): void {
+  trackEvent('grid_builder_preview_opened', { is_member: isMember });
+}
+
+export function trackUpgradeStarted(boundary: 'grid_builder' | 'premium_export'): void {
+  trackEvent('upgrade_started', { boundary });
 }
 
 export function trackCreatorHandoffAttempt(

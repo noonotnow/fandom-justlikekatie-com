@@ -61,6 +61,7 @@ interface Props {
   isAdmin?: boolean;
   isMember?: boolean;
   onUpgrade?: () => void;
+  onTypeChange?: (type: 'grids' | 'results' | 'builder') => void;
   onCreateFromGrid?: (grid: GridRecord, platforms: CreatorPlatform[]) => Promise<CreatorDraftResult>;
 }
 
@@ -76,11 +77,10 @@ export const Collection: React.FC<Props> = ({
   isAdmin = false,
   isMember = false,
   onUpgrade,
+  onTypeChange,
   onCreateFromGrid,
 }) => {
   const isMiddleEarth = scope === 'middle-earth';
-  // Membership is a Vibe Atlas offer; the separate MemeForge collection is not paywalled.
-  const hasPaidAccess = isMiddleEarth || isMember;
   const [cards, setCards] = useState<CardRecord[]>([]);
   const [grids, setGrids] = useState<GridRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -129,7 +129,7 @@ export const Collection: React.FC<Props> = ({
         if (session) {
           const decided = await hasMergeDecision(session.accountId);
           setNeedsMergeChoice(!decided);
-          shouldSync = hasPaidAccess && decided && await shouldSyncCollection(session.accountId);
+          shouldSync = decided && await shouldSyncCollection(session.accountId);
         } else {
           setNeedsMergeChoice(false);
         }
@@ -188,7 +188,7 @@ export const Collection: React.FC<Props> = ({
       channel?.close();
       window.removeEventListener('storage', handleStorage);
     };
-  }, [hasPaidAccess]);
+  }, [scope]);
 
   async function recoverPendingRemoval() {
     const stored = readPendingRemoval();
@@ -269,7 +269,7 @@ export const Collection: React.FC<Props> = ({
   }
 
   async function handleMerge(merge: boolean) {
-    if (!user || !hasPaidAccess) return;
+    if (!user) return;
     try {
       await setDeviceMerge(user.accountId, merge);
       setNeedsMergeChoice(false);
@@ -542,15 +542,10 @@ export const Collection: React.FC<Props> = ({
       </header>
 
       <section className={styles.account}>
-        {user && hasPaidAccess ? (
+        {user ? (
           <div className={styles.signedIn}>
             <p>{isMiddleEarth ? 'Middle-earth memes synced as' : 'Synced as'} <strong>{user.email}</strong></p>
             <button type="button" onClick={() => void handleLogout()}>Sign out</button>
-          </div>
-        ) : user ? (
-          <div className={styles.syncUpgrade}>
-            <p><strong>Local saves are safe on this device.</strong> Cloud sync is available with Founding Member.</p>
-            <button type="button" onClick={onUpgrade}>View membership</button>
           </div>
         ) : (
           <form onSubmit={handleMagicLink}>
@@ -570,7 +565,7 @@ export const Collection: React.FC<Props> = ({
             </div>
           </form>
         )}
-        {needsMergeChoice && hasPaidAccess && (
+        {needsMergeChoice && (
           <div className={styles.mergeChoice}>
             <p>Merge this browser’s grids and saved results into your account?</p>
             <button onClick={() => void handleMerge(true)}>Merge and sync</button>
@@ -599,13 +594,22 @@ export const Collection: React.FC<Props> = ({
         </div>
       ) : (
         <nav className={styles.typeTabs} aria-label="Collection artifact type">
-          <button type="button" aria-current={activeType === 'grids'} onClick={() => setActiveType('grids')}>
+          <button type="button" aria-current={activeType === 'grids'} onClick={() => {
+            setActiveType('grids');
+            onTypeChange?.('grids');
+          }}>
             Grids <span>{grids.length}</span>
           </button>
-          <button type="button" aria-current={activeType === 'results'} onClick={() => setActiveType('results')}>
+          <button type="button" aria-current={activeType === 'results'} onClick={() => {
+            setActiveType('results');
+            onTypeChange?.('results');
+          }}>
             Saved results <span>{cards.length}</span>
           </button>
-          <button type="button" aria-current={activeType === 'builder'} onClick={() => setActiveType('builder')}>
+          <button type="button" aria-current={activeType === 'builder'} onClick={() => {
+            setActiveType('builder');
+            onTypeChange?.('builder');
+          }}>
             Grid Builder
           </button>
         </nav>

@@ -15,7 +15,7 @@ export const useSaveItem = (itemId: string) => {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, [itemId]);
 
-  const toggleSave = useCallback(async () => {
+  const toggleSave = useCallback(async (): Promise<boolean | undefined> => {
     const newSavedState = !isSaved;
     setIsSaved(newSavedState);
     setIsLoading(true);
@@ -36,11 +36,13 @@ export const useSaveItem = (itemId: string) => {
       if ('vibrate' in navigator) {
         navigator.vibrate(50);
       }
+      return newSavedState;
     } catch (error) {
       setIsSaved(!newSavedState);
       setToastMessage('Failed to save. Try again.');
       setShowToast(true);
       console.error('Save failed:', error);
+      return undefined;
     } finally {
       setIsLoading(false);
     }

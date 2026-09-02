@@ -24,17 +24,34 @@ const VALID_EVENTS = [
   "checkout_started", "membership_activated", "paid_feature_used",
   "fandom_game_start", "fandom_game_reveal", "fandom_game_share",
   "fandom_share_open",
+  "daily_drop_view", "daily_drop_engaged", "daily_drop_card_save",
+  "daily_drop_share", "daily_drop_collection_open",
 ];
 const PUBLIC_GAME_EVENTS = new Set([
   "fandom_game_start", "fandom_game_reveal", "fandom_game_share",
   "fandom_share_open",
 ]);
+const DAILY_DROP_EVENTS = new Set([
+  "daily_drop_view", "daily_drop_engaged", "daily_drop_card_save",
+  "daily_drop_share", "daily_drop_collection_open",
+]);
+const DAILY_DROP_ENGAGEMENT_REASONS = new Set(["three_cards", "twenty_seconds"]);
+const DAILY_DROP_SHARE_METHODS = new Set(["edition_link", "image"]);
 const LG01_OUTCOMES = new Set([
   "moonlit-strategist", "exiled-immortal", "chaos-prince",
   "lotus-healer", "silent-sword", "fox-spirit",
   "celestial-guardian", "bamboo-recluse", "fated-romantic",
 ]);
 const STORE_NAME = "engagement";
+
+function isCalendarDate(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime())
+    && parsed.toISOString().slice(0, 10) === value;
+}
 
 export default async (req, context) => {
   if (req.method !== "POST") {
@@ -56,7 +73,8 @@ export default async (req, context) => {
 
   const {
     event, batchKey, imageUrl, actor, vibe, editionTier, resultPositions, grid,
-    contentId, outcomeId, source,
+    contentId, outcomeId, source, editionDate, position, saved, engagementReason,
+    shareMethod,
   } = body;
 
   if (!event || !VALID_EVENTS.includes(event)) {
@@ -83,6 +101,30 @@ export default async (req, context) => {
     );
   }
 
+  if (DAILY_DROP_EVENTS.has(event)) {
+    const validEditionDate = isCalendarDate(editionDate);
+    const validPosition = event !== "daily_drop_card_save"
+      || (Number.isInteger(position) && position >= 0 && position <= 8);
+    const validSaved = event !== "daily_drop_card_save" || typeof saved === "boolean";
+    const validReason = event !== "daily_drop_engaged"
+      || DAILY_DROP_ENGAGEMENT_REASONS.has(engagementReason);
+    const validShareMethod = event !== "daily_drop_share"
+      || DAILY_DROP_SHARE_METHODS.has(shareMethod);
+    if (
+      !validEditionDate
+      || batchKey !== `vibe-atlas:${editionDate}`
+      || !validPosition
+      || !validSaved
+      || !validReason
+      || !validShareMethod
+    ) {
+      return new Response(
+        JSON.stringify({ error: "Invalid Daily Drop event payload" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+  }
+
   if (PUBLIC_GAME_EVENTS.has(event)) {
     const requiresOutcome = event !== "fandom_game_start";
     const validOutcome = outcomeId === undefined || LG01_OUTCOMES.has(outcomeId);
@@ -104,9 +146,10 @@ export default async (req, context) => {
   try {
     const store = getBlobStore(STORE_NAME, context);
 
-    // Append to a per-batch engagement log
-    const key = `${batchKey}:${event}`;
-    const existing = await store.get(key, { type: "json" }).catch(() => null);
+    const sharedKey = `${batchKey}:${event}`;
+    const existing = DAILY_DROP_EVENTS.has(event)
+      ? null
+      : await store.get(sharedKey, { type: "json" }).catch(() => null);
     const entries = Array.isArray(existing) ? existing : [];
 
     /** @type {Record<string, unknown>} */
@@ -125,13 +168,27 @@ export default async (req, context) => {
       entry.contentId = contentId;
       if (outcomeId !== undefined) entry.outcomeId = outcomeId;
       if (source !== undefined) entry.source = source;
+    } else if (DAILY_DROP_EVENTS.has(event)) {
+      entry.editionDate = editionDate;
+      if (event === "daily_drop_card_save") {
+        entry.position = position;
+        entry.saved = saved;
+      } else if (event === "daily_drop_engaged") {
+        entry.engagementReason = engagementReason;
+      } else if (event === "daily_drop_share") {
+        entry.shareMethod = shareMethod;
+      }
     } else {
       entry.imageUrl = imageUrl || null;
     }
 
-    entries.push(entry);
-
-    await store.setJSON(key, entries);
+    if (DAILY_DROP_EVENTS.has(event)) {
+      const eventKey = `${sharedKey}:${Date.now()}:${crypto.randomUUID()}`;
+      await store.setJSON(eventKey, entry, { onlyIfNew: true });
+    } else {
+      entries.push(entry);
+      await store.setJSON(sharedKey, entries);
+    }
 
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,

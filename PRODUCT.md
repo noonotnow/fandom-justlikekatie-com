@@ -8,15 +8,17 @@ web
 
 ## Users
 
-Katie is the initial internal operator, collecting media signals and shaping
-them into reusable editorial possibilities. The collection model should remain
-neutral enough to support future collectors building their own themed shelves.
+Fans discover a daily C-drama card drop, save individual results, and keep a
+cross-device Collection with a free account. Founding Members can turn saved
+evidence into new grids and premium exports. Katie is the initial internal
+operator, approving Daily Drop boards and recording their publication lineage.
 
 ## Product Purpose
 
-FANDOM is a media-first collection workbench. It saves Vibe Atlas grids and
-selected results as reusable editorial source material, then hands saved grids
-to Creator OS for draft creation.
+FANDOM is a media-first collectible experience and creation workbench. Vibe
+Atlas is the current launch: one star, one assigned vibe, and nine pieces of
+evidence every day. Fans move from discovery to saving to creation; operators
+can hand approved source grids to Creator OS for draft creation.
 
 ## Positioning
 
@@ -26,10 +28,12 @@ posts, lore, an explainer, a legendary or misprint entry, or a comparison.
 
 ## Operating Context
 
-Operators start with a generated Vibe Atlas grid, curate individual media in
-the lightbox, save the material to Collection, and hand a saved grid directly
-to Creator OS through `/api/create-handoff`. The Operator Console separately
-contains PLAN and Court rulings.
+Visitors start with a generated Vibe Atlas grid and can save locally without an
+account. Free accounts synchronize the full Collection across devices. Paid
+members unlock Grid Builder, premium exports, opt-in curator learning, and
+priority influence. The private Operator Console owns immutable Daily Drop
+editions, manual native-publication receipts, Creator OS handoffs, and Court
+rulings.
 
 ## Capabilities and Constraints
 
@@ -40,7 +44,11 @@ contains PLAN and Court rulings.
 - Exact duplicate media must not be added.
 - Admin mutations require the existing operator authorization boundary.
 - Collection remains the FANDOM source of truth; Creator OS owns its drafts.
-- Social, trading, multiplayer, and consumer account systems are out of scope.
+- Native social publishing remains manual; FANDOM records publication receipts
+  and engagement evidence but does not claim the social platform's job.
+- Trading and multiplayer systems are out of scope.
+- WORKSTATION is an optional operator-only creator adapter and must never appear
+  in member-facing APIs or UI.
 
 ## Brand Commitments
 
@@ -48,10 +56,11 @@ Preserve the incumbent Vibe Atlas identity and its bilingual, gold-accented visu
 
 ## Evidence on Hand
 
-The app contains generated daily-grid data, source result identifiers and URLs,
-actor and vibe metadata, an IndexedDB saved-card collection and legacy PLAN
-grid records, Collection sync, an operator authorization flow, and the Creator
-OS handoff.
+The app contains generated daily-grid data, immutable publication manifests,
+manual native-publication receipts, bounded Daily Drop engagement events, source
+result identifiers and URLs, actor and vibe metadata, an IndexedDB saved-card
+collection, free-account Collection sync, paid creation boundaries, an operator
+authorization flow, and the Creator OS handoff.
 
 ## Product Principles
 
