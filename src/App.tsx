@@ -635,7 +635,11 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
                 {isAdmin && (
                   <CreatorPostAction
                     entryPoint="daily"
-                    onSubmit={platforms => makeCreatorPostFromGrid(collectionGridFromStar(rawData), platforms)}
+                    onSubmit={(platforms, onProgress) => makeCreatorPostFromGrid(
+                      collectionGridFromStar(rawData),
+                      platforms,
+                      onProgress,
+                    )}
                   />
                 )}
               </div>

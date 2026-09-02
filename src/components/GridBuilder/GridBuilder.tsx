@@ -20,7 +20,7 @@ import {
   type GridProposal,
 } from '../../utils/gridBuilder';
 import styles from './GridBuilder.module.css';
-import type { CreatorDraftResult, CreatorPlatform } from '../../utils/creatorDraft';
+import type { CreatorDraftProgress, CreatorDraftResult, CreatorPlatform } from '../../utils/creatorDraft';
 import { CreatorPostAction } from '../CreatorPostAction/CreatorPostAction';
 
 interface Props {
@@ -29,7 +29,11 @@ interface Props {
   /** When true, the private Workstation handoff is shown. Omit (or false) to hide it. */
   isAdmin?: boolean;
   /** Required when isAdmin is true; compatibility-backed Workstation handoff. */
-  onCreateFromGrid?: (grid: GridRecord, platforms: CreatorPlatform[]) => Promise<CreatorDraftResult>;
+  onCreateFromGrid?: (
+    grid: GridRecord,
+    platforms: CreatorPlatform[],
+    onProgress?: (progress: CreatorDraftProgress) => void,
+  ) => Promise<CreatorDraftResult>;
   /** Called after a successful Workstation handoff. */
   onPacketCreated?: () => void;
   /** Called after a successful export so the parent can navigate to the Grids tab. */
@@ -385,7 +389,10 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
     }
   }
 
-  async function startPacket(platforms: CreatorPlatform[]): Promise<CreatorDraftResult> {
+  async function startPacket(
+    platforms: CreatorPlatform[],
+    onProgress: (progress: CreatorDraftProgress) => void,
+  ): Promise<CreatorDraftResult> {
     if (!proposal || !proposalComplete || busy || !onCreateFromGrid) {
       throw new Error(`Complete the ${proposalTargetSize}-frame composition before creating a post.`);
     }
@@ -409,7 +416,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
       await dbSaveGrid(grid);
       setIsGridSaved(true);
       setSavedGridId(grid.id);
-      const result = await onCreateFromGrid(grid, platforms);
+      const result = await onCreateFromGrid(grid, platforms, onProgress);
       setNotice('Workstation draft created with the exact grid and curation brief.');
       onPacketCreated?.();
       return result;

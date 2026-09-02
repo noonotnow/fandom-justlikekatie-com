@@ -17,16 +17,20 @@ const actionSource = await readFile(
   new URL('../src/components/CreatorPostAction/CreatorPostAction.tsx', import.meta.url),
   'utf8',
 );
+const workstationClientSource = await readFile(
+  new URL('../src/utils/workstationHandoffClient.ts', import.meta.url),
+  'utf8',
+);
 
 test('Daily, saved grids, and Builder share one platform chooser and direct source path', () => {
   assert.match(appSource, /collectionGridFromStar\(rawData\)/);
   assert.match(appSource, /CreatorPostAction/);
   assert.match(collectionSource, /CreatorPostAction/);
   assert.match(builderSource, /CreatorPostAction/);
-  assert.match(appSource, /makeCreatorPostFromGrid\(collectionGridFromStar\(rawData\), platforms\)/);
+  assert.match(appSource, /makeCreatorPostFromGrid\([\s\S]*collectionGridFromStar\(rawData\),[\s\S]*platforms,[\s\S]*onProgress/);
   assert.doesNotMatch(appSource, /dbSaveGrid|syncPublicCollection|getPublicSession/);
-  assert.match(collectionSource, /onCreateFromGrid\(grid, platforms\)/);
-  assert.match(builderSource, /onCreateFromGrid\(grid, platforms\)/);
+  assert.match(collectionSource, /onCreateFromGrid\(grid, platforms, onProgress\)/);
+  assert.match(builderSource, /onCreateFromGrid\(grid, platforms, onProgress\)/);
   assert.match(actionSource, /Rednote/);
   assert.match(actionSource, /Weibo/);
   assert.match(actionSource, /Instagram/);
@@ -36,14 +40,17 @@ test('Daily, saved grids, and Builder share one platform chooser and direct sour
 
 test('every Workstation grid caller uses the centralized save, session, and single-grid sync path', () => {
   const handoff = creatorDraftSource.match(
-    /export async function makeCreatorPostFromGrid[\s\S]*?\n}\n\nfunction stableHash/,
+    /export async function makeCreatorPostFromGrid[\s\S]*?\n}\n\nexport function normalizeCreatorPlatforms/,
   )?.[0] || '';
   assert.match(handoff, /await dbSaveGrid\(grid\)/);
   assert.match(handoff, /const user = await getPublicSession\(\)/);
-  assert.match(handoff, /await syncPublicGrid\(user, grid\.id\)/);
-  assert.match(handoff, /await completeCreatorDraftHandoff\(source\)/);
-  assert.match(collectionSource, /onCreateFromGrid\(grid, platforms\)/);
-  assert.match(builderSource, /onCreateFromGrid\(grid, platforms\)/);
+  const mediaStart = handoff.indexOf('await persistGridImagesToMedia(grid)');
+  const syncStart = handoff.indexOf('await syncPublicGrid(user, persistence.record.id)');
+  const workstationStart = handoff.indexOf('await completeWorkstationHandoff(source)');
+  assert.ok(mediaStart > -1 && syncStart > mediaStart && workstationStart > syncStart);
+  assert.match(handoff, /throw new CreatorMediaReadinessError\(persistence\.failures\)/);
+  assert.match(collectionSource, /onCreateFromGrid\(grid, platforms, onProgress\)/);
+  assert.match(builderSource, /onCreateFromGrid\(grid, platforms, onProgress\)/);
   assert.match(publicAccountSource, /export async function syncPublicGrid/);
   const targetedSync = publicAccountSource.match(
     /export async function syncPublicGrid[\s\S]*?\n}\n(?=\nasync function persistEmbeddedCollectionImages)/,
@@ -55,7 +62,7 @@ test('every Workstation grid caller uses the centralized save, session, and sing
 
 test('Workstation navigation happens only after a validated result and failures expose recovery links', () => {
   const createStart = actionSource.indexOf('const result = await onSubmit');
-  const openStart = actionSource.indexOf('window.location.assign(result.receipt.createUrl);', createStart);
+  const openStart = actionSource.indexOf('window.location.assign(result.receipt.deepLink);', createStart);
   const failureStart = actionSource.indexOf('catch (caught)', createStart);
   assert.notEqual(createStart, -1);
   assert.notEqual(openStart, -1);
@@ -64,4 +71,10 @@ test('Workstation navigation happens only after a validated result and failures 
   assert.ok(openStart < failureStart, 'only the successful handoff branch may open Workstation');
   assert.match(actionSource, /Open Your Collection/);
   assert.match(actionSource, /https:\/\/workstation\.justlikekatie\.com/);
+  assert.match(actionSource, /Preparing durable MEDIA assets/);
+  assert.match(actionSource, /Position \{failure\.gridPosition \+ 1\}/);
+  assert.match(actionSource, /Retry preparation/);
+  assert.match(actionSource, /operator-diverged/);
+  assert.match(workstationClientSource, /WORKSTATION_HANDOFF_URL = '\/api\/workstation-handoff'/);
+  assert.doesNotMatch(workstationClientSource, /create\.justlikekatie\.com/);
 });

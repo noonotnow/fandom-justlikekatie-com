@@ -33,7 +33,7 @@ test("renders canonical PNG bytes only from the persisted source selection", asy
     packet(),
     { id: "grid-output", kind: "grid", sourceId: "grid-1" },
     {
-      requestUrl: "https://fandom.justlikekatie.com/api/create-handoff",
+      requestUrl: "https://fandom.justlikekatie.com/api/workstation-handoff",
       fetchSourceImpl: async target => {
         targets.push(target);
         return source;
@@ -69,7 +69,7 @@ test("renders the incident-shaped grid deterministically from canonical persiste
     incident,
     { id: "grid-output", kind: "grid", sourceId: "grid-1" },
     {
-      requestUrl: "https://fandom.justlikekatie.com/api/create-handoff",
+      requestUrl: "https://fandom.justlikekatie.com/api/workstation-handoff",
       fetchSourceImpl: async target => {
         targets.push(target);
         return source;
@@ -116,7 +116,7 @@ test("renders the exact saved grid selected by a multi-grid packet output", asyn
     current,
     { id: "grid-output-2", kind: "grid", sourceId: "grid-2" },
     {
-      requestUrl: "https://fandom.justlikekatie.com/api/create-handoff",
+      requestUrl: "https://fandom.justlikekatie.com/api/workstation-handoff",
       fetchSourceImpl: async target => {
         targets.push(target);
         return source;
@@ -127,7 +127,7 @@ test("renders the exact saved grid selected by a multi-grid packet output", asyn
 });
 
 test("rejects direct, cross-origin, private, and mismatched proxy source descriptors", () => {
-  const requestUrl = "https://fandom.justlikekatie.com/api/create-handoff";
+  const requestUrl = "https://fandom.justlikekatie.com/api/workstation-handoff";
   assert.throws(
     () => validatedProxyTarget("https://attacker.example/arbitrary.png", requestUrl),
     /same-origin image proxy/,
@@ -202,7 +202,7 @@ test("reports malformed and missing persisted proxy targets without fetching", a
         malformed,
         { id: "grid-output", kind: "grid", sourceId: "grid-1" },
         {
-          requestUrl: "https://fandom.justlikekatie.com/api/create-handoff",
+          requestUrl: "https://fandom.justlikekatie.com/api/workstation-handoff",
           fetchSourceImpl: async () => {
             fetchCalls += 1;
           },
@@ -215,7 +215,7 @@ test("reports malformed and missing persisted proxy targets without fetching", a
 
 // ── Middle-earth tests ────────────────────────────────────────────────────────
 
-const ME_REQUEST_URL = "https://fandom.justlikekatie.com/api/create-handoff";
+const ME_REQUEST_URL = "https://fandom.justlikekatie.com/api/workstation-handoff";
 
 function mePacket(overrides = {}) {
   return {
