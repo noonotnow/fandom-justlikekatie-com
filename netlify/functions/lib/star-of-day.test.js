@@ -6,6 +6,8 @@ import starOfDay, {
   cachedPairIsEligible,
   hasReleaseReadyCohort,
   RELEASE_COHORT_ACTOR_ID,
+  releaseLock,
+  tryAcquireLock,
 } from "../star-of-day.js";
 import {
   auditHeadKey,
@@ -25,14 +27,28 @@ import { CURATION_VERSION } from "./grid-curation.js";
 
 function makeStore(entries = {}) {
   const values = new Map(Object.entries(entries));
+  const etags = new Map();
+  let revision = 0;
   let listCalls = 0;
   let setCalls = 0;
+  for (const key of values.keys()) {
+    revision += 1;
+    etags.set(key, `etag-${revision}`);
+  }
   return {
     stats: () => ({ listCalls, setCalls }),
     async get(key, options) {
       const value = values.get(key);
       if (value === undefined) return null;
       return options?.type === "json" ? structuredClone(value) : value;
+    },
+    async getWithMetadata(key, options) {
+      const value = values.get(key);
+      if (value === undefined) return null;
+      return {
+        data: options?.type === "json" ? structuredClone(value) : value,
+        etag: etags.get(key),
+      };
     },
     async list({ prefix } = {}) {
       listCalls += 1;
@@ -42,15 +58,35 @@ function makeStore(entries = {}) {
           .map(key => ({ key })),
       };
     },
-    async setJSON(key, value) {
+    async setJSON(key, value, options = {}) {
       setCalls += 1;
+      if (options.onlyIfNew && values.has(key)) return { modified: false };
+      if (options.onlyIfMatch && options.onlyIfMatch !== etags.get(key)) {
+        return { modified: false };
+      }
       values.set(key, structuredClone(value));
+      revision += 1;
+      const etag = `etag-${revision}`;
+      etags.set(key, etag);
+      return { modified: true, etag };
     },
     async delete(key) {
       values.delete(key);
     },
   };
 }
+
+test("the daily build lock admits only one concurrent builder", async () => {
+  const store = makeStore();
+  const [first, second] = await Promise.all([
+    tryAcquireLock(store, "2026-09-02"),
+    tryAcquireLock(store, "2026-09-02"),
+  ]);
+
+  assert.equal(Boolean(first) !== Boolean(second), true);
+  await releaseLock(store, "2026-09-02", first || second);
+  assert.equal(await store.get("starOfDay:v10:2026-09-02:lock"), null);
+});
 
 function contextFor(store) {
   return { blobs: { getStore: () => store } };

@@ -216,7 +216,7 @@ function publicDisplayResult(candidate) {
 // returned `{ modified }` flag (per @netlify/blobs' documented API), but the
 // Blobs store instance obtained via the V2 function `context.blobs` on this
 // project's deploy previews does not return that result object at all
-async function tryAcquireLock(store, dateString) {
+export async function tryAcquireLock(store, dateString) {
   const lockKey = lockKeyFor(dateString);
   const now = Date.now();
   const token = `${now}-${Math.random().toString(36).slice(2)}`;
@@ -243,7 +243,7 @@ async function tryAcquireLock(store, dateString) {
   return lock;
 }
 
-async function releaseLock(store, dateString, lock) {
+export async function releaseLock(store, dateString, lock) {
   try {
     const current = typeof store.get === "function"
       ? await store.get(lockKeyFor(dateString), { type: "json", consistency: "strong" })
