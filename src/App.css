@@ -246,6 +246,49 @@
   font-size: .68rem;
 }
 
+.daily-edition-share {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .65rem;
+  margin-top: .85rem;
+}
+
+.daily-edition-share button {
+  padding: .5rem .75rem;
+  border: 1px solid #b35f49;
+  border-radius: 2px;
+  background: transparent;
+  color: #b35f49;
+  font: 600 .64rem "DM Mono", monospace;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.daily-edition-share button:hover,
+.daily-edition-share button:focus-visible {
+  background: rgba(179, 95, 73, .08);
+  opacity: 1;
+}
+
+.daily-edition-share__notice {
+  margin: 0;
+  color: #74807d;
+  font-size: .68rem;
+}
+
+.dark .daily-edition-share button {
+  border-color: #e18a70;
+  color: #e18a70;
+}
+
+.dark .daily-edition-share button:hover,
+.dark .daily-edition-share button:focus-visible {
+  background: rgba(225, 138, 112, .1);
+}
+
+.dark .daily-edition-share__notice { color: #a4a4a5; }
+
 .daily-archive {
   max-width: 760px;
   margin: 2rem 0 0 12%;

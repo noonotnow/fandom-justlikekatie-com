@@ -126,6 +126,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   } = useStarOfDay(archivePage && !selectedEditionDate ? undefined : selectedEditionDate);
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
   const [isMember, setIsMember] = useState(false);
+  const [editionShareNotice, setEditionShareNotice] = useState('');
 
   // Whole-board (share-card) manual tier override — distinct from per-image
   // `imageTiers` above. Resets automatically whenever a new board (new
@@ -192,6 +193,10 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     if (archivePage && !archive.length && !archiveLoading) void loadArchive();
   }, [archivePage, archive.length, archiveLoading, loadArchive]);
 
+  useEffect(() => {
+    setEditionShareNotice('');
+  }, [selectedEditionDate]);
+
   const openArchivePicker = useCallback(() => {
     setArchiveOpen(true);
     if (!archive.length && !archiveLoading) void loadArchive();
@@ -211,6 +216,23 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     setArchivePage(false);
     syncVibeAtlasEditionUrl(date);
     setSelectedEditionDate(date);
+  };
+
+  const copyArchivedEditionLink = async () => {
+    if (!selectedEditionDate || !isValidVibeAtlasEditionDate(selectedEditionDate)) return;
+
+    const shareUrl = new URL('/vibe-atlas', window.location.origin);
+    shareUrl.searchParams.set('date', selectedEditionDate);
+
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(shareUrl.toString());
+      setEditionShareNotice(`Copied link for ${formatEditionDate(selectedEditionDate)}.`);
+    } catch {
+      setEditionShareNotice(
+        'Could not copy this archived edition link. Please copy the address from your browser.',
+      );
+    }
   };
 
   const openArchivePage = () => {
@@ -488,6 +510,16 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             {meta.stale && (
               <div className="atlas-edition__stale">
                 ⏳ Showing yesterday's picks while today's grid builds
+              </div>
+            )}
+            {selectedEditionDate && isValidVibeAtlasEditionDate(selectedEditionDate) && (
+              <div className="daily-edition-share">
+                <button type="button" onClick={copyArchivedEditionLink}>
+                  Copy archived edition link
+                </button>
+                <p className="daily-edition-share__notice" role="status" aria-live="polite" aria-atomic="true">
+                  {editionShareNotice}
+                </p>
               </div>
             )}
             {rawData && exportData && (
