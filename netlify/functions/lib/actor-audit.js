@@ -785,20 +785,8 @@ export function createActorAuditHandler({
         const report = await readReport(store, pair);
         const run = report.currentRun;
         const approval = await getEligibility(store, pair.actor, pair.vibeIdx);
-        if (!run || run.runId !== input.runId
-          || run.operatorVerdict?.verdict !== "approved"
-          || run.operatorVerdict?.vibeConfirmed !== true
-          || run.operatorVerdict?.publishableConfirmed !== true
-          || approval?.eligible !== true
-          || approval.runId !== input.runId
-          || approval.publicationSource?.type !== "operator_rescue"
-          || approval.publicationSource.rescueReceiptId !== input.rescueReceiptId
-          || !approval.publicationBoard
-          || approval.publicationBoard.candidates?.length !== 9) {
-          return json(409, {
-            error: "Backfill requires the current saved rescue board to have an approved verdict and both human confirmations.",
-          });
-        }
+        const readinessError = backfillReadinessError(run, approval, input);
+        if (readinessError) return json(409, { error: readinessError });
         const currentHead = await store.get(auditHeadKey(pair.actor.id, pair.vibeIdx), {
           type: "json",
           consistency: "strong",
@@ -2923,6 +2911,40 @@ function publicBackfillSummary(payload) {
     vibeLabelEn: payload.vibeLabelEn,
     generatedAt: payload.generatedAt,
   };
+}
+
+function backfillReadinessError(run, approval, input) {
+  if (!run || run.runId !== input.runId) {
+    return "This is no longer the current audit run. Refresh Actor Preflight before publishing.";
+  }
+  if (run.operatorVerdict?.verdict !== "approved") {
+    return "The current audit run does not have an Approved publication verdict.";
+  }
+  if (run.operatorVerdict.vibeConfirmed !== true) {
+    return "The saved verdict is missing “Yes, that’s the Vibe.” Save a current approval with that confirmation.";
+  }
+  if (run.operatorVerdict.publishableConfirmed !== true) {
+    return "The saved verdict is missing “Yes, this is publishable.” Save a current approval with that confirmation.";
+  }
+  if (!approval) {
+    return "The saved approval no longer validates against the current audit contract. Run a fresh audit and approve an exact saved rescue board from that run.";
+  }
+  if (approval.eligible !== true) {
+    return "The current eligibility receipt is not approved for publication.";
+  }
+  if (approval.runId !== input.runId) {
+    return "The approved eligibility receipt belongs to a different audit run. Refresh Actor Preflight.";
+  }
+  if (approval.publicationSource?.type !== "operator_rescue") {
+    return "The approved publication source is not an exact saved rescue board.";
+  }
+  if (approval.publicationSource.rescueReceiptId !== input.rescueReceiptId) {
+    return "The approved verdict points to a different saved rescue board. Refresh and publish the receipt named by the verdict.";
+  }
+  if (!approval.publicationBoard || approval.publicationBoard.candidates?.length !== 9) {
+    return "The approved rescue receipt no longer resolves to exactly nine publishable images.";
+  }
+  return null;
 }
 
 function rescuePreferenceIdentityFor(receipt) {
