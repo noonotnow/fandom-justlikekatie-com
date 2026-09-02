@@ -20,22 +20,10 @@ import {
   type GridProposal,
 } from '../../utils/gridBuilder';
 import styles from './GridBuilder.module.css';
-import type { CreatorDraftProgress, CreatorDraftResult, CreatorPlatform } from '../../utils/creatorDraft';
-import { CreatorPostAction } from '../CreatorPostAction/CreatorPostAction';
 
 interface Props {
   /** Account id of the signed-in user; scopes the pool to that account's visible records. */
   accountId?: string;
-  /** When true, the private Workstation handoff is shown. Omit (or false) to hide it. */
-  isAdmin?: boolean;
-  /** Required when isAdmin is true; compatibility-backed Workstation handoff. */
-  onCreateFromGrid?: (
-    grid: GridRecord,
-    platforms: CreatorPlatform[],
-    onProgress?: (progress: CreatorDraftProgress) => void,
-  ) => Promise<CreatorDraftResult>;
-  /** Called after a successful Workstation handoff. */
-  onPacketCreated?: () => void;
   /** Called after a successful export so the parent can navigate to the Grids tab. */
   onExported?: () => void;
   /** Premium export is a membership capability; server enforcement remains authoritative. */
@@ -47,7 +35,7 @@ interface Props {
  * Vibe Atlas Grid Builder — the core studio workflow. Saved collection →
  * lens → editorial contract → proposed set → slot swaps → save and export.
  */
-export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCreateFromGrid, onPacketCreated, onExported, isMember = false, onUpgrade }) => {
+export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember = false, onUpgrade }) => {
   const [pool, setPool] = useState<BuilderCard[] | null>(null);
   const [sourceRecords, setSourceRecords] = useState<{ cards: CardRecord[]; grids: GridRecord[] } | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -71,13 +59,8 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
   // the proposal.  When the user saves after swapping, the stale record is
   // removed first so only the latest version lives in the store.
   const [priorSavedGridId, setPriorSavedGridId] = useState<string | null>(null);
-  // Synchronous in-flight lock for startPacket.  React state setters do not
-  // update the captured closure value until the next render, so a second call
-  // that arrives before React flushes would not see busy==='packet' yet.
-  // A ref is set synchronously before the first await, guaranteeing re-entrant
-  // calls are blocked regardless of render timing.
-  const packetInFlight = useRef(false);
-  // Synchronous in-flight lock for exportGrid — same reasoning as packetInFlight.
+  // Synchronous in-flight lock for exportGrid. React state setters do not
+  // update the captured closure value until the next render.
   // setBusy('export') schedules a React update but does not mutate the captured
   // closure value, so a double-click in the same event-loop tick would pass the
   // `|| busy` state guard and reach saveShareCard twice.  The ref is set before
@@ -389,43 +372,6 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
     }
   }
 
-  async function startPacket(
-    platforms: CreatorPlatform[],
-    onProgress: (progress: CreatorDraftProgress) => void,
-  ): Promise<CreatorDraftResult> {
-    if (!proposal || !proposalComplete || busy || !onCreateFromGrid) {
-      throw new Error(`Complete the ${proposalTargetSize}-frame composition before creating a post.`);
-    }
-    // Synchronous re-entrant guard: the ref is set before any await, so a second
-    // call that arrives in the same event-loop tick (before React re-renders and
-    // the button disables) exits here without touching dbSaveGrid or onCreateFromGrid.
-    if (packetInFlight.current) throw new Error('A post draft is already being created.');
-    packetInFlight.current = true;
-    setBusy('packet');
-    setNotice('');
-    try {
-      const grid = gridRecordFromProposal(proposal.slots, proposal.rationale);
-      // If the user swapped a slot after a previous save, the slot hash changed
-      // and this is a brand-new id.  Remove the orphaned prior record first so
-      // the store never holds two versions of the same conceptual grid.
-      if (priorSavedGridId && priorSavedGridId !== grid.id) {
-        await dbRemoveGrid(priorSavedGridId);
-        await deleteGridExports(priorSavedGridId, accountId).catch(() => {});
-        setPriorSavedGridId(null);
-      }
-      await dbSaveGrid(grid);
-      setIsGridSaved(true);
-      setSavedGridId(grid.id);
-      const result = await onCreateFromGrid(grid, platforms, onProgress);
-      setNotice('Workstation draft created with the exact grid and curation brief.');
-      onPacketCreated?.();
-      return result;
-    } finally {
-      packetInFlight.current = false;
-      setBusy('');
-    }
-  }
-
   if (loadError) return <div className={styles.notice} role="alert">{loadError}</div>;
   if (!pool || !options) {
     return <div className={styles.loading} aria-label="Loading saved collection"><span /><span /><span /></div>;
@@ -672,13 +618,6 @@ export const GridBuilder: React.FC<Props> = ({ accountId, isAdmin = false, onCre
                 <button type="button" onClick={onUpgrade} disabled={Boolean(busy)}>
                   ✦ Upgrade for premium exports
                 </button>
-              )}
-              {isAdmin && onCreateFromGrid && (
-                <CreatorPostAction
-                  entryPoint="builder"
-                  disabled={Boolean(busy) || !proposalComplete}
-                  onSubmit={startPacket}
-                />
               )}
             </div>
           </aside>

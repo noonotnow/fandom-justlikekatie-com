@@ -21,16 +21,19 @@ const workstationClientSource = await readFile(
   new URL('../src/utils/workstationHandoffClient.ts', import.meta.url),
   'utf8',
 );
+const releaseDeskSource = await readFile(
+  new URL('../src/components/FandomAdmin/ReleaseDesk.tsx', import.meta.url),
+  'utf8',
+);
 
-test('Daily, saved grids, and Builder share one platform chooser and direct source path', () => {
-  assert.match(appSource, /collectionGridFromStar\(rawData\)/);
-  assert.match(appSource, /CreatorPostAction/);
-  assert.match(collectionSource, /CreatorPostAction/);
-  assert.match(builderSource, /CreatorPostAction/);
-  assert.match(appSource, /makeCreatorPostFromGrid\([\s\S]*collectionGridFromStar\(rawData\),[\s\S]*platforms,[\s\S]*onProgress/);
-  assert.doesNotMatch(appSource, /dbSaveGrid|syncPublicCollection|getPublicSession/);
-  assert.match(collectionSource, /onCreateFromGrid\(grid, platforms, onProgress\)/);
-  assert.match(builderSource, /onCreateFromGrid\(grid, platforms, onProgress\)/);
+test('only the private Operator Console exposes the Workstation handoff', () => {
+  assert.doesNotMatch(appSource, /CreatorPostAction|makeCreatorPostFromGrid|collectionGridFromStar/);
+  assert.doesNotMatch(collectionSource, /CreatorPostAction|onCreateFromGrid|Workstation/);
+  assert.doesNotMatch(builderSource, /CreatorPostAction|onCreateFromGrid|Workstation/);
+  assert.match(releaseDeskSource, /Workstation handoff/);
+  assert.match(releaseDeskSource, /dbGetVisibleGrids\(user\.accountId\)/);
+  assert.match(releaseDeskSource, /entryPoint="operator_console"/);
+  assert.match(releaseDeskSource, /makeCreatorPostFromGrid\(selectedGrid, platforms, onProgress\)/);
   assert.match(actionSource, /Rednote/);
   assert.match(actionSource, /Weibo/);
   assert.match(actionSource, /Instagram/);
@@ -49,8 +52,7 @@ test('every Workstation grid caller uses the centralized save, session, and sing
   const workstationStart = handoff.indexOf('await completeWorkstationHandoff(source)');
   assert.ok(mediaStart > -1 && syncStart > mediaStart && workstationStart > syncStart);
   assert.match(handoff, /throw new CreatorMediaReadinessError\(persistence\.failures\)/);
-  assert.match(collectionSource, /onCreateFromGrid\(grid, platforms, onProgress\)/);
-  assert.match(builderSource, /onCreateFromGrid\(grid, platforms, onProgress\)/);
+  assert.match(releaseDeskSource, /makeCreatorPostFromGrid\(selectedGrid, platforms, onProgress\)/);
   assert.match(publicAccountSource, /export async function syncPublicGrid/);
   const targetedSync = publicAccountSource.match(
     /export async function syncPublicGrid[\s\S]*?\n}\n(?=\nasync function persistEmbeddedCollectionImages)/,

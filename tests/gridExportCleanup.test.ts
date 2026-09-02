@@ -260,7 +260,7 @@ test('Collection Undo cancels the pending removal before server export cleanup c
 test('GridBuilder invokes account-scoped export cleanup on every dbRemoveGrid path', () => {
   const removals = builderSource.match(/await dbRemoveGrid\(/g) ?? [];
   const cleanups = builderSource.match(/await deleteGridExports\([A-Za-z]+,\s*accountId\)/g) ?? [];
-  assert.ok(removals.length >= 3, 'expected the three known dbRemoveGrid call sites');
+  assert.ok(removals.length >= 2, 'expected the two Grid Builder dbRemoveGrid call sites');
   assert.equal(
     cleanups.length,
     removals.length,

@@ -47,8 +47,6 @@ import {
   type PublicUser,
 } from '../../utils/publicAccount';
 import styles from './Collection.module.css';
-import type { CreatorDraftProgress, CreatorDraftResult, CreatorPlatform } from '../../utils/creatorDraft';
-import { CreatorPostAction } from '../CreatorPostAction/CreatorPostAction';
 
 const UNDO_WINDOW_MS = 8_000;
 const MAX_UPLOADED_MEME_BYTES = 8 * 1024 * 1024;
@@ -57,15 +55,9 @@ const SUPPORTED_MEME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 interface Props {
   scope?: 'vibe-atlas' | 'middle-earth';
   initialType?: 'grids' | 'results' | 'builder';
-  isAdmin?: boolean;
   isMember?: boolean;
   onUpgrade?: () => void;
   onTypeChange?: (type: 'grids' | 'results' | 'builder') => void;
-  onCreateFromGrid?: (
-    grid: GridRecord,
-    platforms: CreatorPlatform[],
-    onProgress?: (progress: CreatorDraftProgress) => void,
-  ) => Promise<CreatorDraftResult>;
 }
 
 type ExpandedArtifact =
@@ -77,11 +69,9 @@ const LEGENDARY_MISPRINT_FILTER = '__legendary-misprints__';
 export const Collection: React.FC<Props> = ({
   scope = 'vibe-atlas',
   initialType = 'grids',
-  isAdmin = false,
   isMember = false,
   onUpgrade,
   onTypeChange,
-  onCreateFromGrid,
 }) => {
   const isMiddleEarth = scope === 'middle-earth';
   const [cards, setCards] = useState<CardRecord[]>([]);
@@ -644,11 +634,8 @@ export const Collection: React.FC<Props> = ({
       ) : activeType === 'builder' ? (
         <GridBuilder
           accountId={user?.accountId}
-          isAdmin={isAdmin}
           isMember={isMember}
           onUpgrade={onUpgrade}
-          onCreateFromGrid={onCreateFromGrid}
-          onPacketCreated={() => setActiveType('grids')}
           onExported={() => {
             setActiveType('grids');
             void loadCollection();
@@ -758,20 +745,6 @@ export const Collection: React.FC<Props> = ({
                   >
                     {busyKey === `export:${grid.id}` ? 'Rendering…' : 'Export grid'}
                   </button>
-                  {isAdmin && onCreateFromGrid && (
-                    <CreatorPostAction
-                      entryPoint="saved_grid"
-                      disabled={Boolean(busyKey)}
-                      onSubmit={async (platforms, onProgress) => {
-                        setBusyKey(`create:${grid.id}`);
-                        try {
-                          return await onCreateFromGrid(grid, platforms, onProgress);
-                        } finally {
-                          setBusyKey('');
-                        }
-                      }}
-                    />
-                  )}
                   {!grid.legendaryMisprint && (
                     <button
                       type="button"
