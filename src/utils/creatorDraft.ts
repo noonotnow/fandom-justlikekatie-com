@@ -1,5 +1,6 @@
 import { dbSaveGrid, type GridRecord } from './collectionDB';
-import { completeCreatorDraftHandoff, type CreateReceipt } from './createHandoffClient';
+import { persistGridImagesToMedia, type CollectionGridMediaFailure } from './collectionMedia';
+import { completeWorkstationHandoff, type WorkstationReceipt } from './workstationHandoffClient';
 import { getPublicSession, syncPublicGrid } from './publicAccount';
 
 export const CREATOR_DRAFT_SOURCE_SCHEMA = 'fandom.creator-draft-source.v1';
@@ -44,10 +45,25 @@ export interface CreatorDraftSource {
 
 export interface CreatorDraftResult {
   source: CreatorDraftSource;
-  receipt: CreateReceipt;
+  receipt: WorkstationReceipt;
 }
 
-/** Future-facing source contract; no arbitrary client URL is sent to CREATE from it. */
+export type CreatorDraftProgress =
+  | { phase: 'preparing-media' }
+  | { phase: 'syncing-collection'; copiedCount: number }
+  | { phase: 'creating-draft' };
+
+export class CreatorMediaReadinessError extends Error {
+  readonly failures: CollectionGridMediaFailure[];
+
+  constructor(failures: CollectionGridMediaFailure[]) {
+    super(`${failures.length} grid ${failures.length === 1 ? 'image is' : 'images are'} not durably available in MEDIA.`);
+    this.name = 'CreatorMediaReadinessError';
+    this.failures = failures;
+  }
+}
+
+/** Future-facing source contract; no arbitrary client URL is sent to Workstation from it. */
 export async function creatorDraftSourceFromGrid(
   grid: GridRecord,
   platforms: CreatorPlatform[] = ['rednote'],
@@ -100,13 +116,21 @@ export async function creatorDraftSourceFromGrid(
 export async function makeCreatorPostFromGrid(
   grid: GridRecord,
   platforms: CreatorPlatform[] = ['rednote'],
+  onProgress?: (progress: CreatorDraftProgress) => void,
 ): Promise<CreatorDraftResult> {
   await dbSaveGrid(grid);
   const user = await getPublicSession();
   if (!user) throw new Error('Sign in before creating a Workstation post.');
-  await syncPublicGrid(user, grid.id);
-  const source = await creatorDraftSourceFromGrid(grid, platforms);
-  const receipt = await completeCreatorDraftHandoff(source);
+  onProgress?.({ phase: 'preparing-media' });
+  const persistence = await persistGridImagesToMedia(grid);
+  if (persistence.failures.length > 0) {
+    throw new CreatorMediaReadinessError(persistence.failures);
+  }
+  onProgress?.({ phase: 'syncing-collection', copiedCount: persistence.copiedCount });
+  await syncPublicGrid(user, persistence.record.id);
+  const source = await creatorDraftSourceFromGrid(persistence.record, platforms);
+  onProgress?.({ phase: 'creating-draft' });
+  const receipt = await completeWorkstationHandoff(source);
   return { source, receipt };
 }
 

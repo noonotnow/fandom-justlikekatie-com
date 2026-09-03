@@ -47,9 +47,6 @@ import {
   type PublicUser,
 } from '../../utils/publicAccount';
 import styles from './Collection.module.css';
-import type { CreatorDraftResult } from '../../utils/creatorDraft';
-import type { CreatorPlatform } from '../../utils/creatorDraft';
-import { CreatorPostAction } from '../CreatorPostAction/CreatorPostAction';
 
 const UNDO_WINDOW_MS = 8_000;
 const MAX_UPLOADED_MEME_BYTES = 8 * 1024 * 1024;
@@ -58,10 +55,9 @@ const SUPPORTED_MEME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 interface Props {
   scope?: 'vibe-atlas' | 'middle-earth';
   initialType?: 'grids' | 'results' | 'builder';
-  isAdmin?: boolean;
   isMember?: boolean;
   onUpgrade?: () => void;
-  onCreateFromGrid?: (grid: GridRecord, platforms: CreatorPlatform[]) => Promise<CreatorDraftResult>;
+  onTypeChange?: (type: 'grids' | 'results' | 'builder') => void;
 }
 
 type ExpandedArtifact =
@@ -73,14 +69,11 @@ const LEGENDARY_MISPRINT_FILTER = '__legendary-misprints__';
 export const Collection: React.FC<Props> = ({
   scope = 'vibe-atlas',
   initialType = 'grids',
-  isAdmin = false,
   isMember = false,
   onUpgrade,
-  onCreateFromGrid,
+  onTypeChange,
 }) => {
   const isMiddleEarth = scope === 'middle-earth';
-  // Membership is a Vibe Atlas offer; the separate MemeForge collection is not paywalled.
-  const hasPaidAccess = isMiddleEarth || isMember;
   const [cards, setCards] = useState<CardRecord[]>([]);
   const [grids, setGrids] = useState<GridRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -129,7 +122,7 @@ export const Collection: React.FC<Props> = ({
         if (session) {
           const decided = await hasMergeDecision(session.accountId);
           setNeedsMergeChoice(!decided);
-          shouldSync = hasPaidAccess && decided && await shouldSyncCollection(session.accountId);
+          shouldSync = decided && await shouldSyncCollection(session.accountId);
         } else {
           setNeedsMergeChoice(false);
         }
@@ -188,7 +181,7 @@ export const Collection: React.FC<Props> = ({
       channel?.close();
       window.removeEventListener('storage', handleStorage);
     };
-  }, [hasPaidAccess]);
+  }, [scope]);
 
   async function recoverPendingRemoval() {
     const stored = readPendingRemoval();
@@ -269,7 +262,7 @@ export const Collection: React.FC<Props> = ({
   }
 
   async function handleMerge(merge: boolean) {
-    if (!user || !hasPaidAccess) return;
+    if (!user) return;
     try {
       await setDeviceMerge(user.accountId, merge);
       setNeedsMergeChoice(false);
@@ -542,15 +535,10 @@ export const Collection: React.FC<Props> = ({
       </header>
 
       <section className={styles.account}>
-        {user && hasPaidAccess ? (
+        {user ? (
           <div className={styles.signedIn}>
             <p>{isMiddleEarth ? 'Middle-earth memes synced as' : 'Synced as'} <strong>{user.email}</strong></p>
             <button type="button" onClick={() => void handleLogout()}>Sign out</button>
-          </div>
-        ) : user ? (
-          <div className={styles.syncUpgrade}>
-            <p><strong>Local saves are safe on this device.</strong> Cloud sync is available with Founding Member.</p>
-            <button type="button" onClick={onUpgrade}>View membership</button>
           </div>
         ) : (
           <form onSubmit={handleMagicLink}>
@@ -570,7 +558,7 @@ export const Collection: React.FC<Props> = ({
             </div>
           </form>
         )}
-        {needsMergeChoice && hasPaidAccess && (
+        {needsMergeChoice && (
           <div className={styles.mergeChoice}>
             <p>Merge this browser’s grids and saved results into your account?</p>
             <button onClick={() => void handleMerge(true)}>Merge and sync</button>
@@ -599,13 +587,22 @@ export const Collection: React.FC<Props> = ({
         </div>
       ) : (
         <nav className={styles.typeTabs} aria-label="Collection artifact type">
-          <button type="button" aria-current={activeType === 'grids'} onClick={() => setActiveType('grids')}>
+          <button type="button" aria-current={activeType === 'grids'} onClick={() => {
+            setActiveType('grids');
+            onTypeChange?.('grids');
+          }}>
             Grids <span>{grids.length}</span>
           </button>
-          <button type="button" aria-current={activeType === 'results'} onClick={() => setActiveType('results')}>
+          <button type="button" aria-current={activeType === 'results'} onClick={() => {
+            setActiveType('results');
+            onTypeChange?.('results');
+          }}>
             Saved results <span>{cards.length}</span>
           </button>
-          <button type="button" aria-current={activeType === 'builder'} onClick={() => setActiveType('builder')}>
+          <button type="button" aria-current={activeType === 'builder'} onClick={() => {
+            setActiveType('builder');
+            onTypeChange?.('builder');
+          }}>
             Grid Builder
           </button>
         </nav>
@@ -637,11 +634,8 @@ export const Collection: React.FC<Props> = ({
       ) : activeType === 'builder' ? (
         <GridBuilder
           accountId={user?.accountId}
-          isAdmin={isAdmin}
           isMember={isMember}
           onUpgrade={onUpgrade}
-          onCreateFromGrid={onCreateFromGrid}
-          onPacketCreated={() => setActiveType('grids')}
           onExported={() => {
             setActiveType('grids');
             void loadCollection();
@@ -751,20 +745,6 @@ export const Collection: React.FC<Props> = ({
                   >
                     {busyKey === `export:${grid.id}` ? 'Rendering…' : 'Export grid'}
                   </button>
-                  {isAdmin && onCreateFromGrid && (
-                    <CreatorPostAction
-                      entryPoint="saved_grid"
-                      disabled={Boolean(busyKey)}
-                      onSubmit={async platforms => {
-                        setBusyKey(`create:${grid.id}`);
-                        try {
-                          return await onCreateFromGrid(grid, platforms);
-                        } finally {
-                          setBusyKey('');
-                        }
-                      }}
-                    />
-                  )}
                   {!grid.legendaryMisprint && (
                     <button
                       type="button"

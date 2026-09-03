@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { CreatorPostAction } from '../CreatorPostAction/CreatorPostAction';
+import { dbGetVisibleGrids, type GridRecord } from '../../utils/collectionDB';
+import { makeCreatorPostFromGrid } from '../../utils/creatorDraft';
+import { getPublicSession } from '../../utils/publicAccount';
 import styles from './ReleaseDesk.module.css';
 
 type AnyRecord = Record<string, any>;
@@ -33,22 +37,33 @@ const transitionProduction = async (actorId: string, vibeKey: string, stage: str
   return result;
 };
 
+const dailyDropApi = async (init?: RequestInit) => {
+  const response = await fetch('/.netlify/functions/daily-drop-operations', {
+    credentials: 'include',
+    ...init,
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(result?.error || 'Daily Drop operations unavailable.');
+  return result;
+};
+
 export const ReleaseDesk: React.FC = () => {
   const [inventory, setInventory] = useState<AnyRecord | null>(null);
   const [production, setProduction] = useState<AnyRecord | null>(null);
   const [view, setView] = useState<'inventory' | 'production'>('inventory');
+  const [editions, setEditions] = useState<AnyRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
 
-  const loadDesk = () => api().then(result => {
-    setInventory(result.releaseInventory ?? null);
-    setProduction(result.productionReadiness ?? null);
-  });
-
   useEffect(() => {
     let live = true;
-    loadDesk()
-      .then(() => undefined)
+    Promise.all([api(), dailyDropApi()])
+      .then(([auditResult, dailyDropResult]) => {
+        if (!live) return;
+        setInventory(auditResult.releaseInventory ?? null);
+        setProduction(auditResult.productionReadiness ?? null);
+        setEditions(dailyDropResult.editions ?? []);
+      })
       .catch(error => {
         if (live) setNotice(error instanceof Error ? error.message : 'Release inventory could not be loaded.');
       })
@@ -87,9 +102,22 @@ export const ReleaseDesk: React.FC = () => {
           ? production
             ? <ProductionReadiness production={production} onUpdated={setProduction} />
             : <div className={styles.empty}>No production readiness was returned.</div>
-          : inventory
-            ? <ReleaseInventory inventory={inventory} />
+          : <>
+          <WorkstationHandoffDesk />
+          {inventory
+            ? <>
+              <PublicationReceipts
+                editions={editions}
+                onRecorded={edition => {
+                  setEditions(current => current.map(item => (
+                    item.editionId === edition.editionId ? edition : item
+                  )));
+                }}
+              />
+              <ReleaseInventory inventory={inventory} />
+            </>
             : <div className={styles.empty}>No release inventory was returned.</div>}
+        </>}
     </section>
   );
 };
@@ -121,25 +149,97 @@ function ProductionReadiness({
             <ProductionCandidate
               key={`${candidate.actorId}:${candidate.vibeIdx}`}
               candidate={candidate}
-              onUpdated={updated => onUpdated({
-                ...production,
-                candidates: candidates.map(item =>
-                  item.actorId === candidate.actorId && item.vibeIdx === candidate.vibeIdx
-                    ? updated
-                    : item),
-                scheduleEligibleCount: candidates.filter(item =>
-                  item.actorId === candidate.actorId && item.vibeIdx === candidate.vibeIdx
-                    ? updated.scheduleEligible
-                    : item.scheduleEligible).length,
-                blockedCount: candidates.filter(item =>
-                  item.actorId === candidate.actorId && item.vibeIdx === candidate.vibeIdx
-                    ? !updated.scheduleEligible
-                    : !item.scheduleEligible).length,
-              })}
+              onUpdated={onUpdated}
             />
           ))}
         </div>
         : <div className={styles.empty}>No approved candidates are available for production readiness.</div>}
+    </section>
+  );
+}
+
+function WorkstationHandoffDesk() {
+  const [grids, setGrids] = useState<GridRecord[]>([]);
+  const [selectedGridId, setSelectedGridId] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState('');
+
+  useEffect(() => {
+    let live = true;
+    void getPublicSession()
+      .then(async user => {
+        if (!user) throw new Error('Operator session unavailable. Sign in again to load saved grids.');
+        return dbGetVisibleGrids(user.accountId);
+      })
+      .then(records => {
+        if (!live) return;
+        const ordered = [...records].sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+        setGrids(ordered);
+        setSelectedGridId(current => (
+          ordered.some(grid => grid.id === current) ? current : ordered[0]?.id ?? ''
+        ));
+      })
+      .catch(error => {
+        if (live) setNotice(error instanceof Error ? error.message : 'Saved grids could not be loaded.');
+      })
+      .finally(() => {
+        if (live) setLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const selectedGrid = grids.find(grid => grid.id === selectedGridId);
+
+  return (
+    <section className={styles.workstationDesk} aria-labelledby="workstation-handoff-title">
+      <div className={styles.workstationHeader}>
+        <div>
+          <h4 id="workstation-handoff-title">Workstation handoff</h4>
+          <p>Create or update an operator draft from a saved FANDOM grid. This private adapter is not part of the member Collection or Grid Builder.</p>
+        </div>
+        <strong>Operator only</strong>
+      </div>
+
+      {loading
+        ? <p className={styles.workstationNotice} aria-live="polite">Loading saved grids…</p>
+        : notice
+          ? <p className={styles.workstationNotice} role="alert">{notice}</p>
+          : grids.length === 0
+            ? <p className={styles.workstationNotice}>No saved grids are available on this device. Save or sync one in FANDOM Collection before opening Release Desk.</p>
+            : (
+              <div className={styles.workstationControls}>
+                <div className={styles.gridSelection}>
+                  <label htmlFor="workstation-grid">Saved FANDOM grid</label>
+                  <select
+                    id="workstation-grid"
+                    value={selectedGridId}
+                    onChange={event => setSelectedGridId(event.target.value)}
+                  >
+                    {grids.map(grid => (
+                      <option key={grid.id} value={grid.id}>
+                        {grid.capturedDate} · {grid.actor} · {grid.vibe}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedGrid && (
+                    <p>
+                      {selectedGrid.images.length} source result{selectedGrid.images.length === 1 ? '' : 's'}
+                      {' · '}{selectedGrid.rendererVersion}
+                    </p>
+                  )}
+                </div>
+                <CreatorPostAction
+                  entryPoint="operator_console"
+                  disabled={!selectedGrid}
+                  onSubmit={(platforms, onProgress) => {
+                    if (!selectedGrid) throw new Error('Select a saved grid before continuing.');
+                    return makeCreatorPostFromGrid(selectedGrid, platforms, onProgress);
+                  }}
+                />
+              </div>
+          )}
     </section>
   );
 }
@@ -211,6 +311,130 @@ function ReadinessItem({ label, value }: { label: string; value?: AnyRecord }) {
   return <div className={styles.readinessItem} data-status={value?.status || 'blocked'}><span>{label}</span><strong>{complete ? 'Complete' : value?.status === 'pending' ? 'Pending' : 'Blocked'}</strong>{!complete && <small>{value?.reason}</small>}</div>;
 }
 
+function PublicationReceipts({
+  editions,
+  onRecorded,
+}: {
+  editions: AnyRecord[];
+  onRecorded: (edition: AnyRecord) => void;
+}) {
+  const [publicationDate, setPublicationDate] = useState(editions[0]?.publicationDate ?? '');
+  const [channel, setChannel] = useState('rednote');
+  const [publicUrl, setPublicUrl] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState('');
+
+  useEffect(() => {
+    if (
+      editions[0]?.publicationDate
+      && !editions.some(edition => edition.publicationDate === publicationDate)
+    ) {
+      setPublicationDate(editions[0].publicationDate);
+    }
+  }, [editions, publicationDate]);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setNotice('');
+    try {
+      const result = await dailyDropApi({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'record_publication_receipt',
+          publicationDate,
+          channel,
+          publicUrl,
+        }),
+      });
+      onRecorded(result.edition);
+      setPublicUrl('');
+      setNotice('Publication receipt attached to the immutable edition.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Publication receipt could not be recorded.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editions.length === 0) {
+    return (
+      <section className={styles.receipts}>
+        <h4>Publication receipts</h4>
+        <p>No immutable Daily Drop editions are available yet.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className={styles.receipts} aria-labelledby="publication-receipts-title">
+      <div className={styles.receiptsHeader}>
+        <div>
+          <h4 id="publication-receipts-title">Publication receipts</h4>
+          <p>Attach each native social post to the exact Fandom-owned edition that produced it.</p>
+        </div>
+        <strong>{editions.length} recent editions</strong>
+      </div>
+
+      <div className={styles.editionLedger}>
+        {editions.slice(0, 7).map(edition => (
+          <article key={edition.editionId}>
+            <div>
+              <strong>{formatEditionDate(edition.publicationDate)}</strong>
+              <span>{edition.actor?.name} · {edition.vibe?.label}</span>
+            </div>
+            <div className={styles.receiptChannels}>
+              {['rednote', 'weibo', 'instagram'].map(receiptChannel => {
+                const receipt = edition.publicationReceipts?.find(
+                  (item: AnyRecord) => item.channel === receiptChannel,
+                );
+                return receipt
+                  ? <a key={receiptChannel} href={receipt.publicUrl} target="_blank" rel="noreferrer">{receiptChannel} ↗</a>
+                  : <span key={receiptChannel}>{receiptChannel}</span>;
+              })}
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <form className={styles.receiptForm} onSubmit={submit}>
+        <label>
+          Edition
+          <select value={publicationDate} onChange={event => setPublicationDate(event.target.value)}>
+            {editions.map(edition => (
+              <option key={edition.editionId} value={edition.publicationDate}>
+                {edition.publicationDate} · {edition.actor?.shortNameEn}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Channel
+          <select value={channel} onChange={event => setChannel(event.target.value)}>
+            <option value="rednote">RedNote</option>
+            <option value="weibo">Weibo</option>
+            <option value="instagram">Instagram</option>
+          </select>
+        </label>
+        <label className={styles.receiptUrl}>
+          Published post URL
+          <input
+            type="url"
+            value={publicUrl}
+            onChange={event => setPublicUrl(event.target.value)}
+            placeholder="https://…"
+            required
+          />
+        </label>
+        <button type="submit" disabled={saving}>
+          {saving ? 'Recording…' : 'Record receipt'}
+        </button>
+      </form>
+      {notice && <p className={styles.receiptNotice} role="status">{notice}</p>}
+    </section>
+  );
+}
 function nextShanghaiNoonLabel(now = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai',

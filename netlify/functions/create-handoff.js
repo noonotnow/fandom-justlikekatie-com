@@ -1,7 +1,8 @@
 import { getBlobStore } from "./lib/blob-store.js";
-import { createCreateHandoffHandler } from "./lib/create-handoff.js";
+import { createWorkstationHandoffHandler } from "./lib/workstation-handoff.js";
 import { createPublicAuth } from "./lib/public-auth.js";
 
 const auth = createPublicAuth({ getStore: getBlobStore });
 
-export default createCreateHandoffHandler({ getStore: getBlobStore, auth });
+// Temporary same-origin rollout alias. It still targets Workstation exclusively.
+export default createWorkstationHandoffHandler({ getStore: getBlobStore, auth });

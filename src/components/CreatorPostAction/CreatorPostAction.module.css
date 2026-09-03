@@ -52,3 +52,28 @@
 .recovery p, .recovery span { margin: 0; line-height: 1.4; }
 .recovery nav { display: flex; flex-wrap: wrap; gap: 8px 14px; }
 .recovery a { color: #9b762e; font-weight: 700; text-underline-offset: 3px; }
+.recovery nav button {
+  min-height: 32px;
+  padding: 4px 9px;
+  border: 1px solid #9b762e;
+  border-radius: 6px;
+  color: #9b762e;
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+}
+.failures { display: grid; gap: 7px; margin: 2px 0; padding-inline-start: 22px; }
+.failures li { padding-inline-start: 2px; }
+.failures li, .failures li span { overflow-wrap: anywhere; }
+.failures li span { display: block; color: color-mix(in srgb, currentColor 72%, transparent); }
+.ready {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, #9b762e 55%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, #c9a96e 12%, transparent);
+  font-size: .78rem;
+}
+.ready p { margin: 0; line-height: 1.4; overflow-wrap: anywhere; }
+.ready a { color: #9b762e; font-weight: 700; text-underline-offset: 3px; }

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { createMembershipCheckout, getMembershipStatus } from '../src/utils/membership.ts';
 
 test('membership client exposes only a safe active entitlement', async () => {
@@ -32,4 +33,19 @@ test('membership checkout uses the authenticated checkout endpoint', async () =>
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('free accounts own cloud sync while premium creation remains membership-gated', async () => {
+  const [collectionSource, membershipSource, syncFunction] = await Promise.all([
+    readFile(new URL('../src/components/Collection/Collection.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/Membership/Membership.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../netlify/functions/collection-sync.js', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(collectionSource, /shouldSync = decided && await shouldSyncCollection/);
+  assert.match(collectionSource, /activeType === 'builder' && !isMember/);
+  assert.doesNotMatch(collectionSource, /Cloud sync is available with Founding Member/);
+  assert.match(membershipSource, /Full Collection sync after sign-in/);
+  assert.doesNotMatch(membershipSource, /Cloud Collection sync across devices/);
+  assert.doesNotMatch(syncFunction, /createEntitlementChecker|requireMembership/);
 });

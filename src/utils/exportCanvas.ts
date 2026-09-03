@@ -819,6 +819,10 @@ function logGridExportFireAndForget(payload: ExportPayload, tier: string): void 
 }
 
 export type ExportAction = 'share' | 'download';
+export interface ShareCardResult {
+  message: string;
+  outcome: 'shared' | 'downloaded';
+}
 
 async function createAndLogExport(
   data: StarOfDayData,
@@ -854,7 +858,7 @@ export async function exportShareCard(
   data: StarOfDayData,
   variant: ExportVariant = 'full',
   onBlob?: (blob: Blob) => void,
-): Promise<string> {
+): Promise<ShareCardResult> {
   const { artifact } = await createAndLogExport(data, variant);
   notifyExportBlob(onBlob, artifact.blob);
   const canShareFiles = typeof navigator !== 'undefined'
@@ -864,7 +868,10 @@ export async function exportShareCard(
 
   if (!canShareFiles) {
     downloadExportArtifact(artifact);
-    return '此设备不支持直接分享图片，PNG 已下载 · File sharing unavailable; PNG downloaded';
+    return {
+      message: '此设备不支持直接分享图片，PNG 已下载 · File sharing unavailable; PNG downloaded',
+      outcome: 'downloaded',
+    };
   }
 
   try {
@@ -873,7 +880,7 @@ export async function exportShareCard(
       title: '今日氛围图鉴',
       text: '🔮 今日之星 · 氛围格子',
     });
-    return '分享成功 ✓';
+    return { message: '分享成功 ✓', outcome: 'shared' };
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw new Error('分享已取消，未下载文件 · Share cancelled; nothing downloaded');

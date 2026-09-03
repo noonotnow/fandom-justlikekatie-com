@@ -292,6 +292,9 @@ function responseBody(
 async function configureNetwork(page: Page): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
+  exportRequests: AnyRecord[];
+  getMediaUploads: () => number;
+  getCollectionSyncRequests: () => AnyRecord[];
 }> {
   let activeRunId: string | null = null;
   let savedBoard: AnyRecord | undefined;
@@ -300,6 +303,9 @@ async function configureNetwork(page: Page): Promise<{
   let revealed = false;
   const auditRequests: AnyRecord[] = [];
   const calibrationRequests: AnyRecord[] = [];
+  const exportRequests: AnyRecord[] = [];
+  const collectionSyncRequests: AnyRecord[] = [];
+  let mediaUploads = 0;
 
   await page.route('**/api/auth/session', route => route.fulfill({
     contentType: 'application/json',
@@ -329,6 +335,45 @@ async function configureNetwork(page: Page): Promise<{
     contentType: 'application/json',
     body: JSON.stringify({ state: 'inactive', isMember: false }),
   }));
+  await page.route('**/.netlify/functions/image-proxy?*', route => route.fulfill({
+    contentType: 'image/png',
+    body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'),
+  }));
+  await page.route('**/api/collection/media?*', route => {
+    mediaUploads += 1;
+    const itemId = new URL(route.request().url()).searchParams.get('itemId') || '';
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        media: {
+          schemaVersion: 1,
+          assetId: `11111111-1111-4111-8111-${String(mediaUploads).padStart(12, '0')}`,
+          deliveryUrl: `https://media.justlikekatie.com/images/sha256/rescue-${mediaUploads}.png`,
+          thumbnailUrl: `https://media.justlikekatie.com/images/sha256/rescue-${mediaUploads}-thumb.png`,
+          mimeType: 'image/png',
+          sizeBytes: 68,
+          checksum: String(mediaUploads).padStart(64, 'a').slice(-64),
+          dimensions: { width: 1, height: 1 },
+          association: { type: 'collection', id: 'vibe-atlas', itemId },
+        },
+      }),
+    });
+  });
+  await page.route('**/api/collection/sync', route => {
+    const request = route.request().postDataJSON() as AnyRecord;
+    collectionSyncRequests.push(request);
+    const operation = request.operations[0];
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        cursor: collectionSyncRequests.length,
+        items: [{ ...operation.item, id: 'rescue-grid-1', localId: operation.localId }],
+        tombstones: [],
+        mappings: { [operation.localId]: 'rescue-grid-server-1' },
+        acknowledgedMutationIds: [operation.mutationId],
+      }),
+    });
+  });
   await page.route('**/.netlify/functions/actor-audits**', async route => {
     const request = route.request();
     const url = new URL(request.url());
@@ -444,6 +489,35 @@ async function configureNetwork(page: Page): Promise<{
       });
       return;
     }
+    if (input.action === 'export_rescue_board') {
+      exportRequests.push(input);
+      assert.equal(input.runId, 'run-1');
+      assert.equal(input.receiptId, RESCUE_RECEIPT_ID);
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          rescueExport: {
+            gridId: 'rescue-grid-1',
+            runId: 'run-1',
+            receiptId: RESCUE_RECEIPT_ID,
+            arrangedAt: '2026-08-31T12:01:00.000Z',
+            exportedAt: '2026-08-31T12:02:00.000Z',
+            actor: { id: ACTOR_ID, name: 'Browser Test Actor', nameEn: 'Browser Test Actor', accentColor: '#123456' },
+            vibe: {
+              key: VIBE_KEY,
+              label: 'Browser Calibration Vibe',
+              labelEn: 'Browser Calibration Vibe',
+              emoji: '🧪',
+              subtitle: '',
+              subtitleEn: '',
+              searchSpell: 'browser calibration query',
+            },
+            candidates: candidates(),
+          },
+        }),
+      });
+      return;
+    }
     if (input.action === 'mark_rescue_calibration') {
       calibrationRequests.push(input);
       assert.equal(input.runId, 'run-1');
@@ -464,7 +538,13 @@ async function configureNetwork(page: Page): Promise<{
     throw new Error(`Unexpected actor audit action: ${String(input.action)}`);
   });
 
-  return { auditRequests, calibrationRequests };
+  return {
+    auditRequests,
+    calibrationRequests,
+    exportRequests,
+    getMediaUploads: () => mediaUploads,
+    getCollectionSyncRequests: () => collectionSyncRequests,
+  };
 }
 
 function completeCompiledHeroReviewRun(runId = 'complete-hero-review'): AnyRecord {
@@ -556,6 +636,44 @@ async function configureCompleteHeroReviewNetwork(
     contentType: 'application/json',
     body: JSON.stringify({ state: 'inactive', isMember: false }),
   }));
+  await page.route('**/.netlify/functions/image-proxy?*', route => route.fulfill({
+    contentType: 'image/png',
+    body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'),
+  }));
+  let mediaUploads = 0;
+  await page.route('**/api/collection/media?*', route => {
+    mediaUploads += 1;
+    const itemId = new URL(route.request().url()).searchParams.get('itemId') || '';
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        media: {
+          schemaVersion: 1,
+          assetId: `11111111-1111-4111-8111-${String(mediaUploads).padStart(12, '0')}`,
+          deliveryUrl: `https://media.justlikekatie.com/images/sha256/rescue-${mediaUploads}.png`,
+          thumbnailUrl: `https://media.justlikekatie.com/images/sha256/rescue-${mediaUploads}-thumb.png`,
+          mimeType: 'image/png',
+          sizeBytes: 68,
+          checksum: String(mediaUploads).padStart(64, 'a').slice(-64),
+          dimensions: { width: 1, height: 1 },
+          association: { type: 'collection', id: 'vibe-atlas', itemId },
+        },
+      }),
+    });
+  });
+  await page.route('**/api/collection/sync', route => {
+    const operation = (route.request().postDataJSON() as AnyRecord).operations[0];
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        cursor: 1,
+        items: [{ ...operation.item, id: 'rescue-grid-1', localId: operation.localId }],
+        tombstones: [],
+        mappings: { [operation.localId]: 'rescue-grid-server-1' },
+        acknowledgedMutationIds: [operation.mutationId],
+      }),
+    });
+  });
   await page.route('**/.netlify/functions/actor-audits**', async route => {
     const request = route.request();
     const url = new URL(request.url());
@@ -651,6 +769,26 @@ async function configureCompleteHeroReviewNetwork(
       });
       return;
     }
+    if (input.action === 'export_rescue_board') {
+      assert.equal(input.runId, 'complete-hero-review');
+      assert.equal(input.receiptId, RESCUE_RECEIPT_ID);
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          rescueExport: {
+            gridId: 'rescue-grid-1',
+            runId: 'complete-hero-review',
+            receiptId: RESCUE_RECEIPT_ID,
+            arrangedAt: '2026-08-31T12:01:00.000Z',
+            exportedAt: '2026-08-31T12:02:00.000Z',
+            actor: { id: ACTOR_ID, name: 'Browser Test Actor', nameEn: 'Browser Test Actor', accentColor: '#123456' },
+            vibe: { key: VIBE_KEY, label: 'Browser Calibration Vibe', labelEn: 'Browser Calibration Vibe', emoji: '🧪', subtitle: '', subtitleEn: '', searchSpell: 'browser calibration query' },
+            candidates: candidates(),
+          },
+        }),
+      });
+      return;
+    }
     if (input.action === 'verdict') {
       verdictRequests.push(input);
       assert.equal(input.runId, 'complete-hero-review');
@@ -724,11 +862,17 @@ async function configureCompleteHeroReviewNetwork(
   return { saveRequests, verdictRequests };
 }
 
-test('a signed-in operator keeps ordinary rescue records separate from calibration proof', { timeout: 60_000 }, async () => {
+test('a signed-in operator saves a rescue board to Collection without calibrating it', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();
   const page = await browser.newPage();
-  const { auditRequests, calibrationRequests } = await configureNetwork(page);
+  const {
+    auditRequests,
+    calibrationRequests,
+    exportRequests,
+    getMediaUploads,
+    getCollectionSyncRequests,
+  } = await configureNetwork(page);
 
   try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
@@ -749,13 +893,19 @@ test('a signed-in operator keeps ordinary rescue records separate from calibrati
     for (let index = 0; index < 9; index += 1) {
       await addButtons.first().click();
     }
-    await page.getByRole('button', { name: 'Save my nine', exact: true }).click();
+    await page.getByRole('button', { name: 'Save my nine to Collection', exact: true }).click();
+    await page.getByText('Rescue board saved and synced to Collection.', { exact: false }).waitFor();
     await page.getByText('Saved rescue records', { exact: true }).waitFor();
     assert.equal(
-      await page.getByText('Each record is immutable and records-only by default.', { exact: false }).isVisible(),
+      await page.getByText('Each record is immutable and saves to Collection automatically.', { exact: false }).isVisible(),
       true,
-      'an ordinary rescue save must remain records-only',
+      'the saved record should explain its automatic Collection persistence',
     );
+    assert.equal(exportRequests.length, 1, 'saving the board should export its exact receipt');
+    assert.equal(getMediaUploads(), 9, 'all nine rescue images should be copied into MEDIA');
+    assert.equal(getCollectionSyncRequests().length, 1, 'the saved rescue grid should sync to the operator account');
+    assert.equal(getCollectionSyncRequests()[0].operations.length, 1, 'only the rescue grid should be synced');
+    assert.equal(getCollectionSyncRequests()[0].operations[0].item.id, 'rescue-grid-1');
     assert.equal(
       await page.getByRole('button', { name: 'Use as calibration evidence', exact: true }).count(),
       2,
@@ -766,6 +916,12 @@ test('a signed-in operator keeps ordinary rescue records separate from calibrati
       0,
       'saving a rescue board must not calibrate it implicitly',
     );
+
+    await page.getByRole('tab', { name: 'Release Desk', exact: true }).click();
+    const savedGrid = page.getByLabel('Saved FANDOM grid');
+    await savedGrid.waitFor();
+    assert.equal(await savedGrid.inputValue(), 'rescue-grid-1', 'the rescue grid should be selectable for Workstation handoff');
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
 
     await page.getByRole('button', { name: 'Use as calibration evidence', exact: true }).first().click();
     await page.getByRole('button', { name: 'Calibration evidence confirmed', exact: true }).first().waitFor();
@@ -822,7 +978,7 @@ test('a stale rescue approval keeps the recovery form visible without showing pu
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
 
-    await page.getByRole('button', { name: 'Save my nine', exact: true }).click();
+    await page.getByRole('button', { name: 'Save my nine to Collection', exact: true }).click();
     await page.getByText('Saved rescue records', { exact: true }).waitFor();
     await page.getByLabel('Publication decision').selectOption('approved');
     const vibeConfirmation = page.getByLabel('Yes, that’s the Vibe.');
@@ -873,7 +1029,7 @@ test('a newer current audit keeps the approval draft intact until the operator r
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
 
-    await page.getByRole('button', { name: 'Save my nine', exact: true }).click();
+    await page.getByRole('button', { name: 'Save my nine to Collection', exact: true }).click();
     await page.getByText('Saved rescue records', { exact: true }).waitFor();
     await page.getByLabel('Publication decision').selectOption('approved');
     const notes = page.getByLabel('Operator notes');
@@ -951,7 +1107,7 @@ test('a newer current audit keeps the rescue-board arrangement intact until the 
       'the rescue picker must keep all nine choices visible',
     );
 
-    await page.getByRole('button', { name: 'Save my nine', exact: true }).click();
+    await page.getByRole('button', { name: 'Save my nine to Collection', exact: true }).click();
     await page.getByText(
       'Only the current audit run can save an Operator Rescue Board.',
       { exact: true },
@@ -1048,7 +1204,7 @@ test('an admin can hand off a complete compiled proposal that needs hero review'
       candidate(0).title,
     );
 
-    const saveButton = page.getByRole('button', { name: 'Save my nine', exact: true });
+    const saveButton = page.getByRole('button', { name: 'Save my nine to Collection', exact: true });
     assert.equal(await saveButton.isEnabled(), true, 'the complete edited board must enable saving');
     await saveButton.click();
     await page.getByText('Saved rescue records', { exact: true }).waitFor();
