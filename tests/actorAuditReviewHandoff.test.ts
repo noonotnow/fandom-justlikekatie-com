@@ -33,6 +33,8 @@ function functionBody(name: string): string {
 
 const startAudit = functionBody('startAudit');
 const markRescueCalibration = functionBody('markRescueCalibration');
+const saveRescueBoard = functionBody('saveRescueBoard');
+const saveRescueReceiptToCollection = functionBody('saveRescueReceiptToCollection');
 const requestedReviewStart = source.indexOf('function RequestedGridReview');
 const requestedReviewEnd = source.indexOf('\nfunction PartialBoards', requestedReviewStart);
 const requestedReview = source.slice(requestedReviewStart, requestedReviewEnd);
@@ -121,15 +123,16 @@ test('the Release Desk shows grouped release depth and the Shanghai noon cutoff'
 });
 
 test('saved rescue history exposes immutable records and Collection exports', () => {
-  const exportBody = functionBody('exportRescueBoard');
-  assert.match(exportBody, /action:'export_rescue_board'/);
-  assert.match(exportBody, /dbSaveGrid\(grid\)/);
-  assert.match(exportBody, /getPublicSession\(\)/);
-  assert.match(exportBody, /syncPublicGrid\(session,grid\.id\)/);
+  assert.match(saveRescueBoard, /saveRescueReceiptToCollection\(currentRun\.runId,receiptId\)/);
+  assert.match(saveRescueReceiptToCollection, /action:'export_rescue_board'/);
+  assert.match(saveRescueReceiptToCollection, /dbSaveGrid\(grid\)/);
+  assert.match(saveRescueReceiptToCollection, /persistGridImagesToMedia\(grid\)/);
+  assert.match(saveRescueReceiptToCollection, /getPublicSession\(\)/);
+  assert.match(saveRescueReceiptToCollection, /syncPublicGrid\(session,grid\.id\)/);
   assert.match(source, /operatorRescueBoards/);
   assert.match(source, /Saved rescue records/);
-  assert.match(source, /Each record is immutable/);
-  assert.match(source, /Export this board/);
+  assert.match(source, /Each record is immutable and saves to Collection automatically/);
+  assert.match(source, /Retry Collection save/);
   assert.match(source, /Viewing saved arrangement/);
   assert.match(source, /Use as starting point/);
   assert.match(source, /read-only record/);
@@ -139,7 +142,7 @@ test('saved rescue history exposes immutable records and Collection exports', ()
   assert.match(draftSeed, /reviewCandidates/);
   assert.doesNotMatch(draftSeed, /saved|operatorRescueBoard/);
   assert.match(source, /savedMatchesCurrentFeedback&&saved/);
-  assert.match(source, /Export saved board to Collection/);
+  assert.match(source, /Save my nine to Collection/);
   assert.match(source, /resultId: candidate\.candidateId/);
   assert.match(source, /gridPosition/);
 });
@@ -158,7 +161,7 @@ test('legacy audits are visibly historical and require a fresh audit', () => {
 test('rescue calibration is explicit, future-facing, and reports transfer proof', () => {
   assert.match(markRescueCalibration, /action:'mark_rescue_calibration'/);
   assert.match(markRescueCalibration, /fresh audit must reproduce its signals beyond these exact nine/i);
-  assert.match(source, /records-only by default/i);
+  assert.match(source, /Calibration remains a separate choice/i);
   assert.match(source, /Use as calibration evidence/);
   assert.match(source, /calibrationEvidence/);
   assert.match(source, /Operator-derived curation signals/);
