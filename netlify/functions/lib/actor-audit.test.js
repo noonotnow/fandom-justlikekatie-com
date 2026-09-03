@@ -21,6 +21,8 @@ import {
   auditRunPrefix,
   auditVerdictPrefix,
   eligibilityKey,
+  productionReceiptPrefix,
+  productionStateKey,
 } from "./actor-eligibility.js";
 import {
   compareCalibrationOutcomes,
@@ -173,6 +175,7 @@ function searchResults(query) {
 function curation({
   sufficient = true,
   curationFailure = false,
+  heroReview = false,
   hardRejected = false,
   unavailableRejected = false,
   duplicateRejected = false,
@@ -247,6 +250,9 @@ function curation({
         || Number(Boolean(left.calibration?.negative?.length))
         - Number(Boolean(right.calibration?.negative?.length)))
       : uniqueCandidates).slice(0, 9);
+    if (heroReview && boardCandidates[4]) {
+      boardCandidates[4].promise.heroSatisfied = false;
+    }
     const dropped = unavailableRejected && rawCandidates[0]
       ? [{ ...rawCandidates[0], dropReason: "image_load_failed", dropDetail: "The source did not return image bytes." }]
       : hardRejected && rawCandidates[0]
@@ -308,6 +314,41 @@ function curation({
       receipt: { rawCount: rawCandidates.length, analyzedCount: sufficient || curationFailure ? rawCandidates.length : 0, curationVersion: CURATION_VERSION },
     },
     };
+    if (heroReview) {
+      output.displayResults = [];
+      output.curation = null;
+      output.diagnostics.strongestEvent = null;
+      output.diagnostics.strongestCompiled = null;
+      output.diagnostics.boardDiagnostics = {
+        event: {
+          available: false,
+          completeProposalAvailable: false,
+          proposal: null,
+          requiredCount: 9,
+          candidateCount: 0,
+          reasonCode: "no_bounded_role_family",
+          summary: "No bounded work or role family produced enough distinct frames for an Event board.",
+        },
+        compiled: {
+          available: false,
+          completeProposalAvailable: true,
+          proposal: {
+            score: 0.8,
+            promise: { coreCount: 9, heroFulfillment: 0 },
+            candidates: boardCandidates,
+          },
+          requiredCount: 9,
+          candidateCount: 0,
+          coreAnchorCount: 9,
+          heroFulfillment: 0,
+          reasonCodes: ["hero_not_fulfilled"],
+          reasonCode: "hero_not_fulfilled",
+          summary: "Compiled formed a complete 9-card proposal and all 9 cards fulfilled the required anchors, but the proposed hero was not recognized. The proposal remains available for human review.",
+        },
+      };
+      output.diagnostics.winner = null;
+      output.diagnostics.alternate = null;
+    }
     if (options.calibrationControl) {
       const controlRanks = options.calibrationControl.batchRanks || {};
       const controlCandidates = [...uniqueCandidates]
@@ -376,6 +417,7 @@ function curation({
 function harness({
   sufficient = true,
   curationFailure = false,
+  heroReview = false,
   hardRejected = false,
   unavailableRejected = false,
   duplicateRejected = false,
@@ -407,6 +449,7 @@ function harness({
   const curateFixture = curation({
     sufficient,
     curationFailure,
+    heroReview,
     hardRejected,
     unavailableRejected,
     duplicateRejected,
@@ -540,6 +583,83 @@ test("release inventory groups current curator approvals by actor pack", async (
   assert.equal(body.releaseInventory.unusedWithinRecentWindowPairingCount, 1);
   assert.equal(body.releaseInventory.actorPacks[0].releaseReadyPairingCount, 1);
   assert.equal(body.releaseInventory.actorPacks[0].pairings[0].releaseSource, "fresh_curator");
+});
+
+test("production readiness appends receipts without mutating the approved audit", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  await handler(request("POST", {
+    action: "verdict", actorId: pairActor.id, vibeKey, runId: "run-1", verdict: "approved",
+  }), {});
+
+  const before = await handler(request(), {});
+  const initial = (await before.json()).productionReadiness;
+  assert.equal(initial.candidateCount, 1);
+  assert.equal(initial.scheduleEligibleCount, 0);
+  assert.equal(initial.candidates[0].exactNineFrozen.status, "complete");
+  assert.deepEqual(
+    initial.candidates[0].blockers.map(blocker => blocker.stage),
+    ["asset", "enhancement", "render", "copy", "provenanceRights", "scheduleEligibility"],
+  );
+
+  let previousReceiptId = null;
+  for (const stage of ["asset", "enhancement", "render", "copy", "provenanceRights"]) {
+    const response = await handler(request("POST", {
+      action: "production_transition",
+      actorId: pairActor.id,
+      vibeKey,
+      stage,
+      status: "complete",
+      reason: `${stage} verified`,
+    }), {});
+    const body = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(body));
+    assert.equal(body.productionReadiness.receipt.previousReceiptId, previousReceiptId);
+    previousReceiptId = body.productionReadiness.receipt.receiptId;
+  }
+
+  const after = await handler(request(), {});
+  const body = await after.json();
+  assert.equal(body.productionReadiness.scheduleEligibleCount, 1);
+  assert.equal(body.productionReadiness.candidates[0].scheduleEligible, true);
+  assert.equal(body.productionReadiness.candidates[0].blockers.length, 0);
+  assert.equal(body.actors[0].pairings[0].verdict, "approved");
+  assert.equal(
+    store.records.get(productionStateKey(pairActor.id, 0, "run-1")).currentReceiptId,
+    previousReceiptId,
+  );
+  assert.equal(
+    [...store.records.keys()].filter(key =>
+      key.startsWith(productionReceiptPrefix(pairActor.id, 0, "run-1"))).length,
+    5,
+  );
+  assert.equal(
+    [...store.records.keys()].filter(key => key.startsWith(auditVerdictPrefix(pairActor.id, 0, "run-1"))).length,
+    1,
+  );
+});
+
+test("production transitions fail closed for candidates without a current approval", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const response = await handler(request("POST", {
+    action: "production_transition",
+    actorId: pairActor.id,
+    vibeKey,
+    stage: "asset",
+    status: "complete",
+  }), {});
+  assert.equal(response.status, 409);
+  assert.equal(
+    [...store.records.keys()].some(key => key.startsWith(productionReceiptPrefix(pairActor.id, 0, "run-1"))),
+    false,
+  );
 });
 
 test("release inventory privately marks a release-ready pairing used in a recent Daily Drop", async () => {
@@ -1076,8 +1196,8 @@ test("an approved rescue backfill uses direct canonical reads when blob listings
   assert.equal(store.records.get(publicationKey).displayResults.length, 9);
 });
 
-test("rescue preference cannot point at a missing or stale rescue board", async () => {
-  const { handler } = harness();
+test("rescue approval cannot point at a missing or stale rescue board", async () => {
+  const { handler, store } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   await handler(request("POST", {
     action: "run", actorId: pairActor.id, vibeKey, scope: "full",
@@ -1102,6 +1222,51 @@ test("rescue preference cannot point at a missing or stale rescue board", async 
   }), {});
   assert.equal(response.status, 409);
   assert.match((await response.json()).error, /stale or unavailable/i);
+
+  const detailResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const detail = await detailResponse.json();
+  const candidateIds = detail.currentRun.rawResults
+    .slice(0, 9)
+    .map(candidate => candidate.candidateId);
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds,
+  }), {});
+  const saved = await saveResponse.json();
+  assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+  const receiptId = saved.currentRun.editorialFeedback.operatorRescueBoard.receiptId;
+  const receiptKey = auditRescueBoardKey(pairActor.id, 0, "run-1", receiptId);
+  const staleReceipt = store.records.get(receiptKey);
+  staleReceipt.feedbackHash = "stale-feedback-hash";
+  store.records.set(receiptKey, staleReceipt);
+
+  const staleResponse = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+    vibeConfirmed: true,
+    publishableConfirmed: true,
+    rescuePreferred: true,
+    rescueReceiptId: receiptId,
+  }), {});
+  const staleBody = await staleResponse.json();
+  assert.equal(staleResponse.status, 409);
+  assert.match(staleBody.error, /selected rescue board is stale or unavailable/i);
+  assert.equal(
+    [...store.records.keys()].some(key =>
+      key.startsWith(auditRescuePreferencePrefix(pairActor.id, 0, "run-1"))),
+    false,
+    "a stale rescue approval must not create a preference receipt",
+  );
 });
 
 test("approved overrides cannot impersonate the two human confirmations", async () => {
@@ -2826,6 +2991,94 @@ test("a saved retained-evidence board can be approved without a curator comparis
   assert.equal(inventory.actorPacks[0].pairings[0].releaseSource, "rescue_backup");
 });
 
+test("a complete Compiled proposal with only a failed hero stays visible and reviewable", async () => {
+  const { handler, store } = harness({ sufficient: true, heroReview: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const report = await runResponse.json();
+
+  assert.equal(runResponse.status, 200, JSON.stringify(report));
+  assert.equal(report.currentRun.blindReview.status, "unavailable");
+  assert.equal(report.currentRun.strongestEvent, null);
+  assert.equal(report.currentRun.strongestCompiled, null);
+  assert.equal(report.currentRun.displayCount, 0);
+  assert.equal(report.currentRun.completeProposalCardCount, 9);
+  assert.equal(report.currentRun.materialSufficient, false);
+  assert.equal(report.currentRun.suggestedState, "needs_operator_verdict");
+  assert.equal(report.currentRun.boardDiagnostics.event.reasonCode, "no_bounded_role_family");
+  assert.equal(report.currentRun.boardDiagnostics.event.proposal, null);
+  assert.equal(report.currentRun.boardDiagnostics.compiled.reasonCode, "hero_not_fulfilled");
+  assert.equal(report.currentRun.boardDiagnostics.compiled.coreAnchorCount, 9);
+  assert.equal(report.currentRun.boardDiagnostics.compiled.proposal.candidates.length, 9);
+
+  const proposedIds = report.currentRun.boardDiagnostics.compiled.proposal.candidates
+    .map(candidate => candidate.candidateId);
+  const reorderedIds = [
+    proposedIds[0],
+    proposedIds[1],
+    proposedIds[2],
+    proposedIds[3],
+    proposedIds[0],
+    proposedIds[5],
+    proposedIds[6],
+    proposedIds[7],
+    proposedIds[8],
+  ];
+  const replacementId = report.currentRun.rawResults
+    .find(candidate => !proposedIds.includes(candidate.candidateId))?.candidateId;
+  reorderedIds[4] = replacementId;
+
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds: reorderedIds,
+  }), {});
+  const saved = await saveResponse.json();
+  assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+  const receiptId = saved.currentRun.editorialFeedback.operatorRescueBoard.receiptId;
+  assert.deepEqual(
+    saved.currentRun.editorialFeedback.operatorRescueBoard.board.candidates
+      .map(candidate => candidate.candidateId),
+    reorderedIds,
+  );
+
+  const approvalResponse = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+    vibeConfirmed: true,
+    publishableConfirmed: true,
+    rescuePreferred: true,
+    rescueReceiptId: receiptId,
+  }), {});
+  const approval = await approvalResponse.json();
+  assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+  assert.equal(approval.currentRun.operatorVerdict.publicationSource.type, "operator_rescue");
+  assert.equal(
+    approval.currentRun.operatorVerdict.publicationSource.rescueReceiptId,
+    receiptId,
+  );
+  assert.deepEqual(
+    approval.currentRun.editorialFeedback.operatorRescueBoard.board.candidates
+      .map(candidate => candidate.candidateId),
+    reorderedIds,
+    "approval must retain the exact saved rescue arrangement",
+  );
+  assert.equal(approval.currentRun.strongestCompiled, null);
+  assert.equal(approval.currentRun.winner, null);
+  assert.equal(
+    store.records.get(eligibilityKey(pairActor.id, 0)).publicationSource.rescueReceiptId,
+    receiptId,
+    "eligibility must point to the approved rescue receipt rather than the failed curator board",
+  );
+});
+
 test("an approval from a legacy profile contract is visibly marked for reapproval", async () => {
   assert.equal(CURATION_VERSION, PREVIOUS_CURATION_VERSION + 1);
   const { handler, store } = harness();
@@ -3154,5 +3407,57 @@ test("a verdict racing a newer run cannot restore stale eligibility", async () =
   }), {});
 
   assert.equal(response.status, 409);
+  assert.match(
+    (await response.clone().json()).error,
+    /newer audit run became current/i,
+  );
   assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).eligible, false);
+});
+
+test("a rescue board from an older run is rejected after a newer audit becomes current", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+
+  const choice = await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    choice: "compiled",
+  }), {});
+  assert.equal(choice.status, 200);
+  const revealedDetail = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const revealedReport = await revealedDetail.json();
+  const candidateIds = revealedReport.currentRun.rawResults
+    .slice(0, 9)
+    .map(candidate => candidate.candidateId);
+
+  const newerRun = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "representative",
+  }), {});
+  assert.equal(newerRun.status, 200);
+
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds,
+  }), {});
+  const saveBody = await saveResponse.json();
+  assert.equal(saveResponse.status, 409);
+  assert.match(saveBody.error, /current audit run/i);
+  assert.equal(
+    [...store.records.keys()].some(key =>
+      key.startsWith(auditRescueBoardPrefix(pairActor.id, 0, "run-1"))),
+    false,
+    "a rejected stale save must not create a rescue receipt",
+  );
 });

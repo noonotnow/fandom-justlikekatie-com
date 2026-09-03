@@ -45,6 +45,12 @@
   status = 200
 
 [[redirects]]
+  from = "/api/workstation-handoff"
+  to = "/.netlify/functions/workstation-handoff"
+  status = 200
+
+# Temporary same-origin rollout alias. The function targets Workstation only.
+[[redirects]]
   from = "/api/create-handoff"
   to = "/.netlify/functions/create-handoff"
   status = 200
@@ -137,6 +143,26 @@ status = 200
 [[redirects]]
 from = "/c-drama-fandom/glossary"
 to = "/c-drama-fandom/glossary/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/glossary/cp"
+to = "/c-drama-fandom/glossary/cp/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/glossary/cultivation"
+to = "/c-drama-fandom/glossary/cultivation/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/glossary/xianxia"
+to = "/c-drama-fandom/glossary/xianxia/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/glossary/jianghu"
+to = "/c-drama-fandom/glossary/jianghu/index.html"
 status = 200
 
 [[redirects]]

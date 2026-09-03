@@ -1,0 +1,395 @@
+You’re right: the page is **promising and mostly readable**, but the “in this studio” section has converted living product lore into slightly inaccurate product-marketing definitions. The biggest problems are **Vibe Atlas ≠ Daily Drop**, **Legendary ≠ deliberately authored**, and **Misprint ≠ intentional**.
+
+## Overall copy diagnosis
+
+### What is working
+
+- **“A field guide, not an entrance exam”** is excellent.
+- **“Translated into context”** states a useful editorial promise.
+- The tone is welcoming rather than gatekeepy.
+- Most definitions acknowledge that usage varies across communities.
+- The page moves from genre literacy → story language → community language → Fandom Vibes language in a sensible order.
+- “It is never a cliff of death. It is a cliff of amnesia” has the correct amount of gremlin scholarship.
+
+### What feels off
+
+1. **The external terms sound carefully researched; the internal terms sound reverse-engineered from interface labels.**
+2. Definitions fluctuate between dictionary language, product copy, and internal system architecture.
+3. Several entries explain what something contains without explaining **why a fan would care**.
+4. The studio section collapses distinct concepts:
+    - Vibe Atlas and the Daily Drop
+    - a grid and Legendary status
+    - a misprint and a Legendary Misprint
+5. Some wording is mechanically correct but emotionally bloodless: “event-scoped exception,” “aesthetic assignment,” and “compact creative search prompt” sound like escaped requirements-document fragments.
+
+---
+
+# Highest-priority corrections
+
+## 1. Vibe Atlas is not merely the daily drop
+
+### Current
+
+> Fandom Vibes’ daily C-drama card drop: one featured actor, one Vibe Pack, and nine collectible pieces of evidence curated through the day’s aesthetic assignment.
+> 
+
+This defines **one daily edition**, not the Atlas itself. It also introduces “Vibe Pack” without defining it and makes the experience sound rigidly publication-led.
+
+Internally, the broader product includes actor-and-vibe exploration, individual results, saving, Collection, and eventually member-built grids. The Daily Drop is the current ritualized entrance into that system.[[1]](https://app.notion.com/p/Vibe-Atlas-Roadmap-Split-Fandom-Collection-Creator-OS-and-Data-Audit-7317c467eadd4295a9c64d2ba2e5d509?pvs=21)
+
+### Better
+
+> **Vibe Atlas**
+A visual fandom discovery system that turns an actor, character, or story feeling into collectible evidence. Each edition gathers images around a specific vibe so you can explore the pattern, save individual finds, and build a Collection over time.
+> 
+
+Then define the current format separately:
+
+> **Daily Drop**
+Today’s featured Vibe Atlas edition: one subject, one carefully named vibe, and a fresh set of visual evidence to explore and save.
+> 
+
+This keeps **Atlas = product/world** and **Daily Drop = recurring edition**.
+
+---
+
+## 2. “Vibe spell” needs to retain its actual lore and function
+
+### Current
+
+> A compact creative search prompt combining a subject with an atmosphere, emotion, visual cue, or story energy.
+> 
+
+That is not entirely wrong, but it is generic enough to describe any image-search prompt. It omits the fun part: a spell is a deliberately constructed query used to **summon evidence**, and multiple spells may be needed before the search understands the intended actor, character, and atmosphere.
+
+The internal search ladder combines actor, drama, character, and aesthetic anchors precisely because vague spells can produce co-stars, wrong identities, or spectacular literalization failures.[[2]](https://app.notion.com/p/Vibe-Atlas-8-Tier-Search-Ladder-Rarity-Classification-Complete-System-Spec-July-28-2026-2acb600d2ab64736b9e9d7bc72238a11?pvs=21)
+
+### Better
+
+> **Vibe spell**
+The search incantation used to summon evidence for a vibe. A spell may combine an actor, drama, character, costume, emotion, or visual cue—and may need refinement when the search engine takes the assignment a little too literally.
+> 
+
+Optional final line:
+
+> Strong spells find the right person *and* the right feeling.
+> 
+
+That is accurate, memorable, and naturally sets up Misprints.
+
+---
+
+## 3. Legendary is a status, not a format
+
+### Current
+
+> A deliberately authored 3×3 fandom artifact designed around one irresistible prompt, such as “Which xianxia fate chooses you?”
+> 
+
+This appears to define one game or authored edition as the entire category. But your established lore says **Legendary does not mean perfect**; it means something feels archive-worthy—worth saving, sharing, or sending to someone because it is unforgettably right.[[3]](https://app.notion.com/p/a805a07f7f644c8e820f06944f5decd7?pvs=21)
+
+Legendary can also be:
+
+- earned through community behavior,
+- conferred by the curator,
+- attached to a grid,
+- potentially attached to an individual result.
+
+### Better taxonomy
+
+> **Legendary**
+An archive-worthy status for a result or grid that people cannot resist keeping. Legendary does not mean flawless; it means the artifact is unusually cohesive, memorable, revealing, or impossible to reproduce.
+> 
+
+> **Legendary Grid**
+A 3×3 fandom artifact whose images, title, and vibe spells resolve into something worth preserving as a whole. A grid can become Legendary through curator recognition or strong community save-and-share behavior.
+> 
+
+If the “Which xianxia fate chooses you?” experience has its own numbered **LG** series, define that separately rather than using it to define every Legendary Grid.
+
+---
+
+## 4. Misprints are not intentional
+
+### Current
+
+> An intentional, event-scoped exception worth keeping because its mismatch creates a memorable new reading. It does not redefine an entire fandom universe.
+> 
+
+This is the least accurate definition.
+
+A Misprint begins as an **unintended failure or mismatch**. The intentional act is choosing to preserve it. “Event-scoped exception” is internal architecture language, not fan-facing lore.
+
+Your existing system recognizes several kinds of Misprints:
+
+- literalization
+- wrong identity
+- co-star infiltration
+- wrong genre or context
+- accidental compositional perfection
+
+It also preserves both the intended and actual identities.[[2]](https://app.notion.com/p/Vibe-Atlas-8-Tier-Search-Ladder-Rarity-Classification-Complete-System-Spec-July-28-2026-2acb600d2ab64736b9e9d7bc72238a11?pvs=21) Your own lore describes a Misprint as something that initially appears wrong but becomes funny, iconic, or unexpectedly accurate—the system seemingly noticing the vibe before everyone else.[[4]](https://app.notion.com/p/c72dfe2ed2ed441f97138a716ffb9b9c?pvs=21)
+
+### Better
+
+> **Misprint**
+A result that is technically wrong but too revealing, funny, beautiful, or uncannily accurate to discard. A Misprint might show the wrong person, literalize a metaphor, wander into the wrong story, or create an accidental visual masterpiece.
+> 
+
+> **Legendary Misprint**
+A Misprint so memorable that the mistake becomes collectible. The intended subject and the unexpected result are both preserved; keeping the card does not make the identification canonically correct.
+> 
+
+Optional curator-learning line:
+
+> You can keep the artifact while still teaching the curator what went wrong.
+> 
+
+This matches the result-level behavior you just discovered: **the individual card can be a Legendary Misprint without condemning the entire grid**.
+
+---
+
+# Ready-to-paste rewrite of the studio section
+
+## Fandom Vibes language
+
+### The terms we use in this studio
+
+**Vibe Atlas**
+A visual fandom discovery system that turns an actor, character, or story feeling into collectible evidence. Each edition gathers images around a specific vibe so you can explore the pattern, save individual finds, and build a Collection over time.
+
+**Daily Drop**
+Today’s featured Vibe Atlas edition: one subject, one carefully named vibe, and a fresh set of visual evidence to explore and save.
+
+**Vibe spell**
+The search incantation used to summon evidence for a vibe. A spell may combine an actor, drama, character, costume, emotion, or visual cue—and may need refinement when the search engine takes the assignment a little too literally.
+
+**Vibe evidence**
+An individual result offered as proof of the chosen feeling, association, or visual pattern. You can save one piece of evidence without saving the entire grid.
+
+**Legendary**
+An archive-worthy status for a result or grid that people cannot resist keeping. Legendary does not mean flawless; it means unusually cohesive, memorable, revealing, or impossible to reproduce.
+
+**Legendary Grid**
+A 3×3 fandom artifact whose images, title, and vibe spells resolve into something worth preserving as a whole. A grid can earn Legendary status through curator recognition or community behavior.
+
+**Misprint**
+A result that is technically wrong but too funny, beautiful, revealing, or uncannily accurate to discard. It may show the wrong identity, literalize a metaphor, wander into the wrong story, or create accidental visual perfection.
+
+**Legendary Misprint**
+A Misprint so memorable that the mistake becomes collectible. The intended subject and unexpected result remain distinct: preserving the card does not make the error canonically correct.
+
+**Collection**
+Your personal archive of saved Vibe Atlas evidence, cards, and finished artifacts. A free account allows the Collection to follow you across devices.
+
+That last definition is important because **Collection is now the system of personal continuity**, and the glossary should introduce it before the membership page tries to sell outcomes.
+
+---
+
+# External glossary terms that need tightening
+
+## C-drama
+
+### Current problem
+
+> An English-language shorthand for Chinese television drama.
+> 
+
+“Chinese television drama” can imply all Chinese-language television, including industries that audiences may separately label Taiwanese or Hong Kong dramas. It also underplays streaming/web dramas.
+
+### Suggested rewrite
+
+> **C-drama**
+English-language shorthand for drama series produced in mainland China for television or streaming. Fans may use the label more broadly in casual conversation, but Taiwanese and Hong Kong dramas are often discussed as distinct traditions.
+> 
+
+---
+
+## Xianxia
+
+### Current problem
+
+> Fantasy centered on immortal heroes…
+> 
+
+Characters are often cultivators **pursuing** transcendence or immortality, not already “immortal heroes.” “Cosmic-scale emotion” is lovely flavor, but it should follow a firmer definition.
+
+### Suggested rewrite
+
+> **Xianxia · 仙侠**
+Chinese fantasy shaped by cultivation, spiritual power, immortality, sects, realms, heavenly trials, reincarnation, and conflicts that may span multiple lives. Not every xianxia uses every element—but emotional consequences do have a suspicious tendency to become cosmological.
+> 
+
+---
+
+## Wuxia
+
+The current definition is good. I would make one small distinction from xianxia:
+
+> **Wuxia · 武侠**
+Stories of martial heroes navigating skill, loyalty, justice, revenge, and personal codes within the social world of the jianghu. Wuxia may be heightened or legendary, but it is generally less centered on immortality and supernatural cultivation than xianxia.
+> 
+
+---
+
+## Jianghu
+
+### Current problem
+
+“World outside ordinary official life” is reasonable but makes jianghu sound like a literal alternate location. It is also a social order, network, and moral imagination.
+
+### Suggested rewrite
+
+> **Jianghu · 江湖**
+Literally “rivers and lakes.” In wuxia, jianghu is the social world of martial artists, sects, wanderers, healers, outlaws, rivals, and reputations—connected by loyalties and rules that do not always answer to official authority. It is less a place on a map than a world people enter and belong to.
+> 
+
+---
+
+## Guzhuang
+
+### Current problem
+
+“Viewing category” is vague.
+
+### Suggested rewrite
+
+> **Guzhuang · 古装**
+Literally “ancient costume.” A broad label for dramas presented in historical or historical-inspired clothing and settings. A guzhuang drama may be grounded in history, freely fictionalized, wuxia, xianxia, or another form of costume fantasy.
+> 
+
+---
+
+## Tribulation
+
+The current definition is slightly too broad because it can imply that every emotional ordeal is formally a cultivation tribulation.
+
+### Suggested rewrite
+
+> **Tribulation**
+A severe test associated with advancement, transformation, or fate in cultivation stories—often a heavenly trial and sometimes represented through lightning. Fans may also use the term jokingly for emotional suffering, because apparently romance must now be survived at celestial difficulty.
+> 
+
+---
+
+## White moonlight
+
+### Suggested refinement
+
+> **White moonlight · 白月光**
+An idealized or unattainable person who remains luminous in someone’s memory—often a lost love, first love, or imagined perfection. The person does not have to be a former romantic partner; the defining feature is the emotional idealization.
+> 
+
+---
+
+## CP
+
+This one needs a meaningful correction.
+
+### Current
+
+> Pairing shorthand derived from “couple.”
+> 
+
+“CP” is generally understood through **coupling/pairing**, not simply as an abbreviation of “couple.” Its Chinese-fandom use also deserves more context.
+
+### Suggested rewrite
+
+> **CP**
+Fandom shorthand for a pairing, commonly traced to “coupling.” A CP can be canon, implied, fan-created, promotional, or based on the chemistry audiences perceive between two people. To “ship” or “嗑” a CP is to enjoy that pairing’s dynamic—not necessarily to claim that a real-life relationship exists.
+> 
+
+That final distinction protects the site from accidentally equating character shipping, promotional pairing, and real-person claims.
+
+---
+
+## Bias
+
+The definition is not wrong, but it feels imported from K-pop vocabulary rather than essential C-drama literacy.
+
+I would either:
+
+- label it **“international fandom language”**, or
+- replace it with a more C-drama-relevant entry and cover terms such as **本命** or **担** carefully on a later, properly researched page.
+
+---
+
+## Fansub
+
+The legal warning is responsible but tonally abrupt:
+
+> …so use lawful sources in your region.
+> 
+
+It sounds like counsel entered the room and briefly seized the keyboard.
+
+A smoother version:
+
+> **Fansub**
+Fan-created subtitles that historically helped dramas cross language barriers and build international audiences. Quality and availability vary; when official subtitled releases exist in your region, support them.
+> 
+
+---
+
+# Page-level copy and structure changes
+
+## 1. Add a quick term navigator
+
+“Browse genre terms” sounds like a button to a browsable index, but the page is one long sequence. Add scannable anchors:
+
+- Genres and worlds
+- Story language
+- Community language
+- Fandom Vibes language
+
+Later, add alphabetical filtering when the glossary grows.
+
+## 2. Standardize each definition around three questions
+
+The strongest glossary entries answer:
+
+1. **What does it mean?**
+2. **How do fans use it?**
+3. **What is it commonly confused with?**
+
+Not every entry needs three labeled fields, but the copy should consistently cover them.
+
+## 3. Separate universal terminology from house lore visually
+
+“In this studio” is good, but make the distinction explicit:
+
+> These are Fandom Vibes’ own product and collecting terms. Other communities may use the same words differently.
+> 
+
+Otherwise a newcomer may reasonably assume “Legendary Misprint” is established C-drama vocabulary.
+
+## 4. Strengthen the Atlas continuation
+
+The page currently ends the studio section with:
+
+> Choose your xianxia fate · Browse today’s card drop
+> 
+
+That places a game and the current product at equal conceptual weight. Given the adopted hierarchy, I would use:
+
+- **Primary:** Explore today’s Vibe Atlas Drop
+- **Secondary:** See a Legendary Grid in action
+- Contextual link near xianxia: **Choose your xianxia fate**
+
+## 5. Preserve the page’s best tonal rule
+
+Keep:
+
+> This living glossary favors clear context over claims of one universal fandom usage.
+> 
+
+That should guide the rewrite. The page should sound authoritative because it explains boundaries honestly—not because it pretends every fandom has signed a terminology treaty.
+
+## Bottom line
+
+The glossary’s public fandom terminology needs **targeted precision edits**, not a total rewrite. The studio section needs a more substantial reconstruction around this hierarchy:
+
+> **Atlas → Daily Drop → spell → evidence → Collection → Legendary → Misprint → Legendary Misprint**
+> 
+
+Right now it defines the outputs without adequately explaining the collecting system or the status relationships. Once those are corrected, the section will stop sounding like an API spec wearing a velvet cape and start functioning as actual product lore.

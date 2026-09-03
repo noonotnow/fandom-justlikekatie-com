@@ -127,6 +127,8 @@
 .boardQualificationRow { display:grid; gap:3px; padding:9px 10px; border:1px solid color-mix(in srgb,#9b5b4b 50%,var(--admin-border)); border-radius:6px; background:color-mix(in srgb,Canvas 94%,currentColor 6%); }
 .boardQualificationRow strong { color:#e5b09a; font-size:11px; }
 .boardQualificationRow span { color:#b9bfbb; font-size:10px; line-height:1.45; }
+.boardQualificationRow[data-condition=hero-review-needed] { border-color:color-mix(in srgb,#c9a96e 70%,var(--admin-border)); background:color-mix(in srgb,#c9a96e 8%,transparent); }
+.boardQualificationRow[data-condition=hero-review-needed] strong { color:#e2c88e; }
 .partialBoards { display:grid; gap:8px; margin-top:14px; padding-top:12px; border-top:1px solid color-mix(in srgb,#9b5b4b 50%,var(--admin-border)); }
 .partialBoards h6 { margin:0; color:#c9a96e; font-size:12px; }
 .partialBoards > p { margin:0; color:#8d928f; font-size:11px; }

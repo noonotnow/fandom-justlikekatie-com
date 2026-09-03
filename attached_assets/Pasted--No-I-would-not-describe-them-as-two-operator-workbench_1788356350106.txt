@@ -1,0 +1,98 @@
+**No—I would not describe them as two operator workbenches.** There should be **one Fandom Vibes Operator Console** with two distinct task environments:
+
+- **Release Desk** — the default operating home
+- **Actor Preflight Lab** — the specialized inspection and approval environment
+
+Think **one workplace, two rooms**, not two products.
+
+## I would not put Preflight in a drawer
+
+Replit’s drawer suggestion overcorrects. Preflight contains:
+
+- Dozens of retained images
+- Event and Compiled comparisons
+- Rescue-board construction
+- Query and rejection evidence
+- Receipts and human confirmations
+
+That needs a full-width environment. Stuffing it into a drawer would make serious editorial work feel subordinate and cramped.
+
+Instead:
+
+```
+Fandom Vibes
+└── Operator Console
+    ├── Release Desk — default
+    ├── Actor Preflight Lab
+    ├── Field Journal
+    └── Court Rulings
+```
+
+Release Desk and Preflight are **not duplicate inventory workspaces**:
+
+### Actor Preflight Lab
+
+> Should this actor × Vibe pairing produce an approved edition?
+> 
+
+It retrieves, evaluates, builds, rescues, and freezes the exact nine.
+
+### Release Desk
+
+> What approved edition is ready to ship, and what still blocks it?
+> 
+
+It handles enhancement, final assets, copy, repeat warnings, scheduling, publication, holds, and retirement.
+
+The handoff should be direct:
+
+> Preflight approval → automatically appears in Release Desk
+> 
+
+And from Release Desk:
+
+> Open preflight receipt → full-page Preflight Lab → return to the same release item
+> 
+
+## PLAN should disappear
+
+You’re correct: **PLAN was the accidental surface that made Creator OS and Fandom Vibes appear to be one software system.**
+
+Its useful Fandom Vibes data can migrate into Release Desk:
+
+- Scheduling constraints
+- Publication dates
+- Readiness blockers
+- Repeat-actor warnings
+
+But its old product identity should not survive as another tab.
+
+Creator OS remains separate. If connected later, Release Desk can send it a publication package—but Fandom Vibes can still export, share, schedule, and publish independently.
+
+## One caution: the Replit change was interrupted
+
+The account restriction appeared while Replit was editing, so do **not** assume PLAN was successfully removed or Release Desk was successfully made the landing view. “As the code stands right now” needs verification.
+
+Send this:
+
+> Keep one Fandom Vibes Operator Console. Make Release Desk its default workspace and keep Actor Preflight Lab as a separate full-page specialist workspace—not a drawer and not a second product/workbench.
+> 
+> 
+> Remove the accidental PLAN interface, but preserve and migrate any Fandom Vibes scheduling data that Release Desk needs. Legacy PLAN links should redirect safely to Release Desk; legacy storage must not be deleted.
+> 
+> Because the previous operation was interrupted by an account restriction, first inspect the repository status, uncommitted diff, commit history, and deployed GitHub revision. Do not claim the navigation change is complete until the final state is committed, pushed, deployed, and verified.
+> 
+> Required structure:
+> 
+> ```
+> Fandom Vibes Operator Console
+> ├── Release Desk — default
+> ├── Actor Preflight Lab
+> ├── Field Journal
+> └── Court Rulings
+> ```
+> 
+> Release Desk owns readiness and publishing. Actor Preflight owns evidence and exact-board approval. Approval automatically creates or updates the corresponding Release Desk inventory item. Creator OS and Workstation remain separate software with an optional publication-package interface.
+> 
+
+So: **one Operator Console, one primary Release Desk, one full-size Preflight Lab. No PLAN product, no second release inventory, and no collapsing complex curation into a drawer.**

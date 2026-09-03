@@ -18,12 +18,9 @@ import { applyWholeCardTierOverride, boardIdentity } from './utils/wholeCardTier
 import { useDarkMode } from './hooks/useDarkMode';
 import { useStarOfDay, type StarOfDayArchiveEntry } from './hooks/useStarOfDay';
 import { useWholeCardTier } from './hooks/useWholeCardTier';
-import { collectionGridFromStar } from './utils/collectionHistoryModel';
 import { consumeMagicLinkFromLocation, requestMagicLink } from './utils/publicAccount';
 import { getMembershipStatus } from './utils/membership';
 import { Membership } from './components/Membership/Membership';
-import { makeCreatorPostFromGrid } from './utils/creatorDraft';
-import { CreatorPostAction } from './components/CreatorPostAction/CreatorPostAction';
 import { useIsAdmin } from './hooks/useIsAdmin';
 import {
   hasInvalidVibeAtlasEditionDate,
@@ -632,12 +629,6 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
                   rawData={exportData}
                   onShareComplete={() => trackDailyDropShared(exportData.date, 'image')}
                 />
-                {isAdmin && (
-                  <CreatorPostAction
-                    entryPoint="daily"
-                    onSubmit={platforms => makeCreatorPostFromGrid(collectionGridFromStar(rawData), platforms)}
-                  />
-                )}
               </div>
             </div>
             )}
@@ -701,14 +692,12 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         <Collection
           key={collectionTab}
           initialType={collectionTab}
-          isAdmin={isAdmin}
           isMember={isMember}
           onUpgrade={() => {
             trackUpgradeStarted('grid_builder');
             navigateAtlas('membership');
           }}
           onTypeChange={setCollectionTab}
-          onCreateFromGrid={makeCreatorPostFromGrid}
         />
       ) : view === 'membership' ? (
         <Membership onStatusChange={status => {

@@ -26,6 +26,22 @@ function confirmsCompleteProposal(diagnostic?: BoardDiagnostic) {
   );
 }
 
+function completeProposalCardCount(run?: Run|null) {
+  if (Number.isFinite(Number(run?.proposalCount))) {
+    return Number(run?.proposalCount);
+  }
+  if (Number.isFinite(Number(run?.completeProposalCardCount))) {
+    return Number(run?.completeProposalCardCount);
+  }
+  return Math.max(
+    0,
+    ...Object.values(run?.boardDiagnostics ?? {}).map(diagnostic =>
+      confirmsCompleteProposal(diagnostic) && Array.isArray(diagnostic?.proposal?.candidates)
+        ? diagnostic.proposal.candidates.length
+        : 0),
+  );
+}
+
 type RescueExport = {
   gridId: string;
   runId: string;
@@ -132,7 +148,28 @@ export const ActorPreflightLab: React.FC = () => {
   async function saveVerdict(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!verdict)return; setBusy('verdict'); setNotice(''); try { const approved=verdict==='approved'; const operatorBoardRequired=currentRun.blindReview?.status==='unavailable'; const useRescueBoard=approved&&(operatorBoardRequired||rescuePreferred); const result=await api({action:'verdict',actorId,vibeKey,runId:currentRun.runId,verdict,notes,vibeConfirmed:approved&&vibeConfirmed,publishableConfirmed:approved&&publishableConfirmed,rescuePreferred:useRescueBoard,rescueReceiptId:useRescueBoard?preferredRescueReceiptId:undefined}); applyRefresh(result); const next=result.currentRun ?? currentRun; const preference=next?.operatorVerdict?.rescuePreference; const publicationSource=next?.operatorVerdict?.publicationSource; setRun(next); setCurrentRun(next); setVerdict(result.verdict ?? verdict); setNotes(result.notes ?? notes); setRescuePreferred(preference?.preferred === true); setPreferredRescueReceiptId(preference?.rescueReceiptId ?? ''); setNotice(approved?(publicationSource?.type==='operator_rescue'?'Exact nine-card retained-evidence board approved for publication with both human confirmations.':preference?.preferred?'Curator result approved as publishable. Your separate rescue preference was recorded.':'Curator result approved as publishable with both human confirmations.'):'Verdict saved to the curation ledger.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function publishBackfill(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!backfillDate)return; setBusy('backfill'); setNotice(''); try { const receiptId=run?.operatorVerdict?.publicationSource?.type==='operator_rescue'?run.operatorVerdict.publicationSource.rescueReceiptId:preferredRescueReceiptId; const result=await api({action:'publish_backfill',actorId,vibeKey,runId:currentRun.runId,rescueReceiptId:receiptId,date:backfillDate}); setNotice(result.backfill?.status==='already_published'?`The ${backfillDate} edition was already published with this exact board.`:`The approved board is now published as the ${backfillDate} Daily Drop edition.`); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function saveCandidateFlag(candidateId:string,flagged:boolean,intent='pin',reasons:string[]=[] ) { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy(`flag:${candidateId}`); setNotice(''); try { const result=await api({action:'flag_candidate',actorId,vibeKey,runId:currentRun.runId,candidateId,flagged,intent,reasons}); applyRefresh(result); const next=result.currentRun ?? currentRun; setRun(next); setCurrentRun(next); setPriorRuns(result.priorRuns ?? priorRuns); setNotice(flagged?'Image-level editorial intent saved. Safety gates still apply.':'Image annotation removed from the requested grid review.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
-  async function saveRescueBoard(candidateIds:string[]) { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy('rescue-board'); setNotice(''); try { const result=await api({action:'save_rescue_board',actorId,vibeKey,runId:currentRun.runId,candidateIds}); applyRefresh(result); const next=result.currentRun ?? currentRun; setRun(next); setCurrentRun(next); setPriorRuns(result.priorRuns ?? priorRuns); if(!preferredRescueReceiptId)setPreferredRescueReceiptId(next?.editorialFeedback?.operatorRescueBoard?.receiptId ?? ''); setNotice('Operator Rescue Board saved as a separate append-only receipt. Now complete the publication approval below.'); requestAnimationFrame(()=>document.getElementById('actor-audit-approval')?.scrollIntoView({behavior:'smooth',block:'start'})); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
+  async function saveRescueBoard(candidateIds:string[]) {
+    if(!currentRun?.runId||run?.runId!==currentRun.runId)return;
+    setBusy('rescue-board'); setNotice('');
+    let receiptId='';
+    try {
+      const result=await api({action:'save_rescue_board',actorId,vibeKey,runId:currentRun.runId,candidateIds});
+      applyRefresh(result);
+      const next=result.currentRun ?? currentRun;
+      receiptId=next?.editorialFeedback?.operatorRescueBoard?.receiptId ?? '';
+      if(!receiptId)throw new Error('The rescue receipt was saved, but its Collection identity did not load. Refresh and retry the Collection save.');
+      setRun(next);
+      setCurrentRun(next);
+      setPriorRuns(result.priorRuns ?? priorRuns);
+      if(!preferredRescueReceiptId)setPreferredRescueReceiptId(receiptId);
+      setNotice(await saveRescueReceiptToCollection(currentRun.runId,receiptId));
+      requestAnimationFrame(()=>document.getElementById('actor-audit-approval')?.scrollIntoView({behavior:'smooth',block:'start'}));
+    } catch(e:any){
+      setNotice(receiptId
+        ? `Rescue receipt saved, but Collection save failed: ${e.message} Use “Retry Collection save” on the saved record.`
+        : e.message);
+    } finally{setBusy('')}
+  }
   async function markRescueCalibration(receiptId:string) {
     if(!run?.runId)return;
     setBusy(`calibration:${receiptId}`); setNotice('');
@@ -163,33 +200,35 @@ export const ActorPreflightLab: React.FC = () => {
       return true;
     } catch(e:any){setNotice(e.message);return false} finally{setBusy('')}
   }
+  async function saveRescueReceiptToCollection(runId:string,receiptId:string) {
+    const result=await api({action:'export_rescue_board',actorId,vibeKey,runId,receiptId});
+    const grid=collectionGridFromRescueExport(result.rescueExport);
+    await dbSaveGrid(grid);
+    const mediaResult=await persistGridImagesToMedia(grid);
+    const session=await getPublicSession();
+    if(session) {
+      try {
+        await syncPublicGrid(session,grid.id);
+      } catch(error:any) {
+        const mediaNotice=mediaResult.failures.length
+          ? ` ${mediaResult.failures.length} image${mediaResult.failures.length===1?'':'s'} still depend${mediaResult.failures.length===1?'s':''} on remote sources: ${mediaResult.failures.map(item=>item.title||`position ${item.gridPosition+1}`).join(', ')}.`
+          : '';
+        return `Rescue board saved to this device, but account sync failed: ${error?.message || 'retry from this saved record.'}${mediaNotice}`;
+      }
+    }
+    const mediaNotice=mediaResult.failures.length
+      ? ` ${mediaResult.failures.length} image${mediaResult.failures.length===1?'':'s'} still depend${mediaResult.failures.length===1?'s':''} on remote sources: ${mediaResult.failures.map(item=>item.title||`position ${item.gridPosition+1}`).join(', ')}.`
+      : ' All nine images are backed by durable MEDIA delivery URLs.';
+    return session
+      ? `Rescue board saved and synced to Collection.${mediaNotice}`
+      : `Rescue board saved to this device’s Collection.${mediaNotice}`;
+  }
   async function exportRescueBoard(receiptId:string) {
     if(!currentRun?.runId||run?.runId!==currentRun.runId)return;
     setBusy('export-rescue-board'); setNotice('');
     try {
-      const result=await api({action:'export_rescue_board',actorId,vibeKey,runId:currentRun.runId,receiptId});
-      const grid=collectionGridFromRescueExport(result.rescueExport);
-      await dbSaveGrid(grid);
-       const mediaResult=await persistGridImagesToMedia(grid);
-      const session=await getPublicSession();
-      if(session) {
-        try {
-           await syncPublicGrid(session,grid.id);
-        } catch(error:any) {
-           const mediaNotice=mediaResult.failures.length
-             ? ` ${mediaResult.failures.length} image${mediaResult.failures.length===1?'':'s'} still depend${mediaResult.failures.length===1?'s':''} on remote sources: ${mediaResult.failures.map(item=>item.title||`position ${item.gridPosition+1}`).join(', ')}.`
-             : '';
-           setNotice(`Rescue grid saved to this device, but account sync failed: ${error?.message || 'try again from Collection.'}${mediaNotice}`);
-          return;
-        }
-      }
-       const mediaNotice=mediaResult.failures.length
-         ? ` Exported locally, but ${mediaResult.failures.length} image${mediaResult.failures.length===1?'':'s'} still depend${mediaResult.failures.length===1?'s':''} on remote sources: ${mediaResult.failures.map(item=>item.title||`position ${item.gridPosition+1}`).join(', ')}.`
-         : ' All nine images are backed by durable MEDIA delivery URLs.';
-       setNotice(session
-         ? `Rescue arrangement exported and synced to Collection.${mediaNotice}`
-         : `Rescue arrangement exported to this device’s Collection.${mediaNotice}`);
-    } catch(e:any){setNotice(e.message)} finally{setBusy('')}
+      setNotice(await saveRescueReceiptToCollection(currentRun.runId,receiptId));
+    } catch(e:any){setNotice(`Collection save failed: ${e.message} Retry from this saved record.`)} finally{setBusy('')}
   }
   const selectedIsCurrent = Boolean(run?.runId && currentRun?.runId === run.runId);
   const review = run?.blindReview;
@@ -277,6 +316,7 @@ function RunEvidence({
   const rawResults = Array.isArray(run?.rawResults) ? run.rawResults : [];
   const unavailableIds = new Set((run?.rejections ?? []).filter((entry:AnyRecord)=>entry.kind==='image'&&entry.reason==='image_load_failed').map((entry:AnyRecord)=>entry.candidateId));
   const displayableCount = rawResults.filter((item:AnyRecord)=>item.thumbnail&&!unavailableIds.has(item.candidateId)).length;
+  const proposedCardCount = completeProposalCardCount(run);
   const sections: Array<[string, unknown]>=[['Query ladder',run?.queryRuns],['Bounded raw results',run?.rawResults],['Rejection ledger',run?.rejections],['Identity evidence',run?.identityEvidence],['Detected event families',run?.detectedEvents],['Curator proposal',run?.curatorProposal],['Strongest Event board',run?.strongestEvent],['Strongest Compiled board',run?.strongestCompiled],['Winner',run?.winner],['Alternate',run?.alternate],['Operator-derived curation signals',run?.curationReceipt?.calibrationSignals],['Calibration transfer proof',run?.calibrationProof],['Curation receipt',run?.curationReceipt],['Blind calibration receipt',run?.blindReview],['Scheduling verdict',run?.operatorVerdict]];
   const boards = review?.boards ?? [];
   const disagreed = revealed && review?.agreement !== true;
@@ -306,7 +346,7 @@ function RunEvidence({
         </form>}
         {disagreed && isCurrent && run.operatorVerdict && <p className={styles.historicalNotice}>The scheduling receipt is finalized, so its calibration reasons stay frozen. Image-level pins and exclusions below remain editable as separate review receipts.</p>}
       </section>}
-      {evidenceAvailable && <><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{run.proposalCount ?? run.displayCount ?? 0}</strong><span>curator proposal cards</span><strong>{run.displayCount ?? 0}</strong><span>automatically qualified publication cards</span><strong>{run.queryCount ?? run.queryRuns?.length ?? 0}</strong><span>queries audited</span></div><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration}/><div className={styles.evidence}>{sections.map(([label,value])=><details key={label}><summary>{label} <span className={styles.muted}>{Array.isArray(value)?`${value.length} records`:''}</span></summary>{label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} busy={busy} onFlag={onFlag}/> : <pre>{text(value)}</pre>}</details>)}</div></>}
+      {evidenceAvailable && <><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{proposedCardCount}</strong><span>curator proposal cards</span><strong>{run.displayCount ?? 0}</strong><span>automatically publication-ready cards</span><strong>{run.queryCount ?? run.queryRuns?.length ?? 0}</strong><span>queries audited</span><strong>{rawResults.length}</strong><span>retained results</span></div><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration}/><div className={styles.evidence}>{sections.map(([label,value])=><details key={label}><summary>{label} <span className={styles.muted}>{Array.isArray(value)?`${value.length} records`:''}</span></summary>{label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} busy={busy} onFlag={onFlag}/> : <pre>{text(value)}</pre>}</details>)}</div></>}
     </> : <p className={styles.empty}>Run an audit to open a blinded Event versus Compiled comparison.</p>}
     {currentRun&&<label className={styles.label}>Audit run<select className={styles.select} value={run?.runId ?? ''} onChange={e=>{const selected=[currentRun,...priorRuns].find(item=>item.runId===e.target.value);if(selected)onSelect(selected)}}><option value={currentRun.runId}>{currentRun.auditContract?.isLegacy?'Legacy history':'Current'} · {currentRun.runId} · {date(currentRun.completedAt)}</option>{priorRuns.map(item=><option key={item.runId} value={item.runId}>{item.auditContract?.isLegacy?'Legacy history':'Retained'} · {item.runId} · {date(item.completedAt)}</option>)}</select></label>}
   </article>;
@@ -346,6 +386,9 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
   const feedback=run.editorialFeedback;
   const flags=feedback?.flags??EMPTY_RECORDS;
   const review=feedback?.requestedReview;
+  const retainedProposal=run.boardDiagnostics?.compiled?.proposal
+    ?? run.boardDiagnostics?.event?.proposal
+    ?? null;
   const saved=feedback?.operatorRescueBoard;
   const savedReceipts=useMemo<AnyRecord[]>(()=>{
     const receipts=Array.isArray(feedback?.operatorRescueBoards)?feedback.operatorRescueBoards:[];
@@ -368,12 +411,13 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
       .map(item=>{const analyzed=analyzedById.get(item.candidateId);return {...item,...(analyzed??{}),link:analyzed?.link||item.link,thumbnail:item.thumbnail};});
   },[rawResults,run.curationReceipt?.rawCandidates,excludedIds,unavailableIds]);
   const poolIds=useMemo(()=>new Set(candidatePool.map(item=>item.candidateId)),[candidatePool]);
-  const reviewCandidates=review?.board?.candidates;
-  const initialCandidates=useMemo<AnyRecord[]>(()=>((review
+  const reviewCandidates=review?.board?.candidates ?? retainedProposal?.candidates;
+  const initialCandidates=useMemo<AnyRecord[]>(()=>(((review || retainedProposal)
     ? reviewCandidates
     : [])??[]).filter((item:any)=>poolIds.has(item.candidateId)).slice(0,9) as AnyRecord[],[
     review,
     reviewCandidates,
+    retainedProposal,
     poolIds,
   ]);
   const [candidates,setCandidates]=useState<AnyRecord[]>(initialCandidates);
@@ -400,7 +444,7 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
     <div className={styles.requestedReviewHeader}><div><h6>Operator rescue board</h6><p>This is your override. Choose any nine retained, displayable images and arrange them yourself. Composite, duplicate, anti-anchor, and Vibe labels remain visible as algorithm evidence, but they do not veto the rescue. Only unavailable images and your exclusions stay out. The original audit and Daily Drop eligibility never change.</p></div><span>{candidates.length}/9 chosen · {candidatePool.length} available · {blockedCount} unavailable · {excludedCount} excluded</span></div>
     {saved&&!savedMatchesCurrentFeedback&&<p className={styles.historicalNotice}>{review?'Your previous saved arrangement is retained as history. This board was rebuilt from the current image choices.':'Your previous saved arrangement is retained as history. Pin an image to start a new editable rescue board.'}</p>}
     {savedReceipts.length>0&&<section className={styles.rescueHistory} aria-label="Saved rescue board history">
-      <div><h6>Saved rescue records</h6><p>Each record is immutable and records-only by default. Explicitly confirm a board as calibration evidence to teach future audits; the historical audit and receipt never change.</p></div>
+      <div><h6>Saved rescue records</h6><p>Each record is immutable and saves to Collection automatically. Calibration remains a separate choice that affects only future audits; the historical audit and receipt never change.</p></div>
       <ol className={styles.rescueHistoryList}>{savedReceipts.map((receipt:any,index:number)=>{
         const matchesCurrentFeedback=receipt.feedbackHash===feedback?.feedbackHash;
         return <li className={receipt.receiptId===viewedReceiptId?styles.rescueHistoryItemSelected:styles.rescueHistoryItem} key={receipt.receiptId}>
@@ -409,16 +453,16 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
             <span>{date(receipt.savedAt)} · 9 cards · {String(receipt.receiptId).slice(0,8)}</span>
             <small>{receipt.savedBy||'Operator'} · hero position 5 · {receipt.calibrationEvidence?.retirement?'calibration retired':receipt.calibrationEvidence?'calibration confirmed':matchesCurrentFeedback?'current feedback':'earlier feedback · view only'}</small>
           </button>
-          <div className={styles.rescueRecordActions}><button type="button" className={styles.buttonSecondary} disabled={!isCurrent||Boolean(busy)||!matchesCurrentFeedback} onClick={()=>onExport(receipt.receiptId)}>Export this board</button><button type="button" className={styles.buttonSecondary} disabled={Boolean(busy)||Boolean(run.auditContract?.isLegacy)||Boolean(receipt.calibrationEvidence)} onClick={()=>onMarkCalibration(receipt.receiptId)}>{receipt.calibrationEvidence?.retirement?'Calibration evidence retired':receipt.calibrationEvidence?'Calibration evidence confirmed':run.auditContract?.isLegacy?'Legacy evidence · records only':busy===`calibration:${receipt.receiptId}`?'Confirming calibration…':'Use as calibration evidence'}</button>{receipt.calibrationEvidence&&!receipt.calibrationEvidence.retirement&&<button type="button" className={styles.buttonDanger} disabled={Boolean(busy)} onClick={()=>{setViewedReceiptId(receipt.receiptId);setRetiringReceiptId(receipt.receiptId);setRetirementReason('')}}>Retire calibration evidence</button>}</div>
+          <div className={styles.rescueRecordActions}><button type="button" className={styles.buttonSecondary} disabled={!isCurrent||Boolean(busy)||!matchesCurrentFeedback} onClick={()=>onExport(receipt.receiptId)}>Retry Collection save</button><button type="button" className={styles.buttonSecondary} disabled={Boolean(busy)||Boolean(run.auditContract?.isLegacy)||Boolean(receipt.calibrationEvidence)} onClick={()=>onMarkCalibration(receipt.receiptId)}>{receipt.calibrationEvidence?.retirement?'Calibration evidence retired':receipt.calibrationEvidence?'Calibration evidence confirmed':run.auditContract?.isLegacy?'Legacy evidence · records only':busy===`calibration:${receipt.receiptId}`?'Confirming calibration…':'Use as calibration evidence'}</button>{receipt.calibrationEvidence&&!receipt.calibrationEvidence.retirement&&<button type="button" className={styles.buttonDanger} disabled={Boolean(busy)} onClick={()=>{setViewedReceiptId(receipt.receiptId);setRetiringReceiptId(receipt.receiptId);setRetirementReason('')}}>Retire calibration evidence</button>}</div>
         </li>;
       })}</ol>
-      {viewedReceipt&&<div className={styles.rescueHistoryPreview}><div className={styles.rescuePickerHeader}><strong>Viewing saved arrangement</strong><span>{date(viewedReceipt.savedAt)} · read-only record</span></div><p>This board is not the editable draft. Use it as a starting point to create a new append-only receipt. Calibration, when explicitly confirmed, affects only future audits.</p><div className={styles.rescueGrid}>{(viewedReceipt.board?.candidates??[]).map((item:any,index:number)=><article className={styles.rescueTile} data-hero={index===4} key={`${viewedReceipt.receiptId}-${item.candidateId||index}`}><a href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.thumbnail?<img src={item.thumbnail} alt={item.title||`Saved rescue card ${index+1}`}/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{index===4?'Hero · ':''}{item.title||`Card ${index+1}`}</span></a></article>)}</div><div className={styles.rescueActions}><button type="button" className={styles.buttonSecondary} disabled={!isCurrent||Boolean(busy)} onClick={()=>{setCandidates((viewedReceipt.board?.candidates??[]).filter((item:any)=>poolIds.has(item.candidateId)).slice(0,9));setViewedReceiptId(null);}}>Use as starting point</button><button type="button" className={styles.buttonSecondary} disabled={!isCurrent||Boolean(busy)||viewedReceipt.feedbackHash!==feedback?.feedbackHash} onClick={()=>onExport(viewedReceipt.receiptId)}>Export this board to Collection</button><button type="button" className={styles.buttonSecondary} disabled={Boolean(busy)||Boolean(run.auditContract?.isLegacy)||Boolean(viewedReceipt.calibrationEvidence)} onClick={()=>onMarkCalibration(viewedReceipt.receiptId)}>{viewedReceipt.calibrationEvidence?.retirement?'Calibration evidence retired':viewedReceipt.calibrationEvidence?'Calibration evidence confirmed':run.auditContract?.isLegacy?'Legacy evidence · records only':'Use as calibration evidence'}</button></div>{viewedReceipt.calibrationEvidence?.retirement?<p className={styles.retirementReceipt}><strong>Calibration retired {date(viewedReceipt.calibrationEvidence.retirement.retiredAt)}</strong><span>{viewedReceipt.calibrationEvidence.retirement.reason}</span><small>Immutable retirement receipt {String(viewedReceipt.calibrationEvidence.retirement.retirementId||'').slice(0,8)} · original calibration and audit retained</small></p>:viewedReceipt.calibrationEvidence&&<p className={styles.requestedSummary}>Confirmed {date(viewedReceipt.calibrationEvidence.confirmedAt)}. Future runs may use its query, source, visual-cluster, hero, ranking, and anti-anchor signals. Approval stays blocked until a fresh run transfers a positive signal beyond these exact nine.</p>}{retiringReceiptId===viewedReceipt.receiptId&&viewedReceipt.calibrationEvidence&&!viewedReceipt.calibrationEvidence.retirement&&<form className={styles.retirementForm} onSubmit={async event=>{event.preventDefault();if(!retirementReason.trim())return;const saved=await onRetireCalibration(viewedReceipt.receiptId,retirementReason);if(saved){setRetiringReceiptId(null);setRetirementReason('')}}}><label className={styles.label}>Why should future audits ignore this evidence?<textarea className={`${styles.input} ${styles.textarea}`} value={retirementReason} maxLength={1000} required onChange={event=>setRetirementReason(event.target.value)} placeholder="Describe what made this calibration example misleading." /></label><p>The original calibration, rescue board, audit, verdict, and eligibility history will remain unchanged. This creates a separate immutable retirement receipt.</p><div className={styles.rescueActions}><button type="submit" className={styles.buttonDanger} disabled={Boolean(busy)||!retirementReason.trim()}>{busy===`retirement:${viewedReceipt.receiptId}`?'Retiring evidence…':'Create retirement receipt'}</button><button type="button" className={styles.buttonSecondary} disabled={Boolean(busy)} onClick={()=>{setRetiringReceiptId(null);setRetirementReason('')}}>Cancel</button></div></form>}</div>}
+      {viewedReceipt&&<div className={styles.rescueHistoryPreview}><div className={styles.rescuePickerHeader}><strong>Viewing saved arrangement</strong><span>{date(viewedReceipt.savedAt)} · read-only record</span></div><p>This board is not the editable draft. Use it as a starting point to create a new append-only receipt. Calibration, when explicitly confirmed, affects only future audits.</p><div className={styles.rescueGrid}>{(viewedReceipt.board?.candidates??[]).map((item:any,index:number)=><article className={styles.rescueTile} data-hero={index===4} key={`${viewedReceipt.receiptId}-${item.candidateId||index}`}><a href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.thumbnail?<img src={item.thumbnail} alt={item.title||`Saved rescue card ${index+1}`}/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{index===4?'Hero · ':''}{item.title||`Card ${index+1}`}</span></a></article>)}</div><div className={styles.rescueActions}><button type="button" className={styles.buttonSecondary} disabled={!isCurrent||Boolean(busy)} onClick={()=>{setCandidates((viewedReceipt.board?.candidates??[]).filter((item:any)=>poolIds.has(item.candidateId)).slice(0,9));setViewedReceiptId(null);}}>Use as starting point</button><button type="button" className={styles.buttonSecondary} disabled={!isCurrent||Boolean(busy)||viewedReceipt.feedbackHash!==feedback?.feedbackHash} onClick={()=>onExport(viewedReceipt.receiptId)}>Retry Collection save</button><button type="button" className={styles.buttonSecondary} disabled={Boolean(busy)||Boolean(run.auditContract?.isLegacy)||Boolean(viewedReceipt.calibrationEvidence)} onClick={()=>onMarkCalibration(viewedReceipt.receiptId)}>{viewedReceipt.calibrationEvidence?.retirement?'Calibration evidence retired':viewedReceipt.calibrationEvidence?'Calibration evidence confirmed':run.auditContract?.isLegacy?'Legacy evidence · records only':'Use as calibration evidence'}</button></div>{viewedReceipt.calibrationEvidence?.retirement?<p className={styles.retirementReceipt}><strong>Calibration retired {date(viewedReceipt.calibrationEvidence.retirement.retiredAt)}</strong><span>{viewedReceipt.calibrationEvidence.retirement.reason}</span><small>Immutable retirement receipt {String(viewedReceipt.calibrationEvidence.retirement.retirementId||'').slice(0,8)} · original calibration and audit retained</small></p>:viewedReceipt.calibrationEvidence&&<p className={styles.requestedSummary}>Confirmed {date(viewedReceipt.calibrationEvidence.confirmedAt)}. Future runs may use its query, source, visual-cluster, hero, ranking, and anti-anchor signals. Approval stays blocked until a fresh run transfers a positive signal beyond these exact nine.</p>}{retiringReceiptId===viewedReceipt.receiptId&&viewedReceipt.calibrationEvidence&&!viewedReceipt.calibrationEvidence.retirement&&<form className={styles.retirementForm} onSubmit={async event=>{event.preventDefault();if(!retirementReason.trim())return;const saved=await onRetireCalibration(viewedReceipt.receiptId,retirementReason);if(saved){setRetiringReceiptId(null);setRetirementReason('')}}}><label className={styles.label}>Why should future audits ignore this evidence?<textarea className={`${styles.input} ${styles.textarea}`} value={retirementReason} maxLength={1000} required onChange={event=>setRetirementReason(event.target.value)} placeholder="Describe what made this calibration example misleading." /></label><p>The original calibration, rescue board, audit, verdict, and eligibility history will remain unchanged. This creates a separate immutable retirement receipt.</p><div className={styles.rescueActions}><button type="submit" className={styles.buttonDanger} disabled={Boolean(busy)||!retirementReason.trim()}>{busy===`retirement:${viewedReceipt.receiptId}`?'Retiring evidence…':'Create retirement receipt'}</button><button type="button" className={styles.buttonSecondary} disabled={Boolean(busy)} onClick={()=>{setRetiringReceiptId(null);setRetirementReason('')}}>Cancel</button></div></form>}</div>}
     </section>}
     <div className={styles.rescuePickerHeader}><strong>Choose your nine</strong><span>Click an image to {candidates.length===9?'remove it before choosing another':'add or remove it'}.</span></div>
     <div className={styles.rescuePicker}>{candidatePool.map(item=>{const selectedIndex=candidates.findIndex(candidate=>candidate.candidateId===item.candidateId);const selected=selectedIndex>=0;return <button type="button" className={selected?styles.rescuePickSelected:styles.rescuePick} aria-pressed={selected} disabled={!selected&&candidates.length>=9} onClick={()=>toggleCandidate(item)} key={item.candidateId}><img src={item.thumbnail} alt={item.title||'Retained rescue candidate'}/><span>{selected?`Chosen ${selectedIndex+1}`:'Add'}</span></button>;})}</div>
-    {candidates.length>0?<div className={styles.rescueGrid}>{candidates.map((item,index)=><article className={styles.rescueTile} data-hero={index===4} key={item.candidateId}><a href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.thumbnail?<img src={item.thumbnail} alt={item.title||`Rescue card ${index+1}`}/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{index===4?'Hero · ':''}{item.title||`Card ${index+1}`}</span></a><div><button type="button" disabled={index===0} onClick={()=>move(index,-1)} aria-label={`Move card ${index+1} earlier`}>←</button><button type="button" disabled={candidates.length<5||index===4} onClick={()=>setHero(index)} aria-label={`Make card ${index+1} the hero`}>Hero</button><button type="button" disabled={index===candidates.length-1} onClick={()=>move(index,1)} aria-label={`Move card ${index+1} later`}>→</button></div></article>)}</div>:<p className={styles.boardEmpty}>Choose the first image for this rescue board.</p>}
-    <div className={styles.rescueActions}><button type="button" className={styles.buttonPrimary} disabled={!isCurrent||busy==='rescue-board'||candidates.length!==9} onClick={()=>onSave(candidates.map(item=>item.candidateId))}>{busy==='rescue-board'?'Saving rescue board…':candidates.length===9?'Save my nine':'Choose nine to save'}</button><button type="button" className={styles.buttonSecondary} disabled={!candidates.length} onClick={()=>setCandidates([])}>Clear board</button>{savedMatchesCurrentFeedback&&saved&&<><button type="button" className={styles.buttonSecondary} disabled={!isCurrent||Boolean(busy)} onClick={()=>onExport(saved.receiptId)}>{busy==='export-rescue-board'?'Exporting to Collection…':'Export saved board to Collection'}</button><span>Last saved {date(saved.savedAt)} by {saved.savedBy}</span></>}</div>
-    {review?.board&&<p className={styles.requestedSummary}>The suggested starting arrangement is editable. Your saved nine are the operator override.</p>}
+    {candidates.length>0?<div className={styles.rescueGrid} aria-label="Editable rescue board">{candidates.map((item,index)=><article className={styles.rescueTile} data-hero={index===4} key={item.candidateId}><a href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.thumbnail?<img src={item.thumbnail} alt={item.title||`Rescue card ${index+1}`}/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{index===4?'Hero · ':''}{item.title||`Card ${index+1}`}</span></a><div><button type="button" disabled={index===0} onClick={()=>move(index,-1)} aria-label={`Move card ${index+1} earlier`}>←</button><button type="button" disabled={candidates.length<5||index===4} onClick={()=>setHero(index)} aria-label={`Make card ${index+1} the hero`}>Hero</button><button type="button" disabled={index===candidates.length-1} onClick={()=>move(index,1)} aria-label={`Move card ${index+1} later`}>→</button></div></article>)}</div>:<p className={styles.boardEmpty}>Choose the first image for this rescue board.</p>}
+    <div className={styles.rescueActions}><button type="button" className={styles.buttonPrimary} disabled={!isCurrent||busy==='rescue-board'||candidates.length!==9} onClick={()=>onSave(candidates.map(item=>item.candidateId))}>{busy==='rescue-board'?'Saving board to Collection…':candidates.length===9?'Save my nine to Collection':'Choose nine to save'}</button><button type="button" className={styles.buttonSecondary} disabled={!candidates.length} onClick={()=>setCandidates([])}>Clear board</button>{savedMatchesCurrentFeedback&&saved&&<><button type="button" className={styles.buttonSecondary} disabled={!isCurrent||Boolean(busy)} onClick={()=>onExport(saved.receiptId)}>{busy==='export-rescue-board'?'Retrying Collection save…':'Retry Collection save'}</button><span>Last saved {date(saved.savedAt)} by {saved.savedBy}</span></>}</div>
+    {(review?.board||retainedProposal)&&<p className={styles.requestedSummary}>The suggested starting arrangement is editable. Your saved nine are the operator override.</p>}
     {blockedCount>0&&<div className={styles.blockedFlags}>{[...unavailableIds].map(candidateId=>{const item=rawResults.find(candidate=>candidate.candidateId===candidateId);return <span key={candidateId}><strong>{item?.title||candidateId}</strong> is unavailable because the audit could not load a usable image from its retained URL.</span>;})}</div>}
   </section>;
 }
@@ -426,7 +470,7 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
 function PartialBoards({run}:{run:Run}) {
   const boards = [
     run.strongestEvent ? { label: 'Event qualified board', board: run.strongestEvent } : run.boardDiagnostics?.event?.proposal ? { label: 'Event complete proposal · automated gate not passed', board: run.boardDiagnostics.event.proposal } : null,
-    run.strongestCompiled ? { label: 'Compiled qualified board', board: run.strongestCompiled } : run.boardDiagnostics?.compiled?.proposal ? { label: 'Compiled complete proposal · automated gate not passed', board: run.boardDiagnostics.compiled.proposal } : null,
+    run.strongestCompiled ? { label: 'Compiled qualified board', board: run.strongestCompiled } : run.boardDiagnostics?.compiled?.proposal ? { label: run.boardDiagnostics.compiled.reasonCode==='hero_not_fulfilled'?'Compiled complete board · Hero review needed':'Compiled complete proposal · automated gate not passed', board: run.boardDiagnostics.compiled.proposal } : null,
   ].filter(Boolean) as Array<{label:string;board:AnyRecord}>;
    if (!boards.length) return Object.values(run.boardDiagnostics??{}).some(diagnostic=>confirmsCompleteProposal(diagnostic))
      ? <p className={styles.boardEmpty}>This historical receipt confirms that a complete nine-card proposal formed, but the older audit format did not retain its exact arrangement. Rerun the audit to preserve proposed boards, or arrange the 36 retained images below.</p>
@@ -459,7 +503,8 @@ function BoardQualificationSummary({run}:{run:Run}) {
     const diagnostic = diagnostics[mode];
     const available = diagnostic?.available ?? Boolean(run[mode === 'event' ? 'strongestEvent' : 'strongestCompiled']);
     const completeProposal = confirmsCompleteProposal(diagnostic);
-    return <div className={styles.boardQualificationRow} key={mode}><strong>{available ? `${label} board automatically qualified` : completeProposal ? `${label} complete proposal · automated gate not passed` : `${label} proposal missing`}</strong><span>{available ? `${diagnostic?.candidateCount ?? 9} usable frames qualified.` : diagnostic?.summary || `No complete ${label} proposal formed.`}</span>{completeProposal&&!diagnostic?.proposal&&<small>Exact arrangement not retained by this older audit receipt; rerun to preserve it.</small>}</div>;
+    const heroReviewNeeded = diagnostic?.reasonCode === 'hero_not_fulfilled' && completeProposal;
+    return <div className={styles.boardQualificationRow} data-condition={heroReviewNeeded?'hero-review-needed':available?'qualified':completeProposal?'review-needed':'missing'} key={mode}><strong>{available ? `${label} board automatically qualified` : heroReviewNeeded ? `${label} complete board · Hero review needed` : completeProposal ? `${label} complete proposal · automated gate not passed` : `${label} proposal missing`}</strong><span>{available ? `${diagnostic?.candidateCount ?? 9} usable frames qualified.` : diagnostic?.summary || `No complete ${label} proposal formed.`}</span>{completeProposal&&!diagnostic?.proposal&&<small>Exact arrangement not retained by this older audit receipt; rerun to preserve it.</small>}</div>;
   })}</div>;
 }
 

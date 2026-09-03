@@ -70,7 +70,7 @@ async function seedSavedGrid(page: Page): Promise<void> {
       sourceRoute: '/vibe-atlas?view=collection',
       images: [{
         resultId: 'packet-grid-image',
-        imageUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==',
+        imageUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
         sourceUrl: 'https://source.example/packet-grid',
         title: 'Packet grid image',
         gridPosition: 0,
@@ -93,11 +93,37 @@ async function seedSavedGrid(page: Page): Promise<void> {
   }, { accountId: ACCOUNT_ID, gridId: GRID_ID });
 }
 
-async function openSavedGrid(page: Page, origin: string): Promise<void> {
+async function mockReleaseDesk(page: Page): Promise<void> {
+  await page.route('**/.netlify/functions/actor-audits', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      releaseInventory: {
+        releaseReadyPairingCount: 0,
+        unusedWithinRecentWindowPairingCount: 0,
+        freshCuratorPairingCount: 0,
+        rescueBackupPairingCount: 0,
+        rescueBackupBoardCount: 0,
+        actorPacks: [],
+      },
+    }),
+  }));
+  await page.route('**/.netlify/functions/daily-drop-operations', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ editions: [] }),
+  }));
+}
+
+async function openOperatorConsole(page: Page, origin: string): Promise<void> {
   await page.goto(origin);
   await seedSavedGrid(page);
   await page.goto(`${origin}/vibe-atlas?view=collection`);
   await page.getByText('Packet flow actor').first().waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Make a post in Workstation' }).count(), 0);
+  await page.goto(`${origin}/vibe-atlas?admin=true`);
+  await page.getByRole('heading', { name: 'Release Desk' }).waitFor();
+  const gridSelect = page.getByLabel('Saved FANDOM grid');
+  await gridSelect.waitFor();
+  assert.equal(await gridSelect.inputValue(), GRID_ID);
 }
 
 async function mockSelectedGridSync(page: Page): Promise<() => number> {
@@ -139,7 +165,33 @@ async function mockSelectedGridSync(page: Page): Promise<() => number> {
   return () => syncRequests;
 }
 
-test('Make a post sends one direct grid source and opens the Workstation draft', { timeout: 60_000 }, async () => {
+async function mockCollectionMedia(page: Page): Promise<() => number> {
+  let uploads = 0;
+  await page.route('**/api/collection/media?*', async route => {
+    uploads += 1;
+    const url = new URL(route.request().url());
+    const itemId = url.searchParams.get('itemId') || '';
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        media: {
+          schemaVersion: 1,
+          assetId: '11111111-1111-4111-8111-111111111111',
+          deliveryUrl: 'https://media.justlikekatie.com/images/sha256/browser-source.png',
+          thumbnailUrl: 'https://media.justlikekatie.com/images/sha256/browser-source-thumb.png',
+          mimeType: 'image/png',
+          sizeBytes: 68,
+          checksum: 'a'.repeat(64),
+          dimensions: { width: 1, height: 1 },
+          association: { type: 'collection', id: 'vibe-atlas', itemId },
+        },
+      }),
+    });
+  });
+  return () => uploads;
+}
+
+test('Operator Console sends one direct grid source and opens the Workstation draft', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();
   const page = await browser.newPage();
@@ -152,8 +204,11 @@ test('Make a post sends one direct grid source and opens the Workstation draft',
         user: { accountId: ACCOUNT_ID, email: 'packet@example.test', isAdmin: true },
       }),
     }));
+    await mockReleaseDesk(page);
+    const getMediaUploads = await mockCollectionMedia(page);
     const getSyncRequests = await mockSelectedGridSync(page);
-    await page.route('**/api/create-handoff', async route => {
+    await page.route('**/api/workstation-handoff', async route => {
+      assert.equal(getMediaUploads(), 1, 'the source image must be durable before Collection sync');
       assert.equal(getSyncRequests(), 1, 'the selected grid must sync before its handoff is created');
       createRequests += 1;
       const request = route.request().postDataJSON() as {
@@ -166,27 +221,25 @@ test('Make a post sends one direct grid source and opens the Workstation draft',
           source: request.source,
           receipt: {
             disposition: 'created',
-            createUrl: 'https://create.justlikekatie.com/compose?postId=creator-draft-1',
+            deliverableId: 'fandom:grid:packet-start-grid-server:live-grid',
+            deepLink: 'https://workstation.justlikekatie.com/compose?postId=creator-draft-1',
             postId: 'creator-draft-1',
-            sourceId: request.source.sourceId,
-            sourceVersion: request.source.sourceVersion,
+            postUrl: 'https://workstation.justlikekatie.com/drafts/creator-draft-1',
+            sourceVersion: 431,
             status: 'Draft',
-            workflow: 'creator-draft',
+            workflow: 'direct',
             mediaSyncState: 'synced',
-            distribution: {
-              primaryPlatform: request.source.platforms[0],
-              platforms: request.source.platforms,
-            },
+            warnings: [],
           },
         }),
       });
     });
-    await page.route('https://create.justlikekatie.com/compose**', route => route.fulfill({
+    await page.route('https://workstation.justlikekatie.com/compose**', route => route.fulfill({
       contentType: 'text/html',
-      body: '<title>Creator OS draft</title>',
+      body: '<title>Workstation draft</title>',
     }));
 
-    await openSavedGrid(page, origin);
+    await openOperatorConsole(page, origin);
     await page.getByRole('checkbox', { name: /Weibo/ }).check();
     await page.getByRole('checkbox', { name: /Instagram/ }).check();
     await page.getByText('Selected for this draft: Rednote + Weibo + Instagram').waitFor();
@@ -194,9 +247,10 @@ test('Make a post sends one direct grid source and opens the Workstation draft',
     await startButton.click();
     await startButton.click({ force: true }).catch(() => undefined);
 
-    await page.waitForURL('https://create.justlikekatie.com/compose?postId=creator-draft-1');
+    await page.waitForURL('https://workstation.justlikekatie.com/compose?postId=creator-draft-1');
     await page.waitForTimeout(600);
     assert.equal(createRequests, 1);
+    assert.equal(getMediaUploads(), 1);
     assert.equal(getSyncRequests(), 1);
   } finally {
     await browser.close();
@@ -227,7 +281,7 @@ for (const failure of [
     visibleMessage: 'Workstation returned an unreadable draft receipt.',
   },
 ]) {
-  test(`Make a post keeps results visible after ${failure.name}`, { timeout: 60_000 }, async () => {
+  test(`Operator Console keeps results visible after ${failure.name}`, { timeout: 60_000 }, async () => {
     const { server, origin } = await startApp();
     const browser = await launchBrowser();
     const page = await browser.newPage();
@@ -240,8 +294,11 @@ for (const failure of [
           user: { accountId: ACCOUNT_ID, email: 'packet@example.test', isAdmin: true },
         }),
       }));
+      await mockReleaseDesk(page);
+      const getMediaUploads = await mockCollectionMedia(page);
       const getSyncRequests = await mockSelectedGridSync(page);
-      await page.route('**/api/create-handoff', route => {
+      await page.route('**/api/workstation-handoff', route => {
+        assert.equal(getMediaUploads(), 1, 'the source image must be durable before Collection sync');
         assert.equal(getSyncRequests(), 1, 'the selected grid must sync before its handoff is created');
         createRequests += 1;
         return route.fulfill({
@@ -251,15 +308,16 @@ for (const failure of [
         });
       });
 
-      await openSavedGrid(page, origin);
+      await openOperatorConsole(page, origin);
       await page.getByRole('button', { name: 'Make a post in Workstation' }).click();
       await page.getByRole('alert').filter({ hasText: failure.visibleMessage }).waitFor();
       await page.getByRole('link', { name: 'Open Your Collection' }).waitFor();
       await page.getByRole('link', { name: 'Open Workstation' }).waitFor();
-      assert.equal(new URL(page.url()).search, '?view=collection');
+      assert.equal(new URL(page.url()).search, '?admin=true');
       assert.equal(createRequests, 1);
+      assert.equal(getMediaUploads(), 1);
       assert.equal(getSyncRequests(), 1);
-      await page.getByText('Packet flow actor').first().waitFor();
+      assert.equal(await page.getByLabel('Saved FANDOM grid').inputValue(), GRID_ID);
     } finally {
       await browser.close();
       await server.close();

@@ -67,7 +67,19 @@ test('Release Desk is the Admin workspace for private inventory', () => {
   assert.match(adminSource, />Actor Preflight Lab<\/button>/);
   assert.match(adminSource, /view === 'release-desk' \? <ReleaseDesk \/>/);
   assert.match(releaseDeskSource, /aria-label="Release Desk view"/);
-  assert.match(releaseDeskSource, /role="tab" aria-selected="true">Inventory/);
+  assert.match(releaseDeskSource, /aria-selected=\{view === 'inventory'\}/);
+  assert.match(releaseDeskSource, />Inventory<small>Current candidates/);
+  assert.match(releaseDeskSource, /aria-selected=\{view === 'production'\}/);
+  assert.match(releaseDeskSource, />Production<small>Readiness blockers/);
+  assert.match(releaseDeskSource, /<h4 id="release-production-title">Production readiness<\/h4>/);
+  assert.match(releaseDeskSource, /label="Asset"/);
+  assert.match(releaseDeskSource, /label="Enhancement"/);
+  assert.match(releaseDeskSource, /label="Render"/);
+  assert.match(releaseDeskSource, /label="Copy"/);
+  assert.match(releaseDeskSource, /label="Provenance \/ rights"/);
+  assert.match(releaseDeskSource, /label="Schedule eligibility"/);
+  assert.match(releaseDeskSource, /PLAN remains the scheduling source of truth/);
+  assert.match(releaseDeskSource, /never changes the immutable approval, evidence, or board history/);
   assert.match(releaseDeskSource, /Private editorial context/);
   assert.doesNotMatch(actorPreflightSource, /ReleaseInventory|releaseInventory/);
 
@@ -78,6 +90,14 @@ test('Release Desk is the Admin workspace for private inventory', () => {
   assert.match(privateGate, /!isAdmin \? \(\s*<AdminSignIn \/>/);
   assert.match(privateGate, /<FandomAdmin initialView="release-desk" \/>/);
   assert.doesNotMatch(appSource, /<span>Release Desk<\/span>/);
+});
+
+test('Actor Preflight keeps hero-only failures complete and reviewable', () => {
+  assert.match(actorPreflightSource, /curator proposal cards/);
+  assert.match(actorPreflightSource, /automatically publication-ready cards/);
+  assert.match(actorPreflightSource, /complete board · Hero review needed/);
+  assert.match(actorPreflightSource, /review\?\.board\?\.candidates \?\? retainedProposal\?\.candidates/);
+  assert.match(actorPreflightSource, /Compiled complete board · Hero review needed/);
 });
 
 test('public launchpad copy does not expose internal admin or CREATE architecture', () => {
@@ -114,8 +134,8 @@ test('crawlable C-drama entry points use the Vibe Atlas daily card-drop promise'
   assert.match(gettingStartedHtml, /Browse today’s C-drama card drop/);
   assert.match(gettingStartedHtml, /today’s Vibe Atlas card drop/);
   assert.match(gettingStartedHtml, /Meet today’s featured star and vibe through nine collectible pieces of evidence/);
-  assert.match(glossaryHtml, /one featured actor, one Vibe Pack, and nine collectible pieces of evidence/);
-  assert.match(glossaryHtml, /Browse today’s card drop/);
+  assert.match(glossaryHtml, /A visual fandom discovery system/);
+  assert.match(glossaryHtml, /Explore today’s Vibe Atlas Drop/);
   assert.match(tropeDecoderHtml, /today’s Vibe Atlas card drop/);
   assert.match(tropeDecoderHtml, /nine pieces of evidence/);
   assert.match(tropeDecoderHtml, /Browse today’s card drop/);
@@ -130,4 +150,30 @@ test('crawlable C-drama entry points use the Vibe Atlas daily card-drop promise'
     assert.match(html, /today’s curated C-drama card drop/);
     assert.match(html, /One star, one vibe, nine collectible pieces of evidence/);
   }
+});
+
+test('the glossary separates shared fandom language from Fandom Vibes collecting lore', () => {
+  assert.match(glossaryHtml, /aria-label="Glossary sections"/);
+  assert.match(glossaryHtml, /href="#genre-terms">Genres and worlds/);
+  assert.match(glossaryHtml, /href="#story-language">Story language/);
+  assert.match(glossaryHtml, /href="#community-language">Community language/);
+  assert.match(glossaryHtml, /href="#fandom-vibes-language">Fandom Vibes language/);
+  assert.match(glossaryHtml, /These are Fandom Vibes’ own product and collecting terms/);
+
+  assert.match(glossaryHtml, /<dt>Vibe Atlas<\/dt><dd>A visual fandom discovery system/);
+  assert.match(glossaryHtml, /<dt>Daily Drop<\/dt>/);
+  assert.match(glossaryHtml, /<dt>Vibe Pack<\/dt>/);
+  assert.match(glossaryHtml, /<dt>Vibe spell<\/dt><dd>The search incantation used to summon evidence/);
+  assert.match(glossaryHtml, /<dt>Vibe evidence<\/dt>/);
+  assert.match(glossaryHtml, /<dt>Collection<\/dt>/);
+  assert.match(glossaryHtml, /<dt>Legendary<\/dt><dd>An archive-worthy status/);
+  assert.match(glossaryHtml, /<dt>Misprint<\/dt><dd>A result that is technically wrong/);
+  assert.match(glossaryHtml, /<dt>Legendary Misprint<\/dt><dd>A Misprint so memorable/);
+  assert.doesNotMatch(glossaryHtml, /intentional, event-scoped exception/);
+  assert.doesNotMatch(glossaryHtml, /deliberately authored 3×3 fandom artifact/);
+
+  assert.match(glossaryHtml, /commonly traced to “coupling\.”/);
+  assert.match(glossaryHtml, /less centered on immortality and supernatural cultivation than xianxia/);
+  assert.match(glossaryHtml, /when official subtitled releases exist in your region, support them/);
+  assert.match(glossaryHtml, /This living glossary favors clear context over claims of one universal fandom usage/);
 });

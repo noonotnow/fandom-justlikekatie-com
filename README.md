@@ -13,7 +13,7 @@ paths, what was and wasn't carried over).
 
 A React + TypeScript + Vite "Vibe Atlas" front end, plus its Netlify
 Functions backend (`netlify/functions/`) — including Saved Collection sync,
-the direct Creator OS handoff, and image-search/ranking helpers. Creator OS
+the direct Workstation handoff, and image-search/ranking helpers. Workstation
 and the Operator Console remain separate systems.
 
 ## Build & run
@@ -44,22 +44,37 @@ Run `netlify build --offline` to confirm the configured build command is
 reports pnpm `10.26.1`; that hosted pre-build log is the authoritative check
 that Netlify honored the repository pin.
 
-## Saved Collection → Creator OS
+## Saved Collection → Workstation
 
-Saved Vibe Atlas grids are synced through Collection and handed directly to
-Creator OS through the same-origin `/api/create-handoff` endpoint. The
-handoff is a Creator Draft workflow, not a packet workflow: Creator Draft
-receipts are retained in `creator-draft-handoffs` and Creator OS is the place
-to read and continue the resulting drafts.
+Saved Vibe Atlas grids remain canonical in Collection. Before handoff, Fandom
+persists every source image as a durable MEDIA asset, saves those references,
+and syncs the selected grid. Fandom then sends the grid to Workstation through
+the same-origin `/api/workstation-handoff` endpoint. Workstation exclusively
+owns the resulting Creator Draft; receipts remain in
+`creator-draft-handoffs`.
 
-The browser never receives Creator OS credentials. Deployment must preserve
-the same-origin redirect for `/api/create-handoff`; do not expose server
+The browser never receives MEDIA or Workstation credentials. Deployment must
+preserve the same-origin redirect for `/api/workstation-handoff`; do not expose server
 credentials as `VITE_` variables.
 
-Historical Idea Packet records and their receipts were migrated to CREATE.
-They remain historical provenance there, rather than an active Fandom API,
+Historical Idea Packet records and their receipts remain in Create.
+Create is historical/read-only only, rather than an active Fandom API,
 archive, staging area, or handoff path. Middle-earth records remain readable
 through their scoped Collection access.
+
+Configure these server-only variables for new draft handoffs:
+
+- `MEDIA_ASSETS_TOKEN`
+- `MEDIA_ASSETS_URL` (optional; defaults to `https://media.justlikekatie.com/v1/assets/images`)
+- `WORKSTATION_FANDOM_INTAKE_URL` (optional; defaults to `https://workstation.justlikekatie.com/api/integrations/fandom/projects`)
+- `WORKSTATION_FANDOM_HMAC_KEY_ID`
+- `WORKSTATION_FANDOM_HMAC_SECRET`
+- `WORKSTATION_APP_URL` (optional; defaults to `https://workstation.justlikekatie.com`)
+
+Remove the retired `CREATE_FANDOM_INTAKE_URL`, `CREATE_FANDOM_HMAC_KEY_ID`,
+`CREATE_FANDOM_HMAC_SECRET`, and `CREATE_APP_URL` variables after rollout.
+`/api/create-handoff` is a temporary same-origin alias to the Workstation-only
+function and may be removed once deployed clients use the new route.
 
 ### Stripe billing on the external Netlify deployment
 
@@ -78,9 +93,9 @@ existing Netlify Blobs setup, so it does not need the Replit `DATABASE_URL`.
 The Replit connector and Postgres Stripe Sync remain the local/development
 fallback. Never prefix these secrets with `VITE_`, commit them, or expose them
 in browser responses.
-The browser never receives MEDIA or CREATE credentials. Do not add them as
+The browser never receives MEDIA or Workstation credentials. Do not add them as
 `VITE_` variables. Deployment must preserve the same-origin redirect for
-`/api/create-handoff`.
+`/api/workstation-handoff`.
 
 The browser also never receives `XAI_API_KEY`. Configure it directly in the
 Netlify site's environment variables before deploying AI generation; Replit
@@ -142,7 +157,7 @@ bookmarks continue to write to `cards`, now retaining the original result ID and
 source URL when available.
 
 Saved collection views read both stores. Saved grids are the source for
-Collection sync and the direct Creator OS handoff.
+Collection sync and the direct Workstation handoff.
 
 On startup, an idempotent adapter scans the existing `vibe-atlas-plan` store for
 legacy whole-grid records (`gridContext.position === -1`) and exposes them in
@@ -191,5 +206,6 @@ shared session cookie.
 
 Public endpoints are `/api/auth/magic-link`, `/api/auth/verify`,
 `/api/auth/session`, `/api/auth/logout`, and `/api/collection/sync`.
-`GET /api/create/collection` is separately HMAC-authenticated and read-only.
-CREATE has no collection write endpoint and must never own or mutate this data.
+`GET /api/create/collection` is a historical, separately HMAC-authenticated
+read-only endpoint. Create has no collection write endpoint and must never own
+or mutate this data.
