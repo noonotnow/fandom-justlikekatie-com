@@ -7,7 +7,7 @@ import starOfDay, {
   hasReleaseReadyCohort,
   readDailyDropHistory,
   readRecentDailyDropHistory,
-  RELEASE_COHORT_ACTOR_ID,
+  selectRotatingReleasePair,
   releaseLock,
   tryAcquireLock,
 } from "../star-of-day.js";
@@ -88,7 +88,7 @@ test("the daily build lock admits only one concurrent builder", async () => {
 
   assert.equal(Boolean(first) !== Boolean(second), true);
   await releaseLock(store, "2026-09-02", first || second);
-  assert.equal(await store.get("starOfDay:v10:2026-09-02:lock"), null);
+  assert.equal(await store.get("starOfDay:v11:2026-09-02:lock"), null);
 });
 
 function contextFor(store) {
@@ -540,7 +540,7 @@ test("the builder skips a failed approved pairing and preserves the public 3x3 p
     ...approvedEligibility(packs[1], 0),
   });
   assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore), true);
-  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore, 2, packs[0].id), false);
+  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore, 2), true);
   const attempted = [];
   const displayResults = Array.from({ length: 9 }, (_, index) => ({
     title: `Frame ${index}`,
@@ -941,9 +941,9 @@ test("Star of the Day accepts one plain operator approval", async () => {
   assert.equal(searches, 1);
 });
 
-test("the production release cohort is specifically Liu Xueyi", async () => {
+test("release rotation uses all approved actors and avoids yesterday's actor when possible", async () => {
   const packs = [
-    { id: RELEASE_COHORT_ACTOR_ID, name: "Liu Xueyi", vibes: [{ label: "A0", queries: ["a"] }, { label: "A1", queries: ["a1"] }] },
+    { id: "liu-xueyi", name: "Liu Xueyi", vibes: [{ label: "A0", queries: ["a"] }, { label: "A1", queries: ["a1"] }] },
     { id: "actor-b", name: "Actor B", vibes: [{ label: "B0", queries: ["b"] }] },
   ];
   const eligibilityStore = makeStore({
@@ -951,27 +951,26 @@ test("the production release cohort is specifically Liu Xueyi", async () => {
     ...approvedEligibility(packs[1], 0),
   });
 
-  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore, 2, RELEASE_COHORT_ACTOR_ID), false);
-  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore, 1, RELEASE_COHORT_ACTOR_ID), true);
+  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore, 2), true);
   assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore), true);
   assert.equal(await cachedPairIsEligible(
     { actorId: packs[1].id, vibeIdx: 0 },
     eligibilityStore,
     packs,
-    RELEASE_COHORT_ACTOR_ID,
-  ), false);
-
-  let searches = 0;
-  const payload = await buildPayloadForDate("2026-08-31", eligibilityStore, {
+  ), true);
+  const selected = await selectRotatingReleasePair(
     packs,
-    releaseActorId: RELEASE_COHORT_ACTOR_ID,
-    evaluate: async () => {
-      searches += 1;
-      return [];
-    },
-  });
-  assert.equal(payload, null);
-  assert.equal(searches, 1);
+    "2026-09-04",
+    eligibilityStore,
+    new Set(),
+    [{
+      publicationDate: "2026-09-03",
+      actor: { id: "liu-xueyi" },
+      vibe: { idx: 0 },
+    }],
+  );
+  assert.equal(packs[selected.aIdx].id, "actor-b");
+  assert.equal(selected.vIdx, 0);
 });
 
 test("cached and fallback payloads stop qualifying when approval is revoked or inputs change", async () => {

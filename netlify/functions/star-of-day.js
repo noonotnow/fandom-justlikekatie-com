@@ -433,6 +433,50 @@ export async function readRecentDailyDropHistory(
       String(right.publicationDate || "").localeCompare(String(left.publicationDate || "")));
 }
 
+export async function selectRotatingReleasePair(
+  packs,
+  dateString,
+  eligibilityStore,
+  excluded = new Set(),
+  recentHistory = [],
+) {
+  const recentPairKeys = new Set(recentHistory
+    .filter(manifest => manifest?.publicationDate < dateString)
+    .map(manifest => {
+      const actorId = manifest?.actor?.id;
+      const vibeIdx = manifest?.vibe?.idx;
+      return typeof actorId === "string" && Number.isInteger(vibeIdx)
+        ? `${actorId}:${vibeIdx}`
+        : null;
+    })
+    .filter(Boolean));
+  const yesterday = calendarDateOffset(dateString, -1);
+  const yesterdayActors = new Set(recentHistory
+    .filter(manifest => manifest?.publicationDate === yesterday)
+    .map(manifest => manifest?.actor?.id)
+    .filter(actorId => typeof actorId === "string"));
+  const yesterdayActorPairs = new Set(packs.flatMap(actor =>
+    yesterdayActors.has(actor.id)
+      ? (actor.vibes || []).map((_, vibeIdx) => `${actor.id}:${vibeIdx}`)
+      : []));
+  const strategies = [
+    new Set([...recentPairKeys, ...yesterdayActorPairs]),
+    recentPairKeys,
+    yesterdayActorPairs,
+    new Set(),
+  ];
+  for (const rotationExclusions of strategies) {
+    const candidate = await selectEligiblePair(
+      packs,
+      dateString,
+      eligibilityStore,
+      new Set([...excluded, ...rotationExclusions]),
+    );
+    if (candidate) return candidate;
+  }
+  return null;
+}
+
 export async function readDailyDropHistory(store, throughDate) {
   const listing = await store.list({ prefix: GRID_MANIFEST_PREFIX });
   const manifests = await Promise.all((listing?.blobs || [])
