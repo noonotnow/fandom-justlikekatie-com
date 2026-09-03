@@ -467,11 +467,11 @@ async function configureNetwork(page: Page): Promise<{
   return { auditRequests, calibrationRequests };
 }
 
-function completeCompiledHeroReviewRun(): AnyRecord {
+function completeCompiledHeroReviewRun(runId = 'complete-hero-review'): AnyRecord {
   const retained = candidates();
   const compiledProposal = board('compiled', retained);
   compiledProposal.promise.heroFulfillment = 0;
-  const result = run('complete-hero-review', true);
+  const result = run(runId, true);
   result.blindReview = {
     status: 'unavailable',
     presentationOrder: ['event', 'compiled'],
@@ -514,12 +514,16 @@ function completeCompiledHeroReviewRun(): AnyRecord {
 
 async function configureCompleteHeroReviewNetwork(
   page: Page,
-  { staleOnVerdict = false }: { staleOnVerdict?: boolean } = {},
+  { staleOnVerdict = false, newerRunOnVerdict = false }: {
+    staleOnVerdict?: boolean;
+    newerRunOnVerdict?: boolean;
+  } = {},
 ): Promise<{
   saveRequests: AnyRecord[];
   verdictRequests: AnyRecord[];
 }> {
   let savedBoard: AnyRecord | undefined;
+  let newerRunCurrent = false;
   const saveRequests: AnyRecord[] = [];
   const verdictRequests: AnyRecord[] = [];
 
@@ -574,8 +578,10 @@ async function configureCompleteHeroReviewNetwork(
         });
         return;
       }
-      const currentRun = completeCompiledHeroReviewRun();
-      if (savedBoard) currentRun.editorialFeedback = feedback(savedBoard);
+      const currentRun = completeCompiledHeroReviewRun(newerRunCurrent
+        ? 'newer-current-audit'
+        : 'complete-hero-review');
+      if (savedBoard && !newerRunCurrent) currentRun.editorialFeedback = feedback(savedBoard);
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
@@ -642,6 +648,18 @@ async function configureCompleteHeroReviewNetwork(
       assert.equal(input.rescuePreferred, true);
       assert.equal(input.rescueReceiptId, RESCUE_RECEIPT_ID);
       assert.ok(savedBoard, 'the scheduling verdict must follow the rescue-board save');
+      if (newerRunOnVerdict) {
+        assert.equal(input.notes, 'Keep this decision while the newer audit is reviewed.');
+        newerRunCurrent = true;
+        await route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: 'A newer audit run became current. Review that run before scheduling.',
+          }),
+        });
+        return;
+      }
       if (staleOnVerdict) {
         await route.fulfill({
           status: 409,
@@ -824,6 +842,67 @@ test('a stale rescue approval keeps the recovery form visible without showing pu
       'a stale approval must not show publication success',
     );
     assert.equal(saveRequests.length, 1);
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('a newer current audit keeps the approval draft intact until the operator refreshes', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { saveRequests, verdictRequests } = await configureCompleteHeroReviewNetwork(page, {
+    newerRunOnVerdict: true,
+  });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+
+    await page.getByRole('button', { name: 'Save my nine', exact: true }).click();
+    await page.getByText('Saved rescue records', { exact: true }).waitFor();
+    await page.getByLabel('Publication decision').selectOption('approved');
+    const notes = page.getByLabel('Operator notes');
+    const vibeConfirmation = page.getByLabel('Yes, that’s the Vibe.');
+    const publishableConfirmation = page.getByLabel('Yes, this is publishable.');
+    await notes.fill('Keep this decision while the newer audit is reviewed.');
+    await vibeConfirmation.check();
+    await publishableConfirmation.check();
+    const receiptSelect = page.getByLabel('Approved retained-evidence receipt');
+    await receiptSelect.selectOption(RESCUE_RECEIPT_ID);
+
+    const verdictButton = page.getByRole('button', { name: 'Save scheduling verdict', exact: true });
+    assert.equal(await verdictButton.isEnabled(), true);
+    await verdictButton.click();
+    await page.getByText(
+      'A newer audit run became current. Review that run before scheduling.',
+      { exact: true },
+    ).waitFor();
+
+    assert.equal(verdictRequests.length, 1, 'the verdict must be submitted before the current-run conflict is shown');
+    assert.equal(await page.getByLabel('Publication decision').inputValue(), 'approved');
+    assert.equal(await notes.inputValue(), 'Keep this decision while the newer audit is reviewed.');
+    assert.equal(await receiptSelect.inputValue(), RESCUE_RECEIPT_ID);
+    assert.equal(await vibeConfirmation.isVisible(), true);
+    assert.equal(await vibeConfirmation.isChecked(), true);
+    assert.equal(await publishableConfirmation.isVisible(), true);
+    assert.equal(await publishableConfirmation.isChecked(), true);
+    assert.equal(await page.locator('[class*="approvalOutcome"]').count(), 0, 'a current-run conflict must not show a publication outcome');
+    assert.equal(
+      await page.getByText('Exact nine-card retained-evidence board approved for publication with both human confirmations.', { exact: true }).count(),
+      0,
+      'a current-run conflict must not show publication success',
+    );
+    assert.equal(saveRequests.length, 1);
+
+    await page.reload();
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+    await page.getByText('Audit evidence · newer-current-audit', { exact: true }).waitFor();
+    assert.equal(await page.getByLabel('Publication decision').inputValue(), '');
+    assert.equal(await page.getByLabel('Operator notes').inputValue(), '');
   } finally {
     await browser.close();
     await server.close();

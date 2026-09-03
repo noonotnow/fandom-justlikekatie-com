@@ -3397,5 +3397,9 @@ test("a verdict racing a newer run cannot restore stale eligibility", async () =
   }), {});
 
   assert.equal(response.status, 409);
+  assert.match(
+    (await response.clone().json()).error,
+    /newer audit run became current/i,
+  );
   assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).eligible, false);
 });
