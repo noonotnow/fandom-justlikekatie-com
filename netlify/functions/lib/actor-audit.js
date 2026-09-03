@@ -3105,31 +3105,57 @@ export async function releaseReadyInventory(
     recentByPairing.set(key, dates);
   }
   const actorResults = await Promise.all(actorPacks.map(async actor => {
-    const pairings = (await Promise.all((actor.vibes || []).map(async (vibe, vibeIdx) => {
+    const pairingResults = await Promise.all((actor.vibes || []).map(async (vibe, vibeIdx) => {
       const snapshot = await getEligibility(store, actor, vibeIdx);
-      if (!isReleaseReady(snapshot)) return null;
+      if (!isReleaseReady(snapshot)) {
+        const retiredSignals = await currentRetiredSignalContext(store, actor, vibeIdx);
+        if (!retiredSignals.length) return { pairing: null, unavailablePairing: null };
+        return {
+          pairing: null,
+          unavailablePairing: {
+            actorId: actor.id,
+            actorName: actor.name,
+            actorShortNameEn: actor.shortName_en || actor.shortName || actor.name,
+            vibeKey: vibeKeyFor(actor.id, vibeIdx),
+            vibeIdx,
+            vibeLabel: vibe.label_en || vibe.label || vibeKeyFor(actor.id, vibeIdx),
+            vibeLabelNative: vibe.label || vibe.label_en || vibeKeyFor(actor.id, vibeIdx),
+            availability: "unavailable",
+            reasonCode: "retired_calibration_signal",
+            summary: retiredSignalSummary(retiredSignals),
+            retiredSignals,
+          },
+        };
+      }
       const rescueBackupBoards = rescueBackupBoardsFor(snapshot);
       const freshCurator = snapshot.publicationSource?.type !== "operator_rescue";
       const recentDailyDropDates = recentByPairing.get(`${actor.id}:${vibeIdx}`) || [];
       return {
-        actorId: actor.id,
-        actorName: actor.name,
-        actorShortNameEn: actor.shortName_en || actor.shortName || actor.name,
-        vibeKey: vibeKeyFor(actor.id, vibeIdx),
-        vibeIdx,
-        vibeLabel: vibe.label_en || vibe.label || vibeKeyFor(actor.id, vibeIdx),
-        vibeLabelNative: vibe.label || vibe.label_en || vibeKeyFor(actor.id, vibeIdx),
-        releaseSource: freshCurator ? "fresh_curator" : "rescue_backup",
-        freshCurator,
-        rescueBackupBoardCount: rescueBackupBoards.length,
-        currentRunId: snapshot.runId,
-        decidedAt: snapshot.decidedAt || null,
-        recentDailyDropCount: recentDailyDropDates.length,
-        recentDailyDropDates,
-        recentlyUsed: recentDailyDropDates.length > 0,
-        lastDailyDropDate: recentDailyDropDates[0] || null,
+        pairing: {
+          actorId: actor.id,
+          actorName: actor.name,
+          actorShortNameEn: actor.shortName_en || actor.shortName || actor.name,
+          vibeKey: vibeKeyFor(actor.id, vibeIdx),
+          vibeIdx,
+          vibeLabel: vibe.label_en || vibe.label || vibeKeyFor(actor.id, vibeIdx),
+          vibeLabelNative: vibe.label || vibe.label_en || vibeKeyFor(actor.id, vibeIdx),
+          releaseSource: freshCurator ? "fresh_curator" : "rescue_backup",
+          freshCurator,
+          rescueBackupBoardCount: rescueBackupBoards.length,
+          currentRunId: snapshot.runId,
+          decidedAt: snapshot.decidedAt || null,
+          recentDailyDropCount: recentDailyDropDates.length,
+          recentDailyDropDates,
+          recentlyUsed: recentDailyDropDates.length > 0,
+          lastDailyDropDate: recentDailyDropDates[0] || null,
+        },
+        unavailablePairing: null,
       };
-    }))).filter(Boolean);
+    }));
+    const pairings = pairingResults.map(result => result.pairing).filter(Boolean);
+    const unavailablePairings = pairingResults
+      .map(result => result.unavailablePairing)
+      .filter(Boolean);
     const recentDailyDropDates = recentByActor.get(actor.id) || [];
     return {
       actorId: actor.id,
@@ -3148,10 +3174,13 @@ export async function releaseReadyInventory(
       lastDailyDropDate: latestDailyDropByActor.get(actor.id) || null,
       recentlyUsedPairingCount: pairings.filter(pair => pair.recentlyUsed).length,
       unusedWithinRecentWindowPairingCount: pairings.filter(pair => !pair.recentlyUsed).length,
+      unavailablePairingCount: unavailablePairings.length,
+      unavailablePairings,
       pairings,
     };
   }));
   const pairings = actorResults.flatMap(actor => actor.pairings);
+  const unavailablePairings = actorResults.flatMap(actor => actor.unavailablePairings);
   return {
     schemaVersion: 1,
     timeZone: "Asia/Shanghai",
@@ -3168,9 +3197,68 @@ export async function releaseReadyInventory(
     recentlyUsedActorCount: actorResults.filter(actor => actor.recentlyUsed).length,
     recentlyUsedPairingCount: pairings.filter(pair => pair.recentlyUsed).length,
     unusedWithinRecentWindowPairingCount: pairings.filter(pair => !pair.recentlyUsed).length,
+    unavailablePairingCount: unavailablePairings.length,
+    unavailablePairings,
     actorPacks: actorResults,
     pairings,
   };
+}
+
+async function currentRetiredSignalContext(store, actor, vibeIdx) {
+  const pair = {
+    actor,
+    vibeIdx,
+    vibeKey: vibeKeyFor(actor.id, vibeIdx),
+  };
+  const [confirmedReceipts, signalRetirements] = await Promise.all([
+    readReceipts(
+      store,
+      auditRescueCalibrationPrefix(actor.id, vibeIdx),
+      "confirmedAt",
+    ),
+    readReceipts(
+      store,
+      auditRescueCalibrationSignalRetirementPrefix(actor.id, vibeIdx),
+      "retiredAt",
+    ),
+  ]);
+  const currentReceipts = new Map(confirmedReceipts
+    .filter(receipt =>
+      receipt.status === "confirmed"
+      && receipt.calibrationVersion === RESCUE_CALIBRATION_VERSION
+      && receipt.actor?.id === actor.id
+      && receipt.vibePack?.key === pair.vibeKey
+      && rescueCalibrationMatchesCurrentContract(receipt, pair))
+    .map(receipt => [receipt.sourceRescueReceiptId, receipt]));
+  return signalRetirements
+    .filter(retirement =>
+      retirement.status === "retired"
+      && retirement.actorId === actor.id
+      && retirement.vibeKey === pair.vibeKey
+      && currentReceipts.has(retirement.sourceRescueReceiptId)
+      && CALIBRATION_SIGNAL_FAMILIES.has(retirement.signalFamily)
+      && typeof retirement.signalValue === "string")
+    .map(retirement => {
+      const sourceReceipt = currentReceipts.get(retirement.sourceRescueReceiptId);
+      return {
+        signalFamily: retirement.signalFamily,
+        sourceRescueReceiptId: retirement.sourceRescueReceiptId,
+        sourceRunId: sourceReceipt.sourceRunId || null,
+        retirementId: retirement.retirementId || null,
+        reason: retirement.reason || null,
+        retiredAt: retirement.retiredAt || null,
+        retiredBy: retirement.retiredBy || null,
+      };
+    })
+    .sort((left, right) =>
+      left.signalFamily.localeCompare(right.signalFamily)
+      || left.sourceRescueReceiptId.localeCompare(right.sourceRescueReceiptId));
+}
+
+function retiredSignalSummary(retiredSignals) {
+  const families = [...new Set(retiredSignals.map(signal => signal.signalFamily))];
+  const receipts = [...new Set(retiredSignals.map(signal => signal.sourceRescueReceiptId))];
+  return `Unavailable because retired ${families.join(", ")} signal${families.length === 1 ? "" : "s"} ${families.length === 1 ? "affects" : "affect"} confirmed rescue receipt${receipts.length === 1 ? "" : "s"} ${receipts.join(", ")}.`;
 }
 
 async function actorSummary(store, actorPacks, actor) {

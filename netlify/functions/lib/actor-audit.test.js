@@ -3058,6 +3058,32 @@ test("transfer outcomes are retained per signal and signal retirement filters fu
   })), [{ signalFamily: "source", signalValue: sourceSignal }]);
   assert.ok(!retired.calibrationProfile.positiveSources.includes(sourceSignal));
   assert.equal(await getEligibility(store, pairActor, 0), null);
+  const inventoryResponse = await handler(request(), {});
+  const inventory = (await inventoryResponse.json()).releaseInventory;
+  assert.equal(inventory.releaseReadyPairingCount, 0);
+  assert.equal(inventory.unavailablePairingCount, 1);
+  assert.equal(inventory.actorPacks[0].unavailablePairingCount, 1);
+  assert.deepEqual(inventory.unavailablePairings[0], {
+    actorId: pairActor.id,
+    actorName: pairActor.name,
+    actorShortNameEn: pairActor.shortName_en,
+    vibeKey,
+    vibeIdx: 0,
+    vibeLabel: pairActor.vibes[0].label_en,
+    vibeLabelNative: pairActor.vibes[0].label,
+    availability: "unavailable",
+    reasonCode: "retired_calibration_signal",
+    summary: `Unavailable because retired source signal affects confirmed rescue receipt ${rescueReceipt.receiptId}.`,
+    retiredSignals: [{
+      signalFamily: "source",
+      sourceRescueReceiptId: rescueReceipt.receiptId,
+      sourceRunId: "run-1",
+      retirementId: retired.calibrationProfile.signalRetirements[0].retirementId,
+      reason: "Repeated source results no longer transfer with confirmed identity.",
+      retiredAt: retired.calibrationProfile.signalRetirements[0].retiredAt,
+      retiredBy: "operator-1",
+    }],
+  });
   const historicalSignalReceipt = retired.priorRuns
     .find(run => run.runId === "run-1")
     .editorialFeedback.operatorRescueBoards

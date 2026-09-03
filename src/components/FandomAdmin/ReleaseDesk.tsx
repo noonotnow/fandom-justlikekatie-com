@@ -599,6 +599,7 @@ function ReleaseInventory({ inventory }: { inventory: AnyRecord }) {
   const readyCount = Number(inventory.releaseReadyPairingCount ?? 0);
   const recentWindowDays = Number(inventory.recentDailyDropWindowDays ?? 30);
   const unusedCount = Number(inventory.unusedWithinRecentWindowPairingCount ?? 0);
+  const unavailableCount = Number(inventory.unavailablePairingCount ?? 0);
   const depthLabel = readyCount === 0
     ? 'No current release-ready pairing'
     : readyCount === 1
@@ -627,6 +628,7 @@ function ReleaseInventory({ inventory }: { inventory: AnyRecord }) {
         <div data-kind="fresh"><strong>{inventory.freshCuratorPairingCount ?? 0}</strong><span>fresh-curator pairings</span></div>
         <div data-kind="rescue"><strong>{inventory.rescueBackupPairingCount ?? 0}</strong><span>pairings with rescue backup</span></div>
         <div data-kind="rescue"><strong>{inventory.rescueBackupBoardCount ?? 0}</strong><span>explicit publishable rescue boards</span></div>
+        <div data-kind="retired"><strong>{unavailableCount}</strong><span>unavailable after signal retirement</span></div>
       </div>
 
       <div className={styles.inventoryPacks}>
@@ -660,6 +662,26 @@ function ReleaseInventory({ inventory }: { inventory: AnyRecord }) {
                 </ul>
               </>
               : <small>No current release-ready pairings in this actor pack.</small>}
+            {pack.unavailablePairings?.length > 0 && (
+              <div className={styles.retiredSignalExclusions}>
+                <strong>Unavailable after signal retirement</strong>
+                {pack.unavailablePairings.map((pair: AnyRecord) => (
+                  <article key={pair.vibeKey}>
+                    <span>{pair.vibeLabel}</span>
+                    <p>{pair.summary}</p>
+                    <ul>
+                      {pair.retiredSignals.map((signal: AnyRecord) => (
+                        <li key={signal.retirementId ?? `${signal.signalFamily}:${signal.sourceRescueReceiptId}`}>
+                          <b>{signal.signalFamily}</b>
+                          <span>Source receipt {signal.sourceRescueReceiptId}{signal.sourceRunId ? ` · audit ${signal.sourceRunId}` : ''}</span>
+                          {signal.reason && <small>{signal.reason}</small>}
+                        </li>
+                      ))}
+                    </ul>
+                  </article>
+                ))}
+              </div>
+            )}
           </article>
         ))}
       </div>

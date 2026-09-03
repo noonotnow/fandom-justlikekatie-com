@@ -393,6 +393,7 @@ async function configureNetwork(page: Page): Promise<{
               freshCuratorPairingCount: 1,
               rescueBackupPairingCount: 0,
               rescueBackupBoardCount: 0,
+              unavailablePairingCount: 1,
               actorPacks: [{
                 actorId: ACTOR_ID,
                 actorName: 'Browser Test Actor',
@@ -401,6 +402,22 @@ async function configureNetwork(page: Page): Promise<{
                 freshCuratorPairingCount: 1,
                 rescueBackupPairingCount: 0,
                 rescueBackupBoardCount: 0,
+                unavailablePairingCount: 1,
+                unavailablePairings: [{
+                  actorId: ACTOR_ID,
+                  vibeKey: `${ACTOR_ID}:1`,
+                  vibeLabel: 'Retired Signal Vibe',
+                  availability: 'unavailable',
+                  reasonCode: 'retired_calibration_signal',
+                  summary: 'Unavailable because retired source signal affects confirmed rescue receipt rescue-receipt-7.',
+                  retiredSignals: [{
+                    signalFamily: 'source',
+                    sourceRescueReceiptId: 'rescue-receipt-7',
+                    sourceRunId: 'run-7',
+                    retirementId: 'retirement-7',
+                    reason: 'Source no longer preserves confirmed identity.',
+                  }],
+                }],
                 pairings: [{
                   vibeKey: VIBE_KEY,
                   vibeLabel: 'Browser Calibration Vibe',
@@ -928,6 +945,10 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
     assert.equal(await page.getByText(/12:00 PM Asia\/Shanghai/).isVisible(), true);
     assert.equal(await page.getByText('Actor repeat watch', { exact: true }).isVisible(), true);
     assert.equal(await page.getByText('Last Daily Drop · Aug 30, 2026', { exact: true }).isVisible(), true);
+    assert.equal(await page.getByText('Unavailable after signal retirement', { exact: true }).last().isVisible(), true);
+    assert.equal(await page.getByText('Retired Signal Vibe', { exact: true }).isVisible(), true);
+    assert.equal(await page.getByText('Source receipt rescue-receipt-7 · audit run-7', { exact: true }).isVisible(), true);
+    assert.equal(await page.getByText('Source no longer preserves confirmed identity.', { exact: true }).isVisible(), true);
 
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
