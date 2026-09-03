@@ -146,6 +146,26 @@ to = "/c-drama-fandom/glossary/index.html"
 status = 200
 
 [[redirects]]
+from = "/c-drama-fandom/glossary/cp"
+to = "/c-drama-fandom/glossary/cp/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/glossary/cultivation"
+to = "/c-drama-fandom/glossary/cultivation/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/glossary/xianxia"
+to = "/c-drama-fandom/glossary/xianxia/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/glossary/jianghu"
+to = "/c-drama-fandom/glossary/jianghu/index.html"
+status = 200
+
+[[redirects]]
 from = "/c-drama-fandom/trope-decoder"
 to = "/c-drama-fandom/trope-decoder/index.html"
 status = 200
