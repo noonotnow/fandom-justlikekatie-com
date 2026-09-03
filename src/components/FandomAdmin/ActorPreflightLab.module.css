@@ -94,6 +94,29 @@
 .evidence pre { max-height:240px; overflow:auto; margin:8px 0 0; padding:10px; background:#161714; color:#cbd1c9; font:10px/1.5 ui-monospace,SFMono-Regular,monospace; white-space:pre-wrap; }
 .evidenceSummary { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 9px; margin-top:12px; color:#8d928f; font-size:11px; }
 .evidenceSummary strong { color:#c9a96e; font-size:18px; }
+.calibrationLearning { display:grid; gap:11px; margin-top:14px; padding:13px; border:1px solid color-mix(in srgb,#6f8d83 50%,var(--admin-border)); border-radius:9px; background:color-mix(in srgb,#6f8d83 6%,transparent); }
+.calibrationLearningHeader { display:flex; justify-content:space-between; gap:14px; align-items:start; }
+.calibrationLearning h6 { margin:0; color:#b8d2c6; font-size:13px; }
+.calibrationLearning p { margin:4px 0 0; color:#8d928f; font-size:10px; line-height:1.45; }
+.calibrationPass,.calibrationPending { flex:0 0 auto; padding:5px 7px; border:1px solid #6f8d83; border-radius:5px; color:#b8d2c6; font-size:9px; font-weight:800; text-transform:uppercase; }
+.calibrationPending { border-color:#c98264; color:#e5b09a; }
+.calibrationQueries,.calibrationSupports,.calibrationProof { display:grid; gap:6px; }
+.calibrationQueries > strong,.calibrationSupports > strong,.calibrationProof > strong { color:#c9a96e; font-size:10px; }
+.calibrationQueries > div { display:flex; flex-wrap:wrap; gap:5px; }
+.calibrationQueries code { padding:4px 6px; border:1px solid var(--admin-border); border-radius:4px; color:#b9bfbb; font:9px/1.35 ui-monospace,SFMono-Regular,monospace; }
+.calibrationQueries code[data-used=true] { border-color:#6f8d83; color:#b8d2c6; }
+.calibrationSupports > p { margin:0; }
+.calibrationSupports > div { display:grid; gap:5px; }
+.calibrationSupports article { display:grid; gap:3px; padding:7px 8px; border-left:2px solid #6f8d83; background:color-mix(in srgb,#6f8d83 8%,transparent); }
+.calibrationSupports article strong { overflow:hidden; color:#b9bfbb; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.calibrationSupports article span { color:#8d928f; font:9px/1.4 ui-monospace,SFMono-Regular,monospace; }
+.calibrationProof { padding-top:8px; border-top:1px solid color-mix(in srgb,#6f8d83 35%,var(--admin-border)); }
+.calibrationProof > span,.calibrationProof > small { color:#b9bfbb; font-size:10px; line-height:1.45; }
+.calibrationProof > small { color:#8d928f; }
+.calibrationProofFailed { border-top-color:#9b5b4b; }
+.boardTileWrap { min-width:0; }
+.calibrationCardBadge { display:grid; gap:2px; margin-top:3px; padding:3px 4px; border-left:2px solid #6f8d83; color:#b8d2c6; font-size:8px; line-height:1.35; }
+.calibrationCardBadge span { overflow:hidden; color:#8d928f; font:8px/1.35 ui-monospace,SFMono-Regular,monospace; text-overflow:ellipsis; white-space:nowrap; }
 .boardReview { margin-top:18px; padding:14px; border:1px solid color-mix(in srgb,#c9a96e 35%,var(--admin-border)); border-radius:10px; background:color-mix(in srgb,#c9a96e 4%,transparent); }
 .legacyBoardReview { border-color:color-mix(in srgb,#c98264 65%,var(--admin-border)); background:color-mix(in srgb,#c98264 5%,transparent); }
 .boardReviewHeader { display:flex; justify-content:space-between; align-items:end; gap:14px; margin-bottom:12px; }

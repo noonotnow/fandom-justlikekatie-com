@@ -192,6 +192,8 @@ function promiseEvidence(result, promise) {
   }
   const metadata = resultText(result, false);
   const required = promise.requiredCombinations || [];
+  const identityCombination = required.find(combination =>
+    /(?:actor|identity)/i.test(combination?.id || ""));
   const supportingMatches = matchingTerms(metadata, promise.supportingAnchors);
   const hardAntiMatches = matchingTerms(metadata, promise.hardAntiAnchors);
   if (BTS_TEXT.test(metadata) && !hardAntiMatches.includes("bts")) hardAntiMatches.push("behind_the_scenes");
@@ -236,6 +238,10 @@ function promiseEvidence(result, promise) {
     : requiredMatches.length === required.length
       && narrativeSatisfied
       && (!promise.clusterIds?.length || recognizedCluster);
+  const identityConfirmed = Boolean(
+    (identityCombination && matchesCombination(metadata, identityCombination))
+    || clusterBackedIdentity,
+  );
   const heroTerms = promise.hero?.any || [];
   const explicitHeroMatch = heroTerms.some(term => containsTerm(metadata, term));
   const heroSatisfied = (heroTerms.length === 0
@@ -255,6 +261,7 @@ function promiseEvidence(result, promise) {
     narrativeMatches,
     narrativeCategories,
     narrativeSatisfied,
+    identityConfirmed,
     supportingMatches,
     hardAntiMatches,
     softContradictionMatches,
@@ -503,6 +510,10 @@ function boardPromiseMetrics(board, promise) {
     };
   }
   const coreCount = board.filter(candidate => candidate.editorial?.coreSatisfied).length;
+  const compatibleCoreCount = board.filter(candidate =>
+    candidate.editorial?.coreSatisfied && !candidate.editorial?.incompatibleCluster).length;
+  const calibratedSupporting = board.filter(candidate =>
+    isCalibratedSupportingCandidate(candidate) && !candidate.editorial?.coreSatisfied);
   const promiseFulfillment = average(board.map(candidate => candidate.editorial?.promiseScore || 0));
   const hero = board[Math.min(4, Math.max(0, board.length - 1))];
   const highSalience = HIGH_SALIENCE_SLOTS
@@ -519,11 +530,16 @@ function boardPromiseMetrics(board, promise) {
     candidate.editorial?.softContradictionMatches?.length).length;
   return {
     coreCount,
+    supportingCount: calibratedSupporting.length,
+    admittedCount: compatibleCoreCount + calibratedSupporting.length,
     coreCoverage: coreCount / Math.max(1, board.length),
     promiseFulfillment,
     heroFulfillment: hero?.editorial?.heroSatisfied ? 1 : 0,
     highSalienceCoreCount: highSalience.filter(candidate =>
       candidate?.editorial?.coreSatisfied && !candidate?.editorial?.incompatibleCluster).length,
+    highSalienceAdmittedCount: highSalience.filter(candidate =>
+      (candidate?.editorial?.coreSatisfied && !candidate?.editorial?.incompatibleCluster)
+      || isCalibratedSupportingCandidate(candidate)).length,
     highSalienceCount: highSalience.length,
     incompatibleClusterCount: board.filter(candidate =>
       candidate.editorial?.incompatibleCluster).length,
@@ -536,9 +552,14 @@ function boardPromiseMetrics(board, promise) {
 function promiseQualified(board, promise, limit) {
   if (!promise) return true;
   const metrics = boardPromiseMetrics(board, promise);
-  return metrics.coreCount >= Math.min(MIN_PROMISE_CARDS, limit)
+  const strictQualification = metrics.coreCount >= Math.min(MIN_PROMISE_CARDS, limit)
     && metrics.heroFulfillment === 1
-    && metrics.highSalienceCoreCount === metrics.highSalienceCount
+    && metrics.highSalienceCoreCount === metrics.highSalienceCount;
+  const calibratedSupportingQualification = metrics.heroFulfillment === 1
+    && metrics.supportingCount > 0
+    && metrics.admittedCount >= limit
+    && metrics.highSalienceAdmittedCount === metrics.highSalienceCount;
+  return (strictQualification || calibratedSupportingQualification)
     && metrics.singleFrameRatio >= 0.99;
 }
 
@@ -747,9 +768,9 @@ function arrangeBoard(candidates, _promise) {
   const ordered = [...candidates].sort(candidateOrder);
   if (ordered.length < 5) return ordered;
   const rankedForHero = [...ordered].sort((left, right) =>
-    Number(right.calibration?.hero) - Number(left.calibration?.hero)
+    Number(right.editorial?.heroSatisfied) - Number(left.editorial?.heroSatisfied)
+    || Number(right.calibration?.hero) - Number(left.calibration?.hero)
     || (right.calibration?.score || 0) - (left.calibration?.score || 0)
-    || Number(right.editorial?.heroSatisfied) - Number(left.editorial?.heroSatisfied)
     || Number(right.editorial?.coreSatisfied) - Number(left.editorial?.coreSatisfied)
     || Number(left.editorial?.incompatibleCluster) - Number(right.editorial?.incompatibleCluster)
     || (right.editorial?.promiseScore || 0) - (left.editorial?.promiseScore || 0)
@@ -1224,6 +1245,8 @@ function calibrationDiagnostics(profile, board = [], states = []) {
     return {
       calibrationVersion: null,
       evidenceCount: 0,
+      retiredSignalCount: profile?.retiredSignalCount || 0,
+      transferSummary: profile?.transferSummary || null,
       affected: false,
       selectedSignalCount: 0,
       beyondExactSavedNineCount: 0,
@@ -1239,7 +1262,7 @@ function calibrationDiagnostics(profile, board = [], states = []) {
   const beyondExactSavedNine = affectedCandidates.filter(candidate =>
     !sourceEvidenceIds.has(candidate.calibration?.candidateId)
     && candidate.calibration?.positive?.some(signal =>
-      /^(query|source|cluster):/.test(signal)));
+      /^(query|source|cluster|definition|composition):/.test(signal)));
   const gateSignals = states
     .filter(state =>
       state.dropReason
@@ -1263,6 +1286,8 @@ function calibrationDiagnostics(profile, board = [], states = []) {
   return {
     calibrationVersion: profile.calibrationVersion,
     evidenceCount: profile.evidenceCount,
+    retiredSignalCount: profile.retiredSignalCount || 0,
+    transferSummary: profile.transferSummary || null,
     sourceReceiptIds: profile.sourceReceiptIds || [],
     affected: affectedCandidates.length > 0 || gateSignals.length > 0,
     selectedSignalCount: affectedCandidates.length,
@@ -1279,9 +1304,13 @@ function calibrationDiagnostics(profile, board = [], states = []) {
       preferredPosition: candidate.calibration.preferredPosition,
       positive: candidate.calibration.positive,
       negative: candidate.calibration.negative,
+      transferablePositive: candidate.calibration.transferablePositive,
+      supportingAdmission: candidate.calibration.supportingAdmission === true,
+      supportingAdmissionEvidence: candidate.calibration.supportingAdmissionEvidence || null,
     })),
     gateSignals,
     preferredQueries: profile.positiveQueries || [],
+    preferredCompositions: profile.positiveCompositions || profile.positiveDefinitions || [],
     discouragedQueries: profile.negativeQueries || [],
     preferredSources: profile.positiveSources || [],
     discouragedSources: profile.negativeSources || [],
@@ -1331,6 +1360,7 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
         metadataSignal: candidate.composite.metadataSignal === true,
         visualScore: Number((candidate.composite.visualScore || 0).toFixed(3)),
       } : null,
+      identityConfirmed: candidate.editorial?.identityConfirmed === true,
     } : null,
     calibration: candidate.calibration ? {
       score: Number((candidate.calibration.score || 0).toFixed(3)),
@@ -1341,6 +1371,10 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
       preferredPosition: candidate.calibration.preferredPosition,
       positive: candidate.calibration.positive || [],
       negative: candidate.calibration.negative || [],
+      transferablePositive: candidate.calibration.transferablePositive || [],
+      identityConfirmed: candidate.calibration.identityConfirmed === true,
+      supportingAdmission: candidate.calibration.supportingAdmission === true,
+      supportingAdmissionEvidence: candidate.calibration.supportingAdmissionEvidence || null,
     } : null,
   });
   const board = (selection, mode) => selection ? {
@@ -1568,10 +1602,18 @@ function candidateCalibration(candidate, profile) {
   for (const anchor of antiAnchors) {
     match(anchor, "positiveAntiAnchors", "negativeAntiAnchors", `anti-anchor:${anchor}`);
   }
+  const positiveDefinitions = calibrationSet(profile, "positiveDefinitions");
+  const negativeDefinitions = calibrationSet(profile, "negativeDefinitions");
+  const positiveCompositions = calibrationSet(profile, "positiveCompositions");
+  const negativeCompositions = calibrationSet(profile, "negativeCompositions");
+  const positiveComposition = definitions.find(cue => positiveCompositions.has(cue));
+  const negativeComposition = definitions.find(cue => negativeCompositions.has(cue));
   const positiveDefinition = definitions.find(cue =>
-    calibrationSet(profile, "positiveDefinitions").has(cue));
+    positiveDefinitions.has(cue) && cue !== positiveComposition);
   const negativeDefinition = definitions.find(cue =>
-    calibrationSet(profile, "negativeDefinitions").has(cue));
+    negativeDefinitions.has(cue) && cue !== negativeComposition);
+  if (positiveComposition) positive.push(`composition:${positiveComposition}`);
+  if (negativeComposition) negative.push(`composition:${negativeComposition}`);
   if (positiveDefinition) positive.push(`definition:${positiveDefinition}`);
   if (negativeDefinition) negative.push(`definition:${negativeDefinition}`);
   const exactSavedCandidate = positiveIds.has(candidateId);
@@ -1591,6 +1633,14 @@ function candidateCalibration(candidate, profile) {
     -1,
     1,
   );
+  const transferablePositive = positive.filter(signal =>
+    /^(query|source|cluster|definition|composition):/.test(signal));
+  const identityConfirmed = candidate.editorial?.identityConfirmed === true;
+  const supportingAdmission = identityConfirmed
+    && transferablePositive.length > 0
+    && candidate.editorial?.incompatibleCluster !== true
+    && !candidate.editorial?.hardAntiMatches?.length
+    && !candidate.editorial?.softContradictionMatches?.length;
   return {
     score,
     hero: heroIds.has(candidateId),
@@ -1603,7 +1653,22 @@ function candidateCalibration(candidate, profile) {
     candidateId,
     positive: [...new Set(positive)],
     negative: [...new Set(negative)],
+    transferablePositive: [...new Set(transferablePositive)],
+    identityConfirmed,
+    supportingAdmission,
+    supportingAdmissionEvidence: supportingAdmission ? {
+      signals: [...new Set(transferablePositive)],
+      identityConfirmed,
+      imageSafe: true,
+      compatibleCluster: candidate.editorial?.incompatibleCluster !== true,
+      noHardAntiAnchors: !candidate.editorial?.hardAntiMatches?.length,
+      noSoftContradictions: !candidate.editorial?.softContradictionMatches?.length,
+    } : null,
   };
+}
+
+function isCalibratedSupportingCandidate(candidate) {
+  return candidate?.calibration?.supportingAdmission === true;
 }
 
 function definitionCuesForCandidate(result) {

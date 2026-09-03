@@ -162,11 +162,19 @@ test('legacy audits are visibly historical and require a fresh audit', () => {
 test('rescue calibration is explicit, future-facing, and reports transfer proof', () => {
   assert.match(markRescueCalibration, /action:'mark_rescue_calibration'/);
   assert.match(markRescueCalibration, /fresh audit must reproduce its signals beyond these exact nine/i);
+  assert.match(source, /Rescue learning used in this fresh audit/);
+  assert.match(source, /Learned rescue queries used/);
+  assert.match(source, /Calibration-backed supporting cards/);
+  assert.match(source, /supportingAdmissionEvidence/);
+  assert.match(source, /Failed transfer remains visible/);
   assert.match(source, /Calibration remains a separate choice/i);
   assert.match(source, /Use as calibration evidence/);
   assert.match(source, /calibrationEvidence/);
   assert.match(source, /Operator-derived curation signals/);
   assert.match(source, /Calibration transfer proof/);
+  assert.match(source, /Transfer outcomes/);
+  assert.match(source, /Retire signal/);
+  assert.match(source, /action:'retire_rescue_signal'/);
   assert.match(source, /calibration_reaudit_required/);
   assert.match(source, /Legacy evidence · records only/);
   assert.match(source, /run\.auditContract\?\.isLegacy/);

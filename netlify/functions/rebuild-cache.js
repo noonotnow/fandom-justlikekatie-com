@@ -17,7 +17,6 @@ import { getShanghaiDateString } from "./lib/date-seed.js";
 import {
   buildPayloadForDate,
   cachedPairIsEligible,
-  RELEASE_COHORT_ACTOR_ID,
   STAR_OF_DAY_VERSION,
 } from "./star-of-day.js";
 import { materializePublicationManifest } from "./lib/publication-manifest.js";
@@ -75,7 +74,6 @@ export default async (req, context) => {
 
     // Build fresh payload
     const payload = await buildPayloadForDate(todayStr, eligibilityStore, {
-      releaseActorId: RELEASE_COHORT_ACTOR_ID,
       publicationStore: store,
       materializePublication: materializePublicationManifest,
       mediaEnv: process.env,
@@ -91,7 +89,6 @@ export default async (req, context) => {
       payload,
       eligibilityStore,
       undefined,
-      RELEASE_COHORT_ACTOR_ID,
     )) {
       return jsonResponse(409, {
         error: "Pairing approval changed while the rebuild was running",
@@ -104,7 +101,6 @@ export default async (req, context) => {
       payload,
       eligibilityStore,
       undefined,
-      RELEASE_COHORT_ACTOR_ID,
     )) {
       await store.delete(todayKey);
       return jsonResponse(409, {

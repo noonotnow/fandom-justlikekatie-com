@@ -38,6 +38,23 @@ export const auditRescueCalibrationKey = (actorId, vibeIdx, receiptId) => `${aud
 export const auditRescueCalibrationRetirementPrefix = (actorId, vibeIdx) => `rescue-calibration-retirements/${actorId}/${vibeIdx}/`;
 export const auditRescueCalibrationRetirementKey = (actorId, vibeIdx, receiptId) =>
   `${auditRescueCalibrationRetirementPrefix(actorId, vibeIdx)}${encodeURIComponent(receiptId)}`;
+export const auditRescueCalibrationSignalRetirementPrefix = (actorId, vibeIdx) =>
+  `rescue-calibration-signal-retirements/${actorId}/${vibeIdx}/`;
+export const auditRescueCalibrationSignalRetirementKey = (
+  actorId,
+  vibeIdx,
+  receiptId,
+  signalFamily,
+  signalValue,
+) => `${auditRescueCalibrationSignalRetirementPrefix(actorId, vibeIdx)}${[
+  receiptId,
+  signalFamily,
+  signalValue || "*",
+].map(value => encodeURIComponent(value)).join("/")}`;
+export const auditRescueCalibrationOutcomePrefix = (actorId, vibeIdx) =>
+  `rescue-calibration-outcomes/${actorId}/${vibeIdx}/`;
+export const auditRescueCalibrationOutcomeKey = (actorId, vibeIdx, runId) =>
+  `${auditRescueCalibrationOutcomePrefix(actorId, vibeIdx)}${encodeURIComponent(runId)}`;
 export const productionReceiptPrefix = (actorId, vibeIdx, runId) =>
   `production-receipts/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
 export const productionReceiptKey = (actorId, vibeIdx, runId, receiptId) =>
@@ -45,18 +62,33 @@ export const productionReceiptKey = (actorId, vibeIdx, runId, receiptId) =>
 export const productionStateKey = (actorId, vibeIdx, runId) =>
   `production-state/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}`;
 
-export function rescueCalibrationRetirementHash(retirements = []) {
+export function rescueCalibrationRetirementHash(retirements = [], signalRetirements = []) {
+  const receiptRetirements = retirements
+    .filter(retirement => retirement?.status === "retired"
+      && typeof retirement?.sourceRescueReceiptId === "string")
+    .map(retirement => ({
+      retirementId: retirement.retirementId || null,
+      sourceRescueReceiptId: retirement.sourceRescueReceiptId,
+      retiredAt: retirement.retiredAt || null,
+    }));
+  const signalEntries = signalRetirements
+    .filter(retirement => retirement?.status === "retired"
+      && typeof retirement?.sourceRescueReceiptId === "string"
+      && typeof retirement?.signalFamily === "string"
+      && typeof retirement?.signalValue === "string")
+    .map(retirement => ({
+      retirementId: retirement.retirementId || null,
+      sourceRescueReceiptId: retirement.sourceRescueReceiptId,
+      signalFamily: retirement.signalFamily,
+      signalValue: retirement.signalValue,
+      retiredAt: retirement.retiredAt || null,
+    }));
   return createHash("sha256").update(JSON.stringify(
-    retirements
-      .filter(retirement => retirement?.status === "retired"
-        && typeof retirement?.sourceRescueReceiptId === "string")
-      .map(retirement => ({
-        retirementId: retirement.retirementId || null,
-        sourceRescueReceiptId: retirement.sourceRescueReceiptId,
-        retiredAt: retirement.retiredAt || null,
-      }))
+    [...receiptRetirements, ...signalEntries]
       .sort((left, right) =>
         left.sourceRescueReceiptId.localeCompare(right.sourceRescueReceiptId)
+        || String(left.signalFamily || "").localeCompare(String(right.signalFamily || ""))
+        || String(left.signalValue || "").localeCompare(String(right.signalValue || ""))
         || String(left.retirementId).localeCompare(String(right.retirementId))),
   )).digest("hex");
 }
@@ -82,6 +114,12 @@ export async function getEligibility(store, actor, vibeIdx) {
     store.get(auditHeadKey(actorId, vibeIdx), { type: "json", consistency: "strong" }),
   ]);
   if (!snapshot || !head?.currentRunId || snapshot.runId !== head.currentRunId) return null;
+  const liveRetirementHash = await currentRescueCalibrationRetirementHash(
+    store,
+    actorId,
+    vibeIdx,
+  );
+  if ((snapshot.rescueCalibrationRetirementHash || null) !== liveRetirementHash) return null;
 
   const [run, verdict, calibration, reasons, publicationReceipt] = await Promise.all([
     store.get(auditRunKey(actorId, vibeIdx, head.currentRunId), { type: "json", consistency: "strong" }),
@@ -370,6 +408,50 @@ async function readFirstReceipt(store, prefix, timestampField) {
 async function readCanonicalReceipt(store, key, prefix, timestampField) {
   const canonical = await store.get(key, { type: "json", consistency: "strong" });
   return canonical || readFirstReceipt(store, prefix, timestampField);
+}
+
+async function readReceipts(store, prefix, timestampField) {
+  const listing = await store.list({ prefix });
+  const receipts = await Promise.all((listing?.blobs || []).map(async blob => {
+    if (typeof blob?.key !== "string") return null;
+    const value = await store.get(blob.key, { type: "json", consistency: "strong" });
+    return value ? { key: blob.key, ...value } : null;
+  }));
+  return receipts
+    .filter(Boolean)
+    .sort((left, right) =>
+      String(left[timestampField] || "").localeCompare(String(right[timestampField] || ""))
+      || left.key.localeCompare(right.key));
+}
+
+async function currentRescueCalibrationRetirementHash(store, actorId, vibeIdx) {
+  const [calibrations, retirements, signalRetirements] = await Promise.all([
+    readReceipts(store, auditRescueCalibrationPrefix(actorId, vibeIdx), "confirmedAt"),
+    readReceipts(store, auditRescueCalibrationRetirementPrefix(actorId, vibeIdx), "retiredAt"),
+    readReceipts(store, auditRescueCalibrationSignalRetirementPrefix(actorId, vibeIdx), "retiredAt"),
+  ]);
+  const currentReceiptIds = new Set(calibrations
+    .filter(calibration =>
+      calibration.status === "confirmed"
+      && calibration.calibrationVersion === 1
+      && calibration.actor?.id === actorId
+      && calibration.vibePack?.key === auditVibeKey(actorId, vibeIdx))
+    .map(calibration => calibration.sourceRescueReceiptId));
+  const currentRetirements = retirements.filter(retirement =>
+    retirement.status === "retired"
+    && retirement.actorId === actorId
+    && retirement.vibeKey === auditVibeKey(actorId, vibeIdx)
+    && currentReceiptIds.has(retirement.sourceRescueReceiptId));
+  const currentSignalRetirements = signalRetirements.filter(retirement =>
+    retirement.status === "retired"
+    && retirement.actorId === actorId
+    && retirement.vibeKey === auditVibeKey(actorId, vibeIdx)
+    && currentReceiptIds.has(retirement.sourceRescueReceiptId)
+    && typeof retirement.signalFamily === "string"
+    && typeof retirement.signalValue === "string");
+  return currentRetirements.length || currentSignalRetirements.length
+    ? rescueCalibrationRetirementHash(currentRetirements, currentSignalRetirements)
+    : null;
 }
 
 export function isApproved(snapshot) {
