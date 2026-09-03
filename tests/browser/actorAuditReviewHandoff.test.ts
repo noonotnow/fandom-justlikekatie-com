@@ -512,7 +512,10 @@ function completeCompiledHeroReviewRun(): AnyRecord {
   return result;
 }
 
-async function configureCompleteHeroReviewNetwork(page: Page): Promise<{
+async function configureCompleteHeroReviewNetwork(
+  page: Page,
+  { staleOnVerdict = false }: { staleOnVerdict?: boolean } = {},
+): Promise<{
   saveRequests: AnyRecord[];
   verdictRequests: AnyRecord[];
 }> {
@@ -639,6 +642,16 @@ async function configureCompleteHeroReviewNetwork(page: Page): Promise<{
       assert.equal(input.rescuePreferred, true);
       assert.equal(input.rescueReceiptId, RESCUE_RECEIPT_ID);
       assert.ok(savedBoard, 'the scheduling verdict must follow the rescue-board save');
+      if (staleOnVerdict) {
+        await route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: 'The selected rescue board is stale or unavailable. Rebuild and save it from the current image choices before recording this approval.',
+          }),
+        });
+        return;
+      }
       const approvedRun = {
         ...completeCompiledHeroReviewRun(),
         editorialFeedback: feedback(savedBoard),
@@ -762,6 +775,55 @@ test('a signed-in operator keeps ordinary rescue records separate from calibrati
       2,
       'the fresh audit must be a distinct audit request after calibration confirmation',
     );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('a stale rescue approval keeps the recovery form visible without showing publication success', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { saveRequests, verdictRequests } = await configureCompleteHeroReviewNetwork(page, { staleOnVerdict: true });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+
+    await page.getByRole('button', { name: 'Save my nine', exact: true }).click();
+    await page.getByText('Saved rescue records', { exact: true }).waitFor();
+    await page.getByLabel('Publication decision').selectOption('approved');
+    const vibeConfirmation = page.getByLabel('Yes, that’s the Vibe.');
+    const publishableConfirmation = page.getByLabel('Yes, this is publishable.');
+    await vibeConfirmation.check();
+    await publishableConfirmation.check();
+    const receiptSelect = page.getByLabel('Approved retained-evidence receipt');
+    await receiptSelect.selectOption(RESCUE_RECEIPT_ID);
+
+    const verdictButton = page.getByRole('button', { name: 'Save scheduling verdict', exact: true });
+    assert.equal(await verdictButton.isEnabled(), true);
+    await verdictButton.click();
+    await page.getByText(
+      'The selected rescue board is stale or unavailable. Rebuild and save it from the current image choices before recording this approval.',
+      { exact: true },
+    ).waitFor();
+
+    assert.equal(verdictRequests.length, 1, 'the selected receipt must be submitted before the conflict is shown');
+    assert.equal(await receiptSelect.isVisible(), true, 'the selected receipt must remain available for recovery');
+    assert.equal(await receiptSelect.inputValue(), RESCUE_RECEIPT_ID);
+    assert.equal(await vibeConfirmation.isVisible(), true);
+    assert.equal(await vibeConfirmation.isChecked(), true);
+    assert.equal(await publishableConfirmation.isVisible(), true);
+    assert.equal(await publishableConfirmation.isChecked(), true);
+    assert.equal(await page.locator('[class*="approvalOutcome"]').count(), 0, 'a stale approval must not show a publication outcome');
+    assert.equal(
+      await page.getByText('Exact nine-card retained-evidence board approved for publication with both human confirmations.', { exact: true }).count(),
+      0,
+      'a stale approval must not show publication success',
+    );
+    assert.equal(saveRequests.length, 1);
   } finally {
     await browser.close();
     await server.close();

@@ -351,7 +351,7 @@ export function createActorAuditHandler({
               preferredRescueBoard.board?.candidates?.map(candidate => candidate?.candidateId),
             ).ok) {
             return json(409, {
-              error: "The preferred rescue board is stale or unavailable. Rebuild and save it from the current image choices before recording this preference.",
+              error: "The selected rescue board is stale or unavailable. Rebuild and save it from the current image choices before recording this approval.",
             });
           }
         }

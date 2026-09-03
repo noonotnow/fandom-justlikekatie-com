@@ -1191,8 +1191,8 @@ test("an approved rescue backfill uses direct canonical reads when blob listings
   assert.equal(store.records.get(publicationKey).displayResults.length, 9);
 });
 
-test("rescue preference cannot point at a missing or stale rescue board", async () => {
-  const { handler } = harness();
+test("rescue approval cannot point at a missing or stale rescue board", async () => {
+  const { handler, store } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   await handler(request("POST", {
     action: "run", actorId: pairActor.id, vibeKey, scope: "full",
@@ -1217,6 +1217,51 @@ test("rescue preference cannot point at a missing or stale rescue board", async 
   }), {});
   assert.equal(response.status, 409);
   assert.match((await response.json()).error, /stale or unavailable/i);
+
+  const detailResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const detail = await detailResponse.json();
+  const candidateIds = detail.currentRun.rawResults
+    .slice(0, 9)
+    .map(candidate => candidate.candidateId);
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds,
+  }), {});
+  const saved = await saveResponse.json();
+  assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+  const receiptId = saved.currentRun.editorialFeedback.operatorRescueBoard.receiptId;
+  const receiptKey = auditRescueBoardKey(pairActor.id, 0, "run-1", receiptId);
+  const staleReceipt = store.records.get(receiptKey);
+  staleReceipt.feedbackHash = "stale-feedback-hash";
+  store.records.set(receiptKey, staleReceipt);
+
+  const staleResponse = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+    vibeConfirmed: true,
+    publishableConfirmed: true,
+    rescuePreferred: true,
+    rescueReceiptId: receiptId,
+  }), {});
+  const staleBody = await staleResponse.json();
+  assert.equal(staleResponse.status, 409);
+  assert.match(staleBody.error, /selected rescue board is stale or unavailable/i);
+  assert.equal(
+    [...store.records.keys()].some(key =>
+      key.startsWith(auditRescuePreferencePrefix(pairActor.id, 0, "run-1"))),
+    false,
+    "a stale rescue approval must not create a preference receipt",
+  );
 });
 
 test("approved overrides cannot impersonate the two human confirmations", async () => {
