@@ -863,7 +863,11 @@ test("the builder uses an unused rescue calibration board only after fresh searc
   );
 });
 
-test("the Daily Drop skips an approved pairing after one of its rescue signals is retired", async () => {
+async function assertRetiredSignalDoesNotReachDailyDrop({
+  signalFamily,
+  profileKey,
+  signalValue,
+}) {
   const packs = [
     {
       id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
@@ -874,16 +878,15 @@ test("the Daily Drop skips an approved pairing after one of its rescue signals i
       vibes: [{ label: "B0", label_en: "B0", queries: ["base query b"] }],
     },
   ];
-  const retiredSignal = "retired rescue query";
   const receiptId = "actor-a-0-rescue";
   const actorAEntries = approvedEligibility(packs[0], 0);
   actorAEntries[eligibilityKey(packs[0].id, 0)].calibrationProfile = {
     calibrationVersion: 1,
     evidenceCount: 1,
-    positiveQueries: [retiredSignal],
-    positiveSources: ["retired-source.test"],
-    positiveClusters: ["retired-cluster"],
-    positiveCompositions: ["retired composition"],
+    positiveQueries: profileKey === "positiveQueries" ? [signalValue] : [],
+    positiveSources: profileKey === "positiveSources" ? [signalValue] : [],
+    positiveClusters: profileKey === "positiveClusters" ? [signalValue] : [],
+    positiveCompositions: profileKey === "positiveCompositions" ? [signalValue] : [],
   };
   actorAEntries[auditRescueCalibrationKey(packs[0].id, 0, receiptId)] = {
     status: "confirmed",
@@ -896,16 +899,16 @@ test("the Daily Drop skips an approved pairing after one of its rescue signals i
     packs[0].id,
     0,
     receiptId,
-    "query",
-    retiredSignal,
+    signalFamily,
+    signalValue,
   )] = {
     status: "retired",
     retirementId: "retirement-1",
     sourceRescueReceiptId: receiptId,
     actorId: packs[0].id,
     vibeKey: `${packs[0].id}:0`,
-    signalFamily: "query",
-    signalValue: retiredSignal,
+    signalFamily,
+    signalValue,
     retiredAt: "2026-09-01T10:00:00.000Z",
   };
   const eligibilityStore = makeStore({
@@ -913,7 +916,7 @@ test("the Daily Drop skips an approved pairing after one of its rescue signals i
     ...approvedEligibility(packs[1], 0),
   });
   const searchedQueries = [];
-  const curatedProfiles = [];
+  const curateOptions = [];
   const displayResults = Array.from({ length: 9 }, (_, index) => ({
     candidateId: `unrelated-${index}`,
     title: `Unrelated frame ${index}`,
@@ -929,7 +932,7 @@ test("the Daily Drop skips an approved pairing after one of its rescue signals i
     },
     rank: candidates => candidates,
     curate: async (_ranked, options) => {
-      curatedProfiles.push(options.calibrationProfile);
+      curateOptions.push(options);
       return {
         displayResults,
         curation: { mode: "compiled", version: 1, rationale: "Unrelated approved evidence.", signals: [] },
@@ -940,11 +943,47 @@ test("the Daily Drop skips an approved pairing after one of its rescue signals i
 
   assert.equal(payload.actorId, packs[1].id);
   assert.deepEqual(searchedQueries, ["base query b"]);
-  assert.equal(curatedProfiles.length, 1);
+  assert.equal(curateOptions.length, 1);
   assert.equal(
-    JSON.stringify(curatedProfiles[0] || {}).includes(retiredSignal),
+    JSON.stringify(searchedQueries).includes(signalValue),
     false,
   );
+  assert.equal(
+    JSON.stringify(curateOptions[0] || {}).includes(signalValue),
+    false,
+  );
+}
+
+test("the Daily Drop keeps a retired query signal out of search and curation", async () => {
+  await assertRetiredSignalDoesNotReachDailyDrop({
+    signalFamily: "query",
+    profileKey: "positiveQueries",
+    signalValue: "retired rescue query",
+  });
+});
+
+test("the Daily Drop keeps a retired source signal out of search and curation", async () => {
+  await assertRetiredSignalDoesNotReachDailyDrop({
+    signalFamily: "source",
+    profileKey: "positiveSources",
+    signalValue: "retired rescue source",
+  });
+});
+
+test("the Daily Drop keeps a retired cluster signal out of search and curation", async () => {
+  await assertRetiredSignalDoesNotReachDailyDrop({
+    signalFamily: "cluster",
+    profileKey: "positiveClusters",
+    signalValue: "retired rescue cluster",
+  });
+});
+
+test("the Daily Drop keeps a retired composition signal out of search and curation", async () => {
+  await assertRetiredSignalDoesNotReachDailyDrop({
+    signalFamily: "composition",
+    profileKey: "positiveCompositions",
+    signalValue: "retired rescue composition",
+  });
 });
 
 test("a rescue board already published as Star of the Day is not reused as backup", async () => {
