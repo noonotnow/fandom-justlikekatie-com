@@ -30,6 +30,10 @@ import {
   auditRescueCalibrationPrefix,
   auditRescueCalibrationRetirementKey,
   auditRescueCalibrationRetirementPrefix,
+  auditRescueCalibrationSignalRetirementKey,
+  auditRescueCalibrationSignalRetirementPrefix,
+  auditRescueCalibrationOutcomeKey,
+  auditRescueCalibrationOutcomePrefix,
   auditVerdictKey,
   auditVerdictPrefix,
   auditVibeKey,
@@ -74,6 +78,22 @@ const MAX_FEEDBACK_NOTE_LENGTH = 400;
 const RESCUE_CALIBRATION_VERSION = 1;
 const MIN_REUSABLE_SIGNAL_DELTA = 0.15;
 const MIN_REUSABLE_SIGNAL_SUPPORT = 2;
+const CALIBRATION_SIGNAL_FAMILIES = new Map([
+  ["query", "queries"],
+  ["queries", "queries"],
+  ["source", "sources"],
+  ["sources", "sources"],
+  ["cluster", "clusters"],
+  ["clusters", "clusters"],
+  ["composition", "composition"],
+  ["compositions", "composition"],
+]);
+const CALIBRATION_SIGNAL_LABELS = {
+  queries: "query",
+  sources: "source",
+  clusters: "cluster",
+  composition: "composition",
+};
 const PRODUCTION_STAGES = new Set([
   "asset",
   "enhancement",
@@ -252,6 +272,15 @@ export function createActorAuditHandler({
         });
         const { report, advanced } = await appendRun(store, pair, run);
         if (advanced) {
+          if (calibrationProfile) {
+            await persistRescueCalibrationOutcome(
+              store,
+              pair,
+              run,
+              calibrationProfile,
+              now,
+            );
+          }
           await writeEligibility(store, pair, {
             schemaVersion: 1,
             profileVersion: IDENTITY_PROFILE_VERSION,
@@ -996,6 +1025,91 @@ export function createActorAuditHandler({
           return json(404, { error: "That saved rescue arrangement was not found for this pairing." });
         }
         await ensureRescueCalibration(store, pair, run, receipt, operator, now);
+        const next = await readReport(store, pair);
+        return json(200, {
+          actor: await actorSummary(store, actorPacks, pair.actor),
+          pairing: pairingSummary(pair, next),
+          ...detailResponse(pair, next),
+        });
+      }
+
+      if (input.action === "retire_rescue_signal") {
+        if (typeof input.receiptId !== "string"
+          || !/^[A-Za-z0-9_-]{1,128}$/.test(input.receiptId)) {
+          return json(400, { error: "A confirmed calibration receipt is required." });
+        }
+        const signalFamily = normalizeCalibrationSignalFamily(input.signalFamily);
+        const signalValue = normalizeCalibrationSignalValue(input.signalValue);
+        if (!signalFamily || !signalValue) {
+          return json(400, {
+            error: "Choose a query, source, cluster, or composition signal to retire.",
+          });
+        }
+        const reason = boundedText(input.reason, MAX_CALIBRATION_RETIREMENT_REASON_LENGTH);
+        if (!reason) {
+          return json(400, {
+            error: "Explain why this signal should no longer guide future audits.",
+          });
+        }
+        const calibration = await store.get(
+          auditRescueCalibrationKey(pair.actor.id, pair.vibeIdx, input.receiptId),
+          { type: "json", consistency: "strong" },
+        );
+        if (!calibration
+          || calibration.sourceRescueReceiptId !== input.receiptId
+          || calibration.actor?.id !== pair.actor.id
+          || calibration.vibePack?.key !== pair.vibeKey
+          || calibration.status !== "confirmed"
+          || calibration.calibrationVersion !== RESCUE_CALIBRATION_VERSION) {
+          return json(404, { error: "That confirmed calibration receipt was not found for this pairing." });
+        }
+        const availableSignals = calibrationSignalValues(calibration, signalFamily);
+        if (!availableSignals.includes(signalValue)) {
+          return json(404, {
+            error: "That signal is not present in the selected calibration receipt.",
+          });
+        }
+        const retirementKey = auditRescueCalibrationSignalRetirementKey(
+          pair.actor.id,
+          pair.vibeIdx,
+          input.receiptId,
+          CALIBRATION_SIGNAL_LABELS[signalFamily],
+          signalValue,
+        );
+        const existing = await store.get(retirementKey, {
+          type: "json",
+          consistency: "strong",
+        });
+        if (existing) {
+          if (existing.reason !== reason) {
+            return json(409, { error: "That signal retirement receipt is immutable." });
+          }
+          const next = await readReport(store, pair);
+          return json(200, {
+            actor: await actorSummary(store, actorPacks, pair.actor),
+            pairing: pairingSummary(pair, next),
+            ...detailResponse(pair, next),
+          });
+        }
+        const retirement = {
+          schemaVersion: 1,
+          retirementVersion: 1,
+          retirementId: createFeedbackId(),
+          status: "retired",
+          sourceRescueReceiptId: input.receiptId,
+          sourceRunId: calibration.sourceRunId || null,
+          actorId: pair.actor.id,
+          vibeKey: pair.vibeKey,
+          signalFamily: CALIBRATION_SIGNAL_LABELS[signalFamily],
+          signalValue,
+          reason,
+          retiredAt: now().toISOString(),
+          retiredBy: operator.user.accountId,
+        };
+        const write = await store.setJSON(retirementKey, retirement, { onlyIfNew: true });
+        if (write?.modified === false) {
+          return json(409, { error: "Another operator retired this signal first." });
+        }
         const next = await readReport(store, pair);
         return json(200, {
           actor: await actorSummary(store, actorPacks, pair.actor),
@@ -2290,7 +2404,7 @@ async function readEditorialFeedback(store, pair, run) {
       ...feedbackDisposition(receipt, candidateGate(run, receipt.candidateId)),
     }))
     .sort((left, right) => left.candidateId.localeCompare(right.candidateId));
-  const [savedBoards, calibrations, retirements] = await Promise.all([
+  const [savedBoards, calibrations, retirements, signalRetirements] = await Promise.all([
     readReceipts(
       store,
       auditRescueBoardPrefix(pair.actor.id, pair.vibeIdx, run.runId),
@@ -2306,6 +2420,11 @@ async function readEditorialFeedback(store, pair, run) {
       auditRescueCalibrationRetirementPrefix(pair.actor.id, pair.vibeIdx),
       "retiredAt",
     ),
+    readReceipts(
+      store,
+      auditRescueCalibrationSignalRetirementPrefix(pair.actor.id, pair.vibeIdx),
+      "retiredAt",
+    ),
   ]);
   const calibrationByReceipt = new Map(calibrations
     .filter(calibration => calibration.sourceRunId === run.runId)
@@ -2317,6 +2436,16 @@ async function readEditorialFeedback(store, pair, run) {
       && retirement.vibeKey === pair.vibeKey
       && typeof retirement.sourceRescueReceiptId === "string")
     .map(retirement => [retirement.sourceRescueReceiptId, retirement]));
+  const signalRetirementsByReceipt = new Map();
+  for (const retirement of signalRetirements.filter(retirement =>
+    retirement.status === "retired"
+    && retirement.actorId === pair.actor.id
+    && retirement.vibeKey === pair.vibeKey
+    && typeof retirement.sourceRescueReceiptId === "string")) {
+    const existing = signalRetirementsByReceipt.get(retirement.sourceRescueReceiptId) || [];
+    existing.push(retirement);
+    signalRetirementsByReceipt.set(retirement.sourceRescueReceiptId, existing);
+  }
   const operatorRescueBoards = savedBoards.filter(receipt =>
     receipt.runId === run.runId
     && receipt.actorId === pair.actor.id
@@ -2327,6 +2456,7 @@ async function readEditorialFeedback(store, pair, run) {
       ? {
         ...calibrationByReceipt.get(receipt.receiptId),
         retirement: retirementByReceipt.get(receipt.receiptId) || null,
+         signalRetirements: signalRetirementsByReceipt.get(receipt.receiptId) || [],
       }
       : null,
   }));
@@ -2426,6 +2556,26 @@ function signalValuesForCandidate(candidate, key) {
   return [];
 }
 
+function normalizeCalibrationSignalFamily(value) {
+  const normalized = signalText(value);
+  return CALIBRATION_SIGNAL_FAMILIES.get(normalized) || null;
+}
+
+function normalizeCalibrationSignalValue(value) {
+  const normalized = signalText(value);
+  return normalized ? normalized.slice(0, 500) : null;
+}
+
+function calibrationSignalValues(record, family) {
+  const key = CALIBRATION_SIGNAL_FAMILIES.get(family) || family;
+  return [...new Set([
+    ...(record.selectedNine || []),
+    ...(record.omittedAlternatives || []),
+  ].flatMap(candidate => signalValuesForCandidate(candidate, key))
+    .map(signalText)
+    .filter(Boolean))];
+}
+
 function definitionCues(candidate) {
   const text = signalText(`${candidate.title || ""} ${candidate.description || ""}`);
   const stop = new Set([
@@ -2441,7 +2591,7 @@ function definitionCues(candidate) {
   ])].slice(0, 24);
 }
 
-function reusableSignalPreferences(records, key) {
+function reusableSignalPreferences(records, key, isRetired = () => false) {
   const evidenceCount = Math.max(1, records.length);
   const values = new Map();
   const add = (value, field, amount = 1) => {
@@ -2461,12 +2611,14 @@ function reusableSignalPreferences(records, key) {
     const selectedCounts = new Map();
     const omittedCounts = new Map();
     for (const candidate of selected) {
-      for (const value of new Set(signalValuesForCandidate(candidate, key))) {
+      for (const value of [...new Set(signalValuesForCandidate(candidate, key))]
+        .filter(value => !isRetired(value, record))) {
         selectedCounts.set(value, (selectedCounts.get(value) || 0) + 1);
       }
     }
     for (const candidate of omitted) {
-      for (const value of new Set(signalValuesForCandidate(candidate, key))) {
+      for (const value of [...new Set(signalValuesForCandidate(candidate, key))]
+        .filter(value => !isRetired(value, record))) {
         omittedCounts.set(value, (omittedCounts.get(value) || 0) + 1);
       }
     }
@@ -2503,6 +2655,154 @@ function reusableSignalPreferences(records, key) {
         && signal.delta <= -MIN_REUSABLE_SIGNAL_DELTA)
       .map(signal => signal.value),
     deltas,
+  };
+}
+
+function createRescueCalibrationOutcome(pair, run, profile, now) {
+  const inventory = profile?.signalInventory || [];
+  if (!inventory.length) return null;
+  const comparison = run.curationReceipt?.calibrationSignals?.comparison || null;
+  const effects = comparison?.effects || [];
+  const gateSignals = run.curationReceipt?.calibrationSignals?.gateSignals || [];
+  const outcomes = [];
+  for (const receipt of inventory) {
+    for (const [family, values] of Object.entries(receipt.signals || {})) {
+      const labelFamily = CALIBRATION_SIGNAL_LABELS[family] || family;
+      for (const signalValue of values) {
+        const label = `${labelFamily}:${signalValue}`;
+        const transferCount = effects.filter(effect =>
+          effect.type !== "removed"
+          && effect.signals?.includes(label)).length;
+        const rejectionCount = gateSignals.filter(signal =>
+          signal.positive?.includes(label)).length;
+        outcomes.push({
+          sourceRescueReceiptId: receipt.sourceRescueReceiptId,
+          signalFamily: labelFamily,
+          signalValue,
+          transferCount,
+          rejectionCount,
+          nonTransferCount: transferCount || rejectionCount ? 0 : 1,
+          outcome: transferCount
+            ? "transferred"
+            : rejectionCount
+              ? "rejected"
+              : "not_transferred",
+        });
+      }
+    }
+  }
+  return {
+    schemaVersion: 1,
+    outcomeVersion: 1,
+    status: "recorded",
+    actorId: pair.actor.id,
+    vibeKey: pair.vibeKey,
+    runId: run.runId,
+    sourceReceiptIds: profile.sourceReceiptIds || [],
+    attemptedAt: run.completedAt || now().toISOString(),
+    outcomes,
+    summary: {
+      transferredCount: outcomes.filter(item => item.outcome === "transferred").length,
+      rejectedCount: outcomes.filter(item => item.outcome === "rejected").length,
+      nonTransferCount: outcomes.filter(item => item.outcome === "not_transferred").length,
+    },
+  };
+}
+
+async function persistRescueCalibrationOutcome(store, pair, run, profile, now) {
+  const outcome = createRescueCalibrationOutcome(pair, run, profile, now);
+  if (!outcome) return null;
+  const key = auditRescueCalibrationOutcomeKey(pair.actor.id, pair.vibeIdx, run.runId);
+  await store.setJSON(key, outcome, { onlyIfNew: true });
+  return outcome;
+}
+
+function summarizeRescueCalibrationOutcomes(
+  outcomeReceipts,
+  currentRecords,
+  retirementByReceipt,
+  signalRetirementsByReceipt,
+) {
+  const currentReceiptIds = new Set(currentRecords.map(record => record.sourceRescueReceiptId));
+  const bySignal = new Map();
+  for (const receipt of outcomeReceipts) {
+    for (const outcome of receipt.outcomes || []) {
+      if (!currentReceiptIds.has(outcome.sourceRescueReceiptId)) continue;
+      const key = [
+        outcome.sourceRescueReceiptId,
+        outcome.signalFamily,
+        outcome.signalValue,
+      ].join("\u0000");
+      const current = bySignal.get(key) || {
+        sourceRescueReceiptId: outcome.sourceRescueReceiptId,
+        signalFamily: outcome.signalFamily,
+        signalValue: outcome.signalValue,
+        attempts: 0,
+        transferred: 0,
+        rejected: 0,
+        notTransferred: 0,
+        lastOutcomeAt: null,
+      };
+      current.attempts += 1;
+      current.transferred += Number(outcome.transferCount) || 0;
+      current.rejected += Number(outcome.rejectionCount) || 0;
+      current.notTransferred += Number(outcome.nonTransferCount) || 0;
+      if (!current.lastOutcomeAt
+        || String(receipt.attemptedAt || "").localeCompare(current.lastOutcomeAt) > 0) {
+        current.lastOutcomeAt = receipt.attemptedAt || null;
+      }
+      bySignal.set(key, current);
+    }
+  }
+  const signalOutcomes = [...bySignal.values()].map(item => ({
+    ...item,
+    status: item.transferred
+      ? "transferred"
+      : item.rejected
+        ? "rejected"
+        : "not_transferred",
+    retired: Boolean(
+      signalRetirementsByReceipt.get(item.sourceRescueReceiptId)
+        ?.get(item.signalFamily)?.has(item.signalValue),
+    ),
+  }));
+  const byReceipt = new Map();
+  for (const item of signalOutcomes) {
+    const receipt = byReceipt.get(item.sourceRescueReceiptId) || {
+      sourceRescueReceiptId: item.sourceRescueReceiptId,
+      status: retirementByReceipt.has(item.sourceRescueReceiptId) ? "retired" : "active",
+      attempts: 0,
+      transferred: 0,
+      rejected: 0,
+      notTransferred: 0,
+      signalFamilies: [],
+    };
+    receipt.attempts = Math.max(receipt.attempts, item.attempts);
+    receipt.transferred += item.transferred;
+    receipt.rejected += item.rejected;
+    receipt.notTransferred += item.notTransferred;
+    receipt.signalFamilies.push(item);
+    byReceipt.set(item.sourceRescueReceiptId, receipt);
+  }
+  for (const receipt of byReceipt.values()) {
+    receipt.signalFamilies.sort((left, right) =>
+      left.signalFamily.localeCompare(right.signalFamily)
+      || left.signalValue.localeCompare(right.signalValue));
+  }
+  const totals = signalOutcomes.reduce((summary, item) => ({
+    transferred: summary.transferred + item.transferred,
+    rejected: summary.rejected + item.rejected,
+    notTransferred: summary.notTransferred + item.notTransferred,
+  }), { transferred: 0, rejected: 0, notTransferred: 0 });
+  return {
+    attemptCount: outcomeReceipts.length,
+    signalCount: signalOutcomes.length,
+    transferred: totals.transferred,
+    rejected: totals.rejected,
+    notTransferred: totals.notTransferred,
+    byReceipt: [...byReceipt.values()].sort((left, right) =>
+      left.sourceRescueReceiptId.localeCompare(right.sourceRescueReceiptId)),
+    signalFamilies: signalOutcomes,
   };
 }
 
@@ -2698,7 +2998,7 @@ function rescueCalibrationMatchesCurrentContract(record, pair) {
 }
 
 async function readRescueCalibrationProfile(store, pair) {
-  const [confirmedReceipts, retirementReceipts] = await Promise.all([
+  const [confirmedReceipts, retirementReceipts, signalRetirementReceipts, outcomeReceipts] = await Promise.all([
     readReceipts(
       store,
       auditRescueCalibrationPrefix(pair.actor.id, pair.vibeIdx),
@@ -2708,6 +3008,16 @@ async function readRescueCalibrationProfile(store, pair) {
       store,
       auditRescueCalibrationRetirementPrefix(pair.actor.id, pair.vibeIdx),
       "retiredAt",
+    ),
+    readReceipts(
+      store,
+      auditRescueCalibrationSignalRetirementPrefix(pair.actor.id, pair.vibeIdx),
+      "retiredAt",
+    ),
+    readReceipts(
+      store,
+      auditRescueCalibrationOutcomePrefix(pair.actor.id, pair.vibeIdx),
+      "attemptedAt",
     ),
   ]);
   const currentRecords = confirmedReceipts.filter(record =>
@@ -2729,19 +3039,63 @@ async function readRescueCalibrationProfile(store, pair) {
     [retirement.sourceRescueReceiptId, retirement]));
   const records = currentRecords.filter(record =>
     !retirementByReceipt.has(record.sourceRescueReceiptId));
+  const signalRetirements = signalRetirementReceipts.filter(retirement =>
+    retirement.status === "retired"
+    && retirement.actorId === pair.actor.id
+    && retirement.vibeKey === pair.vibeKey
+    && currentReceiptIds.has(retirement.sourceRescueReceiptId)
+    && CALIBRATION_SIGNAL_FAMILIES.has(retirement.signalFamily)
+    && typeof retirement.signalValue === "string");
+  const signalRetirementsByReceipt = new Map();
+  for (const retirement of signalRetirements) {
+    const byFamily = signalRetirementsByReceipt.get(retirement.sourceRescueReceiptId)
+      || new Map();
+    const values = byFamily.get(retirement.signalFamily) || new Set();
+    values.add(retirement.signalValue);
+    byFamily.set(retirement.signalFamily, values);
+    signalRetirementsByReceipt.set(retirement.sourceRescueReceiptId, byFamily);
+  }
+  const isRetiredSignal = (record, family, value) => {
+    const canonicalFamily = CALIBRATION_SIGNAL_LABELS[family] || family;
+    return signalRetirementsByReceipt
+      .get(record.sourceRescueReceiptId)?.get(canonicalFamily)?.has(value)
+      || false;
+  };
+  const signalInventory = records.map(record => ({
+    sourceRescueReceiptId: record.sourceRescueReceiptId,
+    sourceRunId: record.sourceRunId || null,
+    signals: Object.fromEntries(
+      ["queries", "sources", "clusters", "composition"].map(family => [
+        family,
+        calibrationSignalValues(record, family)
+          .filter(value => !isRetiredSignal(record, family, value)),
+      ]),
+    ),
+  }));
   const retiredReceiptIds = [...retirementByReceipt.keys()].sort();
-  const retirementHash = retirements.length
-    ? rescueCalibrationRetirementHash(retirements)
+  const retirementHash = retirements.length || signalRetirements.length
+    ? rescueCalibrationRetirementHash(retirements, signalRetirements)
     : null;
   const positive = key => records.flatMap(record => record.signals?.positive?.[key] || []);
   const negative = key => records.flatMap(record => record.signals?.negative?.[key] || []);
   const candidateIds = preferredSignals(positive("candidateIds"), negative("candidateIds"));
-  const queries = reusableSignalPreferences(records, "queries");
-  const sources = reusableSignalPreferences(records, "sources");
-  const clusters = reusableSignalPreferences(records, "clusters");
+  const queries = reusableSignalPreferences(records, "queries",
+    (value, record) => isRetiredSignal(record, "queries", value));
+  const sources = reusableSignalPreferences(records, "sources",
+    (value, record) => isRetiredSignal(record, "sources", value));
+  const clusters = reusableSignalPreferences(records, "clusters",
+    (value, record) => isRetiredSignal(record, "clusters", value));
   const antiAnchors = reusableSignalPreferences(records, "antiAnchors");
   const definitions = reusableSignalPreferences(records, "definitions");
-  const compositions = reusableSignalPreferences(records, "composition");
+  const compositions = reusableSignalPreferences(records, "composition",
+    (value, record) => isRetiredSignal(record, "composition", value));
+  const transferSummary = summarizeRescueCalibrationOutcomes(
+    outcomeReceipts.filter(outcome =>
+      outcome.actorId === pair.actor.id && outcome.vibeKey === pair.vibeKey),
+    currentRecords,
+    retirementByReceipt,
+    signalRetirementsByReceipt,
+  );
   const rankingContrasts = records.flatMap(record =>
     record.rankingContrasts || record.signals?.rankingContrasts || []).slice(0, 512);
   const rankingWins = {};
@@ -2774,11 +3128,15 @@ async function readRescueCalibrationProfile(store, pair) {
     evidenceCount: records.length,
     totalConfirmedEvidenceCount: currentRecords.length,
     retiredEvidenceCount: retirements.length,
-    requiresFreshAudit: retirements.length > 0,
+    retiredSignalCount: signalRetirements.length,
+    requiresFreshAudit: retirements.length > 0 || signalRetirements.length > 0,
     sourceReceiptIds: records.map(record => record.sourceRescueReceiptId).sort(),
     retiredReceiptIds,
     retirementReceiptIds: retirements.map(retirement => retirement.retirementId).filter(Boolean).sort(),
+    signalRetirements,
     retirementHash,
+    signalInventory,
+    transferSummary,
     evidenceLedger: currentRecords
       .map(record => {
         const retirement = retirementByReceipt.get(record.sourceRescueReceiptId) || null;
@@ -2797,6 +3155,7 @@ async function readRescueCalibrationProfile(store, pair) {
     diagnostics: {
       activeEvidenceCount: records.length,
       retiredEvidenceCount: retirements.length,
+      retiredSignalCount: signalRetirements.length,
       excludedReceiptIds: retiredReceiptIds,
       exclusions: retirements.map(retirement => ({
         reasonCode: "operator_retired_calibration_evidence",
@@ -2806,9 +3165,18 @@ async function readRescueCalibrationProfile(store, pair) {
         retiredAt: retirement.retiredAt,
         retiredBy: retirement.retiredBy,
       })),
-      summary: retirements.length
-        ? `${retirements.length} confirmed calibration receipt${retirements.length === 1 ? " was" : "s were"} excluded after an operator retirement receipt.`
-        : "No confirmed calibration evidence is retired.",
+      signalExclusions: signalRetirements.map(retirement => ({
+        retirementId: retirement.retirementId || null,
+        sourceRescueReceiptId: retirement.sourceRescueReceiptId,
+        signalFamily: retirement.signalFamily,
+        signalValue: retirement.signalValue,
+        reason: retirement.reason,
+        retiredAt: retirement.retiredAt,
+        retiredBy: retirement.retiredBy,
+      })),
+      summary: retirements.length || signalRetirements.length
+        ? `${retirements.length} confirmed calibration receipt${retirements.length === 1 ? " was" : "s were"} and ${signalRetirements.length} signal${signalRetirements.length === 1 ? " was" : "s were"} excluded after operator retirement receipts.`
+        : "No confirmed calibration evidence or signals are retired.",
     },
     positiveCandidateIds: candidateIds.positive,
     negativeCandidateIds: candidateIds.negative,
@@ -2877,6 +3245,10 @@ function dailyCalibrationProfile(profile) {
     negativeDefinitions: profile.negativeDefinitions,
     positiveCompositions: profile.positiveCompositions || profile.positiveDefinitions,
     negativeCompositions: profile.negativeCompositions || profile.negativeDefinitions,
+    transferSummary: profile.transferSummary,
+    retiredSignalCount: profile.retiredSignalCount || 0,
+    signalRetirements: profile.signalRetirements || [],
+    retirementHash: profile.retirementHash || null,
     rankingWins: profile.rankingWins,
     rankingLosses: profile.rankingLosses,
     preferredPositions: profile.preferredPositions,
@@ -2900,6 +3272,10 @@ function calibrationProofFromDiagnostics(profile, diagnostics, materialSufficien
     sourceReceiptIds: profile.sourceReceiptIds,
     retiredReceiptIds: profile.retiredReceiptIds || [],
     retirementReceiptIds: profile.retirementReceiptIds || [],
+    retiredSignalReceiptIds: (profile.signalRetirements || [])
+      .map(retirement => retirement.retirementId)
+      .filter(Boolean)
+      .sort(),
     retirementHash: profile.retirementHash || null,
     evidenceCount: profile.evidenceCount,
     selectedSignalCount: Number(diagnostics?.selectedSignalCount) || 0,
@@ -3039,11 +3415,16 @@ function calibrationProofCoversProfile(run, profile) {
   const proved = [...new Set(run?.calibrationProof?.sourceReceiptIds || [])].sort();
   const expectedRetired = [...new Set(profile.retiredReceiptIds || [])].sort();
   const provedRetired = [...new Set(run?.calibrationProof?.retiredReceiptIds || [])].sort();
+  const expectedRetiredSignals = [...new Set((profile.signalRetirements || [])
+    .map(retirement => retirement.retirementId)
+    .filter(Boolean))].sort();
+  const provedRetiredSignals = [...new Set(run?.calibrationProof?.retiredSignalReceiptIds || [])].sort();
   return Boolean(
     run?.calibrationProof?.ready === true
     && run.calibrationProof.calibrationVersion === profile.calibrationVersion
     && JSON.stringify(proved) === JSON.stringify(expected)
     && JSON.stringify(provedRetired) === JSON.stringify(expectedRetired)
+    && JSON.stringify(provedRetiredSignals) === JSON.stringify(expectedRetiredSignals)
     && run.calibrationProof.retirementHash === (profile.retirementHash || null)
   );
 }

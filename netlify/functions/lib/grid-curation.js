@@ -1214,6 +1214,8 @@ function calibrationDiagnostics(profile, board = [], states = []) {
     return {
       calibrationVersion: null,
       evidenceCount: 0,
+      retiredSignalCount: profile?.retiredSignalCount || 0,
+      transferSummary: profile?.transferSummary || null,
       affected: false,
       selectedSignalCount: 0,
       beyondExactSavedNineCount: 0,
@@ -1253,6 +1255,8 @@ function calibrationDiagnostics(profile, board = [], states = []) {
   return {
     calibrationVersion: profile.calibrationVersion,
     evidenceCount: profile.evidenceCount,
+    retiredSignalCount: profile.retiredSignalCount || 0,
+    transferSummary: profile.transferSummary || null,
     sourceReceiptIds: profile.sourceReceiptIds || [],
     affected: affectedCandidates.length > 0 || gateSignals.length > 0,
     selectedSignalCount: affectedCandidates.length,

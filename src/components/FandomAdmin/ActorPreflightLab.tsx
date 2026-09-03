@@ -197,6 +197,22 @@ export const ActorPreflightLab: React.FC = () => {
       return true;
     } catch(e:any){setNotice(e.message);return false} finally{setBusy('')}
   }
+  async function retireRescueSignal(receiptId:string,signalFamily:string,signalValue:string,reason:string) {
+    const busyKey=`signal-retirement:${receiptId}:${signalFamily}:${signalValue}`;
+    setBusy(busyKey); setNotice('');
+    try {
+      const selectedRunId=run?.runId;
+      const result=await api({action:'retire_rescue_signal',actorId,vibeKey,receiptId,signalFamily,signalValue,reason});
+      applyRefresh(result);
+      const nextCurrent=result.currentRun ?? currentRun;
+      const nextPrior=result.priorRuns ?? priorRuns;
+      setCurrentRun(nextCurrent);
+      setPriorRuns(nextPrior);
+      setRun(selectedRunId===nextCurrent?.runId?nextCurrent:nextPrior.find((item:Run)=>item.runId===selectedRunId)??run);
+      setNotice('Signal retired with an immutable receipt. Future curation will ignore that signal and a fresh audit is required.');
+      return true;
+    } catch(e:any){setNotice(e.message);return false} finally{setBusy('')}
+  }
   async function saveRescueReceiptToCollection(runId:string,receiptId:string) {
     const result=await api({action:'export_rescue_board',actorId,vibeKey,runId,receiptId});
     const grid=collectionGridFromRescueExport(result.rescueExport);
@@ -253,7 +269,7 @@ export const ActorPreflightLab: React.FC = () => {
       <aside className={styles.rail} aria-label="Actor selector"><button className={styles.railToggle} type="button" aria-expanded={railOpen} aria-label={railOpen ? 'Collapse actor register' : 'Expand actor register'} onClick={()=>setRailOpen(open=>!open)}>{railOpen ? '‹' : '›'}</button><div className={styles.railHead}><strong>Actor register</strong><span>{actors.length} profiles · profile versions retained</span></div><div className={styles.actorList}>{actors.map(item=><button className={styles.actorButton} data-selected={item.actorId===actorId} key={item.actorId} onClick={()=>{setActorId(item.actorId);setVibeKey(item.pairings?.[0]?.vibeKey??'')}}><strong>{item.canonicalName}</strong><small>{item.romanizedName ?? item.actorId} · v{item.profileVersion ?? '—'}</small></button>)}</div></aside>
        <main className={styles.detail}>{!actor?<div className={styles.empty}>No actor profiles returned.</div>:<><section className={`${styles.panel} ${styles.detailPanel}`}><div className={styles.detailHead}><div><p className={styles.eyebrow}>Selected profile</p><h4>{actor.canonicalName}</h4><p>{actor.romanizedName} · aliases: {text(actor.aliases)}</p></div><span className={styles.muted}>Profile v{actor.profileVersion ?? '—'}</span></div><div className={styles.pairingStrip}>{(actor.pairings??[]).map(item=><button className={styles.pairing} data-selected={item.vibeKey===vibeKey} key={item.vibeKey} onClick={()=>setVibeKey(item.vibeKey)}><strong>{text(item.labels) || item.vibeKey}</strong><span className={styles.state} data-state={item.auditState}>{item.auditState==='needs_reapproval' ? 'Needs reapproval' : item.auditState==='calibration_reaudit_required' ? 'Calibration reaudit required' : item.verdict ?? item.auditState ?? 'unreviewed'}</span><small>{item.queryCount ?? 0} queries · {date(item.lastRunAt)}</small></button>)}</div><div className={styles.controls}><button className={`${styles.buttonPrimary} ${currentRunIsLegacy?styles.freshAuditButton:''}`} disabled={!vibeKey||!!busy} onClick={()=>void startAudit(scope)}>{busy ? 'Running evidence pass…' : currentRunIsLegacy ? 'Run fresh audit' : 'Run audit'}</button><select className={styles.select} value={scope} onChange={e=>setScope(e.target.value)} aria-label="Audit scope"><option value="representative">Representative scope</option><option value="full">Full scope</option></select><span className={styles.status}>{pairing?.auditState==='blind_review_pending'?'Calibration pending':pairing?.auditState==='calibration_reaudit_required'?'Calibration reaudit required':pairing?.auditState==='needs_reapproval'?'Fresh audit required':pairing?.eligible===false?'Not eligible for scheduling':'Eligible for review'}</span></div></section>
          <section className={styles.panel}>
-           {calibrationProfile&&<CalibrationProfileSummary profile={calibrationProfile} busy={busy} onRetireCalibration={retireRescueCalibration}/>}
+           {calibrationProfile&&<><CalibrationProfileSummary profile={calibrationProfile} busy={busy} onRetireCalibration={retireRescueCalibration}/><CalibrationTransferSummary profile={calibrationProfile} busy={busy} onRetireSignal={retireRescueSignal}/></>}
           <div className={styles.grid}>
             <InfoCard title="Identity profile" data={actor} keys={['commonCollisions','representativeWorks','knownContamination','productStockMeanings','trustedSourcePatterns','problematicSourcePatterns']} />
             <RunEvidence
@@ -291,7 +307,14 @@ export const ActorPreflightLab: React.FC = () => {
 };
 
 function InfoCard({title,data,keys}:{title:string;data:AnyRecord;keys:string[]}) { return <article className={`${styles.card} ${styles.cardWide}`}><h5>{title}</h5><div className={styles.grid}>{keys.map(key=><div key={key}><p className={styles.muted}>{key.replace(/[A-Z]/g,m=>` ${m}`).toUpperCase()}</p><div className={styles.chips}>{(Array.isArray(data[key])?data[key]:[data[key]]).filter(Boolean).map((item:any,index:number)=><span className={styles.chip} key={index}>{text(item)}</span>)}</div></div>)}</div></article>; }
-function CalibrationProfileSummary({profile,busy,onRetireCalibration}:{profile:AnyRecord;busy:string;onRetireCalibration:(receiptId:string,reason:string)=>Promise<boolean>}) {
+ function CalibrationTransferSummary({profile,busy,onRetireSignal}:{profile:AnyRecord;busy:string;onRetireSignal:(receiptId:string,signalFamily:string,signalValue:string,reason:string)=>Promise<boolean>}) {
+   const receipts=profile.transferSummary?.byReceipt??EMPTY_RECORDS;
+   const [retiringKey,setRetiringKey]=useState('');
+   const [reason,setReason]=useState('');
+   if(!receipts.length)return <section className={styles.calibrationProfile} aria-label="Calibration transfer outcomes"><div><h5>Transfer outcomes</h5><p>No fresh calibration transfer attempts have been recorded yet.</p></div></section>;
+   return <section className={styles.calibrationProfile} aria-label="Calibration transfer outcomes"><div><h5>Transfer outcomes</h5><p>{profile.transferSummary.attemptCount??0} fresh audit attempt{profile.transferSummary.attemptCount===1?'':'s'} · {profile.transferSummary.transferred??0} transferred · {profile.transferSummary.rejected??0} rejected by a safety gate · {profile.transferSummary.notTransferred??0} did not transfer.</p><p>These counts are append-only diagnostics per rescue receipt and signal. A retirement removes only the selected signal from future curation; the original rescue and outcome receipts remain available.</p></div><div className={styles.calibrationLedger}>{receipts.map((receipt:any)=><article key={receipt.sourceRescueReceiptId}><strong>Receipt {String(receipt.sourceRescueReceiptId).slice(0,8)} · {receipt.status}</strong><p>{receipt.transferred} transferred · {receipt.rejected} rejected · {receipt.notTransferred} not transferred</p><div className={styles.chips}>{(receipt.signalFamilies??[]).map((signal:any)=>{const key=`${receipt.sourceRescueReceiptId}:${signal.signalFamily}:${signal.signalValue}`;return <span className={styles.chip} key={key}>{signal.signalFamily}: {signal.signalValue} · {signal.status} · {signal.attempts} attempt{signal.attempts===1?'':'s'}{signal.retired?' · retired':''}{!signal.retired&&receipt.status!=='retired'&&<button type="button" className={styles.buttonDanger} disabled={Boolean(busy)} onClick={()=>{setRetiringKey(key);setReason('')}}>Retire signal</button>}{retiringKey===key&&!signal.retired&&<form className={styles.retirementForm} onSubmit={async event=>{event.preventDefault();if(!reason.trim())return;const saved=await onRetireSignal(receipt.sourceRescueReceiptId,signal.signalFamily,signal.signalValue,reason);if(saved){setRetiringKey('');setReason('')}}}><label className={styles.label}>Why should future audits ignore this {signal.signalFamily}?<textarea className={`${styles.input} ${styles.textarea}`} value={reason} maxLength={1000} required onChange={event=>setReason(event.target.value)} placeholder="Describe the repeated transfer or rejection problem." /></label><div className={styles.rescueActions}><button type="submit" className={styles.buttonDanger} disabled={Boolean(busy)||!reason.trim()}>{busy===`signal-retirement:${key}`?'Retiring signal…':'Create retirement receipt'}</button><button type="button" className={styles.buttonSecondary} disabled={Boolean(busy)} onClick={()=>{setRetiringKey('');setReason('')}}>Cancel</button></div></form>}</span>})}</div></article>)}</div></section>;
+ }
+ function CalibrationProfileSummary({profile,busy,onRetireCalibration}:{profile:AnyRecord;busy:string;onRetireCalibration:(receiptId:string,reason:string)=>Promise<boolean>}) {
   const exclusions=profile.diagnostics?.exclusions??EMPTY_RECORDS;
   const evidence=profile.evidenceLedger??EMPTY_RECORDS;
   const [retiringReceiptId,setRetiringReceiptId]=useState<string|null>(null);

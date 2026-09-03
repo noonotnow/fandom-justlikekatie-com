@@ -172,6 +172,9 @@ test('rescue calibration is explicit, future-facing, and reports transfer proof'
   assert.match(source, /calibrationEvidence/);
   assert.match(source, /Operator-derived curation signals/);
   assert.match(source, /Calibration transfer proof/);
+  assert.match(source, /Transfer outcomes/);
+  assert.match(source, /Retire signal/);
+  assert.match(source, /action:'retire_rescue_signal'/);
   assert.match(source, /calibration_reaudit_required/);
   assert.match(source, /Legacy evidence · records only/);
   assert.match(source, /run\.auditContract\?\.isLegacy/);

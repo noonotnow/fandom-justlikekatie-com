@@ -16,11 +16,14 @@ import {
   auditRescuePreferenceKey,
   auditRescuePreferencePrefix,
   auditRescueCalibrationPrefix,
+  auditRescueCalibrationOutcomePrefix,
   auditRescueCalibrationRetirementPrefix,
+  auditRescueCalibrationSignalRetirementPrefix,
   auditRunKey,
   auditRunPrefix,
   auditVerdictPrefix,
   eligibilityKey,
+  getEligibility,
   productionReceiptPrefix,
   productionStateKey,
 } from "./actor-eligibility.js";
@@ -1887,6 +1890,107 @@ test("retiring calibration evidence appends a reason receipt, excludes it from p
     rescueReceipt.receiptId,
   ]);
   assert.notEqual(freshChoice.pairing.auditState, "calibration_reaudit_required");
+});
+
+test("transfer outcomes are retained per signal and signal retirement filters future calibration", async () => {
+  const { handler, store } = harness({ freshEvidenceOnRerun: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choice = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const chosen = await choice.json();
+  const selectedSource = chosen.currentRun.rawResults.at(-1).source;
+  const selectedIds = chosen.currentRun.rawResults
+    .filter(candidate => candidate.source === selectedSource)
+    .slice(0, 9)
+    .map(candidate => candidate.candidateId);
+  const saved = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds: selectedIds,
+  }), {});
+  const rescueReceipt = (await saved.json())
+    .currentRun.editorialFeedback.operatorRescueBoard;
+  const marked = await handler(request("POST", {
+    action: "mark_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId: rescueReceipt.receiptId,
+  }), {});
+  const markedBody = await marked.json();
+  const sourceSignal = markedBody.currentRun.editorialFeedback.operatorRescueBoard
+    .calibrationBasis.signals.reusable.sources.positive[0];
+  assert.ok(sourceSignal);
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const rerunChoice = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-2", choice: "compiled",
+  }), {});
+  assert.equal(rerunChoice.status, 200);
+  const rerunBody = await rerunChoice.json();
+  const summary = rerunBody.calibrationProfile.transferSummary;
+  assert.ok(summary.attemptCount >= 1);
+  const sourceOutcome = summary.signalFamilies.find(item =>
+    item.sourceRescueReceiptId === rescueReceipt.receiptId
+    && item.signalFamily === "source"
+    && item.signalValue === sourceSignal);
+  assert.ok(sourceOutcome);
+  assert.ok(sourceOutcome.attempts >= 1);
+  assert.ok(sourceOutcome.transferred + sourceOutcome.rejected + sourceOutcome.notTransferred >= 1);
+  assert.ok([...store.records.keys()].some(key =>
+    key.startsWith(auditRescueCalibrationOutcomePrefix(pairActor.id, 0))));
+
+  const originalCalibrationKey = [...store.records.keys()].find(key =>
+    key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0)));
+  const originalCalibration = structuredClone(store.records.get(originalCalibrationKey));
+  const retirement = await handler(request("POST", {
+    action: "retire_rescue_signal",
+    actorId: pairActor.id,
+    vibeKey,
+    receiptId: rescueReceipt.receiptId,
+    signalFamily: "source",
+    signalValue: sourceSignal,
+    reason: "Repeated source results no longer transfer with confirmed identity.",
+  }), {});
+  const retired = await retirement.json();
+  assert.equal(retirement.status, 200, JSON.stringify(retired));
+  assert.equal(retired.calibrationProfile.retiredSignalCount, 1);
+  assert.deepEqual(retired.calibrationProfile.signalRetirements.map(item => ({
+    signalFamily: item.signalFamily,
+    signalValue: item.signalValue,
+  })), [{ signalFamily: "source", signalValue: sourceSignal }]);
+  assert.ok(!retired.calibrationProfile.positiveSources.includes(sourceSignal));
+  assert.equal(await getEligibility(store, pairActor, 0), null);
+  const historicalSignalReceipt = retired.priorRuns
+    .find(run => run.runId === "run-1")
+    .editorialFeedback.operatorRescueBoards
+    .find(receipt => receipt.receiptId === rescueReceipt.receiptId)
+    .calibrationEvidence;
+  assert.equal(historicalSignalReceipt.status, "confirmed");
+  assert.equal(historicalSignalReceipt.signalRetirements[0].signalValue, sourceSignal);
+  assert.deepEqual(store.records.get(originalCalibrationKey), originalCalibration);
+  assert.equal([...store.records.keys()].filter(key =>
+    key.startsWith(auditRescueCalibrationSignalRetirementPrefix(pairActor.id, 0))).length, 1);
+
+  const immutable = await handler(request("POST", {
+    action: "retire_rescue_signal",
+    actorId: pairActor.id,
+    vibeKey,
+    receiptId: rescueReceipt.receiptId,
+    signalFamily: "source",
+    signalValue: sourceSignal,
+    reason: "A different reason cannot replace the first retirement.",
+  }), {});
+  assert.equal(immutable.status, 409);
+  assert.equal(retired.calibrationProfile.retiredSignalCount, 1);
 });
 
 test("calibration remains discoverable and retireable after its source run leaves retained history", async () => {
