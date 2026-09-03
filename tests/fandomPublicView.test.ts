@@ -134,8 +134,8 @@ test('crawlable C-drama entry points use the Vibe Atlas daily card-drop promise'
   assert.match(gettingStartedHtml, /Browse today’s C-drama card drop/);
   assert.match(gettingStartedHtml, /today’s Vibe Atlas card drop/);
   assert.match(gettingStartedHtml, /Meet today’s featured star and vibe through nine collectible pieces of evidence/);
-  assert.match(glossaryHtml, /one featured actor, one Vibe Pack, and nine collectible pieces of evidence/);
-  assert.match(glossaryHtml, /Browse today’s card drop/);
+  assert.match(glossaryHtml, /A visual fandom discovery system/);
+  assert.match(glossaryHtml, /Explore today’s Vibe Atlas Drop/);
   assert.match(tropeDecoderHtml, /today’s Vibe Atlas card drop/);
   assert.match(tropeDecoderHtml, /nine pieces of evidence/);
   assert.match(tropeDecoderHtml, /Browse today’s card drop/);
@@ -150,4 +150,30 @@ test('crawlable C-drama entry points use the Vibe Atlas daily card-drop promise'
     assert.match(html, /today’s curated C-drama card drop/);
     assert.match(html, /One star, one vibe, nine collectible pieces of evidence/);
   }
+});
+
+test('the glossary separates shared fandom language from Fandom Vibes collecting lore', () => {
+  assert.match(glossaryHtml, /aria-label="Glossary sections"/);
+  assert.match(glossaryHtml, /href="#genre-terms">Genres and worlds/);
+  assert.match(glossaryHtml, /href="#story-language">Story language/);
+  assert.match(glossaryHtml, /href="#community-language">Community language/);
+  assert.match(glossaryHtml, /href="#fandom-vibes-language">Fandom Vibes language/);
+  assert.match(glossaryHtml, /These are Fandom Vibes’ own product and collecting terms/);
+
+  assert.match(glossaryHtml, /<dt>Vibe Atlas<\/dt><dd>A visual fandom discovery system/);
+  assert.match(glossaryHtml, /<dt>Daily Drop<\/dt>/);
+  assert.match(glossaryHtml, /<dt>Vibe Pack<\/dt>/);
+  assert.match(glossaryHtml, /<dt>Vibe spell<\/dt><dd>The search incantation used to summon evidence/);
+  assert.match(glossaryHtml, /<dt>Vibe evidence<\/dt>/);
+  assert.match(glossaryHtml, /<dt>Collection<\/dt>/);
+  assert.match(glossaryHtml, /<dt>Legendary<\/dt><dd>An archive-worthy status/);
+  assert.match(glossaryHtml, /<dt>Misprint<\/dt><dd>A result that is technically wrong/);
+  assert.match(glossaryHtml, /<dt>Legendary Misprint<\/dt><dd>A Misprint so memorable/);
+  assert.doesNotMatch(glossaryHtml, /intentional, event-scoped exception/);
+  assert.doesNotMatch(glossaryHtml, /deliberately authored 3×3 fandom artifact/);
+
+  assert.match(glossaryHtml, /commonly traced to “coupling\.”/);
+  assert.match(glossaryHtml, /less centered on immortality and supernatural cultivation than xianxia/);
+  assert.match(glossaryHtml, /when official subtitled releases exist in your region, support them/);
+  assert.match(glossaryHtml, /This living glossary favors clear context over claims of one universal fandom usage/);
 });
