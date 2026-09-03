@@ -3403,3 +3403,51 @@ test("a verdict racing a newer run cannot restore stale eligibility", async () =
   );
   assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).eligible, false);
 });
+
+test("a rescue board from an older run is rejected after a newer audit becomes current", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+
+  const choice = await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    choice: "compiled",
+  }), {});
+  assert.equal(choice.status, 200);
+  const revealedDetail = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const revealedReport = await revealedDetail.json();
+  const candidateIds = revealedReport.currentRun.rawResults
+    .slice(0, 9)
+    .map(candidate => candidate.candidateId);
+
+  const newerRun = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "representative",
+  }), {});
+  assert.equal(newerRun.status, 200);
+
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds,
+  }), {});
+  const saveBody = await saveResponse.json();
+  assert.equal(saveResponse.status, 409);
+  assert.match(saveBody.error, /current audit run/i);
+  assert.equal(
+    [...store.records.keys()].some(key =>
+      key.startsWith(auditRescueBoardPrefix(pairActor.id, 0, "run-1"))),
+    false,
+    "a rejected stale save must not create a rescue receipt",
+  );
+});

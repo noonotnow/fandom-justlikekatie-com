@@ -514,9 +514,10 @@ function completeCompiledHeroReviewRun(runId = 'complete-hero-review'): AnyRecor
 
 async function configureCompleteHeroReviewNetwork(
   page: Page,
-  { staleOnVerdict = false, newerRunOnVerdict = false }: {
+  { staleOnVerdict = false, newerRunOnVerdict = false, newerRunOnRescueSave = false }: {
     staleOnVerdict?: boolean;
     newerRunOnVerdict?: boolean;
+    newerRunOnRescueSave?: boolean;
   } = {},
 ): Promise<{
   saveRequests: AnyRecord[];
@@ -604,6 +605,17 @@ async function configureCompleteHeroReviewNetwork(
     if (input.action === 'save_rescue_board') {
       saveRequests.push(input);
       assert.equal(input.runId, 'complete-hero-review');
+      if (newerRunOnRescueSave) {
+        newerRunCurrent = true;
+        await route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: 'Only the current audit run can save an Operator Rescue Board.',
+          }),
+        });
+        return;
+      }
       const retainedById = new Map(candidates().map(item => [item.candidateId, item]));
       savedBoard = {
         schemaVersion: 1,
@@ -903,6 +915,77 @@ test('a newer current audit keeps the approval draft intact until the operator r
     await page.getByText('Audit evidence · newer-current-audit', { exact: true }).waitFor();
     assert.equal(await page.getByLabel('Publication decision').inputValue(), '');
     assert.equal(await page.getByLabel('Operator notes').inputValue(), '');
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('a newer current audit keeps the rescue-board arrangement intact until the operator refreshes', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { saveRequests } = await configureCompleteHeroReviewNetwork(page, {
+    newerRunOnRescueSave: true,
+  });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+
+    const rescueBoard = page.getByLabel('Editable rescue board');
+    await rescueBoard.waitFor();
+    await page.getByRole('button', { name: 'Move card 1 later', exact: true }).click();
+    await page.getByRole('button', { name: 'Make card 1 the hero', exact: true }).click();
+
+    const boardTitles = () => rescueBoard.locator('article a').allInnerTexts();
+    const heroTitle = () => rescueBoard.locator('[data-hero="true"] a').innerText();
+    const beforeSaveTitles = await boardTitles();
+    const beforeSaveHero = await heroTitle();
+    assert.equal(beforeSaveTitles.length, 9, 'the rescue draft must contain nine chosen cards');
+    assert.equal(beforeSaveHero, 'Hero · Browser evidence card 2');
+    assert.equal(
+      await page.locator('button[aria-pressed="true"]').count(),
+      9,
+      'the rescue picker must keep all nine choices visible',
+    );
+
+    await page.getByRole('button', { name: 'Save my nine', exact: true }).click();
+    await page.getByText(
+      'Only the current audit run can save an Operator Rescue Board.',
+      { exact: true },
+    ).waitFor();
+
+    assert.equal(saveRequests.length, 1, 'the rescue board must be submitted before the conflict is shown');
+    assert.deepEqual(await boardTitles(), beforeSaveTitles, 'the chosen card order must survive the conflict');
+    assert.equal(await heroTitle(), beforeSaveHero, 'the chosen hero position must survive the conflict');
+    assert.equal(
+      await page.locator('button[aria-pressed="true"]').count(),
+      9,
+      'the chosen nine must remain visible after the conflict',
+    );
+    assert.equal(
+      await page.getByText('Saved rescue records', { exact: true }).count(),
+      0,
+      'a current-run conflict must not show saved-board success',
+    );
+    assert.equal(
+      await page.getByText('Operator Rescue Board saved as a separate append-only receipt.', { exact: false }).count(),
+      0,
+      'a current-run conflict must not show the rescue save success notice',
+    );
+    await page.getByText('Audit evidence · complete-hero-review', { exact: true }).waitFor();
+
+    await page.reload();
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+    await page.getByText('Audit evidence · newer-current-audit', { exact: true }).waitFor();
+    assert.equal(
+      await page.getByText('Saved rescue records', { exact: true }).count(),
+      0,
+      'refreshing must reveal the newer run rather than a falsely saved board',
+    );
   } finally {
     await browser.close();
     await server.close();
