@@ -14,6 +14,8 @@ import starOfDay, {
 import {
   auditHeadKey,
   auditCalibrationKey,
+  auditRescueCalibrationKey,
+  auditRescueCalibrationSignalRetirementKey,
   auditRescueBoardKey,
   auditRunKey,
   auditVerdictKey,
@@ -839,6 +841,90 @@ test("the builder uses an unused rescue calibration board only after fresh searc
   assert.deepEqual(
     payload.displayResults.map(candidate => candidate.candidateId),
     rescue.board.candidates.map(candidate => candidate.candidateId),
+  );
+});
+
+test("the Daily Drop skips an approved pairing after one of its rescue signals is retired", async () => {
+  const packs = [
+    {
+      id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
+      vibes: [{ label: "A0", label_en: "A0", queries: ["base query a"] }],
+    },
+    {
+      id: "actor-b", name: "Actor B", shortName_en: "B", accentColor: "#222",
+      vibes: [{ label: "B0", label_en: "B0", queries: ["base query b"] }],
+    },
+  ];
+  const retiredSignal = "retired rescue query";
+  const receiptId = "actor-a-0-rescue";
+  const actorAEntries = approvedEligibility(packs[0], 0);
+  actorAEntries[eligibilityKey(packs[0].id, 0)].calibrationProfile = {
+    calibrationVersion: 1,
+    evidenceCount: 1,
+    positiveQueries: [retiredSignal],
+    positiveSources: ["retired-source.test"],
+    positiveClusters: ["retired-cluster"],
+    positiveCompositions: ["retired composition"],
+  };
+  actorAEntries[auditRescueCalibrationKey(packs[0].id, 0, receiptId)] = {
+    status: "confirmed",
+    calibrationVersion: 1,
+    sourceRescueReceiptId: receiptId,
+    actor: { id: packs[0].id },
+    vibePack: { key: `${packs[0].id}:0` },
+  };
+  actorAEntries[auditRescueCalibrationSignalRetirementKey(
+    packs[0].id,
+    0,
+    receiptId,
+    "query",
+    retiredSignal,
+  )] = {
+    status: "retired",
+    retirementId: "retirement-1",
+    sourceRescueReceiptId: receiptId,
+    actorId: packs[0].id,
+    vibeKey: `${packs[0].id}:0`,
+    signalFamily: "query",
+    signalValue: retiredSignal,
+    retiredAt: "2026-09-01T10:00:00.000Z",
+  };
+  const eligibilityStore = makeStore({
+    ...actorAEntries,
+    ...approvedEligibility(packs[1], 0),
+  });
+  const searchedQueries = [];
+  const curatedProfiles = [];
+  const displayResults = Array.from({ length: 9 }, (_, index) => ({
+    candidateId: `unrelated-${index}`,
+    title: `Unrelated frame ${index}`,
+    thumbnail: `https://images.test/unrelated-${index}.jpg`,
+    source: "unrelated-source.test",
+  }));
+
+  const payload = await buildPayloadForDate("2026-09-01", eligibilityStore, {
+    packs,
+    evaluate: async queries => {
+      searchedQueries.push(...queries);
+      return [{ query: queries[0], results: displayResults }];
+    },
+    rank: candidates => candidates,
+    curate: async (_ranked, options) => {
+      curatedProfiles.push(options.calibrationProfile);
+      return {
+        displayResults,
+        curation: { mode: "compiled", version: 1, rationale: "Unrelated approved evidence.", signals: [] },
+      };
+    },
+    generatedAt: () => "2026-09-01T12:00:00.000Z",
+  });
+
+  assert.equal(payload.actorId, packs[1].id);
+  assert.deepEqual(searchedQueries, ["base query b"]);
+  assert.equal(curatedProfiles.length, 1);
+  assert.equal(
+    JSON.stringify(curatedProfiles[0] || {}).includes(retiredSignal),
+    false,
   );
 });
 
