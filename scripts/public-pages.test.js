@@ -19,7 +19,7 @@ function read(path) {
   return readFileSync(resolve(root, path), "utf8");
 }
 
-test("the five C-drama fandom routes are substantial static HTML documents", () => {
+test("the C-drama fandom routes are substantial static HTML documents", () => {
   const titles = new Set();
   const canonicals = new Set();
 
@@ -53,6 +53,10 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/",
     "https://fandom.justlikekatie.com/c-drama-fandom/getting-started/",
     "https://fandom.justlikekatie.com/c-drama-fandom/glossary/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/glossary/cp/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/glossary/cultivation/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/glossary/xianxia/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/glossary/jianghu/",
     "https://fandom.justlikekatie.com/c-drama-fandom/trope-decoder/",
     "https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/",
   ];
@@ -93,6 +97,35 @@ test("robots and sitemap expose only intended public surfaces", () => {
   assert.doesNotMatch(sitemap, /\/api\/|\/auth\/|create-handoff|idea-packet/);
   assert.match(viteConfig, /['"]\/c-drama-fandom\/trope-decoder['"]\s*,\s*['"]\/c-drama-fandom\/trope-decoder\/index\.html['"]/);
   assert.match(netlify, /from = "\/c-drama-fandom\/trope-decoder"[\s\S]*?to = "\/c-drama-fandom\/trope-decoder\/index\.html"/);
+  for (const slug of ["cp", "cultivation", "xianxia", "jianghu"]) {
+    assert.match(
+      viteConfig,
+      new RegExp(`['"]/c-drama-fandom/glossary/${slug}['"]\\s*,\\s*['"]/c-drama-fandom/glossary/${slug}/index\\.html['"]`),
+    );
+    assert.match(
+      netlify,
+      new RegExp(`from = "/c-drama-fandom/glossary/${slug}"[\\s\\S]*?to = "/c-drama-fandom/glossary/${slug}/index\\.html"`),
+    );
+  }
+});
+
+test("the fandom-literacy pages answer independently and continue honestly into Atlas", () => {
+  const literacyPages = [
+    ["cp", /What does CP mean in C-drama fandom\?/i],
+    ["cultivation", /What is cultivation in Chinese dramas\?/i],
+    ["xianxia", /What is xianxia\?/i],
+    ["jianghu", /What is jianghu\?/i],
+  ];
+
+  for (const [slug, question] of literacyPages) {
+    const html = read(`public/c-drama-fandom/glossary/${slug}/index.html`);
+    assert.match(html, question);
+    assert.match(html, /data-content-mode="fandom-literacy"/);
+    assert.match(html, /class="field-lens"/);
+    assert.match(html, /data-atlas-continuation/);
+    assert.match(html, /Today’s Vibe Atlas drop/i);
+    assert.match(html, /src="\/c-drama-fandom\/editorial\.js"/);
+  }
 });
 
 test("the public field journal has crawlable direct routes with spoiler-safe metadata", () => {

@@ -31,6 +31,10 @@ export const REQUIRED_PUBLIC_PAGES = [
   "public/c-drama-fandom/index.html",
   "public/c-drama-fandom/getting-started/index.html",
   "public/c-drama-fandom/glossary/index.html",
+  "public/c-drama-fandom/glossary/cp/index.html",
+  "public/c-drama-fandom/glossary/cultivation/index.html",
+  "public/c-drama-fandom/glossary/xianxia/index.html",
+  "public/c-drama-fandom/glossary/jianghu/index.html",
   "public/c-drama-fandom/trope-decoder/index.html",
   "public/c-drama-fandom/fandom-games/index.html",
 ];
