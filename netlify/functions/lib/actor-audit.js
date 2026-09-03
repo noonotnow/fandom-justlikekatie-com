@@ -3,8 +3,10 @@ import { json } from "./public-auth.js";
 import {
   AESTHETIC_CLUSTER_VERSION,
   ACTOR_IDENTITY_PROFILES,
+  CALIBRATION_QUERY_COMPATIBILITY_VERSION,
   IDENTITY_PROFILE_VERSION,
   VIBE_PROMISE_CONTRACT_VERSION,
+  searchQueriesFor,
   vibePromiseFor,
 } from "./actor-identity-profiles.js";
 import {
@@ -1165,7 +1167,12 @@ export async function runPreflight(
   } = {},
 ) {
   const startedAt = now().toISOString();
-  const queries = scope === "representative" ? pair.vibe.queries.slice(0, 3) : pair.vibe.queries;
+  const queries = searchQueriesFor(
+    pair.actor,
+    pair.vibeIdx,
+    calibrationProfile,
+    { baseLimit: scope === "representative" ? 3 : null },
+  );
   const searchReceipts = new Map();
   const candidates = await evaluateCandidates(queries, async query => {
     try {
@@ -1276,6 +1283,8 @@ export async function runPreflight(
     queryCount: queries.length,
     queryRuns,
     calibrationQueryRanking: calibrationProfile ? {
+      compatibilityVersion: CALIBRATION_QUERY_COMPATIBILITY_VERSION,
+      learnedQueries: calibrationProfile.positiveQueries || [],
       positiveQueries: calibrationProfile.positiveQueries,
       negativeQueries: calibrationProfile.negativeQueries,
       baselineTopQueries: baselineTop.map(candidate => candidate.query),
@@ -1284,6 +1293,7 @@ export async function runPreflight(
     } : null,
     inheritedPreferenceCandidateIds: preferredCandidateIds,
     inheritedCalibration: calibrationProfile ? {
+      queryCompatibilityVersion: CALIBRATION_QUERY_COMPATIBILITY_VERSION,
       calibrationVersion: calibrationProfile.calibrationVersion,
       evidenceCount: calibrationProfile.evidenceCount,
       sourceReceiptIds: calibrationProfile.sourceReceiptIds,
@@ -2391,6 +2401,7 @@ function signalValues(candidates) {
     antiAnchors: flattenedValues(candidate => (candidate.promise?.hardAntiMatches || [])
       .map(signalText)),
     definitions: flattenedValues(definitionCues),
+    composition: flattenedValues(definitionCues),
   };
 }
 
@@ -2404,6 +2415,7 @@ function signalValuesForCandidate(candidate, key) {
     return (candidate.promise?.hardAntiMatches || []).map(signalText).filter(Boolean);
   }
   if (key === "definitions") return definitionCues(candidate);
+  if (key === "composition") return definitionCues(candidate);
   return [];
 }
 
@@ -2515,7 +2527,7 @@ export function rescueCalibrationBasis(run, board) {
     .map(calibrationCandidateSnapshot);
   const hero = selectedNine[4] || null;
   const reusableSignals = Object.fromEntries(
-    ["queries", "sources", "clusters", "antiAnchors", "definitions"].map(key => [
+    ["queries", "sources", "clusters", "antiAnchors", "definitions", "composition"].map(key => [
       key,
       reusableSignalPreferences([{ selectedNine, omittedAlternatives }], key),
     ]),
@@ -2579,6 +2591,7 @@ export function rescueCalibrationBasis(run, board) {
     },
     contract: {
       calibrationVersion: RESCUE_CALIBRATION_VERSION,
+      queryCompatibilityVersion: CALIBRATION_QUERY_COMPATIBILITY_VERSION,
       curationVersion: run.curationReceipt?.curationVersion || run.curationVersion || null,
       identityProfileVersion: run.identityProfileVersion || run.profileVersion || null,
       aestheticClusterVersion: run.aestheticClusterVersion || null,
@@ -2665,7 +2678,12 @@ function preferredSignals(positiveValues, negativeValues) {
 
 function rescueCalibrationMatchesCurrentContract(record, pair) {
   const contract = record?.contract;
-  return contract?.curationVersion === CURATION_VERSION
+  // Learned-query expansion is additive. Receipts created before this field
+  // existed use the same compatible strategy and remain usable.
+  const queryCompatibilityVersion = contract?.queryCompatibilityVersion
+    ?? CALIBRATION_QUERY_COMPATIBILITY_VERSION;
+  return queryCompatibilityVersion === CALIBRATION_QUERY_COMPATIBILITY_VERSION
+    && contract?.curationVersion === CURATION_VERSION
     && contract?.identityProfileVersion === IDENTITY_PROFILE_VERSION
     && contract?.aestheticClusterVersion === AESTHETIC_CLUSTER_VERSION
     && contract?.promiseContractVersion === VIBE_PROMISE_CONTRACT_VERSION
@@ -2716,6 +2734,7 @@ async function readRescueCalibrationProfile(store, pair) {
   const clusters = reusableSignalPreferences(records, "clusters");
   const antiAnchors = reusableSignalPreferences(records, "antiAnchors");
   const definitions = reusableSignalPreferences(records, "definitions");
+  const compositions = reusableSignalPreferences(records, "composition");
   const rankingContrasts = records.flatMap(record =>
     record.rankingContrasts || record.signals?.rankingContrasts || []).slice(0, 512);
   const rankingWins = {};
@@ -2742,6 +2761,7 @@ async function readRescueCalibrationProfile(store, pair) {
   return {
     schemaVersion: 1,
     calibrationVersion: RESCUE_CALIBRATION_VERSION,
+    queryCompatibilityVersion: CALIBRATION_QUERY_COMPATIBILITY_VERSION,
     actorId: pair.actor.id,
     vibeKey: pair.vibeKey,
     evidenceCount: records.length,
@@ -2803,12 +2823,15 @@ async function readRescueCalibrationProfile(store, pair) {
     negativeAntiAnchors: antiAnchors.negative,
     positiveDefinitions: definitions.positive,
     negativeDefinitions: definitions.negative,
+    positiveCompositions: compositions.positive,
+    negativeCompositions: compositions.negative,
     reusableSignalDeltas: {
       queries: queries.deltas,
       sources: sources.deltas,
       clusters: clusters.deltas,
       antiAnchors: antiAnchors.deltas,
       definitions: definitions.deltas,
+      composition: compositions.deltas,
     },
     rankingContrasts,
     rankingWins,
@@ -2829,6 +2852,8 @@ function dailyCalibrationProfile(profile) {
   if (!profile?.evidenceCount) return null;
   return {
     calibrationVersion: profile.calibrationVersion,
+    queryCompatibilityVersion: profile.queryCompatibilityVersion
+      || CALIBRATION_QUERY_COMPATIBILITY_VERSION,
     evidenceCount: profile.evidenceCount,
     positiveCandidateIds: profile.positiveCandidateIds,
     negativeCandidateIds: profile.negativeCandidateIds,
@@ -2843,6 +2868,8 @@ function dailyCalibrationProfile(profile) {
     negativeAntiAnchors: profile.negativeAntiAnchors,
     positiveDefinitions: profile.positiveDefinitions,
     negativeDefinitions: profile.negativeDefinitions,
+    positiveCompositions: profile.positiveCompositions || profile.positiveDefinitions,
+    negativeCompositions: profile.negativeCompositions || profile.negativeDefinitions,
     rankingWins: profile.rankingWins,
     rankingLosses: profile.rankingLosses,
     preferredPositions: profile.preferredPositions,
@@ -2919,7 +2946,7 @@ export function compareCalibrationOutcomes(profile, baseline, calibrated, input 
     ...(profile.negativeCandidateIds || []),
   ]);
   const transferableSignals = signals => (signals || []).filter(signal =>
-    /^(query|source|cluster):/.test(signal));
+    /^(query|source|cluster|definition|composition):/.test(signal));
   const effects = [];
   for (const [candidateId, calibratedPosition] of calibratedPositions) {
     const signal = calibratedEvidence.get(candidateId);

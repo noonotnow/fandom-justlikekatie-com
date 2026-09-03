@@ -588,12 +588,14 @@ test("the builder prefers fresh curation over an approved retained-evidence boar
     calibrationVersion: 1,
     evidenceCount: 1,
     positiveCandidateIds: ["saved-example"],
+    positiveQueries: ["learned query"],
     positiveDefinitions: ["modern building"],
   };
   actorAEntries[eligibilityKey(packs[0].id, 0)].calibrationProfile = calibrationProfile;
   actorBEntries[eligibilityKey(packs[1].id, 0)].calibrationProfile = calibrationProfile;
   const eligibilityStore = makeStore({ ...actorAEntries, ...actorBEntries });
   let searches = 0;
+  let searchedQueries = null;
   let curateOptions = null;
   const freshResults = Array.from({ length: 9 }, (_, index) => ({
     candidateId: `fresh-${index}`,
@@ -603,8 +605,9 @@ test("the builder prefers fresh curation over an approved retained-evidence boar
   }));
   const payload = await buildPayloadForDate("2026-09-01", eligibilityStore, {
     packs,
-    evaluate: async () => {
+    evaluate: async queries => {
       searches += 1;
+      searchedQueries = queries;
       return [{ query: "fresh query", results: freshResults }];
     },
     rank: candidates => candidates,
@@ -625,6 +628,8 @@ test("the builder prefers fresh curation over an approved retained-evidence boar
   assert.equal(payload.curation.mode, "compiled");
   assert.deepEqual(curateOptions.calibrationProfile, calibrationProfile);
   assert.deepEqual(curateOptions.preferredCandidateIds, ["saved-example"]);
+  assert.equal(searchedQueries[0], "learned query");
+  assert.ok(searchedQueries.includes("unused-a") || searchedQueries.includes("unused-b"));
 });
 
 test("a repeated pairing refreshes search and rearranges the same nine when refresh cannot improve them", async () => {

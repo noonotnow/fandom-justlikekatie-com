@@ -6,6 +6,7 @@ import { getShanghaiDateString, shanghaiYesterday } from "./lib/date-seed.js";
 import { candidateIdForResult, curateDisplayResults } from "./lib/grid-curation.js";
 import {
   AESTHETIC_CLUSTER_VERSION,
+  searchQueriesFor,
   IDENTITY_PROFILE_VERSION,
   VIBE_PROMISE_CONTRACT_VERSION,
   vibePromiseFor,
@@ -136,7 +137,8 @@ export async function buildPayloadForDate(
       fetchImpl,
       generatedAt,
     });
-    const candidates = await evaluate(vibe.queries, search);
+    const searchQueries = searchQueriesFor(actor, seed.vIdx, approval.calibrationProfile);
+    const candidates = await evaluate(searchQueries, search);
     let ranked = rank(candidates).slice(0, RANKED_BATCH_LIMIT);
 
     if (!ranked.length) {
@@ -160,7 +162,7 @@ export async function buildPayloadForDate(
       const initialOverlap = greatestBoardOverlap(displayResults, pairHistory);
       if (initialOverlap >= 7) {
         const refreshedCandidates = await evaluate(
-          vibe.queries,
+          searchQueries,
           query => search(query, { cacheMode: "refresh" }),
         );
         const refreshedRanked = rank(refreshedCandidates).slice(0, RANKED_BATCH_LIMIT);

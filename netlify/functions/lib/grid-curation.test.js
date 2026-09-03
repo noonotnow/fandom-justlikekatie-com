@@ -1373,6 +1373,66 @@ test("Professionally Devastated recognizes fresh role-grounded tragedy without r
     !item.title.includes("刘学义") && /慕容璟和|沈在野|锦绣/.test(item.title)));
 });
 
+test("confirmed calibration admits identity-confirmed handsome costume supports behind a devastated hero", async () => {
+  const actor = {
+    id: "liu-xueyi",
+    name: "刘学义",
+    shortName_en: "Liu Xueyi",
+    vibes: [{}, {}, {}, { queries: ["刘学义 慕容璟和 受伤"] }],
+  };
+  const promise = vibePromiseFor(actor, 3);
+  const hero = result("calibrated-devastated-hero", {
+    source: "operator-approved-editorial.test",
+    title: "刘学义 慕容璟和 bloodied devastated carrying her wedding aftermath frame",
+    fp: fingerprint("calibrated-devastated-hero", { ones: spreadBits("calibrated-devastated-hero", 92) }),
+  });
+  const supports = Array.from({ length: 8 }, (_, index) => result(`calibrated-costume-${index}`, {
+    source: "operator-approved-editorial.test",
+    title: `刘学义 handsome historical costume courtyard location frame ${index + 1}`,
+    fp: fingerprint(`calibrated-costume-${index}`, { ones: spreadBits(`calibrated-costume-${index}`, 92) }),
+  }));
+
+  const output = await curateBatches([{
+    query: "刘学义 handsome costume location",
+    results: [hero, ...supports],
+  }], {
+    diagnostics: true,
+    promise,
+    calibrationProfile: {
+      calibrationVersion: 1,
+      evidenceCount: 1,
+      sourceReceiptIds: ["rescue-costume-support"],
+      sourceEvidenceCandidateIds: ["saved-hero", "saved-support"],
+      positiveCandidateIds: ["saved-hero"],
+      negativeCandidateIds: [],
+      heroCandidateIds: ["saved-hero"],
+      positiveQueries: ["刘学义 handsome costume location"],
+      negativeQueries: [],
+      positiveSources: ["operator-approved-editorial.test"],
+      negativeSources: [],
+      positiveClusters: [],
+      negativeClusters: [],
+      positiveAntiAnchors: [],
+      negativeAntiAnchors: [],
+      positiveCompositions: ["handsome"],
+      negativeCompositions: [],
+      rankingContrasts: [],
+      rankingWins: {},
+      rankingLosses: {},
+      preferredPositions: {},
+    },
+  });
+
+  assert.equal(output.displayResults.length, 9);
+  assert.equal(output.diagnostics.strongestCompiled.promise.heroFulfillment, 1);
+  assert.equal(output.diagnostics.strongestCompiled.promise.supportingCount, 8);
+  assert.equal(output.diagnostics.strongestCompiled.promise.admittedCount, 9);
+  assert.equal(output.displayResults[4].title.includes("bloodied"), true);
+  assert.ok(output.diagnostics.rawCandidates
+    .filter(candidate => candidate.title.includes("handsome"))
+    .every(candidate => candidate.calibration.supportingAdmission === true));
+});
+
 test("Professionally Devastated does not mistake query state, costume color, or generic beauty for tragedy", async () => {
   const actor = {
     id: "liu-xueyi",
