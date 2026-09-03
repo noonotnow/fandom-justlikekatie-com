@@ -14,6 +14,17 @@ type AnyRecord = Record<string, any>;
 
 const EMPTY_RECORDS: AnyRecord[] = [];
 
+function retirementEvidenceHref(actorId: string, vibeKey: string, signal: AnyRecord) {
+  const params = new URLSearchParams(window.location.search);
+  params.set('admin', 'true');
+  params.set('adminView', 'actor-preflight');
+  params.set('actorId', actorId);
+  params.set('vibeKey', vibeKey);
+  params.set('runId', String(signal.sourceRunId || ''));
+  params.set('receiptId', String(signal.sourceRescueReceiptId || ''));
+  return `${window.location.pathname}?${params.toString()}#actor-audit-evidence`;
+}
+
 const api = async () => {
   const response = await fetch('/.netlify/functions/actor-audits', {
     credentials: 'include',
@@ -675,6 +686,12 @@ function ReleaseInventory({ inventory }: { inventory: AnyRecord }) {
                           <b>{signal.signalFamily}</b>
                           <span>Source receipt {signal.sourceRescueReceiptId}{signal.sourceRunId ? ` · audit ${signal.sourceRunId}` : ''}</span>
                           {signal.reason && <small>{signal.reason}</small>}
+                           <a
+                             className={styles.retirementEvidenceLink}
+                             href={retirementEvidenceHref(pack.actorId, pair.vibeKey, signal)}
+                           >
+                             Open exact evidence
+                           </a>
                         </li>
                       ))}
                     </ul>

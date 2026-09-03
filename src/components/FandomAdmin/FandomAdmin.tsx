@@ -13,8 +13,16 @@ import styles from './FandomAdmin.module.css';
 
 type AdminView = 'court' | 'watch-journal' | 'actor-preflight' | 'release-desk';
 
+function requestedAdminView(fallback: AdminView): AdminView {
+  const requested = new URLSearchParams(window.location.search).get('adminView');
+  return requested === 'actor-preflight' || requested === 'release-desk'
+    || requested === 'court' || requested === 'watch-journal'
+    ? requested
+    : fallback;
+}
+
 export const FandomAdmin: React.FC<{ initialView?: AdminView }> = ({ initialView = 'release-desk' }) => {
-  const [view, setView] = useState<AdminView>(initialView);
+  const [view, setView] = useState<AdminView>(() => requestedAdminView(initialView));
   return (
     <section className={styles.admin}>
       <header className={styles.header}>

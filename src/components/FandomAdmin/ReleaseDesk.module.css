@@ -94,6 +94,8 @@
 .retiredSignalExclusions li { display:grid; gap:2px; padding-top:5px; border-top:1px solid color-mix(in srgb,#c98264 28%,var(--admin-border)); }
 .retiredSignalExclusions li b { color:#e5b09a; font-size:8px; letter-spacing:.05em; text-transform:uppercase; }
 .retiredSignalExclusions li span,.retiredSignalExclusions li small { color:#bca9a1; font-size:8px; line-height:1.4; }
+.retirementEvidenceLink { width:max-content; margin-top:2px; color:#f0d4c8; font-size:9px; font-weight:700; text-decoration:underline; text-underline-offset:2px; }
+.retirementEvidenceLink:hover,.retirementEvidenceLink:focus-visible { color:#fff; }
 .production { display:grid; gap:14px; padding:18px; border:1px solid color-mix(in srgb,#b49ad8 48%,var(--admin-border)); border-radius:12px; background:linear-gradient(125deg,color-mix(in srgb,#8d70b8 10%,transparent),color-mix(in srgb,#c9a96e 5%,transparent)); }
 .productionHeader { display:flex; justify-content:space-between; gap:20px; align-items:start; }
 .productionHeader h4 { margin:0; font-size:18px; }

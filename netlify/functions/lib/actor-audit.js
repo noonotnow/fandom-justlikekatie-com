@@ -269,8 +269,27 @@ export function createActorAuditHandler({
         const report = await readReport(store, pair);
         const runId = url.searchParams.get("runId");
         if (runId) {
+          const receiptId = url.searchParams.get("receiptId");
           const run = await readRun(store, pair, runId);
-          return run ? json(200, { run: clientRun(run, pair) }) : json(404, { error: "Audit run not found." });
+          if (!run) {
+            return json(404, {
+              error: `Source audit run ${runId} is no longer retained.${receiptId ? ` Rescue receipt ${receiptId} remains recorded on the retirement warning.` : ""}`,
+              runId,
+              receiptId: receiptId || null,
+            });
+          }
+          if (receiptId) {
+            const receipt = run.editorialFeedback?.operatorRescueBoards
+              ?.find(item => item?.receiptId === receiptId);
+            if (!receipt) {
+              return json(404, {
+                error: `Rescue receipt ${receiptId} is not retained with source audit run ${runId}.`,
+                runId,
+                receiptId,
+              });
+            }
+          }
+          return json(200, { run: clientRun(run, pair), receiptId: receiptId || null });
         }
         const misprintReviewQueue = (await readScopedMisprints(store, pair))
           .filter(receipt =>

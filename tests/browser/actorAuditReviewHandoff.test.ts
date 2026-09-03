@@ -76,6 +76,15 @@ function actor(pairingState: string, eligible = false): AnyRecord {
       currentRunId: null,
       calibrationEvidenceCount: pairingState === 'not_run' ? 0 : 1,
       calibrationProof: null,
+    }, {
+      vibeKey: `${ACTOR_ID}:1`,
+      labels: ['Retired Signal Vibe'],
+      queryCount: 1,
+      auditState: 'calibration_reaudit_required',
+      eligible: false,
+      currentRunId: null,
+      calibrationEvidenceCount: 0,
+      calibrationProof: null,
     }],
   };
 }
@@ -289,7 +298,7 @@ function responseBody(
   };
 }
 
-async function configureNetwork(page: Page): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   exportRequests: AnyRecord[];
@@ -431,6 +440,42 @@ async function configureNetwork(page: Page): Promise<{
               }],
             },
           }),
+        });
+        return;
+      }
+      if (url.searchParams.get('runId') === 'run-7') {
+        if (missingRetirementRun) {
+          await route.fulfill({
+            status: 404,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              error: 'Source audit run run-7 is no longer retained. Rescue receipt rescue-receipt-7 remains recorded on the retirement warning.',
+              runId: 'run-7',
+              receiptId: 'rescue-receipt-7',
+            }),
+          });
+          return;
+        }
+        const historical = run('run-7', true);
+        const historicalReceipt = {
+          schemaVersion: 1,
+          receiptId: 'rescue-receipt-7',
+          runId: 'run-7',
+          actorId: ACTOR_ID,
+          vibeKey: `${ACTOR_ID}:1`,
+          feedbackHash: 'retired-feedback-hash',
+          board: { mode: 'operator_rescue', candidates: candidates() },
+          savedAt: '2026-08-20T12:01:00.000Z',
+          savedBy: 'browser-operator',
+        };
+        historical.editorialFeedback = feedback(historicalReceipt, {
+          ...rescueCalibrationDetails(),
+          sourceRescueReceiptId: 'rescue-receipt-7',
+          sourceRunId: 'run-7',
+        });
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ run: historical, receiptId: 'rescue-receipt-7' }),
         });
         return;
       }
@@ -950,8 +995,14 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
     assert.equal(await page.getByText('Source receipt rescue-receipt-7 · audit run-7', { exact: true }).isVisible(), true);
     assert.equal(await page.getByText('Source no longer preserves confirmed identity.', { exact: true }).isVisible(), true);
 
-    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('link', { name: 'Open exact evidence', exact: true }).click();
     await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+    await page.getByText('Opened source receipt rescue-receipt-7 from audit run-7.', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('heading', { name: 'Audit evidence · run-7', exact: true }).isVisible(), true);
+    assert.equal(await page.getByText(/rescue-receipt-7/).last().isVisible(), true);
+    assert.equal(await page.getByText('Viewing saved arrangement', { exact: true }).isVisible(), true);
+
+    await page.getByRole('button', { name: /Browser Calibration Vibe/ }).click();
     await page.getByRole('button', { name: 'Run audit', exact: true }).click();
     await page.getByRole('button', { name: 'Choose Compiled', exact: true }).click();
     await page.getByRole('button', { name: 'Choose nine to save', exact: true }).waitFor();
@@ -1064,6 +1115,28 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
       0,
       'an immutable Misprint should not offer a second correction action',
     );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('a retirement evidence handoff preserves the receipt identifier when its source run is gone', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  await configureNetwork(page, { missingRetirementRun: true });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('heading', { name: 'Release Desk', exact: true }).waitFor();
+    await page.getByRole('link', { name: 'Open exact evidence', exact: true }).click();
+    await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+    await page.getByText(
+      'Source audit run run-7 is no longer retained. Rescue receipt rescue-receipt-7 remains recorded on the retirement warning.',
+      { exact: true },
+    ).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get('receiptId'), 'rescue-receipt-7');
   } finally {
     await browser.close();
     await server.close();
