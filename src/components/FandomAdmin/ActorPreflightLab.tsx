@@ -343,7 +343,7 @@ function RunEvidence({
         </form>}
         {disagreed && isCurrent && run.operatorVerdict && <p className={styles.historicalNotice}>The scheduling receipt is finalized, so its calibration reasons stay frozen. Image-level pins and exclusions below remain editable as separate review receipts.</p>}
       </section>}
-      {evidenceAvailable && <><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{proposedCardCount}</strong><span>complete proposal cards</span><strong>{run.displayCount ?? 0}</strong><span>automatically publication-ready cards</span><strong>{run.queryCount ?? run.queryRuns?.length ?? 0}</strong><span>queries audited</span><strong>{rawResults.length}</strong><span>retained results</span></div><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration}/><div className={styles.evidence}>{sections.map(([label,value])=><details key={label}><summary>{label} <span className={styles.muted}>{Array.isArray(value)?`${value.length} records`:''}</span></summary>{label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} busy={busy} onFlag={onFlag}/> : <pre>{text(value)}</pre>}</details>)}</div></>}
+      {evidenceAvailable && <><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{proposedCardCount}</strong><span>complete proposal cards</span><strong>{run.displayCount ?? 0}</strong><span>automatically publication-ready cards</span><strong>{run.queryCount ?? run.queryRuns?.length ?? 0}</strong><span>queries audited</span><strong>{rawResults.length}</strong><span>retained results</span></div><CalibrationLearningSummary run={run}/><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration}/><div className={styles.evidence}>{sections.map(([label,value])=><details key={label}><summary>{label} <span className={styles.muted}>{Array.isArray(value)?`${value.length} records`:''}</span></summary>{label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} busy={busy} onFlag={onFlag}/> : <pre>{text(value)}</pre>}</details>)}</div></>}
     </> : <p className={styles.empty}>Run an audit to open a blinded Event versus Compiled comparison.</p>}
     {currentRun&&<label className={styles.label}>Audit run<select className={styles.select} value={run?.runId ?? ''} onChange={e=>{const selected=[currentRun,...priorRuns].find(item=>item.runId===e.target.value);if(selected)onSelect(selected)}}><option value={currentRun.runId}>{currentRun.auditContract?.isLegacy?'Legacy history':'Current'} · {currentRun.runId} · {date(currentRun.completedAt)}</option>{priorRuns.map(item=><option key={item.runId} value={item.runId}>{item.auditContract?.isLegacy?'Legacy history':'Retained'} · {item.runId} · {date(item.completedAt)}</option>)}</select></label>}
   </article>;
@@ -505,6 +505,58 @@ function BoardQualificationSummary({run}:{run:Run}) {
   })}</div>;
 }
 
+function CalibrationLearningSummary({run}:{run:Run}) {
+  const ranking = run.calibrationQueryRanking;
+  const signals = run.curationReceipt?.calibrationSignals;
+  const proof = run.calibrationProof;
+  const learnedQueries = Array.isArray(ranking?.learnedQueries)
+    ? ranking.learnedQueries
+    : Array.isArray(signals?.preferredQueries) ? signals.preferredQueries : [];
+  const usedQueries = Array.isArray(ranking?.learnedQueriesUsed)
+    ? ranking.learnedQueriesUsed
+    : (run.queryRuns ?? [])
+      .filter((queryRun:AnyRecord)=>queryRun.learnedRescueQuery)
+      .map((queryRun:AnyRecord)=>queryRun.query);
+  const supportingCards = new Map<string, AnyRecord>();
+  for (const mode of ['event', 'compiled']) {
+    for (const candidate of run[mode === 'event' ? 'strongestEvent' : 'strongestCompiled']?.candidates ?? []) {
+      if (candidate.calibration?.supportingAdmission === true) {
+        supportingCards.set(candidate.candidateId, candidate);
+      }
+    }
+  }
+  if (!ranking && !signals && !proof) return null;
+  const transferSucceeded = proof?.status === 'reproduced_beyond_saved_nine';
+  const transferFailed = proof?.status === 'reaudit_not_yet_reproduced';
+  return <section className={styles.calibrationLearning} aria-label="Rescue learning review">
+    <div className={styles.calibrationLearningHeader}>
+      <div>
+        <h6>Rescue learning used in this fresh audit</h6>
+        <p>Learned search preferences are evidence about ranking, not a replacement for identity, image-safety, or Vibe promise gates.</p>
+      </div>
+      {proof && <span className={transferSucceeded ? styles.calibrationPass : styles.calibrationPending}>{transferSucceeded ? 'Transfer reproduced' : transferFailed ? 'Transfer not reproduced' : proof.status?.replaceAll('_', ' ')}</span>}
+    </div>
+    {learnedQueries.length > 0 && <div className={styles.calibrationQueries}>
+      <strong>Learned rescue queries used</strong>
+      <div>{learnedQueries.map((query:string)=><code data-used={usedQueries.includes(query)} key={query}>{query}{usedQueries.includes(query) ? ' · used' : ' · not returned'}</code>)}</div>
+    </div>}
+    {supportingCards.size > 0 && <div className={styles.calibrationSupports}>
+      <strong>Calibration-backed supporting cards</strong>
+      <p>{supportingCards.size} fresh board card{supportingCards.size === 1 ? '' : 's'} admitted through transferable evidence. The reasons below show what admitted each card.</p>
+      <div>{[...supportingCards.values()].map((candidate:AnyRecord)=><article key={candidate.candidateId}>
+        <strong>{candidate.title || candidate.candidateId}</strong>
+        <span>{text(candidate.calibration.supportingAdmissionEvidence?.signals || candidate.calibration.transferablePositive || candidate.calibration.positive)}</span>
+      </article>)}</div>
+    </div>}
+    {proof && <div className={`${styles.calibrationProof} ${transferFailed ? styles.calibrationProofFailed : ''}`}>
+      <strong>{transferFailed ? 'Failed transfer remains visible' : transferSucceeded ? 'Transfer evidence' : 'Transfer proof'}</strong>
+      <span>{proof.summary}</span>
+      <small>{proof.beyondExactSavedNineCount ?? 0} effect{proof.beyondExactSavedNineCount === 1 ? '' : 's'} beyond the exact saved nine · score delta {Number(proof.scoreDelta ?? 0).toFixed(3)}</small>
+      {transferFailed && <small>Approval gates remain unchanged: a missing transfer proof does not make this board eligible, and calibration cannot bypass a failed image or anti-anchor gate.</small>}
+    </div>}
+  </section>;
+}
+
 function RevealSummary({run}:{run:Run}) {
   const winnerMode = run.blindReview?.systemWinner;
   const decisive = run.curationReceipt;
@@ -529,7 +581,17 @@ function RunnerUpDiagnostics({run}:{run:Run}) {
 
 function BoardPreview({label,board,isWinner,revealed}:{label:string;board?:AnyRecord|null;isWinner:boolean;revealed:boolean}) {
   const candidates = Array.isArray(board?.candidates) ? board.candidates : [];
-  return <article className={`${styles.board} ${isWinner ? styles.boardWinner : ''}`}><div className={styles.boardHeader}><div><strong>{label}</strong>{isWinner && <span className={styles.boardTag}>System winner</span>}</div><small>{revealed && typeof board?.score === 'number' ? `score ${board.score.toFixed(2)}` : candidates.length >= 9 ? '9-card board' : 'No complete board'}</small></div>{revealed&&board?.editorialArgument?.thesis?<div className={styles.editorialArgument}><strong>Editorial argument</strong><p>{board.editorialArgument.thesis}</p>{typeof board.editorialArgument.changedCardCount==='number'?<small>{board.editorialArgument.changedCardCount} cards changed · {text(board.editorialArgument.signals)}</small>:null}</div>:null}{candidates.length > 0 ? <div className={styles.boardGrid}>{candidates.map((item:any,index:number)=><a className={styles.boardTile} href={item.link || item.thumbnail || '#'} target="_blank" rel="noreferrer" key={`${item.link || item.thumbnail || item.title || 'board-image'}-${index}`}>{item.thumbnail ? <img src={item.thumbnail} alt={item.title || `${label} image ${index + 1}`} loading="lazy" /> : <span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{item.title || `Frame ${index + 1}`}</span></a>)}</div> : <p className={styles.boardEmpty}>No complete 9-image board survived this audit.</p>}{revealed && board?.promise && <p className={styles.promiseReceipt}>Automated promise recognition: {board.promise.coreCount ?? 0}/9 · hero {board.promise.heroFulfillment === 1 ? 'fulfilled' : 'not recognized'} · single-frame {Math.round(Number(board.promise.singleFrameRatio ?? 0) * 100)}%</p>}{revealed && board?.scoreBreakdown && <div className={styles.scoreBreakdown}>{Object.entries(board.scoreBreakdown).map(([key,value]:[string,any])=><div key={key}><span>{key.replace(/[A-Z]/g,letter=>` ${letter}`).toLowerCase()}</span><strong>{Number(value.contribution ?? 0).toFixed(3)}</strong><small>{Number(value.value ?? 0).toFixed(2)} × {Number(value.weight ?? 0).toFixed(2)}</small></div>)}</div>}</article>;
+  return <article className={`${styles.board} ${isWinner ? styles.boardWinner : ''}`}>
+    <div className={styles.boardHeader}><div><strong>{label}</strong>{isWinner && <span className={styles.boardTag}>System winner</span>}</div><small>{revealed && typeof board?.score === 'number' ? `score ${board.score.toFixed(2)}` : candidates.length >= 9 ? '9-card board' : 'No complete board'}</small></div>
+    {revealed&&board?.editorialArgument?.thesis?<div className={styles.editorialArgument}><strong>Editorial argument</strong><p>{board.editorialArgument.thesis}</p>{typeof board.editorialArgument.changedCardCount==='number'?<small>{board.editorialArgument.changedCardCount} cards changed · {text(board.editorialArgument.signals)}</small>:null}</div>:null}
+    {candidates.length > 0 ? <div className={styles.boardGrid}>{candidates.map((item:any,index:number)=>{
+      const calibratedSupporting=revealed&&item.calibration?.supportingAdmission===true;
+      const evidence=item.calibration?.supportingAdmissionEvidence?.signals||item.calibration?.transferablePositive||[];
+      return <div className={styles.boardTileWrap} key={`${item.link || item.thumbnail || item.title || 'board-image'}-${index}`}><a className={styles.boardTile} href={item.link || item.thumbnail || '#'} target="_blank" rel="noreferrer">{item.thumbnail ? <img src={item.thumbnail} alt={item.title || `${label} image ${index + 1}`} loading="lazy" /> : <span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{item.title || `Frame ${index + 1}`}</span></a>{calibratedSupporting&&<small className={styles.calibrationCardBadge}>Calibration-backed support<span>{text(evidence)}</span></small>}</div>;
+    })}</div> : <p className={styles.boardEmpty}>No complete 9-image board survived this audit.</p>}
+    {revealed && board?.promise && <p className={styles.promiseReceipt}>Automated promise recognition: {board.promise.coreCount ?? 0}/9 · hero {board.promise.heroFulfillment === 1 ? 'fulfilled' : 'not recognized'} · single-frame {Math.round(Number(board.promise.singleFrameRatio ?? 0) * 100)}%</p>}
+    {revealed && board?.scoreBreakdown && <div className={styles.scoreBreakdown}>{Object.entries(board.scoreBreakdown).map(([key,value]:[string,any])=><div key={key}><span>{key.replace(/[A-Z]/g,letter=>` ${letter}`).toLowerCase()}</span><strong>{Number(value.contribution ?? 0).toFixed(3)}</strong><small>{Number(value.value ?? 0).toFixed(2)} × {Number(value.weight ?? 0).toFixed(2)}</small></div>)}</div>}
+  </article>;
 }
 
 function collectionGridFromRescueExport(rescue: RescueExport): GridRecord {

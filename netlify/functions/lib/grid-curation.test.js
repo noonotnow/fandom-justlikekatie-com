@@ -1431,6 +1431,11 @@ test("confirmed calibration admits identity-confirmed handsome costume supports 
   assert.ok(output.diagnostics.rawCandidates
     .filter(candidate => candidate.title.includes("handsome"))
     .every(candidate => candidate.calibration.supportingAdmission === true));
+  assert.ok(output.diagnostics.rawCandidates
+    .filter(candidate => candidate.title.includes("handsome"))
+    .every(candidate =>
+      candidate.calibration.supportingAdmissionEvidence?.signals
+        .some(signal => signal.startsWith("source:"))));
 });
 
 test("Professionally Devastated does not mistake query state, costume color, or generic beauty for tragedy", async () => {

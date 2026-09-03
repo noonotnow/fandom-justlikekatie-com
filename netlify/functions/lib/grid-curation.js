@@ -1269,6 +1269,9 @@ function calibrationDiagnostics(profile, board = [], states = []) {
       preferredPosition: candidate.calibration.preferredPosition,
       positive: candidate.calibration.positive,
       negative: candidate.calibration.negative,
+      transferablePositive: candidate.calibration.transferablePositive,
+      supportingAdmission: candidate.calibration.supportingAdmission === true,
+      supportingAdmissionEvidence: candidate.calibration.supportingAdmissionEvidence || null,
     })),
     gateSignals,
     preferredQueries: profile.positiveQueries || [],
@@ -1336,6 +1339,7 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
       transferablePositive: candidate.calibration.transferablePositive || [],
       identityConfirmed: candidate.calibration.identityConfirmed === true,
       supportingAdmission: candidate.calibration.supportingAdmission === true,
+      supportingAdmissionEvidence: candidate.calibration.supportingAdmissionEvidence || null,
     } : null,
   });
   const board = (selection, mode) => selection ? {
@@ -1597,6 +1601,11 @@ function candidateCalibration(candidate, profile) {
   const transferablePositive = positive.filter(signal =>
     /^(query|source|cluster|definition|composition):/.test(signal));
   const identityConfirmed = candidate.editorial?.identityConfirmed === true;
+  const supportingAdmission = identityConfirmed
+    && transferablePositive.length > 0
+    && candidate.editorial?.incompatibleCluster !== true
+    && !candidate.editorial?.hardAntiMatches?.length
+    && !candidate.editorial?.softContradictionMatches?.length;
   return {
     score,
     hero: heroIds.has(candidateId),
@@ -1611,11 +1620,15 @@ function candidateCalibration(candidate, profile) {
     negative: [...new Set(negative)],
     transferablePositive: [...new Set(transferablePositive)],
     identityConfirmed,
-    supportingAdmission: identityConfirmed
-      && transferablePositive.length > 0
-      && candidate.editorial?.incompatibleCluster !== true
-      && !candidate.editorial?.hardAntiMatches?.length
-      && !candidate.editorial?.softContradictionMatches?.length,
+    supportingAdmission,
+    supportingAdmissionEvidence: supportingAdmission ? {
+      signals: [...new Set(transferablePositive)],
+      identityConfirmed,
+      imageSafe: true,
+      compatibleCluster: candidate.editorial?.incompatibleCluster !== true,
+      noHardAntiAnchors: !candidate.editorial?.hardAntiMatches?.length,
+      noSoftContradictions: !candidate.editorial?.softContradictionMatches?.length,
+    } : null,
   };
 }
 

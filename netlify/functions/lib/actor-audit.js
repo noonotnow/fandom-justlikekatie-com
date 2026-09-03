@@ -1232,7 +1232,11 @@ export async function runPreflight(
     candidate,
     searchReceipts.get(candidate.query),
     ranked.findIndex(item => item.query === candidate.query),
+    calibrationProfile?.positiveQueries || [],
   ));
+  const learnedQueries = [...new Set(calibrationProfile?.positiveQueries || [])];
+  const learnedQueriesUsed = learnedQueries.filter(query =>
+    queryRuns.some(item => item.query === query));
   const completedAt = now().toISOString();
   const materialSufficient = curated.displayResults.length >= 9;
   const completeProposalCardCount = Math.max(
@@ -1287,6 +1291,8 @@ export async function runPreflight(
       learnedQueries: calibrationProfile.positiveQueries || [],
       positiveQueries: calibrationProfile.positiveQueries,
       negativeQueries: calibrationProfile.negativeQueries,
+      learnedQueriesUsed,
+      learnedQueryRuns: queryRuns.filter(item => item.learnedRescueQuery),
       baselineTopQueries: baselineTop.map(candidate => candidate.query),
       calibratedTopQueries: calibratedTop.map(candidate => candidate.query),
       comparisonUniverseQueries: [...comparisonQueries],
@@ -1331,7 +1337,7 @@ export async function runPreflight(
   };
 }
 
-function queryRun(candidate, receipt, rankIndex) {
+function queryRun(candidate, receipt, rankIndex, learnedQueries = []) {
   const rawCount = receipt?.response?.rawCount
     || receipt?.response?.baiduAttemptLog?.rawCount
     || receipt?.response?.results?.length
@@ -1345,6 +1351,7 @@ function queryRun(candidate, receipt, rankIndex) {
   if (providerFallback) reasons.push(String(providerFallback).slice(0, 160));
   return {
     query: String(candidate.query || "").slice(0, 500),
+    learnedRescueQuery: learnedQueries.includes(candidate.query),
     provider: candidate.provider || null,
     rawCount,
     cleanCount: candidate.count,
