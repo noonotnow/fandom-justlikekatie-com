@@ -1,0 +1,61 @@
+I made [CONNECT — Platform Reconciliation Playbooks & Vibe Atlas Metrics Plan](https://app.notion.com/p/CONNECT-Platform-Reconciliation-Playbooks-Vibe-Atlas-Metrics-Plan-b6a26c1fbe0e41228467a67153672ced?pvs=21) under the Social Media Manager Dashboard. It includes the shared reconciliation contract, Rednote-specific rules, Vibe Atlas metadata proposal, rate formulas, weekly manifest procedure, completion report, and open schema decisions.
+
+On Replit’s copy: **the strategy is right, but the rewrite sands off the funniest and most distinctive part.**
+
+### What Replit gets right
+
+- Keep **“One star. One vibe. Nine pieces of evidence.”**
+- Use the Pokémon line as the hook, not the entire explanation.
+- Follow it with plain-language product copy.
+- Remove public references to **Studio Operations**.
+- Put Katie/Just Like Katie attribution outside the hero.
+- Don’t repeat “Pokémon” throughout the site or treat it as owned SEO language.
+
+### Where I disagree
+
+> You want to collect them all.
+> 
+
+That is accurate—but generic and slightly committee-approved. It also echoes **“Gotta catch ’em all”** more closely while somehow being less memorable.
+
+> You wanna catch all these.
+> 
+
+That has:
+
+- the thirsty double meaning;
+- your actual voice;
+- more distance from the official slogan;
+- the feeling of someone gesturing toward an alarming display case of attractive men.
+
+I would keep **your line**.
+
+I also don’t love:
+
+> Meet a new C-drama heartthrob archetype every day.
+> 
+
+The daily unit is really an **actor × Vibe Pack assignment**, not necessarily a wholly new archetype. And “build your definitive 3×3 with Vibe Atlas Grid Builder” sounds like product documentation wandered into the punchline.
+
+## My preferred hero
+
+> **One star. One vibe. Nine pieces of evidence.**
+*Like Pokémon, but thirsty. You wanna catch all these.*
+Every day, Vibe Atlas pairs one C-drama star with one very specific kind of heartthrob energy. Browse nine collectible pieces of evidence, save the ones that understand your type, and build your own 3×3.
+> 
+
+Then use a clear CTA:
+
+> **Browse today’s drop**
+**Open the Grid Builder**
+> 
+
+That preserves the elegant thesis, lands the joke, and explains the real behavior without forcing every branded noun into one sentence.
+
+For attribution, I’d use:
+
+> **Fandom Vibes is a creative universe by Katie Hendley, creator of Just Like Katie.**
+Vibe Atlas is its daily C-drama collectible.
+> 
+
+So my verdict is: **Replit diagnosed the hierarchy correctly but over-domesticated the copy.** Keep the structure; restore the gremlin.
