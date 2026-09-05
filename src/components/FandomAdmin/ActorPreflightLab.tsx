@@ -13,7 +13,8 @@ type BoardDiagnostic = { available?: boolean; completeProposalAvailable?: boolea
 
 type RunnerUpDiagnostic = { available?: boolean; minimumCardDifference?: number; qualifiedProposalCount?: number; meaningfulAlternativeCount?: number; rejectedForCardOverlap?: number; rejectedForSameArgument?: number; summary?: string };
 type AuditContract = { status?: 'current'|'legacy'; isCurrent?: boolean; isLegacy?: boolean; legacyReasons?: string[]; currentVersions?: AnyRecord };
-type Run = AnyRecord & { runId?: string; scope?: string; curationVersion?: number; identityProfileVersion?: number; aestheticClusterVersion?: number; promiseContractVersion?: number; queryRuns?: AnyRecord[]; rawResults?: AnyRecord[]; rejections?: AnyRecord[]; identityEvidence?: AnyRecord; detectedEvents?: AnyRecord[]; boardDiagnostics?: { event?: BoardDiagnostic; compiled?: BoardDiagnostic }; runnerUpDiagnostics?: { event?: RunnerUpDiagnostic; compiled?: RunnerUpDiagnostic }; partialClusters?: AnyRecord[]; strongestEvent?: AnyRecord; strongestCompiled?: AnyRecord; winner?: AnyRecord; alternate?: AnyRecord; curationReceipt?: AnyRecord; blindReview?: BlindReview; auditContract?: AuditContract };
+type Run = AnyRecord & { runId?: string; scope?: string; curationVersion?: number; identityProfileVersion?: number; aestheticClusterVersion?: number; promiseContractVersion?: number; queryRuns?: AnyRecord[]; rawResults?: AnyRecord[]; rejections?: AnyRecord[]; identityEvidence?: AnyRecord; detectedEvents?: AnyRecord[]; boardDiagnostics?: { event?: BoardDiagnostic; compiled?: BoardDiagnostic }; runnerUpDiagnostics?: { event?: RunnerUpDiagnostic; compiled?: RunnerUpDiagnostic }; partialClusters?: AnyRecord[]; strongestEvent?: AnyRecord; strongestCompiled?: AnyRecord; winner?: AnyRecord; alternate?: AnyRecord; rescueDraft?: AnyRecord; preflightOutcome?: AnyRecord; missingEvidenceSearchSuggestions?: AnyRecord[]; curationReceipt?: AnyRecord; blindReview?: BlindReview; auditContract?: AuditContract };
+const HARD_BLOCKING_DROP_REASONS = new Set(['content_policy','rights_prohibited','safety_prohibited','confirmed_wrong_identity']);
 
 function confirmsCompleteProposal(diagnostic?: BoardDiagnostic) {
   return Boolean(
@@ -248,10 +249,13 @@ export const ActorPreflightLab: React.FC = () => {
   const disagreementNeedsReasons = Boolean(review?.choice && review.agreement !== true && !review.reasonCodes?.length);
   const savedRescueBoards = (currentRun?.editorialFeedback?.operatorRescueBoards ?? EMPTY_RECORDS) as AnyRecord[];
   const operatorPublication = run?.operatorVerdict?.publicationSource?.type === 'operator_rescue';
-  const singleCuratedBoardAvailable = review?.status === 'unavailable' && [
-    run?.strongestEvent,
-    run?.strongestCompiled,
-  ].filter((board:any)=>Array.isArray(board?.candidates)&&board.candidates.length>=9).length===1;
+  const singleCuratedBoardAvailable = review?.status === 'unavailable' && ([
+    ['event',run?.strongestEvent],
+    ['compiled',run?.strongestCompiled],
+  ] as const).filter(([mode,board])=>
+    run?.boardDiagnostics?.[mode]?.available===true
+    && Array.isArray(board?.candidates)
+    && board.candidates.length>=9).length===1;
   const operatorBoardCandidate = review?.status === 'unavailable' && savedRescueBoards.length > 0;
   const requiresFreshAudit = Boolean(run?.auditContract?.isLegacy) || (selectedIsCurrent && pairing?.auditState === 'calibration_reaudit_required' && !operatorPublication && !operatorBoardCandidate);
   const currentRunIsLegacy = Boolean(currentRun?.auditContract?.isLegacy);
@@ -344,8 +348,8 @@ function RunEvidence({
     <h5>{isLegacy?'Legacy audit · retained history':'Audit evidence'} {run?.runId?`· ${run.runId}`:''}</h5>
     {run ? <>
       {isLegacy&&<section className={styles.legacyAudit} role="status"><div className={styles.legacyAuditHeader}><span className={styles.legacyBadge}>Legacy audit</span><strong>Retained history — invalid under the current profile contract</strong></div><p>This board is preserved as historical evidence only. It cannot establish Daily Drop eligibility. Run a fresh audit to evaluate the current identity, cluster, promise, and curation versions.</p>{run.auditContract?.legacyReasons?.length?<small>Contract changes: {run.auditContract.legacyReasons.map(reason=>reason.replaceAll('_',' ')).join(' · ')}</small>:null}</section>}
-      <p className={styles.muted}>{run.scope} scope · started {date(run.startedAt)} · completed {date(run.completedAt)} · identity v{run.identityProfileVersion ?? '—'} · cluster v{run.aestheticClusterVersion ?? '—'} · promise v{run.promiseContractVersion ?? '—'} · curation v{run.curationVersion ?? run.curationReceipt?.curationVersion ?? run.curationReceipt?.version ?? '—'}</p>
-       {review?.status === 'unavailable' ? <section className={styles.boardUnavailable}><strong>Blind comparison unavailable</strong><p>{[run?.strongestEvent,run?.strongestCompiled].filter((board:any)=>Array.isArray(board?.candidates)&&board.candidates.length>=9).length===1?'This run produced one automatically qualified nine-card board. It can be approved for publication after both human confirmations; a second board is preferred for range, not required.':Object.values(run?.boardDiagnostics??{}).some((diagnostic:any)=>confirmsCompleteProposal(diagnostic))?'This run formed a complete nine-card proposal, but an automated publication gate did not pass. Review any retained proposal below, then replace its hero or reorder retained evidence in the operator board.':'This run did not form a complete nine-card proposal. Use the retained evidence to choose a rejection, query-work verdict, or save an exact nine-card board for publication.'}</p><BoardQualificationSummary run={run} /><PromisingPartialClusters run={run} /><PartialBoards run={run} /><RunnerUpDiagnostics run={run} /></section> : <section className={`${styles.boardReview} ${isLegacy?styles.legacyBoardReview:''}`} aria-label={isLegacy?'Historical visual board comparison':'Visual board comparison'}>
+      <p className={styles.muted}>{run.scope} scope · {String(run.preflightOutcome?.state ?? run.suggestedState ?? 'unclassified').replaceAll('_',' ')} · started {date(run.startedAt)} · completed {date(run.completedAt)} · identity v{run.identityProfileVersion ?? '—'} · cluster v{run.aestheticClusterVersion ?? '—'} · promise v{run.promiseContractVersion ?? '—'} · curation v{run.curationVersion ?? run.curationReceipt?.curationVersion ?? run.curationReceipt?.version ?? '—'}</p>
+       {review?.status === 'unavailable' ? <section className={styles.boardUnavailable}><strong>Blind comparison unavailable</strong><p>{Object.values(run?.boardDiagnostics??{}).filter((diagnostic:any)=>diagnostic?.available===true).length===1?'This run produced one automatically qualified nine-card board. It can be approved for publication after both human confirmations; a second board is preferred for range, not required.':Object.values(run?.boardDiagnostics??{}).some((diagnostic:any)=>confirmsCompleteProposal(diagnostic))?'This run formed a complete nine-card proposal, but an automated publication gate did not pass. Review any retained proposal below, then replace its hero or reorder retained evidence in the operator board.':'This run did not form a complete nine-card proposal. Use the retained evidence to choose a rejection, query-work verdict, or save an exact nine-card board for publication.'}</p><BoardQualificationSummary run={run} /><PromisingPartialClusters run={run} /><PartialBoards run={run} /><RunnerUpDiagnostics run={run} /></section> : <section className={`${styles.boardReview} ${isLegacy?styles.legacyBoardReview:''}`} aria-label={isLegacy?'Historical visual board comparison':'Visual board comparison'}>
         <div className={styles.boardReviewHeader}>
           <div><h6>{revealed ? 'Independent choice recorded' : 'Blind board review'}</h6><p>{revealed ? `You chose ${review?.choice === 'neither' ? 'Neither' : review?.choice}. This result is frozen for this audit run.` : 'Both boards are equal-sized. Their left/right order is fixed for this run.'}</p></div>
           {revealed && <div className={styles.revealBadges}><span className={styles.winnerBadge}>System winner: {review?.systemWinner}</span><span className={review?.agreement ? styles.agreeBadge : styles.disagreeBadge}>{review?.agreement ? 'You agreed' : 'You disagreed'}</span></div>}
@@ -420,8 +424,8 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
   const unavailableIds=useMemo(()=>{
     const unavailable=new Set<string>();
     for(const item of rawResults)if(!item.thumbnail)unavailable.add(item.candidateId);
-    for(const item of run.curationReceipt?.rawCandidates??[])if(item.dropReason==='image_load_failed')unavailable.add(item.candidateId);
-    for(const item of run.rejections??[])if(item.kind==='image'&&item.reason==='image_load_failed')unavailable.add(item.candidateId);
+    for(const item of run.curationReceipt?.rawCandidates??[])if(item.dropReason==='image_load_failed'||HARD_BLOCKING_DROP_REASONS.has(item.dropReason))unavailable.add(item.candidateId);
+    for(const item of run.rejections??[])if(item.kind==='image'&&(item.reason==='image_load_failed'||HARD_BLOCKING_DROP_REASONS.has(item.reason)))unavailable.add(item.candidateId);
     return unavailable;
   },[rawResults,run.curationReceipt?.rawCandidates,run.rejections]);
   const candidatePool=useMemo<AnyRecord[]>(()=>{
@@ -431,13 +435,14 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
       .map(item=>{const analyzed=analyzedById.get(item.candidateId);return {...item,...(analyzed??{}),link:analyzed?.link||item.link,thumbnail:item.thumbnail};});
   },[rawResults,run.curationReceipt?.rawCandidates,excludedIds,unavailableIds]);
   const poolIds=useMemo(()=>new Set(candidatePool.map(item=>item.candidateId)),[candidatePool]);
-  const reviewCandidates=review?.board?.candidates ?? retainedProposal?.candidates;
-  const initialCandidates=useMemo<AnyRecord[]>(()=>(((review || retainedProposal)
+  const reviewCandidates=review?.board?.candidates ?? retainedProposal?.candidates ?? run.rescueDraft?.candidates;
+  const initialCandidates=useMemo<AnyRecord[]>(()=>(((review || retainedProposal || run.rescueDraft)
     ? reviewCandidates
     : [])??[]).filter((item:any)=>poolIds.has(item.candidateId)).slice(0,9) as AnyRecord[],[
     review,
     reviewCandidates,
     retainedProposal,
+    run.rescueDraft,
     poolIds,
   ]);
   const [candidates,setCandidates]=useState<AnyRecord[]>(initialCandidates);
