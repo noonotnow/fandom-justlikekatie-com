@@ -35,7 +35,7 @@ export const WholeCardTierControls: React.FC<WholeCardTierControlsProps> = ({
           aria-pressed={tier === 'misprint'}
           onClick={() => onTierChange(tier === 'misprint' ? null : 'misprint')}
         >
-          🫠 错版 <span>Misprint</span>
+          错版 <span>Misprint</span>
         </button>
         <button
           type="button"
@@ -43,7 +43,7 @@ export const WholeCardTierControls: React.FC<WholeCardTierControlsProps> = ({
           aria-pressed={tier === 'legendary'}
           onClick={() => onTierChange(tier === 'legendary' ? null : 'legendary')}
         >
-          🔥 传说 <span>Legendary</span>
+          传说 <span>Legendary</span>
         </button>
       </div>
     </div>

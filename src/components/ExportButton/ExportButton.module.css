@@ -1,42 +1,32 @@
-.exportButton {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  background: #c9a96e;
-  color: #0e0e12;
-  border: none;
-  padding: 0.75rem 1.5rem;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 200ms ease, transform 100ms ease;
-  line-height: 1.4;
-}
-
 .exportActions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.65rem;
+  display: grid;
+  gap: 0.55rem;
+  width: 100%;
 }
 
+.exportButton,
 .downloadButton {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
+  min-height: 44px;
   gap: 2px;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 200ms ease, transform 100ms ease, background-color 200ms ease;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.downloadButton {
+  order: 2;
   background: transparent;
   color: #c9a96e;
   border: 1px solid rgba(201, 169, 110, 0.5);
-  padding: 0.75rem 1.25rem;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 200ms ease, transform 100ms ease;
-  line-height: 1.4;
+  padding: 0.6rem 1rem;
 }
 
 .downloadButton:hover {
@@ -50,6 +40,14 @@
 .downloadButton:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.exportButton {
+  order: 1;
+  background: #c9a96e;
+  color: #0e0e12;
+  border: none;
+  padding: 0.65rem 1.1rem;
 }
 
 .exportButton:hover {
@@ -66,16 +64,45 @@
 }
 
 .enHelper {
-  font-size: 0.7rem;
-  font-weight: 400;
-  opacity: 0.7;
+  font-size: 0.64rem;
+  font-weight: 500;
+  opacity: 0.76;
+  letter-spacing: 0.03em;
 }
 
 .autoSaveNote {
-  margin: 0.35rem 0 0;
-  font-size: 0.72rem;
-  opacity: 0.65;
-  text-align: center;
+  order: 3;
+  margin: 0.1rem 0 0;
+  padding: 0.4rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(201, 169, 110, 0.34);
+  width: fit-content;
+  max-width: 100%;
+  color: #7f8188;
+  font-size: 0.66rem;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+:global(.dark) .autoSaveNote {
+  color: #b8b9bd;
+  border-color: rgba(224, 193, 113, 0.3);
+}
+
+:global(:not(.dark)) .autoSaveNote {
+  color: #575757;
+  background: rgba(201, 169, 110, 0.08);
+}
+
+@media (min-width: 560px) {
+  .exportActions {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .autoSaveNote {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
