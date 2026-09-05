@@ -35,6 +35,10 @@ export const REQUIRED_PUBLIC_PAGES = [
   "public/c-drama-fandom/glossary/cultivation/index.html",
   "public/c-drama-fandom/glossary/xianxia/index.html",
   "public/c-drama-fandom/glossary/jianghu/index.html",
+  "public/c-drama-fandom/glossary/wuxia/index.html",
+  "public/c-drama-fandom/glossary/wuxia-vs-xianxia-vs-xuanhuan/index.html",
+  "public/c-drama-fandom/archetypes/index.html",
+  "public/c-drama-fandom/archetypes/cold-male-lead-vs-tsundere/index.html",
   "public/c-drama-fandom/trope-decoder/index.html",
   "public/c-drama-fandom/fandom-games/index.html",
 ];
