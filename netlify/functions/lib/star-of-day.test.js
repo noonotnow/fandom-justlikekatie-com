@@ -7,13 +7,15 @@ import starOfDay, {
   hasReleaseReadyCohort,
   readDailyDropHistory,
   readRecentDailyDropHistory,
-  RELEASE_COHORT_ACTOR_ID,
+  selectRotatingReleasePair,
   releaseLock,
   tryAcquireLock,
 } from "../star-of-day.js";
 import {
   auditHeadKey,
   auditCalibrationKey,
+  auditRescueCalibrationKey,
+  auditRescueCalibrationSignalRetirementKey,
   auditRescueBoardKey,
   auditRunKey,
   auditVerdictKey,
@@ -88,7 +90,7 @@ test("the daily build lock admits only one concurrent builder", async () => {
 
   assert.equal(Boolean(first) !== Boolean(second), true);
   await releaseLock(store, "2026-09-02", first || second);
-  assert.equal(await store.get("starOfDay:v10:2026-09-02:lock"), null);
+  assert.equal(await store.get("starOfDay:v11:2026-09-02:lock"), null);
 });
 
 function contextFor(store) {
@@ -540,7 +542,7 @@ test("the builder skips a failed approved pairing and preserves the public 3x3 p
     ...approvedEligibility(packs[1], 0),
   });
   assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore), true);
-  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore, 2, packs[0].id), false);
+  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore, 2), true);
   const attempted = [];
   const displayResults = Array.from({ length: 9 }, (_, index) => ({
     title: `Frame ${index}`,
@@ -588,12 +590,14 @@ test("the builder prefers fresh curation over an approved retained-evidence boar
     calibrationVersion: 1,
     evidenceCount: 1,
     positiveCandidateIds: ["saved-example"],
+    positiveQueries: ["learned query"],
     positiveDefinitions: ["modern building"],
   };
   actorAEntries[eligibilityKey(packs[0].id, 0)].calibrationProfile = calibrationProfile;
   actorBEntries[eligibilityKey(packs[1].id, 0)].calibrationProfile = calibrationProfile;
   const eligibilityStore = makeStore({ ...actorAEntries, ...actorBEntries });
   let searches = 0;
+  let searchedQueries = null;
   let curateOptions = null;
   const freshResults = Array.from({ length: 9 }, (_, index) => ({
     candidateId: `fresh-${index}`,
@@ -603,8 +607,9 @@ test("the builder prefers fresh curation over an approved retained-evidence boar
   }));
   const payload = await buildPayloadForDate("2026-09-01", eligibilityStore, {
     packs,
-    evaluate: async () => {
+    evaluate: async queries => {
       searches += 1;
+      searchedQueries = queries;
       return [{ query: "fresh query", results: freshResults }];
     },
     rank: candidates => candidates,
@@ -625,6 +630,8 @@ test("the builder prefers fresh curation over an approved retained-evidence boar
   assert.equal(payload.curation.mode, "compiled");
   assert.deepEqual(curateOptions.calibrationProfile, calibrationProfile);
   assert.deepEqual(curateOptions.preferredCandidateIds, ["saved-example"]);
+  assert.equal(searchedQueries[0], "learned query");
+  assert.ok(searchedQueries.includes("unused-a") || searchedQueries.includes("unused-b"));
 });
 
 test("a repeated pairing refreshes search and rearranges the same nine when refresh cannot improve them", async () => {
@@ -837,6 +844,90 @@ test("the builder uses an unused rescue calibration board only after fresh searc
   );
 });
 
+test("the Daily Drop skips an approved pairing after one of its rescue signals is retired", async () => {
+  const packs = [
+    {
+      id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
+      vibes: [{ label: "A0", label_en: "A0", queries: ["base query a"] }],
+    },
+    {
+      id: "actor-b", name: "Actor B", shortName_en: "B", accentColor: "#222",
+      vibes: [{ label: "B0", label_en: "B0", queries: ["base query b"] }],
+    },
+  ];
+  const retiredSignal = "retired rescue query";
+  const receiptId = "actor-a-0-rescue";
+  const actorAEntries = approvedEligibility(packs[0], 0);
+  actorAEntries[eligibilityKey(packs[0].id, 0)].calibrationProfile = {
+    calibrationVersion: 1,
+    evidenceCount: 1,
+    positiveQueries: [retiredSignal],
+    positiveSources: ["retired-source.test"],
+    positiveClusters: ["retired-cluster"],
+    positiveCompositions: ["retired composition"],
+  };
+  actorAEntries[auditRescueCalibrationKey(packs[0].id, 0, receiptId)] = {
+    status: "confirmed",
+    calibrationVersion: 1,
+    sourceRescueReceiptId: receiptId,
+    actor: { id: packs[0].id },
+    vibePack: { key: `${packs[0].id}:0` },
+  };
+  actorAEntries[auditRescueCalibrationSignalRetirementKey(
+    packs[0].id,
+    0,
+    receiptId,
+    "query",
+    retiredSignal,
+  )] = {
+    status: "retired",
+    retirementId: "retirement-1",
+    sourceRescueReceiptId: receiptId,
+    actorId: packs[0].id,
+    vibeKey: `${packs[0].id}:0`,
+    signalFamily: "query",
+    signalValue: retiredSignal,
+    retiredAt: "2026-09-01T10:00:00.000Z",
+  };
+  const eligibilityStore = makeStore({
+    ...actorAEntries,
+    ...approvedEligibility(packs[1], 0),
+  });
+  const searchedQueries = [];
+  const curatedProfiles = [];
+  const displayResults = Array.from({ length: 9 }, (_, index) => ({
+    candidateId: `unrelated-${index}`,
+    title: `Unrelated frame ${index}`,
+    thumbnail: `https://images.test/unrelated-${index}.jpg`,
+    source: "unrelated-source.test",
+  }));
+
+  const payload = await buildPayloadForDate("2026-09-01", eligibilityStore, {
+    packs,
+    evaluate: async queries => {
+      searchedQueries.push(...queries);
+      return [{ query: queries[0], results: displayResults }];
+    },
+    rank: candidates => candidates,
+    curate: async (_ranked, options) => {
+      curatedProfiles.push(options.calibrationProfile);
+      return {
+        displayResults,
+        curation: { mode: "compiled", version: 1, rationale: "Unrelated approved evidence.", signals: [] },
+      };
+    },
+    generatedAt: () => "2026-09-01T12:00:00.000Z",
+  });
+
+  assert.equal(payload.actorId, packs[1].id);
+  assert.deepEqual(searchedQueries, ["base query b"]);
+  assert.equal(curatedProfiles.length, 1);
+  assert.equal(
+    JSON.stringify(curatedProfiles[0] || {}).includes(retiredSignal),
+    false,
+  );
+});
+
 test("a rescue board already published as Star of the Day is not reused as backup", async () => {
   const actor = {
     id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
@@ -941,9 +1032,9 @@ test("Star of the Day accepts one plain operator approval", async () => {
   assert.equal(searches, 1);
 });
 
-test("the production release cohort is specifically Liu Xueyi", async () => {
+test("release rotation uses all approved actors and avoids yesterday's actor when possible", async () => {
   const packs = [
-    { id: RELEASE_COHORT_ACTOR_ID, name: "Liu Xueyi", vibes: [{ label: "A0", queries: ["a"] }, { label: "A1", queries: ["a1"] }] },
+    { id: "liu-xueyi", name: "Liu Xueyi", vibes: [{ label: "A0", queries: ["a"] }, { label: "A1", queries: ["a1"] }] },
     { id: "actor-b", name: "Actor B", vibes: [{ label: "B0", queries: ["b"] }] },
   ];
   const eligibilityStore = makeStore({
@@ -951,27 +1042,26 @@ test("the production release cohort is specifically Liu Xueyi", async () => {
     ...approvedEligibility(packs[1], 0),
   });
 
-  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore, 2, RELEASE_COHORT_ACTOR_ID), false);
-  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore, 1, RELEASE_COHORT_ACTOR_ID), true);
+  assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore, 2), true);
   assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore), true);
   assert.equal(await cachedPairIsEligible(
     { actorId: packs[1].id, vibeIdx: 0 },
     eligibilityStore,
     packs,
-    RELEASE_COHORT_ACTOR_ID,
-  ), false);
-
-  let searches = 0;
-  const payload = await buildPayloadForDate("2026-08-31", eligibilityStore, {
+  ), true);
+  const selected = await selectRotatingReleasePair(
     packs,
-    releaseActorId: RELEASE_COHORT_ACTOR_ID,
-    evaluate: async () => {
-      searches += 1;
-      return [];
-    },
-  });
-  assert.equal(payload, null);
-  assert.equal(searches, 1);
+    "2026-09-04",
+    eligibilityStore,
+    new Set(),
+    [{
+      publicationDate: "2026-09-03",
+      actor: { id: "liu-xueyi" },
+      vibe: { idx: 0 },
+    }],
+  );
+  assert.equal(packs[selected.aIdx].id, "actor-b");
+  assert.equal(selected.vIdx, 0);
 });
 
 test("cached and fallback payloads stop qualifying when approval is revoked or inputs change", async () => {

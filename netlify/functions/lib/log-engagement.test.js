@@ -8,7 +8,7 @@
  * Covers:
  *  - Module load (no syntax errors, import resolution)
  *  - Happy-path: grid_export, grid-export, single-card — 200 + persisted entry
- *  - Append behaviour: second write appends rather than replacing
+ *  - Immutable behaviour: concurrent writes remain distinct
  *  - Validation short-circuits: bad event, missing batchKey, invalid grid
  *  - Contract: the exact payload shape from gridExportEventFromRecord passes
  */
@@ -55,6 +55,9 @@ function makeStoreContext() {
       return [...db.entries()]
         .filter(([key]) => key.startsWith(prefix))
         .map(([, raw]) => JSON.parse(raw));
+    },
+    _keys(prefix) {
+      return [...db.keys()].filter(key => key.startsWith(prefix));
     },
   };
 
@@ -104,14 +107,14 @@ test("grid_export: valid payload returns 200 and stores the grid artifact", asyn
   assert.equal(body.ok, true);
 
   // Verify the entry was persisted with the grid artifact.
-  const stored = store._read(`${grid.gridId}:grid_export`);
-  assert.ok(Array.isArray(stored), "stored value must be an array");
-  assert.equal(stored.length, 1);
-  assert.deepEqual(stored[0].grid, grid);
-  assert.ok(stored[0].timestamp, "entry must have a timestamp");
+  const [stored] = store._values(`${grid.gridId}:grid_export:`);
+  assert.deepEqual(stored.grid, grid);
+  assert.equal(stored.event, "grid_export");
+  assert.equal(stored.batchKey, grid.gridId);
+  assert.ok(stored.timestamp, "entry must have a timestamp");
 });
 
-test("grid_export: second write appends rather than replacing", async () => {
+test("grid_export: concurrent writes persist as distinct immutable records", async () => {
   const { store, context } = makeStoreContext();
 
   const grid = {
@@ -128,13 +131,14 @@ test("grid_export: second write appends rather than replacing", async () => {
     imageIds: ["https://images.example/0.jpg"],
   };
 
-  await handler(req({ event: "grid_export", batchKey: grid.gridId, grid }), context);
-  await handler(req({ event: "grid_export", batchKey: grid.gridId, grid: { ...grid, variant: "teaser" } }), context);
+  await Promise.all([
+    handler(req({ event: "grid_export", batchKey: grid.gridId, grid }), context),
+    handler(req({ event: "grid_export", batchKey: grid.gridId, grid: { ...grid, variant: "teaser" } }), context),
+  ]);
 
-  const stored = store._read(`${grid.gridId}:grid_export`);
-  assert.equal(stored.length, 2, "second export must be appended, not overwritten");
-  assert.equal(stored[0].grid.variant, "full");
-  assert.equal(stored[1].grid.variant, "teaser");
+  const stored = store._values(`${grid.gridId}:grid_export:`);
+  assert.equal(stored.length, 2, "both exports must remain available");
+  assert.deepEqual(stored.map(entry => entry.grid.variant).sort(), ["full", "teaser"]);
 });
 
 // ---------------------------------------------------------------------------
@@ -163,13 +167,11 @@ test("grid-export (legacy): valid payload returns 200 and stores metadata", asyn
   const body = await res.json();
   assert.equal(body.ok, true);
 
-  const stored = store._read("2026-08-01:Liu Xueyi:grid-export");
-  assert.ok(Array.isArray(stored));
-  assert.equal(stored.length, 1);
-  assert.equal(stored[0].actor, "刘学义");
-  assert.equal(stored[0].vibe, "破碎感美人");
-  assert.equal(stored[0].editionTier, "standard");
-  assert.equal(stored[0].resultPositions.length, 2);
+  const [stored] = store._values("2026-08-01:Liu Xueyi:grid-export:");
+  assert.equal(stored.actor, "刘学义");
+  assert.equal(stored.vibe, "破碎感美人");
+  assert.equal(stored.editionTier, "standard");
+  assert.equal(stored.resultPositions.length, 2);
 });
 
 // ---------------------------------------------------------------------------
@@ -185,9 +187,30 @@ test("save event: valid payload returns 200 and stores imageUrl", async () => {
   );
 
   assert.equal(res.status, 200);
-  const stored = store._read("batch-1:save");
-  assert.ok(Array.isArray(stored));
-  assert.equal(stored[0].imageUrl, "https://images.example/card.png");
+  const [stored] = store._values("batch-1:save:");
+  assert.equal(stored.imageUrl, "https://images.example/card.png");
+});
+
+test("collection_save and plan_add preserve bounded attribution fields", async () => {
+  const { store, context } = makeStoreContext();
+  const payload = {
+    actor: "Liu Xueyi",
+    vibe: "Shattered Beauty",
+    imageUrl: "https://images.example/card.png",
+    batchKey: "batch-1",
+    capturedDate: "2026-09-05",
+  };
+
+  await handler(req({ event: "collection_save", ...payload }), context);
+  await handler(req({ event: "plan_add", ...payload }), context);
+
+  for (const event of ["collection_save", "plan_add"]) {
+    const [stored] = store._values(`batch-1:${event}:`);
+    assert.equal(stored.actor, payload.actor);
+    assert.equal(stored.vibe, payload.vibe);
+    assert.equal(stored.capturedDate, payload.capturedDate);
+    assert.equal(stored.imageUrl, payload.imageUrl);
+  }
 });
 
 test("Daily Drop events persist only their bounded measurement fields", async () => {
@@ -288,7 +311,7 @@ test("public fandom game event stores only its bounded content fields", async ()
   );
 
   assert.equal(res.status, 200);
-  const [stored] = store._read("c-drama-fandom-lg01:fandom_game_share");
+  const [stored] = store._values("c-drama-fandom-lg01:fandom_game_share:");
   assert.equal(stored.contentId, "lg01-v1");
   assert.equal(stored.outcomeId, "bamboo-recluse");
   assert.equal(stored.source, "direct");

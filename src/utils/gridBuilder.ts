@@ -31,6 +31,8 @@ export interface BuilderCard {
   capturedDate: string;
   savedAt?: string;
   resultId: string;
+  /** Stable content checksum when the image has been registered in MEDIA. */
+  mediaChecksum?: string;
   origin: 'saved-card' | 'saved-grid';
   sourceGridId?: string;
   /** Visual family id assigned during pool build (editorial set or batch). */
@@ -107,6 +109,7 @@ function fromSavedCard(card: CardRecord): BuilderCard {
     capturedDate: card.capturedDate,
     ...(card.savedAt ? { savedAt: card.savedAt } : {}),
     resultId: card.resultId || card.imageUrl,
+    ...(card.media?.checksum ? { mediaChecksum: card.media.checksum } : {}),
     origin: 'saved-card',
     familyId: '',
     familyLabel: '',
@@ -162,6 +165,7 @@ function fromGridImage(grid: GridRecord, image: GridMediaSnapshot): BuilderCard 
     capturedDate: grid.capturedDate,
     savedAt: grid.savedAt,
     resultId: image.resultId,
+    ...(image.media?.checksum ? { mediaChecksum: image.media.checksum } : {}),
     origin: 'saved-grid',
     sourceGridId: grid.id,
     familyId: image.familyId || '',
@@ -216,28 +220,39 @@ function reconcileIdentity(card: BuilderCard): BuilderCard {
  * editorialDetection sets where possible, batch/spell key otherwise.
  */
 export function buildPool(cards: CardRecord[], grids: GridRecord[]): BuilderCard[] {
-  const byKey = new Map<string, BuilderCard>();
+  const unique: BuilderCard[] = [];
+  const identityToIndex = new Map<string, number>();
   const admit = (built: BuilderCard) => {
-    const existing = byKey.get(built.key);
-    if (!existing) { byKey.set(built.key, built); return; }
+    const identities = visualIdentityKeys(built);
+    const existingIndex = identities
+      .map(identity => identityToIndex.get(identity))
+      .find((index): index is number => index !== undefined);
+    if (existingIndex === undefined) {
+      const index = unique.length;
+      unique.push(built);
+      identities.forEach(identity => identityToIndex.set(identity, index));
+      return;
+    }
+    const existing = unique[existingIndex];
     // Same image, two records: if the discarded duplicate carries spell
     // identity evidence and the kept one doesn't, adopt its identity so
     // dedupe order can never launder a drifted actor label.
     if (!actorEvidenceFromSpell(existing.batchKey) && actorEvidenceFromSpell(built.batchKey)) {
-      byKey.set(built.key, {
+      unique[existingIndex] = {
         ...existing,
         actor: built.actor,
         actorEn: built.actorEn,
         actorId: built.actorId,
         ...(built.batchKey ? { batchKey: built.batchKey } : {}),
-      });
+      };
     }
+    identities.forEach(identity => identityToIndex.set(identity, existingIndex));
   };
   for (const card of cards) admit(reconcileIdentity(fromSavedCard(card)));
   for (const grid of grids) {
     for (const image of grid.images) admit(reconcileIdentity(fromGridImage(grid, image)));
   }
-  const pool = [...byKey.values()];
+  const pool = unique;
 
   // Editorial detection over items that carry publisher/title signal.
   const detectable: GridItemData[] = pool.map(card => ({
@@ -271,6 +286,35 @@ export function buildPool(cards: CardRecord[], grids: GridRecord[]): BuilderCard
       familyLabel: card.batchKey || card.vibeEn || card.vibe,
       familyEvidence: card.batchKey ? 'batch' : 'fallback',
     };
+  });
+}
+
+function canonicalImageUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.search = '';
+    url.hash = '';
+    return `${url.hostname.toLowerCase()}${url.pathname}`;
+  } catch {
+    return value.split(/[?#]/, 1)[0];
+  }
+}
+
+export function visualIdentityKeys(card: BuilderCard): string[] {
+  return [...new Set([
+    card.mediaChecksum ? `checksum:${card.mediaChecksum.toLowerCase()}` : '',
+    card.resultId ? `result:${card.resultId}` : '',
+    card.imageUrl ? `image:${canonicalImageUrl(card.imageUrl)}` : '',
+  ].filter(Boolean))];
+}
+
+export function uniqueVisualCards(cards: BuilderCard[]): BuilderCard[] {
+  const seen = new Set<string>();
+  return cards.filter(card => {
+    const identities = visualIdentityKeys(card);
+    if (identities.some(identity => seen.has(identity))) return false;
+    identities.forEach(identity => seen.add(identity));
+    return true;
   });
 }
 
@@ -351,7 +395,7 @@ function rankPool(pool: BuilderCard[]): BuilderCard[] {
 }
 
 function proposeEventGrid(pool: BuilderCard[], lens: CollectionLens): GridProposal {
-  const ranked = rankPool(applyLens(pool, lens));
+  const ranked = rankPool(uniqueVisualCards(applyLens(pool, lens)));
   const families = new Map<string, BuilderCard[]>();
   for (const card of ranked) {
     if (card.familyEvidence !== 'batch' && card.familyEvidence !== 'persisted-event') continue;
@@ -379,7 +423,7 @@ function proposeEventGrid(pool: BuilderCard[], lens: CollectionLens): GridPropos
 }
 
 function proposeCompiledGrid(pool: BuilderCard[], lens: CollectionLens): GridProposal {
-  const ranked = rankPool(applyLens(pool, lens));
+  const ranked = rankPool(uniqueVisualCards(applyLens(pool, lens)));
   const slots: BuilderCard[] = [];
   const rest: BuilderCard[] = [];
   const familyCounts = new Map<string, number>();

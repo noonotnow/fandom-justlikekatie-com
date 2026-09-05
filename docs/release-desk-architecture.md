@@ -1,7 +1,9 @@
 # Release Desk Architecture Proposal
 
-**Status:** Proposal — no implementation changes are authorized by this
-document.
+**Status:** Approved through Phase 2. Inventory and receipt-backed Production
+readiness are implemented; Schedule remains independently owned by PLAN.
+Audience Evidence now provides an operator-only telemetry inventory and
+read-only dataset export without claiming unique-user conversion.
 
 ## Decision summary
 
@@ -29,6 +31,7 @@ Fandom Vibes
     │   ├── Schedule
     │   ├── Published
     │   └── Held / retired
+    ├── Audience Evidence
     ├── Actor Preflight
     ├── Field Journal
     └── Court Rulings
@@ -85,6 +88,15 @@ Release Desk answers the operational question:
 
 It does not re-run curation or reinterpret the evidence that made a board
 eligible.
+
+The Audience Evidence view answers a separate operational question:
+
+> What did visitors actually do, and how trustworthy is the instrumentation?
+
+It reports event totals and storage/data-quality gaps, exposes an authenticated
+read-only export, and labels the measurements as event ratios rather than
+unique-user conversion. It does not add visitor fingerprinting or anonymous
+session identifiers.
 
 ## 3. What moves out of Actor Preflight
 
@@ -312,9 +324,14 @@ If either service is unavailable:
 
 ### Phase 2 — production readiness
 
-- Define the production candidate record and receipt transitions.
-- Add Production readiness without changing the immutable audit history.
-- Make asset, enhancement, render, copy, and rights blockers visible.
+- Implemented: production candidates are derived from current verified approval
+  receipts and exact frozen boards.
+- Implemented: production transitions append run-scoped receipts without
+  rewriting Actor Preflight history.
+- Implemented: asset, enhancement, render, copy, provenance/rights, and
+  schedule-eligibility blockers are explicit.
+- PLAN remains independently accessible and is still the scheduling source of
+  truth.
 
 ### Phase 3 — schedule consolidation
 

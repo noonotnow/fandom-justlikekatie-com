@@ -170,6 +170,7 @@ browser record cannot be reconstructed; all newly exported grids are recorded.
 `netlify/functions/` also includes image-search/ranking helpers
 (`preview-search.js`, `baidu-image-search.js`, `actor-packs.js`,
 `star-of-day.js`, `rebuild-cache.js`, `log-engagement.js`,
+`engagement-export.js`,
 `batch-metrics.js`, `image-proxy.js`). See `docs/release-notes.md` for their
 change history and `QA_ISSUES.md` for known/tracked issues.
 

@@ -6,6 +6,7 @@ import { getShanghaiDateString, shanghaiYesterday } from "./lib/date-seed.js";
 import { candidateIdForResult, curateDisplayResults } from "./lib/grid-curation.js";
 import {
   AESTHETIC_CLUSTER_VERSION,
+  searchQueriesFor,
   IDENTITY_PROFILE_VERSION,
   VIBE_PROMISE_CONTRACT_VERSION,
   vibePromiseFor,
@@ -40,16 +41,15 @@ import {
 // cache key and reads whatever the winner produced. This stops simultaneous
 // requests right after midnight from each independently re-running the
 // whole search+rank ladder.
-export const STAR_OF_DAY_VERSION = "v10";
+export const STAR_OF_DAY_VERSION = "v11";
 const VERSION = STAR_OF_DAY_VERSION;
 export const RECENT_DAILY_DROP_WINDOW_DAYS = 30;
-// Legacy entries remain readable as historical editions; today's key is v10 so
+// Legacy entries remain readable as historical editions; today's key is v11 so
 // no pre-audit cache can satisfy the current day's scheduler.
-const LEGACY_READ_VERSIONS = ["v9", "v8", "v7", "v6", "v5"];
+const LEGACY_READ_VERSIONS = ["v10", "v9", "v8", "v7", "v6", "v5"];
 // One excellent, human-approved board is enough to release. A second approved
 // pairing remains useful inventory and range, but it is not a publication gate.
 export const MIN_RELEASE_READY_PAIRS = 1;
-export const RELEASE_COHORT_ACTOR_ID = "liu-xueyi";
 const STORE_NAME = "star-of-day";
 const LOCK_TTL_MS = 25000; // a stale/abandoned lock is ignored after this long
 const POLL_INTERVAL_MS = 700;
@@ -94,22 +94,24 @@ export async function buildPayloadForDate(
     rank = rankCandidates,
     curate = curateDisplayResults,
     generatedAt = () => new Date().toISOString(),
-    releaseActorId = null,
     publicationStore = null,
     materializePublication = null,
     mediaEnv = process.env,
     fetchImpl = fetch,
   } = {},
 ) {
-  if (!await hasReleaseReadyCohort(packs, eligibilityStore, MIN_RELEASE_READY_PAIRS, releaseActorId)) return null;
+  if (!await hasReleaseReadyCohort(packs, eligibilityStore, MIN_RELEASE_READY_PAIRS)) return null;
+  const recentHistory = publicationStore
+    ? await readRecentDailyDropHistory(publicationStore, dateString)
+    : [];
   const excluded = new Set();
   while (true) {
-    const seed = await selectEligiblePair(
+    const seed = await selectRotatingReleasePair(
       packs,
       dateString,
       eligibilityStore,
       excluded,
-      releaseActorId,
+      recentHistory,
     );
     if (!seed) return null;
     const actor = packs[seed.aIdx];
@@ -135,7 +137,8 @@ export async function buildPayloadForDate(
       fetchImpl,
       generatedAt,
     });
-    const candidates = await evaluate(vibe.queries, search);
+    const searchQueries = searchQueriesFor(actor, seed.vIdx, approval.calibrationProfile);
+    const candidates = await evaluate(searchQueries, search);
     let ranked = rank(candidates).slice(0, RANKED_BATCH_LIMIT);
 
     if (!ranked.length) {
@@ -159,7 +162,7 @@ export async function buildPayloadForDate(
       const initialOverlap = greatestBoardOverlap(displayResults, pairHistory);
       if (initialOverlap >= 7) {
         const refreshedCandidates = await evaluate(
-          vibe.queries,
+          searchQueries,
           query => search(query, { cacheMode: "refresh" }),
         );
         const refreshedRanked = rank(refreshedCandidates).slice(0, RANKED_BATCH_LIMIT);
@@ -432,6 +435,50 @@ export async function readRecentDailyDropHistory(
       String(right.publicationDate || "").localeCompare(String(left.publicationDate || "")));
 }
 
+export async function selectRotatingReleasePair(
+  packs,
+  dateString,
+  eligibilityStore,
+  excluded = new Set(),
+  recentHistory = [],
+) {
+  const recentPairKeys = new Set(recentHistory
+    .filter(manifest => manifest?.publicationDate < dateString)
+    .map(manifest => {
+      const actorId = manifest?.actor?.id;
+      const vibeIdx = manifest?.vibe?.idx;
+      return typeof actorId === "string" && Number.isInteger(vibeIdx)
+        ? `${actorId}:${vibeIdx}`
+        : null;
+    })
+    .filter(Boolean));
+  const yesterday = calendarDateOffset(dateString, -1);
+  const yesterdayActors = new Set(recentHistory
+    .filter(manifest => manifest?.publicationDate === yesterday)
+    .map(manifest => manifest?.actor?.id)
+    .filter(actorId => typeof actorId === "string"));
+  const yesterdayActorPairs = new Set(packs.flatMap(actor =>
+    yesterdayActors.has(actor.id)
+      ? (actor.vibes || []).map((_, vibeIdx) => `${actor.id}:${vibeIdx}`)
+      : []));
+  const strategies = [
+    new Set([...recentPairKeys, ...yesterdayActorPairs]),
+    recentPairKeys,
+    yesterdayActorPairs,
+    new Set(),
+  ];
+  for (const rotationExclusions of strategies) {
+    const candidate = await selectEligiblePair(
+      packs,
+      dateString,
+      eligibilityStore,
+      new Set([...excluded, ...rotationExclusions]),
+    );
+    if (candidate) return candidate;
+  }
+  return null;
+}
+
 export async function readDailyDropHistory(store, throughDate) {
   const listing = await store.list({ prefix: GRID_MANIFEST_PREFIX });
   const manifests = await Promise.all((listing?.blobs || [])
@@ -633,7 +680,6 @@ export default async (req, context) => {
       cached,
       eligibilityStore,
       actorPacks,
-      RELEASE_COHORT_ACTOR_ID,
     )) {
       return jsonResponse(200, cached);
     }
@@ -644,7 +690,6 @@ export default async (req, context) => {
     if (lock) {
       try {
         const payload = await buildPayloadForDate(todayStr, eligibilityStore, {
-          releaseActorId: RELEASE_COHORT_ACTOR_ID,
           publicationStore: store,
           materializePublication: materializePublicationManifest,
           mediaEnv: process.env,
@@ -665,7 +710,6 @@ export default async (req, context) => {
             raceWinner,
             eligibilityStore,
             actorPacks,
-            RELEASE_COHORT_ACTOR_ID,
           )) {
             return jsonResponse(200, raceWinner);
           }
@@ -675,14 +719,12 @@ export default async (req, context) => {
             payload,
             eligibilityStore,
             actorPacks,
-            RELEASE_COHORT_ACTOR_ID,
           )) {
             await store.setJSON(todayKey, payload);
             if (await cachedPairIsEligible(
               payload,
               eligibilityStore,
               actorPacks,
-              RELEASE_COHORT_ACTOR_ID,
             )) {
               return jsonResponse(200, payload);
             }
@@ -800,7 +842,6 @@ async function pollForCache(store, eligibilityStore, todayKey, todayStr) {
       cached,
       eligibilityStore,
       actorPacks,
-      RELEASE_COHORT_ACTOR_ID,
     )) return cached;
   }
   return null;
@@ -814,7 +855,6 @@ async function tryYesterdayFallback(store, eligibilityStore, todayStr) {
       yesterdayCached,
       eligibilityStore,
       actorPacks,
-      RELEASE_COHORT_ACTOR_ID,
     )) {
       return { ...yesterdayCached, stale: true, staleReason: "yesterday_fallback", date: todayStr, originalDate: yesterdayCached.date };
     }
@@ -828,10 +868,8 @@ export async function cachedPairIsEligible(
   payload,
   eligibilityStore,
   packs = actorPacks,
-  releaseActorId = null,
 ) {
   if (!Number.isInteger(payload?.vibeIdx) || typeof payload?.actorId !== "string") return false;
-  if (releaseActorId && payload.actorId !== releaseActorId) return false;
   if (!await hasReleaseReadyCohort(packs, eligibilityStore)) return false;
   const actor = packs.find(item => item.id === payload.actorId);
   return Boolean(actor?.vibes?.[payload.vibeIdx])
@@ -840,7 +878,6 @@ export async function cachedPairIsEligible(
       packs,
       eligibilityStore,
       MIN_RELEASE_READY_PAIRS,
-      releaseActorId,
     );
 }
 
@@ -852,13 +889,9 @@ export async function hasReleaseReadyCohort(
   packs,
   eligibilityStore,
   minimum = MIN_RELEASE_READY_PAIRS,
-  releaseActorId = null,
 ) {
   let approved = 0;
-  const cohort = releaseActorId
-    ? packs.filter(actor => actor.id === releaseActorId)
-    : packs;
-  for (const actor of cohort) {
+  for (const actor of packs) {
     for (let vibeIdx = 0; vibeIdx < (actor.vibes || []).length; vibeIdx += 1) {
       if (!await pairIsReleaseReady(actor, vibeIdx, eligibilityStore)) continue;
       approved += 1;

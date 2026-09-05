@@ -94,6 +94,33 @@ test('Compiled mode keeps the ordinary nine-frame path and builds range across f
   assert.match(proposal.rationale.whyTogether, /balances/i);
 });
 
+test('automatic proposals never seat one MEDIA image twice through duplicate records', () => {
+  const original = card(0, 'family-a');
+  const duplicate = {
+    ...card(99, 'family-b'),
+    key: 'https://media.example/a-second-record.jpg',
+    imageUrl: 'https://media.example/a-second-record.jpg',
+    resultId: 'a-second-result-id',
+    mediaChecksum: 'a'.repeat(64),
+  };
+  const firstRecord = {
+    ...original,
+    mediaChecksum: 'a'.repeat(64),
+  };
+  const proposal = proposeGrid(
+    [firstRecord, duplicate, ...Array.from({ length: 12 }, (_, index) => card(index + 10, `family-${index % 4}`))],
+    { actor: '刘学义' },
+    'compiled',
+  );
+
+  assert.equal(proposal.slots.length, 9);
+  assert.equal(
+    [...proposal.slots, ...proposal.alternates]
+      .filter(item => item.mediaChecksum === 'a'.repeat(64)).length,
+    1,
+  );
+});
+
 test('a 12-frame Event record preserves mode, family provenance, export order, and handoff context', async () => {
   const proposal = proposeGrid(
     Array.from({ length: 12 }, (_, index) => card(index, 'event-family', 'Magazine cover night')),

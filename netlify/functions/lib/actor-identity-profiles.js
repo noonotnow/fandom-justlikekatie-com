@@ -3,6 +3,31 @@
 export const IDENTITY_PROFILE_VERSION = 2;
 export const AESTHETIC_CLUSTER_VERSION = 6;
 export const VIBE_PROMISE_CONTRACT_VERSION = 8;
+// Learned rescue queries are additive search hints. They never become part of
+// the actor/vibe pairing fingerprint, so an existing approved receipt remains
+// valid while a later fresh search can use the new evidence.
+export const CALIBRATION_QUERY_COMPATIBILITY_VERSION = 1;
+
+export function searchQueriesFor(
+  actor,
+  vibeIdx,
+  calibrationProfile = null,
+  { baseLimit = null } = {},
+) {
+  const baseQueries = (actor?.vibes?.[vibeIdx]?.queries || [])
+    .slice(0, Number.isInteger(baseLimit) ? baseLimit : undefined);
+  const learnedQueries = calibrationProfile?.positiveQueries || [];
+  const seen = new Set();
+  const queries = [];
+  for (const query of [...learnedQueries, ...baseQueries]) {
+    const value = String(query || "").trim().slice(0, 500);
+    const key = value.toLocaleLowerCase();
+    if (!value || seen.has(key)) continue;
+    seen.add(key);
+    queries.push(value);
+  }
+  return queries;
+}
 
 const LIU_YUNING_CLUSTERS = [
   {

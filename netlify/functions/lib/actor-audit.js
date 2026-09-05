@@ -3,8 +3,10 @@ import { json } from "./public-auth.js";
 import {
   AESTHETIC_CLUSTER_VERSION,
   ACTOR_IDENTITY_PROFILES,
+  CALIBRATION_QUERY_COMPATIBILITY_VERSION,
   IDENTITY_PROFILE_VERSION,
   VIBE_PROMISE_CONTRACT_VERSION,
+  searchQueriesFor,
   vibePromiseFor,
 } from "./actor-identity-profiles.js";
 import {
@@ -28,6 +30,10 @@ import {
   auditRescueCalibrationPrefix,
   auditRescueCalibrationRetirementKey,
   auditRescueCalibrationRetirementPrefix,
+  auditRescueCalibrationSignalRetirementKey,
+  auditRescueCalibrationSignalRetirementPrefix,
+  auditRescueCalibrationOutcomeKey,
+  auditRescueCalibrationOutcomePrefix,
   auditVerdictKey,
   auditVerdictPrefix,
   auditVibeKey,
@@ -36,6 +42,9 @@ import {
   pairingFingerprintFor,
   rescueCalibrationRetirementHash,
   getEligibility,
+  isApproved,
+  productionReceiptKey,
+  productionStateKey,
 } from "./actor-eligibility.js";
 import {
   evaluateCandidates,
@@ -55,6 +64,7 @@ import {
 } from "../star-of-day.js";
 import { getShanghaiDateString } from "./date-seed.js";
 import { readLatestPublicationDatesByActor } from "./publication-manifest.js";
+import { approvedBoardAuthorityKey } from "./approved-board-provenance.js";
 
 const MAX_BODY_BYTES = 48 * 1024;
 const MAX_NOTE_LENGTH = 2000;
@@ -69,6 +79,44 @@ const MAX_FEEDBACK_NOTE_LENGTH = 400;
 const RESCUE_CALIBRATION_VERSION = 1;
 const MIN_REUSABLE_SIGNAL_DELTA = 0.15;
 const MIN_REUSABLE_SIGNAL_SUPPORT = 2;
+const CALIBRATION_SIGNAL_FAMILIES = new Map([
+  ["query", "queries"],
+  ["queries", "queries"],
+  ["source", "sources"],
+  ["sources", "sources"],
+  ["cluster", "clusters"],
+  ["clusters", "clusters"],
+  ["composition", "composition"],
+  ["compositions", "composition"],
+]);
+const CALIBRATION_SIGNAL_LABELS = {
+  queries: "query",
+  sources: "source",
+  clusters: "cluster",
+  composition: "composition",
+};
+const PRODUCTION_STAGES = new Set([
+  "asset",
+  "enhancement",
+  "render",
+  "copy",
+  "provenanceRights",
+]);
+const PRODUCTION_STATUSES = new Set(["pending", "blocked", "complete"]);
+const PRODUCTION_STAGE_LABELS = {
+  asset: "Asset",
+  enhancement: "Enhancement",
+  render: "Render",
+  copy: "Copy",
+  provenanceRights: "Provenance / rights",
+};
+const DEFAULT_PRODUCTION_REASONS = {
+  asset: "Secure nine immutable production assets in MEDIA.",
+  enhancement: "Record the enhancement scrub receipt for all nine cards.",
+  render: "Verify the final nine-card render and its delivery receipt.",
+  copy: "Complete the approved edition copy and metadata.",
+  provenanceRights: "Review source provenance and confirm rights for publication.",
+};
 const FEEDBACK_INTENTS = new Set(["pin", "hero", "supporting", "exclude", "challenge"]);
 const CHALLENGE_REASONS = new Set([
   "stronger_vibe_match",
@@ -103,6 +151,12 @@ const DISAGREEMENT_REASONS = new Set([
   "bad_arrangement",
   "other_editorial_instinct",
 ]);
+const HARD_BLOCKING_DROP_REASONS = new Set([
+  "content_policy",
+  "rights_prohibited",
+  "safety_prohibited",
+  "confirmed_wrong_identity",
+]);
 
 export function createActorAuditHandler({
   auth,
@@ -129,12 +183,13 @@ export function createActorAuditHandler({
         const vibeKey = url.searchParams.get("vibeKey");
         if (!actorId && !vibeKey) {
           const publicationStore = getPublicationStore(context);
-          const [actors, releaseInventory] = await Promise.all([
+          const [actors, releaseInventory, productionReadiness] = await Promise.all([
             listActors(store, actorPacks),
             releaseReadyInventory(store, actorPacks, {
               publicationStore,
               now,
             }),
+            productionReadinessFor(store, actorPacks),
           ]);
           return json(200, {
             schemaVersion: 1,
@@ -145,6 +200,7 @@ export function createActorAuditHandler({
             curationVersion: CURATION_VERSION,
             actors,
             releaseInventory,
+            productionReadiness,
           });
         }
         const pair = resolvePair(actorPacks, actorId, vibeKey);
@@ -165,6 +221,40 @@ export function createActorAuditHandler({
       const input = await readJson(req);
       const pair = resolvePair(actorPacks, input.actorId, input.vibeKey);
       if (!pair) return json(400, { error: "Unknown actor or Vibe Pack." });
+
+      if (input.action === "production_transition") {
+        const stage = input.stage === "provenance_rights"
+          ? "provenanceRights"
+          : input.stage;
+        if (!PRODUCTION_STAGES.has(stage)) {
+          return json(400, { error: "Choose an asset, enhancement, render, copy, or provenance/rights stage." });
+        }
+        if (!PRODUCTION_STATUSES.has(input.status)) {
+          return json(400, { error: "Production status must be pending, blocked, or complete." });
+        }
+        const reason = boundedText(input.reason, MAX_NOTE_LENGTH);
+        if (reason === null) {
+          return json(400, { error: "The production note must be text under 2000 characters." });
+        }
+        if (input.status === "blocked" && !reason) {
+          return json(400, { error: "A blocker reason is required when a stage is blocked." });
+        }
+        const snapshot = await getEligibility(store, pair.actor, pair.vibeIdx);
+        if (!isApproved(snapshot)) {
+          return json(409, { error: "Only a current approved edition can enter production readiness." });
+        }
+        const production = await transitionProductionStage(store, pair, snapshot, {
+          stage,
+          status: input.status,
+          reason: reason || null,
+          createdBy: operator.user.accountId,
+          now,
+        });
+        return json(200, {
+          productionReadiness: production,
+          pairing: pairingSummary(pair, await readReport(store, pair)),
+        });
+      }
 
       if (input.action === "run") {
         const scope = parseScope(input.scope);
@@ -189,6 +279,15 @@ export function createActorAuditHandler({
         });
         const { report, advanced } = await appendRun(store, pair, run);
         if (advanced) {
+          if (calibrationProfile) {
+            await persistRescueCalibrationOutcome(
+              store,
+              pair,
+              run,
+              calibrationProfile,
+              now,
+            );
+          }
           await writeEligibility(store, pair, {
             schemaVersion: 1,
             profileVersion: IDENTITY_PROFILE_VERSION,
@@ -290,7 +389,7 @@ export function createActorAuditHandler({
               preferredRescueBoard.board?.candidates?.map(candidate => candidate?.candidateId),
             ).ok) {
             return json(409, {
-              error: "The preferred rescue board is stale or unavailable. Rebuild and save it from the current image choices before recording this preference.",
+              error: "The selected rescue board is stale or unavailable. Rebuild and save it from the current image choices before recording this approval.",
             });
           }
         }
@@ -941,6 +1040,91 @@ export function createActorAuditHandler({
         });
       }
 
+      if (input.action === "retire_rescue_signal") {
+        if (typeof input.receiptId !== "string"
+          || !/^[A-Za-z0-9_-]{1,128}$/.test(input.receiptId)) {
+          return json(400, { error: "A confirmed calibration receipt is required." });
+        }
+        const signalFamily = normalizeCalibrationSignalFamily(input.signalFamily);
+        const signalValue = normalizeCalibrationSignalValue(input.signalValue);
+        if (!signalFamily || !signalValue) {
+          return json(400, {
+            error: "Choose a query, source, cluster, or composition signal to retire.",
+          });
+        }
+        const reason = boundedText(input.reason, MAX_CALIBRATION_RETIREMENT_REASON_LENGTH);
+        if (!reason) {
+          return json(400, {
+            error: "Explain why this signal should no longer guide future audits.",
+          });
+        }
+        const calibration = await store.get(
+          auditRescueCalibrationKey(pair.actor.id, pair.vibeIdx, input.receiptId),
+          { type: "json", consistency: "strong" },
+        );
+        if (!calibration
+          || calibration.sourceRescueReceiptId !== input.receiptId
+          || calibration.actor?.id !== pair.actor.id
+          || calibration.vibePack?.key !== pair.vibeKey
+          || calibration.status !== "confirmed"
+          || calibration.calibrationVersion !== RESCUE_CALIBRATION_VERSION) {
+          return json(404, { error: "That confirmed calibration receipt was not found for this pairing." });
+        }
+        const availableSignals = calibrationSignalValues(calibration, signalFamily);
+        if (!availableSignals.includes(signalValue)) {
+          return json(404, {
+            error: "That signal is not present in the selected calibration receipt.",
+          });
+        }
+        const retirementKey = auditRescueCalibrationSignalRetirementKey(
+          pair.actor.id,
+          pair.vibeIdx,
+          input.receiptId,
+          CALIBRATION_SIGNAL_LABELS[signalFamily],
+          signalValue,
+        );
+        const existing = await store.get(retirementKey, {
+          type: "json",
+          consistency: "strong",
+        });
+        if (existing) {
+          if (existing.reason !== reason) {
+            return json(409, { error: "That signal retirement receipt is immutable." });
+          }
+          const next = await readReport(store, pair);
+          return json(200, {
+            actor: await actorSummary(store, actorPacks, pair.actor),
+            pairing: pairingSummary(pair, next),
+            ...detailResponse(pair, next),
+          });
+        }
+        const retirement = {
+          schemaVersion: 1,
+          retirementVersion: 1,
+          retirementId: createFeedbackId(),
+          status: "retired",
+          sourceRescueReceiptId: input.receiptId,
+          sourceRunId: calibration.sourceRunId || null,
+          actorId: pair.actor.id,
+          vibeKey: pair.vibeKey,
+          signalFamily: CALIBRATION_SIGNAL_LABELS[signalFamily],
+          signalValue,
+          reason,
+          retiredAt: now().toISOString(),
+          retiredBy: operator.user.accountId,
+        };
+        const write = await store.setJSON(retirementKey, retirement, { onlyIfNew: true });
+        if (write?.modified === false) {
+          return json(409, { error: "Another operator retired this signal first." });
+        }
+        const next = await readReport(store, pair);
+        return json(200, {
+          actor: await actorSummary(store, actorPacks, pair.actor),
+          pairing: pairingSummary(pair, next),
+          ...detailResponse(pair, next),
+        });
+      }
+
       if (input.action === "retire_rescue_calibration") {
         if (typeof input.receiptId !== "string"
           || !/^[A-Za-z0-9_-]{1,128}$/.test(input.receiptId)) {
@@ -1042,6 +1226,56 @@ export function createActorAuditHandler({
           return json(409, { error: "The saved rescue arrangement no longer passes the current audit gates. Rebuild it before exporting." });
         }
         const exportedAt = now().toISOString();
+        const publicationSource = run.operatorVerdict?.publicationSource;
+        const exportedBoardHash = boardHash(validation.board);
+        const exactApprovedBoard = run.operatorVerdict?.verdict === "approved"
+          && run.operatorVerdict.vibeConfirmed === true
+          && run.operatorVerdict.publishableConfirmed === true
+          && publicationSource?.type === "operator_rescue"
+          && publicationSource.rescueReceiptId === receipt.receiptId
+          && publicationSource.boardHash === exportedBoardHash;
+        const hasCompleteImageEvidence = validation.board.candidates.every(candidate =>
+          typeof candidate.imageDigest === "string" && /^[a-f0-9]{64}$/i.test(candidate.imageDigest));
+        const releaseCandidateProvenance = exactApprovedBoard && hasCompleteImageEvidence ? {
+          schemaVersion: 1,
+          source: "actor-preflight-approval",
+          identity: {
+            schemaVersion: 1,
+            auditRunId: run.runId,
+            publicationManifestId: null,
+            publicationSourceType: publicationSource.type,
+            rescueReceiptId: receipt.receiptId,
+            boardHash: publicationSource.boardHash,
+            orderedCandidateIds: validation.board.candidates.map(candidate => candidate.candidateId),
+            actorId: pair.actor.id,
+            vibeKey: pair.vibeKey,
+            curationVersion: CURATION_VERSION,
+            promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+            identityProfileVersion: IDENTITY_PROFILE_VERSION,
+          },
+          candidates: validation.board.candidates.map(candidate => ({
+            candidateId: candidate.candidateId,
+            imageDigest: candidate.imageDigest,
+            thumbnail: candidate.thumbnail || "",
+            title: candidate.title || "",
+            source: candidate.source || "",
+            batchRank: candidate.batchRank ?? null,
+          })),
+        } : null;
+        if (releaseCandidateProvenance) {
+          const authorityKey = approvedBoardAuthorityKey(run.runId);
+          const authorityWrite = await store.setJSON(
+            authorityKey,
+            releaseCandidateProvenance,
+            { onlyIfNew: true },
+          );
+          if (authorityWrite?.modified === false) {
+            const authority = await store.get(authorityKey, { type: "json", consistency: "strong" });
+            if (recordHash(authority) !== recordHash(releaseCandidateProvenance)) {
+              return json(409, { error: "The approved-board identity no longer matches its immutable authority record." });
+            }
+          }
+        }
         return json(200, {
           rescueExport: {
             schemaVersion: 1,
@@ -1066,6 +1300,7 @@ export function createActorAuditHandler({
               subtitleEn: pair.vibe.subtitle_en || pair.vibe.subtitle || "",
               searchSpell: pair.vibe.queries?.[0] || pair.vibeKey,
             },
+            ...(releaseCandidateProvenance ? { releaseCandidateProvenance } : {}),
             candidates: validation.board.candidates.map(candidate => ({
               candidateId: candidate.candidateId,
               imageDigest: candidate.imageDigest || null,
@@ -1074,6 +1309,7 @@ export function createActorAuditHandler({
               source: candidate.source || "",
               link: candidate.link || "",
               thumbnail: candidate.thumbnail || "",
+              batchRank: candidate.batchRank ?? null,
             })),
           },
         });
@@ -1104,7 +1340,12 @@ export async function runPreflight(
   } = {},
 ) {
   const startedAt = now().toISOString();
-  const queries = scope === "representative" ? pair.vibe.queries.slice(0, 3) : pair.vibe.queries;
+  const queries = searchQueriesFor(
+    pair.actor,
+    pair.vibeIdx,
+    calibrationProfile,
+    { baseLimit: scope === "representative" ? 3 : null },
+  );
   const searchReceipts = new Map();
   const candidates = await evaluateCandidates(queries, async query => {
     try {
@@ -1164,9 +1405,20 @@ export async function runPreflight(
     candidate,
     searchReceipts.get(candidate.query),
     ranked.findIndex(item => item.query === candidate.query),
+    calibrationProfile?.positiveQueries || [],
   ));
+  const learnedQueries = [...new Set(calibrationProfile?.positiveQueries || [])];
+  const learnedQueriesUsed = learnedQueries.filter(query =>
+    queryRuns.some(item => item.query === query));
   const completedAt = now().toISOString();
-  const materialSufficient = curated.displayResults.length >= 9;
+  const automaticPublicationReady = curated.displayResults.length >= 9;
+  const completeProposalCardCount = Math.max(
+    0,
+    ...Object.values(diagnostics.boardDiagnostics || {}).map(diagnostic =>
+      diagnostic?.completeProposalAvailable && Array.isArray(diagnostic?.proposal?.candidates)
+        ? diagnostic.proposal.candidates.length
+        : 0),
+  );
   const calibrationComparison = compareCalibrationOutcomes(
     calibrationProfile,
     curated.controlDiagnostics,
@@ -1192,10 +1444,10 @@ export async function runPreflight(
   const calibrationProof = calibrationProofFromDiagnostics(
     calibrationProfile,
     calibrationSignals,
-    materialSufficient,
+    automaticPublicationReady,
   );
 
-  return {
+  const run = {
     runId: createRunId(),
     schemaVersion: 1,
     profileVersion: IDENTITY_PROFILE_VERSION,
@@ -1208,14 +1460,19 @@ export async function runPreflight(
     queryCount: queries.length,
     queryRuns,
     calibrationQueryRanking: calibrationProfile ? {
+      compatibilityVersion: CALIBRATION_QUERY_COMPATIBILITY_VERSION,
+      learnedQueries: calibrationProfile.positiveQueries || [],
       positiveQueries: calibrationProfile.positiveQueries,
       negativeQueries: calibrationProfile.negativeQueries,
+      learnedQueriesUsed,
+      learnedQueryRuns: queryRuns.filter(item => item.learnedRescueQuery),
       baselineTopQueries: baselineTop.map(candidate => candidate.query),
       calibratedTopQueries: calibratedTop.map(candidate => candidate.query),
       comparisonUniverseQueries: [...comparisonQueries],
     } : null,
     inheritedPreferenceCandidateIds: preferredCandidateIds,
     inheritedCalibration: calibrationProfile ? {
+      queryCompatibilityVersion: CALIBRATION_QUERY_COMPATIBILITY_VERSION,
       calibrationVersion: calibrationProfile.calibrationVersion,
       evidenceCount: calibrationProfile.evidenceCount,
       sourceReceiptIds: calibrationProfile.sourceReceiptIds,
@@ -1227,8 +1484,8 @@ export async function runPreflight(
     detectedEvents: diagnostics.eventFamilies || [],
     boardDiagnostics: diagnostics.boardDiagnostics || null,
     partialClusters: diagnostics.partialClusters || [],
-    strongestEvent: diagnostics.strongestEvent || null,
-    strongestCompiled: diagnostics.strongestCompiled || null,
+    strongestEvent: strongestProposal(diagnostics, "event"),
+    strongestCompiled: strongestProposal(diagnostics, "compiled"),
     eventAlternatives: diagnostics.eventAlternatives || [],
     compiledAlternatives: diagnostics.compiledAlternatives || [],
     runnerUpDiagnostics: diagnostics.runnerUpDiagnostics || null,
@@ -1240,17 +1497,133 @@ export async function runPreflight(
       : null,
     curationReceipt,
     displayCount: curated.displayResults.length,
-    materialSufficient,
-    suggestedState: materialSufficient
-      ? identityEvidence.collisionSignals > 0 ? "identity_risk" : "needs_operator_verdict"
-      : Number(diagnostics.receipt?.analyzedCount) >= 9
-        ? "needs_curation_work"
-        : "insufficient_material",
+    completeProposalCardCount,
+    materialSufficient: automaticPublicationReady || completeProposalCardCount >= 9,
+    automaticPublicationReady,
     operatorVerdict: null,
+  };
+  run.rescueDraft = buildFrozenRescueBoard(run, []);
+  run.preflightOutcome = classifyPreflightOutcome(run);
+  run.suggestedState = run.preflightOutcome.state;
+  run.missingEvidenceSearchSuggestions = missingEvidenceSearchSuggestions(run.partialClusters);
+  return run;
+}
+
+function strongestProposal(diagnostics, mode) {
+  return diagnostics[mode === "event" ? "strongestEvent" : "strongestCompiled"]
+    || diagnostics.boardDiagnostics?.[mode]?.proposal
+    || null;
+}
+
+function missingEvidenceSearchSuggestions(partialClusters = []) {
+  const suggestions = partialClusters.flatMap(cluster =>
+    (cluster?.suggestedSearches || []).map(suggestion => ({
+      ...suggestion,
+      clusterId: cluster.id,
+      clusterLabel: cluster.label,
+    })));
+  return [...new Map(suggestions
+    .filter(suggestion => suggestion?.query)
+    .map(suggestion => [suggestion.query, suggestion])).values()];
+}
+
+export function classifyPreflightOutcome(run) {
+  const excludedIds = new Set((run?.editorialFeedback?.flags || [])
+    .filter(flag => flag?.disposition === "excluded")
+    .map(flag => flag.candidateId));
+  const proposalBoards = ["event", "compiled"]
+    .map(mode => run?.[mode === "event" ? "strongestEvent" : "strongestCompiled"]
+      || run?.boardDiagnostics?.[mode]?.proposal)
+    .filter(board => Array.isArray(board?.candidates));
+  const completeProposal = proposalBoards.length
+    ? proposalBoards.some(board => activeCandidateCount(board.candidates, excludedIds) >= 9)
+    : Number(run?.completeProposalCardCount) >= 9;
+  const identityReview = Number(run?.identityEvidence?.collisionSignals) > 0;
+  const qualifiedBoard = ["event", "compiled"].some(mode => {
+    const board = run?.[mode === "event" ? "strongestEvent" : "strongestCompiled"];
+    return qualifiedBoardFor(run, mode)
+      && activeCandidateCount(board?.candidates, excludedIds) >= 9;
+  });
+  const retainedCount = canonicalFrozenCandidates(run, excludedIds).size;
+  const partialCount = Math.max(
+    0,
+    ...(run?.partialClusters || []).map(cluster =>
+      Array.isArray(cluster?.candidateIds)
+        ? activeCandidateCount(cluster.candidateIds, excludedIds)
+        : Number(cluster?.cardCount) || 0),
+  );
+  const sourceEvidence = run?.curationReceipt?.sourceEvidenceCandidates
+    || run?.curationReceipt?.rawCandidates
+    || [];
+  const hardBlockedCount = sourceEvidence.filter(candidate =>
+    candidate?.dropReason === "image_load_failed"
+    || HARD_BLOCKING_DROP_REASONS.has(candidate?.dropReason)
+    || excludedIds.has(candidate?.candidateId)).length;
+  const warnings = [...new Set(Object.values(run?.boardDiagnostics || {})
+    .flatMap(diagnostic => diagnostic?.reasonCodes || [])
+    .filter(Boolean))];
+
+  if (qualifiedBoard && !identityReview) {
+    return {
+      state: "auto_ready",
+      automaticPublicationReady: true,
+      boardConstructed: true,
+      requiresOperatorReview: false,
+      warnings,
+    };
+  }
+  if (completeProposal || (qualifiedBoard && identityReview)) {
+    return {
+      state: "complete_review",
+      automaticPublicationReady: false,
+      boardConstructed: true,
+      requiresOperatorReview: true,
+      warnings,
+    };
+  }
+  if (retainedCount >= 9) {
+    return {
+      state: "rescue_ready",
+      automaticPublicationReady: false,
+      boardConstructed: true,
+      requiresOperatorReview: true,
+      warnings,
+    };
+  }
+  if (partialCount >= 3) {
+    return {
+      state: "partial_searchable",
+      automaticPublicationReady: false,
+      boardConstructed: false,
+      requiresOperatorReview: true,
+      warnings,
+    };
+  }
+  if (sourceEvidence.length > 0 && hardBlockedCount === sourceEvidence.length) {
+    return {
+      state: "hard_blocked",
+      automaticPublicationReady: false,
+      boardConstructed: false,
+      requiresOperatorReview: false,
+      warnings,
+    };
+  }
+  return {
+    state: "retrieval_weak",
+    automaticPublicationReady: false,
+    boardConstructed: false,
+    requiresOperatorReview: true,
+    warnings,
   };
 }
 
-function queryRun(candidate, receipt, rankIndex) {
+function activeCandidateCount(candidates = [], excludedIds = new Set()) {
+  return new Set(candidates
+    .map(candidate => typeof candidate === "string" ? candidate : candidate?.candidateId)
+    .filter(candidateId => candidateId && !excludedIds.has(candidateId))).size;
+}
+
+function queryRun(candidate, receipt, rankIndex, learnedQueries = []) {
   const rawCount = receipt?.response?.rawCount
     || receipt?.response?.baiduAttemptLog?.rawCount
     || receipt?.response?.results?.length
@@ -1264,6 +1637,7 @@ function queryRun(candidate, receipt, rankIndex) {
   if (providerFallback) reasons.push(String(providerFallback).slice(0, 160));
   return {
     query: String(candidate.query || "").slice(0, 500),
+    learnedRescueQuery: learnedQueries.includes(candidate.query),
     provider: candidate.provider || null,
     rawCount,
     cleanCount: candidate.count,
@@ -1490,6 +1864,230 @@ function rescueBackupBoardsFor(snapshot) {
   });
 }
 
+function productionStagesFromReceipt(receipt) {
+  return {
+    asset: receipt?.stages?.asset || {
+      status: "blocked",
+      reason: DEFAULT_PRODUCTION_REASONS.asset,
+    },
+    enhancement: receipt?.stages?.enhancement || {
+      status: "blocked",
+      reason: DEFAULT_PRODUCTION_REASONS.enhancement,
+    },
+    render: receipt?.stages?.render || {
+      status: "blocked",
+      reason: DEFAULT_PRODUCTION_REASONS.render,
+    },
+    copy: receipt?.stages?.copy || {
+      status: "blocked",
+      reason: DEFAULT_PRODUCTION_REASONS.copy,
+    },
+    provenanceRights: receipt?.stages?.provenanceRights || {
+      status: "blocked",
+      reason: DEFAULT_PRODUCTION_REASONS.provenanceRights,
+    },
+  };
+}
+
+function productionReadinessFromSnapshot(pair, snapshot, receipt = null) {
+  const boardCandidates = snapshot?.publicationBoard?.candidates;
+  const exactNineFrozen = Array.isArray(boardCandidates)
+    && boardCandidates.length === 9
+    && new Set(boardCandidates.map(candidate => candidate?.candidateId)).size === 9;
+  const stages = productionStagesFromReceipt(receipt);
+  const blockers = [];
+  if (!isApproved(snapshot)) {
+    blockers.push({
+      stage: "editorialApproval",
+      label: "Editorial approval",
+      reason: "The current Actor Preflight approval is not valid for production.",
+    });
+  }
+  if (!exactNineFrozen) {
+    blockers.push({
+      stage: "exactNine",
+      label: "Exact nine frozen",
+      reason: "The approved publication board does not contain nine distinct cards.",
+    });
+  }
+  for (const stage of PRODUCTION_STAGES) {
+    if (stages[stage].status !== "complete") {
+      blockers.push({
+        stage,
+        label: PRODUCTION_STAGE_LABELS[stage],
+        status: stages[stage].status,
+        reason: stages[stage].reason || `The ${PRODUCTION_STAGE_LABELS[stage].toLowerCase()} stage is not complete.`,
+      });
+    }
+  }
+  const scheduleEligible = blockers.length === 0;
+  if (!scheduleEligible) {
+    blockers.push({
+      stage: "scheduleEligibility",
+      label: "Schedule eligibility",
+      status: "blocked",
+      reason: `${blockers.length} prerequisite${blockers.length === 1 ? "" : "s"} must be complete before PLAN can schedule this edition.`,
+    });
+  }
+  return {
+    schemaVersion: 1,
+    actorId: pair.actor.id,
+    actorName: pair.actor.name,
+    vibeKey: pair.vibeKey,
+    vibeIdx: pair.vibeIdx,
+    vibeLabel: pair.vibe.label_en || pair.vibe.label || pair.vibeKey,
+    runId: snapshot?.runId || null,
+    pairingFingerprint: snapshot?.pairingFingerprint || null,
+    approval: {
+      status: isApproved(snapshot) ? "approved" : "not_approved",
+      verdict: snapshot?.verdict || null,
+      decidedAt: snapshot?.decidedAt || null,
+      decisionId: snapshot?.decisionId || null,
+      publicationSource: snapshot?.publicationSource?.type || null,
+    },
+    exactNineFrozen: {
+      status: exactNineFrozen ? "complete" : "blocked",
+      cardCount: Array.isArray(boardCandidates) ? boardCandidates.length : 0,
+      reason: exactNineFrozen ? null : "The approval receipt is missing an exact nine-card board.",
+    },
+    stages,
+    scheduleEligible,
+    state: scheduleEligible ? "schedule_eligible" : "blocked",
+    blockers,
+    receipt: receipt
+      ? {
+        receiptId: receipt.receiptId,
+        previousReceiptId: receipt.previousReceiptId || null,
+        createdAt: receipt.createdAt,
+        createdBy: receipt.createdBy,
+      }
+      : null,
+  };
+}
+
+async function readProductionReceipt(store, pair, snapshot) {
+  if (!snapshot?.runId) return null;
+  const state = await store.get(
+    productionStateKey(pair.actor.id, pair.vibeIdx, snapshot.runId),
+    { type: "json", consistency: "strong" },
+  );
+  if (!state?.currentReceiptId) return null;
+  return store.get(
+    productionReceiptKey(pair.actor.id, pair.vibeIdx, snapshot.runId, state.currentReceiptId),
+    { type: "json", consistency: "strong" },
+  );
+}
+
+export async function productionReadinessFor(store, actorPacks) {
+  const candidates = [];
+  for (const actor of actorPacks) {
+    for (let vibeIdx = 0; vibeIdx < (actor.vibes || []).length; vibeIdx += 1) {
+      const pair = resolvePair(actorPacks, actor.id, vibeKeyFor(actor.id, vibeIdx));
+      const snapshot = await getEligibility(store, actor, vibeIdx);
+      if (!isApproved(snapshot)) continue;
+      const receipt = await readProductionReceipt(store, pair, snapshot);
+      candidates.push(productionReadinessFromSnapshot(pair, snapshot, receipt));
+    }
+  }
+  return {
+    schemaVersion: 1,
+    candidateCount: candidates.length,
+    scheduleEligibleCount: candidates.filter(candidate => candidate.scheduleEligible).length,
+    blockedCount: candidates.filter(candidate => !candidate.scheduleEligible).length,
+    candidates,
+  };
+}
+
+export async function transitionProductionStage(
+  store,
+  pair,
+  snapshot,
+  { stage, status, reason, createdBy, now = () => new Date() },
+) {
+  if (!isApproved(snapshot)) {
+    const error = new Error("Only a current approved edition can enter production readiness.");
+    error.status = 409;
+    throw error;
+  }
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const stateKey = productionStateKey(pair.actor.id, pair.vibeIdx, snapshot.runId);
+    const stateEntry = await getJSONEntry(store, stateKey);
+    const previousReceipt = stateEntry?.data?.currentReceiptId
+      ? await store.get(
+        productionReceiptKey(
+          pair.actor.id,
+          pair.vibeIdx,
+          snapshot.runId,
+          stateEntry.data.currentReceiptId,
+        ),
+        { type: "json", consistency: "strong" },
+      )
+      : null;
+    const stages = productionStagesFromReceipt(previousReceipt);
+    stages[stage] = { status, reason: reason || null };
+    const receiptIdentity = {
+      actorId: pair.actor.id,
+      vibeKey: pair.vibeKey,
+      vibeIdx: pair.vibeIdx,
+      runId: snapshot.runId,
+      pairingFingerprint: snapshot.pairingFingerprint,
+      previousReceiptId: previousReceipt?.receiptId || null,
+      stage,
+      status,
+      reason: reason || null,
+      stages,
+    };
+    const receiptId = recordHash(receiptIdentity).slice(0, 24);
+    const receipt = {
+      schemaVersion: 1,
+      receiptId,
+      ...receiptIdentity,
+      createdAt: now().toISOString(),
+      createdBy,
+    };
+    const receiptWrite = await store.setJSON(
+      productionReceiptKey(pair.actor.id, pair.vibeIdx, snapshot.runId, receiptId),
+      receipt,
+      { onlyIfNew: true },
+    );
+    if (receiptWrite?.modified === false) {
+      const existing = await store.get(
+        productionReceiptKey(pair.actor.id, pair.vibeIdx, snapshot.runId, receiptId),
+        { type: "json", consistency: "strong" },
+      );
+      if (recordHash(existing) !== recordHash(receipt)) {
+        const error = new Error("Production readiness receipts are immutable.");
+        error.status = 409;
+        throw error;
+      }
+    }
+    const state = {
+      schemaVersion: 1,
+      actorId: pair.actor.id,
+      vibeKey: pair.vibeKey,
+      vibeIdx: pair.vibeIdx,
+      runId: snapshot.runId,
+      pairingFingerprint: snapshot.pairingFingerprint,
+      currentReceiptId: receiptId,
+      updatedAt: receipt.createdAt,
+    };
+    const stateOptions = stateEntry?.etag
+      ? { onlyIfMatch: stateEntry.etag }
+      : stateEntry?.data
+        ? null
+        : { onlyIfNew: true };
+    if (!stateOptions) continue;
+    const stateWrite = await store.setJSON(stateKey, state, stateOptions);
+    if (stateWrite?.modified === false) continue;
+    const written = await store.get(stateKey, { type: "json", consistency: "strong" });
+    if (written?.currentReceiptId !== receiptId) continue;
+    return productionReadinessFromSnapshot(pair, snapshot, receipt);
+  }
+  const error = new Error("Another production update was recorded first. Refresh and try again.");
+  error.status = 409;
+  throw error;
+}
+
 export async function releaseReadyInventory(
   store,
   actorPacks,
@@ -1650,6 +2248,7 @@ function pairingSummary(pair, report) {
         : comparisonUnavailable
           ? "comparison_unavailable"
           : currentVerdict || current?.suggestedState || "not_run",
+    preflightState: current?.preflightOutcome?.state || current?.suggestedState || null,
     lastRunAt: current?.completedAt || null,
     currentRunId: current?.runId || null,
     verdict: currentVerdict,
@@ -1817,7 +2416,7 @@ async function attachVerdict(store, pair, run) {
   ]);
   const boardDiagnostics = normalizedRun.boardDiagnostics
     || boardDiagnosticsFromRetainedEvidence(normalizedRun);
-  return {
+  const attachedRun = {
     ...normalizedRun,
     boardDiagnostics,
     editorialFeedback,
@@ -1830,6 +2429,13 @@ async function attachVerdict(store, pair, run) {
         boards: blindBoards(normalizedRun, presentationOrderFor(normalizedRun.runId)),
       },
   };
+  attachedRun.rescueDraft = buildFrozenRescueBoard(
+    attachedRun,
+    editorialFeedback?.flags || [],
+  );
+  attachedRun.preflightOutcome = classifyPreflightOutcome(attachedRun);
+  attachedRun.suggestedState = attachedRun.preflightOutcome.state;
+  return attachedRun;
 }
 
 function normalizeLegacyRunEvidence(run) {
@@ -1978,7 +2584,7 @@ async function readEditorialFeedback(store, pair, run) {
       ...feedbackDisposition(receipt, candidateGate(run, receipt.candidateId)),
     }))
     .sort((left, right) => left.candidateId.localeCompare(right.candidateId));
-  const [savedBoards, calibrations, retirements] = await Promise.all([
+  const [savedBoards, calibrations, retirements, signalRetirements] = await Promise.all([
     readReceipts(
       store,
       auditRescueBoardPrefix(pair.actor.id, pair.vibeIdx, run.runId),
@@ -1994,6 +2600,11 @@ async function readEditorialFeedback(store, pair, run) {
       auditRescueCalibrationRetirementPrefix(pair.actor.id, pair.vibeIdx),
       "retiredAt",
     ),
+    readReceipts(
+      store,
+      auditRescueCalibrationSignalRetirementPrefix(pair.actor.id, pair.vibeIdx),
+      "retiredAt",
+    ),
   ]);
   const calibrationByReceipt = new Map(calibrations
     .filter(calibration => calibration.sourceRunId === run.runId)
@@ -2005,6 +2616,16 @@ async function readEditorialFeedback(store, pair, run) {
       && retirement.vibeKey === pair.vibeKey
       && typeof retirement.sourceRescueReceiptId === "string")
     .map(retirement => [retirement.sourceRescueReceiptId, retirement]));
+  const signalRetirementsByReceipt = new Map();
+  for (const retirement of signalRetirements.filter(retirement =>
+    retirement.status === "retired"
+    && retirement.actorId === pair.actor.id
+    && retirement.vibeKey === pair.vibeKey
+    && typeof retirement.sourceRescueReceiptId === "string")) {
+    const existing = signalRetirementsByReceipt.get(retirement.sourceRescueReceiptId) || [];
+    existing.push(retirement);
+    signalRetirementsByReceipt.set(retirement.sourceRescueReceiptId, existing);
+  }
   const operatorRescueBoards = savedBoards.filter(receipt =>
     receipt.runId === run.runId
     && receipt.actorId === pair.actor.id
@@ -2015,6 +2636,7 @@ async function readEditorialFeedback(store, pair, run) {
       ? {
         ...calibrationByReceipt.get(receipt.receiptId),
         retirement: retirementByReceipt.get(receipt.receiptId) || null,
+         signalRetirements: signalRetirementsByReceipt.get(receipt.receiptId) || [],
       }
       : null,
   }));
@@ -2096,6 +2718,7 @@ function signalValues(candidates) {
     antiAnchors: flattenedValues(candidate => (candidate.promise?.hardAntiMatches || [])
       .map(signalText)),
     definitions: flattenedValues(definitionCues),
+    composition: flattenedValues(definitionCues),
   };
 }
 
@@ -2109,7 +2732,28 @@ function signalValuesForCandidate(candidate, key) {
     return (candidate.promise?.hardAntiMatches || []).map(signalText).filter(Boolean);
   }
   if (key === "definitions") return definitionCues(candidate);
+  if (key === "composition") return definitionCues(candidate);
   return [];
+}
+
+function normalizeCalibrationSignalFamily(value) {
+  const normalized = signalText(value);
+  return CALIBRATION_SIGNAL_FAMILIES.get(normalized) || null;
+}
+
+function normalizeCalibrationSignalValue(value) {
+  const normalized = signalText(value);
+  return normalized ? normalized.slice(0, 500) : null;
+}
+
+function calibrationSignalValues(record, family) {
+  const key = CALIBRATION_SIGNAL_FAMILIES.get(family) || family;
+  return [...new Set([
+    ...(record.selectedNine || []),
+    ...(record.omittedAlternatives || []),
+  ].flatMap(candidate => signalValuesForCandidate(candidate, key))
+    .map(signalText)
+    .filter(Boolean))];
 }
 
 function definitionCues(candidate) {
@@ -2127,7 +2771,7 @@ function definitionCues(candidate) {
   ])].slice(0, 24);
 }
 
-function reusableSignalPreferences(records, key) {
+function reusableSignalPreferences(records, key, isRetired = () => false) {
   const evidenceCount = Math.max(1, records.length);
   const values = new Map();
   const add = (value, field, amount = 1) => {
@@ -2147,12 +2791,14 @@ function reusableSignalPreferences(records, key) {
     const selectedCounts = new Map();
     const omittedCounts = new Map();
     for (const candidate of selected) {
-      for (const value of new Set(signalValuesForCandidate(candidate, key))) {
+      for (const value of [...new Set(signalValuesForCandidate(candidate, key))]
+        .filter(value => !isRetired(value, record))) {
         selectedCounts.set(value, (selectedCounts.get(value) || 0) + 1);
       }
     }
     for (const candidate of omitted) {
-      for (const value of new Set(signalValuesForCandidate(candidate, key))) {
+      for (const value of [...new Set(signalValuesForCandidate(candidate, key))]
+        .filter(value => !isRetired(value, record))) {
         omittedCounts.set(value, (omittedCounts.get(value) || 0) + 1);
       }
     }
@@ -2192,6 +2838,154 @@ function reusableSignalPreferences(records, key) {
   };
 }
 
+function createRescueCalibrationOutcome(pair, run, profile, now) {
+  const inventory = profile?.signalInventory || [];
+  if (!inventory.length) return null;
+  const comparison = run.curationReceipt?.calibrationSignals?.comparison || null;
+  const effects = comparison?.effects || [];
+  const gateSignals = run.curationReceipt?.calibrationSignals?.gateSignals || [];
+  const outcomes = [];
+  for (const receipt of inventory) {
+    for (const [family, values] of Object.entries(receipt.signals || {})) {
+      const labelFamily = CALIBRATION_SIGNAL_LABELS[family] || family;
+      for (const signalValue of values) {
+        const label = `${labelFamily}:${signalValue}`;
+        const transferCount = effects.filter(effect =>
+          effect.type !== "removed"
+          && effect.signals?.includes(label)).length;
+        const rejectionCount = gateSignals.filter(signal =>
+          signal.positive?.includes(label)).length;
+        outcomes.push({
+          sourceRescueReceiptId: receipt.sourceRescueReceiptId,
+          signalFamily: labelFamily,
+          signalValue,
+          transferCount,
+          rejectionCount,
+          nonTransferCount: transferCount || rejectionCount ? 0 : 1,
+          outcome: transferCount
+            ? "transferred"
+            : rejectionCount
+              ? "rejected"
+              : "not_transferred",
+        });
+      }
+    }
+  }
+  return {
+    schemaVersion: 1,
+    outcomeVersion: 1,
+    status: "recorded",
+    actorId: pair.actor.id,
+    vibeKey: pair.vibeKey,
+    runId: run.runId,
+    sourceReceiptIds: profile.sourceReceiptIds || [],
+    attemptedAt: run.completedAt || now().toISOString(),
+    outcomes,
+    summary: {
+      transferredCount: outcomes.filter(item => item.outcome === "transferred").length,
+      rejectedCount: outcomes.filter(item => item.outcome === "rejected").length,
+      nonTransferCount: outcomes.filter(item => item.outcome === "not_transferred").length,
+    },
+  };
+}
+
+async function persistRescueCalibrationOutcome(store, pair, run, profile, now) {
+  const outcome = createRescueCalibrationOutcome(pair, run, profile, now);
+  if (!outcome) return null;
+  const key = auditRescueCalibrationOutcomeKey(pair.actor.id, pair.vibeIdx, run.runId);
+  await store.setJSON(key, outcome, { onlyIfNew: true });
+  return outcome;
+}
+
+function summarizeRescueCalibrationOutcomes(
+  outcomeReceipts,
+  currentRecords,
+  retirementByReceipt,
+  signalRetirementsByReceipt,
+) {
+  const currentReceiptIds = new Set(currentRecords.map(record => record.sourceRescueReceiptId));
+  const bySignal = new Map();
+  for (const receipt of outcomeReceipts) {
+    for (const outcome of receipt.outcomes || []) {
+      if (!currentReceiptIds.has(outcome.sourceRescueReceiptId)) continue;
+      const key = [
+        outcome.sourceRescueReceiptId,
+        outcome.signalFamily,
+        outcome.signalValue,
+      ].join("\u0000");
+      const current = bySignal.get(key) || {
+        sourceRescueReceiptId: outcome.sourceRescueReceiptId,
+        signalFamily: outcome.signalFamily,
+        signalValue: outcome.signalValue,
+        attempts: 0,
+        transferred: 0,
+        rejected: 0,
+        notTransferred: 0,
+        lastOutcomeAt: null,
+      };
+      current.attempts += 1;
+      current.transferred += Number(outcome.transferCount) || 0;
+      current.rejected += Number(outcome.rejectionCount) || 0;
+      current.notTransferred += Number(outcome.nonTransferCount) || 0;
+      if (!current.lastOutcomeAt
+        || String(receipt.attemptedAt || "").localeCompare(current.lastOutcomeAt) > 0) {
+        current.lastOutcomeAt = receipt.attemptedAt || null;
+      }
+      bySignal.set(key, current);
+    }
+  }
+  const signalOutcomes = [...bySignal.values()].map(item => ({
+    ...item,
+    status: item.transferred
+      ? "transferred"
+      : item.rejected
+        ? "rejected"
+        : "not_transferred",
+    retired: Boolean(
+      signalRetirementsByReceipt.get(item.sourceRescueReceiptId)
+        ?.get(item.signalFamily)?.has(item.signalValue),
+    ),
+  }));
+  const byReceipt = new Map();
+  for (const item of signalOutcomes) {
+    const receipt = byReceipt.get(item.sourceRescueReceiptId) || {
+      sourceRescueReceiptId: item.sourceRescueReceiptId,
+      status: retirementByReceipt.has(item.sourceRescueReceiptId) ? "retired" : "active",
+      attempts: 0,
+      transferred: 0,
+      rejected: 0,
+      notTransferred: 0,
+      signalFamilies: [],
+    };
+    receipt.attempts = Math.max(receipt.attempts, item.attempts);
+    receipt.transferred += item.transferred;
+    receipt.rejected += item.rejected;
+    receipt.notTransferred += item.notTransferred;
+    receipt.signalFamilies.push(item);
+    byReceipt.set(item.sourceRescueReceiptId, receipt);
+  }
+  for (const receipt of byReceipt.values()) {
+    receipt.signalFamilies.sort((left, right) =>
+      left.signalFamily.localeCompare(right.signalFamily)
+      || left.signalValue.localeCompare(right.signalValue));
+  }
+  const totals = signalOutcomes.reduce((summary, item) => ({
+    transferred: summary.transferred + item.transferred,
+    rejected: summary.rejected + item.rejected,
+    notTransferred: summary.notTransferred + item.notTransferred,
+  }), { transferred: 0, rejected: 0, notTransferred: 0 });
+  return {
+    attemptCount: outcomeReceipts.length,
+    signalCount: signalOutcomes.length,
+    transferred: totals.transferred,
+    rejected: totals.rejected,
+    notTransferred: totals.notTransferred,
+    byReceipt: [...byReceipt.values()].sort((left, right) =>
+      left.sourceRescueReceiptId.localeCompare(right.sourceRescueReceiptId)),
+    signalFamilies: signalOutcomes,
+  };
+}
+
 export function rescueCalibrationBasis(run, board) {
   const completeSourceEvidence = run.curationReceipt?.sourceEvidenceCandidates
     || run.curationReceipt?.rawCandidates
@@ -2220,7 +3014,7 @@ export function rescueCalibrationBasis(run, board) {
     .map(calibrationCandidateSnapshot);
   const hero = selectedNine[4] || null;
   const reusableSignals = Object.fromEntries(
-    ["queries", "sources", "clusters", "antiAnchors", "definitions"].map(key => [
+    ["queries", "sources", "clusters", "antiAnchors", "definitions", "composition"].map(key => [
       key,
       reusableSignalPreferences([{ selectedNine, omittedAlternatives }], key),
     ]),
@@ -2284,6 +3078,7 @@ export function rescueCalibrationBasis(run, board) {
     },
     contract: {
       calibrationVersion: RESCUE_CALIBRATION_VERSION,
+      queryCompatibilityVersion: CALIBRATION_QUERY_COMPATIBILITY_VERSION,
       curationVersion: run.curationReceipt?.curationVersion || run.curationVersion || null,
       identityProfileVersion: run.identityProfileVersion || run.profileVersion || null,
       aestheticClusterVersion: run.aestheticClusterVersion || null,
@@ -2370,7 +3165,12 @@ function preferredSignals(positiveValues, negativeValues) {
 
 function rescueCalibrationMatchesCurrentContract(record, pair) {
   const contract = record?.contract;
-  return contract?.curationVersion === CURATION_VERSION
+  // Learned-query expansion is additive. Receipts created before this field
+  // existed use the same compatible strategy and remain usable.
+  const queryCompatibilityVersion = contract?.queryCompatibilityVersion
+    ?? CALIBRATION_QUERY_COMPATIBILITY_VERSION;
+  return queryCompatibilityVersion === CALIBRATION_QUERY_COMPATIBILITY_VERSION
+    && contract?.curationVersion === CURATION_VERSION
     && contract?.identityProfileVersion === IDENTITY_PROFILE_VERSION
     && contract?.aestheticClusterVersion === AESTHETIC_CLUSTER_VERSION
     && contract?.promiseContractVersion === VIBE_PROMISE_CONTRACT_VERSION
@@ -2378,7 +3178,7 @@ function rescueCalibrationMatchesCurrentContract(record, pair) {
 }
 
 async function readRescueCalibrationProfile(store, pair) {
-  const [confirmedReceipts, retirementReceipts] = await Promise.all([
+  const [confirmedReceipts, retirementReceipts, signalRetirementReceipts, outcomeReceipts] = await Promise.all([
     readReceipts(
       store,
       auditRescueCalibrationPrefix(pair.actor.id, pair.vibeIdx),
@@ -2388,6 +3188,16 @@ async function readRescueCalibrationProfile(store, pair) {
       store,
       auditRescueCalibrationRetirementPrefix(pair.actor.id, pair.vibeIdx),
       "retiredAt",
+    ),
+    readReceipts(
+      store,
+      auditRescueCalibrationSignalRetirementPrefix(pair.actor.id, pair.vibeIdx),
+      "retiredAt",
+    ),
+    readReceipts(
+      store,
+      auditRescueCalibrationOutcomePrefix(pair.actor.id, pair.vibeIdx),
+      "attemptedAt",
     ),
   ]);
   const currentRecords = confirmedReceipts.filter(record =>
@@ -2409,18 +3219,63 @@ async function readRescueCalibrationProfile(store, pair) {
     [retirement.sourceRescueReceiptId, retirement]));
   const records = currentRecords.filter(record =>
     !retirementByReceipt.has(record.sourceRescueReceiptId));
+  const signalRetirements = signalRetirementReceipts.filter(retirement =>
+    retirement.status === "retired"
+    && retirement.actorId === pair.actor.id
+    && retirement.vibeKey === pair.vibeKey
+    && currentReceiptIds.has(retirement.sourceRescueReceiptId)
+    && CALIBRATION_SIGNAL_FAMILIES.has(retirement.signalFamily)
+    && typeof retirement.signalValue === "string");
+  const signalRetirementsByReceipt = new Map();
+  for (const retirement of signalRetirements) {
+    const byFamily = signalRetirementsByReceipt.get(retirement.sourceRescueReceiptId)
+      || new Map();
+    const values = byFamily.get(retirement.signalFamily) || new Set();
+    values.add(retirement.signalValue);
+    byFamily.set(retirement.signalFamily, values);
+    signalRetirementsByReceipt.set(retirement.sourceRescueReceiptId, byFamily);
+  }
+  const isRetiredSignal = (record, family, value) => {
+    const canonicalFamily = CALIBRATION_SIGNAL_LABELS[family] || family;
+    return signalRetirementsByReceipt
+      .get(record.sourceRescueReceiptId)?.get(canonicalFamily)?.has(value)
+      || false;
+  };
+  const signalInventory = records.map(record => ({
+    sourceRescueReceiptId: record.sourceRescueReceiptId,
+    sourceRunId: record.sourceRunId || null,
+    signals: Object.fromEntries(
+      ["queries", "sources", "clusters", "composition"].map(family => [
+        family,
+        calibrationSignalValues(record, family)
+          .filter(value => !isRetiredSignal(record, family, value)),
+      ]),
+    ),
+  }));
   const retiredReceiptIds = [...retirementByReceipt.keys()].sort();
-  const retirementHash = retirements.length
-    ? rescueCalibrationRetirementHash(retirements)
+  const retirementHash = retirements.length || signalRetirements.length
+    ? rescueCalibrationRetirementHash(retirements, signalRetirements)
     : null;
   const positive = key => records.flatMap(record => record.signals?.positive?.[key] || []);
   const negative = key => records.flatMap(record => record.signals?.negative?.[key] || []);
   const candidateIds = preferredSignals(positive("candidateIds"), negative("candidateIds"));
-  const queries = reusableSignalPreferences(records, "queries");
-  const sources = reusableSignalPreferences(records, "sources");
-  const clusters = reusableSignalPreferences(records, "clusters");
+  const queries = reusableSignalPreferences(records, "queries",
+    (value, record) => isRetiredSignal(record, "queries", value));
+  const sources = reusableSignalPreferences(records, "sources",
+    (value, record) => isRetiredSignal(record, "sources", value));
+  const clusters = reusableSignalPreferences(records, "clusters",
+    (value, record) => isRetiredSignal(record, "clusters", value));
   const antiAnchors = reusableSignalPreferences(records, "antiAnchors");
   const definitions = reusableSignalPreferences(records, "definitions");
+  const compositions = reusableSignalPreferences(records, "composition",
+    (value, record) => isRetiredSignal(record, "composition", value));
+  const transferSummary = summarizeRescueCalibrationOutcomes(
+    outcomeReceipts.filter(outcome =>
+      outcome.actorId === pair.actor.id && outcome.vibeKey === pair.vibeKey),
+    currentRecords,
+    retirementByReceipt,
+    signalRetirementsByReceipt,
+  );
   const rankingContrasts = records.flatMap(record =>
     record.rankingContrasts || record.signals?.rankingContrasts || []).slice(0, 512);
   const rankingWins = {};
@@ -2447,16 +3302,21 @@ async function readRescueCalibrationProfile(store, pair) {
   return {
     schemaVersion: 1,
     calibrationVersion: RESCUE_CALIBRATION_VERSION,
+    queryCompatibilityVersion: CALIBRATION_QUERY_COMPATIBILITY_VERSION,
     actorId: pair.actor.id,
     vibeKey: pair.vibeKey,
     evidenceCount: records.length,
     totalConfirmedEvidenceCount: currentRecords.length,
     retiredEvidenceCount: retirements.length,
-    requiresFreshAudit: retirements.length > 0,
+    retiredSignalCount: signalRetirements.length,
+    requiresFreshAudit: retirements.length > 0 || signalRetirements.length > 0,
     sourceReceiptIds: records.map(record => record.sourceRescueReceiptId).sort(),
     retiredReceiptIds,
     retirementReceiptIds: retirements.map(retirement => retirement.retirementId).filter(Boolean).sort(),
+    signalRetirements,
     retirementHash,
+    signalInventory,
+    transferSummary,
     evidenceLedger: currentRecords
       .map(record => {
         const retirement = retirementByReceipt.get(record.sourceRescueReceiptId) || null;
@@ -2475,6 +3335,7 @@ async function readRescueCalibrationProfile(store, pair) {
     diagnostics: {
       activeEvidenceCount: records.length,
       retiredEvidenceCount: retirements.length,
+      retiredSignalCount: signalRetirements.length,
       excludedReceiptIds: retiredReceiptIds,
       exclusions: retirements.map(retirement => ({
         reasonCode: "operator_retired_calibration_evidence",
@@ -2484,9 +3345,18 @@ async function readRescueCalibrationProfile(store, pair) {
         retiredAt: retirement.retiredAt,
         retiredBy: retirement.retiredBy,
       })),
-      summary: retirements.length
-        ? `${retirements.length} confirmed calibration receipt${retirements.length === 1 ? " was" : "s were"} excluded after an operator retirement receipt.`
-        : "No confirmed calibration evidence is retired.",
+      signalExclusions: signalRetirements.map(retirement => ({
+        retirementId: retirement.retirementId || null,
+        sourceRescueReceiptId: retirement.sourceRescueReceiptId,
+        signalFamily: retirement.signalFamily,
+        signalValue: retirement.signalValue,
+        reason: retirement.reason,
+        retiredAt: retirement.retiredAt,
+        retiredBy: retirement.retiredBy,
+      })),
+      summary: retirements.length || signalRetirements.length
+        ? `${retirements.length} confirmed calibration receipt${retirements.length === 1 ? " was" : "s were"} and ${signalRetirements.length} signal${signalRetirements.length === 1 ? " was" : "s were"} excluded after operator retirement receipts.`
+        : "No confirmed calibration evidence or signals are retired.",
     },
     positiveCandidateIds: candidateIds.positive,
     negativeCandidateIds: candidateIds.negative,
@@ -2508,12 +3378,15 @@ async function readRescueCalibrationProfile(store, pair) {
     negativeAntiAnchors: antiAnchors.negative,
     positiveDefinitions: definitions.positive,
     negativeDefinitions: definitions.negative,
+    positiveCompositions: compositions.positive,
+    negativeCompositions: compositions.negative,
     reusableSignalDeltas: {
       queries: queries.deltas,
       sources: sources.deltas,
       clusters: clusters.deltas,
       antiAnchors: antiAnchors.deltas,
       definitions: definitions.deltas,
+      composition: compositions.deltas,
     },
     rankingContrasts,
     rankingWins,
@@ -2534,6 +3407,8 @@ function dailyCalibrationProfile(profile) {
   if (!profile?.evidenceCount) return null;
   return {
     calibrationVersion: profile.calibrationVersion,
+    queryCompatibilityVersion: profile.queryCompatibilityVersion
+      || CALIBRATION_QUERY_COMPATIBILITY_VERSION,
     evidenceCount: profile.evidenceCount,
     positiveCandidateIds: profile.positiveCandidateIds,
     negativeCandidateIds: profile.negativeCandidateIds,
@@ -2548,6 +3423,12 @@ function dailyCalibrationProfile(profile) {
     negativeAntiAnchors: profile.negativeAntiAnchors,
     positiveDefinitions: profile.positiveDefinitions,
     negativeDefinitions: profile.negativeDefinitions,
+    positiveCompositions: profile.positiveCompositions || profile.positiveDefinitions,
+    negativeCompositions: profile.negativeCompositions || profile.negativeDefinitions,
+    transferSummary: profile.transferSummary,
+    retiredSignalCount: profile.retiredSignalCount || 0,
+    signalRetirements: profile.signalRetirements || [],
+    retirementHash: profile.retirementHash || null,
     rankingWins: profile.rankingWins,
     rankingLosses: profile.rankingLosses,
     preferredPositions: profile.preferredPositions,
@@ -2571,6 +3452,10 @@ function calibrationProofFromDiagnostics(profile, diagnostics, materialSufficien
     sourceReceiptIds: profile.sourceReceiptIds,
     retiredReceiptIds: profile.retiredReceiptIds || [],
     retirementReceiptIds: profile.retirementReceiptIds || [],
+    retiredSignalReceiptIds: (profile.signalRetirements || [])
+      .map(retirement => retirement.retirementId)
+      .filter(Boolean)
+      .sort(),
     retirementHash: profile.retirementHash || null,
     evidenceCount: profile.evidenceCount,
     selectedSignalCount: Number(diagnostics?.selectedSignalCount) || 0,
@@ -2624,7 +3509,7 @@ export function compareCalibrationOutcomes(profile, baseline, calibrated, input 
     ...(profile.negativeCandidateIds || []),
   ]);
   const transferableSignals = signals => (signals || []).filter(signal =>
-    /^(query|source|cluster):/.test(signal));
+    /^(query|source|cluster|definition|composition):/.test(signal));
   const effects = [];
   for (const [candidateId, calibratedPosition] of calibratedPositions) {
     const signal = calibratedEvidence.get(candidateId);
@@ -2710,11 +3595,16 @@ function calibrationProofCoversProfile(run, profile) {
   const proved = [...new Set(run?.calibrationProof?.sourceReceiptIds || [])].sort();
   const expectedRetired = [...new Set(profile.retiredReceiptIds || [])].sort();
   const provedRetired = [...new Set(run?.calibrationProof?.retiredReceiptIds || [])].sort();
+  const expectedRetiredSignals = [...new Set((profile.signalRetirements || [])
+    .map(retirement => retirement.retirementId)
+    .filter(Boolean))].sort();
+  const provedRetiredSignals = [...new Set(run?.calibrationProof?.retiredSignalReceiptIds || [])].sort();
   return Boolean(
     run?.calibrationProof?.ready === true
     && run.calibrationProof.calibrationVersion === profile.calibrationVersion
     && JSON.stringify(proved) === JSON.stringify(expected)
     && JSON.stringify(provedRetired) === JSON.stringify(expectedRetired)
+    && JSON.stringify(provedRetiredSignals) === JSON.stringify(expectedRetiredSignals)
     && run.calibrationProof.retirementHash === (profile.retirementHash || null)
   );
 }
@@ -2731,6 +3621,9 @@ function candidateGate(run, candidateId) {
   const reason = dropped?.dropReason || analyzed?.dropReason || null;
   if (!raw.thumbnail || reason === "image_load_failed") {
     return { disposition: "blocked", blockedReason: "unavailable" };
+  }
+  if (HARD_BLOCKING_DROP_REASONS.has(reason)) {
+    return { disposition: "blocked", blockedReason: "hard_blocked" };
   }
   if (!analyzed) return { disposition: "blocked", blockedReason: "not_analyzed_in_audit" };
   return { disposition: "requested", blockedReason: null };
@@ -2880,7 +3773,9 @@ function validateRescueArrangement(run, candidateIds) {
 
 function canonicalFrozenCandidates(run, excludedIds = new Set()) {
   const unavailableIds = new Set((run.curationReceipt?.dropped || [])
-    .filter(candidate => candidate.dropReason === "image_load_failed")
+    .filter(candidate =>
+      candidate.dropReason === "image_load_failed"
+      || HARD_BLOCKING_DROP_REASONS.has(candidate.dropReason))
     .map(candidate => candidate.candidateId));
   const canonicalById = new Map();
   const evidence = [
@@ -2891,6 +3786,7 @@ function canonicalFrozenCandidates(run, excludedIds = new Set()) {
     if (!candidate?.candidateId
       || !candidate.thumbnail
       || candidate.dropReason === "image_load_failed"
+      || HARD_BLOCKING_DROP_REASONS.has(candidate.dropReason)
       || unavailableIds.has(candidate.candidateId)
       || excludedIds.has(candidate.candidateId)
       || canonicalById.has(candidate.candidateId)) continue;
@@ -2966,16 +3862,24 @@ function boardDiagnosticsFromRetainedEvidence(run) {
 }
 
 function comparableBoards(run) {
-  return [run?.strongestEvent, run?.strongestCompiled]
-    .every(board => Array.isArray(board?.candidates) && board.candidates.length >= 9);
+  return ["event", "compiled"].every(mode => qualifiedBoardFor(run, mode));
 }
 
 function singleCuratedBoardFor(run) {
-  const boards = [
-    { mode: "event", board: run?.strongestEvent },
-    { mode: "compiled", board: run?.strongestCompiled },
-  ].filter(({ board }) => Array.isArray(board?.candidates) && board.candidates.length >= 9);
+  const boards = ["event", "compiled"]
+    .filter(mode => qualifiedBoardFor(run, mode))
+    .map(mode => ({
+      mode,
+      board: run?.[mode === "event" ? "strongestEvent" : "strongestCompiled"],
+    }));
   return boards.length === 1 ? boards[0] : null;
+}
+
+function qualifiedBoardFor(run, mode) {
+  const board = run?.[mode === "event" ? "strongestEvent" : "strongestCompiled"];
+  if (!Array.isArray(board?.candidates) || board.candidates.length < 9) return false;
+  const diagnostic = run?.boardDiagnostics?.[mode];
+  return diagnostic ? diagnostic.available === true : true;
 }
 
 function presentationOrderFor(runId) {
@@ -3006,7 +3910,7 @@ function blindBoards(run, order) {
   return order.map(mode => ({
     mode,
     label: mode === "event" ? "Event" : "Compiled",
-    board: run?.[mode === "event" ? "strongestEvent" : "strongestCompiled"]
+    board: qualifiedBoardFor(run, mode)
       ? {
         candidates: run[mode === "event" ? "strongestEvent" : "strongestCompiled"].candidates || [],
       }

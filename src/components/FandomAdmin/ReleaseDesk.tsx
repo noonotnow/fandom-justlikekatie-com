@@ -3,6 +3,11 @@ import { CreatorPostAction } from '../CreatorPostAction/CreatorPostAction';
 import { dbGetVisibleGrids, type GridRecord } from '../../utils/collectionDB';
 import { makeCreatorPostFromGrid } from '../../utils/creatorDraft';
 import { getPublicSession } from '../../utils/publicAccount';
+import {
+  boardProvenanceLabel,
+  classifyGridProvenance,
+  type ClassifiedBoardProvenance,
+} from '../../utils/approvedBoardProvenance';
 import styles from './ReleaseDesk.module.css';
 
 type AnyRecord = Record<string, any>;
@@ -18,6 +23,25 @@ const api = async () => {
   return result;
 };
 
+const transitionProduction = async (actorId: string, vibeKey: string, stage: string, status: string, reason: string) => {
+  const response = await fetch('/.netlify/functions/actor-audits', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'production_transition',
+      actorId,
+      vibeKey,
+      stage,
+      status,
+      reason,
+    }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(result?.error || 'Production readiness could not be updated.');
+  return result;
+};
+
 const dailyDropApi = async (init?: RequestInit) => {
   const response = await fetch('/.netlify/functions/daily-drop-operations', {
     credentials: 'include',
@@ -30,6 +54,8 @@ const dailyDropApi = async (init?: RequestInit) => {
 
 export const ReleaseDesk: React.FC = () => {
   const [inventory, setInventory] = useState<AnyRecord | null>(null);
+  const [production, setProduction] = useState<AnyRecord | null>(null);
+  const [view, setView] = useState<'inventory' | 'production' | 'audience'>('inventory');
   const [editions, setEditions] = useState<AnyRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
@@ -40,6 +66,7 @@ export const ReleaseDesk: React.FC = () => {
       .then(([auditResult, dailyDropResult]) => {
         if (!live) return;
         setInventory(auditResult.releaseInventory ?? null);
+        setProduction(auditResult.productionReadiness ?? null);
         setEditions(dailyDropResult.editions ?? []);
       })
       .catch(error => {
@@ -69,13 +96,21 @@ export const ReleaseDesk: React.FC = () => {
       </header>
 
       <nav className={styles.views} aria-label="Release Desk view" role="tablist">
-        <button type="button" role="tab" aria-selected="true">Inventory<small>Current candidates</small></button>
+        <button type="button" role="tab" aria-selected={view === 'inventory'} onClick={() => setView('inventory')}>Inventory<small>Current candidates</small></button>
+        <button type="button" role="tab" aria-selected={view === 'production'} onClick={() => setView('production')}>Production<small>Readiness blockers</small></button>
+        <button type="button" role="tab" aria-selected={view === 'audience'} onClick={() => setView('audience')}>Audience evidence<small>Actual use + data quality</small></button>
       </nav>
 
       {notice && <div className={styles.error} role="status">{notice}</div>}
       {loading
         ? <div className={styles.empty} aria-label="Loading release inventory">Loading release inventory…</div>
-        : <>
+        : view === 'audience'
+          ? <EngagementEvidence />
+          : view === 'production'
+          ? production
+            ? <ProductionReadiness production={production} onUpdated={setProduction} />
+            : <div className={styles.empty}>No production readiness was returned.</div>
+          : <>
           <WorkstationHandoffDesk />
           {inventory
             ? <>
@@ -95,8 +130,158 @@ export const ReleaseDesk: React.FC = () => {
   );
 };
 
+function EngagementEvidence() {
+  const [summary, setSummary] = useState<AnyRecord | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+  const [notice, setNotice] = useState('');
+
+  useEffect(() => {
+    let live = true;
+    void fetch('/.netlify/functions/engagement-export?records=0', { credentials: 'include' })
+      .then(async response => {
+        const result = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(result?.error || 'Audience evidence unavailable.');
+        if (live) setSummary(result.summary ?? null);
+      })
+      .catch(error => {
+        if (live) setNotice(error instanceof Error ? error.message : 'Audience evidence could not be loaded.');
+      })
+      .finally(() => {
+        if (live) setLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  async function downloadExport() {
+    if (downloading) return;
+    setDownloading(true);
+    setNotice('');
+    try {
+      const response = await fetch('/.netlify/functions/engagement-export?download=1', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error || 'Engagement export could not be prepared.');
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || 'fandom-engagement.json';
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Engagement export could not be prepared.');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  if (loading) return <div className={styles.empty} aria-label="Loading audience evidence">Loading audience evidence…</div>;
+  if (!summary) return <div className={styles.error} role="alert">{notice || 'No audience evidence summary was returned.'}</div>;
+
+  const events = Object.entries(summary.eventCounts ?? {})
+    .sort((left, right) => Number(right[1]) - Number(left[1]));
+  const quality = summary.dataQuality ?? {};
+  const storage = summary.storage ?? {};
+
+  return (
+    <section className={styles.audienceEvidence} aria-labelledby="audience-evidence-title">
+      <div className={styles.audienceHeader}>
+        <div>
+          <h4 id="audience-evidence-title">Audience evidence</h4>
+          <p>Read-only production telemetry for comparing planned editorial outcomes with what visitors actually save, share, open, and export.</p>
+        </div>
+        <button type="button" onClick={() => void downloadExport()} disabled={downloading}>
+          {downloading ? 'Preparing export…' : 'Download audit dataset'}
+        </button>
+      </div>
+
+      <p className={styles.measurementBoundary}>
+        Event ratios, not unique-user conversion. These records intentionally contain no anonymous visitor or session identifier.
+      </p>
+
+      <div className={styles.evidenceMetrics}>
+        <div><strong>{summary.recordCount ?? 0}</strong><span>Recorded events</span></div>
+        <div><strong>{summary.blobCount ?? 0}</strong><span>Stored blobs</span></div>
+        <div><strong>{storage.immutableBlobCount ?? 0}</strong><span>Immutable event blobs</span></div>
+        <div data-warning={(storage.legacyArrayBlobCount ?? 0) > 0}><strong>{storage.legacyArrayBlobCount ?? 0}</strong><span>Legacy array blobs</span></div>
+      </div>
+
+      <div className={styles.evidenceColumns}>
+        <section aria-labelledby="event-inventory-title">
+          <h5 id="event-inventory-title">Event inventory</h5>
+          {events.length
+            ? <dl className={styles.eventInventory}>
+              {events.map(([event, count]) => <div key={event}><dt>{event}</dt><dd>{String(count)}</dd></div>)}
+            </dl>
+            : <p>No engagement events have been recorded.</p>}
+        </section>
+        <section aria-labelledby="data-quality-title">
+          <h5 id="data-quality-title">Data quality</h5>
+          <dl className={styles.qualityInventory}>
+            <div><dt>Malformed blobs</dt><dd>{storage.malformedBlobCount ?? 0}</dd></div>
+            <div><dt>Missing event type</dt><dd>{quality.missingEvent ?? 0}</dd></div>
+            <div><dt>Missing batch key</dt><dd>{quality.missingBatchKey ?? 0}</dd></div>
+            <div><dt>Unattributed Collection / PLAN events</dt><dd>{quality.unattributedCollectionEvents ?? 0}</dd></div>
+          </dl>
+          <p>
+            Coverage {summary.firstTimestamp ? new Date(summary.firstTimestamp).toLocaleString() : 'not available'}
+            {' → '}
+            {summary.lastTimestamp ? new Date(summary.lastTimestamp).toLocaleString() : 'not available'}
+          </p>
+        </section>
+      </div>
+      {notice && <p className={styles.productionError} role="alert">{notice}</p>}
+    </section>
+  );
+}
+
+function ProductionReadiness({
+  production,
+  onUpdated,
+}: {
+  production: AnyRecord;
+  onUpdated: (value: AnyRecord) => void;
+}) {
+  const candidates = (production.candidates ?? EMPTY_RECORDS) as AnyRecord[];
+  return (
+    <section className={styles.production} aria-labelledby="release-production-title">
+      <div className={styles.productionHeader}>
+        <div>
+          <h4 id="release-production-title">Production readiness</h4>
+          <p>Approved editions stay separate from Actor Preflight. Record operational receipts here; PLAN remains the scheduling source of truth.</p>
+        </div>
+        <div className={styles.productionSummary}>
+          <strong>{production.scheduleEligibleCount ?? 0} ready</strong>
+          <span>{production.blockedCount ?? 0} blocked · {production.candidateCount ?? 0} approved candidates</span>
+        </div>
+      </div>
+      <p className={styles.privateProductionNote}>Private production view · changing a readiness stage never changes the immutable approval, evidence, or board history.</p>
+      {candidates.length
+        ? <div className={styles.productionCandidates}>
+          {candidates.map(candidate => (
+            <ProductionCandidate
+              key={`${candidate.actorId}:${candidate.vibeIdx}`}
+              candidate={candidate}
+              onUpdated={onUpdated}
+            />
+          ))}
+        </div>
+        : <div className={styles.empty}>No approved candidates are available for production readiness.</div>}
+    </section>
+  );
+}
+
 function WorkstationHandoffDesk() {
   const [grids, setGrids] = useState<GridRecord[]>([]);
+  const [provenanceByGrid, setProvenanceByGrid] = useState<Record<string, ClassifiedBoardProvenance>>({});
   const [selectedGridId, setSelectedGridId] = useState('');
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
@@ -108,10 +293,15 @@ function WorkstationHandoffDesk() {
         if (!user) throw new Error('Operator session unavailable. Sign in again to load saved grids.');
         return dbGetVisibleGrids(user.accountId);
       })
-      .then(records => {
+      .then(async records => {
+        const classifications = Object.fromEntries(await Promise.all(records.map(async grid => [
+          grid.id,
+          await classifyGridProvenance(grid),
+        ] as const)));
         if (!live) return;
         const ordered = [...records].sort((a, b) => b.savedAt.localeCompare(a.savedAt));
         setGrids(ordered);
+        setProvenanceByGrid(classifications);
         setSelectedGridId(current => (
           ordered.some(grid => grid.id === current) ? current : ordered[0]?.id ?? ''
         ));
@@ -128,6 +318,7 @@ function WorkstationHandoffDesk() {
   }, []);
 
   const selectedGrid = grids.find(grid => grid.id === selectedGridId);
+  const selectedProvenance = selectedGrid ? provenanceByGrid[selectedGrid.id] : null;
 
   return (
     <section className={styles.workstationDesk} aria-labelledby="workstation-handoff-title">
@@ -157,6 +348,7 @@ function WorkstationHandoffDesk() {
                     {grids.map(grid => (
                       <option key={grid.id} value={grid.id}>
                         {grid.capturedDate} · {grid.actor} · {grid.vibe}
+                        {' · '}{boardProvenanceLabel(provenanceByGrid[grid.id]?.classification || 'unverified-saved-grid')}
                       </option>
                     ))}
                   </select>
@@ -164,21 +356,97 @@ function WorkstationHandoffDesk() {
                     <p>
                       {selectedGrid.images.length} source result{selectedGrid.images.length === 1 ? '' : 's'}
                       {' · '}{selectedGrid.rendererVersion}
+                      {selectedProvenance && (
+                        <>{' · '}{boardProvenanceLabel(selectedProvenance.classification)}</>
+                      )}
                     </p>
+                  )}
+                  {selectedProvenance?.classification === 'unverified-saved-grid' && (
+                    <p>This grid remains available to the operator, but automatic Workstation handoff is disabled because it has no verified approval lineage.</p>
+                  )}
+                  {selectedProvenance?.classification === 'derived-from-approved-board' && (
+                    <p>This grid may start a new creative source. It does not inherit the approved board receipt.</p>
                   )}
                 </div>
                 <CreatorPostAction
                   entryPoint="operator_console"
-                  disabled={!selectedGrid}
+                  disabled={!selectedGrid || selectedProvenance?.classification === 'unverified-saved-grid'}
                   onSubmit={(platforms, onProgress) => {
                     if (!selectedGrid) throw new Error('Select a saved grid before continuing.');
                     return makeCreatorPostFromGrid(selectedGrid, platforms, onProgress);
                   }}
                 />
               </div>
-            )}
+          )}
     </section>
   );
+}
+
+function ProductionCandidate({ candidate, onUpdated }: { candidate: AnyRecord; onUpdated: (value: AnyRecord) => void }) {
+  const [stage, setStage] = useState('asset');
+  const [status, setStatus] = useState('complete');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const blockers = (candidate.blockers ?? EMPTY_RECORDS) as AnyRecord[];
+  const stages = ['asset', 'enhancement', 'render', 'copy', 'provenanceRights'];
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      const result = await transitionProduction(candidate.actorId, candidate.vibeKey, stage, status, reason);
+      onUpdated(result.productionReadiness);
+      setReason('');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Production readiness could not be updated.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <article className={styles.productionCandidate} data-state={candidate.state}>
+      <header className={styles.productionCandidateHeader}>
+        <div><strong>{candidate.actorName}</strong><span>{candidate.vibeLabel}</span></div>
+        <b>{candidate.scheduleEligible ? 'Schedule eligible' : `${blockers.length} blockers`}</b>
+      </header>
+      <p className={styles.productionReceipt}>Approved · {candidate.approval?.verdict || 'unknown verdict'} · audit run {candidate.runId || 'unavailable'}</p>
+      <div className={styles.readinessGrid}>
+        <ReadinessItem label="Asset" value={candidate.stages?.asset} />
+        <ReadinessItem label="Enhancement" value={candidate.stages?.enhancement} />
+        <ReadinessItem label="Render" value={candidate.stages?.render} />
+        <ReadinessItem label="Copy" value={candidate.stages?.copy} />
+        <ReadinessItem label="Provenance / rights" value={candidate.stages?.provenanceRights} />
+        <ReadinessItem label="Schedule eligibility" value={{
+          status: candidate.scheduleEligible ? 'complete' : 'blocked',
+          reason: candidate.scheduleEligible ? 'All production receipts are complete.' : 'Complete every production stage before sending this edition to PLAN.',
+        }} />
+      </div>
+      {!candidate.scheduleEligible && <ul className={styles.blockerList} aria-label={`${candidate.actorName} production blockers`}>
+        {blockers.map((blocker: AnyRecord) => <li key={blocker.stage}><strong>{blocker.label}</strong><span>{blocker.reason}</span></li>)}
+      </ul>}
+      <form className={styles.productionForm} onSubmit={save}>
+        <label><span>Update receipt</span><select value={stage} onChange={event => setStage(event.target.value)}>
+          {stages.map(item => <option key={item} value={item}>{item === 'provenanceRights' ? 'Provenance / rights' : item[0].toUpperCase() + item.slice(1)}</option>)}
+        </select></label>
+        <label><span>Status</span><select value={status} onChange={event => setStatus(event.target.value)}>
+          <option value="complete">Complete</option><option value="blocked">Blocked</option><option value="pending">Pending</option>
+        </select></label>
+        <label className={styles.productionReason}><span>Operator note {status === 'blocked' ? '(required)' : '(optional)'}</span><input value={reason} onChange={event => setReason(event.target.value)} placeholder="What changed or what is blocking this stage?" /></label>
+        <button type="submit" disabled={busy || (status === 'blocked' && !reason.trim())}>{busy ? 'Saving…' : 'Record receipt'}</button>
+      </form>
+      {notice && <p className={styles.productionError} role="status">{notice}</p>}
+      {candidate.receipt && <small className={styles.receiptMeta}>Latest receipt {candidate.receipt.receiptId} · {candidate.receipt.createdBy}</small>}
+    </article>
+  );
+}
+
+function ReadinessItem({ label, value }: { label: string; value?: AnyRecord }) {
+  const complete = value?.status === 'complete';
+  return <div className={styles.readinessItem} data-status={value?.status || 'blocked'}><span>{label}</span><strong>{complete ? 'Complete' : value?.status === 'pending' ? 'Pending' : 'Blocked'}</strong>{!complete && <small>{value?.reason}</small>}</div>;
 }
 
 function PublicationReceipts({
@@ -305,7 +573,6 @@ function PublicationReceipts({
     </section>
   );
 }
-
 function nextShanghaiNoonLabel(now = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai',

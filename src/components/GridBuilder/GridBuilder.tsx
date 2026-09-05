@@ -172,9 +172,10 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
   function toggleManualCard(card: BuilderCard) {
     setProposal(current => {
       const slots = current?.slots || [];
-      const selected = slots.some(item => item.key === card.key);
+      const selectedIndex = slots.findIndex(item => item.key === card.key);
+      const selected = selectedIndex >= 0;
       const nextSlots = selected
-        ? slots.filter(item => item.key !== card.key)
+        ? slots.filter((_, index) => index !== selectedIndex)
         : slots.length < 9 ? [...slots, card] : slots;
       if (!selected && slots.length >= 9) {
         setNotice('Your grid already has nine images. Remove one before adding another.');
@@ -215,6 +216,31 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     const target = index + direction;
     if (!proposal || target < 0 || target >= proposal.slots.length) return;
     swapManualSlots(index, target);
+  }
+
+  function duplicateManualSlot(index: number) {
+    setProposal(current => {
+      if (!current || current.slots.length >= 9 || !current.slots[index]) return current;
+      const slots = [...current.slots];
+      slots.splice(index + 1, 0, current.slots[index]);
+      return { ...current, slots, rationale: manualGridRationale(slots, lens.actor || current.slots[index].actor) };
+    });
+    setSwapSlot(null);
+    setIsGridSaved(false);
+    setSavedGridId(null);
+    setShowSaveNudge(false);
+  }
+
+  function removeManualSlot(index: number) {
+    setProposal(current => {
+      if (!current || !current.slots[index]) return current;
+      const slots = current.slots.filter((_, slotIndex) => slotIndex !== index);
+      return { ...current, slots, rationale: manualGridRationale(slots, lens.actor || current.slots[index].actor) };
+    });
+    setSwapSlot(null);
+    setIsGridSaved(false);
+    setSavedGridId(null);
+    setShowSaveNudge(false);
   }
 
   function propose() {
@@ -476,10 +502,10 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
         <section className={styles.manualPicker} aria-label="Choose nine saved images">
           <div className={styles.manualPickerHeader}>
             <strong>{lens.actor ? `${proposal?.slots.length || 0} of 9 selected` : 'Choose a star to begin'}</strong>
-            <span>Only saved images for the selected actor appear here.</span>
+            <span>Only saved images for the selected actor appear here. Select a placed image to duplicate it intentionally.</span>
           </div>
-          {lens.actor && manualCandidates.length < 9 ? (
-            <div className={styles.notice}>Save at least nine distinct images for {lens.actor} to build a custom grid.</div>
+          {lens.actor && manualCandidates.length === 0 ? (
+            <div className={styles.notice}>Save at least one image for {lens.actor} to begin a custom grid.</div>
           ) : lens.actor ? (
             <div className={styles.candidateGrid}>
               {manualCandidates.map(card => {
@@ -514,7 +540,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
             >
               {proposal.slots.map((card, index) => (
                 <button
-                  key={card.key}
+                  key={`${card.key}-${index}`}
                   type="button"
                   className={styles.slot}
                   aria-pressed={swapSlot === index}
@@ -539,6 +565,8 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
                   <span>
                     <button type="button" onClick={() => moveManualSlot(swapSlot, -1)} disabled={swapSlot === 0}>Move earlier</button>
                     <button type="button" onClick={() => moveManualSlot(swapSlot, 1)} disabled={swapSlot === proposal.slots.length - 1}>Move later</button>
+                    <button type="button" onClick={() => duplicateManualSlot(swapSlot)} disabled={proposal.slots.length >= 9}>Duplicate selected</button>
+                    <button type="button" onClick={() => removeManualSlot(swapSlot)}>Remove selected</button>
                   </span>
                 )}
               </div>

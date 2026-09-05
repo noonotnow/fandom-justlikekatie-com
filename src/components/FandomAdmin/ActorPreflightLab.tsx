@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { dbSaveGrid, type GridRecord } from '../../utils/collectionDB';
 import { persistGridImagesToMedia } from '../../utils/collectionMedia';
 import { getPublicSession, syncPublicGrid } from '../../utils/publicAccount';
+import type { ReleaseCandidateProvenance } from '../../utils/approvedBoardProvenance';
 import styles from './ActorPreflightLab.module.css';
 
 type AnyRecord = Record<string, any>;
@@ -13,7 +14,8 @@ type BoardDiagnostic = { available?: boolean; completeProposalAvailable?: boolea
 
 type RunnerUpDiagnostic = { available?: boolean; minimumCardDifference?: number; qualifiedProposalCount?: number; meaningfulAlternativeCount?: number; rejectedForCardOverlap?: number; rejectedForSameArgument?: number; summary?: string };
 type AuditContract = { status?: 'current'|'legacy'; isCurrent?: boolean; isLegacy?: boolean; legacyReasons?: string[]; currentVersions?: AnyRecord };
-type Run = AnyRecord & { runId?: string; scope?: string; curationVersion?: number; identityProfileVersion?: number; aestheticClusterVersion?: number; promiseContractVersion?: number; queryRuns?: AnyRecord[]; rawResults?: AnyRecord[]; rejections?: AnyRecord[]; identityEvidence?: AnyRecord; detectedEvents?: AnyRecord[]; boardDiagnostics?: { event?: BoardDiagnostic; compiled?: BoardDiagnostic }; runnerUpDiagnostics?: { event?: RunnerUpDiagnostic; compiled?: RunnerUpDiagnostic }; partialClusters?: AnyRecord[]; strongestEvent?: AnyRecord; strongestCompiled?: AnyRecord; winner?: AnyRecord; alternate?: AnyRecord; curationReceipt?: AnyRecord; blindReview?: BlindReview; auditContract?: AuditContract };
+type Run = AnyRecord & { runId?: string; scope?: string; curationVersion?: number; identityProfileVersion?: number; aestheticClusterVersion?: number; promiseContractVersion?: number; queryRuns?: AnyRecord[]; rawResults?: AnyRecord[]; rejections?: AnyRecord[]; identityEvidence?: AnyRecord; detectedEvents?: AnyRecord[]; boardDiagnostics?: { event?: BoardDiagnostic; compiled?: BoardDiagnostic }; runnerUpDiagnostics?: { event?: RunnerUpDiagnostic; compiled?: RunnerUpDiagnostic }; partialClusters?: AnyRecord[]; strongestEvent?: AnyRecord; strongestCompiled?: AnyRecord; winner?: AnyRecord; alternate?: AnyRecord; rescueDraft?: AnyRecord; preflightOutcome?: AnyRecord; missingEvidenceSearchSuggestions?: AnyRecord[]; curationReceipt?: AnyRecord; blindReview?: BlindReview; auditContract?: AuditContract };
+const HARD_BLOCKING_DROP_REASONS = new Set(['content_policy','rights_prohibited','safety_prohibited','confirmed_wrong_identity']);
 
 function confirmsCompleteProposal(diagnostic?: BoardDiagnostic) {
   return Boolean(
@@ -26,6 +28,19 @@ function confirmsCompleteProposal(diagnostic?: BoardDiagnostic) {
   );
 }
 
+function completeProposalCardCount(run?: Run|null) {
+  if (Number.isFinite(Number(run?.completeProposalCardCount))) {
+    return Number(run?.completeProposalCardCount);
+  }
+  return Math.max(
+    0,
+    ...Object.values(run?.boardDiagnostics ?? {}).map(diagnostic =>
+      confirmsCompleteProposal(diagnostic) && Array.isArray(diagnostic?.proposal?.candidates)
+        ? diagnostic.proposal.candidates.length
+        : 0),
+  );
+}
+
 type RescueExport = {
   gridId: string;
   runId: string;
@@ -34,7 +49,8 @@ type RescueExport = {
   exportedAt: string;
   actor: { id: string; name: string; nameEn: string; accentColor: string };
   vibe: { key: string; label: string; labelEn: string; emoji: string; subtitle: string; subtitleEn: string; searchSpell: string };
-  candidates: Array<{ candidateId: string; query?: string; title?: string; source?: string; link?: string; thumbnail?: string }>;
+  releaseCandidateProvenance?: ReleaseCandidateProvenance;
+  candidates: Array<{ candidateId: string; query?: string; title?: string; source?: string; link?: string; thumbnail?: string; batchRank?: number | null }>;
 };
 const EMPTY_RECORDS: AnyRecord[] = [];
 
@@ -129,7 +145,7 @@ export const ActorPreflightLab: React.FC = () => {
   }
   async function saveBlindChoice(choice:'event'|'compiled'|'neither') { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy('blind-choice'); setNotice(''); try { const result=await api({action:'blind_choice',actorId,vibeKey,runId:currentRun.runId,choice}); applyRefresh(result); setRun(result.currentRun ?? null); setCurrentRun(result.currentRun ?? null); setPriorRuns(result.priorRuns ?? []); setDisagreementReasons(result.currentRun?.blindReview?.reasonCodes ?? []); setEditorialNote(result.currentRun?.blindReview?.note ?? ''); setNotice('Independent choice recorded. The system result is now revealed.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function saveDisagreement(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy('reasons'); setNotice(''); try { const result=await api({action:'blind_reasons',actorId,vibeKey,runId:currentRun.runId,reasonCodes:disagreementReasons,note:editorialNote}); applyRefresh(result); setRun(result.currentRun ?? null); setCurrentRun(result.currentRun ?? null); setPriorRuns(result.priorRuns ?? []); setDisagreementReasons(result.currentRun?.blindReview?.reasonCodes ?? disagreementReasons); setEditorialNote(result.currentRun?.blindReview?.note ?? editorialNote); setNotice('Editorial calibration notes saved.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
-  async function saveVerdict(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!verdict)return; setBusy('verdict'); setNotice(''); try { const approved=verdict==='approved'; const operatorBoardRequired=currentRun.blindReview?.status==='unavailable'; const useRescueBoard=approved&&(operatorBoardRequired||rescuePreferred); const result=await api({action:'verdict',actorId,vibeKey,runId:currentRun.runId,verdict,notes,vibeConfirmed:approved&&vibeConfirmed,publishableConfirmed:approved&&publishableConfirmed,rescuePreferred:useRescueBoard,rescueReceiptId:useRescueBoard?preferredRescueReceiptId:undefined}); applyRefresh(result); const next=result.currentRun ?? currentRun; const preference=next?.operatorVerdict?.rescuePreference; const publicationSource=next?.operatorVerdict?.publicationSource; setRun(next); setCurrentRun(next); setVerdict(result.verdict ?? verdict); setNotes(result.notes ?? notes); setRescuePreferred(preference?.preferred === true); setPreferredRescueReceiptId(preference?.rescueReceiptId ?? ''); setNotice(approved?(publicationSource?.type==='operator_rescue'?'Exact nine-card retained-evidence board approved for publication with both human confirmations.':preference?.preferred?'Curator result approved as publishable. Your separate rescue preference was recorded.':'Curator result approved as publishable with both human confirmations.'):'Verdict saved to the curation ledger.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
+  async function saveVerdict(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!verdict)return; setBusy('verdict'); setNotice(''); try { const approved=verdict==='approved'; const operatorBoardRequired=currentRun.blindReview?.status==='unavailable'; const useRescueBoard=approved&&(operatorBoardRequired||rescuePreferred); const result=await api({action:'verdict',actorId,vibeKey,runId:currentRun.runId,verdict,notes,vibeConfirmed:approved&&vibeConfirmed,publishableConfirmed:approved&&publishableConfirmed,rescuePreferred:useRescueBoard,rescueReceiptId:useRescueBoard?preferredRescueReceiptId:undefined}); applyRefresh(result); const next=result.currentRun ?? currentRun; const preference=next?.operatorVerdict?.rescuePreference; const publicationSource=next?.operatorVerdict?.publicationSource; setRun(next); setCurrentRun(next); setVerdict(result.verdict ?? verdict); setNotes(result.notes ?? notes); setRescuePreferred(preference?.preferred === true); setPreferredRescueReceiptId(preference?.rescueReceiptId ?? ''); const collectionNotice=publicationSource?.type==='operator_rescue' ? ` ${await saveRescueReceiptToCollection(next.runId,publicationSource.rescueReceiptId)}` : ''; setNotice(approved?(publicationSource?.type==='operator_rescue'?`Exact nine-card retained-evidence board approved for publication with both human confirmations.${collectionNotice}`:preference?.preferred?'Curator result approved as publishable. Your separate rescue preference was recorded.':'Curator result approved as publishable with both human confirmations.'):'Verdict saved to the curation ledger.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function publishBackfill(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!backfillDate)return; setBusy('backfill'); setNotice(''); try { const receiptId=run?.operatorVerdict?.publicationSource?.type==='operator_rescue'?run.operatorVerdict.publicationSource.rescueReceiptId:preferredRescueReceiptId; const result=await api({action:'publish_backfill',actorId,vibeKey,runId:currentRun.runId,rescueReceiptId:receiptId,date:backfillDate}); setNotice(result.backfill?.status==='already_published'?`The ${backfillDate} edition was already published with this exact board.`:`The approved board is now published as the ${backfillDate} Daily Drop edition.`); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function saveCandidateFlag(candidateId:string,flagged:boolean,intent='pin',reasons:string[]=[] ) { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy(`flag:${candidateId}`); setNotice(''); try { const result=await api({action:'flag_candidate',actorId,vibeKey,runId:currentRun.runId,candidateId,flagged,intent,reasons}); applyRefresh(result); const next=result.currentRun ?? currentRun; setRun(next); setCurrentRun(next); setPriorRuns(result.priorRuns ?? priorRuns); setNotice(flagged?'Image-level editorial intent saved. Safety gates still apply.':'Image annotation removed from the requested grid review.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function saveRescueBoard(candidateIds:string[]) {
@@ -184,6 +200,22 @@ export const ActorPreflightLab: React.FC = () => {
       return true;
     } catch(e:any){setNotice(e.message);return false} finally{setBusy('')}
   }
+  async function retireRescueSignal(receiptId:string,signalFamily:string,signalValue:string,reason:string) {
+    const busyKey=`signal-retirement:${receiptId}:${signalFamily}:${signalValue}`;
+    setBusy(busyKey); setNotice('');
+    try {
+      const selectedRunId=run?.runId;
+      const result=await api({action:'retire_rescue_signal',actorId,vibeKey,receiptId,signalFamily,signalValue,reason});
+      applyRefresh(result);
+      const nextCurrent=result.currentRun ?? currentRun;
+      const nextPrior=result.priorRuns ?? priorRuns;
+      setCurrentRun(nextCurrent);
+      setPriorRuns(nextPrior);
+      setRun(selectedRunId===nextCurrent?.runId?nextCurrent:nextPrior.find((item:Run)=>item.runId===selectedRunId)??run);
+      setNotice('Signal retired with an immutable receipt. Future curation will ignore that signal and a fresh audit is required.');
+      return true;
+    } catch(e:any){setNotice(e.message);return false} finally{setBusy('')}
+  }
   async function saveRescueReceiptToCollection(runId:string,receiptId:string) {
     const result=await api({action:'export_rescue_board',actorId,vibeKey,runId,receiptId});
     const grid=collectionGridFromRescueExport(result.rescueExport);
@@ -219,10 +251,13 @@ export const ActorPreflightLab: React.FC = () => {
   const disagreementNeedsReasons = Boolean(review?.choice && review.agreement !== true && !review.reasonCodes?.length);
   const savedRescueBoards = (currentRun?.editorialFeedback?.operatorRescueBoards ?? EMPTY_RECORDS) as AnyRecord[];
   const operatorPublication = run?.operatorVerdict?.publicationSource?.type === 'operator_rescue';
-  const singleCuratedBoardAvailable = review?.status === 'unavailable' && [
-    run?.strongestEvent,
-    run?.strongestCompiled,
-  ].filter((board:any)=>Array.isArray(board?.candidates)&&board.candidates.length>=9).length===1;
+  const singleCuratedBoardAvailable = review?.status === 'unavailable' && ([
+    ['event',run?.strongestEvent],
+    ['compiled',run?.strongestCompiled],
+  ] as const).filter(([mode,board])=>
+    run?.boardDiagnostics?.[mode]?.available===true
+    && Array.isArray(board?.candidates)
+    && board.candidates.length>=9).length===1;
   const operatorBoardCandidate = review?.status === 'unavailable' && savedRescueBoards.length > 0;
   const requiresFreshAudit = Boolean(run?.auditContract?.isLegacy) || (selectedIsCurrent && pairing?.auditState === 'calibration_reaudit_required' && !operatorPublication && !operatorBoardCandidate);
   const currentRunIsLegacy = Boolean(currentRun?.auditContract?.isLegacy);
@@ -240,7 +275,7 @@ export const ActorPreflightLab: React.FC = () => {
       <aside className={styles.rail} aria-label="Actor selector"><button className={styles.railToggle} type="button" aria-expanded={railOpen} aria-label={railOpen ? 'Collapse actor register' : 'Expand actor register'} onClick={()=>setRailOpen(open=>!open)}>{railOpen ? '‹' : '›'}</button><div className={styles.railHead}><strong>Actor register</strong><span>{actors.length} profiles · profile versions retained</span></div><div className={styles.actorList}>{actors.map(item=><button className={styles.actorButton} data-selected={item.actorId===actorId} key={item.actorId} onClick={()=>{setActorId(item.actorId);setVibeKey(item.pairings?.[0]?.vibeKey??'')}}><strong>{item.canonicalName}</strong><small>{item.romanizedName ?? item.actorId} · v{item.profileVersion ?? '—'}</small></button>)}</div></aside>
        <main className={styles.detail}>{!actor?<div className={styles.empty}>No actor profiles returned.</div>:<><section className={`${styles.panel} ${styles.detailPanel}`}><div className={styles.detailHead}><div><p className={styles.eyebrow}>Selected profile</p><h4>{actor.canonicalName}</h4><p>{actor.romanizedName} · aliases: {text(actor.aliases)}</p></div><span className={styles.muted}>Profile v{actor.profileVersion ?? '—'}</span></div><div className={styles.pairingStrip}>{(actor.pairings??[]).map(item=><button className={styles.pairing} data-selected={item.vibeKey===vibeKey} key={item.vibeKey} onClick={()=>setVibeKey(item.vibeKey)}><strong>{text(item.labels) || item.vibeKey}</strong><span className={styles.state} data-state={item.auditState}>{item.auditState==='needs_reapproval' ? 'Needs reapproval' : item.auditState==='calibration_reaudit_required' ? 'Calibration reaudit required' : item.verdict ?? item.auditState ?? 'unreviewed'}</span><small>{item.queryCount ?? 0} queries · {date(item.lastRunAt)}</small></button>)}</div><div className={styles.controls}><button className={`${styles.buttonPrimary} ${currentRunIsLegacy?styles.freshAuditButton:''}`} disabled={!vibeKey||!!busy} onClick={()=>void startAudit(scope)}>{busy ? 'Running evidence pass…' : currentRunIsLegacy ? 'Run fresh audit' : 'Run audit'}</button><select className={styles.select} value={scope} onChange={e=>setScope(e.target.value)} aria-label="Audit scope"><option value="representative">Representative scope</option><option value="full">Full scope</option></select><span className={styles.status}>{pairing?.auditState==='blind_review_pending'?'Calibration pending':pairing?.auditState==='calibration_reaudit_required'?'Calibration reaudit required':pairing?.auditState==='needs_reapproval'?'Fresh audit required':pairing?.eligible===false?'Not eligible for scheduling':'Eligible for review'}</span></div></section>
          <section className={styles.panel}>
-           {calibrationProfile&&<CalibrationProfileSummary profile={calibrationProfile} busy={busy} onRetireCalibration={retireRescueCalibration}/>}
+           {calibrationProfile&&<><CalibrationProfileSummary profile={calibrationProfile} busy={busy} onRetireCalibration={retireRescueCalibration}/><CalibrationTransferSummary profile={calibrationProfile} busy={busy} onRetireSignal={retireRescueSignal}/></>}
           <div className={styles.grid}>
             <InfoCard title="Identity profile" data={actor} keys={['commonCollisions','representativeWorks','knownContamination','productStockMeanings','trustedSourcePatterns','problematicSourcePatterns']} />
             <RunEvidence
@@ -278,7 +313,14 @@ export const ActorPreflightLab: React.FC = () => {
 };
 
 function InfoCard({title,data,keys}:{title:string;data:AnyRecord;keys:string[]}) { return <article className={`${styles.card} ${styles.cardWide}`}><h5>{title}</h5><div className={styles.grid}>{keys.map(key=><div key={key}><p className={styles.muted}>{key.replace(/[A-Z]/g,m=>` ${m}`).toUpperCase()}</p><div className={styles.chips}>{(Array.isArray(data[key])?data[key]:[data[key]]).filter(Boolean).map((item:any,index:number)=><span className={styles.chip} key={index}>{text(item)}</span>)}</div></div>)}</div></article>; }
-function CalibrationProfileSummary({profile,busy,onRetireCalibration}:{profile:AnyRecord;busy:string;onRetireCalibration:(receiptId:string,reason:string)=>Promise<boolean>}) {
+ function CalibrationTransferSummary({profile,busy,onRetireSignal}:{profile:AnyRecord;busy:string;onRetireSignal:(receiptId:string,signalFamily:string,signalValue:string,reason:string)=>Promise<boolean>}) {
+   const receipts=profile.transferSummary?.byReceipt??EMPTY_RECORDS;
+   const [retiringKey,setRetiringKey]=useState('');
+   const [reason,setReason]=useState('');
+   if(!receipts.length)return <section className={styles.calibrationProfile} aria-label="Calibration transfer outcomes"><div><h5>Transfer outcomes</h5><p>No fresh calibration transfer attempts have been recorded yet.</p></div></section>;
+   return <section className={styles.calibrationProfile} aria-label="Calibration transfer outcomes"><div><h5>Transfer outcomes</h5><p>{profile.transferSummary.attemptCount??0} fresh audit attempt{profile.transferSummary.attemptCount===1?'':'s'} · {profile.transferSummary.transferred??0} transferred · {profile.transferSummary.rejected??0} rejected by a safety gate · {profile.transferSummary.notTransferred??0} did not transfer.</p><p>These counts are append-only diagnostics per rescue receipt and signal. A retirement removes only the selected signal from future curation; the original rescue and outcome receipts remain available.</p></div><div className={styles.calibrationLedger}>{receipts.map((receipt:any)=><article key={receipt.sourceRescueReceiptId}><strong>Receipt {String(receipt.sourceRescueReceiptId).slice(0,8)} · {receipt.status}</strong><p>{receipt.transferred} transferred · {receipt.rejected} rejected · {receipt.notTransferred} not transferred</p><div className={styles.chips}>{(receipt.signalFamilies??[]).map((signal:any)=>{const key=`${receipt.sourceRescueReceiptId}:${signal.signalFamily}:${signal.signalValue}`;return <span className={styles.chip} key={key}>{signal.signalFamily}: {signal.signalValue} · {signal.status} · {signal.attempts} attempt{signal.attempts===1?'':'s'}{signal.retired?' · retired':''}{!signal.retired&&receipt.status!=='retired'&&<button type="button" className={styles.buttonDanger} disabled={Boolean(busy)} onClick={()=>{setRetiringKey(key);setReason('')}}>Retire signal</button>}{retiringKey===key&&!signal.retired&&<form className={styles.retirementForm} onSubmit={async event=>{event.preventDefault();if(!reason.trim())return;const saved=await onRetireSignal(receipt.sourceRescueReceiptId,signal.signalFamily,signal.signalValue,reason);if(saved){setRetiringKey('');setReason('')}}}><label className={styles.label}>Why should future audits ignore this {signal.signalFamily}?<textarea className={`${styles.input} ${styles.textarea}`} value={reason} maxLength={1000} required onChange={event=>setReason(event.target.value)} placeholder="Describe the repeated transfer or rejection problem." /></label><div className={styles.rescueActions}><button type="submit" className={styles.buttonDanger} disabled={Boolean(busy)||!reason.trim()}>{busy===`signal-retirement:${key}`?'Retiring signal…':'Create retirement receipt'}</button><button type="button" className={styles.buttonSecondary} disabled={Boolean(busy)} onClick={()=>{setRetiringKey('');setReason('')}}>Cancel</button></div></form>}</span>})}</div></article>)}</div></section>;
+ }
+ function CalibrationProfileSummary({profile,busy,onRetireCalibration}:{profile:AnyRecord;busy:string;onRetireCalibration:(receiptId:string,reason:string)=>Promise<boolean>}) {
   const exclusions=profile.diagnostics?.exclusions??EMPTY_RECORDS;
   const evidence=profile.evidenceLedger??EMPTY_RECORDS;
   const [retiringReceiptId,setRetiringReceiptId]=useState<string|null>(null);
@@ -300,6 +342,7 @@ function RunEvidence({
   const rawResults = Array.isArray(run?.rawResults) ? run.rawResults : [];
   const unavailableIds = new Set((run?.rejections ?? []).filter((entry:AnyRecord)=>entry.kind==='image'&&entry.reason==='image_load_failed').map((entry:AnyRecord)=>entry.candidateId));
   const displayableCount = rawResults.filter((item:AnyRecord)=>item.thumbnail&&!unavailableIds.has(item.candidateId)).length;
+  const proposedCardCount = completeProposalCardCount(run);
   const sections: Array<[string, unknown]>=[['Query ladder',run?.queryRuns],['Bounded raw results',run?.rawResults],['Rejection ledger',run?.rejections],['Identity evidence',run?.identityEvidence],['Detected event families',run?.detectedEvents],['Strongest Event board',run?.strongestEvent],['Strongest Compiled board',run?.strongestCompiled],['Winner',run?.winner],['Alternate',run?.alternate],['Operator-derived curation signals',run?.curationReceipt?.calibrationSignals],['Calibration transfer proof',run?.calibrationProof],['Curation receipt',run?.curationReceipt],['Blind calibration receipt',run?.blindReview],['Scheduling verdict',run?.operatorVerdict]];
   const boards = review?.boards ?? [];
   const disagreed = revealed && review?.agreement !== true;
@@ -307,8 +350,8 @@ function RunEvidence({
     <h5>{isLegacy?'Legacy audit · retained history':'Audit evidence'} {run?.runId?`· ${run.runId}`:''}</h5>
     {run ? <>
       {isLegacy&&<section className={styles.legacyAudit} role="status"><div className={styles.legacyAuditHeader}><span className={styles.legacyBadge}>Legacy audit</span><strong>Retained history — invalid under the current profile contract</strong></div><p>This board is preserved as historical evidence only. It cannot establish Daily Drop eligibility. Run a fresh audit to evaluate the current identity, cluster, promise, and curation versions.</p>{run.auditContract?.legacyReasons?.length?<small>Contract changes: {run.auditContract.legacyReasons.map(reason=>reason.replaceAll('_',' ')).join(' · ')}</small>:null}</section>}
-      <p className={styles.muted}>{run.scope} scope · started {date(run.startedAt)} · completed {date(run.completedAt)} · identity v{run.identityProfileVersion ?? '—'} · cluster v{run.aestheticClusterVersion ?? '—'} · promise v{run.promiseContractVersion ?? '—'} · curation v{run.curationVersion ?? run.curationReceipt?.curationVersion ?? run.curationReceipt?.version ?? '—'}</p>
-       {review?.status === 'unavailable' ? <section className={styles.boardUnavailable}><strong>Blind comparison unavailable</strong><p>{[run?.strongestEvent,run?.strongestCompiled].filter((board:any)=>Array.isArray(board?.candidates)&&board.candidates.length>=9).length===1?'This run produced one automatically qualified nine-card board. It can be approved for publication after both human confirmations; a second board is preferred for range, not required.':Object.values(run?.boardDiagnostics??{}).some((diagnostic:any)=>confirmsCompleteProposal(diagnostic))?'This run formed a complete nine-card proposal, but an automated publication gate did not pass. Review any retained proposal below, then replace its hero or reorder retained evidence in the operator board.':'This run did not form a complete nine-card proposal. Use the retained evidence to choose a rejection, query-work verdict, or save an exact nine-card board for publication.'}</p><BoardQualificationSummary run={run} /><PromisingPartialClusters run={run} /><PartialBoards run={run} /><RunnerUpDiagnostics run={run} /></section> : <section className={`${styles.boardReview} ${isLegacy?styles.legacyBoardReview:''}`} aria-label={isLegacy?'Historical visual board comparison':'Visual board comparison'}>
+      <p className={styles.muted}>{run.scope} scope · {String(run.preflightOutcome?.state ?? run.suggestedState ?? 'unclassified').replaceAll('_',' ')} · started {date(run.startedAt)} · completed {date(run.completedAt)} · identity v{run.identityProfileVersion ?? '—'} · cluster v{run.aestheticClusterVersion ?? '—'} · promise v{run.promiseContractVersion ?? '—'} · curation v{run.curationVersion ?? run.curationReceipt?.curationVersion ?? run.curationReceipt?.version ?? '—'}</p>
+       {review?.status === 'unavailable' ? <section className={styles.boardUnavailable}><strong>Blind comparison unavailable</strong><p>{Object.values(run?.boardDiagnostics??{}).filter((diagnostic:any)=>diagnostic?.available===true).length===1?'This run produced one automatically qualified nine-card board. It can be approved for publication after both human confirmations; a second board is preferred for range, not required.':Object.values(run?.boardDiagnostics??{}).some((diagnostic:any)=>confirmsCompleteProposal(diagnostic))?'This run formed a complete nine-card proposal, but an automated publication gate did not pass. Review any retained proposal below, then replace its hero or reorder retained evidence in the operator board.':'This run did not form a complete nine-card proposal. Use the retained evidence to choose a rejection, query-work verdict, or save an exact nine-card board for publication.'}</p><BoardQualificationSummary run={run} /><PromisingPartialClusters run={run} /><PartialBoards run={run} /><RunnerUpDiagnostics run={run} /></section> : <section className={`${styles.boardReview} ${isLegacy?styles.legacyBoardReview:''}`} aria-label={isLegacy?'Historical visual board comparison':'Visual board comparison'}>
         <div className={styles.boardReviewHeader}>
           <div><h6>{revealed ? 'Independent choice recorded' : 'Blind board review'}</h6><p>{revealed ? `You chose ${review?.choice === 'neither' ? 'Neither' : review?.choice}. This result is frozen for this audit run.` : 'Both boards are equal-sized. Their left/right order is fixed for this run.'}</p></div>
           {revealed && <div className={styles.revealBadges}><span className={styles.winnerBadge}>System winner: {review?.systemWinner}</span><span className={review?.agreement ? styles.agreeBadge : styles.disagreeBadge}>{review?.agreement ? 'You agreed' : 'You disagreed'}</span></div>}
@@ -329,7 +372,7 @@ function RunEvidence({
         </form>}
         {disagreed && isCurrent && run.operatorVerdict && <p className={styles.historicalNotice}>The scheduling receipt is finalized, so its calibration reasons stay frozen. Image-level pins and exclusions below remain editable as separate review receipts.</p>}
       </section>}
-      {evidenceAvailable && <><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{run.displayCount ?? 0}</strong><span>automatically qualified publication cards</span><strong>{run.queryCount ?? run.queryRuns?.length ?? 0}</strong><span>queries audited</span><strong>{rawResults.length}</strong><span>retained results</span></div><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration}/><div className={styles.evidence}>{sections.map(([label,value])=><details key={label}><summary>{label} <span className={styles.muted}>{Array.isArray(value)?`${value.length} records`:''}</span></summary>{label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} busy={busy} onFlag={onFlag}/> : <pre>{text(value)}</pre>}</details>)}</div></>}
+      {evidenceAvailable && <><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{proposedCardCount}</strong><span>complete proposal cards</span><strong>{run.displayCount ?? 0}</strong><span>automatically publication-ready cards</span><strong>{run.queryCount ?? run.queryRuns?.length ?? 0}</strong><span>queries audited</span><strong>{rawResults.length}</strong><span>retained results</span></div><CalibrationLearningSummary run={run}/><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration}/><div className={styles.evidence}>{sections.map(([label,value])=><details key={label}><summary>{label} <span className={styles.muted}>{Array.isArray(value)?`${value.length} records`:''}</span></summary>{label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} busy={busy} onFlag={onFlag}/> : <pre>{text(value)}</pre>}</details>)}</div></>}
     </> : <p className={styles.empty}>Run an audit to open a blinded Event versus Compiled comparison.</p>}
     {currentRun&&<label className={styles.label}>Audit run<select className={styles.select} value={run?.runId ?? ''} onChange={e=>{const selected=[currentRun,...priorRuns].find(item=>item.runId===e.target.value);if(selected)onSelect(selected)}}><option value={currentRun.runId}>{currentRun.auditContract?.isLegacy?'Legacy history':'Current'} · {currentRun.runId} · {date(currentRun.completedAt)}</option>{priorRuns.map(item=><option key={item.runId} value={item.runId}>{item.auditContract?.isLegacy?'Legacy history':'Retained'} · {item.runId} · {date(item.completedAt)}</option>)}</select></label>}
   </article>;
@@ -369,6 +412,9 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
   const feedback=run.editorialFeedback;
   const flags=feedback?.flags??EMPTY_RECORDS;
   const review=feedback?.requestedReview;
+  const retainedProposal=run.boardDiagnostics?.compiled?.proposal
+    ?? run.boardDiagnostics?.event?.proposal
+    ?? null;
   const saved=feedback?.operatorRescueBoard;
   const savedReceipts=useMemo<AnyRecord[]>(()=>{
     const receipts=Array.isArray(feedback?.operatorRescueBoards)?feedback.operatorRescueBoards:[];
@@ -380,8 +426,8 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
   const unavailableIds=useMemo(()=>{
     const unavailable=new Set<string>();
     for(const item of rawResults)if(!item.thumbnail)unavailable.add(item.candidateId);
-    for(const item of run.curationReceipt?.rawCandidates??[])if(item.dropReason==='image_load_failed')unavailable.add(item.candidateId);
-    for(const item of run.rejections??[])if(item.kind==='image'&&item.reason==='image_load_failed')unavailable.add(item.candidateId);
+    for(const item of run.curationReceipt?.rawCandidates??[])if(item.dropReason==='image_load_failed'||HARD_BLOCKING_DROP_REASONS.has(item.dropReason))unavailable.add(item.candidateId);
+    for(const item of run.rejections??[])if(item.kind==='image'&&(item.reason==='image_load_failed'||HARD_BLOCKING_DROP_REASONS.has(item.reason)))unavailable.add(item.candidateId);
     return unavailable;
   },[rawResults,run.curationReceipt?.rawCandidates,run.rejections]);
   const candidatePool=useMemo<AnyRecord[]>(()=>{
@@ -391,12 +437,14 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
       .map(item=>{const analyzed=analyzedById.get(item.candidateId);return {...item,...(analyzed??{}),link:analyzed?.link||item.link,thumbnail:item.thumbnail};});
   },[rawResults,run.curationReceipt?.rawCandidates,excludedIds,unavailableIds]);
   const poolIds=useMemo(()=>new Set(candidatePool.map(item=>item.candidateId)),[candidatePool]);
-  const reviewCandidates=review?.board?.candidates;
-  const initialCandidates=useMemo<AnyRecord[]>(()=>((review
+  const reviewCandidates=review?.board?.candidates ?? retainedProposal?.candidates ?? run.rescueDraft?.candidates;
+  const initialCandidates=useMemo<AnyRecord[]>(()=>(((review || retainedProposal || run.rescueDraft)
     ? reviewCandidates
     : [])??[]).filter((item:any)=>poolIds.has(item.candidateId)).slice(0,9) as AnyRecord[],[
     review,
     reviewCandidates,
+    retainedProposal,
+    run.rescueDraft,
     poolIds,
   ]);
   const [candidates,setCandidates]=useState<AnyRecord[]>(initialCandidates);
@@ -439,18 +487,26 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
     </section>}
     <div className={styles.rescuePickerHeader}><strong>Choose your nine</strong><span>Click an image to {candidates.length===9?'remove it before choosing another':'add or remove it'}.</span></div>
     <div className={styles.rescuePicker}>{candidatePool.map(item=>{const selectedIndex=candidates.findIndex(candidate=>candidate.candidateId===item.candidateId);const selected=selectedIndex>=0;return <button type="button" className={selected?styles.rescuePickSelected:styles.rescuePick} aria-pressed={selected} disabled={!selected&&candidates.length>=9} onClick={()=>toggleCandidate(item)} key={item.candidateId}><img src={item.thumbnail} alt={item.title||'Retained rescue candidate'}/><span>{selected?`Chosen ${selectedIndex+1}`:'Add'}</span></button>;})}</div>
-    {candidates.length>0?<div className={styles.rescueGrid}>{candidates.map((item,index)=><article className={styles.rescueTile} data-hero={index===4} key={item.candidateId}><a href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.thumbnail?<img src={item.thumbnail} alt={item.title||`Rescue card ${index+1}`}/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{index===4?'Hero · ':''}{item.title||`Card ${index+1}`}</span></a><div><button type="button" disabled={index===0} onClick={()=>move(index,-1)} aria-label={`Move card ${index+1} earlier`}>←</button><button type="button" disabled={candidates.length<5||index===4} onClick={()=>setHero(index)} aria-label={`Make card ${index+1} the hero`}>Hero</button><button type="button" disabled={index===candidates.length-1} onClick={()=>move(index,1)} aria-label={`Move card ${index+1} later`}>→</button></div></article>)}</div>:<p className={styles.boardEmpty}>Choose the first image for this rescue board.</p>}
+    {candidates.length>0?<div className={styles.rescueGrid} aria-label="Editable rescue board">{candidates.map((item,index)=><article className={styles.rescueTile} data-hero={index===4} key={item.candidateId}><a href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.thumbnail?<img src={item.thumbnail} alt={item.title||`Rescue card ${index+1}`}/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{index===4?'Hero · ':''}{item.title||`Card ${index+1}`}</span></a><div><button type="button" disabled={index===0} onClick={()=>move(index,-1)} aria-label={`Move card ${index+1} earlier`}>←</button><button type="button" disabled={candidates.length<5||index===4} onClick={()=>setHero(index)} aria-label={`Make card ${index+1} the hero`}>Hero</button><button type="button" disabled={index===candidates.length-1} onClick={()=>move(index,1)} aria-label={`Move card ${index+1} later`}>→</button></div></article>)}</div>:<p className={styles.boardEmpty}>Choose the first image for this rescue board.</p>}
     <div className={styles.rescueActions}><button type="button" className={styles.buttonPrimary} disabled={!isCurrent||busy==='rescue-board'||candidates.length!==9} onClick={()=>onSave(candidates.map(item=>item.candidateId))}>{busy==='rescue-board'?'Saving board to Collection…':candidates.length===9?'Save my nine to Collection':'Choose nine to save'}</button><button type="button" className={styles.buttonSecondary} disabled={!candidates.length} onClick={()=>setCandidates([])}>Clear board</button>{savedMatchesCurrentFeedback&&saved&&<><button type="button" className={styles.buttonSecondary} disabled={!isCurrent||Boolean(busy)} onClick={()=>onExport(saved.receiptId)}>{busy==='export-rescue-board'?'Retrying Collection save…':'Retry Collection save'}</button><span>Last saved {date(saved.savedAt)} by {saved.savedBy}</span></>}</div>
-    {review?.board&&<p className={styles.requestedSummary}>The suggested starting arrangement is editable. Your saved nine are the operator override.</p>}
+    {(review?.board||retainedProposal)&&<p className={styles.requestedSummary}>The suggested starting arrangement is editable. Your saved nine are the operator override.</p>}
     {blockedCount>0&&<div className={styles.blockedFlags}>{[...unavailableIds].map(candidateId=>{const item=rawResults.find(candidate=>candidate.candidateId===candidateId);return <span key={candidateId}><strong>{item?.title||candidateId}</strong> is unavailable because the audit could not load a usable image from its retained URL.</span>;})}</div>}
   </section>;
 }
 
 function PartialBoards({run}:{run:Run}) {
-  const boards = [
-    run.strongestEvent ? { label: 'Event qualified board', board: run.strongestEvent } : run.boardDiagnostics?.event?.proposal ? { label: 'Event complete proposal · automated gate not passed', board: run.boardDiagnostics.event.proposal } : null,
-    run.strongestCompiled ? { label: 'Compiled qualified board', board: run.strongestCompiled } : run.boardDiagnostics?.compiled?.proposal ? { label: 'Compiled complete proposal · automated gate not passed', board: run.boardDiagnostics.compiled.proposal } : null,
-  ].filter(Boolean) as Array<{label:string;board:AnyRecord}>;
+  const boards = (['event','compiled'] as const).map(mode => {
+    const diagnostic=run.boardDiagnostics?.[mode];
+    const board=run[mode==='event'?'strongestEvent':'strongestCompiled']??diagnostic?.proposal;
+    if(!board)return null;
+    const modeLabel=mode==='event'?'Event':'Compiled';
+    const label=diagnostic?.available===true
+      ? `${modeLabel} qualified board`
+      : mode==='compiled'&&diagnostic?.reasonCode==='hero_not_fulfilled'
+        ? 'Compiled complete board · Hero review needed'
+        : `${modeLabel} complete proposal · automated gate not passed`;
+    return {label,board};
+  }).filter(Boolean) as Array<{label:string;board:AnyRecord}>;
    if (!boards.length) return Object.values(run.boardDiagnostics??{}).some(diagnostic=>confirmsCompleteProposal(diagnostic))
      ? <p className={styles.boardEmpty}>This historical receipt confirms that a complete nine-card proposal formed, but the older audit format did not retain its exact arrangement. Rerun the audit to preserve proposed boards, or arrange the 36 retained images below.</p>
      : <p className={styles.boardEmpty}>No complete nine-card proposal formed.</p>;
@@ -482,8 +538,61 @@ function BoardQualificationSummary({run}:{run:Run}) {
     const diagnostic = diagnostics[mode];
     const available = diagnostic?.available ?? Boolean(run[mode === 'event' ? 'strongestEvent' : 'strongestCompiled']);
     const completeProposal = confirmsCompleteProposal(diagnostic);
-    return <div className={styles.boardQualificationRow} key={mode}><strong>{available ? `${label} board automatically qualified` : completeProposal ? `${label} complete proposal · automated gate not passed` : `${label} proposal missing`}</strong><span>{available ? `${diagnostic?.candidateCount ?? 9} usable frames qualified.` : diagnostic?.summary || `No complete ${label} proposal formed.`}</span>{completeProposal&&!diagnostic?.proposal&&<small>Exact arrangement not retained by this older audit receipt; rerun to preserve it.</small>}</div>;
+    const heroReviewNeeded = diagnostic?.reasonCode === 'hero_not_fulfilled' && completeProposal;
+    return <div className={styles.boardQualificationRow} data-condition={heroReviewNeeded?'hero-review-needed':available?'qualified':completeProposal?'review-needed':'missing'} key={mode}><strong>{available ? `${label} board automatically qualified` : heroReviewNeeded ? `${label} complete board · Hero review needed` : completeProposal ? `${label} complete proposal · automated gate not passed` : `${label} proposal missing`}</strong><span>{available ? `${diagnostic?.candidateCount ?? 9} usable frames qualified.` : diagnostic?.summary || `No complete ${label} proposal formed.`}</span>{completeProposal&&!diagnostic?.proposal&&<small>Exact arrangement not retained by this older audit receipt; rerun to preserve it.</small>}</div>;
   })}</div>;
+}
+
+function CalibrationLearningSummary({run}:{run:Run}) {
+  const ranking = run.calibrationQueryRanking;
+  const signals = run.curationReceipt?.calibrationSignals;
+  const proof = run.calibrationProof;
+  const learnedQueries = Array.isArray(ranking?.learnedQueries)
+    ? ranking.learnedQueries
+    : Array.isArray(signals?.preferredQueries) ? signals.preferredQueries : [];
+  const usedQueries = Array.isArray(ranking?.learnedQueriesUsed)
+    ? ranking.learnedQueriesUsed
+    : (run.queryRuns ?? [])
+      .filter((queryRun:AnyRecord)=>queryRun.learnedRescueQuery)
+      .map((queryRun:AnyRecord)=>queryRun.query);
+  const supportingCards = new Map<string, AnyRecord>();
+  for (const mode of ['event', 'compiled']) {
+    for (const candidate of run[mode === 'event' ? 'strongestEvent' : 'strongestCompiled']?.candidates ?? []) {
+      if (candidate.calibration?.supportingAdmission === true) {
+        supportingCards.set(candidate.candidateId, candidate);
+      }
+    }
+  }
+  if (!ranking && !signals && !proof) return null;
+  const transferSucceeded = proof?.status === 'reproduced_beyond_saved_nine';
+  const transferFailed = proof?.status === 'reaudit_not_yet_reproduced';
+  return <section className={styles.calibrationLearning} aria-label="Rescue learning review">
+    <div className={styles.calibrationLearningHeader}>
+      <div>
+        <h6>Rescue learning used in this fresh audit</h6>
+        <p>Learned search preferences are evidence about ranking, not a replacement for identity, image-safety, or Vibe promise gates.</p>
+      </div>
+      {proof && <span className={transferSucceeded ? styles.calibrationPass : styles.calibrationPending}>{transferSucceeded ? 'Transfer reproduced' : transferFailed ? 'Transfer not reproduced' : proof.status?.replaceAll('_', ' ')}</span>}
+    </div>
+    {learnedQueries.length > 0 && <div className={styles.calibrationQueries}>
+      <strong>Learned rescue queries used</strong>
+      <div>{learnedQueries.map((query:string)=><code data-used={usedQueries.includes(query)} key={query}>{query}{usedQueries.includes(query) ? ' · used' : ' · not returned'}</code>)}</div>
+    </div>}
+    {supportingCards.size > 0 && <div className={styles.calibrationSupports}>
+      <strong>Calibration-backed supporting cards</strong>
+      <p>{supportingCards.size} fresh board card{supportingCards.size === 1 ? '' : 's'} admitted through transferable evidence. The reasons below show what admitted each card.</p>
+      <div>{[...supportingCards.values()].map((candidate:AnyRecord)=><article key={candidate.candidateId}>
+        <strong>{candidate.title || candidate.candidateId}</strong>
+        <span>{text(candidate.calibration.supportingAdmissionEvidence?.signals || candidate.calibration.transferablePositive || candidate.calibration.positive)}</span>
+      </article>)}</div>
+    </div>}
+    {proof && <div className={`${styles.calibrationProof} ${transferFailed ? styles.calibrationProofFailed : ''}`}>
+      <strong>{transferFailed ? 'Failed transfer remains visible' : transferSucceeded ? 'Transfer evidence' : 'Transfer proof'}</strong>
+      <span>{proof.summary}</span>
+      <small>{proof.beyondExactSavedNineCount ?? 0} effect{proof.beyondExactSavedNineCount === 1 ? '' : 's'} beyond the exact saved nine · score delta {Number(proof.scoreDelta ?? 0).toFixed(3)}</small>
+      {transferFailed && <small>Approval gates remain unchanged: a missing transfer proof does not make this board eligible, and calibration cannot bypass a failed image or anti-anchor gate.</small>}
+    </div>}
+  </section>;
 }
 
 function RevealSummary({run}:{run:Run}) {
@@ -510,7 +619,17 @@ function RunnerUpDiagnostics({run}:{run:Run}) {
 
 function BoardPreview({label,board,isWinner,revealed}:{label:string;board?:AnyRecord|null;isWinner:boolean;revealed:boolean}) {
   const candidates = Array.isArray(board?.candidates) ? board.candidates : [];
-  return <article className={`${styles.board} ${isWinner ? styles.boardWinner : ''}`}><div className={styles.boardHeader}><div><strong>{label}</strong>{isWinner && <span className={styles.boardTag}>System winner</span>}</div><small>{revealed && typeof board?.score === 'number' ? `score ${board.score.toFixed(2)}` : candidates.length >= 9 ? '9-card board' : 'No complete board'}</small></div>{revealed&&board?.editorialArgument?.thesis?<div className={styles.editorialArgument}><strong>Editorial argument</strong><p>{board.editorialArgument.thesis}</p>{typeof board.editorialArgument.changedCardCount==='number'?<small>{board.editorialArgument.changedCardCount} cards changed · {text(board.editorialArgument.signals)}</small>:null}</div>:null}{candidates.length > 0 ? <div className={styles.boardGrid}>{candidates.map((item:any,index:number)=><a className={styles.boardTile} href={item.link || item.thumbnail || '#'} target="_blank" rel="noreferrer" key={`${item.link || item.thumbnail || item.title || 'board-image'}-${index}`}>{item.thumbnail ? <img src={item.thumbnail} alt={item.title || `${label} image ${index + 1}`} loading="lazy" /> : <span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{item.title || `Frame ${index + 1}`}</span></a>)}</div> : <p className={styles.boardEmpty}>No complete 9-image board survived this audit.</p>}{revealed && board?.promise && <p className={styles.promiseReceipt}>Automated promise recognition: {board.promise.coreCount ?? 0}/9 · hero {board.promise.heroFulfillment === 1 ? 'fulfilled' : 'not recognized'} · single-frame {Math.round(Number(board.promise.singleFrameRatio ?? 0) * 100)}%</p>}{revealed && board?.scoreBreakdown && <div className={styles.scoreBreakdown}>{Object.entries(board.scoreBreakdown).map(([key,value]:[string,any])=><div key={key}><span>{key.replace(/[A-Z]/g,letter=>` ${letter}`).toLowerCase()}</span><strong>{Number(value.contribution ?? 0).toFixed(3)}</strong><small>{Number(value.value ?? 0).toFixed(2)} × {Number(value.weight ?? 0).toFixed(2)}</small></div>)}</div>}</article>;
+  return <article className={`${styles.board} ${isWinner ? styles.boardWinner : ''}`}>
+    <div className={styles.boardHeader}><div><strong>{label}</strong>{isWinner && <span className={styles.boardTag}>System winner</span>}</div><small>{revealed && typeof board?.score === 'number' ? `score ${board.score.toFixed(2)}` : candidates.length >= 9 ? '9-card board' : 'No complete board'}</small></div>
+    {revealed&&board?.editorialArgument?.thesis?<div className={styles.editorialArgument}><strong>Editorial argument</strong><p>{board.editorialArgument.thesis}</p>{typeof board.editorialArgument.changedCardCount==='number'?<small>{board.editorialArgument.changedCardCount} cards changed · {text(board.editorialArgument.signals)}</small>:null}</div>:null}
+    {candidates.length > 0 ? <div className={styles.boardGrid}>{candidates.map((item:any,index:number)=>{
+      const calibratedSupporting=revealed&&item.calibration?.supportingAdmission===true;
+      const evidence=item.calibration?.supportingAdmissionEvidence?.signals||item.calibration?.transferablePositive||[];
+      return <div className={styles.boardTileWrap} key={`${item.link || item.thumbnail || item.title || 'board-image'}-${index}`}><a className={styles.boardTile} href={item.link || item.thumbnail || '#'} target="_blank" rel="noreferrer">{item.thumbnail ? <img src={item.thumbnail} alt={item.title || `${label} image ${index + 1}`} loading="lazy" /> : <span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{item.title || `Frame ${index + 1}`}</span></a>{calibratedSupporting&&<small className={styles.calibrationCardBadge}>Calibration-backed support<span>{text(evidence)}</span></small>}</div>;
+    })}</div> : <p className={styles.boardEmpty}>No complete 9-image board survived this audit.</p>}
+    {revealed && board?.promise && <p className={styles.promiseReceipt}>Automated promise recognition: {board.promise.coreCount ?? 0}/9 · hero {board.promise.heroFulfillment === 1 ? 'fulfilled' : 'not recognized'} · single-frame {Math.round(Number(board.promise.singleFrameRatio ?? 0) * 100)}%</p>}
+    {revealed && board?.scoreBreakdown && <div className={styles.scoreBreakdown}>{Object.entries(board.scoreBreakdown).map(([key,value]:[string,any])=><div key={key}><span>{key.replace(/[A-Z]/g,letter=>` ${letter}`).toLowerCase()}</span><strong>{Number(value.contribution ?? 0).toFixed(3)}</strong><small>{Number(value.value ?? 0).toFixed(2)} × {Number(value.weight ?? 0).toFixed(2)}</small></div>)}</div>}
+  </article>;
 }
 
 function collectionGridFromRescueExport(rescue: RescueExport): GridRecord {
@@ -542,6 +661,10 @@ function collectionGridFromRescueExport(rescue: RescueExport): GridRecord {
     generatedAt: rescue.arrangedAt,
     savedAt: rescue.exportedAt,
     sourceRoute: '/admin#actor-preflight',
+    vibeKey: rescue.vibe.key,
+    ...(rescue.releaseCandidateProvenance
+      ? { releaseCandidateProvenance: rescue.releaseCandidateProvenance }
+      : {}),
     intent: 'standard',
     editorial: {
       mode: 'compiled',
@@ -552,9 +675,10 @@ function collectionGridFromRescueExport(rescue: RescueExport): GridRecord {
       resultId: candidate.candidateId,
       imageUrl: proxiedImageUrl(candidate.thumbnail || ''),
       sourceUrl: candidate.link || candidate.thumbnail || '#',
-      title: candidate.title || `${rescue.actor.name} · ${rescue.vibe.label}`,
+      title: candidate.title ?? `${rescue.actor.name} · ${rescue.vibe.label}`,
       ...(candidate.source ? { publisher: candidate.source } : {}),
       ...(candidate.query ? { batchKey: candidate.query } : {}),
+      ...(Number.isInteger(candidate.batchRank) ? { batchRank: candidate.batchRank as number } : {}),
       gridPosition,
     })),
   };

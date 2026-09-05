@@ -60,6 +60,10 @@ push and PR.  It extracts every relative `import` in `tests/*.test.ts` and
 file is absent from the repository.  A failed guard job means the source file
 was not pushed — push it (or revert the test) to restore green.
 
+**Deployment source of truth:** the public site is served from the Git
+repository through Netlify. Local changes do not affect the public site until
+the related commit is pushed to the deployed branch.
+
 ## User preferences
 - Keep existing project structure and stack
 - This repo is imported for reference and discussion, not to run on Replit

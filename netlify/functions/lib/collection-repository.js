@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { validateGridEditorialContract } from "./grid-editorial-contract.js";
+import { isReleaseCandidateProvenance } from "./approved-board-provenance.js";
 
 const MAX_OPERATIONS = 100;
 
@@ -145,6 +146,10 @@ function validateItem(item) {
       ))
     ) throw new TypeError("Collection grid is invalid.");
     if (item.media !== undefined) validateCollectionMedia(item.media);
+    if (item.releaseCandidateProvenance !== undefined
+      && !isReleaseCandidateProvenance(item.releaseCandidateProvenance)) {
+      throw new TypeError("Collection release-candidate provenance is invalid.");
+    }
     if (item.misprintMetadata !== undefined) validateMisprintMetadata(item.misprintMetadata);
     for (const image of item.images) {
       if (image.legendaryMisprint !== undefined) validateLegendaryMisprint(image.legendaryMisprint);

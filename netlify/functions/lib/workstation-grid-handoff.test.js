@@ -7,9 +7,14 @@ import {
   sourceVersionForGrid,
 } from "./workstation-grid-handoff.js";
 import { createWorkstationHandoffHandler } from "./workstation-handoff.js";
+import {
+  approvedBoardAuthorityKey,
+  classifySavedGrid,
+} from "./approved-board-provenance.js";
 
 const ORIGIN = "https://fandom.justlikekatie.com";
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+const SOURCE_MEDIA_BYTES = new TextEncoder().encode("approved-source-media");
 const ENV = {
   MEDIA_ASSETS_TOKEN: "media-token",
   MEDIA_ASSETS_URL: "https://media.example/v1/assets/images",
@@ -35,8 +40,8 @@ function sourceMedia() {
     deliveryUrl: "https://media.example/assets/source.png",
     thumbnailUrl: "https://media.example/assets/source-thumb.png",
     mimeType: "image/png",
-    sizeBytes: 1234,
-    checksum: "a".repeat(64),
+    sizeBytes: SOURCE_MEDIA_BYTES.byteLength,
+    checksum: createHash("sha256").update(SOURCE_MEDIA_BYTES).digest("hex"),
     dimensions: { width: 1200, height: 1500 },
     association: { type: "collection", id: "vibe-atlas", itemId: "grid-local-0" },
   };
@@ -44,6 +49,30 @@ function sourceMedia() {
 
 function grid(overrides = {}) {
   const media = sourceMedia();
+  const candidates = Array.from({ length: 9 }, (_, index) => ({
+    candidateId: `result-${index + 1}`,
+    imageDigest: media.checksum,
+    thumbnail: media.deliveryUrl,
+    title: `Approved card ${index + 1}`,
+    source: "Publisher",
+    batchRank: null,
+  }));
+  const identity = {
+    schemaVersion: 1,
+    auditRunId: "audit-run-1",
+    publicationManifestId: null,
+    publicationSourceType: "operator_rescue",
+    rescueReceiptId: "rescue-receipt-1",
+    boardHash: createHash("sha256").update(JSON.stringify(candidates.map(({
+      thumbnail, title, source, batchRank,
+    }) => ({ thumbnail, title, source, batchRank })))).digest("hex"),
+    orderedCandidateIds: candidates.map(candidate => candidate.candidateId),
+    actorId: "actor-1",
+    vibeKey: "vibe-1",
+    curationVersion: 4,
+    promiseContractVersion: 3,
+    identityProfileVersion: 2,
+  };
   return {
     kind: "grid",
     schemaVersion: 1,
@@ -55,6 +84,7 @@ function grid(overrides = {}) {
     actor: "演员",
     actorEn: "Actor",
     actorAccentColor: "#c9a96e",
+    vibeKey: "vibe-1",
     vibe: "氛围",
     vibeEn: "Vibe",
     vibeEmoji: "✨",
@@ -65,6 +95,12 @@ function grid(overrides = {}) {
     capturedDate: "2026-08-30",
     generatedAt: "2026-08-30T12:00:00.000Z",
     sourceRoute: "/vibe-atlas",
+    releaseCandidateProvenance: {
+      schemaVersion: 1,
+      source: "actor-preflight-approval",
+      identity,
+      candidates,
+    },
     images: [{
       resultId: "result-1",
       imageUrl: media.deliveryUrl,
@@ -91,23 +127,26 @@ function sourceFor(savedGrid = grid(), platforms = ["rednote"]) {
     sourceVersion,
     idempotencyKey: `grid:${savedGrid.artifactId}:${stableHash(sourceVersion)}:${platforms.join("+")}`,
     platforms,
+    boardProvenance: classifySavedGrid(savedGrid),
     actor: { id: savedGrid.actorId, name: savedGrid.actor, nameEn: savedGrid.actorEn },
     creativeContext: {
       vibe: savedGrid.vibe,
       vibeEn: savedGrid.vibeEn,
       brief: savedGrid.generationPrompt || "",
     },
-    orderedImages: savedGrid.images.map(image => ({
-      position: image.gridPosition,
-      resultId: image.resultId,
-      sourceUrl: image.sourceUrl,
-      title: image.title,
-      publisher: image.publisher,
-      batchKey: image.batchKey,
-      familyId: image.familyId,
-      familyLabel: image.familyLabel,
-      familyEvidence: image.familyEvidence,
-    })),
+    orderedImages: [...savedGrid.images]
+      .sort((left, right) => left.gridPosition - right.gridPosition)
+      .map(image => ({
+        position: image.gridPosition,
+        resultId: image.resultId,
+        sourceUrl: image.sourceUrl,
+        title: image.title,
+        publisher: image.publisher,
+        batchKey: image.batchKey,
+        familyId: image.familyId,
+        familyLabel: image.familyLabel,
+        familyEvidence: image.familyEvidence,
+      })),
   };
 }
 
@@ -179,17 +218,33 @@ function receiptFor(body, disposition = "created", mediaSyncState = "synced", wa
   };
 }
 
-function directHandler({ collection, receipts, fetchImpl, now } = {}) {
+function directHandler({
+  collection,
+  authority,
+  receipts,
+  fetchImpl,
+  now,
+  renderOutputImpl = async () => PNG,
+} = {}) {
+  const authorityStore = authority || memoryStore();
+  if (!authority) {
+    const provenance = grid().releaseCandidateProvenance;
+    authorityStore.records.set(
+      approvedBoardAuthorityKey(provenance.identity.auditRunId),
+      structuredClone(provenance),
+    );
+  }
   return createWorkstationGridHandoffHandler({
     env: ENV,
     getStore(name) {
       if (name === "fandom-user-collections") return collection;
+      if (name === "actor-audit") return authorityStore;
       if (name === "creator-draft-handoffs") return receipts;
       throw new Error(`unexpected store: ${name}`);
     },
     fetchImpl,
     ...(now ? { now } : {}),
-    renderOutputImpl: async () => PNG,
+    renderOutputImpl,
   });
 }
 
@@ -237,6 +292,10 @@ test("emits the exact direct live_grid contract and replays its durable receipt"
   assert.ok(body.sourceVersion > 0);
   assert.equal(body.expectedSourceVersion, null);
   assert.equal(body.sourceFingerprint, source.sourceVersion);
+  assert.equal(body.boardProvenance.classification, "derived-from-approved-board");
+  assert.equal(body.publicationBrief.approvalAuthority, false);
+  assert.equal(body.publicationBrief.approvalLanguage, "new-creative-source");
+  assert.ok(body.publicationBrief.requirements.some(value => /does not inherit/i.test(value)));
   assert.equal(body.idempotencyKey, "fandom/direct/grid/grid-1/live-grid");
   assert.equal(options.headers["Idempotency-Key"], body.idempotencyKey);
   assert.equal(body.mediaAttachments.length, 1);
@@ -282,6 +341,274 @@ test("emits the exact direct live_grid contract and replays its durable receipt"
   assert.equal((await replay.json()).receipt.disposition, "replayed");
   assert.equal(mediaCalls, 1);
   assert.equal(workstationCalls.length, 1);
+});
+
+test("grants approval authority only to the exact ordered approved board", async () => {
+  const base = grid();
+  const savedGrid = grid({
+    images: base.releaseCandidateProvenance.identity.orderedCandidateIds.map((resultId, gridPosition) => ({
+      ...base.images[0],
+      resultId,
+      gridPosition,
+      title: `Approved card ${gridPosition + 1}`,
+    })).reverse(),
+  });
+  const collection = memoryStore({
+    schemaVersion: 1,
+    accountId: "account-1",
+    items: { "server-grid-1": savedGrid },
+  });
+  let envelope;
+  let renderedCandidateIds;
+  const handler = directHandler({
+    collection,
+    receipts: memoryStore(),
+    renderOutputImpl: async packet => {
+      renderedCandidateIds = packet.grids[0].images.map(image => image.resultId);
+      return PNG;
+    },
+    fetchImpl: async (url, options) => {
+      if (url === sourceMedia().deliveryUrl) {
+        return new Response(SOURCE_MEDIA_BYTES, { status: 200 });
+      }
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        return mediaResponse(new Uint8Array(await options.body.get("file").arrayBuffer()));
+      }
+      envelope = JSON.parse(options.body);
+      return Response.json(receiptFor(envelope));
+    },
+  });
+  const source = sourceFor(savedGrid);
+  const response = await handler(request(source), {}, source, { user: { accountId: "account-1" } });
+
+  assert.equal(response.status, 201);
+  assert.equal(envelope.boardProvenance.classification, "exact-approved-board");
+  assert.equal(envelope.publicationBrief.approvalAuthority, true);
+  assert.equal(envelope.publicationBrief.approvalLanguage, "approved-publication-candidate");
+  assert.deepEqual(
+    renderedCandidateIds,
+    savedGrid.releaseCandidateProvenance.identity.orderedCandidateIds,
+  );
+  assert.equal(
+    envelope.boardProvenance.releaseCandidateIdentity.boardHash,
+    savedGrid.releaseCandidateProvenance.identity.boardHash,
+  );
+});
+
+test("requires nine unique contiguous positions for exact approval", () => {
+  const base = grid();
+  const exactImages = base.releaseCandidateProvenance.identity.orderedCandidateIds
+    .map((resultId, gridPosition) => ({
+      ...base.images[0],
+      resultId,
+      gridPosition,
+      title: `Approved card ${gridPosition + 1}`,
+    }));
+  const duplicate = grid({
+    images: exactImages.map((image, index) => (
+      index === 8 ? { ...image, gridPosition: 7 } : image
+    )),
+  });
+  const missing = grid({ images: exactImages.slice(0, 8) });
+  const nonContiguous = grid({
+    images: exactImages.map((image, index) => (
+      index === 8 ? { ...image, gridPosition: 9 } : image
+    )),
+  });
+
+  assert.equal(classifySavedGrid(duplicate).classification, "derived-from-approved-board");
+  assert.equal(classifySavedGrid(missing).classification, "derived-from-approved-board");
+  assert.equal(classifySavedGrid(nonContiguous).classification, "derived-from-approved-board");
+});
+
+test("rejects approval authority when delivered media bytes do not match the saved checksum", async () => {
+  const base = grid();
+  const savedGrid = grid({
+    images: base.releaseCandidateProvenance.identity.orderedCandidateIds.map((resultId, gridPosition) => ({
+      ...base.images[0],
+      resultId,
+      gridPosition,
+      title: `Approved card ${gridPosition + 1}`,
+    })),
+  });
+  savedGrid.images[0].media = {
+    ...savedGrid.images[0].media,
+    deliveryUrl: "https://media.example/assets/replaced-source.png",
+  };
+  savedGrid.images[0].imageUrl = savedGrid.images[0].media.deliveryUrl;
+  savedGrid.images[0].mediaRecovery = {
+    sourceUrl: savedGrid.releaseCandidateProvenance.candidates[0].thumbnail,
+  };
+  const collection = memoryStore({
+    schemaVersion: 1,
+    accountId: "account-1",
+    items: { "server-grid-1": savedGrid },
+  });
+  const handler = directHandler({
+    collection,
+    receipts: memoryStore(),
+    fetchImpl: async url => {
+      if (url === savedGrid.images[0].media.deliveryUrl) {
+        return new Response("replacement-media", { status: 200 });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    },
+  });
+  const source = sourceFor(savedGrid);
+  const response = await handler(
+    request(source),
+    {},
+    source,
+    { user: { accountId: "account-1" } },
+  );
+
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).error, /does not match the saved grid/i);
+});
+
+test("does not fetch approved media outside the configured MEDIA origin", async () => {
+  const base = grid();
+  const savedGrid = grid({
+    images: base.releaseCandidateProvenance.identity.orderedCandidateIds.map((resultId, gridPosition) => ({
+      ...base.images[0],
+      resultId,
+      gridPosition,
+      title: `Approved card ${gridPosition + 1}`,
+    })),
+  });
+  savedGrid.images[0].media = {
+    ...savedGrid.images[0].media,
+    deliveryUrl: "https://127.0.0.1/internal-source.png",
+  };
+  savedGrid.images[0].imageUrl = savedGrid.images[0].media.deliveryUrl;
+  savedGrid.images[0].mediaRecovery = {
+    sourceUrl: savedGrid.releaseCandidateProvenance.candidates[0].thumbnail,
+  };
+  const collection = memoryStore({
+    schemaVersion: 1,
+    accountId: "account-1",
+    items: { "server-grid-1": savedGrid },
+  });
+  let fetchCalls = 0;
+  const handler = directHandler({
+    collection,
+    receipts: memoryStore(),
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      throw new Error("unexpected fetch");
+    },
+  });
+  const source = sourceFor(savedGrid);
+  const response = await handler(
+    request(source),
+    {},
+    source,
+    { user: { accountId: "account-1" } },
+  );
+
+  assert.equal(response.status, 409);
+  assert.equal(fetchCalls, 0);
+});
+
+test("downgrades replaced approved-board media or metadata and removes approval authority", async () => {
+  const base = grid();
+  const savedGrid = grid({
+    images: base.releaseCandidateProvenance.identity.orderedCandidateIds.map((resultId, gridPosition) => ({
+      ...base.images[0],
+      resultId,
+      gridPosition,
+      title: `Approved card ${gridPosition + 1}`,
+    })),
+  });
+  const replacedMedia = structuredClone(savedGrid);
+  replacedMedia.images[0].media = {
+    ...replacedMedia.images[0].media,
+    deliveryUrl: "https://media.example/assets/replacement.png",
+    checksum: "c".repeat(64),
+  };
+  replacedMedia.images[0].imageUrl = replacedMedia.images[0].media.deliveryUrl;
+  assert.equal(classifySavedGrid(replacedMedia).classification, "derived-from-approved-board");
+
+  const replacedMetadata = structuredClone(savedGrid);
+  replacedMetadata.images[0].title = "Replacement";
+  const collection = memoryStore({
+    schemaVersion: 1,
+    accountId: "account-1",
+    items: { "server-grid-1": replacedMetadata },
+  });
+  let envelope;
+  const handler = directHandler({
+    collection,
+    receipts: memoryStore(),
+    fetchImpl: async (url, options) => {
+      if (url === ENV.MEDIA_ASSETS_URL) {
+        return mediaResponse(new Uint8Array(await options.body.get("file").arrayBuffer()));
+      }
+      envelope = JSON.parse(options.body);
+      return Response.json(receiptFor(envelope));
+    },
+  });
+  const source = sourceFor(replacedMetadata);
+  const response = await handler(
+    request(source),
+    {},
+    source,
+    { user: { accountId: "account-1" } },
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 201, JSON.stringify(body));
+  assert.equal(envelope.boardProvenance.classification, "derived-from-approved-board");
+  assert.equal(envelope.publicationBrief.approvalAuthority, false);
+  assert.equal(envelope.boardProvenance.releaseCandidateIdentity, null);
+});
+
+test("rejects unverified grids and forged approved-board authority", async () => {
+  const unverified = grid({ releaseCandidateProvenance: undefined });
+  const collection = memoryStore({
+    schemaVersion: 1,
+    accountId: "account-1",
+    items: { "server-grid-1": unverified },
+  });
+  const unverifiedSource = sourceFor(unverified);
+  const handler = directHandler({
+    collection,
+    receipts: memoryStore(),
+    fetchImpl: async () => {
+      throw new Error("network should not be called");
+    },
+  });
+  const unverifiedResponse = await handler(
+    request(unverifiedSource),
+    {},
+    unverifiedSource,
+    { user: { accountId: "account-1" } },
+  );
+  assert.equal(unverifiedResponse.status, 409);
+  assert.match((await unverifiedResponse.json()).error, /Unverified saved grids/i);
+
+  const forged = grid();
+  forged.releaseCandidateProvenance.identity.boardHash = "f".repeat(64);
+  const forgedCollection = memoryStore({
+    schemaVersion: 1,
+    accountId: "account-1",
+    items: { "server-grid-1": forged },
+  });
+  const forgedSource = sourceFor(forged);
+  const forgedResponse = await directHandler({
+    collection: forgedCollection,
+    receipts: memoryStore(),
+    fetchImpl: async () => {
+      throw new Error("network should not be called");
+    },
+  })(
+    request(forgedSource),
+    {},
+    forgedSource,
+    { user: { accountId: "account-1" } },
+  );
+  assert.equal(forgedResponse.status, 409);
+  assert.match((await forgedResponse.json()).error, /Unverified saved grids|could not be verified/i);
 });
 
 test("retries a pending handoff with the original canonical cover provenance", async () => {
@@ -423,6 +750,11 @@ test("rejects incomplete MEDIA readiness before rendering or upstream calls", as
 
 test("same-origin Workstation route authenticates the admin session", async () => {
   const savedGrid = grid();
+  const authority = memoryStore();
+  authority.records.set(
+    approvedBoardAuthorityKey(savedGrid.releaseCandidateProvenance.identity.auditRunId),
+    structuredClone(savedGrid.releaseCandidateProvenance),
+  );
   const handler = createWorkstationHandoffHandler({
     env: ENV,
     auth: {
@@ -438,6 +770,7 @@ test("same-origin Workstation route authenticates the admin session", async () =
           items: { "server-grid-1": savedGrid },
         });
       }
+      if (name === "actor-audit") return authority;
       return memoryStore();
     },
     renderOutputImpl: async () => PNG,

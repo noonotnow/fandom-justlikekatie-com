@@ -95,3 +95,20 @@ color: rgba(255, 255, 255, 0.88);
 2. ⏳ Awaiting approval before implementation
 3. → Create fix PR referencing this issue
 4. → Mobile QA verification before merge
+
+---
+
+## Environment limitation: canonical render emoji fallback (2026-09-05)
+
+The full local test suite reaches 537 passing tests before
+`netlify/functions/lib/canonical-render.test.js` aborts in the local Pango
+runtime:
+
+```text
+Pango-ERROR: Could not load fallback font, bailing out.
+```
+
+This is an environment-specific native font failure rather than an assertion
+failure. The engagement export tests, affected app tests, lint, type-check, and
+production build pass. CI should remain the merge authority for canonical
+rendering because its runner supplies the expected font environment.

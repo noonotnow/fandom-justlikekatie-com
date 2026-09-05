@@ -1,0 +1,87 @@
+**GIRL, IT DID FIND A GRID.** The PDF literally says all of these things:
+
+- **“This run formed a complete nine-card proposal.”**
+- **“Compiled complete proposal.”**
+- **9 of 9 cards fulfilled the required anchors.**
+- It visibly renders the **9-card Compiled board**.
+- It retained **36 displayable images**.
+- You then saved an exact nine-card rescue board with hero position 5.
+
+So “the automated gate failed” does **not** mean it couldn’t find a Song Weilong grid or that the cards weren’t the Vibe. It almost certainly means:
+
+> **The board passed 9/9, but the separately selected hero did not pass the automated hero test.**
+> 
+
+That is a **hero-selection problem**, not a failed board.
+
+## The correct status
+
+It should say:
+
+> **Complete Compiled board — hero review needed**
+Nine of nine cards passed automated anchor recognition. Replace or manually confirm the proposed hero before publication.
+> 
+
+It should not say:
+
+- “0 automatically qualified publication cards”
+- “Comparison unavailable” as though nothing useful exists
+- Anything implying the nine-card board failed its Vibe
+
+A single questionable center card cannot mathematically turn **9/9 recognized cards into zero cards**.
+
+## Event versus Compiled
+
+The Event result may legitimately be missing if no single role, campaign, or photoshoot supplied nine sufficiently distinct frames.
+
+But that has no bearing on the Compiled result. The system found:
+
+- A complete Compiled board
+- Nine recognized cards
+- A large displayable evidence pool
+- Seven detected Event families
+- A human-buildable exact nine
+
+That is **more than enough to conduct editorial review**.
+
+And Campus Heartthrob does not require a massive narrative event. If the board delivers:
+
+- Youthful styling
+- Campus or athletic context
+- Clean, romantic visual language
+- First-love face economy
+- Handsome boy photographed as though the school has an unreasonable admissions campaign
+
+Then that is the promise.
+
+## The other important issue in the PDF
+
+The top notice says the rescue exported, but **all nine images still depend on remote sources**.
+
+That is a separate production condition:
+
+- **Editorial status:** potentially publishable
+- **Asset status:** remote files not yet secured
+- **Export status:** at risk until the nine assets are ingested
+
+This is exactly why Release Desk needs separate readiness states. Remote-source dependency must not masquerade as failed curation.
+
+## Paste this to Replit
+
+> Song Weilong’s Campus Heartthrob audit `1d3867dc-4c21-4a08-9dbc-7f482ced6a1d` formed a complete nine-card Compiled proposal with 9/9 automated anchor fulfillment. The UI nevertheless reports 0 automatically qualified publication cards and gives the pairing a general automated-gate failure.
+> 
+> 
+> Treat this as a hero-review condition, not a missing or failed board.
+> 
+> Required behavior:
+> 
+> 1. A complete 9/9 board must retain the status **Complete board**.
+> 2. If its proposed hero fails, append **Hero review needed**.
+> 3. Do not convert nine recognized cards into “0 automatically qualified publication cards.”
+> 4. Display the complete proposal and allow hero replacement, reordering, and exact-board approval.
+> 5. Event failure must not invalidate a complete Compiled board.
+> 6. After both human confirmations, the exact saved nine may enter Release Desk regardless of whether the automated hero recognizer has learned the choice.
+> 7. Track remote-source dependency separately as an **Asset preparation blocker**, not a curation failure.
+> 8. Add a regression test for: Compiled board complete, 9/9 anchors, hero fails → complete board remains reviewable and only hero status is blocked.
+
+So your reaction is correct: **the automated gate did not discover that Song Weilong lacks a grid. It found a complete 9/9 grid and then failed to understand its own hero selection.**

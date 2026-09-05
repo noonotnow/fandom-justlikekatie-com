@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { ACTOR_PACKS } from "./actor-packs.js";
 import {
@@ -16,13 +17,19 @@ import {
   auditRescuePreferenceKey,
   auditRescuePreferencePrefix,
   auditRescueCalibrationPrefix,
+  auditRescueCalibrationOutcomePrefix,
   auditRescueCalibrationRetirementPrefix,
+  auditRescueCalibrationSignalRetirementPrefix,
   auditRunKey,
   auditRunPrefix,
   auditVerdictPrefix,
   eligibilityKey,
+  getEligibility,
+  productionReceiptPrefix,
+  productionStateKey,
 } from "./actor-eligibility.js";
 import {
+  classifyPreflightOutcome,
   compareCalibrationOutcomes,
   createActorAuditHandler,
   rescueCalibrationBasis,
@@ -173,6 +180,7 @@ function searchResults(query) {
 function curation({
   sufficient = true,
   curationFailure = false,
+  heroReview = false,
   hardRejected = false,
   unavailableRejected = false,
   duplicateRejected = false,
@@ -190,6 +198,7 @@ function curation({
     const negativeSources = new Set(options.calibrationProfile?.negativeSources || []);
     const rawCandidates = ranked.flatMap(batch => (batch.results || []).map(result => ({
       ...result,
+      imageDigest: createHash("sha256").update(result.thumbnail || "").digest("hex"),
       candidateId: candidateIdForResult({
         ...result,
         batchKey: result.batchKey || batch.query,
@@ -247,6 +256,9 @@ function curation({
         || Number(Boolean(left.calibration?.negative?.length))
         - Number(Boolean(right.calibration?.negative?.length)))
       : uniqueCandidates).slice(0, 9);
+    if (heroReview && boardCandidates[4]) {
+      boardCandidates[4].promise.heroSatisfied = false;
+    }
     const dropped = unavailableRejected && rawCandidates[0]
       ? [{ ...rawCandidates[0], dropReason: "image_load_failed", dropDetail: "The source did not return image bytes." }]
       : hardRejected && rawCandidates[0]
@@ -303,6 +315,41 @@ function curation({
       receipt: { rawCount: rawCandidates.length, analyzedCount: sufficient || curationFailure ? rawCandidates.length : 0, curationVersion: CURATION_VERSION },
     },
     };
+    if (heroReview) {
+      output.displayResults = [];
+      output.curation = null;
+      output.diagnostics.strongestEvent = null;
+      output.diagnostics.strongestCompiled = null;
+      output.diagnostics.boardDiagnostics = {
+        event: {
+          available: false,
+          completeProposalAvailable: false,
+          proposal: null,
+          requiredCount: 9,
+          candidateCount: 0,
+          reasonCode: "no_bounded_role_family",
+          summary: "No bounded work or role family produced enough distinct frames for an Event board.",
+        },
+        compiled: {
+          available: false,
+          completeProposalAvailable: true,
+          proposal: {
+            score: 0.8,
+            promise: { coreCount: 9, heroFulfillment: 0 },
+            candidates: boardCandidates,
+          },
+          requiredCount: 9,
+          candidateCount: 0,
+          coreAnchorCount: 9,
+          heroFulfillment: 0,
+          reasonCodes: ["hero_not_fulfilled"],
+          reasonCode: "hero_not_fulfilled",
+          summary: "Compiled formed a complete 9-card proposal and all 9 cards fulfilled the required anchors, but the proposed hero was not recognized. The proposal remains available for human review.",
+        },
+      };
+      output.diagnostics.winner = null;
+      output.diagnostics.alternate = null;
+    }
     if (options.calibrationControl) {
       const controlRanks = options.calibrationControl.batchRanks || {};
       const controlCandidates = [...uniqueCandidates]
@@ -371,6 +418,7 @@ function curation({
 function harness({
   sufficient = true,
   curationFailure = false,
+  heroReview = false,
   hardRejected = false,
   unavailableRejected = false,
   duplicateRejected = false,
@@ -402,6 +450,7 @@ function harness({
   const curateFixture = curation({
     sufficient,
     curationFailure,
+    heroReview,
     hardRejected,
     unavailableRejected,
     duplicateRejected,
@@ -488,6 +537,135 @@ test("every configured actor has a complete private identity profile", () => {
   ]);
 });
 
+test("Actor Preflight classifies every recoverable and terminal outcome explicitly", () => {
+  const candidates = Array.from({ length: 9 }, (_, index) => ({
+    candidateId: `candidate-${index}`,
+    thumbnail: `https://images.example/${index}.jpg`,
+  }));
+  const base = {
+    completeProposalCardCount: 0,
+    identityEvidence: { collisionSignals: 0 },
+    boardDiagnostics: {
+      event: { available: false },
+      compiled: { available: false },
+    },
+    strongestEvent: null,
+    strongestCompiled: null,
+    partialClusters: [],
+    curationReceipt: {
+      rawCandidates: [],
+      sourceEvidenceCandidates: [],
+      dropped: [],
+    },
+    rawResults: [],
+  };
+
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    strongestCompiled: { candidates },
+    boardDiagnostics: {
+      ...base.boardDiagnostics,
+      compiled: { available: true },
+    },
+  }).state, "auto_ready");
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    completeProposalCardCount: 9,
+    strongestCompiled: { candidates },
+  }).state, "complete_review");
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    strongestCompiled: { candidates },
+    identityEvidence: { collisionSignals: 1 },
+    boardDiagnostics: {
+      ...base.boardDiagnostics,
+      compiled: { available: true },
+    },
+  }).state, "complete_review");
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    curationReceipt: {
+      rawCandidates: candidates,
+      sourceEvidenceCandidates: candidates,
+      dropped: [],
+    },
+  }).state, "rescue_ready");
+  for (const dropReason of ["composite_image", "exact_duplicate"]) {
+    assert.equal(classifyPreflightOutcome({
+      ...base,
+      curationReceipt: {
+        rawCandidates: candidates.map((candidate, index) => ({
+          ...candidate,
+          dropReason: index === 0 ? dropReason : null,
+        })),
+        sourceEvidenceCandidates: candidates,
+        dropped: [{ ...candidates[0], dropReason }],
+      },
+    }).state, "rescue_ready");
+  }
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    partialClusters: [{ cardCount: 5 }],
+  }).state, "partial_searchable");
+  assert.equal(classifyPreflightOutcome(base).state, "retrieval_weak");
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    curationReceipt: {
+      rawCandidates: [{ ...candidates[0], dropReason: "confirmed_wrong_identity" }],
+      sourceEvidenceCandidates: [{ ...candidates[0], dropReason: "confirmed_wrong_identity" }],
+      dropped: [{ ...candidates[0], dropReason: "confirmed_wrong_identity" }],
+    },
+  }).state, "hard_blocked");
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    curationReceipt: {
+      rawCandidates: candidates,
+      sourceEvidenceCandidates: candidates,
+      dropped: [],
+    },
+    editorialFeedback: {
+      flags: candidates.map(candidate => ({
+        candidateId: candidate.candidateId,
+        disposition: "excluded",
+      })),
+    },
+  }).state, "hard_blocked");
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    completeProposalCardCount: 9,
+    strongestCompiled: { candidates },
+    curationReceipt: {
+      rawCandidates: candidates,
+      sourceEvidenceCandidates: candidates,
+      dropped: [],
+    },
+    editorialFeedback: {
+      flags: candidates.map(candidate => ({
+        candidateId: candidate.candidateId,
+        disposition: "excluded",
+      })),
+    },
+  }).state, "hard_blocked");
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    partialClusters: [{
+      cardCount: 5,
+      candidateIds: candidates.slice(0, 5).map(candidate => candidate.candidateId),
+    }],
+    curationReceipt: {
+      rawCandidates: candidates.slice(0, 5),
+      sourceEvidenceCandidates: candidates.slice(0, 5),
+      dropped: [],
+    },
+    editorialFeedback: {
+      flags: candidates.slice(0, 5).map(candidate => ({
+        candidateId: candidate.candidateId,
+        disposition: "excluded",
+      })),
+    },
+  }).state, "hard_blocked");
+});
+
 test("the audit surface is admin-only before any report store is read", async () => {
   const { handler, store } = harness({ authorized: false });
   const response = await handler(request(), {});
@@ -535,6 +713,83 @@ test("release inventory groups current curator approvals by actor pack", async (
   assert.equal(body.releaseInventory.unusedWithinRecentWindowPairingCount, 1);
   assert.equal(body.releaseInventory.actorPacks[0].releaseReadyPairingCount, 1);
   assert.equal(body.releaseInventory.actorPacks[0].pairings[0].releaseSource, "fresh_curator");
+});
+
+test("production readiness appends receipts without mutating the approved audit", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  await handler(request("POST", {
+    action: "verdict", actorId: pairActor.id, vibeKey, runId: "run-1", verdict: "approved",
+  }), {});
+
+  const before = await handler(request(), {});
+  const initial = (await before.json()).productionReadiness;
+  assert.equal(initial.candidateCount, 1);
+  assert.equal(initial.scheduleEligibleCount, 0);
+  assert.equal(initial.candidates[0].exactNineFrozen.status, "complete");
+  assert.deepEqual(
+    initial.candidates[0].blockers.map(blocker => blocker.stage),
+    ["asset", "enhancement", "render", "copy", "provenanceRights", "scheduleEligibility"],
+  );
+
+  let previousReceiptId = null;
+  for (const stage of ["asset", "enhancement", "render", "copy", "provenanceRights"]) {
+    const response = await handler(request("POST", {
+      action: "production_transition",
+      actorId: pairActor.id,
+      vibeKey,
+      stage,
+      status: "complete",
+      reason: `${stage} verified`,
+    }), {});
+    const body = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(body));
+    assert.equal(body.productionReadiness.receipt.previousReceiptId, previousReceiptId);
+    previousReceiptId = body.productionReadiness.receipt.receiptId;
+  }
+
+  const after = await handler(request(), {});
+  const body = await after.json();
+  assert.equal(body.productionReadiness.scheduleEligibleCount, 1);
+  assert.equal(body.productionReadiness.candidates[0].scheduleEligible, true);
+  assert.equal(body.productionReadiness.candidates[0].blockers.length, 0);
+  assert.equal(body.actors[0].pairings[0].verdict, "approved");
+  assert.equal(
+    store.records.get(productionStateKey(pairActor.id, 0, "run-1")).currentReceiptId,
+    previousReceiptId,
+  );
+  assert.equal(
+    [...store.records.keys()].filter(key =>
+      key.startsWith(productionReceiptPrefix(pairActor.id, 0, "run-1"))).length,
+    5,
+  );
+  assert.equal(
+    [...store.records.keys()].filter(key => key.startsWith(auditVerdictPrefix(pairActor.id, 0, "run-1"))).length,
+    1,
+  );
+});
+
+test("production transitions fail closed for candidates without a current approval", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const response = await handler(request("POST", {
+    action: "production_transition",
+    actorId: pairActor.id,
+    vibeKey,
+    stage: "asset",
+    status: "complete",
+  }), {});
+  assert.equal(response.status, 409);
+  assert.equal(
+    [...store.records.keys()].some(key => key.startsWith(productionReceiptPrefix(pairActor.id, 0, "run-1"))),
+    false,
+  );
 });
 
 test("release inventory privately marks a release-ready pairing used in a recent Daily Drop", async () => {
@@ -683,7 +938,7 @@ test("run, verdict, rerun, and retained-run inspection keep eligibility current"
   assert.equal(chosen.currentRun.detectedEvents.length, 1);
   assert.equal(chosen.currentRun.winner.mode, "compiled");
   assert.equal(chosen.currentRun.identityEvidence.heuristic.includes("do not prove"), true);
-  assert.equal(chosen.currentRun.suggestedState, "identity_risk");
+  assert.equal(chosen.currentRun.suggestedState, "complete_review");
   assert.equal(chosen.currentRun.blindReview.choice, "compiled");
   assert.equal(chosen.currentRun.blindReview.agreement, true);
   assert.match(chosen.currentRun.blindReview.experiment.eventBoard.boardHash, /^[a-f0-9]{64}$/);
@@ -1071,8 +1326,8 @@ test("an approved rescue backfill uses direct canonical reads when blob listings
   assert.equal(store.records.get(publicationKey).displayResults.length, 9);
 });
 
-test("rescue preference cannot point at a missing or stale rescue board", async () => {
-  const { handler } = harness();
+test("rescue approval cannot point at a missing or stale rescue board", async () => {
+  const { handler, store } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   await handler(request("POST", {
     action: "run", actorId: pairActor.id, vibeKey, scope: "full",
@@ -1097,6 +1352,51 @@ test("rescue preference cannot point at a missing or stale rescue board", async 
   }), {});
   assert.equal(response.status, 409);
   assert.match((await response.json()).error, /stale or unavailable/i);
+
+  const detailResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const detail = await detailResponse.json();
+  const candidateIds = detail.currentRun.rawResults
+    .slice(0, 9)
+    .map(candidate => candidate.candidateId);
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds,
+  }), {});
+  const saved = await saveResponse.json();
+  assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+  const receiptId = saved.currentRun.editorialFeedback.operatorRescueBoard.receiptId;
+  const receiptKey = auditRescueBoardKey(pairActor.id, 0, "run-1", receiptId);
+  const staleReceipt = store.records.get(receiptKey);
+  staleReceipt.feedbackHash = "stale-feedback-hash";
+  store.records.set(receiptKey, staleReceipt);
+
+  const staleResponse = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+    vibeConfirmed: true,
+    publishableConfirmed: true,
+    rescuePreferred: true,
+    rescueReceiptId: receiptId,
+  }), {});
+  const staleBody = await staleResponse.json();
+  assert.equal(staleResponse.status, 409);
+  assert.match(staleBody.error, /selected rescue board is stale or unavailable/i);
+  assert.equal(
+    [...store.records.keys()].some(key =>
+      key.startsWith(auditRescuePreferencePrefix(pairActor.id, 0, "run-1"))),
+    false,
+    "a stale rescue approval must not create a preference receipt",
+  );
 });
 
 test("approved overrides cannot impersonate the two human confirmations", async () => {
@@ -1158,6 +1458,7 @@ test("run-scoped image flags persist as append-only feedback without rewriting c
     vibeKey,
     runId: "run-1",
     candidateId: candidate.candidateId,
+    imageDigest: candidate.imageDigest,
     flagged: true,
   }), {});
   const flagged = await flagResponse.json();
@@ -1205,6 +1506,7 @@ test("run-scoped image flags persist as append-only feedback without rewriting c
   }), {});
   const exported = await exportResponse.json();
   assert.equal(exportResponse.status, 200, JSON.stringify(exported));
+  assert.equal(exported.rescueExport.releaseCandidateProvenance, undefined);
   assert.equal(exported.rescueExport.gridId, `rescue-${pairActor.id}-${savedReceipt.receiptId}`);
   assert.deepEqual(
     exported.rescueExport.candidates.map(item => item.candidateId),
@@ -1724,6 +2026,107 @@ test("retiring calibration evidence appends a reason receipt, excludes it from p
   assert.notEqual(freshChoice.pairing.auditState, "calibration_reaudit_required");
 });
 
+test("transfer outcomes are retained per signal and signal retirement filters future calibration", async () => {
+  const { handler, store } = harness({ freshEvidenceOnRerun: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choice = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const chosen = await choice.json();
+  const selectedSource = chosen.currentRun.rawResults.at(-1).source;
+  const selectedIds = chosen.currentRun.rawResults
+    .filter(candidate => candidate.source === selectedSource)
+    .slice(0, 9)
+    .map(candidate => candidate.candidateId);
+  const saved = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds: selectedIds,
+  }), {});
+  const rescueReceipt = (await saved.json())
+    .currentRun.editorialFeedback.operatorRescueBoard;
+  const marked = await handler(request("POST", {
+    action: "mark_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId: rescueReceipt.receiptId,
+  }), {});
+  const markedBody = await marked.json();
+  const sourceSignal = markedBody.currentRun.editorialFeedback.operatorRescueBoard
+    .calibrationBasis.signals.reusable.sources.positive[0];
+  assert.ok(sourceSignal);
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const rerunChoice = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-2", choice: "compiled",
+  }), {});
+  assert.equal(rerunChoice.status, 200);
+  const rerunBody = await rerunChoice.json();
+  const summary = rerunBody.calibrationProfile.transferSummary;
+  assert.ok(summary.attemptCount >= 1);
+  const sourceOutcome = summary.signalFamilies.find(item =>
+    item.sourceRescueReceiptId === rescueReceipt.receiptId
+    && item.signalFamily === "source"
+    && item.signalValue === sourceSignal);
+  assert.ok(sourceOutcome);
+  assert.ok(sourceOutcome.attempts >= 1);
+  assert.ok(sourceOutcome.transferred + sourceOutcome.rejected + sourceOutcome.notTransferred >= 1);
+  assert.ok([...store.records.keys()].some(key =>
+    key.startsWith(auditRescueCalibrationOutcomePrefix(pairActor.id, 0))));
+
+  const originalCalibrationKey = [...store.records.keys()].find(key =>
+    key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0)));
+  const originalCalibration = structuredClone(store.records.get(originalCalibrationKey));
+  const retirement = await handler(request("POST", {
+    action: "retire_rescue_signal",
+    actorId: pairActor.id,
+    vibeKey,
+    receiptId: rescueReceipt.receiptId,
+    signalFamily: "source",
+    signalValue: sourceSignal,
+    reason: "Repeated source results no longer transfer with confirmed identity.",
+  }), {});
+  const retired = await retirement.json();
+  assert.equal(retirement.status, 200, JSON.stringify(retired));
+  assert.equal(retired.calibrationProfile.retiredSignalCount, 1);
+  assert.deepEqual(retired.calibrationProfile.signalRetirements.map(item => ({
+    signalFamily: item.signalFamily,
+    signalValue: item.signalValue,
+  })), [{ signalFamily: "source", signalValue: sourceSignal }]);
+  assert.ok(!retired.calibrationProfile.positiveSources.includes(sourceSignal));
+  assert.equal(await getEligibility(store, pairActor, 0), null);
+  const historicalSignalReceipt = retired.priorRuns
+    .find(run => run.runId === "run-1")
+    .editorialFeedback.operatorRescueBoards
+    .find(receipt => receipt.receiptId === rescueReceipt.receiptId)
+    .calibrationEvidence;
+  assert.equal(historicalSignalReceipt.status, "confirmed");
+  assert.equal(historicalSignalReceipt.signalRetirements[0].signalValue, sourceSignal);
+  assert.deepEqual(store.records.get(originalCalibrationKey), originalCalibration);
+  assert.equal([...store.records.keys()].filter(key =>
+    key.startsWith(auditRescueCalibrationSignalRetirementPrefix(pairActor.id, 0))).length, 1);
+
+  const immutable = await handler(request("POST", {
+    action: "retire_rescue_signal",
+    actorId: pairActor.id,
+    vibeKey,
+    receiptId: rescueReceipt.receiptId,
+    signalFamily: "source",
+    signalValue: sourceSignal,
+    reason: "A different reason cannot replace the first retirement.",
+  }), {});
+  assert.equal(immutable.status, 409);
+  assert.equal(retired.calibrationProfile.retiredSignalCount, 1);
+});
+
 test("calibration remains discoverable and retireable after its source run leaves retained history", async () => {
   const { handler } = harness({ freshEvidenceOnRerun: true });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
@@ -2161,7 +2564,7 @@ test("legacy rescue receipts remain records-only and cannot calibrate the curren
 });
 
 test("excluding an original board image removes it from rescue boards and rejects it on save", async () => {
-  const { handler } = harness();
+  const { handler, store } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   await handler(request("POST", {
     action: "run", actorId: pairActor.id, vibeKey, scope: "full",
@@ -2199,6 +2602,17 @@ test("excluding an original board image removes it from rescue boards and reject
   const rescueIds = excluded.currentRun.editorialFeedback.requestedReview.board.candidates
     .map(candidate => candidate.candidateId);
   assert.equal(rescueIds.includes(sourceBoardCandidate.candidateId), false);
+  const derivedDraftIds = excluded.currentRun.rescueDraft.candidates
+    .map(candidate => candidate.candidateId);
+  assert.equal(derivedDraftIds.length, 9);
+  assert.equal(derivedDraftIds.includes(sourceBoardCandidate.candidateId), false);
+  assert.equal(derivedDraftIds.includes(omittedCandidate.candidateId), true);
+  const frozenRun = await store.get(auditRunKey(pairActor.id, 0, "run-1"));
+  assert.equal(
+    frozenRun.rescueDraft.candidates.some(candidate =>
+      candidate.candidateId === sourceBoardCandidate.candidateId),
+    true,
+  );
 
   const invalidIds = [...rescueIds];
   invalidIds[0] = sourceBoardCandidate.candidateId;
@@ -2806,6 +3220,40 @@ test("a saved retained-evidence board can be approved without a curator comparis
   assert.equal(eligibility.verdict, "approved");
   assert.equal(eligibility.publicationSource.type, "operator_rescue");
   assert.equal(eligibility.publicationSource.rescueReceiptId, receiptId);
+  const exportResponse = await handler(request("POST", {
+    action: "export_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId,
+  }), {});
+  const exported = await exportResponse.json();
+  assert.equal(exportResponse.status, 200, JSON.stringify(exported));
+  assert.deepEqual(exported.rescueExport.releaseCandidateProvenance.identity, {
+    schemaVersion: 1,
+    auditRunId: "run-1",
+    publicationManifestId: null,
+    publicationSourceType: "operator_rescue",
+    rescueReceiptId: receiptId,
+    boardHash: approval.currentRun.operatorVerdict.publicationSource.boardHash,
+    orderedCandidateIds: candidateIds,
+    actorId: pairActor.id,
+    vibeKey,
+    curationVersion: approval.currentRun.curationVersion,
+    promiseContractVersion: approval.currentRun.promiseContractVersion,
+    identityProfileVersion: approval.currentRun.identityProfileVersion,
+  });
+  assert.deepEqual(
+    exported.rescueExport.releaseCandidateProvenance.candidates,
+    exported.rescueExport.candidates.map(candidate => ({
+      candidateId: candidate.candidateId,
+      imageDigest: candidate.imageDigest,
+      thumbnail: candidate.thumbnail,
+      title: candidate.title,
+      source: candidate.source,
+      batchRank: candidate.batchRank,
+    })),
+  );
   assert.deepEqual(
     approval.calibrationProfile.backupBoards,
     [],
@@ -2819,6 +3267,97 @@ test("a saved retained-evidence board can be approved without a curator comparis
   assert.equal(inventory.rescueBackupPairingCount, 1);
   assert.equal(inventory.rescueBackupBoardCount, 1);
   assert.equal(inventory.actorPacks[0].pairings[0].releaseSource, "rescue_backup");
+});
+
+test("a complete Compiled proposal with only a failed hero stays visible and reviewable", async () => {
+  const { handler, store } = harness({ sufficient: true, heroReview: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const report = await runResponse.json();
+
+  assert.equal(runResponse.status, 200, JSON.stringify(report));
+  assert.equal(report.currentRun.blindReview.status, "unavailable");
+  assert.equal(report.currentRun.strongestEvent, null);
+  assert.equal(report.currentRun.strongestCompiled.candidates.length, 9);
+  assert.equal(report.currentRun.displayCount, 0);
+  assert.equal(report.currentRun.completeProposalCardCount, 9);
+  assert.equal(report.currentRun.materialSufficient, true);
+  assert.equal(report.currentRun.automaticPublicationReady, false);
+  assert.equal(report.currentRun.suggestedState, "complete_review");
+  assert.equal(report.currentRun.preflightOutcome.boardConstructed, true);
+  assert.equal(report.currentRun.rescueDraft.candidates.length, 9);
+  assert.equal(report.currentRun.boardDiagnostics.event.reasonCode, "no_bounded_role_family");
+  assert.equal(report.currentRun.boardDiagnostics.event.proposal, null);
+  assert.equal(report.currentRun.boardDiagnostics.compiled.reasonCode, "hero_not_fulfilled");
+  assert.equal(report.currentRun.boardDiagnostics.compiled.coreAnchorCount, 9);
+  assert.equal(report.currentRun.boardDiagnostics.compiled.proposal.candidates.length, 9);
+
+  const proposedIds = report.currentRun.boardDiagnostics.compiled.proposal.candidates
+    .map(candidate => candidate.candidateId);
+  const reorderedIds = [
+    proposedIds[0],
+    proposedIds[1],
+    proposedIds[2],
+    proposedIds[3],
+    proposedIds[0],
+    proposedIds[5],
+    proposedIds[6],
+    proposedIds[7],
+    proposedIds[8],
+  ];
+  const replacementId = report.currentRun.rawResults
+    .find(candidate => !proposedIds.includes(candidate.candidateId))?.candidateId;
+  reorderedIds[4] = replacementId;
+
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds: reorderedIds,
+  }), {});
+  const saved = await saveResponse.json();
+  assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+  const receiptId = saved.currentRun.editorialFeedback.operatorRescueBoard.receiptId;
+  assert.deepEqual(
+    saved.currentRun.editorialFeedback.operatorRescueBoard.board.candidates
+      .map(candidate => candidate.candidateId),
+    reorderedIds,
+  );
+
+  const approvalResponse = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+    vibeConfirmed: true,
+    publishableConfirmed: true,
+    rescuePreferred: true,
+    rescueReceiptId: receiptId,
+  }), {});
+  const approval = await approvalResponse.json();
+  assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+  assert.equal(approval.currentRun.operatorVerdict.publicationSource.type, "operator_rescue");
+  assert.equal(
+    approval.currentRun.operatorVerdict.publicationSource.rescueReceiptId,
+    receiptId,
+  );
+  assert.deepEqual(
+    approval.currentRun.editorialFeedback.operatorRescueBoard.board.candidates
+      .map(candidate => candidate.candidateId),
+    reorderedIds,
+    "approval must retain the exact saved rescue arrangement",
+  );
+  assert.equal(approval.currentRun.strongestCompiled.candidates.length, 9);
+  assert.equal(approval.currentRun.winner, null);
+  assert.equal(
+    store.records.get(eligibilityKey(pairActor.id, 0)).publicationSource.rescueReceiptId,
+    receiptId,
+    "eligibility must point to the approved rescue receipt rather than the failed curator board",
+  );
 });
 
 test("an approval from a legacy profile contract is visibly marked for reapproval", async () => {
@@ -2961,7 +3500,8 @@ test("useful evidence with failed board selection records Needs curation work", 
   }), {});
   const run = await runResponse.json();
   assert.equal(run.currentRun.blindReview.status, "unavailable");
-  assert.equal(run.currentRun.suggestedState, "needs_curation_work");
+  assert.equal(run.currentRun.suggestedState, "rescue_ready");
+  assert.equal(run.currentRun.rescueDraft.candidates.length, 9);
   assert.equal(run.currentRun.boardDiagnostics.compiled.reasonCode, "promise_not_fulfilled");
 
   const verdictResponse = await handler(request("POST", {
@@ -3144,5 +3684,57 @@ test("a verdict racing a newer run cannot restore stale eligibility", async () =
   }), {});
 
   assert.equal(response.status, 409);
+  assert.match(
+    (await response.clone().json()).error,
+    /newer audit run became current/i,
+  );
   assert.equal(store.records.get(eligibilityKey(pairActor.id, 0)).eligible, false);
+});
+
+test("a rescue board from an older run is rejected after a newer audit becomes current", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+
+  const choice = await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    choice: "compiled",
+  }), {});
+  assert.equal(choice.status, 200);
+  const revealedDetail = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const revealedReport = await revealedDetail.json();
+  const candidateIds = revealedReport.currentRun.rawResults
+    .slice(0, 9)
+    .map(candidate => candidate.candidateId);
+
+  const newerRun = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "representative",
+  }), {});
+  assert.equal(newerRun.status, 200);
+
+  const saveResponse = await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds,
+  }), {});
+  const saveBody = await saveResponse.json();
+  assert.equal(saveResponse.status, 409);
+  assert.match(saveBody.error, /current audit run/i);
+  assert.equal(
+    [...store.records.keys()].some(key =>
+      key.startsWith(auditRescueBoardPrefix(pairActor.id, 0, "run-1"))),
+    false,
+    "a rejected stale save must not create a rescue receipt",
+  );
 });

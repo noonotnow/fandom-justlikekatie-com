@@ -38,6 +38,9 @@ const saveRescueReceiptToCollection = functionBody('saveRescueReceiptToCollectio
 const requestedReviewStart = source.indexOf('function RequestedGridReview');
 const requestedReviewEnd = source.indexOf('\nfunction PartialBoards', requestedReviewStart);
 const requestedReview = source.slice(requestedReviewStart, requestedReviewEnd);
+const partialBoardsStart = source.indexOf('function PartialBoards');
+const partialBoardsEnd = source.indexOf('\nfunction PromisingPartialClusters', partialBoardsStart);
+const partialBoards = source.slice(partialBoardsStart, partialBoardsEnd);
 
 test('a completed actor audit reloads its authoritative saved review', () => {
   const runRequest = startAudit.indexOf("api({action:'run'");
@@ -60,11 +63,14 @@ test('an unavailable comparison is not described as ready for a blind choice', (
   assert.match(startAudit, /did not produce two complete boards/);
   assert.match(startAudit, /Choose between the two boards below/);
   assert.match(source, /function PartialBoards/);
+  assert.match(partialBoards, /diagnostic\?\.available===true/);
+  assert.match(partialBoards, /complete proposal · automated gate not passed/);
   assert.match(source, /Complete nine-card proposal/);
   assert.match(source, /automated gate not passed/);
   assert.match(source, /older audit format did not retain its exact arrangement/);
   assert.match(source, /displayable retained images/);
-  assert.match(source, /automatically qualified publication cards/);
+  assert.match(source, /complete proposal cards/);
+  assert.match(source, /automatically publication-ready cards/);
   assert.doesNotMatch(source, /No candidate board reached nine images/);
   assert.match(source, /function BoardQualificationSummary/);
   assert.match(source, /proposal missing/);
@@ -161,11 +167,19 @@ test('legacy audits are visibly historical and require a fresh audit', () => {
 test('rescue calibration is explicit, future-facing, and reports transfer proof', () => {
   assert.match(markRescueCalibration, /action:'mark_rescue_calibration'/);
   assert.match(markRescueCalibration, /fresh audit must reproduce its signals beyond these exact nine/i);
+  assert.match(source, /Rescue learning used in this fresh audit/);
+  assert.match(source, /Learned rescue queries used/);
+  assert.match(source, /Calibration-backed supporting cards/);
+  assert.match(source, /supportingAdmissionEvidence/);
+  assert.match(source, /Failed transfer remains visible/);
   assert.match(source, /Calibration remains a separate choice/i);
   assert.match(source, /Use as calibration evidence/);
   assert.match(source, /calibrationEvidence/);
   assert.match(source, /Operator-derived curation signals/);
   assert.match(source, /Calibration transfer proof/);
+  assert.match(source, /Transfer outcomes/);
+  assert.match(source, /Retire signal/);
+  assert.match(source, /action:'retire_rescue_signal'/);
   assert.match(source, /calibration_reaudit_required/);
   assert.match(source, /Legacy evidence · records only/);
   assert.match(source, /run\.auditContract\?\.isLegacy/);
