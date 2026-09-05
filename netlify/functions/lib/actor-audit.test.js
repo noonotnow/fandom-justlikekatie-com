@@ -293,6 +293,11 @@ function curation({
         },
         compiled: {
           available: sufficient,
+          completeProposalAvailable: curationFailure,
+          proposal: curationFailure ? {
+            score: 0.6,
+            candidates: [...boardCandidates].reverse(),
+          } : null,
           reasonCode: sufficient ? null : curationFailure ? "promise_not_fulfilled" : "too_few_usable_images",
           summary: sufficient ? "A complete 9-card Compiled board qualified." : curationFailure ? "A complete proposal failed the Vibe promise." : "Compiled had 0 usable images; 9 are required.",
         },
@@ -3454,7 +3459,7 @@ test("a blinded legacy run reveals retained evidence and still accepts a rescue 
   );
 });
 
-test("useful evidence with failed board selection records Needs curation work", async () => {
+test("a complete proposal that fails publication gates remains in complete review", async () => {
   const { handler, store } = harness({ sufficient: false, curationFailure: true });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   const runResponse = await handler(request("POST", {
@@ -3462,9 +3467,15 @@ test("useful evidence with failed board selection records Needs curation work", 
   }), {});
   const run = await runResponse.json();
   assert.equal(run.currentRun.blindReview.status, "unavailable");
-  assert.equal(run.currentRun.suggestedState, "rescue_ready");
+  assert.equal(run.currentRun.suggestedState, "complete_review");
+  assert.equal(run.currentRun.preflightOutcome.boardConstructed, true);
   assert.equal(run.currentRun.rescueDraft.candidates.length, 9);
   assert.equal(run.currentRun.boardDiagnostics.compiled.reasonCode, "promise_not_fulfilled");
+  assert.equal(run.currentRun.proposalComplete, true);
+  assert.equal(run.currentRun.proposalCount, 9);
+  assert.equal(run.currentRun.publicationQualified, false);
+  assert.equal(run.currentRun.displayCount, 0);
+  assert.equal(run.currentRun.curatorProposal.candidates.length, 9);
 
   const verdictResponse = await handler(request("POST", {
     action: "verdict",

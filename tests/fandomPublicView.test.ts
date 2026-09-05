@@ -98,7 +98,7 @@ test('Release Desk is the Admin workspace for private inventory', () => {
 });
 
 test('Actor Preflight keeps hero-only failures complete and reviewable', () => {
-  assert.match(actorPreflightSource, /complete proposal cards/);
+  assert.match(actorPreflightSource, /curator proposal cards/);
   assert.match(actorPreflightSource, /automatically publication-ready cards/);
   assert.match(actorPreflightSource, /complete board · Hero review needed/);
   assert.match(actorPreflightSource, /review\?\.board\?\.candidates \?\? retainedProposal\?\.candidates/);

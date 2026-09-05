@@ -65,11 +65,11 @@ test('an unavailable comparison is not described as ready for a blind choice', (
   assert.match(source, /function PartialBoards/);
   assert.match(partialBoards, /diagnostic\?\.available===true/);
   assert.match(partialBoards, /complete proposal · automated gate not passed/);
-  assert.match(source, /Complete nine-card proposal/);
+  assert.match(source, /Curator-drawn nine-card proposal/);
   assert.match(source, /automated gate not passed/);
   assert.match(source, /older audit format did not retain its exact arrangement/);
   assert.match(source, /displayable retained images/);
-  assert.match(source, /complete proposal cards/);
+  assert.match(source, /curator proposal cards/);
   assert.match(source, /automatically publication-ready cards/);
   assert.doesNotMatch(source, /No candidate board reached nine images/);
   assert.match(source, /function BoardQualificationSummary/);
