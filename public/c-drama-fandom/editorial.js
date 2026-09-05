@@ -8,10 +8,14 @@
     "glossary-xianxia",
     "glossary-wuxia",
     "genre-comparison",
+    "historical-costume-guzhuang",
+    "duanju-format-comparison",
     "archetypes-index",
     "archetypes-cold-vs-tsundere",
+    "archetypes-black-bellied-white-cut-black",
+    "archetypes-white-moonlight-cinnabar-mole",
   ]);
-  const contentModes = new Set(["fandom-literacy", "genre-guide", "archetype-guide"]);
+  const contentModes = new Set(["fandom-literacy", "genre-guide", "format-guide", "archetype-guide"]);
   const sectionIds = new Set([
     "short-answer",
     "genre-grammar",
@@ -23,6 +27,17 @@
     "relationship",
     "power",
     "pattern-test",
+    "format-grammar",
+    "term-origins",
+    "memory-symbol",
+    "quick-answer",
+    "boundary-check",
+    "interactive-tool",
+    "watch-application",
+    "atlas-continuation",
+    "archetype-signals",
+    "fandom-usage",
+    "symbolic-role",
   ]);
   const topicIds = new Set([
     "wuxia",
@@ -39,9 +54,32 @@
     "devoted-second-lead",
     "gentle-scholar",
     "fallen-immortal",
+    "historical-drama",
+    "costume-drama",
+    "guzhuang",
+    "duanju",
+    "microdrama",
+    "vertical-drama",
+    "white-cut-black",
+    "white-moonlight",
+    "cinnabar-mole",
   ]);
   const destinationTypes = new Set(["article", "glossary", "atlas"]);
-  const toolActions = new Set(["genre-signal-toggle", "genre-reset", "archetype-filter", "pattern-toggle", "pattern-reset"]);
+  const toolActions = new Set([
+    "genre-signal-toggle",
+    "genre-reset",
+    "archetype-filter",
+    "pattern-toggle",
+    "pattern-reset",
+    "grounding-toggle",
+    "grounding-reset",
+    "format-toggle",
+    "format-reset",
+    "mask-toggle",
+    "mask-reset",
+    "symbol-toggle",
+    "symbol-reset",
+  ]);
 
   const track = (name, data) => {
     if (typeof window.gtag === "function") {

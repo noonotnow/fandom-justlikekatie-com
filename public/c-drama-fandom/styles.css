@@ -458,6 +458,57 @@ button { font: inherit; }
   text-transform: uppercase;
 }
 .topic-interest:hover, .topic-interest:focus-visible { color: var(--paper); }
+.studio-specimens {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr);
+  margin: 34px 0 12px;
+}
+.studio-specimen {
+  background: rgba(16, 37, 55, .66);
+  border: 1px solid var(--line);
+  margin: 0;
+  padding: 16px;
+}
+.studio-specimen--grid img {
+  aspect-ratio: 1;
+  object-fit: cover;
+  width: 100%;
+}
+.studio-specimen figcaption {
+  color: var(--mist);
+  font-size: 14px;
+  padding: 18px 5px 3px;
+}
+.studio-specimen figcaption strong,
+.studio-specimen figcaption span {
+  display: block;
+}
+.studio-specimen figcaption strong {
+  color: var(--paper);
+  font: 500 22px/1.2 Georgia, "Times New Roman", serif;
+  margin-bottom: 7px;
+}
+.studio-specimen figcaption a { display: inline-block; margin-top: 12px; }
+.studio-specimen--misprint {
+  align-content: start;
+  display: grid;
+  gap: 24px;
+  padding: clamp(24px, 4vw, 36px);
+}
+.studio-specimen--misprint > img { height: 72px; width: 72px; }
+.studio-specimen__label {
+  color: var(--gold) !important;
+  font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .1em;
+  margin: 0;
+  text-transform: uppercase;
+}
+.studio-specimen h3 { font-size: clamp(26px, 3vw, 34px); margin: 10px 0 24px; }
+.specimen-anatomy { display: grid; gap: 1px; margin: 0; }
+.specimen-anatomy div { background: rgba(6, 19, 33, .72); outline: 1px solid var(--line); padding: 14px; }
+.specimen-anatomy dt { color: var(--paper); font: 600 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; }
+.specimen-anatomy dd { color: var(--mist); font-size: 13px; margin: 5px 0 0; }
 .game-stage {
   background: rgba(8, 26, 42, .86);
   border: 1px solid var(--line);
@@ -644,6 +695,7 @@ button { font: inherit; }
   .topic-grid, .path-grid, .glossary { grid-template-columns: 1fr; }
   .lens-grid { grid-template-columns: 1fr; }
   .signal-grid { grid-template-columns: 1fr; }
+  .studio-specimens { grid-template-columns: 1fr; }
   .comparison-table { display: block; overflow-x: auto; }
   .decoder-tools, .trope-grid { grid-template-columns: 1fr; }
   .decoder-tools { align-items: stretch; display: grid; gap: 8px; }
