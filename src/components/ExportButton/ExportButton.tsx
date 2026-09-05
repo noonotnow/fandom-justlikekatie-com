@@ -40,7 +40,7 @@ export const ExportButton: React.FC<ExportButtonProps> = ({ rawData, onShareComp
           下载 / Download PNG
           <span className={styles.enHelper}>下载 PNG</span>
         </button>
-        <p className={styles.autoSaveNote} role="status" aria-live="polite" aria-atomic="true">
+        <p className={styles.autoSaveNote}>
           {isExporting
             ? '正在准备九张原图…… · Preparing all nine images…'
             : imagesReady
