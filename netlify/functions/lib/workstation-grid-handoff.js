@@ -2,12 +2,20 @@ import { createHash, createHmac } from "node:crypto";
 import { isIP } from "node:net";
 import { renderCanonicalOutput } from "./canonical-render.js";
 import { validateGridEditorialContract } from "./grid-editorial-contract.js";
+import { MAX_MEDIA_BYTES } from "./media-asset.js";
+import {
+  BOARD_CLASSIFICATIONS,
+  approvedBoardAuthorityKey,
+  classifySavedGrid,
+  isReleaseCandidateIdentity,
+} from "./approved-board-provenance.js";
 
 export const CREATOR_DRAFT_SOURCE_SCHEMA = "fandom.creator-draft-source.v1";
 export const WORKSTATION_DELIVERABLE_SCHEMA = "fandom.static-deliverable.v1";
 export const WORKSTATION_WORKFLOW = "direct";
 export const CREATOR_PLATFORMS = ["rednote", "weibo", "instagram"];
 const COLLECTION_STORE = "fandom-user-collections";
+const APPROVED_BOARD_AUTHORITY_STORE = "actor-audit";
 const RECEIPT_STORE = "creator-draft-handoffs";
 const MAX_RESPONSE_BYTES = 256 * 1024;
 const MAX_IMAGES = 12;
@@ -54,9 +62,11 @@ export function createWorkstationGridHandoffHandler({
       const accountScope = accountScopeFor(accountId);
 
       let collectionStore;
+      let approvedBoardAuthorityStore;
       let receiptStore;
       try {
         collectionStore = getStore(COLLECTION_STORE, context);
+        approvedBoardAuthorityStore = getStore(APPROVED_BOARD_AUTHORITY_STORE, context);
         receiptStore = getStore(RECEIPT_STORE, context);
       } catch {
         throw storageError();
@@ -64,7 +74,12 @@ export function createWorkstationGridHandoffHandler({
       return await withLock(receiptKey(accountScope, source), async () => {
         const grid = await resolveSavedGrid(collectionStore, accountId, source.sourceId);
         if (!grid) throw requestError("This saved grid is not available in the active account.", 404);
-        const resolvedSource = validateSourceAgainstGrid(source, grid);
+        const resolvedSource = await validateSourceAgainstGrid(source, grid, fetchImpl, env);
+        await validateApprovedBoardAuthority(
+          approvedBoardAuthorityStore,
+          resolvedSource.boardProvenance,
+          grid.releaseCandidateProvenance,
+        );
         const key = receiptKey(accountScope, resolvedSource);
         const priorEntry = await getBlob(receiptStore, key);
         const prior = priorEntry?.data || priorEntry;
@@ -220,6 +235,7 @@ function validateSource(source) {
     || typeof source.creativeContext.vibeEn !== "string"
     || typeof source.creativeContext.brief !== "string"
     || !Array.isArray(source.platforms)
+    || !isBoardProvenance(source.boardProvenance)
     || (source.creativeContext.captionSeed !== undefined
       && typeof source.creativeContext.captionSeed !== "string")
     || (source.creativeContext.editorialMode !== undefined
@@ -237,7 +253,7 @@ function validateSource(source) {
     || source.orderedImages.length > MAX_IMAGES
     || Object.keys(source).some(key => ![
       "schema", "kind", "sourceId", "sourceVersion", "idempotencyKey", "platforms",
-      "actor", "creativeContext", "orderedImages",
+      "boardProvenance", "actor", "creativeContext", "orderedImages",
     ].includes(key))
     || Object.keys(source.actor).some(key => !["id", "name", "nameEn"].includes(key))
     || Object.keys(source.creativeContext).some(key => ![
@@ -300,7 +316,7 @@ async function resolveSavedGrid(store, accountId, sourceId) {
   )) || null;
 }
 
-function validateSourceAgainstGrid(source, grid) {
+async function validateSourceAgainstGrid(source, grid, fetchImpl, env) {
   if (
     grid.schemaVersion !== 1
     || grid.rendererVersion !== "vibe-atlas-v1"
@@ -311,6 +327,15 @@ function validateSourceAgainstGrid(source, grid) {
   ) throw requestError("The saved grid is invalid or incomplete.", 409);
 
   const ordered = [...grid.images].sort((a, b) => a.gridPosition - b.gridPosition);
+  const boardProvenance = await verifyApprovedBoardMedia(
+    grid,
+    classifySavedGrid(grid),
+    fetchImpl,
+    env,
+  );
+  if (boardProvenance.classification === BOARD_CLASSIFICATIONS.unverified) {
+    throw requestError("Unverified saved grids cannot be handed off to Workstation.", 409);
+  }
   const sourceVersion = sourceVersionForGrid(grid);
   const platforms = normalizePlatforms(source.platforms);
   if (source.sourceVersion !== sourceVersion) {
@@ -334,6 +359,7 @@ function validateSourceAgainstGrid(source, grid) {
     sourceVersion,
     idempotencyKey: `grid:${grid.artifactId || grid.id}:${stableHash(sourceVersion)}:${platforms.join("+")}`,
     platforms,
+    boardProvenance,
     actor: { id: grid.actorId, name: grid.actor, nameEn: grid.actorEn },
     creativeContext: {
       vibe: grid.vibe,
@@ -366,6 +392,93 @@ function validateSourceAgainstGrid(source, grid) {
   return expected;
 }
 
+async function verifyApprovedBoardMedia(grid, boardProvenance, fetchImpl, env) {
+  if (boardProvenance.classification !== BOARD_CLASSIFICATIONS.exact) {
+    return boardProvenance;
+  }
+  const ordered = [...grid.images].sort((a, b) => a.gridPosition - b.gridPosition);
+  const uniqueMedia = new Map(ordered.map((image, index) => [
+    `${image.media.deliveryUrl}\0${image.media.checksum}`,
+    {
+      media: image.media,
+      expectedDigest: grid.releaseCandidateProvenance.candidates[index].imageDigest,
+    },
+  ]));
+  if ([...uniqueMedia.values()].some(({ media }) =>
+    !isTrustedMediaDeliveryUrl(media.deliveryUrl, env)
+    || media.sizeBytes > MAX_MEDIA_BYTES)) {
+    return withoutApprovalAuthority(boardProvenance);
+  }
+  try {
+    const verified = await Promise.all([...uniqueMedia.values()].map(async ({
+      media,
+      expectedDigest,
+    }) => {
+      const response = await fetchImpl(media.deliveryUrl, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        headers: { Accept: media.mimeType },
+      });
+      if (!response.ok) return false;
+      const bytes = await readBoundedMediaBytes(response, media.sizeBytes);
+      return bytes.byteLength === media.sizeBytes
+        && sha256(bytes) === expectedDigest
+        && media.checksum === expectedDigest;
+    }));
+    if (verified.every(Boolean)) return boardProvenance;
+  } catch {
+    // Authority fails closed when the durable media cannot be independently verified.
+  }
+  return withoutApprovalAuthority(boardProvenance);
+}
+
+function withoutApprovalAuthority(boardProvenance) {
+  return {
+    ...boardProvenance,
+    classification: BOARD_CLASSIFICATIONS.derived,
+    approvalAuthority: false,
+    releaseCandidateIdentity: null,
+  };
+}
+
+function isTrustedMediaDeliveryUrl(value, env) {
+  if (!isStableMediaUrl(value)) return false;
+  try {
+    const configured = new URL(env.MEDIA_ASSETS_URL || DEFAULT_MEDIA_URL);
+    return new URL(value).origin === configured.origin;
+  } catch {
+    return false;
+  }
+}
+
+async function readBoundedMediaBytes(response, expectedSize) {
+  const declaredSize = Number(response.headers.get("content-length") || 0);
+  if (declaredSize > MAX_MEDIA_BYTES || declaredSize > expectedSize) {
+    throw new TypeError("MEDIA response is too large.");
+  }
+  if (!response.body) throw new TypeError("MEDIA response body is missing.");
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_MEDIA_BYTES || total > expectedSize) {
+      await reader.cancel();
+      throw new TypeError("MEDIA response is too large.");
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 export function sourceVersionForGrid(grid) {
   return `sha256:${sha256(canonicalJson(sourceVersionMaterial(grid)))}`;
 }
@@ -377,6 +490,7 @@ function sourceVersionMaterial(grid) {
     rendererVersion: grid.rendererVersion,
     sourceId: grid.artifactId || grid.id,
     actorId: grid.actorId,
+    vibeKey: grid.vibeKey || null,
     actor: grid.actor,
     actorEn: grid.actorEn,
     actorAccentColor: grid.actorAccentColor,
@@ -396,6 +510,7 @@ function sourceVersionMaterial(grid) {
     capturedDate: grid.capturedDate,
     generatedAt: grid.generatedAt,
     sourceRoute: grid.sourceRoute || "/vibe-atlas",
+    releaseCandidateProvenance: grid.releaseCandidateProvenance || null,
     images: ordered.map(image => ({
       position: image.gridPosition,
       resultId: image.resultId,
@@ -407,6 +522,8 @@ function sourceVersionMaterial(grid) {
       familyId: image.familyId || "",
       familyLabel: image.familyLabel || "",
       familyEvidence: image.familyEvidence || "",
+      batchRank: image.batchRank ?? null,
+      mediaRecoverySourceUrl: image.mediaRecovery?.sourceUrl || "",
       media: image.media || null,
     })),
   };
@@ -620,6 +737,7 @@ function buildWorkstationEnvelope(
       imageCount: source.orderedImages.length,
     },
     creativeContext: source.creativeContext,
+    boardProvenance: source.boardProvenance,
     generatedAt: generatedAt.toISOString(),
     sourceCards: ordered.map(image => ({
       id: image.resultId,
@@ -665,14 +783,62 @@ function buildWorkstationEnvelope(
       },
       requiredAssets: [registration.assetId],
       captionBrief: caption,
+      approvalAuthority: source.boardProvenance.approvalAuthority,
+      approvalLanguage: source.boardProvenance.approvalAuthority
+        ? "approved-publication-candidate"
+        : "new-creative-source",
       tags: [],
       requirements: [
         "Use only the attached canonical MEDIA asset.",
+        source.boardProvenance.approvalAuthority
+          ? "Approval applies only to this exact ordered nine-card board and its verified board hash."
+          : "This derivative is a new creative source and does not inherit the approval receipt.",
         "No scheduling or publishing action is authorized by this handoff.",
       ],
     },
     mediaAttachments: [registration],
   };
+}
+
+async function validateApprovedBoardAuthority(store, boardProvenance, provenance) {
+  const identity = boardProvenance.sourceReleaseCandidateIdentity;
+  const authority = await store.get(
+    approvedBoardAuthorityKey(identity.auditRunId),
+    { type: "json", consistency: "strong" },
+  );
+  if (!authority
+    || canonicalJson(authority) !== canonicalJson(provenance)
+    || canonicalJson(authority.identity) !== canonicalJson(identity)) {
+    throw requestError("The saved grid's approved-board provenance could not be verified.", 409);
+  }
+}
+
+function isBoardProvenance(value) {
+  if (!isRecord(value)
+    || !Object.values(BOARD_CLASSIFICATIONS).includes(value.classification)
+    || typeof value.approvalAuthority !== "boolean"
+    || (value.releaseCandidateIdentity !== null
+      && !isReleaseCandidateIdentity(value.releaseCandidateIdentity))
+    || (value.sourceReleaseCandidateIdentity !== null
+      && !isReleaseCandidateIdentity(value.sourceReleaseCandidateIdentity))
+    || Object.keys(value).some(key => ![
+      "classification", "approvalAuthority", "releaseCandidateIdentity",
+      "sourceReleaseCandidateIdentity",
+    ].includes(key))) return false;
+  if (value.classification === BOARD_CLASSIFICATIONS.exact) {
+    return value.approvalAuthority === true
+      && isReleaseCandidateIdentity(value.releaseCandidateIdentity)
+      && canonicalJson(value.releaseCandidateIdentity)
+        === canonicalJson(value.sourceReleaseCandidateIdentity);
+  }
+  if (value.classification === BOARD_CLASSIFICATIONS.derived) {
+    return value.approvalAuthority === false
+      && value.releaseCandidateIdentity === null
+      && isReleaseCandidateIdentity(value.sourceReleaseCandidateIdentity);
+  }
+  return value.approvalAuthority === false
+    && value.releaseCandidateIdentity === null
+    && value.sourceReleaseCandidateIdentity === null;
 }
 
 async function sendToWorkstation(envelope, { env, fetchImpl, timestampDate }) {

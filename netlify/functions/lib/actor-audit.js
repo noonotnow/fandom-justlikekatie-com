@@ -64,6 +64,7 @@ import {
 } from "../star-of-day.js";
 import { getShanghaiDateString } from "./date-seed.js";
 import { readLatestPublicationDatesByActor } from "./publication-manifest.js";
+import { approvedBoardAuthorityKey } from "./approved-board-provenance.js";
 
 const MAX_BODY_BYTES = 48 * 1024;
 const MAX_NOTE_LENGTH = 2000;
@@ -1225,6 +1226,56 @@ export function createActorAuditHandler({
           return json(409, { error: "The saved rescue arrangement no longer passes the current audit gates. Rebuild it before exporting." });
         }
         const exportedAt = now().toISOString();
+        const publicationSource = run.operatorVerdict?.publicationSource;
+        const exportedBoardHash = boardHash(validation.board);
+        const exactApprovedBoard = run.operatorVerdict?.verdict === "approved"
+          && run.operatorVerdict.vibeConfirmed === true
+          && run.operatorVerdict.publishableConfirmed === true
+          && publicationSource?.type === "operator_rescue"
+          && publicationSource.rescueReceiptId === receipt.receiptId
+          && publicationSource.boardHash === exportedBoardHash;
+        const hasCompleteImageEvidence = validation.board.candidates.every(candidate =>
+          typeof candidate.imageDigest === "string" && /^[a-f0-9]{64}$/i.test(candidate.imageDigest));
+        const releaseCandidateProvenance = exactApprovedBoard && hasCompleteImageEvidence ? {
+          schemaVersion: 1,
+          source: "actor-preflight-approval",
+          identity: {
+            schemaVersion: 1,
+            auditRunId: run.runId,
+            publicationManifestId: null,
+            publicationSourceType: publicationSource.type,
+            rescueReceiptId: receipt.receiptId,
+            boardHash: publicationSource.boardHash,
+            orderedCandidateIds: validation.board.candidates.map(candidate => candidate.candidateId),
+            actorId: pair.actor.id,
+            vibeKey: pair.vibeKey,
+            curationVersion: CURATION_VERSION,
+            promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+            identityProfileVersion: IDENTITY_PROFILE_VERSION,
+          },
+          candidates: validation.board.candidates.map(candidate => ({
+            candidateId: candidate.candidateId,
+            imageDigest: candidate.imageDigest,
+            thumbnail: candidate.thumbnail || "",
+            title: candidate.title || "",
+            source: candidate.source || "",
+            batchRank: candidate.batchRank ?? null,
+          })),
+        } : null;
+        if (releaseCandidateProvenance) {
+          const authorityKey = approvedBoardAuthorityKey(run.runId);
+          const authorityWrite = await store.setJSON(
+            authorityKey,
+            releaseCandidateProvenance,
+            { onlyIfNew: true },
+          );
+          if (authorityWrite?.modified === false) {
+            const authority = await store.get(authorityKey, { type: "json", consistency: "strong" });
+            if (recordHash(authority) !== recordHash(releaseCandidateProvenance)) {
+              return json(409, { error: "The approved-board identity no longer matches its immutable authority record." });
+            }
+          }
+        }
         return json(200, {
           rescueExport: {
             schemaVersion: 1,
@@ -1249,6 +1300,7 @@ export function createActorAuditHandler({
               subtitleEn: pair.vibe.subtitle_en || pair.vibe.subtitle || "",
               searchSpell: pair.vibe.queries?.[0] || pair.vibeKey,
             },
+            ...(releaseCandidateProvenance ? { releaseCandidateProvenance } : {}),
             candidates: validation.board.candidates.map(candidate => ({
               candidateId: candidate.candidateId,
               imageDigest: candidate.imageDigest || null,
@@ -1257,6 +1309,7 @@ export function createActorAuditHandler({
               source: candidate.source || "",
               link: candidate.link || "",
               thumbnail: candidate.thumbnail || "",
+              batchRank: candidate.batchRank ?? null,
             })),
           },
         });

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { ACTOR_PACKS } from "./actor-packs.js";
 import {
@@ -197,6 +198,7 @@ function curation({
     const negativeSources = new Set(options.calibrationProfile?.negativeSources || []);
     const rawCandidates = ranked.flatMap(batch => (batch.results || []).map(result => ({
       ...result,
+      imageDigest: createHash("sha256").update(result.thumbnail || "").digest("hex"),
       candidateId: candidateIdForResult({
         ...result,
         batchKey: result.batchKey || batch.query,
@@ -1456,6 +1458,7 @@ test("run-scoped image flags persist as append-only feedback without rewriting c
     vibeKey,
     runId: "run-1",
     candidateId: candidate.candidateId,
+    imageDigest: candidate.imageDigest,
     flagged: true,
   }), {});
   const flagged = await flagResponse.json();
@@ -1503,6 +1506,7 @@ test("run-scoped image flags persist as append-only feedback without rewriting c
   }), {});
   const exported = await exportResponse.json();
   assert.equal(exportResponse.status, 200, JSON.stringify(exported));
+  assert.equal(exported.rescueExport.releaseCandidateProvenance, undefined);
   assert.equal(exported.rescueExport.gridId, `rescue-${pairActor.id}-${savedReceipt.receiptId}`);
   assert.deepEqual(
     exported.rescueExport.candidates.map(item => item.candidateId),
@@ -3216,6 +3220,40 @@ test("a saved retained-evidence board can be approved without a curator comparis
   assert.equal(eligibility.verdict, "approved");
   assert.equal(eligibility.publicationSource.type, "operator_rescue");
   assert.equal(eligibility.publicationSource.rescueReceiptId, receiptId);
+  const exportResponse = await handler(request("POST", {
+    action: "export_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    receiptId,
+  }), {});
+  const exported = await exportResponse.json();
+  assert.equal(exportResponse.status, 200, JSON.stringify(exported));
+  assert.deepEqual(exported.rescueExport.releaseCandidateProvenance.identity, {
+    schemaVersion: 1,
+    auditRunId: "run-1",
+    publicationManifestId: null,
+    publicationSourceType: "operator_rescue",
+    rescueReceiptId: receiptId,
+    boardHash: approval.currentRun.operatorVerdict.publicationSource.boardHash,
+    orderedCandidateIds: candidateIds,
+    actorId: pairActor.id,
+    vibeKey,
+    curationVersion: approval.currentRun.curationVersion,
+    promiseContractVersion: approval.currentRun.promiseContractVersion,
+    identityProfileVersion: approval.currentRun.identityProfileVersion,
+  });
+  assert.deepEqual(
+    exported.rescueExport.releaseCandidateProvenance.candidates,
+    exported.rescueExport.candidates.map(candidate => ({
+      candidateId: candidate.candidateId,
+      imageDigest: candidate.imageDigest,
+      thumbnail: candidate.thumbnail,
+      title: candidate.title,
+      source: candidate.source,
+      batchRank: candidate.batchRank,
+    })),
+  );
   assert.deepEqual(
     approval.calibrationProfile.backupBoards,
     [],

@@ -2,6 +2,10 @@ import { dbSaveGrid, type GridRecord } from './collectionDB';
 import { persistGridImagesToMedia, type CollectionGridMediaFailure } from './collectionMedia';
 import { completeWorkstationHandoff, type WorkstationReceipt } from './workstationHandoffClient';
 import { getPublicSession, syncPublicGrid } from './publicAccount';
+import {
+  classifyGridProvenance,
+  type ClassifiedBoardProvenance,
+} from './approvedBoardProvenance';
 
 export const CREATOR_DRAFT_SOURCE_SCHEMA = 'fandom.creator-draft-source.v1';
 export const CREATOR_PLATFORMS = ['rednote', 'weibo', 'instagram'] as const;
@@ -14,6 +18,7 @@ export interface CreatorDraftSource {
   sourceVersion: string;
   idempotencyKey: string;
   platforms: CreatorPlatform[];
+  boardProvenance: ClassifiedBoardProvenance;
   actor: {
     id: string;
     name: string;
@@ -70,6 +75,7 @@ export async function creatorDraftSourceFromGrid(
 ): Promise<CreatorDraftSource> {
   const normalizedPlatforms = normalizeCreatorPlatforms(platforms);
   const orderedImages = [...grid.images].sort((a, b) => a.gridPosition - b.gridPosition);
+  const boardProvenance = await classifyGridProvenance(grid);
   const sourceId = grid.artifactId || grid.id;
   const sourceVersion = `sha256:${await sha256(canonicalJson(sourceVersionMaterial(grid)))}`;
   return {
@@ -79,6 +85,7 @@ export async function creatorDraftSourceFromGrid(
     sourceVersion,
     idempotencyKey: `grid:${sourceId}:${stableHash(sourceVersion)}:${normalizedPlatforms.join('+')}`,
     platforms: normalizedPlatforms,
+    boardProvenance,
     actor: {
       id: grid.actorId,
       name: grid.actor,
@@ -118,6 +125,9 @@ export async function makeCreatorPostFromGrid(
   platforms: CreatorPlatform[] = ['rednote'],
   onProgress?: (progress: CreatorDraftProgress) => void,
 ): Promise<CreatorDraftResult> {
+  if ((await classifyGridProvenance(grid)).classification === 'unverified-saved-grid') {
+    throw new Error('Unverified saved grids cannot be handed off to Workstation.');
+  }
   await dbSaveGrid(grid);
   const user = await getPublicSession();
   if (!user) throw new Error('Sign in before creating a Workstation post.');
@@ -149,6 +159,7 @@ function sourceVersionMaterial(grid: GridRecord) {
     rendererVersion: grid.rendererVersion,
     sourceId: grid.artifactId || grid.id,
     actorId: grid.actorId,
+    vibeKey: grid.vibeKey || null,
     actor: grid.actor,
     actorEn: grid.actorEn,
     actorAccentColor: grid.actorAccentColor,
@@ -168,6 +179,7 @@ function sourceVersionMaterial(grid: GridRecord) {
     capturedDate: grid.capturedDate,
     generatedAt: grid.generatedAt,
     sourceRoute: grid.sourceRoute || '/vibe-atlas',
+    releaseCandidateProvenance: grid.releaseCandidateProvenance || null,
     images: orderedImages.map(image => ({
       position: image.gridPosition,
       resultId: image.resultId,
@@ -179,6 +191,8 @@ function sourceVersionMaterial(grid: GridRecord) {
       familyId: image.familyId || '',
       familyLabel: image.familyLabel || '',
       familyEvidence: image.familyEvidence || '',
+      batchRank: image.batchRank ?? null,
+      mediaRecoverySourceUrl: image.mediaRecovery?.sourceUrl || '',
       media: image.media || null,
     })),
   };

@@ -53,6 +53,33 @@ function grid(): GridRecord {
     generatedAt: '2026-08-10T00:00:00Z',
     savedAt: '2026-08-10T01:00:00Z',
     sourceRoute: '/',
+    vibeKey: 'vibe-1',
+    releaseCandidateProvenance: {
+      schemaVersion: 1,
+      source: 'actor-preflight-approval',
+      identity: {
+        schemaVersion: 1,
+        auditRunId: 'audit-run-1',
+        publicationManifestId: null,
+        publicationSourceType: 'operator_rescue',
+        rescueReceiptId: 'receipt-1',
+        boardHash: 'a'.repeat(64),
+        orderedCandidateIds: Array.from({ length: 9 }, (_, index) => `grid-result-${index + 1}`),
+        actorId: 'actor-1',
+        vibeKey: 'vibe-1',
+        curationVersion: 4,
+        promiseContractVersion: 3,
+        identityProfileVersion: 2,
+      },
+      candidates: Array.from({ length: 9 }, (_, index) => ({
+        candidateId: `grid-result-${index + 1}`,
+        imageDigest: 'a'.repeat(64),
+        thumbnail: `https://images.example/grid-${index + 1}.jpg`,
+        title: `Grid result ${index + 1}`,
+        source: 'Publisher',
+        batchRank: null,
+      })),
+    },
     images: [{
       resultId: 'grid-result-1',
       imageUrl: '/api/image-proxy?url=https%3A%2F%2Fimages.example%2Fgrid.jpg',
@@ -105,6 +132,10 @@ test('saved grids sync as first-class artifacts without flattening their source 
   assert.equal(Reflect.get(gridOperation?.item || {}, 'kind'), 'grid');
   assert.equal(Reflect.get(gridOperation?.item || {}, 'searchSpell'), 'editorial search spell');
   assert.equal(Reflect.get(gridOperation?.item || {}, 'images').length, 1);
+  assert.deepEqual(
+    Reflect.get(gridOperation?.item || {}, 'releaseCandidateProvenance'),
+    grid().releaseCandidateProvenance,
+  );
   assert.equal(operations.filter(operation => operation.type === 'upsert').length, 2);
 });
 

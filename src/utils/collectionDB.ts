@@ -4,6 +4,7 @@ import type {
   MediaReference,
 } from './mediaReference';
 import type { MemeReworkMetadata } from './memeRework';
+import type { ReleaseCandidateProvenance } from './approvedBoardProvenance';
 
 const DB_NAME = 'vibe-atlas-collection';
 const DB_VERSION = 3;
@@ -85,6 +86,7 @@ export interface GridMediaSnapshot {
   title: string;
   publisher?: string;
   batchKey?: string;
+  batchRank?: number;
   familyId?: string;
   familyLabel?: string;
   familyEvidence?: 'persisted-event' | 'batch' | 'publisher' | 'fallback';
@@ -124,7 +126,9 @@ export interface GridRecord {
   generatedAt: string;
   savedAt: string;
   sourceRoute: string;
+  vibeKey?: string;
   images: GridMediaSnapshot[];
+  releaseCandidateProvenance?: ReleaseCandidateProvenance;
   editorial?: {
     mode: 'event' | 'compiled';
     compositionSize: 9 | 12;
@@ -759,6 +763,7 @@ export function normalizeGridRecord(grid: Partial<GridRecord>): GridRecord {
     generatedAt: grid.generatedAt || grid.savedAt || new Date().toISOString(),
     savedAt: grid.savedAt || grid.generatedAt || new Date().toISOString(),
     sourceRoute: grid.sourceRoute || '/',
+    ...(grid.vibeKey ? { vibeKey: grid.vibeKey } : {}),
     images,
     ...(grid.editorial ? { editorial: grid.editorial } : {}),
     ...(grid.localId ? { localId: grid.localId } : {}),
@@ -772,6 +777,9 @@ export function normalizeGridRecord(grid: Partial<GridRecord>): GridRecord {
     ...(grid.legendaryMisprint ? { legendaryMisprint: grid.legendaryMisprint } : {}),
     ...(grid.intent ? { intent: grid.intent } : {}),
     ...(grid.misprintMetadata ? { misprintMetadata: grid.misprintMetadata } : {}),
+    ...(grid.releaseCandidateProvenance
+      ? { releaseCandidateProvenance: grid.releaseCandidateProvenance }
+      : {}),
   };
 }
 
