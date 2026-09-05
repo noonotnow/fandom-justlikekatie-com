@@ -59,8 +59,12 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/glossary/jianghu/",
     "https://fandom.justlikekatie.com/c-drama-fandom/glossary/wuxia/",
     "https://fandom.justlikekatie.com/c-drama-fandom/glossary/wuxia-vs-xianxia-vs-xuanhuan/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/glossary/historical-vs-costume-drama/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/glossary/duanju-microdrama-vertical-drama/",
     "https://fandom.justlikekatie.com/c-drama-fandom/archetypes/",
     "https://fandom.justlikekatie.com/c-drama-fandom/archetypes/cold-male-lead-vs-tsundere/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/archetypes/black-bellied-vs-white-cut-black/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole/",
     "https://fandom.justlikekatie.com/c-drama-fandom/trope-decoder/",
     "https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/",
   ];
@@ -101,7 +105,16 @@ test("robots and sitemap expose only intended public surfaces", () => {
   assert.doesNotMatch(sitemap, /\/api\/|\/auth\/|create-handoff|idea-packet/);
   assert.match(viteConfig, /['"]\/c-drama-fandom\/trope-decoder['"]\s*,\s*['"]\/c-drama-fandom\/trope-decoder\/index\.html['"]/);
   assert.match(netlify, /from = "\/c-drama-fandom\/trope-decoder"[\s\S]*?to = "\/c-drama-fandom\/trope-decoder\/index\.html"/);
-  for (const slug of ["cp", "cultivation", "xianxia", "jianghu", "wuxia", "wuxia-vs-xianxia-vs-xuanhuan"]) {
+  for (const slug of [
+    "cp",
+    "cultivation",
+    "xianxia",
+    "jianghu",
+    "wuxia",
+    "wuxia-vs-xianxia-vs-xuanhuan",
+    "historical-vs-costume-drama",
+    "duanju-microdrama-vertical-drama",
+  ]) {
     assert.match(
       viteConfig,
       new RegExp(`['"]/c-drama-fandom/glossary/${slug}['"]\\s*,\\s*['"]/c-drama-fandom/glossary/${slug}/index\\.html['"]`),
@@ -111,7 +124,12 @@ test("robots and sitemap expose only intended public surfaces", () => {
       new RegExp(`from = "/c-drama-fandom/glossary/${slug}"[\\s\\S]*?to = "/c-drama-fandom/glossary/${slug}/index\\.html"`),
     );
   }
-  for (const slug of ["archetypes", "archetypes/cold-male-lead-vs-tsundere"]) {
+  for (const slug of [
+    "archetypes",
+    "archetypes/cold-male-lead-vs-tsundere",
+    "archetypes/black-bellied-vs-white-cut-black",
+    "archetypes/white-moonlight-vs-cinnabar-mole",
+  ]) {
     assert.match(
       viteConfig,
       new RegExp(`['"]/c-drama-fandom/${slug}['"]\\s*,\\s*['"]/c-drama-fandom/${slug}/index\\.html['"]`),
@@ -159,6 +177,37 @@ test("the second authority batch offers complete answers and measurable interact
     assert.match(html, /src="\/c-drama-fandom\/editorial\.js"/);
     assert.match(html, signature);
   }
+});
+
+test("the third authority batch preserves nuance and measurable reader tools", () => {
+  const authorityPages = [
+    ["public/c-drama-fandom/glossary/historical-vs-costume-drama/index.html", /Grounding → Visual language → World/],
+    ["public/c-drama-fandom/glossary/duanju-microdrama-vertical-drama/index.html", /Length → Rhythm → Frame → Distribution/],
+    ["public/c-drama-fandom/archetypes/black-bellied-vs-white-cut-black/index.html", /Mask → Method → Motive/],
+    ["public/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole/index.html", /Distance → Memory → Symbol/],
+  ];
+
+  for (const [path, signature] of authorityPages) {
+    const html = read(path);
+    assert.match(html, /class="answer-line"/);
+    assert.match(html, /data-section-id=/);
+    assert.match(html, /data-tool-action=/);
+    assert.match(html, /data-atlas-continuation/);
+    assert.match(html, /data-source-page=/);
+    assert.doesNotMatch(html, /data-editorial-page=/);
+    assert.match(html, /Today’s Vibe Atlas drop/i);
+    assert.match(html, /src="\/c-drama-fandom\/editorial\.js"/);
+    assert.match(html, signature);
+  }
+});
+
+test("the studio glossary demonstrates collectible vocabulary without inventing provenance", () => {
+  const glossary = read("public/c-drama-fandom/glossary/index.html");
+  assert.match(glossary, /Legendary Grid · LG 01/);
+  assert.match(glossary, /Intended identity/);
+  assert.match(glossary, /Unexpected identity/);
+  assert.match(glossary, /Why it survived/);
+  assert.doesNotMatch(glossary, /fictional misprint|sample actor|placeholder identity/i);
 });
 
 test("editorial analytics use bounded identifiers and never collect reader text", () => {

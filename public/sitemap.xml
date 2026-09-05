@@ -51,12 +51,32 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://fandom.justlikekatie.com/c-drama-fandom/glossary/historical-vs-costume-drama/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://fandom.justlikekatie.com/c-drama-fandom/glossary/duanju-microdrama-vertical-drama/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://fandom.justlikekatie.com/c-drama-fandom/archetypes/</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://fandom.justlikekatie.com/c-drama-fandom/archetypes/cold-male-lead-vs-tsundere/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://fandom.justlikekatie.com/c-drama-fandom/archetypes/black-bellied-vs-white-cut-black/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://fandom.justlikekatie.com/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole/</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>

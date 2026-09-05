@@ -37,8 +37,12 @@ export const REQUIRED_PUBLIC_PAGES = [
   "public/c-drama-fandom/glossary/jianghu/index.html",
   "public/c-drama-fandom/glossary/wuxia/index.html",
   "public/c-drama-fandom/glossary/wuxia-vs-xianxia-vs-xuanhuan/index.html",
+  "public/c-drama-fandom/glossary/historical-vs-costume-drama/index.html",
+  "public/c-drama-fandom/glossary/duanju-microdrama-vertical-drama/index.html",
   "public/c-drama-fandom/archetypes/index.html",
   "public/c-drama-fandom/archetypes/cold-male-lead-vs-tsundere/index.html",
+  "public/c-drama-fandom/archetypes/black-bellied-vs-white-cut-black/index.html",
+  "public/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole/index.html",
   "public/c-drama-fandom/trope-decoder/index.html",
   "public/c-drama-fandom/fandom-games/index.html",
 ];
