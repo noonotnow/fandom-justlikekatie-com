@@ -28,6 +28,7 @@ import {
   productionStateKey,
 } from "./actor-eligibility.js";
 import {
+  classifyPreflightOutcome,
   compareCalibrationOutcomes,
   createActorAuditHandler,
   rescueCalibrationBasis,
@@ -534,6 +535,135 @@ test("every configured actor has a complete private identity profile", () => {
   ]);
 });
 
+test("Actor Preflight classifies every recoverable and terminal outcome explicitly", () => {
+  const candidates = Array.from({ length: 9 }, (_, index) => ({
+    candidateId: `candidate-${index}`,
+    thumbnail: `https://images.example/${index}.jpg`,
+  }));
+  const base = {
+    completeProposalCardCount: 0,
+    identityEvidence: { collisionSignals: 0 },
+    boardDiagnostics: {
+      event: { available: false },
+      compiled: { available: false },
+    },
+    strongestEvent: null,
+    strongestCompiled: null,
+    partialClusters: [],
+    curationReceipt: {
+      rawCandidates: [],
+      sourceEvidenceCandidates: [],
+      dropped: [],
+    },
+    rawResults: [],
+  };
+
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    strongestCompiled: { candidates },
+    boardDiagnostics: {
+      ...base.boardDiagnostics,
+      compiled: { available: true },
+    },
+  }).state, "auto_ready");
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    completeProposalCardCount: 9,
+    strongestCompiled: { candidates },
+  }).state, "complete_review");
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    strongestCompiled: { candidates },
+    identityEvidence: { collisionSignals: 1 },
+    boardDiagnostics: {
+      ...base.boardDiagnostics,
+      compiled: { available: true },
+    },
+  }).state, "complete_review");
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    curationReceipt: {
+      rawCandidates: candidates,
+      sourceEvidenceCandidates: candidates,
+      dropped: [],
+    },
+  }).state, "rescue_ready");
+  for (const dropReason of ["composite_image", "exact_duplicate"]) {
+    assert.equal(classifyPreflightOutcome({
+      ...base,
+      curationReceipt: {
+        rawCandidates: candidates.map((candidate, index) => ({
+          ...candidate,
+          dropReason: index === 0 ? dropReason : null,
+        })),
+        sourceEvidenceCandidates: candidates,
+        dropped: [{ ...candidates[0], dropReason }],
+      },
+    }).state, "rescue_ready");
+  }
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    partialClusters: [{ cardCount: 5 }],
+  }).state, "partial_searchable");
+  assert.equal(classifyPreflightOutcome(base).state, "retrieval_weak");
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    curationReceipt: {
+      rawCandidates: [{ ...candidates[0], dropReason: "confirmed_wrong_identity" }],
+      sourceEvidenceCandidates: [{ ...candidates[0], dropReason: "confirmed_wrong_identity" }],
+      dropped: [{ ...candidates[0], dropReason: "confirmed_wrong_identity" }],
+    },
+  }).state, "hard_blocked");
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    curationReceipt: {
+      rawCandidates: candidates,
+      sourceEvidenceCandidates: candidates,
+      dropped: [],
+    },
+    editorialFeedback: {
+      flags: candidates.map(candidate => ({
+        candidateId: candidate.candidateId,
+        disposition: "excluded",
+      })),
+    },
+  }).state, "hard_blocked");
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    completeProposalCardCount: 9,
+    strongestCompiled: { candidates },
+    curationReceipt: {
+      rawCandidates: candidates,
+      sourceEvidenceCandidates: candidates,
+      dropped: [],
+    },
+    editorialFeedback: {
+      flags: candidates.map(candidate => ({
+        candidateId: candidate.candidateId,
+        disposition: "excluded",
+      })),
+    },
+  }).state, "hard_blocked");
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    partialClusters: [{
+      cardCount: 5,
+      candidateIds: candidates.slice(0, 5).map(candidate => candidate.candidateId),
+    }],
+    curationReceipt: {
+      rawCandidates: candidates.slice(0, 5),
+      sourceEvidenceCandidates: candidates.slice(0, 5),
+      dropped: [],
+    },
+    editorialFeedback: {
+      flags: candidates.slice(0, 5).map(candidate => ({
+        candidateId: candidate.candidateId,
+        disposition: "excluded",
+      })),
+    },
+  }).state, "hard_blocked");
+});
+
 test("the audit surface is admin-only before any report store is read", async () => {
   const { handler, store } = harness({ authorized: false });
   const response = await handler(request(), {});
@@ -806,7 +936,7 @@ test("run, verdict, rerun, and retained-run inspection keep eligibility current"
   assert.equal(chosen.currentRun.detectedEvents.length, 1);
   assert.equal(chosen.currentRun.winner.mode, "compiled");
   assert.equal(chosen.currentRun.identityEvidence.heuristic.includes("do not prove"), true);
-  assert.equal(chosen.currentRun.suggestedState, "identity_risk");
+  assert.equal(chosen.currentRun.suggestedState, "complete_review");
   assert.equal(chosen.currentRun.blindReview.choice, "compiled");
   assert.equal(chosen.currentRun.blindReview.agreement, true);
   assert.match(chosen.currentRun.blindReview.experiment.eventBoard.boardHash, /^[a-f0-9]{64}$/);
@@ -2430,7 +2560,7 @@ test("legacy rescue receipts remain records-only and cannot calibrate the curren
 });
 
 test("excluding an original board image removes it from rescue boards and rejects it on save", async () => {
-  const { handler } = harness();
+  const { handler, store } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   await handler(request("POST", {
     action: "run", actorId: pairActor.id, vibeKey, scope: "full",
@@ -2468,6 +2598,17 @@ test("excluding an original board image removes it from rescue boards and reject
   const rescueIds = excluded.currentRun.editorialFeedback.requestedReview.board.candidates
     .map(candidate => candidate.candidateId);
   assert.equal(rescueIds.includes(sourceBoardCandidate.candidateId), false);
+  const derivedDraftIds = excluded.currentRun.rescueDraft.candidates
+    .map(candidate => candidate.candidateId);
+  assert.equal(derivedDraftIds.length, 9);
+  assert.equal(derivedDraftIds.includes(sourceBoardCandidate.candidateId), false);
+  assert.equal(derivedDraftIds.includes(omittedCandidate.candidateId), true);
+  const frozenRun = await store.get(auditRunKey(pairActor.id, 0, "run-1"));
+  assert.equal(
+    frozenRun.rescueDraft.candidates.some(candidate =>
+      candidate.candidateId === sourceBoardCandidate.candidateId),
+    true,
+  );
 
   const invalidIds = [...rescueIds];
   invalidIds[0] = sourceBoardCandidate.candidateId;
@@ -3101,11 +3242,14 @@ test("a complete Compiled proposal with only a failed hero stays visible and rev
   assert.equal(runResponse.status, 200, JSON.stringify(report));
   assert.equal(report.currentRun.blindReview.status, "unavailable");
   assert.equal(report.currentRun.strongestEvent, null);
-  assert.equal(report.currentRun.strongestCompiled, null);
+  assert.equal(report.currentRun.strongestCompiled.candidates.length, 9);
   assert.equal(report.currentRun.displayCount, 0);
   assert.equal(report.currentRun.completeProposalCardCount, 9);
-  assert.equal(report.currentRun.materialSufficient, false);
-  assert.equal(report.currentRun.suggestedState, "needs_operator_verdict");
+  assert.equal(report.currentRun.materialSufficient, true);
+  assert.equal(report.currentRun.automaticPublicationReady, false);
+  assert.equal(report.currentRun.suggestedState, "complete_review");
+  assert.equal(report.currentRun.preflightOutcome.boardConstructed, true);
+  assert.equal(report.currentRun.rescueDraft.candidates.length, 9);
   assert.equal(report.currentRun.boardDiagnostics.event.reasonCode, "no_bounded_role_family");
   assert.equal(report.currentRun.boardDiagnostics.event.proposal, null);
   assert.equal(report.currentRun.boardDiagnostics.compiled.reasonCode, "hero_not_fulfilled");
@@ -3169,7 +3313,7 @@ test("a complete Compiled proposal with only a failed hero stays visible and rev
     reorderedIds,
     "approval must retain the exact saved rescue arrangement",
   );
-  assert.equal(approval.currentRun.strongestCompiled, null);
+  assert.equal(approval.currentRun.strongestCompiled.candidates.length, 9);
   assert.equal(approval.currentRun.winner, null);
   assert.equal(
     store.records.get(eligibilityKey(pairActor.id, 0)).publicationSource.rescueReceiptId,
@@ -3318,7 +3462,8 @@ test("useful evidence with failed board selection records Needs curation work", 
   }), {});
   const run = await runResponse.json();
   assert.equal(run.currentRun.blindReview.status, "unavailable");
-  assert.equal(run.currentRun.suggestedState, "needs_curation_work");
+  assert.equal(run.currentRun.suggestedState, "rescue_ready");
+  assert.equal(run.currentRun.rescueDraft.candidates.length, 9);
   assert.equal(run.currentRun.boardDiagnostics.compiled.reasonCode, "promise_not_fulfilled");
 
   const verdictResponse = await handler(request("POST", {

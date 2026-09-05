@@ -150,6 +150,12 @@ const DISAGREEMENT_REASONS = new Set([
   "bad_arrangement",
   "other_editorial_instinct",
 ]);
+const HARD_BLOCKING_DROP_REASONS = new Set([
+  "content_policy",
+  "rights_prohibited",
+  "safety_prohibited",
+  "confirmed_wrong_identity",
+]);
 
 export function createActorAuditHandler({
   auth,
@@ -1352,7 +1358,7 @@ export async function runPreflight(
   const learnedQueriesUsed = learnedQueries.filter(query =>
     queryRuns.some(item => item.query === query));
   const completedAt = now().toISOString();
-  const materialSufficient = curated.displayResults.length >= 9;
+  const automaticPublicationReady = curated.displayResults.length >= 9;
   const completeProposalCardCount = Math.max(
     0,
     ...Object.values(diagnostics.boardDiagnostics || {}).map(diagnostic =>
@@ -1385,10 +1391,10 @@ export async function runPreflight(
   const calibrationProof = calibrationProofFromDiagnostics(
     calibrationProfile,
     calibrationSignals,
-    materialSufficient,
+    automaticPublicationReady,
   );
 
-  return {
+  const run = {
     runId: createRunId(),
     schemaVersion: 1,
     profileVersion: IDENTITY_PROFILE_VERSION,
@@ -1425,8 +1431,8 @@ export async function runPreflight(
     detectedEvents: diagnostics.eventFamilies || [],
     boardDiagnostics: diagnostics.boardDiagnostics || null,
     partialClusters: diagnostics.partialClusters || [],
-    strongestEvent: diagnostics.strongestEvent || null,
-    strongestCompiled: diagnostics.strongestCompiled || null,
+    strongestEvent: strongestProposal(diagnostics, "event"),
+    strongestCompiled: strongestProposal(diagnostics, "compiled"),
     eventAlternatives: diagnostics.eventAlternatives || [],
     compiledAlternatives: diagnostics.compiledAlternatives || [],
     runnerUpDiagnostics: diagnostics.runnerUpDiagnostics || null,
@@ -1439,16 +1445,129 @@ export async function runPreflight(
     curationReceipt,
     displayCount: curated.displayResults.length,
     completeProposalCardCount,
-    materialSufficient,
-    suggestedState: materialSufficient
-      ? identityEvidence.collisionSignals > 0 ? "identity_risk" : "needs_operator_verdict"
-      : completeProposalCardCount >= 9
-        ? "needs_operator_verdict"
-      : Number(diagnostics.receipt?.analyzedCount) >= 9
-        ? "needs_curation_work"
-        : "insufficient_material",
+    materialSufficient: automaticPublicationReady || completeProposalCardCount >= 9,
+    automaticPublicationReady,
     operatorVerdict: null,
   };
+  run.rescueDraft = buildFrozenRescueBoard(run, []);
+  run.preflightOutcome = classifyPreflightOutcome(run);
+  run.suggestedState = run.preflightOutcome.state;
+  run.missingEvidenceSearchSuggestions = missingEvidenceSearchSuggestions(run.partialClusters);
+  return run;
+}
+
+function strongestProposal(diagnostics, mode) {
+  return diagnostics[mode === "event" ? "strongestEvent" : "strongestCompiled"]
+    || diagnostics.boardDiagnostics?.[mode]?.proposal
+    || null;
+}
+
+function missingEvidenceSearchSuggestions(partialClusters = []) {
+  const suggestions = partialClusters.flatMap(cluster =>
+    (cluster?.suggestedSearches || []).map(suggestion => ({
+      ...suggestion,
+      clusterId: cluster.id,
+      clusterLabel: cluster.label,
+    })));
+  return [...new Map(suggestions
+    .filter(suggestion => suggestion?.query)
+    .map(suggestion => [suggestion.query, suggestion])).values()];
+}
+
+export function classifyPreflightOutcome(run) {
+  const excludedIds = new Set((run?.editorialFeedback?.flags || [])
+    .filter(flag => flag?.disposition === "excluded")
+    .map(flag => flag.candidateId));
+  const proposalBoards = ["event", "compiled"]
+    .map(mode => run?.[mode === "event" ? "strongestEvent" : "strongestCompiled"]
+      || run?.boardDiagnostics?.[mode]?.proposal)
+    .filter(board => Array.isArray(board?.candidates));
+  const completeProposal = proposalBoards.length
+    ? proposalBoards.some(board => activeCandidateCount(board.candidates, excludedIds) >= 9)
+    : Number(run?.completeProposalCardCount) >= 9;
+  const identityReview = Number(run?.identityEvidence?.collisionSignals) > 0;
+  const qualifiedBoard = ["event", "compiled"].some(mode => {
+    const board = run?.[mode === "event" ? "strongestEvent" : "strongestCompiled"];
+    return qualifiedBoardFor(run, mode)
+      && activeCandidateCount(board?.candidates, excludedIds) >= 9;
+  });
+  const retainedCount = canonicalFrozenCandidates(run, excludedIds).size;
+  const partialCount = Math.max(
+    0,
+    ...(run?.partialClusters || []).map(cluster =>
+      Array.isArray(cluster?.candidateIds)
+        ? activeCandidateCount(cluster.candidateIds, excludedIds)
+        : Number(cluster?.cardCount) || 0),
+  );
+  const sourceEvidence = run?.curationReceipt?.sourceEvidenceCandidates
+    || run?.curationReceipt?.rawCandidates
+    || [];
+  const hardBlockedCount = sourceEvidence.filter(candidate =>
+    candidate?.dropReason === "image_load_failed"
+    || HARD_BLOCKING_DROP_REASONS.has(candidate?.dropReason)
+    || excludedIds.has(candidate?.candidateId)).length;
+  const warnings = [...new Set(Object.values(run?.boardDiagnostics || {})
+    .flatMap(diagnostic => diagnostic?.reasonCodes || [])
+    .filter(Boolean))];
+
+  if (qualifiedBoard && !identityReview) {
+    return {
+      state: "auto_ready",
+      automaticPublicationReady: true,
+      boardConstructed: true,
+      requiresOperatorReview: false,
+      warnings,
+    };
+  }
+  if (completeProposal || (qualifiedBoard && identityReview)) {
+    return {
+      state: "complete_review",
+      automaticPublicationReady: false,
+      boardConstructed: true,
+      requiresOperatorReview: true,
+      warnings,
+    };
+  }
+  if (retainedCount >= 9) {
+    return {
+      state: "rescue_ready",
+      automaticPublicationReady: false,
+      boardConstructed: true,
+      requiresOperatorReview: true,
+      warnings,
+    };
+  }
+  if (partialCount >= 3) {
+    return {
+      state: "partial_searchable",
+      automaticPublicationReady: false,
+      boardConstructed: false,
+      requiresOperatorReview: true,
+      warnings,
+    };
+  }
+  if (sourceEvidence.length > 0 && hardBlockedCount === sourceEvidence.length) {
+    return {
+      state: "hard_blocked",
+      automaticPublicationReady: false,
+      boardConstructed: false,
+      requiresOperatorReview: false,
+      warnings,
+    };
+  }
+  return {
+    state: "retrieval_weak",
+    automaticPublicationReady: false,
+    boardConstructed: false,
+    requiresOperatorReview: true,
+    warnings,
+  };
+}
+
+function activeCandidateCount(candidates = [], excludedIds = new Set()) {
+  return new Set(candidates
+    .map(candidate => typeof candidate === "string" ? candidate : candidate?.candidateId)
+    .filter(candidateId => candidateId && !excludedIds.has(candidateId))).size;
 }
 
 function queryRun(candidate, receipt, rankIndex, learnedQueries = []) {
@@ -2076,6 +2195,7 @@ function pairingSummary(pair, report) {
         : comparisonUnavailable
           ? "comparison_unavailable"
           : currentVerdict || current?.suggestedState || "not_run",
+    preflightState: current?.preflightOutcome?.state || current?.suggestedState || null,
     lastRunAt: current?.completedAt || null,
     currentRunId: current?.runId || null,
     verdict: currentVerdict,
@@ -2243,7 +2363,7 @@ async function attachVerdict(store, pair, run) {
   ]);
   const boardDiagnostics = normalizedRun.boardDiagnostics
     || boardDiagnosticsFromRetainedEvidence(normalizedRun);
-  return {
+  const attachedRun = {
     ...normalizedRun,
     boardDiagnostics,
     editorialFeedback,
@@ -2256,6 +2376,13 @@ async function attachVerdict(store, pair, run) {
         boards: blindBoards(normalizedRun, presentationOrderFor(normalizedRun.runId)),
       },
   };
+  attachedRun.rescueDraft = buildFrozenRescueBoard(
+    attachedRun,
+    editorialFeedback?.flags || [],
+  );
+  attachedRun.preflightOutcome = classifyPreflightOutcome(attachedRun);
+  attachedRun.suggestedState = attachedRun.preflightOutcome.state;
+  return attachedRun;
 }
 
 function normalizeLegacyRunEvidence(run) {
@@ -3442,6 +3569,9 @@ function candidateGate(run, candidateId) {
   if (!raw.thumbnail || reason === "image_load_failed") {
     return { disposition: "blocked", blockedReason: "unavailable" };
   }
+  if (HARD_BLOCKING_DROP_REASONS.has(reason)) {
+    return { disposition: "blocked", blockedReason: "hard_blocked" };
+  }
   if (!analyzed) return { disposition: "blocked", blockedReason: "not_analyzed_in_audit" };
   return { disposition: "requested", blockedReason: null };
 }
@@ -3590,7 +3720,9 @@ function validateRescueArrangement(run, candidateIds) {
 
 function canonicalFrozenCandidates(run, excludedIds = new Set()) {
   const unavailableIds = new Set((run.curationReceipt?.dropped || [])
-    .filter(candidate => candidate.dropReason === "image_load_failed")
+    .filter(candidate =>
+      candidate.dropReason === "image_load_failed"
+      || HARD_BLOCKING_DROP_REASONS.has(candidate.dropReason))
     .map(candidate => candidate.candidateId));
   const canonicalById = new Map();
   const evidence = [
@@ -3601,6 +3733,7 @@ function canonicalFrozenCandidates(run, excludedIds = new Set()) {
     if (!candidate?.candidateId
       || !candidate.thumbnail
       || candidate.dropReason === "image_load_failed"
+      || HARD_BLOCKING_DROP_REASONS.has(candidate.dropReason)
       || unavailableIds.has(candidate.candidateId)
       || excludedIds.has(candidate.candidateId)
       || canonicalById.has(candidate.candidateId)) continue;
@@ -3676,16 +3809,24 @@ function boardDiagnosticsFromRetainedEvidence(run) {
 }
 
 function comparableBoards(run) {
-  return [run?.strongestEvent, run?.strongestCompiled]
-    .every(board => Array.isArray(board?.candidates) && board.candidates.length >= 9);
+  return ["event", "compiled"].every(mode => qualifiedBoardFor(run, mode));
 }
 
 function singleCuratedBoardFor(run) {
-  const boards = [
-    { mode: "event", board: run?.strongestEvent },
-    { mode: "compiled", board: run?.strongestCompiled },
-  ].filter(({ board }) => Array.isArray(board?.candidates) && board.candidates.length >= 9);
+  const boards = ["event", "compiled"]
+    .filter(mode => qualifiedBoardFor(run, mode))
+    .map(mode => ({
+      mode,
+      board: run?.[mode === "event" ? "strongestEvent" : "strongestCompiled"],
+    }));
   return boards.length === 1 ? boards[0] : null;
+}
+
+function qualifiedBoardFor(run, mode) {
+  const board = run?.[mode === "event" ? "strongestEvent" : "strongestCompiled"];
+  if (!Array.isArray(board?.candidates) || board.candidates.length < 9) return false;
+  const diagnostic = run?.boardDiagnostics?.[mode];
+  return diagnostic ? diagnostic.available === true : true;
 }
 
 function presentationOrderFor(runId) {
@@ -3716,7 +3857,7 @@ function blindBoards(run, order) {
   return order.map(mode => ({
     mode,
     label: mode === "event" ? "Event" : "Compiled",
-    board: run?.[mode === "event" ? "strongestEvent" : "strongestCompiled"]
+    board: qualifiedBoardFor(run, mode)
       ? {
         candidates: run[mode === "event" ? "strongestEvent" : "strongestCompiled"].candidates || [],
       }
