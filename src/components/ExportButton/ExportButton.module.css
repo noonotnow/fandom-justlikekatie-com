@@ -76,8 +76,7 @@
   padding: 0.4rem 0.65rem;
   border-radius: 999px;
   border: 1px solid rgba(201, 169, 110, 0.34);
-  width: fit-content;
-  max-width: 100%;
+  width: 100%;
   color: #7f8188;
   font-size: 0.66rem;
   text-align: left;
