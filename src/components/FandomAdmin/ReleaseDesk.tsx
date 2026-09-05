@@ -50,7 +50,7 @@ const dailyDropApi = async (init?: RequestInit) => {
 export const ReleaseDesk: React.FC = () => {
   const [inventory, setInventory] = useState<AnyRecord | null>(null);
   const [production, setProduction] = useState<AnyRecord | null>(null);
-  const [view, setView] = useState<'inventory' | 'production'>('inventory');
+  const [view, setView] = useState<'inventory' | 'production' | 'audience'>('inventory');
   const [editions, setEditions] = useState<AnyRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
@@ -93,12 +93,15 @@ export const ReleaseDesk: React.FC = () => {
       <nav className={styles.views} aria-label="Release Desk view" role="tablist">
         <button type="button" role="tab" aria-selected={view === 'inventory'} onClick={() => setView('inventory')}>Inventory<small>Current candidates</small></button>
         <button type="button" role="tab" aria-selected={view === 'production'} onClick={() => setView('production')}>Production<small>Readiness blockers</small></button>
+        <button type="button" role="tab" aria-selected={view === 'audience'} onClick={() => setView('audience')}>Audience evidence<small>Actual use + data quality</small></button>
       </nav>
 
       {notice && <div className={styles.error} role="status">{notice}</div>}
       {loading
         ? <div className={styles.empty} aria-label="Loading release inventory">Loading release inventory…</div>
-        : view === 'production'
+        : view === 'audience'
+          ? <EngagementEvidence />
+          : view === 'production'
           ? production
             ? <ProductionReadiness production={production} onUpdated={setProduction} />
             : <div className={styles.empty}>No production readiness was returned.</div>
@@ -121,6 +124,119 @@ export const ReleaseDesk: React.FC = () => {
     </section>
   );
 };
+
+function EngagementEvidence() {
+  const [summary, setSummary] = useState<AnyRecord | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+  const [notice, setNotice] = useState('');
+
+  useEffect(() => {
+    let live = true;
+    void fetch('/.netlify/functions/engagement-export?records=0', { credentials: 'include' })
+      .then(async response => {
+        const result = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(result?.error || 'Audience evidence unavailable.');
+        if (live) setSummary(result.summary ?? null);
+      })
+      .catch(error => {
+        if (live) setNotice(error instanceof Error ? error.message : 'Audience evidence could not be loaded.');
+      })
+      .finally(() => {
+        if (live) setLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  async function downloadExport() {
+    if (downloading) return;
+    setDownloading(true);
+    setNotice('');
+    try {
+      const response = await fetch('/.netlify/functions/engagement-export?download=1', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error || 'Engagement export could not be prepared.');
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || 'fandom-engagement.json';
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Engagement export could not be prepared.');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  if (loading) return <div className={styles.empty} aria-label="Loading audience evidence">Loading audience evidence…</div>;
+  if (!summary) return <div className={styles.error} role="alert">{notice || 'No audience evidence summary was returned.'}</div>;
+
+  const events = Object.entries(summary.eventCounts ?? {})
+    .sort((left, right) => Number(right[1]) - Number(left[1]));
+  const quality = summary.dataQuality ?? {};
+  const storage = summary.storage ?? {};
+
+  return (
+    <section className={styles.audienceEvidence} aria-labelledby="audience-evidence-title">
+      <div className={styles.audienceHeader}>
+        <div>
+          <h4 id="audience-evidence-title">Audience evidence</h4>
+          <p>Read-only production telemetry for comparing planned editorial outcomes with what visitors actually save, share, open, and export.</p>
+        </div>
+        <button type="button" onClick={() => void downloadExport()} disabled={downloading}>
+          {downloading ? 'Preparing export…' : 'Download audit dataset'}
+        </button>
+      </div>
+
+      <p className={styles.measurementBoundary}>
+        Event ratios, not unique-user conversion. These records intentionally contain no anonymous visitor or session identifier.
+      </p>
+
+      <div className={styles.evidenceMetrics}>
+        <div><strong>{summary.recordCount ?? 0}</strong><span>Recorded events</span></div>
+        <div><strong>{summary.blobCount ?? 0}</strong><span>Stored blobs</span></div>
+        <div><strong>{storage.immutableBlobCount ?? 0}</strong><span>Immutable event blobs</span></div>
+        <div data-warning={(storage.legacyArrayBlobCount ?? 0) > 0}><strong>{storage.legacyArrayBlobCount ?? 0}</strong><span>Legacy array blobs</span></div>
+      </div>
+
+      <div className={styles.evidenceColumns}>
+        <section aria-labelledby="event-inventory-title">
+          <h5 id="event-inventory-title">Event inventory</h5>
+          {events.length
+            ? <dl className={styles.eventInventory}>
+              {events.map(([event, count]) => <div key={event}><dt>{event}</dt><dd>{String(count)}</dd></div>)}
+            </dl>
+            : <p>No engagement events have been recorded.</p>}
+        </section>
+        <section aria-labelledby="data-quality-title">
+          <h5 id="data-quality-title">Data quality</h5>
+          <dl className={styles.qualityInventory}>
+            <div><dt>Malformed blobs</dt><dd>{storage.malformedBlobCount ?? 0}</dd></div>
+            <div><dt>Missing event type</dt><dd>{quality.missingEvent ?? 0}</dd></div>
+            <div><dt>Missing batch key</dt><dd>{quality.missingBatchKey ?? 0}</dd></div>
+            <div><dt>Unattributed Collection / PLAN events</dt><dd>{quality.unattributedCollectionEvents ?? 0}</dd></div>
+          </dl>
+          <p>
+            Coverage {summary.firstTimestamp ? new Date(summary.firstTimestamp).toLocaleString() : 'not available'}
+            {' → '}
+            {summary.lastTimestamp ? new Date(summary.lastTimestamp).toLocaleString() : 'not available'}
+          </p>
+        </section>
+      </div>
+      {notice && <p className={styles.productionError} role="alert">{notice}</p>}
+    </section>
+  );
+}
 
 function ProductionReadiness({
   production,

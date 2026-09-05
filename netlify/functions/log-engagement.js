@@ -37,12 +37,20 @@ const DAILY_DROP_EVENTS = new Set([
 ]);
 const DAILY_DROP_ENGAGEMENT_REASONS = new Set(["three_cards", "twenty_seconds"]);
 const DAILY_DROP_SHARE_METHODS = new Set(["edition_link", "image"]);
+const ATTRIBUTED_COLLECTION_EVENTS = new Set(["collection_save", "plan_add"]);
 const LG01_OUTCOMES = new Set([
   "moonlit-strategist", "exiled-immortal", "chaos-prince",
   "lotus-healer", "silent-sword", "fox-spirit",
   "celestial-guardian", "bamboo-recluse", "fated-romantic",
 ]);
 const STORE_NAME = "engagement";
+const MAX_CONTEXT_TEXT = 500;
+
+function optionalContextText(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= MAX_CONTEXT_TEXT
+    ? value
+    : undefined;
+}
 
 function isCalendarDate(value) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -74,7 +82,7 @@ export default async (req, context) => {
   const {
     event, batchKey, imageUrl, actor, vibe, editionTier, resultPositions, grid,
     contentId, outcomeId, source, editionDate, position, saved, engagementReason,
-    shareMethod,
+    shareMethod, capturedDate,
   } = body;
 
   if (!event || !VALID_EVENTS.includes(event)) {
@@ -147,13 +155,14 @@ export default async (req, context) => {
     const store = getBlobStore(STORE_NAME, context);
 
     const sharedKey = `${batchKey}:${event}`;
-    const existing = DAILY_DROP_EVENTS.has(event)
-      ? null
-      : await store.get(sharedKey, { type: "json" }).catch(() => null);
-    const entries = Array.isArray(existing) ? existing : [];
 
     /** @type {Record<string, unknown>} */
-    const entry = { timestamp: new Date().toISOString() };
+    const entry = {
+      schemaVersion: 2,
+      event,
+      batchKey,
+      timestamp: new Date().toISOString(),
+    };
 
     if (event === "grid_export") {
       // Structured grid-artifact export event (validated above).
@@ -178,17 +187,17 @@ export default async (req, context) => {
       } else if (event === "daily_drop_share") {
         entry.shareMethod = shareMethod;
       }
+    } else if (ATTRIBUTED_COLLECTION_EVENTS.has(event)) {
+      entry.imageUrl = optionalContextText(imageUrl) ?? null;
+      if (optionalContextText(actor) !== undefined) entry.actor = actor;
+      if (optionalContextText(vibe) !== undefined) entry.vibe = vibe;
+      if (isCalendarDate(capturedDate)) entry.capturedDate = capturedDate;
     } else {
-      entry.imageUrl = imageUrl || null;
+      entry.imageUrl = optionalContextText(imageUrl) ?? null;
     }
 
-    if (DAILY_DROP_EVENTS.has(event)) {
-      const eventKey = `${sharedKey}:${Date.now()}:${crypto.randomUUID()}`;
-      await store.setJSON(eventKey, entry, { onlyIfNew: true });
-    } else {
-      entries.push(entry);
-      await store.setJSON(sharedKey, entries);
-    }
+    const eventKey = `${sharedKey}:${Date.now()}:${crypto.randomUUID()}`;
+    await store.setJSON(eventKey, entry, { onlyIfNew: true });
 
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,

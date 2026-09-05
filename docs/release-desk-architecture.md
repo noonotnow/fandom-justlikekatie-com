@@ -2,6 +2,8 @@
 
 **Status:** Approved through Phase 2. Inventory and receipt-backed Production
 readiness are implemented; Schedule remains independently owned by PLAN.
+Audience Evidence now provides an operator-only telemetry inventory and
+read-only dataset export without claiming unique-user conversion.
 
 ## Decision summary
 
@@ -29,6 +31,7 @@ Fandom Vibes
     │   ├── Schedule
     │   ├── Published
     │   └── Held / retired
+    ├── Audience Evidence
     ├── Actor Preflight
     ├── Field Journal
     └── Court Rulings
@@ -85,6 +88,15 @@ Release Desk answers the operational question:
 
 It does not re-run curation or reinterpret the evidence that made a board
 eligible.
+
+The Audience Evidence view answers a separate operational question:
+
+> What did visitors actually do, and how trustworthy is the instrumentation?
+
+It reports event totals and storage/data-quality gaps, exposes an authenticated
+read-only export, and labels the measurements as event ratios rather than
+unique-user conversion. It does not add visitor fingerprinting or anonymous
+session identifiers.
 
 ## 3. What moves out of Actor Preflight
 
