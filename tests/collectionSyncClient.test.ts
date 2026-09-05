@@ -5,6 +5,7 @@ import {
   activateSyncState,
   buildSyncOperations,
   collectionScopeForCard,
+  createMisprint,
   createLegendaryMisprint,
   normalizeCardForCollection,
   markGridAsLegendaryMisprint,
@@ -197,6 +198,55 @@ test('creator-entered Legendary Misprint identity and provenance survive card sy
     .find(candidate => candidate.localId === marked.localId);
   const synced = Reflect.get(operation?.item || {}, 'legendaryMisprint');
   assert.deepEqual(synced, marked.legendaryMisprint);
+});
+
+test('ordinary Misprint correction provenance survives sync independently of Legendary promotion', () => {
+  const source = {
+    ...card(6),
+    actor: '刘学义',
+    actorEn: 'Liu Xueyi',
+    actorId: 'liu-xueyi',
+    vibeKey: 'liu-xueyi:3',
+    searchQuery: '刘学义 editorial',
+  };
+  const misprint = createMisprint(source, {
+    reason: 'wrong_actor',
+    label: 'Some Other Man™',
+    learningScope: 'actor_identity',
+    calibrationStatus: 'applied',
+    unexpectedImageIdentity: 'Zhang Linghe auditioning as Liu Xueyi',
+    note: 'Metadata committed perjury.',
+    imageDigest: 'digest-6',
+    sourceRunId: 'run-6',
+    correctionReceiptId: 'receipt-6',
+  }, new Date('2026-08-28T12:00:00.000Z'));
+  const marked: CardRecord = { ...source, misprint };
+  const operation = buildSyncOperations([marked], state(), 'account-a')
+    .find(candidate => candidate.localId === marked.localId);
+  const synced = operation?.item as Record<string, unknown>;
+
+  assert.deepEqual(synced.misprint, misprint);
+  assert.equal(synced.actorId, 'liu-xueyi');
+  assert.equal(synced.vibeKey, 'liu-xueyi:3');
+  assert.equal(synced.legendaryMisprint, undefined);
+
+  const promoted: CardRecord = {
+    ...marked,
+    legendaryMisprint: createLegendaryMisprint(marked, misprint.unexpectedImageIdentity?.label || misprint.label),
+  };
+  const promotedOperation = buildSyncOperations([promoted], state(), 'account-a')
+    .find(candidate => candidate.localId === promoted.localId);
+  const promotedItem = promotedOperation?.item as Record<string, unknown>;
+  assert.deepEqual(promotedItem.misprint, misprint);
+  assert.equal((promotedItem.misprint as { calibrationStatus?: string }).calibrationStatus, 'applied');
+  assert.ok(promotedItem.legendaryMisprint);
+
+  const depromotedOperation = buildSyncOperations([
+    { ...promoted, legendaryMisprint: undefined },
+  ], state(), 'account-a').find(candidate => candidate.localId === promoted.localId);
+  const depromotedItem = depromotedOperation?.item as Record<string, unknown>;
+  assert.deepEqual(depromotedItem.misprint, misprint);
+  assert.equal(depromotedItem.legendaryMisprint, undefined);
 });
 
 test('Legendary Misprint metadata is created only by an explicit creator description', () => {

@@ -3,12 +3,16 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import {
   boardHash,
+  gridCorrectionPrefix,
   gridManifestKey,
   gridPendingKey,
   isGridManifest,
   manifestPayload,
   materializePublicationManifest,
   publicationActorIndexKey,
+  publicationManifestCatalogKey,
+  readPublicationCorrections,
+  recordPublicationCorrectionsForMisprint,
   readLatestPublicationDatesByActor,
   rebuildPublicationActorIndex,
 } from "./publication-manifest.js";
@@ -226,6 +230,172 @@ test("materializes an immutable nine-card MEDIA manifest and reuses it idempoten
   });
   assert.equal(second.manifest.manifestId, first.manifest.manifestId);
   assert.deepEqual(media.stats(), { sourceCalls: 9, mediaCalls: 9 });
+});
+
+test("publication revalidates eligibility inside the shared correction lock", async () => {
+  const store = memoryStore();
+  const media = mediaHarness();
+  await assert.rejects(
+    materializePublicationManifest({
+      store,
+      ...publicationInput(),
+      env: ENV,
+      fetchImpl: media.fetchImpl,
+      validateBeforeCommit: async () => {
+        const error = new Error("Approval was invalidated.");
+        error.status = 409;
+        throw error;
+      },
+    }),
+    error => error?.status === 409 && /invalidated/i.test(error.message),
+  );
+  assert.equal(store.records.has(gridManifestKey("2026-09-03")), false);
+  assert.deepEqual(media.stats(), { sourceCalls: 0, mediaCalls: 0 });
+});
+
+test("publication corrections are append-only notices over immutable manifests", async () => {
+  const store = memoryStore();
+  const manifest = storedPublicationManifest("2026-09-03", "liu-xueyi");
+  const frozen = structuredClone(manifest);
+  await store.setJSON(gridManifestKey(manifest.publicationDate), manifest);
+  const correction = {
+    receiptId: "misprint-receipt-1",
+    status: "active",
+    futureExclusion: true,
+    actorId: "liu-xueyi",
+    vibeKey: "liu-xueyi:0",
+    reason: "wrong_actor",
+    correctionScope: "actor_identity",
+    markedAt: "2026-09-04T04:00:00.000Z",
+    candidate: {
+      candidateId: manifest.cards[2].candidateId,
+    },
+  };
+  const first = await recordPublicationCorrectionsForMisprint({
+    store,
+    correction,
+    matchesCandidate: (_sourceCorrection, candidate) =>
+      candidate.candidateId === correction.candidate.candidateId,
+    now: () => "2026-09-04T04:01:00.000Z",
+  });
+  const second = await recordPublicationCorrectionsForMisprint({
+    store,
+    correction,
+    matchesCandidate: (_sourceCorrection, candidate) =>
+      candidate.candidateId === correction.candidate.candidateId,
+    now: () => "2026-09-04T04:02:00.000Z",
+  });
+
+  assert.equal(first.length, 1);
+  assert.equal(second.length, 1);
+  assert.equal(first[0].receiptId, second[0].receiptId);
+  assert.deepEqual(first[0].affectedPositions, [2]);
+  assert.equal(first[0].resolution, "requires_explicit_supersession");
+  assert.deepEqual(store.records.get(gridManifestKey(manifest.publicationDate)), frozen);
+  assert.equal(
+    [...store.records.keys()]
+      .filter(key => key.startsWith(gridCorrectionPrefix(manifest.publicationDate))).length,
+    1,
+  );
+  assert.deepEqual(
+    await readPublicationCorrections(store, manifest.publicationDate),
+    [first[0]],
+  );
+});
+
+test("publication corrections strongly read indexed manifests when blob listings lag", async () => {
+  const store = memoryStore();
+  const manifest = storedPublicationManifest("2026-08-04", "liu-xueyi");
+  const newerManifest = storedPublicationManifest("2026-09-04", "liu-xueyi");
+  newerManifest.cards[0] = {
+    ...newerManifest.cards[0],
+    candidateId: "newer-candidate-0",
+  };
+  await store.setJSON(gridManifestKey(manifest.publicationDate), manifest);
+  await store.setJSON(gridManifestKey(newerManifest.publicationDate), newerManifest);
+  await rebuildPublicationActorIndex(store);
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1,
+    catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog",
+    dates: [manifest.publicationDate, newerManifest.publicationDate],
+    updatedAt: "2026-09-04T12:00:00.000Z",
+  });
+  const list = store.list.bind(store);
+  store.list = async options => options?.prefix === gridManifestKey("")
+    ? { blobs: [] }
+    : list(options);
+  const correction = {
+    receiptId: "listing-lag-misprint",
+    status: "active",
+    futureExclusion: true,
+    actorId: manifest.actor.id,
+    vibeKey: manifest.vibe.key,
+    reason: "wrong_actor",
+    correctionScope: "actor_identity",
+    candidate: {
+      candidateId: manifest.cards[0].candidateId,
+    },
+  };
+
+  const receipts = await recordPublicationCorrectionsForMisprint({
+    store,
+    correction,
+    matchesCandidate: (sourceCorrection, candidate) =>
+      sourceCorrection.candidate.candidateId === candidate.candidateId,
+  });
+
+  assert.equal(receipts.length, 1);
+  assert.equal(receipts[0].manifestId, manifest.manifestId);
+});
+
+test("vibe-local publication corrections do not annotate another vibe for the same actor", async () => {
+  const store = memoryStore();
+  const matchingVibe = storedPublicationManifest("2026-09-03", "liu-xueyi");
+  const otherVibe = {
+    ...storedPublicationManifest("2026-09-04", "liu-xueyi"),
+    vibe: {
+      ...matchingVibe.vibe,
+      key: "liu-xueyi:1",
+      idx: 1,
+    },
+  };
+  otherVibe.cards[2] = {
+    ...otherVibe.cards[2],
+    candidateId: matchingVibe.cards[2].candidateId,
+  };
+  await store.setJSON(gridManifestKey(matchingVibe.publicationDate), matchingVibe);
+  await store.setJSON(gridManifestKey(otherVibe.publicationDate), otherVibe);
+  const correction = {
+    receiptId: "vibe-local-misprint",
+    status: "active",
+    futureExclusion: true,
+    actorId: "liu-xueyi",
+    vibeKey: "liu-xueyi:0",
+    reason: "wrong_vibe",
+    correctionScope: "actor_vibe",
+    markedAt: "2026-09-05T04:00:00.000Z",
+    candidate: {
+      candidateId: matchingVibe.cards[2].candidateId,
+    },
+  };
+
+  const receipts = await recordPublicationCorrectionsForMisprint({
+    store,
+    correction,
+    matchesCandidate: (_sourceCorrection, candidate) =>
+      candidate.candidateId === correction.candidate.candidateId,
+    now: () => "2026-09-05T04:01:00.000Z",
+  });
+
+  assert.deepEqual(
+    receipts.map(receipt => receipt.publicationDate),
+    [matchingVibe.publicationDate],
+  );
+  assert.deepEqual(
+    await readPublicationCorrections(store, otherVibe.publicationDate),
+    [],
+  );
 });
 
 test("reads latest actor dates from the index and rebuilds missing or stale data from manifests", async () => {

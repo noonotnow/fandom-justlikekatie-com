@@ -293,6 +293,7 @@ async function configureNetwork(page: Page): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   exportRequests: AnyRecord[];
+  misprintRequests: AnyRecord[];
   getMediaUploads: () => number;
   getCollectionSyncRequests: () => AnyRecord[];
 }> {
@@ -304,6 +305,7 @@ async function configureNetwork(page: Page): Promise<{
   const auditRequests: AnyRecord[] = [];
   const calibrationRequests: AnyRecord[] = [];
   const exportRequests: AnyRecord[] = [];
+  const misprintRequests: AnyRecord[] = [];
   const collectionSyncRequests: AnyRecord[] = [];
   let mediaUploads = 0;
 
@@ -535,6 +537,48 @@ async function configureNetwork(page: Page): Promise<{
       });
       return;
     }
+    if (input.action === 'mark_misprint') {
+      misprintRequests.push(input);
+      const receipt = {
+        receiptId: 'misprint-receipt-1',
+        sourceRunId: input.runId,
+        candidateId: input.candidateId,
+        reason: input.reason,
+        label: 'Some Other Man™',
+        correctionScope: 'actor_identity',
+        actualIdentity: input.actualIdentity || null,
+        note: input.note || '',
+        markedAt: '2026-08-31T12:03:00.000Z',
+        markedBy: 'browser-operator',
+      };
+      const correctedRun = run(String(activeRunId), true, activeRunId === 'run-2');
+      correctedRun.editorialFeedback = {
+        ...feedback(),
+        eventCount: 1,
+        misprints: [receipt],
+        flags: [{
+          candidateId: input.candidateId,
+          intent: 'exclude',
+          disposition: 'excluded',
+          createdAt: receipt.markedAt,
+          createdBy: receipt.markedBy,
+          misprint: receipt,
+        }],
+      };
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...responseBody(
+            correctedRun,
+            calibrationConfirmed ? 'calibration_reaudit_required' : 'needs_operator_verdict',
+            undefined,
+            calibrationConfirmed ? rescueCalibrationDetails() : undefined,
+          ),
+          misprint: receipt,
+        }),
+      });
+      return;
+    }
     throw new Error(`Unexpected actor audit action: ${String(input.action)}`);
   });
 
@@ -542,6 +586,7 @@ async function configureNetwork(page: Page): Promise<{
     auditRequests,
     calibrationRequests,
     exportRequests,
+    misprintRequests,
     getMediaUploads: () => mediaUploads,
     getCollectionSyncRequests: () => collectionSyncRequests,
   };
@@ -870,6 +915,7 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
     auditRequests,
     calibrationRequests,
     exportRequests,
+    misprintRequests,
     getMediaUploads,
     getCollectionSyncRequests,
   } = await configureNetwork(page);
@@ -960,6 +1006,42 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
       auditRequests.filter(request => request.action === 'run').length,
       2,
       'the fresh audit must be a distinct audit request after calibration confirmation',
+    );
+
+    const rawResults = page.locator('details').filter({ hasText: 'Bounded raw results' });
+    await rawResults.locator(':scope > summary').click();
+    const firstResult = rawResults.locator('article').first();
+    await firstResult.getByText('Mark Misprint', { exact: true }).click();
+    await firstResult.getByLabel('Who showed up? (optional)').fill('Zhang Linghe auditioning as Liu Xueyi');
+    await firstResult.getByLabel('Operator note (optional)').fill('Image metadata committed perjury.');
+    await firstResult.getByRole('button', { name: 'Preserve & correct', exact: true }).click();
+    await page.getByText('Some Other Man™ preserved in Misprints.', { exact: false }).waitFor();
+
+    assert.equal(misprintRequests.length, 1, 'the correction should create one candidate-level Misprint receipt');
+    assert.deepEqual(misprintRequests[0], {
+      action: 'mark_misprint',
+      actorId: ACTOR_ID,
+      vibeKey: VIBE_KEY,
+      runId: 'run-2',
+      candidateId: candidate(0).candidateId,
+      reason: 'wrong_actor',
+      actualIdentity: 'Zhang Linghe auditioning as Liu Xueyi',
+      note: 'Image metadata committed perjury.',
+    });
+    assert.equal(
+      await firstResult.getByText('Preserved as a Misprint', { exact: true }).isVisible(),
+      true,
+      'the failed result should remain visible as collectible evidence',
+    );
+    assert.equal(
+      await firstResult.getByRole('button', { name: 'Pin for board', exact: true }).isDisabled(),
+      true,
+      'a Misprint cannot be turned back into positive curation evidence',
+    );
+    assert.equal(
+      await firstResult.getByText('Mark Misprint', { exact: true }).count(),
+      0,
+      'an immutable Misprint should not offer a second correction action',
     );
   } finally {
     await browser.close();

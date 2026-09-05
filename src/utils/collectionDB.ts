@@ -13,6 +13,66 @@ const SYNC_STORE = 'sync';
 
 export type CollectionScope = 'vibe-atlas' | 'middle-earth';
 
+export type MisprintReason =
+  | 'wrong_actor'
+  | 'wrong_vibe'
+  | 'query_mismatch'
+  | 'misleading_metadata'
+  | 'composite_or_collage'
+  | 'bad_asset'
+  | 'duplicate'
+  | 'ranking_bug'
+  | 'other';
+
+export type MisprintLearningScope =
+  | 'actor_identity'
+  | 'actor_vibe'
+  | 'result_set'
+  | 'metadata_signal'
+  | 'global_asset'
+  | 'board'
+  | 'diagnostic'
+  | 'local';
+
+export type MisprintCalibrationStatus =
+  | 'applied'
+  | 'recorded'
+  | 'submitted'
+  | 'rejected'
+  | 'retracted';
+
+export interface Misprint {
+  kind: 'misprint';
+  confirmedByCreator: true;
+  markedAt: string;
+  reason: MisprintReason;
+  label: string;
+  learningScope: MisprintLearningScope;
+  calibrationStatus?: MisprintCalibrationStatus;
+  intendedIdentity: {
+    actor: string;
+    actorEn: string;
+    vibe: string;
+    vibeEn: string;
+    collectionScope: CollectionScope;
+  };
+  unexpectedImageIdentity?: {
+    label: string;
+  };
+  note?: string;
+  provenance: {
+    imageUrl: string;
+    resultId?: string;
+    sourceUrl?: string;
+    publisher?: string;
+    searchQuery?: string;
+    batchKey?: string;
+    imageDigest?: string;
+    sourceRunId?: string;
+    correctionReceiptId?: string;
+  };
+}
+
 export interface LegendaryMisprint {
   kind: 'legendary-misprint';
   confirmedByCreator: true;
@@ -52,6 +112,8 @@ export interface CardRecord {
   capturedDate: string;
   savedAt?: string;
   resultId?: string;
+  actorId?: string;
+  vibeKey?: string;
   sourceUrl?: string;
   contentKind?: 'middle-earth-meme';
   title?: string;
@@ -63,6 +125,8 @@ export interface CardRecord {
   /** Logical collection namespace. Optional only for records saved before namespacing. */
   collectionScope?: CollectionScope;
   /** Creator-confirmed only. Never populated by image or metadata inference. */
+  misprint?: Misprint;
+  /** Exceptional collectible promotion. Ordinary result-level failures use `misprint`. */
   legendaryMisprint?: LegendaryMisprint;
   /** Non-destructive edit recipe and immutable source relationship for MemeForge derivatives. */
   memeRework?: MemeReworkMetadata;
@@ -212,6 +276,66 @@ export function createLegendaryMisprint(
       ...(card.publisher ? { publisher: card.publisher } : {}),
       ...(card.searchQuery ? { searchQuery: card.searchQuery } : {}),
       ...(card.gridContext?.batchKey ? { batchKey: card.gridContext.batchKey } : {}),
+    },
+  };
+}
+
+export function createMisprint(
+  card: CardRecord,
+  {
+    reason,
+    label,
+    learningScope,
+    calibrationStatus,
+    unexpectedImageIdentity,
+    note,
+    imageDigest,
+    sourceRunId,
+    correctionReceiptId,
+  }: {
+    reason: MisprintReason;
+    label: string;
+    learningScope: MisprintLearningScope;
+    calibrationStatus: MisprintCalibrationStatus;
+    unexpectedImageIdentity?: string;
+    note?: string;
+    imageDigest?: string;
+    sourceRunId?: string;
+    correctionReceiptId?: string;
+  },
+  now = new Date(),
+): Misprint {
+  const displayLabel = label.trim().slice(0, 160);
+  if (!displayLabel) throw new Error('Choose a Misprint reason before preserving this result.');
+  const unexpectedLabel = unexpectedImageIdentity?.trim().slice(0, 160);
+  const boundedNote = note?.trim().slice(0, 400);
+  return {
+    kind: 'misprint',
+    confirmedByCreator: true,
+    markedAt: now.toISOString(),
+    reason,
+    label: displayLabel,
+    learningScope,
+    calibrationStatus,
+    intendedIdentity: {
+      actor: card.actor,
+      actorEn: card.actorEn,
+      vibe: card.vibe,
+      vibeEn: card.vibeEn,
+      collectionScope: collectionScopeForCard(card),
+    },
+    ...(unexpectedLabel ? { unexpectedImageIdentity: { label: unexpectedLabel } } : {}),
+    ...(boundedNote ? { note: boundedNote } : {}),
+    provenance: {
+      imageUrl: card.imageUrl,
+      ...(card.resultId ? { resultId: card.resultId } : {}),
+      ...(card.sourceUrl ? { sourceUrl: card.sourceUrl } : {}),
+      ...(card.publisher ? { publisher: card.publisher } : {}),
+      ...(card.searchQuery ? { searchQuery: card.searchQuery } : {}),
+      ...(card.gridContext?.batchKey ? { batchKey: card.gridContext.batchKey } : {}),
+      ...(imageDigest ? { imageDigest } : {}),
+      ...(sourceRunId ? { sourceRunId } : {}),
+      ...(correctionReceiptId ? { correctionReceiptId } : {}),
     },
   };
 }
@@ -582,6 +706,8 @@ export function buildSyncOperations(
           imageUrl: card.imageUrl,
           thumbnailUrl: card.thumbnailUrl,
           resultId: card.resultId,
+          actorId: card.actorId,
+          vibeKey: card.vibeKey,
           sourceUrl: card.sourceUrl,
           actor: card.actor,
           actorEn: card.actorEn,
@@ -599,6 +725,7 @@ export function buildSyncOperations(
           media: card.media,
           mediaRecovery: card.mediaRecovery,
           collectionScope,
+          misprint: card.misprint,
           legendaryMisprint: card.legendaryMisprint,
           memeRework: card.memeRework,
         },

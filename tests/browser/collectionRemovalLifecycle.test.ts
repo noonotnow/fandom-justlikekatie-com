@@ -249,6 +249,114 @@ test('Collection shows local records when account sync fails', { timeout: 60_000
   }
 });
 
+test('Collection result Misprints teach the curator before preserving the collectible receipt', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  let correctionRequest: Record<string, unknown> | null = null;
+  let correctionRequestCount = 0;
+
+  try {
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        user: { accountId: ACCOUNT_ID, email: 'cleanup@example.test', isAdmin: false },
+      }),
+    }));
+    await page.route('**/api/membership/status', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ state: 'active', isMember: true }),
+    }));
+    await page.route('**/api/collection/sync', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ cursor: 1, upserts: [], deletions: [] }),
+    }));
+    await page.route('**/.netlify/functions/actor-audits', async route => {
+      correctionRequestCount += 1;
+      correctionRequest = route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          misprint: {
+            receiptId: 'collection-misprint-receipt',
+            reason: 'wrong_actor',
+            label: 'Some Other Man™',
+            correctionScope: 'actor_identity',
+            actualIdentity: 'Zhang Linghe',
+            note: 'A beloved collectible, but absolutely not this actor.',
+            markedAt: '2026-09-06T16:12:00.000Z',
+            candidate: { imageDigest: null },
+          },
+          calibrationStatus: 'applied',
+        }),
+      });
+    });
+
+    await page.goto(origin);
+    await seedCollection(page);
+    await page.goto(`${origin}/vibe-atlas?view=collection`);
+    await page.getByRole('button', { name: 'Saved results' }).click();
+    await page.getByText('Card cleanup actor').first().waitFor();
+    await page.getByText('Mark Misprint', { exact: true }).click();
+    await page.getByLabel('Who wandered in?').fill('Zhang Linghe');
+    await page.getByLabel(/Curator note/).fill('A beloved collectible, but absolutely not this actor.');
+    await page.getByRole('button', { name: 'Preserve & teach curator' }).click();
+    await page.getByText(/Some Other Man™ preserved/).waitFor();
+
+    assert.equal(correctionRequest?.action, 'mark_collection_misprint');
+    assert.equal(correctionRequest?.actorName, 'Card cleanup actor');
+    assert.equal(correctionRequest?.reason, 'wrong_actor');
+    assert.equal(correctionRequest?.actualIdentity, 'Zhang Linghe');
+    const stored = await collectionContents(page);
+    const card = stored.card as {
+      misprint?: {
+        label?: string;
+        markedAt?: string;
+        learningScope?: string;
+        calibrationStatus?: string;
+        provenance?: { correctionReceiptId?: string };
+      };
+    };
+    assert.equal(card.misprint?.label, 'Some Other Man™');
+    assert.equal(card.misprint?.markedAt, '2026-09-06T16:12:00.000Z');
+    assert.equal(card.misprint?.learningScope, 'actor_identity');
+    assert.equal(card.misprint?.calibrationStatus, 'applied');
+    assert.equal(card.misprint?.provenance?.correctionReceiptId, 'collection-misprint-receipt');
+
+    const collectible = page.locator('article').filter({ hasText: 'Card cleanup actor' }).first();
+    await collectible.getByRole('button', { name: 'Make Legendary' }).click();
+    await collectible.getByRole('button', { name: 'Remove Legendary' }).waitFor();
+    let promoted = (await collectionContents(page)).card as {
+      misprint?: { calibrationStatus?: string };
+      legendaryMisprint?: unknown;
+    };
+    assert.equal(promoted.misprint?.calibrationStatus, 'applied');
+    assert.ok(promoted.legendaryMisprint);
+
+    await collectible.getByRole('button', { name: 'Remove Legendary' }).click();
+    await collectible.getByRole('button', { name: 'Make Legendary' }).waitFor();
+    promoted = (await collectionContents(page)).card as {
+      misprint?: { calibrationStatus?: string };
+      legendaryMisprint?: unknown;
+    };
+    assert.equal(promoted.misprint?.calibrationStatus, 'applied');
+    assert.equal(promoted.legendaryMisprint, undefined);
+
+    await collectible.getByRole('button', { name: 'Move to Middle-earth' }).click();
+    await page.getByText('Saved result moved to the Middle-earth Collection.').waitFor();
+    const moved = (await collectionContents(page)).card as {
+      collectionScope?: string;
+      misprint?: { calibrationStatus?: string };
+    };
+    assert.equal(moved.collectionScope, 'middle-earth');
+    assert.equal(moved.misprint?.calibrationStatus, 'applied');
+    assert.equal(correctionRequestCount, 1);
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
 test('Collection commits a pending removal after the browser page reloads', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();

@@ -650,6 +650,58 @@ test("collection sync replaces an ordinary card with creator-confirmed Misprint 
   assert.deepEqual(marked.items[0].legendaryMisprint, legendaryMisprint);
 });
 
+test("collection sync preserves structured Misprint correction metadata without Legendary promotion", async () => {
+  const store = memoryStore();
+  const misprint = {
+    kind: "misprint",
+    confirmedByCreator: true,
+    markedAt: "2026-08-28T12:00:00.000Z",
+    reason: "wrong_actor",
+    label: "Some Other Man™",
+    learningScope: "actor_identity",
+    intendedIdentity: {
+      actor: "刘学义",
+      actorEn: "Liu Xueyi",
+      vibe: "仙门冷玉",
+      vibeEn: "Cold jade",
+      collectionScope: "vibe-atlas",
+    },
+    unexpectedImageIdentity: { label: "Zhang Linghe auditioning as Liu Xueyi" },
+    note: "Metadata committed perjury.",
+    provenance: {
+      imageUrl: "https://images.example/mashup.jpg",
+      resultId: "mashup-1",
+      imageDigest: "digest-1",
+      sourceRunId: "run-1",
+      correctionReceiptId: "receipt-1",
+    },
+  };
+  const response = await syncCollection(store, "usr_test", {
+    schemaVersion: 1,
+    clientId: "device-a",
+    cursor: 0,
+    operations: [{
+      type: "upsert",
+      mutationId: "ordinary-misprint-v1",
+      localId: "ordinary-misprint-local",
+      item: {
+        kind: "card",
+        imageUrl: misprint.provenance.imageUrl,
+        thumbnailUrl: "https://images.example/mashup-thumb.jpg",
+        resultId: "mashup-1",
+        actor: "刘学义",
+        actorEn: "Liu Xueyi",
+        vibe: "仙门冷玉",
+        vibeEn: "Cold jade",
+        misprint,
+      },
+    }],
+  });
+
+  assert.deepEqual(response.items[0].misprint, misprint);
+  assert.equal(response.items[0].legendaryMisprint, undefined);
+});
+
 test("grid sync preserves artifact identity across devices", async () => {
   const store = memoryStore();
   const item = {

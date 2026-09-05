@@ -270,6 +270,46 @@
 .savedResults small { margin-top: 6px; color: color-mix(in srgb, currentColor 48%, transparent); }
 .savedResults a { display:block; margin-top:7px; color:#9a7435; font-size:.72rem; font-weight:700; text-underline-offset:2px; }
 .savedResults > article > button:not(.resultPreviewButton) { width: calc(100% - 20px); margin: 0 10px 10px; }
+.misprintControls {
+  margin: 0 10px 10px;
+  border: 1px solid color-mix(in srgb, #c9a96e 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, #c9a96e 8%, transparent);
+}
+.misprintControls summary {
+  min-height: 42px;
+  padding: 11px 12px;
+  cursor: pointer;
+  color: #9b762e;
+  font-size: .82rem;
+  font-weight: 800;
+}
+.savedResults .misprintControls > div {
+  display: grid;
+  gap: 10px;
+  padding: 2px 10px 10px;
+}
+.misprintControls label {
+  display: grid;
+  gap: 5px;
+  color: color-mix(in srgb, currentColor 72%, transparent);
+  font-size: .72rem;
+  font-weight: 700;
+}
+.misprintControls label span { display: inline; font-weight: 500; }
+.misprintControls select,
+.misprintControls input {
+  min-width: 0;
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: 6px;
+  background: Canvas;
+  color: CanvasText;
+  font: inherit;
+}
+.misprintControls button { width: 100%; }
 
 .empty { padding: 80px 20px; text-align: center; color: color-mix(in srgb, currentColor 58%, transparent); }
 .empty > span { display: block; color: #c9a96e; font-size: 3rem; }
