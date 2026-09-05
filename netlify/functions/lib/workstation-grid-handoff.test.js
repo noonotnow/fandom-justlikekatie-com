@@ -134,17 +134,19 @@ function sourceFor(savedGrid = grid(), platforms = ["rednote"]) {
       vibeEn: savedGrid.vibeEn,
       brief: savedGrid.generationPrompt || "",
     },
-    orderedImages: savedGrid.images.map(image => ({
-      position: image.gridPosition,
-      resultId: image.resultId,
-      sourceUrl: image.sourceUrl,
-      title: image.title,
-      publisher: image.publisher,
-      batchKey: image.batchKey,
-      familyId: image.familyId,
-      familyLabel: image.familyLabel,
-      familyEvidence: image.familyEvidence,
-    })),
+    orderedImages: [...savedGrid.images]
+      .sort((left, right) => left.gridPosition - right.gridPosition)
+      .map(image => ({
+        position: image.gridPosition,
+        resultId: image.resultId,
+        sourceUrl: image.sourceUrl,
+        title: image.title,
+        publisher: image.publisher,
+        batchKey: image.batchKey,
+        familyId: image.familyId,
+        familyLabel: image.familyLabel,
+        familyEvidence: image.familyEvidence,
+      })),
   };
 }
 
@@ -216,7 +218,14 @@ function receiptFor(body, disposition = "created", mediaSyncState = "synced", wa
   };
 }
 
-function directHandler({ collection, authority, receipts, fetchImpl, now } = {}) {
+function directHandler({
+  collection,
+  authority,
+  receipts,
+  fetchImpl,
+  now,
+  renderOutputImpl = async () => PNG,
+} = {}) {
   const authorityStore = authority || memoryStore();
   if (!authority) {
     const provenance = grid().releaseCandidateProvenance;
@@ -235,7 +244,7 @@ function directHandler({ collection, authority, receipts, fetchImpl, now } = {})
     },
     fetchImpl,
     ...(now ? { now } : {}),
-    renderOutputImpl: async () => PNG,
+    renderOutputImpl,
   });
 }
 
@@ -342,7 +351,7 @@ test("grants approval authority only to the exact ordered approved board", async
       resultId,
       gridPosition,
       title: `Approved card ${gridPosition + 1}`,
-    })),
+    })).reverse(),
   });
   const collection = memoryStore({
     schemaVersion: 1,
@@ -350,9 +359,14 @@ test("grants approval authority only to the exact ordered approved board", async
     items: { "server-grid-1": savedGrid },
   });
   let envelope;
+  let renderedCandidateIds;
   const handler = directHandler({
     collection,
     receipts: memoryStore(),
+    renderOutputImpl: async packet => {
+      renderedCandidateIds = packet.grids[0].images.map(image => image.resultId);
+      return PNG;
+    },
     fetchImpl: async (url, options) => {
       if (url === sourceMedia().deliveryUrl) {
         return new Response(SOURCE_MEDIA_BYTES, { status: 200 });
@@ -371,10 +385,40 @@ test("grants approval authority only to the exact ordered approved board", async
   assert.equal(envelope.boardProvenance.classification, "exact-approved-board");
   assert.equal(envelope.publicationBrief.approvalAuthority, true);
   assert.equal(envelope.publicationBrief.approvalLanguage, "approved-publication-candidate");
+  assert.deepEqual(
+    renderedCandidateIds,
+    savedGrid.releaseCandidateProvenance.identity.orderedCandidateIds,
+  );
   assert.equal(
     envelope.boardProvenance.releaseCandidateIdentity.boardHash,
     savedGrid.releaseCandidateProvenance.identity.boardHash,
   );
+});
+
+test("requires nine unique contiguous positions for exact approval", () => {
+  const base = grid();
+  const exactImages = base.releaseCandidateProvenance.identity.orderedCandidateIds
+    .map((resultId, gridPosition) => ({
+      ...base.images[0],
+      resultId,
+      gridPosition,
+      title: `Approved card ${gridPosition + 1}`,
+    }));
+  const duplicate = grid({
+    images: exactImages.map((image, index) => (
+      index === 8 ? { ...image, gridPosition: 7 } : image
+    )),
+  });
+  const missing = grid({ images: exactImages.slice(0, 8) });
+  const nonContiguous = grid({
+    images: exactImages.map((image, index) => (
+      index === 8 ? { ...image, gridPosition: 9 } : image
+    )),
+  });
+
+  assert.equal(classifySavedGrid(duplicate).classification, "derived-from-approved-board");
+  assert.equal(classifySavedGrid(missing).classification, "derived-from-approved-board");
+  assert.equal(classifySavedGrid(nonContiguous).classification, "derived-from-approved-board");
 });
 
 test("rejects approval authority when delivered media bytes do not match the saved checksum", async () => {

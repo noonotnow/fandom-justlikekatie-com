@@ -530,10 +530,11 @@ function sourceVersionMaterial(grid) {
 }
 
 async function renderGrid(grid, source, { requestUrl, renderOutputImpl }) {
+  const orderedImages = [...grid.images].sort((a, b) => a.gridPosition - b.gridPosition);
   const renderGridRecord = {
     ...grid,
     id: source.sourceId,
-    images: grid.images.map(image => ({
+    images: orderedImages.map(image => ({
       ...image,
       imageUrl: image.media
         ? trustedMediaProxyUrl(image, requestUrl)
@@ -548,7 +549,7 @@ async function renderGrid(grid, source, { requestUrl, renderOutputImpl }) {
       sourceRoute: grid.sourceRoute || "/vibe-atlas",
       gridId: source.sourceId,
       generatedAt: grid.generatedAt,
-      batchKeys: grid.images.map(image => image.batchKey).filter(Boolean),
+      batchKeys: orderedImages.map(image => image.batchKey).filter(Boolean),
     },
     grids: [renderGridRecord],
     sourceCards: renderGridRecord.images.map((image, order) => ({

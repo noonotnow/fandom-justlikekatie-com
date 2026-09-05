@@ -87,6 +87,7 @@ export async function classifyGridProvenance(grid: GridRecord): Promise<Classifi
   const exact = grid.actorId === identity.actorId
     && grid.vibeKey === identity.vibeKey
     && orderedCandidateIds.length === 9
+    && orderedImages.every((image, index) => image.gridPosition === index)
     && orderedCandidateIds.every((candidateId, index) =>
       candidateId === identity.orderedCandidateIds[index])
     && orderedImages.every((image, index) => {

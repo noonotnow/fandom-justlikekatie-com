@@ -34,8 +34,59 @@ async function launchBrowser(): Promise<Browser> {
   }
 }
 
-async function seedSavedGrid(page: Page): Promise<void> {
-  await page.evaluate(async ({ accountId, gridId }) => {
+async function seedSavedGrid(
+  page: Page,
+  provenance: 'exact' | 'unverified' = 'exact',
+): Promise<void> {
+  await page.evaluate(async ({ accountId, gridId, provenance }) => {
+    const originalImageUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    const checksum = 'a'.repeat(64);
+    const images = Array.from({ length: 9 }, (_, gridPosition) => ({
+      resultId: `packet-grid-image-${gridPosition}`,
+      imageUrl: `https://media.justlikekatie.com/images/sha256/browser-source-${gridPosition}.png`,
+      sourceUrl: `https://source.example/packet-grid-${gridPosition}`,
+      title: `Packet grid image ${gridPosition}`,
+      gridPosition,
+      media: {
+        schemaVersion: 1,
+        assetId: `11111111-1111-4111-8111-${String(gridPosition + 1).padStart(12, '0')}`,
+        deliveryUrl: `https://media.justlikekatie.com/images/sha256/browser-source-${gridPosition}.png`,
+        thumbnailUrl: `https://media.justlikekatie.com/images/sha256/browser-source-${gridPosition}-thumb.png`,
+        mimeType: 'image/png',
+        sizeBytes: 68,
+        checksum,
+        dimensions: { width: 1, height: 1 },
+        association: { type: 'collection', id: 'vibe-atlas', itemId: gridId },
+      },
+      mediaRecovery: {
+        classification: 'embedded-data',
+        status: 'recovered',
+        attemptedAt: '2026-08-28T12:00:00.000Z',
+        sourceUrl: originalImageUrl,
+        message: 'Permanent MEDIA asset verified for this saved item.',
+      },
+    }));
+    const candidates = images.map(image => ({
+      candidateId: image.resultId,
+      imageDigest: checksum,
+      thumbnail: originalImageUrl,
+      title: image.title,
+      source: '',
+      batchRank: null,
+    }));
+    const boardMaterial = JSON.stringify(candidates.map(candidate => ({
+      thumbnail: candidate.thumbnail,
+      title: candidate.title,
+      source: candidate.source,
+      batchRank: candidate.batchRank,
+    })));
+    const boardDigest = await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(boardMaterial),
+    );
+    const boardHash = [...new Uint8Array(boardDigest)]
+      .map(byte => byte.toString(16).padStart(2, '0'))
+      .join('');
     const request = indexedDB.open('vibe-atlas-collection', 3);
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -68,13 +119,29 @@ async function seedSavedGrid(page: Page): Promise<void> {
       generatedAt: '2026-08-28T12:00:00.000Z',
       savedAt: '2026-08-28T12:00:00.000Z',
       sourceRoute: '/vibe-atlas?view=collection',
-      images: [{
-        resultId: 'packet-grid-image',
-        imageUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-        sourceUrl: 'https://source.example/packet-grid',
-        title: 'Packet grid image',
-        gridPosition: 0,
-      }],
+      vibeKey: 'packet-flow',
+      images,
+      ...(provenance === 'exact' ? {
+        releaseCandidateProvenance: {
+          schemaVersion: 1,
+          source: 'actor-preflight-approval',
+          identity: {
+            schemaVersion: 1,
+            auditRunId: 'packet-audit-run',
+            publicationManifestId: null,
+            publicationSourceType: 'operator_rescue',
+            rescueReceiptId: 'packet-rescue-receipt',
+            boardHash,
+            orderedCandidateIds: images.map(image => image.resultId),
+            actorId: 'packet-actor',
+            vibeKey: 'packet-flow',
+            curationVersion: 1,
+            promiseContractVersion: 1,
+            identityProfileVersion: 1,
+          },
+          candidates,
+        },
+      } : {}),
     });
     transaction.objectStore('sync').put({
       key: 'state',
@@ -90,7 +157,7 @@ async function seedSavedGrid(page: Page): Promise<void> {
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
     });
-  }, { accountId: ACCOUNT_ID, gridId: GRID_ID });
+  }, { accountId: ACCOUNT_ID, gridId: GRID_ID, provenance });
 }
 
 async function mockReleaseDesk(page: Page): Promise<void> {
@@ -191,6 +258,34 @@ async function mockCollectionMedia(page: Page): Promise<() => number> {
   return () => uploads;
 }
 
+test('Operator Console keeps unverified saved grids disabled', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+
+  try {
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        user: { accountId: ACCOUNT_ID, email: 'packet@example.test', isAdmin: true },
+      }),
+    }));
+    await mockReleaseDesk(page);
+    await page.goto(origin);
+    await seedSavedGrid(page, 'unverified');
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('heading', { name: 'Release Desk' }).waitFor();
+    await page.locator('p').filter({ hasText: 'Unverified saved grid' }).waitFor();
+    assert.equal(
+      await page.getByRole('button', { name: 'Make a post in Workstation' }).isDisabled(),
+      true,
+    );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
 test('Operator Console sends one direct grid source and opens the Workstation draft', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();
@@ -208,7 +303,7 @@ test('Operator Console sends one direct grid source and opens the Workstation dr
     const getMediaUploads = await mockCollectionMedia(page);
     const getSyncRequests = await mockSelectedGridSync(page);
     await page.route('**/api/workstation-handoff', async route => {
-      assert.equal(getMediaUploads(), 1, 'the source image must be durable before Collection sync');
+      assert.equal(getMediaUploads(), 0, 'exact fixture media should already be durable');
       assert.equal(getSyncRequests(), 1, 'the selected grid must sync before its handoff is created');
       createRequests += 1;
       const request = route.request().postDataJSON() as {
@@ -250,7 +345,7 @@ test('Operator Console sends one direct grid source and opens the Workstation dr
     await page.waitForURL('https://workstation.justlikekatie.com/compose?postId=creator-draft-1');
     await page.waitForTimeout(600);
     assert.equal(createRequests, 1);
-    assert.equal(getMediaUploads(), 1);
+    assert.equal(getMediaUploads(), 0);
     assert.equal(getSyncRequests(), 1);
   } finally {
     await browser.close();
@@ -298,7 +393,7 @@ for (const failure of [
       const getMediaUploads = await mockCollectionMedia(page);
       const getSyncRequests = await mockSelectedGridSync(page);
       await page.route('**/api/workstation-handoff', route => {
-        assert.equal(getMediaUploads(), 1, 'the source image must be durable before Collection sync');
+        assert.equal(getMediaUploads(), 0, 'exact fixture media should already be durable');
         assert.equal(getSyncRequests(), 1, 'the selected grid must sync before its handoff is created');
         createRequests += 1;
         return route.fulfill({
@@ -315,7 +410,7 @@ for (const failure of [
       await page.getByRole('link', { name: 'Open Workstation' }).waitFor();
       assert.equal(new URL(page.url()).search, '?admin=true');
       assert.equal(createRequests, 1);
-      assert.equal(getMediaUploads(), 1);
+      assert.equal(getMediaUploads(), 0);
       assert.equal(getSyncRequests(), 1);
       assert.equal(await page.getByLabel('Saved FANDOM grid').inputValue(), GRID_ID);
     } finally {

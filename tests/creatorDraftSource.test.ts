@@ -146,6 +146,31 @@ test('approved board provenance distinguishes exact, derived, and unverified gri
   });
   assert.equal((await classifyGridProvenance(derived)).classification, 'derived-from-approved-board');
   assert.equal((await classifyGridProvenance(derived)).approvalAuthority, false);
+  const duplicatePosition = {
+    ...exact,
+    images: exact.images.map((image, index) => (
+      index === 8 ? { ...image, gridPosition: 7 } : image
+    )),
+  };
+  const missingPosition = { ...exact, images: exact.images.slice(0, 8) };
+  const nonContiguousPosition = {
+    ...exact,
+    images: exact.images.map((image, index) => (
+      index === 8 ? { ...image, gridPosition: 9 } : image
+    )),
+  };
+  assert.equal(
+    (await classifyGridProvenance(duplicatePosition)).classification,
+    'derived-from-approved-board',
+  );
+  assert.equal(
+    (await classifyGridProvenance(missingPosition)).classification,
+    'derived-from-approved-board',
+  );
+  assert.equal(
+    (await classifyGridProvenance(nonContiguousPosition)).classification,
+    'derived-from-approved-board',
+  );
   assert.equal((await classifyGridProvenance({
     ...exact,
     images: exact.images.map(image => ({ ...image, media: undefined })),
