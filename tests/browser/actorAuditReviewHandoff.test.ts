@@ -1223,7 +1223,6 @@ test('an admin can hand off a complete compiled proposal that needs hero review'
     await verdictButton.click();
     await page.getByText(
       'Exact nine-card retained-evidence board approved for publication with both human confirmations.',
-      { exact: true },
     ).waitFor();
     assert.equal(verdictRequests.length, 1);
     assert.deepEqual(verdictRequests[0], {

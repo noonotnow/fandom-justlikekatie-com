@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { dbSaveGrid, type GridRecord } from '../../utils/collectionDB';
 import { persistGridImagesToMedia } from '../../utils/collectionMedia';
 import { getPublicSession, syncPublicGrid } from '../../utils/publicAccount';
+import type { ReleaseCandidateProvenance } from '../../utils/approvedBoardProvenance';
 import styles from './ActorPreflightLab.module.css';
 
 type AnyRecord = Record<string, any>;
@@ -48,7 +49,8 @@ type RescueExport = {
   exportedAt: string;
   actor: { id: string; name: string; nameEn: string; accentColor: string };
   vibe: { key: string; label: string; labelEn: string; emoji: string; subtitle: string; subtitleEn: string; searchSpell: string };
-  candidates: Array<{ candidateId: string; query?: string; title?: string; source?: string; link?: string; thumbnail?: string }>;
+  releaseCandidateProvenance?: ReleaseCandidateProvenance;
+  candidates: Array<{ candidateId: string; query?: string; title?: string; source?: string; link?: string; thumbnail?: string; batchRank?: number | null }>;
 };
 const EMPTY_RECORDS: AnyRecord[] = [];
 
@@ -143,7 +145,7 @@ export const ActorPreflightLab: React.FC = () => {
   }
   async function saveBlindChoice(choice:'event'|'compiled'|'neither') { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy('blind-choice'); setNotice(''); try { const result=await api({action:'blind_choice',actorId,vibeKey,runId:currentRun.runId,choice}); applyRefresh(result); setRun(result.currentRun ?? null); setCurrentRun(result.currentRun ?? null); setPriorRuns(result.priorRuns ?? []); setDisagreementReasons(result.currentRun?.blindReview?.reasonCodes ?? []); setEditorialNote(result.currentRun?.blindReview?.note ?? ''); setNotice('Independent choice recorded. The system result is now revealed.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function saveDisagreement(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy('reasons'); setNotice(''); try { const result=await api({action:'blind_reasons',actorId,vibeKey,runId:currentRun.runId,reasonCodes:disagreementReasons,note:editorialNote}); applyRefresh(result); setRun(result.currentRun ?? null); setCurrentRun(result.currentRun ?? null); setPriorRuns(result.priorRuns ?? []); setDisagreementReasons(result.currentRun?.blindReview?.reasonCodes ?? disagreementReasons); setEditorialNote(result.currentRun?.blindReview?.note ?? editorialNote); setNotice('Editorial calibration notes saved.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
-  async function saveVerdict(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!verdict)return; setBusy('verdict'); setNotice(''); try { const approved=verdict==='approved'; const operatorBoardRequired=currentRun.blindReview?.status==='unavailable'; const useRescueBoard=approved&&(operatorBoardRequired||rescuePreferred); const result=await api({action:'verdict',actorId,vibeKey,runId:currentRun.runId,verdict,notes,vibeConfirmed:approved&&vibeConfirmed,publishableConfirmed:approved&&publishableConfirmed,rescuePreferred:useRescueBoard,rescueReceiptId:useRescueBoard?preferredRescueReceiptId:undefined}); applyRefresh(result); const next=result.currentRun ?? currentRun; const preference=next?.operatorVerdict?.rescuePreference; const publicationSource=next?.operatorVerdict?.publicationSource; setRun(next); setCurrentRun(next); setVerdict(result.verdict ?? verdict); setNotes(result.notes ?? notes); setRescuePreferred(preference?.preferred === true); setPreferredRescueReceiptId(preference?.rescueReceiptId ?? ''); setNotice(approved?(publicationSource?.type==='operator_rescue'?'Exact nine-card retained-evidence board approved for publication with both human confirmations.':preference?.preferred?'Curator result approved as publishable. Your separate rescue preference was recorded.':'Curator result approved as publishable with both human confirmations.'):'Verdict saved to the curation ledger.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
+  async function saveVerdict(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!verdict)return; setBusy('verdict'); setNotice(''); try { const approved=verdict==='approved'; const operatorBoardRequired=currentRun.blindReview?.status==='unavailable'; const useRescueBoard=approved&&(operatorBoardRequired||rescuePreferred); const result=await api({action:'verdict',actorId,vibeKey,runId:currentRun.runId,verdict,notes,vibeConfirmed:approved&&vibeConfirmed,publishableConfirmed:approved&&publishableConfirmed,rescuePreferred:useRescueBoard,rescueReceiptId:useRescueBoard?preferredRescueReceiptId:undefined}); applyRefresh(result); const next=result.currentRun ?? currentRun; const preference=next?.operatorVerdict?.rescuePreference; const publicationSource=next?.operatorVerdict?.publicationSource; setRun(next); setCurrentRun(next); setVerdict(result.verdict ?? verdict); setNotes(result.notes ?? notes); setRescuePreferred(preference?.preferred === true); setPreferredRescueReceiptId(preference?.rescueReceiptId ?? ''); const collectionNotice=publicationSource?.type==='operator_rescue' ? ` ${await saveRescueReceiptToCollection(next.runId,publicationSource.rescueReceiptId)}` : ''; setNotice(approved?(publicationSource?.type==='operator_rescue'?`Exact nine-card retained-evidence board approved for publication with both human confirmations.${collectionNotice}`:preference?.preferred?'Curator result approved as publishable. Your separate rescue preference was recorded.':'Curator result approved as publishable with both human confirmations.'):'Verdict saved to the curation ledger.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function publishBackfill(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!backfillDate)return; setBusy('backfill'); setNotice(''); try { const receiptId=run?.operatorVerdict?.publicationSource?.type==='operator_rescue'?run.operatorVerdict.publicationSource.rescueReceiptId:preferredRescueReceiptId; const result=await api({action:'publish_backfill',actorId,vibeKey,runId:currentRun.runId,rescueReceiptId:receiptId,date:backfillDate}); setNotice(result.backfill?.status==='already_published'?`The ${backfillDate} edition was already published with this exact board.`:`The approved board is now published as the ${backfillDate} Daily Drop edition.`); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function saveCandidateFlag(candidateId:string,flagged:boolean,intent='pin',reasons:string[]=[] ) { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy(`flag:${candidateId}`); setNotice(''); try { const result=await api({action:'flag_candidate',actorId,vibeKey,runId:currentRun.runId,candidateId,flagged,intent,reasons}); applyRefresh(result); const next=result.currentRun ?? currentRun; setRun(next); setCurrentRun(next); setPriorRuns(result.priorRuns ?? priorRuns); setNotice(flagged?'Image-level editorial intent saved. Safety gates still apply.':'Image annotation removed from the requested grid review.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function saveRescueBoard(candidateIds:string[]) {
@@ -659,6 +661,10 @@ function collectionGridFromRescueExport(rescue: RescueExport): GridRecord {
     generatedAt: rescue.arrangedAt,
     savedAt: rescue.exportedAt,
     sourceRoute: '/admin#actor-preflight',
+    vibeKey: rescue.vibe.key,
+    ...(rescue.releaseCandidateProvenance
+      ? { releaseCandidateProvenance: rescue.releaseCandidateProvenance }
+      : {}),
     intent: 'standard',
     editorial: {
       mode: 'compiled',
@@ -669,9 +675,10 @@ function collectionGridFromRescueExport(rescue: RescueExport): GridRecord {
       resultId: candidate.candidateId,
       imageUrl: proxiedImageUrl(candidate.thumbnail || ''),
       sourceUrl: candidate.link || candidate.thumbnail || '#',
-      title: candidate.title || `${rescue.actor.name} · ${rescue.vibe.label}`,
+      title: candidate.title ?? `${rescue.actor.name} · ${rescue.vibe.label}`,
       ...(candidate.source ? { publisher: candidate.source } : {}),
       ...(candidate.query ? { batchKey: candidate.query } : {}),
+      ...(Number.isInteger(candidate.batchRank) ? { batchRank: candidate.batchRank as number } : {}),
       gridPosition,
     })),
   };
