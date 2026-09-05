@@ -500,8 +500,8 @@ function PartialBoards({run}:{run:Run}) {
     const modeLabel=mode==='event'?'Event':'Compiled';
     const label=diagnostic?.available===true
       ? `${modeLabel} qualified board`
-      : diagnostic?.reasonCode==='hero_not_fulfilled'
-        ? `${modeLabel} complete board · Hero review needed`
+      : mode==='compiled'&&diagnostic?.reasonCode==='hero_not_fulfilled'
+        ? 'Compiled complete board · Hero review needed'
         : `${modeLabel} complete proposal · automated gate not passed`;
     return {label,board};
   }).filter(Boolean) as Array<{label:string;board:AnyRecord}>;
