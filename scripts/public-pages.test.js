@@ -57,6 +57,10 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/glossary/cultivation/",
     "https://fandom.justlikekatie.com/c-drama-fandom/glossary/xianxia/",
     "https://fandom.justlikekatie.com/c-drama-fandom/glossary/jianghu/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/glossary/wuxia/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/glossary/wuxia-vs-xianxia-vs-xuanhuan/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/archetypes/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/archetypes/cold-male-lead-vs-tsundere/",
     "https://fandom.justlikekatie.com/c-drama-fandom/trope-decoder/",
     "https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/",
   ];
@@ -97,7 +101,7 @@ test("robots and sitemap expose only intended public surfaces", () => {
   assert.doesNotMatch(sitemap, /\/api\/|\/auth\/|create-handoff|idea-packet/);
   assert.match(viteConfig, /['"]\/c-drama-fandom\/trope-decoder['"]\s*,\s*['"]\/c-drama-fandom\/trope-decoder\/index\.html['"]/);
   assert.match(netlify, /from = "\/c-drama-fandom\/trope-decoder"[\s\S]*?to = "\/c-drama-fandom\/trope-decoder\/index\.html"/);
-  for (const slug of ["cp", "cultivation", "xianxia", "jianghu"]) {
+  for (const slug of ["cp", "cultivation", "xianxia", "jianghu", "wuxia", "wuxia-vs-xianxia-vs-xuanhuan"]) {
     assert.match(
       viteConfig,
       new RegExp(`['"]/c-drama-fandom/glossary/${slug}['"]\\s*,\\s*['"]/c-drama-fandom/glossary/${slug}/index\\.html['"]`),
@@ -105,6 +109,16 @@ test("robots and sitemap expose only intended public surfaces", () => {
     assert.match(
       netlify,
       new RegExp(`from = "/c-drama-fandom/glossary/${slug}"[\\s\\S]*?to = "/c-drama-fandom/glossary/${slug}/index\\.html"`),
+    );
+  }
+  for (const slug of ["archetypes", "archetypes/cold-male-lead-vs-tsundere"]) {
+    assert.match(
+      viteConfig,
+      new RegExp(`['"]/c-drama-fandom/${slug}['"]\\s*,\\s*['"]/c-drama-fandom/${slug}/index\\.html['"]`),
+    );
+    assert.match(
+      netlify,
+      new RegExp(`from = "/c-drama-fandom/${slug}"[\\s\\S]*?to = "/c-drama-fandom/${slug}/index\\.html"`),
     );
   }
 });
@@ -126,6 +140,45 @@ test("the fandom-literacy pages answer independently and continue honestly into 
     assert.match(html, /Today’s Vibe Atlas drop/i);
     assert.match(html, /src="\/c-drama-fandom\/editorial\.js"/);
   }
+});
+
+test("the second authority batch offers complete answers and measurable interactions", () => {
+  const authorityPages = [
+    ["public/c-drama-fandom/glossary/wuxia/index.html", /Code → Debt → Choice/],
+    ["public/c-drama-fandom/glossary/wuxia-vs-xianxia-vs-xuanhuan/index.html", /data-genre-tool/],
+    ["public/c-drama-fandom/archetypes/index.html", /data-archetype-filter/],
+    ["public/c-drama-fandom/archetypes/cold-male-lead-vs-tsundere/index.html", /Surface → Leak → Pattern/],
+  ];
+
+  for (const [path, signature] of authorityPages) {
+    const html = read(path);
+    assert.match(html, /class="answer-line"/);
+    assert.match(html, /data-section-id=/);
+    assert.match(html, /data-atlas-continuation/);
+    assert.match(html, /Today’s Vibe Atlas drop/i);
+    assert.match(html, /src="\/c-drama-fandom\/editorial\.js"/);
+    assert.match(html, signature);
+  }
+});
+
+test("editorial analytics use bounded identifiers and never collect reader text", () => {
+  const script = read("public/c-drama-fandom/editorial.js");
+  const events = [
+    "editorial_article_viewed",
+    "editorial_read_depth_reached",
+    "editorial_section_viewed",
+    "editorial_topic_interest_clicked",
+    "editorial_tool_engaged",
+    "editorial_atlas_continuation_clicked",
+  ];
+
+  for (const event of events) assert.match(script, new RegExp(`"${event}"`));
+  assert.match(script, /const sourcePages = new Set\(/);
+  assert.match(script, /const sectionIds = new Set\(/);
+  assert.match(script, /const topicIds = new Set\(/);
+  assert.match(script, /const toolActions = new Set\(/);
+  assert.match(script, /sectionObserver\.unobserve\(entry\.target\)/);
+  assert.doesNotMatch(script, /innerText|textContent|location\.href|location\.search|URLSearchParams|input\.value|formData/i);
 });
 
 test("the public field journal has crawlable direct routes with spoiler-safe metadata", () => {
