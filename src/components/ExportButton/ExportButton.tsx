@@ -28,7 +28,7 @@ export const ExportButton: React.FC<ExportButtonProps> = ({ rawData, onShareComp
           disabled={isExporting || !imagesReady}
           aria-label="Share or copy full image"
         >
-          分享 / Share image
+          分享 / Share & Copy image
           <span className={styles.enHelper}>Copy image card</span>
         </button>
         <button
