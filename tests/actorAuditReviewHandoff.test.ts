@@ -38,6 +38,9 @@ const saveRescueReceiptToCollection = functionBody('saveRescueReceiptToCollectio
 const requestedReviewStart = source.indexOf('function RequestedGridReview');
 const requestedReviewEnd = source.indexOf('\nfunction PartialBoards', requestedReviewStart);
 const requestedReview = source.slice(requestedReviewStart, requestedReviewEnd);
+const partialBoardsStart = source.indexOf('function PartialBoards');
+const partialBoardsEnd = source.indexOf('\nfunction PromisingPartialClusters', partialBoardsStart);
+const partialBoards = source.slice(partialBoardsStart, partialBoardsEnd);
 
 test('a completed actor audit reloads its authoritative saved review', () => {
   const runRequest = startAudit.indexOf("api({action:'run'");
@@ -60,6 +63,8 @@ test('an unavailable comparison is not described as ready for a blind choice', (
   assert.match(startAudit, /did not produce two complete boards/);
   assert.match(startAudit, /Choose between the two boards below/);
   assert.match(source, /function PartialBoards/);
+  assert.match(partialBoards, /diagnostic\?\.available===true/);
+  assert.match(partialBoards, /complete proposal · automated gate not passed/);
   assert.match(source, /Complete nine-card proposal/);
   assert.match(source, /automated gate not passed/);
   assert.match(source, /older audit format did not retain its exact arrangement/);

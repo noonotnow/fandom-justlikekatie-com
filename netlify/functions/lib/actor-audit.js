@@ -1475,17 +1475,29 @@ function missingEvidenceSearchSuggestions(partialClusters = []) {
 }
 
 export function classifyPreflightOutcome(run) {
-  const completeProposal = Number(run?.completeProposalCardCount) >= 9;
-  const identityReview = Number(run?.identityEvidence?.collisionSignals) > 0;
-  const qualifiedBoard = ["event", "compiled"].some(mode =>
-    qualifiedBoardFor(run, mode));
   const excludedIds = new Set((run?.editorialFeedback?.flags || [])
     .filter(flag => flag?.disposition === "excluded")
     .map(flag => flag.candidateId));
+  const proposalBoards = ["event", "compiled"]
+    .map(mode => run?.[mode === "event" ? "strongestEvent" : "strongestCompiled"]
+      || run?.boardDiagnostics?.[mode]?.proposal)
+    .filter(board => Array.isArray(board?.candidates));
+  const completeProposal = proposalBoards.length
+    ? proposalBoards.some(board => activeCandidateCount(board.candidates, excludedIds) >= 9)
+    : Number(run?.completeProposalCardCount) >= 9;
+  const identityReview = Number(run?.identityEvidence?.collisionSignals) > 0;
+  const qualifiedBoard = ["event", "compiled"].some(mode => {
+    const board = run?.[mode === "event" ? "strongestEvent" : "strongestCompiled"];
+    return qualifiedBoardFor(run, mode)
+      && activeCandidateCount(board?.candidates, excludedIds) >= 9;
+  });
   const retainedCount = canonicalFrozenCandidates(run, excludedIds).size;
   const partialCount = Math.max(
     0,
-    ...(run?.partialClusters || []).map(cluster => Number(cluster?.cardCount) || 0),
+    ...(run?.partialClusters || []).map(cluster =>
+      Array.isArray(cluster?.candidateIds)
+        ? activeCandidateCount(cluster.candidateIds, excludedIds)
+        : Number(cluster?.cardCount) || 0),
   );
   const sourceEvidence = run?.curationReceipt?.sourceEvidenceCandidates
     || run?.curationReceipt?.rawCandidates
@@ -1550,6 +1562,12 @@ export function classifyPreflightOutcome(run) {
     requiresOperatorReview: true,
     warnings,
   };
+}
+
+function activeCandidateCount(candidates = [], excludedIds = new Set()) {
+  return new Set(candidates
+    .map(candidate => typeof candidate === "string" ? candidate : candidate?.candidateId)
+    .filter(candidateId => candidateId && !excludedIds.has(candidateId))).size;
 }
 
 function queryRun(candidate, receipt, rankIndex, learnedQueries = []) {
@@ -2358,6 +2376,10 @@ async function attachVerdict(store, pair, run) {
         boards: blindBoards(normalizedRun, presentationOrderFor(normalizedRun.runId)),
       },
   };
+  attachedRun.rescueDraft = buildFrozenRescueBoard(
+    attachedRun,
+    editorialFeedback?.flags || [],
+  );
   attachedRun.preflightOutcome = classifyPreflightOutcome(attachedRun);
   attachedRun.suggestedState = attachedRun.preflightOutcome.state;
   return attachedRun;

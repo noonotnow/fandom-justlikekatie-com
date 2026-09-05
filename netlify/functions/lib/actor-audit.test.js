@@ -628,6 +628,40 @@ test("Actor Preflight classifies every recoverable and terminal outcome explicit
       })),
     },
   }).state, "hard_blocked");
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    completeProposalCardCount: 9,
+    strongestCompiled: { candidates },
+    curationReceipt: {
+      rawCandidates: candidates,
+      sourceEvidenceCandidates: candidates,
+      dropped: [],
+    },
+    editorialFeedback: {
+      flags: candidates.map(candidate => ({
+        candidateId: candidate.candidateId,
+        disposition: "excluded",
+      })),
+    },
+  }).state, "hard_blocked");
+  assert.equal(classifyPreflightOutcome({
+    ...base,
+    partialClusters: [{
+      cardCount: 5,
+      candidateIds: candidates.slice(0, 5).map(candidate => candidate.candidateId),
+    }],
+    curationReceipt: {
+      rawCandidates: candidates.slice(0, 5),
+      sourceEvidenceCandidates: candidates.slice(0, 5),
+      dropped: [],
+    },
+    editorialFeedback: {
+      flags: candidates.slice(0, 5).map(candidate => ({
+        candidateId: candidate.candidateId,
+        disposition: "excluded",
+      })),
+    },
+  }).state, "hard_blocked");
 });
 
 test("the audit surface is admin-only before any report store is read", async () => {
@@ -2526,7 +2560,7 @@ test("legacy rescue receipts remain records-only and cannot calibrate the curren
 });
 
 test("excluding an original board image removes it from rescue boards and rejects it on save", async () => {
-  const { handler } = harness();
+  const { handler, store } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   await handler(request("POST", {
     action: "run", actorId: pairActor.id, vibeKey, scope: "full",
@@ -2564,6 +2598,17 @@ test("excluding an original board image removes it from rescue boards and reject
   const rescueIds = excluded.currentRun.editorialFeedback.requestedReview.board.candidates
     .map(candidate => candidate.candidateId);
   assert.equal(rescueIds.includes(sourceBoardCandidate.candidateId), false);
+  const derivedDraftIds = excluded.currentRun.rescueDraft.candidates
+    .map(candidate => candidate.candidateId);
+  assert.equal(derivedDraftIds.length, 9);
+  assert.equal(derivedDraftIds.includes(sourceBoardCandidate.candidateId), false);
+  assert.equal(derivedDraftIds.includes(omittedCandidate.candidateId), true);
+  const frozenRun = await store.get(auditRunKey(pairActor.id, 0, "run-1"));
+  assert.equal(
+    frozenRun.rescueDraft.candidates.some(candidate =>
+      candidate.candidateId === sourceBoardCandidate.candidateId),
+    true,
+  );
 
   const invalidIds = [...rescueIds];
   invalidIds[0] = sourceBoardCandidate.candidateId;

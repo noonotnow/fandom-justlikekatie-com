@@ -493,10 +493,18 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
 }
 
 function PartialBoards({run}:{run:Run}) {
-  const boards = [
-    run.strongestEvent ? { label: 'Event qualified board', board: run.strongestEvent } : run.boardDiagnostics?.event?.proposal ? { label: 'Event complete proposal · automated gate not passed', board: run.boardDiagnostics.event.proposal } : null,
-    run.strongestCompiled ? { label: 'Compiled qualified board', board: run.strongestCompiled } : run.boardDiagnostics?.compiled?.proposal ? { label: run.boardDiagnostics.compiled.reasonCode==='hero_not_fulfilled'?'Compiled complete board · Hero review needed':'Compiled complete proposal · automated gate not passed', board: run.boardDiagnostics.compiled.proposal } : null,
-  ].filter(Boolean) as Array<{label:string;board:AnyRecord}>;
+  const boards = (['event','compiled'] as const).map(mode => {
+    const diagnostic=run.boardDiagnostics?.[mode];
+    const board=run[mode==='event'?'strongestEvent':'strongestCompiled']??diagnostic?.proposal;
+    if(!board)return null;
+    const modeLabel=mode==='event'?'Event':'Compiled';
+    const label=diagnostic?.available===true
+      ? `${modeLabel} qualified board`
+      : diagnostic?.reasonCode==='hero_not_fulfilled'
+        ? `${modeLabel} complete board · Hero review needed`
+        : `${modeLabel} complete proposal · automated gate not passed`;
+    return {label,board};
+  }).filter(Boolean) as Array<{label:string;board:AnyRecord}>;
    if (!boards.length) return Object.values(run.boardDiagnostics??{}).some(diagnostic=>confirmsCompleteProposal(diagnostic))
      ? <p className={styles.boardEmpty}>This historical receipt confirms that a complete nine-card proposal formed, but the older audit format did not retain its exact arrangement. Rerun the audit to preserve proposed boards, or arrange the 36 retained images below.</p>
      : <p className={styles.boardEmpty}>No complete nine-card proposal formed.</p>;
