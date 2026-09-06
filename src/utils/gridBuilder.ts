@@ -296,11 +296,18 @@ export function buildPool(cards: CardRecord[], grids: GridRecord[]): BuilderCard
 }
 
 function canonicalImageUrl(value: string): string {
+  const localOrigin = 'https://collection.invalid';
   try {
-    const url = new URL(value);
+    const url = new URL(value, localOrigin);
+    if (url.pathname === '/.netlify/functions/image-proxy') {
+      const upstreamUrl = url.searchParams.get('url');
+      if (upstreamUrl) return canonicalImageUrl(upstreamUrl);
+    }
     url.search = '';
     url.hash = '';
-    return `${url.hostname.toLowerCase()}${url.pathname}`;
+    return url.origin === localOrigin
+      ? url.pathname
+      : `${url.hostname.toLowerCase()}${url.pathname}`;
   } catch {
     return value.split(/[?#]/, 1)[0];
   }
