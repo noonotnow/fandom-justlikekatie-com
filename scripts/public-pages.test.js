@@ -212,10 +212,17 @@ test("the studio glossary demonstrates collectible vocabulary without inventing 
   assert.match(glossary, /legendary-grid-liu-xueyi-2026-08-29\.webp/);
   assert.match(glossary, /August 29 Liu Xueyi export/i);
   assert.match(glossary, /not a Legendary Misprint/i);
+  assert.match(glossary, /Explore fandom games/);
+  assert.match(glossary, /Try a fandom game/);
+  assert.match(glossary, /Open fandom games →/);
   assert.match(glossary, /Intended identity/);
   assert.match(glossary, /Unexpected identity/);
   assert.match(glossary, /Why it survived/);
   assert.doesNotMatch(glossary, /Open the living example/i);
+  assert.doesNotMatch(glossary, /See a Legendary Grid in action/i);
+  assert.doesNotMatch(glossary, /See terms in motion/i);
+  assert.doesNotMatch(glossary, /Which fate exposes you\?/i);
+  assert.doesNotMatch(glossary, /Play LG · 01/i);
   assert.doesNotMatch(glossary, /illustrated xianxia fate archetypes/i);
   assert.doesNotMatch(glossary, /fictional misprint|sample actor|placeholder identity/i);
 });
