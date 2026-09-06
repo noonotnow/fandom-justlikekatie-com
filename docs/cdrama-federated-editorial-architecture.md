@@ -2743,6 +2743,320 @@ The Creator OS CDRAMA Lens view is valid only while:
 If implementation cannot maintain these conditions, the remedy is a narrower
 projection or specialist link—not a shared database or duplicated owner.
 
+## Paper Cockpit #1 — Nian Wushuang Waiting Room: Capture-First Series Home
+
+This paper cockpit is the first concrete test of whether the constitution, case
+law, and capability-placement decisions produce a usable experience. It is not
+another constitutional section, a fifth module, a canonical Waiting Room
+record, or a production UI specification.
+
+Its governing job is:
+
+> Open the Waiting Room, see what is alive, preserve what matters, and make the
+> next worthwhile thing only if one actually wants to be made.
+
+Opening a Series should first help Katie understand and preserve what is
+happening. It must not pressure her to manufacture content. CAPTURE is therefore
+the primary working area while CREATE, PLAN, and CONNECT remain visible as
+compact downstream summaries.
+
+The Waiting Room is the right first cockpit because it must compose all of the
+following without flattening their identity or authority:
+
+- private dispatches;
+- protocol-bound Journal references;
+- Fandom-owned canon and universe evidence;
+- audience questions and signals;
+- Series continuity and open editorial questions;
+- public Fandom state and Clock Ins;
+- optional website contributions and social expressions;
+- PLAN placements and exact rendition selection;
+- CONNECT outcomes, corrections, and learning.
+
+### Paper composition
+
+```text
+┌ WAITING ROOM IDENTITY ────────────────────────────────────┐
+│ The story has not accepted that it is over.              │
+│ Fandom public state · Clock Ins · verified evidence      │
+└───────────────────────────────────────────────────────────┘
+
+┌ CAPTURE — primary working area ─────────┐  ┌ CONTINUITY ──┐
+│ What kind of thing are you preserving?  │  │ Series thesis │
+│                                         │  │ Open questions│
+│ • Private dispatch → Creator Capture    │  │ Evidence trail│
+│ • File/reference First Watch → Fandom   │  │ Recent changes│
+│ • Canon/universe evidence → Fandom      │  └───────────────┘
+│ • Audience question → Signal/Capture    │
+│ • Source/scene/reaction → chosen owner  │  ┌ DOWNSTREAM ──┐
+│                                         │  │ CREATE        │
+│ Recent records                          │  │ Making now     │
+│ Journal ≠ Capture ≠ Evidence ≠ Signal   │  │               │
+│                                         │  │ PLAN          │
+│ Contextual actions only:                │  │ Placed/ready   │
+│ Make from this · Open source · Relate   │  │               │
+└─────────────────────────────────────────┘  │ CONNECT       │
+                                             │ Outcomes/learn │
+                                             └───────────────┘
+```
+
+The persistent Waiting Room header is an authorized composition rather than a
+record editor. It shows:
+
+- Series premise and current editorial thesis from Creator OS;
+- current public Waiting Room state from Fandom;
+- a verified canon-evidence summary from Fandom;
+- the Clock In aggregate from Fandom;
+- open editorial questions and recent continuity changes from the Series.
+
+If a projection is unavailable or stale, the header labels that state. It never
+fills a gap with cached content that appears current or exposes a mutation
+control that bypasses the owning system.
+
+### CAPTURE working area
+
+The first question is:
+
+> What kind of thing are you preserving?
+
+The answer chooses a capture instrument, canonical destination, and authority.
+It does not choose a content pipeline.
+
+| Capture instrument | Result | Canonical owner | Presentation |
+| --- | --- | --- | --- |
+| Write private dispatch | Private Waiting Room observation that may remain complete forever | Creator OS CAPTURE | Embedded |
+| Reference a First-Watch entry | Bounded reference to an existing protocol-bound entry | Fandom First-Watch | Projection |
+| Open protocol-bound Journal | Full chronology, spoiler, sealing, and moderation context | Fandom First-Watch | Open specialized view |
+| File in First Watch | New episode-bound Journal entry | Fandom First-Watch | Invoke |
+| Add canon or universe evidence | Reviewed Waiting Room evidence contribution | Fandom Waiting Room | Invoke or open specialized view |
+| Preserve audience question | Audience signal reference or private Capture, chosen explicitly | CONNECT or Creator OS CAPTURE | Embedded choice |
+| Preserve source, scene, or reaction | Typed source reference, domain evidence, or private observation, chosen explicitly | Selected owner | Embedded or invoke |
+
+Recent records remain visibly heterogeneous. Their type, owner, privacy,
+correction state, and source time are visible before contextual actions appear.
+A Journal entry does not look like an editable Capture; evidence does not look
+like an audience claim; a Signal does not look like Series truth.
+
+Contextual actions use precise mutations:
+
+- **Make from this** creates a definite CREATE artifact from selected material
+  and records additive lineage.
+- **Open source** opens the authoritative record or specialist view.
+- **Relate to Waiting Room** adds a typed relationship without changing the
+  source record.
+- **Add to evidence trail** invokes Fandom's evidence contract.
+- **Add to open question** links the selected material to one named Series
+  question.
+- **Propose as Series learning** creates a reviewable Learning Proposal; it
+  never changes the Series silently.
+
+There is no universal “Add to Series” or “Promote” action whose mutation depends
+on hidden context.
+
+### Continuity summary
+
+The continuity rail answers:
+
+> What is still unresolved, and what changed since I last looked?
+
+It shows the current Series thesis, named open questions, accepted evidence
+trail, and recent changes. It can relate authorized records but cannot edit
+Fandom evidence, reinterpret audience signals as truth, or rewrite an earlier
+Series decision.
+
+### Downstream summaries
+
+The summaries expose meaningful work without giving all four modules equal
+visual weight.
+
+**CREATE — What definite things are being made from this Series?**
+
+- Editorial Ideas;
+- website-expansion proposals;
+- article, guide, game, or other non-post work;
+- post and artifact families;
+- Idea Packet Studio activity;
+- rendition families and immutable exports being produced;
+- committed items approaching `Ready for scheduling`.
+
+CREATE owns shaping and the available rendition family. The summary does not
+imply that every Capture should cross or that a finished artifact has a
+placement.
+
+**PLAN — What has a placement, which exact thing are we using, and what is
+authorized next?**
+
+- dated Drafts admitted to PLAN;
+- seven-day placement;
+- exact selected rendition/export;
+- `Draft → Ready` validation;
+- expression packet readiness;
+- `Ready for publishing` as the next action;
+- automation consent;
+- holds and conflicts.
+
+PLAN receives only work with a `ScheduledDate`. It distinguishes schedule
+admission, exact rendition selection, packet readiness, and publication
+authorization rather than collapsing them into one “ready” badge.
+
+**CONNECT — What happened, and what should return to CAPTURE or CREATE?**
+
+- attempted or manually handled publications;
+- verification-pending items;
+- verified native publications;
+- unavailable, corrected, retracted, or discrepant states;
+- metrics snapshots;
+- audience questions;
+- Learning Proposals.
+
+CONNECT renders external publication truth and attributed interpretation. Its
+return actions create a Capture, a CREATE revision, or a reviewable Series
+proposal; they never mutate any of those records silently.
+
+### Manual walkthrough 1 — A private dispatch remains complete in CAPTURE
+
+1. Katie opens the Waiting Room and chooses **Write private dispatch**.
+2. The cockpit identifies the destination as private Creator OS CAPTURE before
+   she writes.
+3. She records: “The cameo matters because Yuan Zhong is still searching; the
+   universe is inviting the audience to keep waiting.”
+4. Saving produces one private Capture receipt linked to the Waiting Room
+   Series and the source-projection version she saw.
+5. The record appears under Recent records as a private dispatch. No CREATE
+   artifact, task, platform slot, or PLAN placement is created.
+6. Katie closes the cockpit.
+
+**Pass:** returning later shows the dispatch as a complete private observation
+with no overdue or unmade-content state. **Make from this** remains an optional
+contextual action.
+
+### Manual walkthrough 2 — CAPTURE invokes a Fandom-owned evidence filing
+
+1. Katie chooses **Add canon or universe evidence**.
+2. The cockpit states that the resulting record belongs to Fandom and opens the
+   bounded evidence contribution flow.
+3. Katie identifies the *Fate Chooses You* appearance, Yuan Zhong, the scene
+   anchor, provenance, spoiler level, and the narrow claim that the shared
+   universe invokes the unfinished search.
+4. Fandom validates the source and returns an evidence acceptance receipt.
+5. The cockpit refreshes the evidence trail and public-safe summary from the
+   returned projection.
+6. It does not create a generic Capture or change the Waiting Room's official
+   public state.
+
+**Pass:** the evidence is visible in context while its owner, claim-strength
+limit, spoiler boundary, and correction path remain Fandom-controlled.
+
+### Manual walkthrough 3 — A selected passage becomes website work
+
+1. From the private dispatch, Katie selects only the passage about the cameo
+   extending the unfinished search.
+2. She chooses **Make from this → Website expansion**.
+3. The cockpit previews the selected excerpt, source version, restrictions, and
+   target artifact class before commitment.
+4. Confirming creates a Website Expansion proposal in CREATE plus a Creative
+   Commitment Receipt.
+5. The original dispatch remains private and unchanged in CAPTURE.
+6. CREATE may develop the argument and submit a Domain Contribution, but Fandom
+   separately accepts, versions, and publishes any website change.
+
+**Pass:** a non-post artifact crosses into CREATE through additive lineage
+without moving the source or granting CREATE authority over the live site.
+
+### Manual walkthrough 4 — Direct Rednote creation reaches verified outcome
+
+1. Katie chooses **Create → Rednote post** from the Waiting Room context without
+   first creating a ceremonial Capture.
+2. CREATE starts an expression linked to the Series and only the context Katie
+   selects. It develops copy, media, and a rendition family.
+3. When the committed Post reaches `Ready for scheduling`, Katie explicitly
+   promotes/schedules it. The handoff writes `ScheduledDate`, produces Schedule
+   Admission, and makes the dated Draft visible in PLAN.
+4. PLAN binds one exact `ready` immutable export while the Post remains
+   `Draft`, validates packet requirements, and advances it to `Ready` only when
+   blockers are clear and `Publish packet ready` is true.
+5. Katie chooses either manual handling or automation consent. PLAN emits the
+   appropriate execution request or manual attestation; neither is presented
+   as publication.
+6. CONNECT receives the attempt or attestation, verifies the native post, and
+   records native identity, actual `publishedAt`, URL when available, and
+   reconciliation evidence.
+7. If the native result is unknown, duplicated, unavailable, or mismatched,
+   CONNECT preserves the attempt history and requests reconciliation instead of
+   inventing success or retrying blindly.
+
+**Pass:** direct-to-CREATE work needs no Capture, every readiness gate remains
+distinct, and only CONNECT may declare the external publication verified.
+
+### Manual walkthrough 5 — CONNECT learning returns non-destructively
+
+1. CONNECT observes repeated comments asking whether Season 2 is real.
+2. The cockpit presents the bounded comments as audience signals with source,
+   capture time, quotation status, and interpretation limits.
+3. Katie chooses one explicit return path:
+   - **Preserve as audience question** creates a private Capture;
+   - **Make FAQ response** starts a definite CREATE artifact;
+   - **Add to open question** creates a typed Series relationship;
+   - **Propose as Series learning** creates a Learning Proposal for review.
+4. No option rewrites the Series thesis, evidence trail, or public state.
+5. If the source comment is edited, removed, or no longer quotable, CONNECT
+   appends that state and recomputes affected aggregates without erasing the
+   original observation.
+6. If a publication or source claim requires correction, the owning system
+   appends the correction or retraction, marks dependent projections stale, and
+   leaves prior receipts and expression history inspectable.
+
+**Pass:** response can return to CAPTURE, CREATE, or Series review while source
+history, interpretation limits, and correction lineage remain intact.
+
+### Walkthrough findings
+
+The paper walkthrough exposes six recurring points of friction:
+
+1. **Destination ambiguity:** a shared CAPTURE surface needs the owner and
+   resulting record type stated before mutation, not after save.
+2. **Action ambiguity:** generic verbs such as “promote” and “add to Series”
+   conceal materially different contracts.
+3. **Selection ambiguity:** crossing into CREATE needs a visible excerpt/context
+   chooser so a whole private record is never transferred by convenience.
+4. **Readiness density:** CREATE eligibility, PLAN admission, exact rendition
+   selection, packet readiness, next action, and automation consent require a
+   readable progression rather than several unrelated “Ready” labels.
+5. **Return-path ambiguity:** CONNECT findings need explicit choices among
+   Capture, artifact creation, typed Series relationship, and Learning Proposal.
+6. **Correction visibility:** the cockpit needs a compact way to show current,
+   stale, corrected, unavailable, and superseded projections without hiding
+   their history.
+
+No walkthrough requires a new canonical cockpit record, a shared database, a
+fifth module, or automatic conversion of Captures into Posts.
+
+### Smallest justified implementation
+
+The smallest implementation justified by the walkthrough is a read-oriented
+Series home with bounded actions:
+
+1. A persistent Waiting Room identity header composed from Creator OS Series
+   context and safe Fandom projections.
+2. A CAPTURE launcher that names each instrument's result and owner before
+   opening an embedded form, invoking a domain command, or opening a specialist
+   view.
+3. A heterogeneous recent-record list with type, owner, privacy, provenance,
+   correction state, and precise contextual actions.
+4. One compact summary each for CREATE, PLAN, and CONNECT using their confirmed
+   operational meanings.
+5. An explicit selected-context preview for **Make from this** and explicit
+   return-path choices for CONNECT findings.
+
+The first implementation should reuse existing owner records, projections,
+commands, and deep links. It should not introduce a cockpit table, migrate
+Fandom evidence, duplicate the Journal, generalize every CAPTURE instrument,
+or build all downstream workbenches inside the Series home.
+
+Reusable CAPTURE components should be extracted only after this Waiting Room
+slice demonstrates that the same destination disclosure, typed result, selected
+context, and receipt treatment recur in another Lens or Series.
+
 ## Unresolved-decisions register
 
 | Decision | Why unresolved | Evidence needed | Decision point |
@@ -2774,10 +3088,17 @@ All six cases have passed. Proceed in this order:
    Creator OS lifecycle surfaces, not a separate workspace.**
 2. ~~Map every current Fandom operator control to its future surface.~~
    **Complete: capability-placement and Release Desk decomposition above.**
-3. Draw a paper cockpit using real records.
-4. Operate several representative outputs manually through that cockpit.
-5. Identify repeated friction.
-6. Evaluate the smallest implementation justified by that friction.
+3. ~~Draw a paper cockpit using real records.~~ **Complete: Paper Cockpit #1
+   defines the capture-first Waiting Room Series home.**
+4. ~~Operate several representative outputs manually through that cockpit.~~
+   **Complete: five walkthroughs test terminal Capture, domain filing, website
+   work, direct Rednote creation, and non-destructive learning.**
+5. ~~Identify repeated friction.~~ **Complete: six recurring ambiguities are
+   recorded above.**
+6. ~~Evaluate the smallest implementation justified by that friction.~~
+   **Complete: a read-oriented Series home with bounded actions is the smallest
+   justified slice.**
 
-Until the paper-cockpit evaluation is complete: no UI, schema, or migration
-work.
+The paper-cockpit evaluation is complete. Production UI, schema, migration, and
+projection-transport design remain separate implementation decisions; this
+artifact does not authorize them.
