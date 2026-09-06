@@ -99,7 +99,7 @@ export interface GridProposal {
 function fromSavedCard(card: CardRecord): BuilderCard {
   return {
     key: card.imageUrl,
-    imageUrl: card.thumbnailUrl || card.imageUrl,
+    imageUrl: card.media?.thumbnailUrl || card.thumbnailUrl || card.imageUrl,
     sourceUrl: card.sourceUrl || card.imageUrl,
     title: `${card.actor} · ${card.vibe}`,
     actor: card.actor,
@@ -152,7 +152,7 @@ function fromGridImage(grid: GridRecord, image: GridMediaSnapshot): BuilderCard 
     : undefined;
   return {
     key: image.imageUrl,
-    imageUrl: image.imageUrl,
+    imageUrl: image.media?.thumbnailUrl || image.imageUrl,
     sourceUrl: image.sourceUrl,
     title: image.title,
     ...(image.publisher ? { publisher: image.publisher } : {}),
@@ -221,44 +221,36 @@ function reconcileIdentity(card: BuilderCard): BuilderCard {
 }
 
 /**
- * Build the deduplicated builder pool from saved cards + saved-grid images,
+ * Build the builder pool from saved cards + saved-grid images,
  * and assign a crude visual family to every card:
  * editorialDetection sets where possible, batch/spell key otherwise.
  */
 export function buildPool(cards: CardRecord[], grids: GridRecord[]): BuilderCard[] {
-  const unique: BuilderCard[] = [];
-  const identityToIndex = new Map<string, number>();
+  const byKey = new Map<string, BuilderCard>();
   const admit = (built: BuilderCard) => {
-    const identities = visualIdentityKeys(built);
-    const existingIndex = identities
-      .map(identity => identityToIndex.get(identity))
-      .find((index): index is number => index !== undefined);
-    if (existingIndex === undefined) {
-      const index = unique.length;
-      unique.push(built);
-      identities.forEach(identity => identityToIndex.set(identity, index));
+    const existing = byKey.get(built.key);
+    if (!existing) {
+      byKey.set(built.key, built);
       return;
     }
-    const existing = unique[existingIndex];
     // Same image, two records: if the discarded duplicate carries spell
     // identity evidence and the kept one doesn't, adopt its identity so
     // dedupe order can never launder a drifted actor label.
     if (!actorEvidenceFromSpell(existing.batchKey) && actorEvidenceFromSpell(built.batchKey)) {
-      unique[existingIndex] = {
+      byKey.set(built.key, {
         ...existing,
         actor: built.actor,
         actorEn: built.actorEn,
         actorId: built.actorId,
         ...(built.batchKey ? { batchKey: built.batchKey } : {}),
-      };
+      });
     }
-    identities.forEach(identity => identityToIndex.set(identity, existingIndex));
   };
   for (const card of cards) admit(reconcileIdentity(fromSavedCard(card)));
   for (const grid of grids) {
     for (const image of grid.images) admit(reconcileIdentity(fromGridImage(grid, image)));
   }
-  const pool = unique;
+  const pool = [...byKey.values()];
 
   // Editorial detection over items that carry publisher/title signal.
   const detectable: GridItemData[] = pool.map(card => ({
