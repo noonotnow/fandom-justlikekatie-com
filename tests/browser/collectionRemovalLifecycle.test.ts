@@ -249,6 +249,36 @@ test('Collection shows local records when account sync fails', { timeout: 60_000
   }
 });
 
+test('Grid Builder keeps romanized Vibe Atlas results in its source pool', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+
+  try {
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        user: { accountId: ACCOUNT_ID, email: 'cleanup@example.test', isAdmin: false },
+      }),
+    }));
+    await page.route('**/api/membership/status', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ state: 'active', isMember: true }),
+    }));
+
+    await page.goto(origin);
+    await seedCollection(page);
+    await page.goto(`${origin}/vibe-atlas?view=collection`);
+    await page.getByRole('button', { name: 'Grid Builder', exact: true }).click();
+    await page.getByText('2 of 2 cards in lens').waitFor();
+    await page.getByRole('button', { name: /Card cleanup actor 1/ }).waitFor();
+    await page.getByRole('button', { name: /Grid cleanup actor 1/ }).waitFor();
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
 test('Collection result Misprints teach the curator before preserving the collectible receipt', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();

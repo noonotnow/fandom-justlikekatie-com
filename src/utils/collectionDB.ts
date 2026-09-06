@@ -616,6 +616,30 @@ export interface CollectionSyncRequest {
   operations: Array<Record<string, unknown>>;
 }
 
+export const MAX_COLLECTION_SYNC_REQUEST_BYTES = 224 * 1024;
+
+export function batchCollectionSyncOperations(
+  request: Omit<CollectionSyncRequest, 'operations'>,
+  operations: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const batch: Array<Record<string, unknown>> = [];
+  for (const operation of operations.slice(0, 100)) {
+    const candidate = [...batch, operation];
+    const bytes = new TextEncoder().encode(JSON.stringify({
+      ...request,
+      operations: candidate,
+    })).byteLength;
+    if (bytes > MAX_COLLECTION_SYNC_REQUEST_BYTES) {
+      if (batch.length === 0) {
+        throw new Error('One saved item is too large to sync. Remove its embedded media and try again.');
+      }
+      break;
+    }
+    batch.push(operation);
+  }
+  return batch;
+}
+
 export async function dbGetSyncState(): Promise<CollectionSyncState> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -648,12 +672,18 @@ export async function dbBuildSyncRequest(accountId: string): Promise<CollectionS
   ]);
   const cards = await ensureLocalIds(loadedCards);
   const grids = await ensureGridLocalIds(loadedGrids);
-  return {
+  const request = {
     schemaVersion: 1,
     clientId: state.clientId,
     expectedAccountId: accountId,
     cursor: state.cursors[accountId] || 0,
-    operations: buildSyncOperations(cards, state, accountId, grids).slice(0, 100),
+  } satisfies Omit<CollectionSyncRequest, 'operations'>;
+  return {
+    ...request,
+    operations: batchCollectionSyncOperations(
+      request,
+      buildSyncOperations(cards, state, accountId, grids),
+    ),
   };
 }
 

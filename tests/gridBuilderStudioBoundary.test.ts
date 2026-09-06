@@ -3,14 +3,13 @@ import assert from 'node:assert/strict';
 import {
   buildVibeAtlasPool,
   gridRecordFromProposal,
-  isVibeAtlasActorIdentity,
   proposeGrid,
 } from '../src/utils/gridBuilder';
 import { markGridAsLegendaryMisprint, type CardRecord, type GridRecord } from '../src/utils/collectionDB';
 import { starDataFromCollectionGrid } from '../src/utils/collectionHistoryModel';
 import { classifyEditionTier } from '../src/utils/exportCanvas';
 
-function card(actor: string, id: string): CardRecord {
+function card(actor: string, id: string, collectionScope: CardRecord['collectionScope'] = 'vibe-atlas'): CardRecord {
   return {
     imageUrl: `https://images.example/${id}.jpg`,
     thumbnailUrl: `https://images.example/${id}-thumb.jpg`,
@@ -21,10 +20,11 @@ function card(actor: string, id: string): CardRecord {
     vibeEmoji: '✨',
     capturedDate: '2026-08-28',
     resultId: id,
+    collectionScope,
   };
 }
 
-function grid(actor: string, id: string): GridRecord {
+function grid(actor: string, id: string, sourceRoute = '/collection'): GridRecord {
   return {
     kind: 'grid',
     schemaVersion: 1,
@@ -44,7 +44,7 @@ function grid(actor: string, id: string): GridRecord {
     capturedDate: '2026-08-28',
     generatedAt: '2026-08-28T00:00:00.000Z',
     savedAt: '2026-08-28T00:00:00.000Z',
-    sourceRoute: '/',
+    sourceRoute,
     images: [{
       resultId: `${id}-image`,
       imageUrl: `https://images.example/${id}.jpg`,
@@ -55,23 +55,21 @@ function grid(actor: string, id: string): GridRecord {
   };
 }
 
-test('Vibe Atlas actor admission accepts C-drama identities and rejects fantasy labels', () => {
-  assert.equal(isVibeAtlasActorIdentity('刘学义'), true);
-  assert.equal(isVibeAtlasActorIdentity('张凌赫'), true);
-  assert.equal(isVibeAtlasActorIdentity('Middle-earth'), false);
-  assert.equal(isVibeAtlasActorIdentity('Gandalf'), false);
-  assert.equal(isVibeAtlasActorIdentity('Frodo'), false);
-  assert.equal(isVibeAtlasActorIdentity('The Fellowship'), false);
-});
-
-test('Vibe Atlas builder excludes Middle-earth cards and grids at the final pool boundary', () => {
+test('Vibe Atlas builder uses collection scope instead of actor-script heuristics', () => {
   const pool = buildVibeAtlasPool(
-    [card('刘学义', 'cdrama-card'), card('Gandalf', 'gandalf-card')],
-    [grid('张凌赫', 'cdrama-grid'), grid('Frodo', 'frodo-grid')],
+    [
+      card('Liu Xueyi', 'romanized-cdrama-card'),
+      card('刘学义', 'cdrama-card'),
+      card('Gandalf', 'gandalf-card', 'middle-earth'),
+    ],
+    [
+      grid('Zhang Linghe', 'romanized-cdrama-grid'),
+      grid('Frodo', 'frodo-grid', '/memeforge/middle-earth'),
+    ],
   );
   assert.deepEqual(
     [...new Set(pool.map(item => item.actor))].sort(),
-    ['刘学义', '张凌赫'],
+    ['Liu Xueyi', 'Zhang Linghe', '刘学义'],
   );
   assert.equal(pool.some(item => /Gandalf|Frodo|Middle-earth|Fellowship/.test(item.actor)), false);
 });

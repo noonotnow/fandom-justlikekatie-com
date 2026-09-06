@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   activateSyncState,
+  batchCollectionSyncOperations,
   buildSyncOperations,
   collectionScopeForCard,
   createMisprint,
@@ -124,6 +125,45 @@ test('large collections advance beyond the first 100 acknowledged upserts', () =
   const second = buildSyncOperations(cards, syncState, 'account-a');
   assert.equal(second.length, 51);
   assert.equal(second[0].localId, 'local-99');
+});
+
+test('sync request batches stay below the API body limit without dropping operations', () => {
+  const request = {
+    schemaVersion: 1 as const,
+    clientId: 'device-1',
+    expectedAccountId: 'account-a',
+    cursor: 0,
+  };
+  const operations = Array.from({ length: 4 }, (_, index) => ({
+    type: 'upsert',
+    mutationId: `large-${index}`,
+    localId: `large-${index}`,
+    item: { title: 'x'.repeat(80 * 1024) },
+  }));
+  const batch = batchCollectionSyncOperations(request, operations);
+  const bytes = new TextEncoder().encode(JSON.stringify({ ...request, operations: batch })).byteLength;
+
+  assert.equal(batch.length, 2);
+  assert.ok(bytes <= 224 * 1024);
+  assert.deepEqual(batch.map(operation => operation.mutationId), ['large-0', 'large-1']);
+});
+
+test('sync request batching reports a single unsyncable item clearly', () => {
+  const request = {
+    schemaVersion: 1 as const,
+    clientId: 'device-1',
+    expectedAccountId: 'account-a',
+    cursor: 0,
+  };
+  assert.throws(
+    () => batchCollectionSyncOperations(request, [{
+      type: 'upsert',
+      mutationId: 'oversized',
+      localId: 'oversized',
+      item: { title: 'x'.repeat(230 * 1024) },
+    }]),
+    /One saved item is too large to sync/,
+  );
 });
 
 test('saved grids sync as first-class artifacts without flattening their source results', () => {
