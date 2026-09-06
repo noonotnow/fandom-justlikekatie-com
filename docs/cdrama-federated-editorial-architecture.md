@@ -2,8 +2,8 @@
 
 **Status:** Constitution frozen; all six cases evaluated; Creator OS Lens
 placement and capability map decided on 2026-09-06
-**Scope:** Fandom Vibes, the CDRAMA Lens, CREATE, PLAN, EXECUTE, CONNECT,
-domain operations, and diagnostics
+**Scope:** Fandom Vibes, the CDRAMA Lens, CAPTURE, CREATE, PLAN, CONNECT,
+EXECUTE/PUBLISH contract boundaries, domain operations, and diagnostics
 **Implementation status:** Planning contract only. This document does not
 authorize UI, schema, or migration work.
 
@@ -17,8 +17,9 @@ defines the gate before interface work begins.
 The system is federated because a useful workspace may display records from
 several products without absorbing their authority. Fandom retains records whose
 meaning depends on fandom-specific rules. Creator OS develops communicative
-expressions. PLAN decides placement and authorization. EXECUTE attempts native
-publication. CONNECT verifies outcomes and returns non-destructive learning.
+expressions. PLAN decides placement and authorization. EXECUTE and PUBLISH
+describe authority handoffs for discrete attempts and public artifacts. CONNECT
+receives those outcomes, verifies them, and returns non-destructive learning.
 
 ## The 14 locked decisions
 
@@ -30,8 +31,9 @@ publication. CONNECT verifies outcomes and returns non-destructive learning.
    state remain governed by Fandom rules.
 3. **Visibility does not grant mutation authority.** A cockpit may display a
    Fandom record without permission to alter it.
-4. **Capture precedes classification.** Creator OS uses Capture as the broad
-   private intake primitive; classification may happen later.
+4. **Capture precedes classification.** The active Lens organizes domain
+   material before any deliverable commitment. Some records remain complete in
+   CAPTURE or their domain protocol forever; only selected material is promoted.
 5. **Promotion is additive.** Turning a Capture or selected domain passage into
    an Idea creates a linked derivative. It does not move, rewrite, or delete the
    source.
@@ -48,13 +50,14 @@ publication. CONNECT verifies outcomes and returns non-destructive learning.
    Contributions, and Domain State Changes are not interchangeable and need not
    share one table.
 10. **Lifecycle authority changes by stage.** CREATE owns creative composition;
-    PLAN owns priority, placement, schedule, and authorization; EXECUTE owns the
-    native attempt; CONNECT owns verification, reconciliation, and measurement.
+    PLAN owns priority, placement, schedule, and authorization; EXECUTE/PUBLISH
+    receipts mark the handoff; CONNECT owns verification, reconciliation,
+    public-outcome projection, and measurement.
 11. **Planning intent is not publication truth.** Scheduling never invents a
     native ID, URL, timestamp, metric, or published state.
 12. **Domain-native and external publication are separate branches.** Fandom may
     publish its own authoritative projection; optional social derivatives travel
-    through CREATE → PLAN → EXECUTE → CONNECT.
+    through CREATE → PLAN → an EXECUTE/PUBLISH boundary → CONNECT.
 13. **Evidence, current state, and cache are separate.** Immutable audience and
     curator evidence derives a replaceable curation projection; caches serve that
     projection and never become historical truth.
@@ -66,62 +69,66 @@ publication. CONNECT verifies outcomes and returns non-destructive learning.
 ## Product and authority map
 
 ```text
-DOMAIN PRODUCTS
-Preserve records whose meaning depends on domain rules
-        │ narrow authorized projection or explicit promotion
-        ▼
-CREATE
-Capture → Organize → Develop → Compose
-        │ expression ready for placement
-        ▼
+ACTIVE LENS
+Selects relevant context, tools, projections, and actions
+├──► CAPTURE
+│    Preserve or file material without requiring a future artifact
+│    ├──► owner-native record may be complete here
+│    └──► selected material needing shape ─────────┐
+└──► direct post-shaped intent ───────────────────┤
+                                                  ▼
+                                                CREATE
+                                      Develop → Shape → Compose
+                                                  │ expression ready
+                                                  ▼
 PLAN
 Select → Prioritize → Sequence → Schedule → Authorize
-        │ execution request
+        │ authorized execution request
         ▼
-EXECUTE
-Human or integration performs the native platform action
-        │ attempt receipt or exception
+[EXECUTE / PUBLISH contract boundary]
+A discrete attempt, result, or rendered public artifact crosses authority
+        │ receipt, exception, or native-result evidence
         ▼
 CONNECT
-Verify → Reconcile → Measure → Learn → Recommend
+Verify → Reconcile → Project public truth → Measure → Learn → Recommend
         │
-        └──► new Capture, Series learning, or reviewed recommendation
+        └──► new Capture, CREATE input, or reviewed Series learning
 ```
 
 Handoffs change authority over lifecycle fields, not object identity. References
 do not create copies. Analytics may recommend but may not silently mutate
 creative or editorial truth.
 
+This is an authority path, not a mandatory funnel. Domain filings may end with
+their canonical owner, Captures may remain Captures forever, and an inherently
+post-shaped intent may begin directly in CREATE without manufacturing an
+upstream Capture.
+
 ## CDRAMA Lens product map
 
 ```text
 CDRAMA Lens
-├── Sources
-│   ├── Dramas
-│   ├── Actors and characters
-│   ├── Episodes and scenes
-│   ├── Canon evidence
-│   ├── Media and references
-│   └── Audience signals
-├── Series
-│   ├── Nian Wushuang Waiting Room
-│   └── The Untamed First Watch
-├── Kits / Treatments
-│   ├── First-Watch Protocol
-│   ├── Waiting Room
-│   ├── C-drama Guide
-│   ├── Xianxia Worldbuilding
-│   ├── Game / Quiz
-│   └── Article / Essay
-├── Domain-native outputs
-└── Contextual CREATE capability
+├── CAPTURE
+│   └── CDRAMA-organized sources, reactions, journals, evidence, and signals;
+│       many records end their lifecycle here
+├── CREATE
+│   └── Ideas, Series, Kits/Treatments, contributions, and expressions
+├── PLAN
+│   └── Priorities, release conditions, external placement, and authorization
+└── CONNECT
+    └── Publication truth, reconciliation, metrics, audience evidence,
+        learning, and recommendations
 ```
 
-- A **Lens** gathers authorized domain context.
+- A **Lens** organizes context and selects the modules, engines, projections,
+  and actions visible in each Creator OS lifecycle surface.
+- **CAPTURE** accepts and routes domain material without implying that it will
+  become a creative artifact.
 - A **Kit or Treatment** supplies rules and creative grammar.
 - A **Series** supplies continuity.
 - **Source material** supplies evidence and inspiration.
-- **CREATE** composes expressions without taking domain ownership.
+- **CREATE** begins only after explicit promotion into a shaped creative object.
+- **EXECUTE and PUBLISH** are handoff/action boundaries, not surfaces.
 
 The Lens is physically hosted by Creator OS. Fandom and other domain products
 remain authoritative through narrow projections, explicit commands, and linked
@@ -164,8 +171,9 @@ Replaceable caches and indexes
         ▼
 Release Candidate Queue
         ├── Fandom-native production → Fandom publication ledger
-        └── external composition → CREATE → PLAN → EXECUTE → CONNECT
-                                      └── external publication ledger
+        └── external composition → CREATE → PLAN
+                                   → [EXECUTE / PUBLISH boundary] → CONNECT
+                                                                   └── external publication ledger
 ```
 
 Evidence teaches the curator. Corrections update current state. The cache serves
@@ -186,7 +194,7 @@ curator that the failed identity or classification is valid.
 
 | Output | Examples | Authority path |
 | --- | --- | --- |
-| Platform Expression | Rednote post, Instagram carousel, Reel, Short, newsletter section | CREATE → PLAN → EXECUTE → CONNECT |
+| Platform Expression | Rednote post, Instagram carousel, Reel, Short, newsletter section | CREATE → PLAN → EXECUTE/PUBLISH boundary → CONNECT |
 | Domain Contribution | Canon evidence, FAQ expansion, timeline entry, public dispatch proposal | CREATE may propose; Fandom accepts or rejects |
 | Domain State Change | Evidence reveal, Waiting Room state, contribution approval | Fandom validates and authorizes |
 | Domain-native publication | First-Watch public snapshot, Daily Drop edition | Fandom production and publication contract |
@@ -195,18 +203,22 @@ Fandom-native publication may be calendar-triggered, boundary-triggered,
 event-triggered, manually authorized, or immediate. External platform placement
 belongs to PLAN regardless of the domain trigger.
 
-## Shared expression lifecycle
+## Shared expression lifecycle and handoff boundaries
 
-| Authority | Fields governed |
+| Module or boundary | Fields governed or represented |
 | --- | --- |
+| CAPTURE | Lens-organized domain intake; records may remain complete here or with their domain owner |
 | CREATE | Concept, copy, media, format, creative lineage, creative readiness |
 | PLAN | Priority, platform placement, schedule, authorization |
-| EXECUTE | Attempt, native response, native identifier, execution time |
-| CONNECT | Verified publication state, canonical receipt, metrics, reconciliation |
+| EXECUTE boundary | Attempt, native response, execution time, retry/idempotency history |
+| PUBLISH boundary | Platform-specific rendered artifact, available native identity, and claimed public outcome |
+| CONNECT | Verified publication projection, canonical receipt, metrics, reconciliation |
 | CREATE / Series | Human-reviewed interpretation and next creative decision |
 
-One concrete social expression remains one record while field authority changes.
-The system must not duplicate it at each handoff.
+One concrete social expression retains one lineage while format, media,
+platform, and public state change. Boundary artifacts represent discrete actions
+or events; they do not become lifecycle modules or duplicate the underlying
+Idea.
 
 ## Contract-matrix template
 
@@ -1531,7 +1543,7 @@ published it, or whether a later verification reconciled the result.
 | Downstream effect | Only the affected derivative is blocked. Fandom edition and other channel expressions remain valid |
 | Correction/reversal path | Reconcile late success, retry as a linked attempt, reschedule, or abandon. Do not roll back Fandom publication |
 | Current surface | Rednote path exposes pending/reconciled/unavailable; other channels rely on manual receipts |
-| Future surface | EXECUTE/CONNECT exception queue |
+| Future surface | CONNECT exception queue rendering EXECUTE receipts |
 
 ### C5.9 — Correct or supersede an edition with derivatives
 
@@ -1548,7 +1560,7 @@ published it, or whether a later verification reconciled the result.
 | Downstream effect | No corrected source silently leaves stale derivatives scheduled or presented as current |
 | Correction/reversal path | Reevaluate after correction retraction; do not automatically restore invalidated approval or external placement |
 | Current surface | Publication correction exists in Fandom; cross-system propagation is not implemented |
-| Future surface | Published Edition impact review spanning Fandom, CREATE, PLAN, EXECUTE, and CONNECT |
+| Future surface | Published Edition impact review spanning Fandom, CREATE, PLAN, EXECUTE/PUBLISH receipts, and CONNECT |
 
 ### C5.10 — Publish no derivative
 
@@ -1879,7 +1891,7 @@ be recovered.
 | Downstream effect | May inspire a new Idea, revise a future treatment, or inform Series strategy |
 | Correction/reversal path | Supersede or reject the recommendation; never retroactively rewrite the published expression or silently mutate Series |
 | Current surface | No end-to-end durable learning handoff is implemented |
-| Future surface | CONNECT Signals → CREATE Capture / Series review |
+| Future surface | CONNECT Signals → CAPTURE / explicit Series review |
 
 Analytics may advise editorial judgment. They cannot become an invisible
 optimization process that edits canonical copy, reclassifies the Series, or
@@ -2006,7 +2018,8 @@ authorize schema, UI, or migration work.
 ### Required for the federated CDRAMA cockpit
 
 1. **Minimal typed projections.** Define explicit read projections and mutation
-   commands between Fandom, CREATE, PLAN, EXECUTE, and CONNECT.
+   commands between Fandom, CREATE, PLAN, the EXECUTE/PUBLISH boundaries, and
+   CONNECT.
 2. **Canonical edition publication package.** Hand an immutable Fandom edition
    into CREATE with versioning, restrictions, lineage, and correction state.
 3. **First-class Platform Expression identity.** Bind source, platform, format,
@@ -2084,11 +2097,24 @@ paper cockpit be drawn.
 ### Placement decision
 
 **Decision: the CDRAMA Lens is a selectable Creator OS view across the existing
-CAPTURE, CREATE, PLAN, CONNECT, and Publications surfaces.**
+CAPTURE, CREATE, PLAN, and CONNECT surfaces.**
 
 It changes which CDRAMA modules, engines, records, and contextual actions are
 visible. It is not a separate workspace, tab hierarchy, or persistence owner.
 Creator OS renders the Lens; each displayed capability keeps its own authority.
+
+Lens selection enriches and filters the four existing modules; it does not
+replace them or become a prerequisite for using them:
+
+- With no domain Lens selected, Katie can enter CREATE directly to make an
+  ordinary post—about her dogs, for example—without seeing CDRAMA, LOTR, or
+  unrelated domain machinery.
+- With the CDRAMA Lens selected, relevant CDRAMA sources, Series, domain
+  projections, tools, and actions appear in CAPTURE, CREATE, PLAN, and CONNECT.
+- Switching Lens context changes what is relevant and available, not the
+  canonical owner of any record.
+- A direct-to-CREATE artifact does not need a synthetic Capture merely to
+  satisfy a diagram.
 
 It is not:
 
@@ -2104,13 +2130,11 @@ Creator OS is the correct rendering host because the Lens's continuous spine
 is cross-domain editorial work:
 
 ```text
-Sources
-→ Capture
-→ Series
-→ Editorial Ideas
-→ CREATE expressions
+Sources + Series + authorized domain context
+→ CAPTURE
+→ CREATE shaped artifacts and expressions
 → external PLAN
-→ EXECUTE
+→ [EXECUTE / PUBLISH contract boundary]
 → CONNECT learning
 ```
 
@@ -2141,27 +2165,29 @@ domain**. In particular, the Nian Wushuang Waiting Room may appear as a
 contextual CDRAMA Lens view while Fandom retains public Waiting Room state,
 clock-ins, canon evidence, moderation, and publication rules.
 
-### Four ways a capability appears in the Lens
+### Five ways a capability appears in the Lens
 
-| Placement mode | Meaning | Mutation rule |
-| --- | --- | --- |
-| **Native module** | Creator OS owns the record and workflow | Lens may create and mutate it under Creator OS rules |
-| **Authorized projection** | Another domain owns the record; Lens receives a minimal read model | Lens cannot mutate the source |
-| **Domain command** | Lens invokes an explicit action on the owning system | Owner validates authority, concurrency, privacy, and idempotency and returns a receipt |
-| **Linked specialist surface** | The work needs full domain context or elevated/system authority | Lens deep-links or opens the owner; it does not imitate the tool |
+| Presentation mode | Authority placement | Meaning | Mutation rule |
+| --- | --- | --- | --- |
+| **Embedded** | Native module or explicitly embeddable owner capability | The workbench or contextual control renders inside the lifecycle surface where the work occurs | Mutation follows the canonical owner's rules; visual embedding grants no authority |
+| **Projection** | Authorized projection | The Lens receives a minimal read model from another owner | Lens cannot mutate the source |
+| **Invoke** | Domain command | Lens invokes an explicit action on the owning system | Owner validates authority, concurrency, privacy, and idempotency and returns a receipt |
+| **Open specialized view** | Linked specialist surface | The work needs full domain context or elevated editorial authority | Lens opens the owner; it does not imitate or partially reimplement the tool |
+| **Diagnostic only** | Diagnostics/system control | The capability exists to inspect or repair technical machinery | It stays outside normal editorial lifecycle surfaces; only safe health status may project |
 
-An embedded panel does not change these modes. A Fandom-owned command rendered
-inside Creator OS remains a Fandom command.
+These are presentation choices, not new authority types. A Fandom-owned command
+embedded inside Creator OS remains a Fandom command; a native Creator OS module
+may also use the Embedded presentation mode.
 
 ### Capability-placement map
 
 | Capability / surface | Current surface or engine | Canonical owner | Lens placement | Future disposition |
 | --- | --- | --- | --- | --- |
 | CDRAMA Sources | Research notes, source URLs, evidence currently distributed across tools | Creator OS for general sources; domain owner for domain evidence | Native module plus authorized domain projections | One source explorer with typed links to domain evidence; no evidence copying by default |
-| General Capture | Ad hoc drafts and tool-specific intake | Creator OS | Native module | Private Capture Inbox; classify or promote later |
+| General Capture | Ad hoc drafts and tool-specific intake | Creator OS CAPTURE | Native module | Organize unshaped material by CDRAMA meaning—drama, actor, character, episode, scene, source, Series, journal, evidence, or audience signal—then optionally promote |
 | First-Watch capture | `WatchJournalCapture`, watch-journal API | Fandom First-Watch | Projection + domain command + specialist link | Show safe boundary/selected entries; file, resolve, seal, moderate, and publish through Fandom contracts |
 | Waiting Room cockpit | Future composed Nian Wushuang Lens view | Creator OS renders; no transfer of domain authority | Contextual Lens view | Assemble Fandom state/evidence with CREATE dispatches, Ideas, expressions, PLAN, and CONNECT |
-| Waiting Room private dispatch | Creative observation related to the Series | Creator OS CREATE | Native module | Editable Capture that may promote additively to an Idea or expression |
+| Waiting Room private dispatch | Creative observation related to the Series | Creator OS CAPTURE | Native module | Editable Capture that may remain private or promote additively to an Idea or expression |
 | Waiting Room public state, canon evidence, clock-ins, and contributions | Constitutional design; future Fandom domain records | Fandom Waiting Room | Projection + domain command | Show safe state/aggregate; route evidence, clock-in, moderation, and contribution actions to Fandom |
 | Series continuity | Conceptual Creator OS Series | Creator OS | Native module | Holds recurring thesis, continuity, audience questions, treatments, and linked expressions |
 | Editorial Ideas | Conceptual additive derivatives | Creator OS | Native module | Promote selected Capture/domain passages with immutable lineage |
@@ -2182,15 +2208,15 @@ inside Creator OS remains a Fandom command.
 | Publication-package handoff | Current saved-grid → Workstation handoff is prior art | Fandom authorizes projection; Creator OS owns accepted draft | Domain command crossing boundary | New manifest-bound package creates/updates an expression and returns a receipt |
 | External placement | PLAN Posts DB and scheduling UI | Creator OS PLAN | Native module | PLAN references exact expression version and owns priority, schedule, and authorization |
 | Domain-native release conditions | Calendar/boundary/event/manual/immediate contracts | Owning domain | Projection + domain command | Not coerced into Posts DB or external PLAN |
-| Rednote operator execution | XHS integration and PLAN marker | EXECUTE/XHS | Native status/action in Lens, executed by integration | One authorization/attempt history shared by operator and automation |
-| Other platform execution | Manual receipts or future adapters | Each native platform through EXECUTE | Native status/action when adapter exists | Platform-specific contracts; no inherited Rednote guarantees |
+| Rednote operator execution | XHS integration and PLAN marker | EXECUTE/XHS | Contextual action/status embedded at the PLAN → CONNECT boundary | One authorization/attempt history shared by operator and automation |
+| Other platform execution | Manual receipts or future adapters | Each native platform through EXECUTE | Contextual action/status when an adapter exists | Platform-specific contracts; no inherited Rednote guarantees |
 | External publication ledger | Partial PLAN/XHS reconciliation and manual URLs | CONNECT | Native module | Verified account + native ID + published time + optional URL, linked to expression |
 | Metrics snapshots | Not implemented end to end | CONNECT | Native module | Append-only observations; missing/unavailable is not zero |
 | Audience Signals | Current Release Desk engagement summary mixes editorial evidence and quality | CONNECT | Native module | Editorially useful patterns, questions, saves, shares, and expression performance |
-| Data Health | Current engagement data-quality panel/export | Diagnostics | Linked specialist surface; small status projection | Instrumentation coverage, malformed records, cache/storage failures, and repair controls leave editorial CONNECT |
+| Data Health | Current engagement data-quality panel/export | Diagnostics | Diagnostic only; small status projection | Instrumentation coverage, malformed records, cache/storage failures, and repair controls leave editorial CONNECT |
 | Recommendations / learning | Not implemented end to end | CONNECT recommends; CREATE/Series accepts | Native module | Produce attributed recommendation or Capture; never mutate Series silently |
 | Court Rulings / domain policy | Operator Console Court Rulings | Fandom domain policy | Relevant projection + specialist link | Policy remains with the domain whose behavior it governs |
-| Cache rebuild and repair | `rebuild-cache`, sync/recovery utilities | Diagnostics/system control | Linked specialist surface | Never presented as editorial CREATE, PLAN, or CONNECT work |
+| Cache rebuild and repair | `rebuild-cache`, sync/recovery utilities | Diagnostics/system control | Diagnostic only | Never presented as editorial CAPTURE, CREATE, PLAN, or CONNECT work |
 | Authentication and secrets | Fandom admin/member auth, Creator OS auth, integration tokens | Each system | Session-aware boundary only | No shared credential store; commands use scoped service authorization |
 
 ### Modules visible when the CDRAMA Lens is selected
@@ -2203,8 +2229,7 @@ add an Operator tab or a Katie-only tab.
 | **CAPTURE** | Quick Capture; private Waiting Room dispatch; source/link capture; audience-question capture; “file in First Watch” Fandom command; “add Waiting Room evidence” Fandom command; Collection artifact picker; recent safe domain context |
 | **CREATE** | Series context; Editorial Ideas; CDRAMA Sources; Kits/Treatments; Workstation expression composer; media/source selector; Fandom publication-package intake; Domain Contribution drafting; expression version and provenance |
 | **PLAN** | External expression placements; platform/account choice; schedule intent; execution authorization; readiness and hold projections; domain-native release-condition projection; conflicts requiring action |
-| **CONNECT** | Attempt and reconciliation status; verified external publications; metrics snapshots; audience signals; correction/discrepancy review; learning proposals; “capture this finding” and “propose to Series” actions |
-| **Publications** | Fandom Public Editions; verified external publications; derivative lineage; current correction/supersession state; optional-channel coverage; source edition → expression → native post history |
+| **CONNECT** | Attempt and reconciliation status; Fandom Public Edition projections; verified external publications; derivative lineage; correction/supersession state; metrics snapshots; audience signals; learning proposals; “capture this finding” and “propose to Series” actions |
 
 Permission changes actions, not information architecture:
 
@@ -2225,8 +2250,8 @@ legible.
 | Intermediate | What it is | What it may become | What it may not claim |
 | --- | --- | --- | --- |
 | Raw source hit | Search/discovery evidence | Retained domain evidence or a selected source reference | Verified canon, approved candidate, or publishable asset |
-| Capture | Private unclassified observation | Journal entry, audience signal, Idea, source note, or nothing | Publication intent |
-| Journal entry | Protocol-bound domain record | Selected passage may promote to an Idea | Generic editable note |
+| Creator OS Capture record | Private freeform observation | Idea, source note, or nothing | Domain filing, publication intent, or an expectation of later promotion |
+| Journal entry | Protocol-bound domain record filed through the CAPTURE module | Selected passage may promote additively to an Idea or artifact | Generic editable note or automatic CREATE input |
 | Audience signal | Observation about questions/response | Capture, recommendation, or evidence for an Idea | Series truth or automatic strategy |
 | Editorial Idea | Creative proposition | One or more expressions or domain contributions | Platform publication |
 | Treatment / Kit | Reusable creative grammar | Applied expression version | Canonical source content |
@@ -2260,9 +2285,30 @@ remain owner-native records, views, commands, or specialist tools.
 
 #### Capture
 
-Capture becomes the private, cross-domain ingress in the Creator OS-hosted
-Lens. It accepts observations, questions, links, screenshots, audience signals,
-and fragments without requiring an output type.
+CAPTURE is the Lens-organized intake module for material that matters in a
+domain without implying a future deliverable. Under CDRAMA it can organize
+observations, questions, links, screenshots, reactions, canon clues, audience
+signals, and fragments by drama, actor, character, episode, scene, Series,
+journal, evidence type, or source.
+
+It is not a universal unsorted Creator OS inbox, and it does not require a
+platform, format, or publication commitment.
+
+CAPTURE is also not one canonical record type. It routes each action to the
+record and owner whose rules give that action meaning:
+
+```text
+CAPTURE module
+├── private freeform observation → Creator OS Capture
+├── episode-bound first-watch entry → Fandom First-Watch Journal
+├── sealed veteran evidence → Fandom evidence record
+├── Waiting Room canon contribution → Fandom Waiting Room workflow
+└── source or audience signal → its authorized source/evidence owner
+```
+
+Filing a First-Watch entry through CAPTURE therefore does not create a generic
+Creator OS Capture first, and it does not place the entry in a queue for CREATE.
+The journal entry is already a complete, protocol-bound record.
 
 Domain protocols remain domain-owned:
 
@@ -2276,6 +2322,32 @@ Domain protocols remain domain-owned:
 
 The Lens may offer these actions together because context is shared. It may not
 store them as one undifferentiated Journal.
+
+CAPTURE → CREATE is optional and explicit. It occurs only when Katie commits
+selected material to a definite made thing that now needs editorial or
+production work:
+
+```text
+selected CDRAMA material
+        │ Katie commits it to a post or another definite artifact shape
+        ▼
+Editorial Idea, Rednote post, Instagram carousel, YouTube Short,
+article, guide section, game, website expansion, or visual treatment
+```
+
+The original Capture remains intact. CREATE receives only the selected
+authorized material and lineage. A Capture may instead remain a private
+observation, chronological journal record, domain evidence, audience pattern,
+source reference, or undeveloped possibility.
+
+For a protocol-bound record such as First Watch, promotion selects a passage
+and creates an additive derivative. The entry itself remains in the Journal and
+does not become an editable draft or inherit an expectation of publication.
+
+Some domain actions bypass CREATE entirely because they govern domain truth
+rather than shape a creative output: filing a First-Watch entry, recording a
+clock-in, correcting canon metadata, moderating evidence, and changing a domain
+lifecycle state.
 
 For example:
 
@@ -2298,7 +2370,7 @@ Its actions preserve authority:
 | --- | --- |
 | Clock in | Fandom command |
 | Add canon evidence | Fandom contribution workflow |
-| Write private dispatch | CREATE Capture |
+| Write private dispatch | Creator OS CAPTURE |
 | Turn into an Idea | Creator OS additive promotion |
 | Make Rednote post | CREATE Platform Expression |
 | Schedule | PLAN |
@@ -2315,6 +2387,17 @@ Series + selected sources + Idea + Treatment
 → expression workbench
 → versioned Platform Expression
 ```
+
+CREATE accepts two legitimate starts:
+
+1. **Promoted material:** Katie commits a selected Capture or authorized domain
+   passage to a definite artifact—editorial, website expansion, post, guide,
+   game, or other shaped work—that now needs development.
+2. **Inherently shaped intent:** Katie already knows she is making a post,
+   article, carousel, video, or other artifact and begins directly in CREATE.
+
+Neither path is more canonical. CREATE requires a shaped work intention, not a
+ceremonial Capture record.
 
 The existing Workstation continues to own drafts, media preparation, copy,
 titles, tags, and art direction. “Send to Workstation” survives only as a
@@ -2343,32 +2426,67 @@ PLAN placements and domain-native release status without merging their stores.
 The current Posts DB may remain a compatibility adapter for social expressions.
 Its long-term schema should not determine the Lens information architecture.
 
-#### EXECUTE
+#### EXECUTE and PUBLISH boundaries
 
-EXECUTE remains an integration/service boundary, not a creative workbench.
-The Lens can present:
+EXECUTE and PUBLISH are rendered contract boundaries between PLAN and CONNECT.
+They are not Creator OS surfaces, tabs, workspaces, or content stores.
 
-- authorization readiness;
+**EXECUTE** marks the handoff when a human or integration attempts the exact
+action PLAN authorized. Its discrete Attempt Receipt represents:
+
 - operator versus automated mode;
-- attempts and unknown outcomes;
-- retry eligibility;
-- native receipt status;
-- exceptions requiring human action.
+- authorized payload and version;
+- attempt time, retry time, and retry reason;
+- idempotency identity;
+- native response;
+- failure, success-shaped response, or ambiguous outcome.
+
+**PUBLISH** marks the handoff when execution produces—or claims to have
+produced—a platform-specific public artifact. Its discrete native-result
+evidence represents the post's media, format, account/platform placement, and
+available native identity. It does not create a new Idea merely because the
+expression changed shape for a platform.
+
+```text
+one Editorial Idea
+→ one or more versioned Platform Expressions
+→ one or more PLAN placements
+→ discrete EXECUTE/PUBLISH boundary artifacts
+→ CONNECT verification, reconciliation, and publication projection
+```
 
 Every adapter returns compatible attempt and native-result receipts. Platform
 credentials and raw private responses remain outside the Lens projection.
+PLAN may render the action before and during handoff. CONNECT renders the
+resulting attempt, reconciliation, public state, and exception history.
 
 #### CONNECT
 
-CONNECT becomes a first-class Creator OS capability with three separately
-visible concerns:
+CONNECT answers:
 
-1. **Publication truth:** native identity, verification, correction, and
-   reconciliation.
+> What happened after authorization, what now exists publicly, what does the
+> evidence mean, and what should we consider doing next?
+
+It is a first-class Creator OS capability with three separately visible
+concerns:
+
+1. **Publication truth:** establish or correct what exists publicly, where, in
+   which version, with which lineage, native identity, and correction state.
 2. **Performance evidence:** append-only metrics snapshots and safe audience
    themes.
-3. **Learning:** recommendations and Captures returned to CREATE/Series for
-   explicit review.
+3. **Learning:** recommendations and Captures returned to CAPTURE, CREATE, or
+   Series for explicit review.
+
+“Published” remains two coordinated ledgers rather than one overloaded status:
+
+| Ledger | Owner | Truth represented |
+| --- | --- | --- |
+| Domain Public Editions | Fandom | Immutable Daily Drop, First-Watch publication, Waiting Room state/contribution, correction/supersession |
+| External Publications | CONNECT verifies; native platform supplies the fact | Verified Rednote/Instagram/Weibo/YouTube native posts linked to exact expressions |
+
+CONNECT composes their safe projections into one lineage view. It does not
+collapse them into a single boolean, transfer Fandom publication authority, or
+require one publication branch for the other to be complete.
 
 CONNECT does not own technical Data Health. The current Audience Evidence panel
 therefore decomposes:
@@ -2380,18 +2498,6 @@ editorial behavior and performance
 instrumentation gaps, malformed blobs, cache/storage health, repair
 → Diagnostics
 ```
-
-#### Publications
-
-“Published” becomes two coordinated ledgers rather than one overloaded status:
-
-| Ledger | Owner | Truth represented |
-| --- | --- | --- |
-| Domain Public Editions | Fandom | Immutable Daily Drop, First-Watch publication, Waiting Room state/contribution, correction/supersession |
-| External Publications | CONNECT | Verified Rednote/Instagram/Weibo/YouTube native posts linked to exact expressions |
-
-The Lens presents a lineage view across both. It does not collapse them into a
-single boolean or require one branch for the other to be complete.
 
 ### Release Desk decomposition
 
