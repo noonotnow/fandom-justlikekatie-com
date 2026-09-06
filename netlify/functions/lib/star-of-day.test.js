@@ -390,6 +390,7 @@ test("archive lists current and legacy payload dates with edition identity and e
     "2026-08-28",
   ]);
   assert.equal(body.editions[0].actorName, "Actor 2026-08-30");
+  assert.deepEqual(body.editions[0].previewThumbnails, ["https://images.test/evidence.jpg"]);
 });
 
 test("historical date reads use the existing cache without starting a build", async () => {

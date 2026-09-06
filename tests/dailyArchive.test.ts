@@ -44,3 +44,12 @@ test('archived editions expose an accessible date-aware copy link, but today doe
   assert.match(appSource, /selectedEditionDate && isValidVibeAtlasEditionDate\(selectedEditionDate\)/);
   assert.match(appSource, /Copy archived edition link/);
 });
+
+test('full archive renders visual board plates and preserves genuine legendary misprints', () => {
+  assert.match(hookSource, /previewThumbnails\?: string\[\]/);
+  assert.match(hookSource, /legendaryMisprint\?: boolean/);
+  assert.match(appSource, /function ArchiveEditionCard/);
+  assert.match(appSource, /archive-card__mosaic/);
+  assert.match(appSource, /edition\.legendaryMisprint/);
+  assert.match(appSource, /The Star of the Day Archive/);
+});

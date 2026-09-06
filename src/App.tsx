@@ -754,6 +754,74 @@ function ArchiveEditionButton({
   );
 }
 
+function archivePreviewUrl(url: string): string {
+  return url.startsWith('/.netlify/functions/image-proxy')
+    ? url
+    : `/.netlify/functions/image-proxy?url=${encodeURIComponent(url)}`;
+}
+
+function ArchiveEditionCard({
+  edition,
+  index,
+}: {
+  edition: StarOfDayArchiveEntry;
+  index: number;
+}) {
+  const images = edition.previewThumbnails ?? [];
+  const isLatest = index === 0;
+  const className = [
+    'archive-card',
+    isLatest ? 'archive-card--latest' : '',
+    edition.legendaryMisprint ? 'archive-card--misprint' : '',
+  ].filter(Boolean).join(' ');
+
+  return (
+    <a
+      className={className}
+      href={`/vibe-atlas?date=${encodeURIComponent(edition.date)}`}
+      onClick={() => trackDailyArchiveEditionSelected(edition.date, isLatest)}
+      aria-label={`Open ${formatEditionDate(edition.date)}: ${edition.actorName}, ${edition.vibeLabelEn}`}
+    >
+      <span className="archive-card__plate" aria-hidden="true">
+        {images.length > 0 ? (
+          <span className="archive-card__mosaic">
+            {images.map((image, imageIndex) => (
+              <img
+                key={`${image}-${imageIndex}`}
+                src={archivePreviewUrl(image)}
+                alt=""
+                loading="lazy"
+                decoding="async"
+              />
+            ))}
+          </span>
+        ) : (
+          <span className="archive-card__placeholder">{edition.vibeEmoji}</span>
+        )}
+        <span className="archive-card__wash" />
+        <span className="archive-card__number">{String(index + 1).padStart(2, '0')}</span>
+        {edition.legendaryMisprint && (
+          <span className="archive-card__misprint-seal">Legendary<br />misprint</span>
+        )}
+      </span>
+      <span className="archive-card__caption">
+        <span className="archive-card__meta">
+          <time dateTime={edition.date}>{formatEditionDate(edition.date)}</time>
+          <span>{isLatest ? 'Latest edition' : 'Published edition'}</span>
+        </span>
+        <strong>{edition.actorName}</strong>
+        {edition.actorShortNameEn && <small>{edition.actorShortNameEn}</small>}
+        <span className="archive-card__vibe">
+          <i>{edition.vibeEmoji}</i>
+          <span>{edition.vibeLabel}<em>{edition.vibeLabelEn}</em></span>
+        </span>
+        {edition.vibeSubtitleEn && <q>{edition.vibeSubtitleEn}</q>}
+        <span className="archive-card__open">Open the nine-card board <b aria-hidden="true">↗</b></span>
+      </span>
+    </a>
+  );
+}
+
 function ArchivePage({
   archive,
   archiveLoading,
@@ -763,29 +831,35 @@ function ArchivePage({
   archiveLoading: boolean;
   archiveError: string | null;
 }) {
+  const yearCount = new Set(archive.map(edition => edition.date.slice(0, 4))).size;
+
   return (
     <main className="atlas-archive-page">
       <header className="atlas-hero atlas-archive-page__hero">
         <div className="atlas-hero__eyebrow"><span>Fandom Vibes / studio 01</span><i /></div>
         <div className="atlas-hero__title-row">
           <div>
-            <p className="atlas-hero__universe">Published Vibe Atlas editions</p>
-            <h1>Archive <span>往期图鉴</span></h1>
+            <p className="atlas-hero__universe">Star of the Day · The complete collection</p>
+            <h1>Archive <span>星光典藏</span></h1>
           </div>
-          <p className="atlas-hero__thesis">Every star. Every assignment.</p>
         </div>
         <p className="atlas-hero__intro">
-          A record of Daily Drop editions that were actually published. Choose a date to open its exact nine-card board; unpublished or still-building days stay out of this list.
+          Browse every published Star of the Day as it first appeared: one actor, one assigned
+          mood, nine pieces of visual evidence. Rare legendary misprints remain sealed in place.
         </p>
       </header>
 
       <section className="daily-archive daily-archive--page" aria-labelledby="archive-page-title">
-        <div className="daily-archive__intro">
+        <div className="archive-index">
           <div>
-            <p className="daily-archive__kicker">The Vibe Atlas archive</p>
-            <h2 id="archive-page-title">Published editions</h2>
+            <h2 id="archive-page-title">The Star of the Day Archive</h2>
+            <p>Published boards only. Each plate opens the exact original nine-card edition.</p>
           </div>
-          <p>Historical boards are read-only and keep their original date, star, and Vibe Pack.</p>
+          <dl aria-label="Archive summary">
+            <div><dt>Editions</dt><dd>{archive.length || '—'}</dd></div>
+            <div><dt>Years</dt><dd>{yearCount || '—'}</dd></div>
+            <div><dt>Format</dt><dd>3 × 3</dd></div>
+          </dl>
         </div>
         {archiveLoading ? (
           <p className="daily-archive__status">Loading published editions…</p>
@@ -794,20 +868,20 @@ function ArchivePage({
         ) : archive.length === 0 ? (
           <p className="daily-archive__status">No published editions are available yet.</p>
         ) : (
-          <div className="daily-archive__list">
+          <div className="archive-gallery">
             {archive.map((edition, index) => (
-              <ArchiveEditionButton
+              <ArchiveEditionCard
                 key={edition.date}
                 edition={edition}
-                isSelected={false}
-                isLatest={index === 0}
-                href={`/vibe-atlas?date=${encodeURIComponent(edition.date)}`}
-                onSelect={() => trackDailyArchiveEditionSelected(edition.date, index === 0)}
+                index={index}
               />
             ))}
           </div>
         )}
-        <a className="daily-archive__today" href="/vibe-atlas">← Return to today’s drop</a>
+        <footer className="archive-footer">
+          <span>Fandom Vibes · Permanent edition record</span>
+          <a className="daily-archive__today" href="/vibe-atlas">Return to today’s drop <b aria-hidden="true">→</b></a>
+        </footer>
       </section>
     </main>
   );

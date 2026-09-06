@@ -822,6 +822,12 @@ async function listArchivedEditions(store, todayStr) {
       }), VERSION)
       : await store.get(`starOfDay:${version}:${date}`, { type: "json" });
     if (!payload || payload.date !== date || !payload.actorName || !payload.vibeLabel) return null;
+    const previewResults = Array.isArray(payload.displayResults) && payload.displayResults.length
+      ? payload.displayResults
+      : (payload.rankedBatches || []).flatMap(batch => batch?.results || []);
+    const legendaryMisprint = (payload.rankedBatches || []).some(batch =>
+      batch?.intentionalMisprint === true || (batch?.legendary === true && batch?.misprint === true)
+    );
     return {
       date,
       actorName: payload.actorName,
@@ -831,6 +837,11 @@ async function listArchivedEditions(store, todayStr) {
       vibeLabelEn: payload.vibeLabelEn,
       vibeSubtitleEn: payload.vibeSubtitleEn,
       generatedAt: payload.generatedAt,
+      previewThumbnails: [...new Set(previewResults
+        .map(result => result?.thumbnail)
+        .filter(thumbnail => typeof thumbnail === "string" && thumbnail.length > 0))]
+        .slice(0, 9),
+      ...(legendaryMisprint ? { legendaryMisprint: true } : {}),
     };
   }));
 
