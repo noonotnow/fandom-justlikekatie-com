@@ -2165,6 +2165,45 @@ domain**. In particular, the Nian Wushuang Waiting Room may appear as a
 contextual CDRAMA Lens view while Fandom retains public Waiting Room state,
 clock-ins, canon evidence, moderation, and publication rules.
 
+### Cockpit preservation invariant
+
+The Lens must not flatten the earlier creative vocabulary into a generic
+Capture list or a Post pipeline. A domain cockpit is a composed view over
+distinct records and capabilities:
+
+```text
+Nian Wushuang Waiting Room cockpit
+├── Series premise, continuity, and open questions            Creator OS
+├── private dispatches and undeveloped observations           CAPTURE
+├── First-Watch or other protocol-bound journal references    Fandom
+├── canon evidence, public state, and clock-in aggregates      Fandom
+├── Editorial Ideas and website-expansion commitments         CREATE
+├── expression families and selected rendered versions        CREATE
+├── dated placements, readiness gates, and authorization      PLAN
+└── attempts, publication truth, response, and learning       CONNECT
+```
+
+The cockpit is therefore not itself a canonical record, module, workspace, or
+universal Journal. It assembles authorized projections and contextual commands
+around one Series context.
+
+These distinctions are required:
+
+- **Capture** preserves a private observation or routes a domain filing.
+- **Journal entry** preserves protocol-bound chronology and may be complete
+  forever.
+- **Editorial Idea** records a developed creative proposition.
+- **Series** preserves continuity across many records and artifacts.
+- **Expression** is one concrete, versioned output of an Idea or direct creative
+  intention.
+- **Cockpit** renders their relationships without merging their identity or
+  authority.
+
+A First-Watch entry can appear beside a Waiting Room dispatch and an Editorial
+Idea without becoming either one. Selecting a passage for CREATE adds lineage;
+it does not remove the original from the cockpit or recast the entire journal as
+future post material.
+
 ### Five ways a capability appears in the Lens
 
 | Presentation mode | Authority placement | Meaning | Mutation rule |
