@@ -633,6 +633,59 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
       text-align: right;
     }
 
+    .journal-empty {
+      display: grid;
+      gap: 12px;
+      border: 1px solid rgba(134, 169, 155, 0.35);
+      border-radius: 10px;
+      background: rgba(134, 169, 155, 0.055);
+      padding: 15px;
+    }
+
+    .journal-empty[hidden],
+    .journal-filing[hidden] {
+      display: none;
+    }
+
+    .journal-context {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 14px;
+      align-items: center;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .journal-context:last-of-type {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .journal-context span {
+      display: block;
+      color: var(--muted);
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .journal-context strong {
+      font-size: 11px;
+    }
+
+    .journal-context em {
+      color: var(--muted);
+      font-size: 9px;
+      font-style: normal;
+      text-align: right;
+    }
+
+    .journal-filing {
+      display: grid;
+      gap: 16px;
+    }
+
     .journal-contract {
       display: flex;
       align-items: flex-start;
@@ -1285,6 +1338,14 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
         text-align: left;
       }
 
+      .journal-context {
+        grid-template-columns: 1fr;
+      }
+
+      .journal-context em {
+        text-align: left;
+      }
+
       .module-spine {
         overflow-x: auto;
       }
@@ -1458,59 +1519,85 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
             </form>
 
             <form class="instrument-panel" data-panel="journal" hidden>
-              <div class="journal-boundary">
-                <div>
-                  <span>Latest filed boundary</span>
-                  <div>Watched through Episode <strong>22</strong></div>
+              <div class="journal-empty" id="journal-empty">
+                <div class="journal-context">
+                  <div>
+                    <span>Current Series</span>
+                    <strong>Nian Wushuang</strong>
+                  </div>
+                  <em>No First-Watch Journal attached</em>
                 </div>
-                <p>Next entry must begin with Episode 23.<br>Draft protected locally · sealed when filed.</p>
+                <div class="journal-context">
+                  <div>
+                    <span>CDRAMA Lens horizon</span>
+                    <strong>No active First-Watch Journal</strong>
+                  </div>
+                  <em>Active or related Journals would appear here</em>
+                </div>
+                <div class="detail-actions">
+                  <button type="button" class="primary" id="start-journal">Start a First-Watch Journal</button>
+                  <button type="button" class="secondary">Browse CDRAMA Journals</button>
+                </div>
               </div>
 
-              <div class="field-grid">
-                <label>
-                  <span>Episode start</span>
-                  <input type="number" value="23" disabled>
-                </label>
-                <label>
-                  <span>Episode end</span>
-                  <input type="number" min="23" max="999" value="25">
-                </label>
-                <label>
-                  <span>Current emotional condition</span>
-                  <textarea placeholder="Intrigued, under-informed, already attached"></textarea>
-                </label>
-                <label>
-                  <span>Relationship I’m monitoring</span>
-                  <textarea placeholder="Who or what dynamic has your attention?"></textarea>
-                </label>
-                <label>
-                  <span>People I trust</span>
-                  <textarea placeholder="One person or suspicion per line"></textarea>
-                </label>
-                <label>
-                  <span>People I absolutely do not trust</span>
-                  <textarea placeholder="One person or suspicion per line"></textarea>
-                </label>
-                <label class="wide">
-                  <span>Recurring suspects or objects</span>
-                  <textarea placeholder="Symbols, props, people, or details that keep returning"></textarea>
-                </label>
-                <label class="wide">
-                  <span>What I think is happening</span>
-                  <textarea placeholder="Your theory, without looking anything up"></textarea>
-                </label>
-                <label class="wide">
-                  <span>Predictions submitted for future humiliation</span>
-                  <textarea placeholder="One prediction per line"></textarea>
-                </label>
-              </div>
+              <div class="journal-filing" id="journal-filing" hidden>
+                <div class="journal-boundary">
+                  <div>
+                    <span>New Journal · illustrative draft</span>
+                    <div>First entry begins with Episode <strong>1</strong></div>
+                  </div>
+                  <p>No watch progress is being asserted.<br>Draft protected locally · sealed when filed.</p>
+                </div>
 
-              <p class="journal-contract">Filing creates one immutable, episode-bound Fandom Journal entry. Predictions remain unchanged until a later verdict is appended.</p>
+                <div class="field-grid">
+                  <label class="wide">
+                    <span>Drama or Series</span>
+                    <input type="text" placeholder="Choose the drama this Journal belongs to">
+                  </label>
+                  <label>
+                    <span>Episode start</span>
+                    <input type="number" value="1" disabled>
+                  </label>
+                  <label>
+                    <span>Episode end</span>
+                    <input type="number" min="1" max="999" value="1">
+                  </label>
+                  <label>
+                    <span>Current emotional condition</span>
+                    <textarea placeholder="Intrigued, under-informed, already attached"></textarea>
+                  </label>
+                  <label>
+                    <span>Relationship I’m monitoring</span>
+                    <textarea placeholder="Who or what dynamic has your attention?"></textarea>
+                  </label>
+                  <label>
+                    <span>People I trust</span>
+                    <textarea placeholder="One person or suspicion per line"></textarea>
+                  </label>
+                  <label>
+                    <span>People I absolutely do not trust</span>
+                    <textarea placeholder="One person or suspicion per line"></textarea>
+                  </label>
+                  <label class="wide">
+                    <span>Recurring suspects or objects</span>
+                    <textarea placeholder="Symbols, props, people, or details that keep returning"></textarea>
+                  </label>
+                  <label class="wide">
+                    <span>What I think is happening</span>
+                    <textarea placeholder="Your theory, without looking anything up"></textarea>
+                  </label>
+                  <label class="wide">
+                    <span>Predictions submitted for future humiliation</span>
+                    <textarea placeholder="One prediction per line"></textarea>
+                  </label>
+                </div>
 
-              <div class="detail-actions">
-                <button type="submit" class="primary" id="journal-file-action">File first-watch entry</button>
-                <button type="button" class="secondary">Open full Journal in Fandom</button>
-                <button type="button" class="text-action">Reference existing entry</button>
+                <p class="journal-contract">Filing creates one immutable, episode-bound Fandom Journal entry. Predictions remain unchanged until a later verdict is appended.</p>
+
+                <div class="detail-actions">
+                  <button type="submit" class="primary">Start Journal and file entry</button>
+                  <button type="button" class="secondary" id="cancel-journal-start">Back to Journal choices</button>
+                </div>
               </div>
             </form>
 
@@ -1930,12 +2017,12 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
         notice: "Prototype: private dispatch preserved in CAPTURE. Nothing moved downstream."
       },
       journal: {
-        title: "File a First-Watch entry",
-        prompt: "Capture only what was knowable at this watch boundary. The field grammar belongs here; moderation and publication remain in Fandom.",
-        destination: "This will become an immutable, episode-bound Fandom Journal entry.",
-        copy: "The cockpit embeds the capture protocol. Veteran moderation, safe-reader preview, and public snapshot controls stay in the Fandom specialist view.",
+        title: "First-Watch Journal",
+        prompt: "The protocol is reusable; the visible Journal must belong to a named drama and explain why it appears in this CDRAMA context.",
+        destination: "No First-Watch Journal is active in the CDRAMA Lens.",
+        copy: "Nian Wushuang has no attached Journal. Active, related, or recent CDRAMA Journals may appear here later; unrelated Lens work will not.",
         owner: "Fandom · First-Watch",
-        notice: "Prototype: first-watch entry filed with its episode boundary and predictions sealed."
+        notice: "Prototype: a new named Journal and its first bounded entry would be filed in Fandom."
       },
       evidence: {
         title: "Add canon or universe evidence",
@@ -1971,6 +2058,8 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
     const destinationCopy = document.querySelector("#destination-copy");
     const destinationOwner = document.querySelector("#destination-owner");
     const captureComplete = document.querySelector("#capture-complete");
+    const journalEmpty = document.querySelector("#journal-empty");
+    const journalFiling = document.querySelector("#journal-filing");
     const chooseShape = document.querySelector("#choose-shape");
     const commitmentDialog = document.querySelector("#commitment-dialog");
     const commitmentForm = document.querySelector("#commitment-form");
@@ -2012,6 +2101,17 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
 
     tabs.forEach(tab => {
       tab.addEventListener("click", () => selectInstrument(tab.dataset.instrument));
+    });
+
+    document.querySelector("#start-journal").addEventListener("click", () => {
+      journalEmpty.hidden = true;
+      journalFiling.hidden = false;
+      showToast("Prototype: opening a blank First-Watch protocol. No existing watch progress was assumed.");
+    });
+
+    document.querySelector("#cancel-journal-start").addEventListener("click", () => {
+      journalFiling.hidden = true;
+      journalEmpty.hidden = false;
     });
 
     panels.forEach(panel => {

@@ -2832,6 +2832,27 @@ It does not choose a content pipeline.
 | Preserve audience question | Audience signal reference or private Capture, chosen explicitly | CONNECT or Creator OS CAPTURE | Embedded choice |
 | Preserve source, scene, or reaction | Typed source reference, domain evidence, or private observation, chosen explicitly | Selected owner | Embedded or invoke |
 
+The First-Watch protocol is reusable, but every visible Journal instance is
+context-bound. The cockpit must identify its drama or Series, latest filed
+boundary, privacy and spoiler boundary, and why it is present. The current
+Series supplies the focal context; the selected Lens supplies the working
+horizon.
+
+Contextual resolution therefore prefers:
+
+1. a Journal attached to the current Series;
+2. an explicitly related Journal;
+3. active work elsewhere in the CDRAMA Lens;
+4. recent CDRAMA work;
+5. a searched or intentionally selected cross-Lens reference.
+
+An active Journal from another CDRAMA Series may be offered when clearly labeled
+as active elsewhere in the Lens. A Journal from LOTR or another Lens appears
+only through explicit relationship or selection. When no Journal is attached or
+active, the truthful empty state offers **Start a First-Watch Journal** and
+**Browse CDRAMA Journals**. Illustrative prototype boundaries must never be
+presented as real watch progress.
+
 Recent records remain visibly heterogeneous. Their type, owner, privacy,
 correction state, and source time are visible before contextual actions appear.
 A Journal entry does not look like an editable Capture; evidence does not look
