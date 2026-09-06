@@ -8,6 +8,10 @@ import {
   normalizeCreatorPlatforms,
 } from '../src/utils/creatorDraft.ts';
 import { sourceVersionForGrid } from '../netlify/functions/lib/creator-grid-handoff.js';
+import {
+  classifyGridProvenance,
+  type ReleaseCandidateIdentity,
+} from '../src/utils/approvedBoardProvenance.ts';
 
 function card(position: number): BuilderCard {
   return {
@@ -29,6 +33,23 @@ function card(position: number): BuilderCard {
     origin: 'saved-card',
     familyId: 'spring',
     familyLabel: 'Spring light',
+  };
+}
+
+function approvedIdentity(orderedCandidateIds: string[]): ReleaseCandidateIdentity {
+  return {
+    schemaVersion: 1,
+    auditRunId: 'audit-run-1',
+    publicationManifestId: null,
+    publicationSourceType: 'operator_rescue',
+    rescueReceiptId: 'rescue-receipt-1',
+    boardHash: 'a'.repeat(64),
+    orderedCandidateIds,
+    actorId: 'zhao-lusi',
+    vibeKey: 'spring',
+    curationVersion: 4,
+    promiseContractVersion: 3,
+    identityProfileVersion: 2,
   };
 }
 
@@ -70,6 +91,118 @@ test('Creator Draft source carries stable ordered provenance and creative contex
   assert.match(first.creativeContext.brief, /Build Your Own/);
 });
 
+test('approved board provenance distinguishes exact, derived, and unverified grids', async () => {
+  const slots = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(card);
+  const base = gridRecordFromProposal(
+    slots,
+    manualGridRationale(slots, '赵露思'),
+    new Date('2026-08-30T12:00:00.000Z'),
+  );
+  const candidates = base.images.map(image => ({
+    candidateId: image.resultId,
+    imageDigest: 'a'.repeat(64),
+    thumbnail: image.imageUrl,
+    title: image.title,
+    source: image.publisher || '',
+    batchRank: image.batchRank ?? null,
+  }));
+  const identity = approvedIdentity(base.images.map(image => image.resultId));
+  identity.boardHash = await hashBoard(candidates);
+  const exact = {
+    ...base,
+    vibeKey: 'spring',
+    images: base.images.map((image, index) => ({
+      ...image,
+      media: {
+        schemaVersion: 1 as const,
+        assetId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+        deliveryUrl: image.imageUrl,
+        thumbnailUrl: image.imageUrl,
+        mimeType: 'image/jpeg' as const,
+        sizeBytes: 100,
+        checksum: 'a'.repeat(64),
+        dimensions: { width: 1200, height: 1500 },
+        association: { type: 'collection' as const, id: 'vibe-atlas', itemId: base.id },
+      },
+    })),
+    releaseCandidateProvenance: {
+      schemaVersion: 1 as const,
+      source: 'actor-preflight-approval' as const,
+      identity,
+      candidates,
+    },
+  };
+  const derived = {
+    ...exact,
+    images: [exact.images[1], exact.images[0], ...exact.images.slice(2)]
+      .map((image, gridPosition) => ({ ...image, gridPosition })),
+  };
+
+  assert.deepEqual(await classifyGridProvenance(exact), {
+    classification: 'exact-approved-board',
+    approvalAuthority: true,
+    releaseCandidateIdentity: identity,
+    sourceReleaseCandidateIdentity: identity,
+  });
+  assert.equal((await classifyGridProvenance(derived)).classification, 'derived-from-approved-board');
+  assert.equal((await classifyGridProvenance(derived)).approvalAuthority, false);
+  const duplicatePosition = {
+    ...exact,
+    images: exact.images.map((image, index) => (
+      index === 8 ? { ...image, gridPosition: 7 } : image
+    )),
+  };
+  const missingPosition = { ...exact, images: exact.images.slice(0, 8) };
+  const nonContiguousPosition = {
+    ...exact,
+    images: exact.images.map((image, index) => (
+      index === 8 ? { ...image, gridPosition: 9 } : image
+    )),
+  };
+  assert.equal(
+    (await classifyGridProvenance(duplicatePosition)).classification,
+    'derived-from-approved-board',
+  );
+  assert.equal(
+    (await classifyGridProvenance(missingPosition)).classification,
+    'derived-from-approved-board',
+  );
+  assert.equal(
+    (await classifyGridProvenance(nonContiguousPosition)).classification,
+    'derived-from-approved-board',
+  );
+  assert.equal((await classifyGridProvenance({
+    ...exact,
+    images: exact.images.map(image => ({ ...image, media: undefined })),
+  })).classification, 'derived-from-approved-board');
+  assert.equal((await classifyGridProvenance(base)).classification, 'unverified-saved-grid');
+
+  const exactSource = await creatorDraftSourceFromGrid(exact);
+  const derivedSource = await creatorDraftSourceFromGrid(derived);
+  assert.equal(exactSource.boardProvenance.approvalAuthority, true);
+  assert.equal(derivedSource.boardProvenance.approvalAuthority, false);
+  assert.equal(derivedSource.boardProvenance.releaseCandidateIdentity, null);
+  assert.deepEqual(derivedSource.boardProvenance.sourceReleaseCandidateIdentity, identity);
+});
+
+async function hashBoard(candidates: Array<{
+  thumbnail: string;
+  title: string;
+  source: string;
+  batchRank: number | null;
+}>): Promise<string> {
+  const material = JSON.stringify(candidates.map(({ thumbnail, title, source, batchRank }) => ({
+    thumbnail,
+    title,
+    source,
+    batchRank,
+  })));
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(material));
+  return [...new Uint8Array(digest)]
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 test('Creator Draft source uses the server artifact identity when a synced record carries both ids', async () => {
   const slots = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(card);
   const grid = {
@@ -108,12 +241,36 @@ test('Creator Draft source version changes for every mutable render and envelope
     vibe: '不同氛围',
     generationPrompt: 'A materially different creative brief.',
   });
+  const changedRank = await creatorDraftSourceFromGrid({
+    ...grid,
+    images: grid.images.map((image, index) => (
+      index === 0 ? { ...image, batchRank: 9 } : image
+    )),
+  });
+  const changedRecoverySource = await creatorDraftSourceFromGrid({
+    ...grid,
+    images: grid.images.map((image, index) => (
+      index === 0
+        ? {
+          ...image,
+          mediaRecovery: {
+            classification: 'media-backed' as const,
+            status: 'recovered' as const,
+            attemptedAt: '2026-08-30T12:30:00.000Z',
+            sourceUrl: 'https://media.example/original.jpg',
+          },
+        }
+        : image
+    )),
+  });
 
   assert.match(original.sourceVersion, /^sha256:[a-f0-9]{64}$/);
   assert.notEqual(changedImage.sourceVersion, original.sourceVersion);
   assert.notEqual(changedImage.idempotencyKey, original.idempotencyKey);
   assert.notEqual(changedContext.sourceVersion, original.sourceVersion);
   assert.notEqual(changedContext.idempotencyKey, original.idempotencyKey);
+  assert.notEqual(changedRank.sourceVersion, original.sourceVersion);
+  assert.notEqual(changedRecoverySource.sourceVersion, original.sourceVersion);
 });
 
 test('Creator Draft platform selections are canonical and part of handoff identity', async () => {

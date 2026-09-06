@@ -166,6 +166,46 @@ to = "/c-drama-fandom/glossary/jianghu/index.html"
 status = 200
 
 [[redirects]]
+from = "/c-drama-fandom/glossary/wuxia"
+to = "/c-drama-fandom/glossary/wuxia/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/glossary/wuxia-vs-xianxia-vs-xuanhuan"
+to = "/c-drama-fandom/glossary/wuxia-vs-xianxia-vs-xuanhuan/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/glossary/historical-vs-costume-drama"
+to = "/c-drama-fandom/glossary/historical-vs-costume-drama/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/glossary/duanju-microdrama-vertical-drama"
+to = "/c-drama-fandom/glossary/duanju-microdrama-vertical-drama/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/archetypes"
+to = "/c-drama-fandom/archetypes/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/archetypes/cold-male-lead-vs-tsundere"
+to = "/c-drama-fandom/archetypes/cold-male-lead-vs-tsundere/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/archetypes/black-bellied-vs-white-cut-black"
+to = "/c-drama-fandom/archetypes/black-bellied-vs-white-cut-black/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole"
+to = "/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole/index.html"
+status = 200
+
+[[redirects]]
 from = "/c-drama-fandom/trope-decoder"
 to = "/c-drama-fandom/trope-decoder/index.html"
 status = 200

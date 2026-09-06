@@ -378,6 +378,137 @@ button { font: inherit; }
 }
 .term dt { color: var(--gold); font: 600 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; text-transform: uppercase; }
 .term dd { color: #bdcad2; font-size: 15px; margin: 10px 0 0; }
+.comparison-table {
+  border-collapse: collapse;
+  font-size: 14px;
+  margin: 30px 0;
+  width: 100%;
+}
+.comparison-table th, .comparison-table td {
+  border: 1px solid var(--line);
+  padding: 15px;
+  text-align: left;
+  vertical-align: top;
+}
+.comparison-table th {
+  color: var(--gold);
+  font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.comparison-table td { color: #bdcad2; }
+.signal-tool {
+  background: rgba(16, 37, 55, .66);
+  border: 1px solid rgba(213, 172, 88, .38);
+  margin: 34px 0;
+  padding: clamp(24px, 4vw, 36px);
+}
+.signal-tool h3 { margin-top: 0; }
+.signal-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 24px 0;
+}
+.signal-choice {
+  align-items: flex-start;
+  background: rgba(6, 19, 33, .72);
+  border: 1px solid var(--line);
+  color: var(--paper);
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  padding: 15px;
+}
+.signal-choice:has(input:checked) { border-color: var(--gold); }
+.signal-choice input { accent-color: var(--gold); margin-top: 6px; }
+.signal-choice span { color: var(--mist); display: block; font-size: 14px; }
+.tool-result {
+  background: rgba(117, 175, 145, .08);
+  border: 1px solid rgba(117, 175, 145, .42);
+  color: #d8e0e5;
+  min-height: 62px;
+  padding: 12px 18px;
+}
+.tool-result strong { color: var(--paper); display: block; }
+.archetype-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 26px 0;
+}
+.archetype-card[hidden] { display: none; }
+.archetype-card__axis {
+  color: var(--jade) !important;
+  font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.topic-interest {
+  background: transparent;
+  border: 0;
+  color: var(--gold);
+  cursor: pointer;
+  font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+  margin-top: 14px;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-transform: uppercase;
+}
+.topic-interest:hover, .topic-interest:focus-visible { color: var(--paper); }
+.studio-specimens {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr);
+  margin: 34px 0 12px;
+}
+.studio-specimen {
+  background: rgba(16, 37, 55, .66);
+  border: 1px solid var(--line);
+  margin: 0;
+  padding: 16px;
+}
+.studio-specimen--grid img {
+  aspect-ratio: 1;
+  object-fit: cover;
+  width: 100%;
+}
+.studio-specimen figcaption {
+  color: var(--mist);
+  font-size: 14px;
+  padding: 18px 5px 3px;
+}
+.studio-specimen figcaption strong,
+.studio-specimen figcaption span {
+  display: block;
+}
+.studio-specimen figcaption strong {
+  color: var(--paper);
+  font: 500 22px/1.2 Georgia, "Times New Roman", serif;
+  margin-bottom: 7px;
+}
+.studio-specimen figcaption a { display: inline-block; margin-top: 12px; }
+.studio-specimen--misprint {
+  align-content: start;
+  display: grid;
+  gap: 24px;
+  padding: clamp(24px, 4vw, 36px);
+}
+.studio-specimen--misprint > img { height: 72px; width: 72px; }
+.studio-specimen__label {
+  color: var(--gold) !important;
+  font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .1em;
+  margin: 0;
+  text-transform: uppercase;
+}
+.studio-specimen h3 { font-size: clamp(26px, 3vw, 34px); margin: 10px 0 24px; }
+.specimen-anatomy { display: grid; gap: 1px; margin: 0; }
+.specimen-anatomy div { background: rgba(6, 19, 33, .72); outline: 1px solid var(--line); padding: 14px; }
+.specimen-anatomy dt { color: var(--paper); font: 600 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; }
+.specimen-anatomy dd { color: var(--mist); font-size: 13px; margin: 5px 0 0; }
 .game-stage {
   background: rgba(8, 26, 42, .86);
   border: 1px solid var(--line);
@@ -563,6 +694,9 @@ button { font: inherit; }
   .hero h1 { font-size: clamp(46px, 16vw, 72px); }
   .topic-grid, .path-grid, .glossary { grid-template-columns: 1fr; }
   .lens-grid { grid-template-columns: 1fr; }
+  .signal-grid { grid-template-columns: 1fr; }
+  .studio-specimens { grid-template-columns: 1fr; }
+  .comparison-table { display: block; overflow-x: auto; }
   .decoder-tools, .trope-grid { grid-template-columns: 1fr; }
   .decoder-tools { align-items: stretch; display: grid; gap: 8px; }
   .decoder-count { margin: 8px 0 0; }
