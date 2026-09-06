@@ -106,6 +106,10 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     () => (activePool ? applyLens(activePool, lens).length : 0),
     [activePool, lens],
   );
+  const savedLensedCount = useMemo(
+    () => (pool ? applyLens(pool, lens).length : 0),
+    [pool, lens],
+  );
   const collectionCounts = useMemo(() => {
     const cards = sourceRecords?.cards || [];
     const count = (mode: 'standard' | 'misprints') => {
@@ -433,7 +437,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
         <span>
           {builderMode === 'manual'
             ? `${countLabel(manualCandidates.length, 'saved result')} for this star`
-            : `${countLabel(lensedCount, 'unique proposal image')} from ${countLabel(pool.length, 'saved result')}`}
+            : `${countLabel(lensedCount, 'unique proposal image')} from ${countLabel(savedLensedCount, 'saved result')}`}
         </span>
       </header>
 
