@@ -4,6 +4,7 @@ import {
   gridRecordFromProposal,
   proposeGrid,
   rebuildRationale,
+  uniqueVisualCards,
   type BuilderCard,
 } from '../src/utils/gridBuilder.ts';
 import { creatorDraftSourceFromGrid } from '../src/utils/creatorDraft.ts';
@@ -119,6 +120,17 @@ test('automatic proposals never seat one MEDIA image twice through duplicate rec
       .filter(item => item.mediaChecksum === 'a'.repeat(64)).length,
     1,
   );
+});
+
+test('distinct images behind the image proxy remain distinct builder cards', () => {
+  const proxied = Array.from({ length: 9 }, (_, index) => ({
+    ...card(index, `family-${index % 3}`),
+    key: `/.netlify/functions/image-proxy?url=${encodeURIComponent(`https://images.example/frame-${index}.jpg?size=large`)}`,
+    imageUrl: `/.netlify/functions/image-proxy?url=${encodeURIComponent(`https://images.example/frame-${index}.jpg?size=large`)}`,
+  }));
+
+  assert.equal(uniqueVisualCards(proxied).length, 9);
+  assert.equal(proposeGrid(proxied, {}, 'compiled').slots.length, 9);
 });
 
 test('a 12-frame Event record preserves mode, family provenance, export order, and handoff context', async () => {
