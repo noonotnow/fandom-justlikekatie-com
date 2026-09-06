@@ -56,6 +56,7 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
     }
 
     button,
+    input,
     textarea {
       font: inherit;
     }
@@ -65,6 +66,7 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
     }
 
     button:focus-visible,
+    input:focus-visible,
     textarea:focus-visible {
       outline: 2px solid var(--gold);
       outline-offset: 3px;
@@ -416,6 +418,120 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
 
     textarea::placeholder {
       color: #656b68;
+    }
+
+    .generic-capture {
+      display: grid;
+      gap: 18px;
+    }
+
+    .generic-capture[hidden],
+    .journal-capture[hidden] {
+      display: none;
+    }
+
+    .journal-capture {
+      display: grid;
+      gap: 16px;
+    }
+
+    .journal-boundary {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: center;
+      padding: 12px 14px;
+      border: 1px solid rgba(201, 169, 110, 0.3);
+      border-radius: 10px;
+      background: rgba(201, 169, 110, 0.065);
+    }
+
+    .journal-boundary span {
+      display: block;
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 750;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .journal-boundary strong {
+      color: var(--gold-soft);
+      font-size: 20px;
+    }
+
+    .journal-boundary p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 10px;
+      text-align: right;
+    }
+
+    .journal-fields {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 11px;
+    }
+
+    .journal-fields label {
+      display: grid;
+      gap: 5px;
+      align-content: start;
+    }
+
+    .journal-fields label > span {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 650;
+    }
+
+    .journal-fields input,
+    .journal-fields textarea {
+      width: 100%;
+      min-height: 39px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #101014;
+      color: var(--ink);
+      padding: 9px 10px;
+      line-height: 1.45;
+    }
+
+    .journal-fields textarea {
+      min-height: 66px;
+    }
+
+    .journal-fields input:disabled {
+      color: var(--gold-soft);
+      opacity: 1;
+    }
+
+    .journal-fields .wide {
+      grid-column: 1 / -1;
+    }
+
+    .journal-fields .wide textarea {
+      min-height: 82px;
+    }
+
+    .journal-contract {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 9px;
+      line-height: 1.45;
+    }
+
+    .journal-contract::before {
+      flex: 0 0 auto;
+      width: 7px;
+      height: 7px;
+      margin-top: 3px;
+      border-radius: 50%;
+      background: var(--sage);
+      content: "";
     }
 
     .detail-actions {
@@ -802,6 +918,22 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
       .destination {
         grid-template-columns: 1fr;
       }
+
+      .journal-fields {
+        grid-template-columns: 1fr;
+      }
+
+      .journal-fields .wide {
+        grid-column: auto;
+      }
+
+      .journal-boundary {
+        grid-template-columns: 1fr;
+      }
+
+      .journal-boundary p {
+        text-align: left;
+      }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -928,12 +1060,71 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
               <p class="prompt" id="instrument-prompt">What is happening in the story, audience, or universe that you do not want to lose?</p>
             </div>
 
-            <textarea id="capture-text" aria-label="Capture text" placeholder="The cameo matters because Yuan Zhong is still searching…"></textarea>
+            <div class="generic-capture" id="generic-capture">
+              <textarea id="capture-text" aria-label="Capture text" placeholder="The cameo matters because Yuan Zhong is still searching…"></textarea>
 
-            <div class="detail-actions" id="detail-actions">
-              <button type="button" class="primary" id="primary-action">Save private dispatch</button>
-              <button type="button" class="secondary">Relate to open question</button>
+              <div class="detail-actions" id="detail-actions">
+                <button type="button" class="primary" id="primary-action">Save private dispatch</button>
+                <button type="button" class="secondary">Relate to open question</button>
+              </div>
             </div>
+
+            <form class="journal-capture" id="journal-capture" hidden>
+              <div class="journal-boundary">
+                <div>
+                  <span>Latest filed boundary</span>
+                  <div>Watched through Episode <strong>22</strong></div>
+                </div>
+                <p>Next entry must begin with Episode 23.<br>Draft protected locally · sealed when filed.</p>
+              </div>
+
+              <div class="journal-fields">
+                <label>
+                  <span>Episode start</span>
+                  <input type="number" value="23" disabled>
+                </label>
+                <label>
+                  <span>Episode end</span>
+                  <input type="number" min="23" max="999" value="25">
+                </label>
+                <label>
+                  <span>Current emotional condition</span>
+                  <textarea placeholder="Intrigued, under-informed, already attached"></textarea>
+                </label>
+                <label>
+                  <span>Relationship I’m monitoring</span>
+                  <textarea placeholder="Who or what dynamic has your attention?"></textarea>
+                </label>
+                <label>
+                  <span>People I trust</span>
+                  <textarea placeholder="One person or suspicion per line"></textarea>
+                </label>
+                <label>
+                  <span>People I absolutely do not trust</span>
+                  <textarea placeholder="One person or suspicion per line"></textarea>
+                </label>
+                <label class="wide">
+                  <span>Recurring suspects or objects</span>
+                  <textarea placeholder="Symbols, props, people, or details that keep returning"></textarea>
+                </label>
+                <label class="wide">
+                  <span>What I think is happening</span>
+                  <textarea placeholder="Your theory, without looking anything up"></textarea>
+                </label>
+                <label class="wide">
+                  <span>Predictions submitted for future humiliation</span>
+                  <textarea placeholder="One prediction per line"></textarea>
+                </label>
+              </div>
+
+              <p class="journal-contract">Filing creates one immutable, episode-bound Fandom Journal entry. Predictions remain unchanged until a later verdict is appended.</p>
+
+              <div class="detail-actions">
+                <button type="submit" class="primary" id="journal-file-action">File first-watch entry</button>
+                <button type="button" class="secondary">Open full Journal in Fandom</button>
+                <button type="button" class="text-action">Reference existing entry</button>
+              </div>
+            </form>
           </div>
         </div>
 
@@ -1122,15 +1313,15 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
         notice: "Prototype: private dispatch preserved in CAPTURE. Nothing moved downstream."
       },
       journal: {
-        title: "Work with First-Watch Journal",
-        prompt: "Reference an existing entry, open the protocol-bound Journal, or file a new episode-bound entry.",
-        destination: "These actions remain inside the Fandom First-Watch protocol.",
-        copy: "Referencing does not copy the entry. Filing does not create a generic Creator OS Capture.",
+        title: "File a First-Watch entry",
+        prompt: "Capture only what was knowable at this watch boundary. The field grammar belongs here; moderation and publication remain in Fandom.",
+        destination: "This will become an immutable, episode-bound Fandom Journal entry.",
+        copy: "The cockpit embeds the capture protocol. Veteran moderation, safe-reader preview, and public snapshot controls stay in the Fandom specialist view.",
         owner: "Fandom · First-Watch",
-        placeholder: "Optional note about the entry you need…",
-        action: "Open protocol-bound Journal",
-        secondary: "File in First Watch",
-        notice: "Prototype: opening the Fandom-owned First-Watch specialist view."
+        placeholder: "",
+        action: "File first-watch entry",
+        secondary: "Open full Journal in Fandom",
+        notice: "Prototype: first-watch entry filed with its episode boundary and predictions sealed."
       },
       evidence: {
         title: "Add canon or universe evidence",
@@ -1174,6 +1365,8 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
     const destinationCopy = document.querySelector("#destination-copy");
     const destinationOwner = document.querySelector("#destination-owner");
     const textarea = document.querySelector("#capture-text");
+    const genericCapture = document.querySelector("#generic-capture");
+    const journalCapture = document.querySelector("#journal-capture");
     const primaryAction = document.querySelector("#primary-action");
     const detailActions = document.querySelector("#detail-actions");
     const toast = document.querySelector("#toast");
@@ -1198,6 +1391,9 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
       destinationTitle.textContent = instrument.destination;
       destinationCopy.textContent = instrument.copy;
       destinationOwner.textContent = instrument.owner;
+      const isJournal = key === "journal";
+      genericCapture.hidden = isJournal;
+      journalCapture.hidden = !isJournal;
       textarea.placeholder = instrument.placeholder;
       textarea.value = "";
       primaryAction.textContent = instrument.action;
@@ -1210,6 +1406,11 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
 
     primaryAction.addEventListener("click", () => {
       showToast(instruments[current].notice);
+    });
+
+    journalCapture.addEventListener("submit", event => {
+      event.preventDefault();
+      showToast(instruments.journal.notice);
     });
 
     document.querySelectorAll(".secondary, .text-action").forEach(button => {
