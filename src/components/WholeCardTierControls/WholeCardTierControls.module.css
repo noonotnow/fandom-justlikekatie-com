@@ -34,6 +34,11 @@
   overflow: hidden;
 }
 
+.buttons:focus-within {
+  outline: 2px solid #c9a96e;
+  outline-offset: 2px;
+}
+
 .tierButton {
   display: inline-flex;
   align-items: center;
