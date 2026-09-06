@@ -2266,7 +2266,7 @@ add an Operator tab or a Katie-only tab.
 | Creator OS surface | CDRAMA modules, engines, and tools visible through the Lens |
 | --- | --- |
 | **CAPTURE** | Quick Capture; private Waiting Room dispatch; source/link capture; audience-question capture; “file in First Watch” Fandom command; “add Waiting Room evidence” Fandom command; Collection artifact picker; recent safe domain context |
-| **CREATE** | Series context; Editorial Ideas; CDRAMA Sources; Kits/Treatments; Workstation expression composer; media/source selector; Fandom publication-package intake; Domain Contribution drafting; expression version and provenance |
+| **CREATE** | Series context; CREATE — Ideas; Artifact Workbenches; CDRAMA Sources; Kits/Treatments; Workstation expression composer; media/source selector; Fandom publication-package intake; Domain Contribution drafting; Artifact version and provenance |
 | **PLAN** | External expression placements; platform/account choice; schedule intent; execution authorization; readiness and hold projections; domain-native release-condition projection; conflicts requiring action |
 | **CONNECT** | Attempt and reconciliation status; Fandom Public Edition projections; verified external publications; derivative lineage; correction/supersession state; metrics snapshots; audience signals; learning proposals; “capture this finding” and “propose to Series” actions |
 
@@ -2276,8 +2276,8 @@ The four modules compose existing workbenches rather than replacing them:
 
 | Module | Engines and views it homes | Boundary it prepares or receives |
 | --- | --- | --- |
-| **CAPTURE** | First-Watch interface; Waiting Room journal/dispatch; ordinary CDRAMA journal; source/evidence capture; scene/reaction capture; audience questions; inspiration and Series observations | Optionally prepares a Creative Commitment Receipt for selected material; most filings end with their canonical owner |
-| **CREATE** | Editorial Ideas; Idea Packet Studio; Studio Pipeline; source/media assembly; copy, titles, tags, Treatments; artifact/post families; rendition generation, recipes, versions, fingerprints, and exports | Produces a committed artifact eligible for schedule admission |
+| **CAPTURE** | First-Watch interface; Waiting Room journal/dispatch; ordinary CDRAMA journal; source/evidence capture; scene/reaction capture; audience questions; inspiration and Series observations | Optionally prepares a Creative Commitment Receipt when selected material becomes a CREATE Idea or Artifact; most filings end with their canonical owner |
+| **CREATE** | Editorial Ideas; Idea Packet Studio; Artifact Workbenches; Studio Pipeline; source/media assembly; copy, titles, tags, Treatments; Artifact families; rendition generation, recipes, versions, fingerprints, and exports | Receives explicit Idea or Artifact commitments; only eligible external-placement Artifacts can later prepare schedule admission |
 | **PLAN** | Exact rendition/export selection; canonical Post binding; seven-day dated view; platform/account placement; expression packet requirements; readiness review; manual versus automated path; holds, conflicts, and authorization | Receives a dated placement from CREATE; emits EXECUTE/PUBLISH boundary receipts to CONNECT |
 | **CONNECT** | Receipt Pending; external verification and reconciliation; public-state projection; correction chains; metrics snapshots; audience response; learning proposals | Receives automated attempt results or manual operator attestations and rules on external publication truth |
 
@@ -2321,6 +2321,91 @@ legible.
 | Metrics snapshot | Time-bound observation | Recommendation, Capture, or analysis | Editorial truth |
 | Recommendation | CONNECT interpretation | Accepted Capture or reviewed Series learning | Silent Series mutation |
 
+### Constitutional ontology ruling — from fragment to governed result
+
+The Waiting Room paper cockpit exposed that **shape** had been hiding four
+separate decisions:
+
+1. **Proposition:** what might be worth developing?
+2. **Artifact:** what definite thing is being made?
+3. **Destination:** where could that artifact go?
+4. **Authority:** who may accept, place, or publish it?
+
+The product thesis is:
+
+> **Preserve the fragment. Notice the beat. Commit only when the shape becomes
+> real.**
+
+The formal ontology distinguishes:
+
+| Concept | Meaning |
+| --- | --- |
+| **Capture** | Preserved source, experience, question, or signal; complete by default |
+| **Relationship** | Typed connection without ownership transfer or a new creative object |
+| **Idea** | Proposition worth developing |
+| **Series** | Intentionally established continuity container |
+| **Artifact** | Definite made thing with an intended form and version |
+| **Rendition** | Concrete rendered version of an Artifact |
+| **Placement** | PLAN's intended use of an exact eligible Artifact/rendition |
+| **Domain Action** | Invocation of an authoritative protocol; its result type depends on that protocol |
+| **Attempt or Publication Receipt** | Evidence of what was attempted or verified externally |
+| **Learning Proposal** | CONNECT interpretation and proposed return awaiting disposition |
+
+The interaction grammar names user intent, not equivalent object classes:
+
+```text
+CAPTURE
+preserved source; complete by default
+        │
+        ├── RELATE
+        │   typed relationship; no new creative object
+        │
+        ├── DEVELOP AN IDEA
+        │   proposition in CREATE — Ideas
+        │
+        ├── MAKE AN ARTIFACT
+        │   definite object in a CREATE workbench
+        │
+        └── INVOKE A DOMAIN ACTION
+            authoritative domain protocol
+            result type defined by that protocol
+```
+
+Doing nothing remains valid. “Keep in CAPTURE” is not another gate.
+
+Ideas and Artifacts have different exits:
+
+```text
+Idea
+├── remain, develop, revise, retire, or supersede
+├── produce one or more Artifacts
+├── establish a Series through explicit Series authority
+└── support a Domain Action
+
+Artifact
+├── remain private in CREATE
+├── external placement → PLAN
+├── domain submission → domain review/publication
+├── private or export-only use
+└── revise, retire, or supersede
+```
+
+Only a concrete Artifact requiring external placement crosses into PLAN. A
+website editorial Artifact routes to Fandom review; a Series premise remains an
+Idea until explicitly established; a private Artifact may have no destination.
+
+A website change therefore has two legitimate entrances:
+
+```text
+Capture → Make an Artifact → website editorial draft in CREATE
+        → invoke Fandom review → Fandom accepts and publishes
+
+Capture → Invoke a Domain Action → propose bounded website change
+        → Fandom develops or requests the Artifact → review and publication
+```
+
+In both cases, the live site remains under Fandom authority.
+
 ### Durable boundary objects
 
 The Lens needs eight durable cross-stage or cross-authority intermediates.
@@ -2330,13 +2415,13 @@ tools.
 | Boundary object | Producer → consumer | Required contents | Explicit non-authority |
 | --- | --- | --- | --- |
 | **Authorized Fandom Projection** | Fandom → Lens/CREATE | Source ID/version, safe selected fields, restrictions, correction state, projection schema, receipt | Cannot mutate or fully reconstruct the private/domain record |
-| **Creative Commitment Receipt** | CAPTURE/domain owner → CREATE | Selected source IDs/versions, safe excerpt/projection, target artifact ID/type, actor, timestamp, idempotency key | Does not move the source, require every Capture to become an artifact, or apply to direct-to-CREATE work |
+| **Creative Commitment Receipt** | CAPTURE/domain owner → CREATE | Selected source IDs/versions, safe excerpt/projection, commitment intent, resulting Idea or Artifact ID/type, actor, timestamp, idempotency key | Does not move the source, require every Capture to become an Idea or Artifact, imply a destination, or apply to direct-to-CREATE work |
 | **Publication Package** | Fandom edition → CREATE | Immutable edition identity/version, exact assets/order, canonical copy, provenance/rights, release constraints, correction state | Does not transfer edition ownership or guarantee an external derivative |
 | **Schedule Admission** | CREATE handoff → PLAN | Expression/Post ID and version, explicit promotion or `Ready for scheduling` eligibility, `ScheduledDate`, actor, timestamp, idempotency key | Does not select the final rendition, prove packet readiness, authorize execution, or prove publication |
 | **Execution Request** | PLAN → EXECUTE | Exact expression/placement versions, account, schedule/condition, authorization, payload digest, idempotency key | Does not prove an attempt or publication |
 | **Attempt Receipt** | EXECUTE → CONNECT/PLAN | Attempt ID, request key, executor, attempted/retried time, native response/reference, outcome class | A success-shaped response is not verified publication |
 | **Verified Publication Receipt** | CONNECT → Lens/PLAN | Native account and ID, authenticated existence, verified `publishedAt`, optional URL, reconciliation evidence, correction state | Does not rewrite expression copy or source authority |
-| **Learning Proposal** | CONNECT → CREATE/Series | Source receipt/snapshots, finding, confidence, limitations, recommended action | Cannot mutate Series, Idea, or source without explicit acceptance |
+| **Learning Proposal** | CONNECT → CAPTURE/CREATE/PLAN/Series/domain authority | Source receipts and snapshots, observation window, observation, interpretation, confidence, limitations, proposed return intent and destination, existing Artifact identity when relevant, stale-after condition, disposition, actor, and acceptance receipt | Cannot create work, mutate Series or CAPTURE grammar, or enter PLAN without explicit acceptance and an eligible existing Artifact |
 
 ### How the lifecycle surfaces change
 
@@ -2381,15 +2466,16 @@ The Lens may offer these actions together because context is shared. It may not
 store them as one undifferentiated Journal.
 
 CAPTURE → CREATE is optional and explicit. It occurs only when Katie commits
-selected material to a definite made thing that now needs editorial or
-production work:
+selected material either to an Idea worth developing or to a definite Artifact
+that now needs editorial or production work:
 
 ```text
 selected CDRAMA material
-        │ Katie commits it to a post or another definite artifact shape
+        │ Katie chooses DEVELOP AN IDEA or MAKE AN ARTIFACT
         ▼
-Editorial Idea, Rednote post, Instagram carousel, YouTube Short,
-article, guide section, game, website expansion, or visual treatment
+Idea in CREATE — Ideas
+or
+definite Artifact in an appropriate CREATE workbench
 ```
 
 The original Capture remains intact. CREATE receives only the selected
@@ -2411,33 +2497,34 @@ lifecycle state.
 This boundary is **creative commitment**, not generic promotion. It exists only
 when Katie decides:
 
-> This selected material should become a definite made thing, and it now needs
-> shaping work.
+> This selected material should become a proposition worth developing or a
+> definite made thing, and it now needs creative work.
 
 The handoff:
 
 ```text
 selected authorized Capture/domain material
-+ chosen artifact class and initial creative intention
++ chosen commitment intent: Idea or Artifact
++ target Idea type or Artifact class
 + explicit actor decision
         ↓
-new or linked CREATE artifact
+new or linked CREATE Idea or Artifact
 + additive source lineage
-+ promotion receipt
++ Creative Commitment Receipt
 ```
 
 The receipt records the selected source IDs and versions, safe excerpt or
-projection, target artifact ID and type, actor, timestamp, and idempotency key.
-The source remains in CAPTURE or with its domain owner; the new artifact may
-change independently without rewriting it.
+projection, commitment intent, resulting Idea or Artifact ID and type, actor,
+timestamp, and idempotency key. The source remains in CAPTURE or with its domain
+owner; the new CREATE object may change independently without rewriting it.
 
 This boundary is optional:
 
 - most Captures and domain filings never cross it;
 - a selected passage may cross without moving the surrounding record;
-- one source may produce several differently shaped artifacts;
-- several authorized sources may support one artifact;
-- an inherently post-shaped intention may begin directly in CREATE and has no
+- one source may produce several Ideas or differently shaped Artifacts;
+- several authorized sources may support one Idea or Artifact;
+- an inherently shaped intention may begin directly in CREATE and has no
   CAPTURE → CREATE receipt.
 
 Stale, corrected, withdrawn, private, or newly unsafe source material must
@@ -2475,24 +2562,28 @@ Its actions preserve authority:
 #### CREATE
 
 CREATE becomes an embeddable engine inside the Lens rather than a distant
-Workstation destination:
+Workstation destination. It has two layers:
 
 ```text
-Series + selected sources + Idea + Treatment
-→ expression workbench
-→ versioned Platform Expression
+CREATE — Ideas
+→ propositions that may remain exploratory, establish Series,
+  support Domain Actions, or produce one or more Artifacts
+
+CREATE — Artifact Workbenches
+→ selected sources + Idea + Treatment
+→ definite versioned article, site draft, expression, video,
+  guide, game, or private creative object
 ```
 
 CREATE accepts two legitimate starts:
 
-1. **Promoted material:** Katie commits a selected Capture or authorized domain
-   passage to a definite artifact—editorial, website expansion, post, guide,
-   game, or other shaped work—that now needs development.
+1. **Committed material:** Katie commits a selected Capture or authorized
+   domain passage either to an Idea or directly to a definite Artifact.
 2. **Inherently shaped intent:** Katie already knows she is making a post,
    article, carousel, video, or other artifact and begins directly in CREATE.
 
-Neither path is more canonical. CREATE requires a shaped work intention, not a
-ceremonial Capture record.
+Neither path is more canonical. CREATE requires an explicit creative intention,
+not a ceremonial Capture record.
 
 The existing Workstation continues to own drafts, media preparation, copy,
 titles, tags, and art direction. “Send to Workstation” survives only as a
@@ -2601,6 +2692,64 @@ concerns:
    themes.
 3. **Learning:** recommendations and Captures returned to CAPTURE, CREATE, or
    Series for explicit review.
+
+#### CONNECT Return Contract
+
+CONNECT is the learning membrane returning external reality to editorial
+attention. It returns evidence-backed proposals, not commands.
+
+Every Learning Proposal separates:
+
+```text
+OBSERVATION
+What external evidence was actually received?
+
+INTERPRETATION
+What might it mean, with confidence and limitations?
+
+PROPOSAL
+What could Katie consider doing?
+```
+
+The cockpit may offer three return intents:
+
+| Return intent | Destination | Permitted result |
+| --- | --- | --- |
+| **Notice this** | CAPTURE | Preserve a signal, phrase, question, confusion, motif, or emerging beat |
+| **Consider making this** | CREATE | Propose or, after explicit commitment, create an Idea, revision, treatment, Artifact, or Artifact family |
+| **Consider placing this** | PLAN | Recommend placement of an exact, existing, eligible, ready Artifact/rendition |
+
+Every return may instead be dismissed, deferred, or marked insufficient. The
+observation remains valid history even when its interpretation or proposal is
+rejected.
+
+The PLAN guard is absolute:
+
+```text
+CONNECT finding
+✕ fabricate an Artifact
+✕ select a rendition
+✕ assign a date
+✕ schedule it
+```
+
+`Consider placing this` is available only when CONNECT can name an existing
+Artifact ID, eligible version, readiness state, available exact rendition,
+relevant evidence, limitations, and timing rationale. If no Artifact exists,
+the return must begin in CAPTURE or CREATE.
+
+Accepted learning may also propose a change to CAPTURE's instrument grammar:
+
+```text
+repeated CONNECT finding
+→ Learning Proposal
+→ Katie accepts
+→ CAPTURE instrument or configuration evolves
+```
+
+CONNECT never silently rewrites CAPTURE taxonomy from raw metrics. It teaches
+the beat laboratory what may deserve attention next while CAPTURE, CREATE,
+PLAN, Series, and domain authorities retain their own judgment.
 
 “Published” remains two coordinated ledgers rather than one overloaded status:
 
@@ -2755,6 +2904,11 @@ Its governing job is:
 > Open the Waiting Room, see what is alive, preserve what matters, and make the
 > next worthwhile thing only if one actually wants to be made.
 
+The visible product surface is a **Series cockpit**. Its internal theory of
+life is a **domain-aware beat laboratory**: heterogeneous fragments gather
+continuity, relationships reveal emerging beats, and commitment occurs only
+when an Idea, Artifact, or governed domain action becomes real.
+
 Opening a Series should first help Katie understand and preserve what is
 happening. It must not pressure her to manufacture content. CAPTURE is therefore
 the primary working area while CREATE, PLAN, and CONNECT remain visible as
@@ -2838,6 +2992,35 @@ boundary, privacy and spoiler boundary, and why it is present. The current
 Series supplies the focal context; the selected Lens supplies the working
 horizon.
 
+The first empirical use of the instrument should preserve a strict knowledge
+boundary:
+
+```text
+before watching
+→ BEGIN
+→ identify drama and intended episode
+→ record prior filed boundary, prior knowledge boundary, and startedAt
+→ do not answer prompts, research, or predict
+
+during the episode
+→ EXPERIENCE
+→ watch without Journal interrogation
+→ optionally end the session without filing
+
+after Episode 1
+→ FILE AND SEAL
+→ capture freely from memory
+→ distinguish what was shown, inferred, felt, predicted, and not understood
+→ file and seal the immutable Episode 1 entry
+```
+
+Beginning is a session-opening action, not a Journal entry. It creates no
+pre-watch predictions, partially canonical entry, advanced episode boundary, or
+obligation if the episode is abandoned. Only filing after the episode creates
+the immutable entry and advances the durable boundary. The filed entry is
+already a complete domain record and does not need to become content; later
+Ideas, Artifacts, or relationships require separate explicit action.
+
 Contextual resolution therefore prefers:
 
 1. a Journal attached to the current Series;
@@ -2880,36 +3063,40 @@ CAPTURE is not a task queue. Saving a private dispatch completes the act of
 preservation. The record may remain **Unshaped** forever without becoming
 overdue, unfinished content, a Draft Post, or work Katie is expected to process.
 
-An existing CAPTURE record may expose three categories of contextual action:
+An existing CAPTURE record may expose five possible dispositions:
 
 - **Preserve:** already complete; no further action is required.
 - **Relate:** add a typed Series, source, evidence, or open-question relationship
   without creating a new artifact.
-- **Make:** explicitly commit selected authorized material to a definite CREATE
-  shape.
+- **Develop an Idea:** explicitly commit selected authorized material to a
+  proposition in CREATE — Ideas.
+- **Make an Artifact:** explicitly commit selected authorized material to a
+  definite object in a CREATE workbench.
+- **Invoke a Domain Action:** enter an authoritative protocol whose domain
+  defines the resulting record or receipt.
 
 `Unshaped`, `In use`, `Related`, and `Archived` are descriptive filters, not
 mandatory workflow stages. Creating a derivative does not move or reclassify
 the source. The Capture instead gains additive lineage to one or more CREATE
 objects.
 
-**Make something from this** must therefore cross a visible commitment boundary:
+Any commitment must cross a visible routing boundary:
 
 1. Select the exact material that may cross: the entire record, a selected
    passage, or selected material plus named evidence references.
-2. Choose the definite shape: domain expansion, editorial object, post-shaped
-   Idea Packet, or known platform expression.
-3. Preview the source version, privacy and spoiler restrictions, resulting
+2. Choose the interaction intent: develop an Idea, make an Artifact, or invoke
+   a Domain Action.
+3. Choose the resulting Idea type, Artifact class, or named domain protocol.
+4. Preview the source version, privacy and spoiler restrictions, resulting
    object class, canonical owner, and later authority.
-4. Confirm the Creative Commitment.
+5. Confirm the Creative Commitment.
 
 The preview states what will *not* happen: the source will not move or change,
 unselected private text will not cross, no schedule will be created, and no
-live domain state will change. A website expansion creates a CREATE-owned
-Website Expansion Proposal subject to later Fandom review; a new Series idea
-creates a Series Idea Packet rather than a canonical Series; a Post seed creates
-a platform-agnostic post-shaped Idea Packet; and a known platform choice may
-start that treatment directly in CREATE.
+live domain state will change. A website expansion Idea remains a proposition;
+a drafted Guide section is an Artifact subject to later Fandom review; a Series
+premise remains an Idea until explicitly established; and a known platform
+choice may start its Artifact workbench directly in CREATE.
 
 Relationship is not promotion:
 
@@ -2939,7 +3126,8 @@ Series decision.
 The summaries expose meaningful work without giving all four modules equal
 visual weight.
 
-**CREATE — What definite things are being made from this Series?**
+**CREATE — What Ideas are developing, and what definite Artifacts are being
+made from this Series?**
 
 - Editorial Ideas;
 - website-expansion proposals;
@@ -2949,9 +3137,9 @@ visual weight.
 - rendition families and immutable exports being produced;
 - committed items approaching `Ready for scheduling`.
 
-CREATE owns shaping and the available rendition family. The summary does not
-imply that every Capture should cross or that a finished artifact has a
-placement.
+CREATE owns Idea development, Artifact shaping, and available rendition
+families. The summary does not imply that every Capture should cross, that every
+Idea must become an Artifact, or that a finished Artifact has a placement.
 
 **PLAN — What has a placement, which exact thing are we using, and what is
 authorized next?**
@@ -2969,7 +3157,8 @@ PLAN receives only work with a `ScheduledDate`. It distinguishes schedule
 admission, exact rendition selection, packet readiness, and publication
 authorization rather than collapsing them into one “ready” badge.
 
-**CONNECT — What happened, and what should return to CAPTURE or CREATE?**
+**CONNECT — What happened, what might it mean, and what deserves attention
+next?**
 
 - attempted or manually handled publications;
 - verification-pending items;
@@ -2979,9 +3168,12 @@ authorization rather than collapsing them into one “ready” badge.
 - audience questions;
 - Learning Proposals.
 
-CONNECT renders external publication truth and attributed interpretation. Its
-return actions create a Capture, a CREATE revision, or a reviewable Series
-proposal; they never mutate any of those records silently.
+CONNECT renders external publication truth and attributed interpretation. Each
+Learning Proposal separates observation, interpretation, confidence and
+limitations, and proposed action. Its explicit return intents are **Notice
+this**, **Consider making this**, and—only for an exact existing ready
+Artifact—**Consider placing this**. They never mutate CAPTURE, CREATE, PLAN, a
+Series, or domain truth silently.
 
 ### Manual walkthrough 1 — A private dispatch remains complete in CAPTURE
 
@@ -3018,31 +3210,36 @@ contextual action; staying in CAPTURE requires no button or decision.
 **Pass:** the evidence is visible in context while its owner, claim-strength
 limit, spoiler boundary, and correction path remain Fandom-controlled.
 
-### Manual walkthrough 3 — A selected passage becomes website work
+### Manual walkthrough 3 — A selected passage becomes a website Idea and Artifact
 
 1. From the private dispatch, Katie selects only the passage about the cameo
    extending the unfinished search.
-2. She chooses **Make something from this**.
+2. She chooses **Develop an Idea**.
 3. The boundary asks which exact material may cross: the entire dispatch, the
    selected passage, or the dispatch plus named evidence references.
-4. She chooses **Expand the domain → Website expansion**.
+4. She chooses **Website expansion idea**.
 5. The cockpit previews the selected excerpt, source version, privacy and
-   spoiler restrictions, `Website Expansion Proposal`, Creator OS CREATE
-   ownership, and later Fandom review authority.
+   spoiler restrictions, resulting `Website Expansion Idea`, Creator OS CREATE
+   — Ideas ownership, and the fact that no destination or publication is yet
+   implied.
 6. The preview states that the original dispatch will not move or change,
    unselected private text will not cross, nothing will be scheduled, and the
    website will not be edited.
-7. Confirming creates a Website Expansion Proposal in CREATE plus a Creative
+7. Confirming creates a Website Expansion Idea in CREATE plus a Creative
    Commitment Receipt.
 8. The original dispatch remains private and unchanged in CAPTURE, changes its
    descriptive state from `Unshaped` to `In use`, and shows the new derivative
-   lineage. The CREATE summary shows the newly created proposal as `Shaping`;
+   lineage. The CREATE summary shows the newly created Idea as `Exploring`;
    PLAN remains unchanged.
-9. CREATE may develop the argument and submit a Domain Contribution, but Fandom
-   separately accepts, versions, and publishes any website change.
+9. When the intended public object becomes definite, Katie chooses **Make an
+   Artifact → C-drama Guide section**. A CREATE website-editorial workbench
+   receives the selected Idea and source lineage.
+10. The completed Artifact invokes Fandom review. Fandom separately accepts,
+    versions, and publishes any website change; PLAN remains uninvolved.
 
-**Pass:** a non-post artifact crosses into CREATE through additive lineage
-without moving the source or granting CREATE authority over the live site.
+**Pass:** the cockpit distinguishes proposition from definite Artifact, both
+cross through additive lineage without moving the source, and neither grants
+CREATE authority over the live site or creates a PLAN placement.
 
 ### Manual walkthrough 4 — Direct Rednote creation reaches verified outcome
 
@@ -3074,21 +3271,28 @@ distinct, and only CONNECT may declare the external publication verified.
 1. CONNECT observes repeated comments asking whether Season 2 is real.
 2. The cockpit presents the bounded comments as audience signals with source,
    capture time, quotation status, and interpretation limits.
-3. Katie chooses one explicit return path:
-   - **Preserve as audience question** creates a private Capture;
-   - **Make FAQ response** starts a definite CREATE artifact;
-   - **Add to open question** creates a typed Series relationship;
-   - **Propose as Series learning** creates a Learning Proposal for review.
-4. No option rewrites the Series thesis, evidence trail, or public state.
-5. If the source comment is edited, removed, or no longer quotable, CONNECT
+3. CONNECT separates the observed comments from its interpretation that the
+   premise is compelling but its unofficial status may need clearer onboarding.
+4. Katie chooses one explicit return intent:
+   - **Notice this → Preserve audience question** creates a bounded Capture;
+   - **Consider making this → Develop an Idea** creates an attributed Idea;
+   - **Consider making this → Make FAQ Artifact** begins an explicit Artifact
+     commitment and later routes by destination authority;
+   - **Consider placing this** remains unavailable because no exact existing
+     ready Artifact is identified;
+   - **Dismiss** declines the interpretation while preserving the observation.
+5. No option rewrites the Series thesis, evidence trail, public state, or
+   CAPTURE grammar.
+6. If the source comment is edited, removed, or no longer quotable, CONNECT
    appends that state and recomputes affected aggregates without erasing the
    original observation.
-6. If a publication or source claim requires correction, the owning system
+7. If a publication or source claim requires correction, the owning system
    appends the correction or retraction, marks dependent projections stale, and
    leaves prior receipts and expression history inspectable.
 
-**Pass:** response can return to CAPTURE, CREATE, or Series review while source
-history, interpretation limits, and correction lineage remain intact.
+**Pass:** response can return to CAPTURE or CREATE, or recommend PLAN only for
+an eligible existing Artifact, while source history, interpretation limits,
+disposition, and correction lineage remain intact.
 
 ### Walkthrough findings
 

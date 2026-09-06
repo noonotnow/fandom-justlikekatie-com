@@ -612,7 +612,7 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
       background: rgba(201, 169, 110, 0.065);
     }
 
-    .journal-boundary span {
+    .journal-boundary > div > span {
       display: block;
       color: var(--muted);
       font-size: 9px;
@@ -643,6 +643,8 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
     }
 
     .journal-empty[hidden],
+    .journal-session[hidden],
+    .journal-watching[hidden],
     .journal-filing[hidden] {
       display: none;
     }
@@ -681,9 +683,30 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
       text-align: right;
     }
 
+    .journal-session,
+    .journal-watching,
     .journal-filing {
       display: grid;
       gap: 16px;
+    }
+
+    .journal-experience {
+      display: grid;
+      gap: 6px;
+      border-left: 2px solid var(--gold);
+      padding: 4px 0 4px 13px;
+    }
+
+    .journal-experience strong {
+      font-size: 18px;
+    }
+
+    .journal-experience p {
+      max-width: 62ch;
+      margin: 0;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.5;
     }
 
     .journal-contract {
@@ -785,6 +808,10 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
       align-items: start;
       padding: 14px 0;
       border-top: 1px solid var(--line);
+    }
+
+    .record[hidden] {
+      display: none;
     }
 
     .record:first-of-type {
@@ -1006,6 +1033,110 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
 
     .ledger-line[data-new="true"] span {
       color: var(--lilac-soft);
+    }
+
+    .learning-return {
+      display: grid;
+      gap: 10px;
+      margin-top: 7px;
+      border: 1px solid rgba(111, 141, 131, 0.42);
+      border-radius: 9px;
+      background: rgba(111, 141, 131, 0.07);
+      padding: 11px;
+    }
+
+    .learning-return-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: baseline;
+    }
+
+    .learning-return-head span {
+      color: var(--sage-soft);
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+
+    .learning-return-head strong {
+      color: var(--gold-soft);
+      font-size: 8px;
+      text-align: right;
+    }
+
+    .learning-fact {
+      display: grid;
+      gap: 2px;
+    }
+
+    .learning-fact span,
+    .return-group > span {
+      color: var(--muted);
+      font-size: 7px;
+      font-weight: 800;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+
+    .learning-fact strong {
+      color: #d8dcd9;
+      font-size: 9px;
+      font-weight: 650;
+      line-height: 1.45;
+    }
+
+    .learning-confidence {
+      color: var(--muted);
+      font-size: 8px;
+      line-height: 1.45;
+    }
+
+    .return-actions {
+      display: grid;
+      gap: 8px;
+      padding-top: 2px;
+      border-top: 1px solid var(--line);
+    }
+
+    .return-group {
+      display: grid;
+      gap: 4px;
+    }
+
+    .return-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .learning-action {
+      min-height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.025);
+      color: #d7d9d7;
+      padding: 5px 7px;
+      font-size: 8px;
+      font-weight: 750;
+      text-align: left;
+    }
+
+    .learning-action:hover:not(:disabled) {
+      border-color: rgba(111, 141, 131, 0.7);
+      color: var(--sage-soft);
+    }
+
+    .learning-action:disabled {
+      cursor: not-allowed;
+      opacity: 0.42;
+    }
+
+    .learning-return[data-disposition="accepted"] .learning-action,
+    .learning-return[data-disposition="dismissed"] .learning-action {
+      pointer-events: none;
+      opacity: 0.34;
     }
 
     .commitment-dialog {
@@ -1540,19 +1671,75 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
                 </div>
               </div>
 
-              <div class="journal-filing" id="journal-filing" hidden>
+              <div class="journal-session" id="journal-session" hidden>
                 <div class="journal-boundary">
                   <div>
-                    <span>New Journal · illustrative draft</span>
-                    <div>First entry begins with Episode <strong>1</strong></div>
+                    <span>Session setup · nothing filed</span>
+                    <div>Current boundary: <strong>Not started</strong></div>
                   </div>
-                  <p>No watch progress is being asserted.<br>Draft protected locally · sealed when filed.</p>
+                  <p>Choose the experience boundary.<br>Do not answer Journal prompts yet.</p>
                 </div>
 
                 <div class="field-grid">
                   <label class="wide">
                     <span>Drama or Series</span>
-                    <input type="text" placeholder="Choose the drama this Journal belongs to">
+                    <input id="journal-drama" type="text" placeholder="The Untamed">
+                  </label>
+                  <label>
+                    <span>Next episode</span>
+                    <input type="number" value="1" disabled>
+                  </label>
+                  <label>
+                    <span>Prior filed boundary</span>
+                    <input type="text" value="Not started" disabled>
+                  </label>
+                  <label class="wide">
+                    <span>Prior knowledge boundary · optional</span>
+                    <textarea placeholder="Record only what you already know before pressing play; do not research or predict"></textarea>
+                  </label>
+                </div>
+
+                <p class="journal-contract">Beginning records the intended episode, prior boundary, and local start time. It creates no entry, advances no boundary, and asks for no prediction.</p>
+
+                <div class="detail-actions">
+                  <button type="button" class="primary" id="begin-journal-session">Begin Episode 1</button>
+                  <button type="button" class="secondary" id="cancel-journal-setup">Back to Journal choices</button>
+                </div>
+              </div>
+
+              <div class="journal-watching" id="journal-watching" hidden>
+                <div class="journal-boundary">
+                  <div>
+                    <span>Experience in progress · nothing filed</span>
+                    <div><strong id="journal-watch-title">Episode 1</strong></div>
+                  </div>
+                  <p>Started <span id="journal-started-at">just now</span><br>Durable boundary remains: Not started</p>
+                </div>
+
+                <div class="journal-experience">
+                  <strong>Watch without being interrogated.</strong>
+                  <p>Return after the episode ends. If you stop midway, end the session without filing and the durable First-Watch boundary will not move.</p>
+                </div>
+
+                <div class="detail-actions">
+                  <button type="button" class="primary" id="complete-journal-session">Episode 1 complete · write entry</button>
+                  <button type="button" class="secondary" id="end-journal-session">End session without filing</button>
+                </div>
+              </div>
+
+              <div class="journal-filing" id="journal-filing" hidden>
+                <div class="journal-boundary">
+                  <div>
+                    <span>Post-episode filing · illustrative Entry 1 draft</span>
+                    <div>New knowledge horizon: Episode <strong>1</strong></div>
+                  </div>
+                  <p>Write before research or discussion.<br>Boundary advances only when filed.</p>
+                </div>
+
+                <div class="field-grid">
+                  <label class="wide">
+                    <span>Drama or Series</span>
+                    <input id="journal-entry-drama" type="text" placeholder="Chosen at session start" disabled>
                   </label>
                   <label>
                     <span>Episode start</span>
@@ -1561,6 +1748,10 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
                   <label>
                     <span>Episode end</span>
                     <input type="number" min="1" max="999" value="1">
+                  </label>
+                  <label class="wide">
+                    <span>Unsorted first impressions</span>
+                    <textarea placeholder="Capture freely from memory before organizing or checking anything"></textarea>
                   </label>
                   <label>
                     <span>Current emotional condition</span>
@@ -1584,19 +1775,27 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
                   </label>
                   <label class="wide">
                     <span>What I think is happening</span>
-                    <textarea placeholder="Your theory, without looking anything up"></textarea>
+                    <textarea placeholder="Your present inference, without correcting it through research"></textarea>
                   </label>
                   <label class="wide">
                     <span>Predictions submitted for future humiliation</span>
                     <textarea placeholder="One prediction per line"></textarea>
                   </label>
+                  <label class="wide">
+                    <span>What I do not understand yet</span>
+                    <textarea placeholder="Questions and uncertainty that should remain unresolved"></textarea>
+                  </label>
+                  <label class="wide">
+                    <span>Scenes, images, or lines I want to remember</span>
+                    <textarea placeholder="Describe them from memory before checking anything"></textarea>
+                  </label>
                 </div>
 
-                <p class="journal-contract">Filing creates one immutable, episode-bound Fandom Journal entry. Predictions remain unchanged until a later verdict is appended.</p>
+                <p class="journal-contract">Keep what the episode showed, what you inferred, what you felt, what you predict, and what remains unclear distinguishable. Filing creates one immutable, episode-bound Fandom Journal entry; later knowledge cannot make it retroactively intelligent.</p>
 
                 <div class="detail-actions">
-                  <button type="submit" class="primary">Start Journal and file entry</button>
-                  <button type="button" class="secondary" id="cancel-journal-start">Back to Journal choices</button>
+                  <button type="submit" class="primary">File and seal Episode 1 entry</button>
+                  <button type="button" class="secondary" id="back-to-journal-session">Back to episode session</button>
                 </div>
               </div>
             </form>
@@ -1732,14 +1931,14 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
               <p>Yuan Zhong’s appearance works because the audience remembers exactly who he is still looking for.</p>
               <span class="record-state" id="dispatch-state">Unshaped · preserved and complete · no downstream work</span>
               <span class="record-lineage" id="dispatch-lineage" hidden>
-                <strong>Used in 1 CREATE object</strong>
+                <strong id="dispatch-lineage-title">Used in 1 derivative</strong>
                 <span id="dispatch-derivative">Website expansion proposal · Shaping</span>
               </span>
             </div>
             <div class="record-actions">
               <div class="action-group">
                 <span>Make</span>
-                <button type="button" class="text-action" id="choose-shape">Choose a shape…</button>
+                <button type="button" class="text-action" id="choose-shape">Choose a commitment…</button>
               </div>
               <div class="action-group">
                 <span>Relate</span>
@@ -1773,8 +1972,23 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
               <p>Recurring onboarding question. Public quotation is not yet approved; interpretation remains provisional.</p>
             </div>
             <div class="record-actions">
-              <button type="button" class="text-action">Preserve question</button>
-              <button type="button" class="text-action">Make FAQ response</button>
+              <button type="button" class="text-action">Open CONNECT evidence</button>
+              <button type="button" class="text-action">Relate to open question</button>
+            </div>
+          </article>
+
+          <article class="record" id="learning-capture-record" data-kind="dispatch" hidden>
+            <div class="record-kind">
+              <strong>Audience question</strong>
+              <span>Creator OS · returned from CONNECT</span>
+            </div>
+            <div class="record-copy">
+              <strong>Is Season 2 actually real?</strong>
+              <p>Preserved from a bounded Learning Return. The observation window, confidence, limitations, and source-publication lineage remain attached.</p>
+              <span class="record-state">Unshaped · preserved and complete · no downstream work</span>
+            </div>
+            <div class="record-actions">
+              <button type="button" class="text-action">Open learning receipt</button>
             </div>
           </article>
         </section>
@@ -1809,8 +2023,8 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
         <section class="ledger" data-tone="create" data-open="true">
           <button class="ledger-heading" type="button" aria-expanded="true">
             <span>
-              <small>Create · definite work</small>
-              <strong>What is being made?</strong>
+              <small>Create · Ideas + Artifacts</small>
+              <strong>What is developing or being made?</strong>
             </span>
             <span class="ledger-count" id="create-count">4</span>
           </button>
@@ -1819,9 +2033,13 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
               <span>Website expansion · Newly created</span>
               <strong data-state="pending">Shaping</strong>
             </div>
+            <div class="ledger-line" id="learning-create-object" data-new="true" hidden>
+              <span>Waiting Room onboarding · Learning return</span>
+              <strong data-state="pending">Proposed</strong>
+            </div>
             <div class="ledger-line">
               <span>Editorial ideas</span>
-              <strong data-state="active">2 shaping</strong>
+              <strong data-state="active">2 exploring</strong>
             </div>
             <div class="ledger-line">
               <span>Rednote expression</span>
@@ -1866,9 +2084,9 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
           <button class="ledger-heading" type="button" aria-expanded="true">
             <span>
               <small>Connect · outcome</small>
-              <strong>What happened?</strong>
+              <strong>What happened—and what returns?</strong>
             </span>
-            <span class="ledger-count">3</span>
+            <span class="ledger-count">1</span>
           </button>
           <div class="ledger-body">
             <div class="ledger-line">
@@ -1887,6 +2105,45 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
               <span>Correction chain</span>
               <strong>1 superseded</strong>
             </div>
+            <section class="learning-return" id="learning-return" aria-labelledby="learning-return-title">
+              <div class="learning-return-head">
+                <span id="learning-return-title">Learning return</span>
+                <strong id="learning-disposition">Pending review</strong>
+              </div>
+              <div class="learning-fact">
+                <span>Observed</span>
+                <strong>Three readers asked whether Season 2 had been announced.</strong>
+              </div>
+              <div class="learning-fact">
+                <span>Interpretation</span>
+                <strong>The premise attracts attention, but its unofficial status may need clearer onboarding.</strong>
+              </div>
+              <div class="learning-confidence">Moderate confidence · September 4–6 · limited sample · public quotation not approved</div>
+              <div class="return-actions">
+                <div class="return-group">
+                  <span>Notice this</span>
+                  <div class="return-buttons">
+                    <button type="button" class="learning-action" data-return="capture">Preserve audience question</button>
+                  </div>
+                </div>
+                <div class="return-group">
+                  <span>Consider making this</span>
+                  <div class="return-buttons">
+                    <button type="button" class="learning-action" data-return="idea">Develop an Idea</button>
+                    <button type="button" class="learning-action" data-return="faq">Make FAQ Artifact</button>
+                  </div>
+                </div>
+                <div class="return-group">
+                  <span>Consider placing this</span>
+                  <div class="return-buttons">
+                    <button type="button" class="learning-action" disabled title="No exact existing ready Artifact is linked to this finding">Unavailable · no ready Artifact</button>
+                  </div>
+                </div>
+                <div class="return-buttons">
+                  <button type="button" class="learning-action" data-return="dismiss">Dismiss interpretation</button>
+                </div>
+              </div>
+            </section>
           </div>
         </section>
       </aside>
@@ -1903,9 +2160,9 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
   <dialog class="commitment-dialog" id="commitment-dialog">
     <div class="commitment-header">
       <div>
-        <span class="module-mark">Capture → Create</span>
-        <h2>Make something from this</h2>
-        <p>Preservation is already complete. Continue only if you want to commit selected material to a definite shape.</p>
+        <span class="module-mark">Capture · routing membrane</span>
+        <h2>Choose a commitment</h2>
+        <p>Preservation is already complete. Decide whether to develop an Idea, make an Artifact, or invoke a governed domain action.</p>
       </div>
       <button type="button" class="dialog-close" id="close-commitment" aria-label="Close">×</button>
     </div>
@@ -1929,32 +2186,33 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
           <section class="commitment-step">
             <div class="step-heading">
               <span>Step 2</span>
-              <strong>Choose what you want to make</strong>
+              <strong>Choose the interaction and resulting object</strong>
             </div>
             <div class="shape-groups">
               <div class="shape-group">
-                <span>Expand the domain</span>
+                <span>Develop an Idea · proposition</span>
                 <div class="shape-options">
-                  <label class="option"><input type="radio" name="shape" value="Website Expansion Proposal" data-action="Create website proposal" checked> Website expansion</label>
-                  <label class="option"><input type="radio" name="shape" value="FAQ Response" data-action="Create FAQ response"> FAQ response</label>
-                  <label class="option"><input type="radio" name="shape" value="Timeline Addition Proposal" data-action="Create timeline proposal"> Evidence-based timeline</label>
+                  <label class="option"><input type="radio" name="shape" value="Website Expansion Idea" data-route="idea" data-action="Develop website expansion idea" checked> Website expansion idea</label>
+                  <label class="option"><input type="radio" name="shape" value="Series Premise" data-route="idea" data-action="Develop Series premise"> Series premise</label>
+                  <label class="option"><input type="radio" name="shape" value="Post Seed" data-route="idea" data-action="Develop post seed"> Post seed</label>
                 </div>
               </div>
               <div class="shape-group">
-                <span>Develop an editorial object</span>
+                <span>Make an Artifact · definite object</span>
                 <div class="shape-options">
-                  <label class="option"><input type="radio" name="shape" value="Series Idea Packet" data-action="Create Series idea"> New Series idea</label>
-                  <label class="option"><input type="radio" name="shape" value="Editorial Article" data-action="Create article"> Editorial article</label>
-                  <label class="option"><input type="radio" name="shape" value="Guide or Game" data-action="Create guide or game"> Guide or game</label>
+                  <label class="option"><input type="radio" name="shape" value="C-drama Guide Section" data-route="artifact" data-action="Make Guide section"> C-drama Guide section</label>
+                  <label class="option"><input type="radio" name="shape" value="FAQ Artifact" data-route="artifact" data-action="Make FAQ Artifact"> FAQ artifact</label>
+                  <label class="option"><input type="radio" name="shape" value="Rednote Post" data-route="artifact" data-action="Make Rednote post"> Rednote post</label>
+                  <label class="option"><input type="radio" name="shape" value="Instagram Carousel" data-route="artifact" data-action="Make Instagram carousel"> Instagram carousel</label>
+                  <label class="option"><input type="radio" name="shape" value="YouTube Short" data-route="artifact" data-action="Make YouTube Short"> YouTube Short</label>
                 </div>
               </div>
               <div class="shape-group">
-                <span>Make a post-shaped object</span>
+                <span>Invoke a Domain Action · governed protocol</span>
                 <div class="shape-options">
-                  <label class="option"><input type="radio" name="shape" value="Post-shaped Idea Packet" data-action="Create post seed"> Post seed</label>
-                  <label class="option"><input type="radio" name="shape" value="Rednote Post" data-action="Create Rednote post"> Rednote post</label>
-                  <label class="option"><input type="radio" name="shape" value="Instagram Carousel" data-action="Create Instagram carousel"> Instagram carousel</label>
-                  <label class="option"><input type="radio" name="shape" value="YouTube Short" data-action="Create YouTube Short"> YouTube Short</label>
+                  <label class="option"><input type="radio" name="shape" value="Website Change Proposal" data-route="domain" data-action="Propose bounded website change"> Propose website change</label>
+                  <label class="option"><input type="radio" name="shape" value="Waiting Room Evidence Proposal" data-route="domain" data-action="Submit evidence proposal"> Submit Waiting Room evidence</label>
+                  <label class="option"><input type="radio" name="shape" value="Public-State Proposal" data-route="domain" data-action="Propose public-state change"> Propose public-state change</label>
                 </div>
               </div>
             </div>
@@ -1971,16 +2229,16 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
             <strong id="preview-material">Private Waiting Room dispatch · selected passage</strong>
           </div>
           <div class="preview-line">
-            <span>Will create</span>
-            <strong id="preview-shape">Website Expansion Proposal</strong>
+            <span>Result</span>
+            <strong id="preview-shape">Website Expansion Idea</strong>
           </div>
           <div class="preview-line">
             <span>Canonical owner</span>
-            <strong>Creator OS · CREATE</strong>
+            <strong id="preview-owner">Creator OS · CREATE — Ideas</strong>
           </div>
           <div class="preview-line">
             <span>Later authority</span>
-            <strong id="preview-authority">Fandom review before the live Waiting Room changes</strong>
+            <strong id="preview-authority">No destination or publication is implied</strong>
           </div>
           <div class="preview-line">
             <span>Restrictions</span>
@@ -2059,18 +2317,30 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
     const destinationOwner = document.querySelector("#destination-owner");
     const captureComplete = document.querySelector("#capture-complete");
     const journalEmpty = document.querySelector("#journal-empty");
+    const journalSession = document.querySelector("#journal-session");
+    const journalWatching = document.querySelector("#journal-watching");
     const journalFiling = document.querySelector("#journal-filing");
+    const journalDrama = document.querySelector("#journal-drama");
+    const journalEntryDrama = document.querySelector("#journal-entry-drama");
+    const journalWatchTitle = document.querySelector("#journal-watch-title");
+    const journalStartedAt = document.querySelector("#journal-started-at");
     const chooseShape = document.querySelector("#choose-shape");
     const commitmentDialog = document.querySelector("#commitment-dialog");
     const commitmentForm = document.querySelector("#commitment-form");
     const confirmCommitment = document.querySelector("#confirm-commitment");
     const previewMaterial = document.querySelector("#preview-material");
     const previewShape = document.querySelector("#preview-shape");
+    const previewOwner = document.querySelector("#preview-owner");
     const previewAuthority = document.querySelector("#preview-authority");
     const dispatchState = document.querySelector("#dispatch-state");
     const dispatchLineage = document.querySelector("#dispatch-lineage");
+    const dispatchLineageTitle = document.querySelector("#dispatch-lineage-title");
     const dispatchDerivative = document.querySelector("#dispatch-derivative");
     const newCreateObject = document.querySelector("#new-create-object");
+    const learningCreateObject = document.querySelector("#learning-create-object");
+    const learningCaptureRecord = document.querySelector("#learning-capture-record");
+    const learningReturn = document.querySelector("#learning-return");
+    const learningDisposition = document.querySelector("#learning-disposition");
     const createCount = document.querySelector("#create-count");
     const toast = document.querySelector("#toast");
     let current = "dispatch";
@@ -2105,13 +2375,51 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
 
     document.querySelector("#start-journal").addEventListener("click", () => {
       journalEmpty.hidden = true;
-      journalFiling.hidden = false;
-      showToast("Prototype: opening a blank First-Watch protocol. No existing watch progress was assumed.");
+      journalSession.hidden = false;
+      showToast("Prototype: preparing a First-Watch session. Nothing has been filed.");
     });
 
-    document.querySelector("#cancel-journal-start").addEventListener("click", () => {
-      journalFiling.hidden = true;
+    document.querySelector("#cancel-journal-setup").addEventListener("click", () => {
+      journalSession.hidden = true;
       journalEmpty.hidden = false;
+    });
+
+    document.querySelector("#begin-journal-session").addEventListener("click", () => {
+      const drama = journalDrama.value.trim();
+      if (!drama) {
+        journalDrama.focus();
+        showToast("Choose the drama before beginning the Episode 1 session.");
+        return;
+      }
+
+      journalSession.hidden = true;
+      journalWatching.hidden = false;
+      journalWatchTitle.textContent = `${drama} · Episode 1`;
+      journalEntryDrama.value = drama;
+      journalStartedAt.textContent = new Intl.DateTimeFormat(undefined, {
+        hour: "numeric",
+        minute: "2-digit"
+      }).format(new Date());
+      showToast("Session begun. Nothing is filed, and the durable boundary has not advanced.");
+    });
+
+    document.querySelector("#complete-journal-session").addEventListener("click", () => {
+      journalWatching.hidden = true;
+      journalFiling.hidden = false;
+      showToast("Episode 1 marked complete for this session. Write before research or discussion.");
+    });
+
+    document.querySelector("#back-to-journal-session").addEventListener("click", () => {
+      journalFiling.hidden = true;
+      journalWatching.hidden = false;
+    });
+
+    document.querySelector("#end-journal-session").addEventListener("click", () => {
+      journalWatching.hidden = true;
+      journalEmpty.hidden = false;
+      journalDrama.value = "";
+      journalEntryDrama.value = "";
+      showToast("Session ended without filing. No First-Watch boundary advanced.");
     });
 
     panels.forEach(panel => {
@@ -2126,7 +2434,7 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
 
     document.querySelectorAll(".secondary, .text-action").forEach(button => {
       button.addEventListener("click", () => {
-        if (button.id === "choose-shape") return;
+        if (button.id) return;
         showToast(`Prototype route: ${button.textContent.trim()}. No record was changed.`);
       });
     });
@@ -2134,14 +2442,24 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
     function updateCommitmentPreview() {
       const material = commitmentForm.querySelector('input[name="material"]:checked');
       const shape = commitmentForm.querySelector('input[name="shape"]:checked');
+      const route = shape.dataset.route;
       previewMaterial.textContent = `Private Waiting Room dispatch · ${material.value.toLowerCase()}`;
       previewShape.textContent = shape.value;
       confirmCommitment.textContent = shape.dataset.action;
-      previewAuthority.textContent = shape.value === "Series Idea Packet"
-        ? "Katie establishes any canonical Series separately"
-        : shape.value.includes("Website") || shape.value.includes("FAQ") || shape.value.includes("Timeline")
-          ? "Fandom review before the live Waiting Room changes"
-          : "CREATE shapes the artifact; PLAN receives it only after scheduling";
+      previewOwner.textContent = route === "idea"
+        ? "Creator OS · CREATE — Ideas"
+        : route === "artifact"
+          ? "Creator OS · CREATE workbench"
+          : "Fandom · governed domain workflow";
+      previewAuthority.textContent = route === "domain"
+        ? "Fandom defines the review, result, and publication contract"
+        : shape.value === "Series Premise"
+          ? "Katie must explicitly establish any canonical Series"
+          : shape.value === "C-drama Guide Section"
+            ? "Fandom review before the live Guide changes"
+            : ["Rednote Post", "Instagram Carousel", "YouTube Short"].includes(shape.value)
+              ? "PLAN only after an exact ready Artifact requests placement"
+              : "No destination or publication is implied";
     }
 
     chooseShape.addEventListener("click", () => {
@@ -2154,17 +2472,61 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
     commitmentForm.addEventListener("submit", event => {
       event.preventDefault();
       const shape = commitmentForm.querySelector('input[name="shape"]:checked');
+      const route = shape.dataset.route;
       const shapeLabel = shape.closest(".option").textContent.trim();
-      dispatchState.textContent = "In use · 1 CREATE derivative; source remains complete";
+      dispatchState.textContent = route === "domain"
+        ? "In use · 1 governed derivative; source remains complete"
+        : "In use · 1 CREATE derivative; source remains complete";
       dispatchState.dataset.state = "in-use";
       dispatchLineage.hidden = false;
-      dispatchDerivative.textContent = `${shapeLabel} · Shaping`;
-      newCreateObject.hidden = false;
-      newCreateObject.querySelector("span").textContent = `${shapeLabel} · Newly created`;
-      createCount.textContent = "5";
-      chooseShape.textContent = "Make another thing…";
+      dispatchLineageTitle.textContent = route === "domain"
+        ? "Used in 1 governed proposal"
+        : "Used in 1 CREATE object";
+      dispatchDerivative.textContent = `${shapeLabel} · ${route === "idea" ? "Exploring" : route === "artifact" ? "Shaping" : "Awaiting Fandom review"}`;
+      if (route !== "domain") {
+        revealCreateObject(
+          newCreateObject,
+          `${shapeLabel} · Newly created`,
+          route === "idea" ? "Exploring" : "Shaping"
+        );
+      }
+      chooseShape.textContent = "Choose another commitment…";
       commitmentDialog.close();
-      showToast(`Creative Commitment recorded: ${shape.value} created in CREATE. CAPTURE source unchanged; nothing scheduled.`);
+      showToast(route === "domain"
+        ? `Domain Action proposed: ${shape.value}. CAPTURE source unchanged; CREATE and PLAN were bypassed.`
+        : `Creative Commitment recorded: ${shape.value} created in CREATE. CAPTURE source unchanged; nothing scheduled.`);
+    });
+
+    function revealCreateObject(element, label, status) {
+      if (element.hidden) {
+        createCount.textContent = String(Number(createCount.textContent) + 1);
+      }
+      element.hidden = false;
+      element.querySelector("span").textContent = label;
+      element.querySelector("strong").textContent = status;
+    }
+
+    document.querySelectorAll("[data-return]").forEach(button => {
+      button.addEventListener("click", () => {
+        const action = button.dataset.return;
+        if (action === "capture") {
+          learningCaptureRecord.hidden = false;
+          learningDisposition.textContent = "Accepted · returned to CAPTURE";
+          showToast("Learning Return accepted: audience question preserved in CAPTURE. No Idea, Artifact, or placement was created.");
+        } else if (action === "idea") {
+          revealCreateObject(learningCreateObject, "Onboarding clarity · Idea from CONNECT", "Exploring");
+          learningDisposition.textContent = "Accepted · Idea created";
+          showToast("Learning Return accepted: attributed Idea created in CREATE. No Artifact or placement was created.");
+        } else if (action === "faq") {
+          revealCreateObject(learningCreateObject, "Waiting Room FAQ · Artifact from CONNECT", "Shaping");
+          learningDisposition.textContent = "Accepted · Artifact committed";
+          showToast("Learning Return accepted: FAQ Artifact committed in CREATE. Destination review remains separate; nothing was scheduled.");
+        } else {
+          learningDisposition.textContent = "Dismissed · evidence retained";
+          showToast("Interpretation dismissed. The underlying CONNECT observation remains in history.");
+        }
+        learningReturn.dataset.disposition = action === "dismiss" ? "dismissed" : "accepted";
+      });
     });
 
     document.querySelector("#close-commitment").addEventListener("click", () => commitmentDialog.close());
