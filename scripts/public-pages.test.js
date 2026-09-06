@@ -203,10 +203,15 @@ test("the third authority batch preserves nuance and measurable reader tools", (
 
 test("the studio glossary demonstrates collectible vocabulary without inventing provenance", () => {
   const glossary = read("public/c-drama-fandom/glossary/index.html");
-  assert.match(glossary, /Legendary Grid · LG 01/);
+  assert.match(glossary, /Legendary Grid · August 29 Liu Xueyi export/);
+  assert.match(glossary, /legendary-grid-liu-xueyi-2026-08-29\.webp/);
+  assert.match(glossary, /August 29 Liu Xueyi export/i);
+  assert.match(glossary, /not a Legendary Misprint/i);
   assert.match(glossary, /Intended identity/);
   assert.match(glossary, /Unexpected identity/);
   assert.match(glossary, /Why it survived/);
+  assert.doesNotMatch(glossary, /Open the living example/i);
+  assert.doesNotMatch(glossary, /illustrated xianxia fate archetypes/i);
   assert.doesNotMatch(glossary, /fictional misprint|sample actor|placeholder identity/i);
 });
 
@@ -435,24 +440,30 @@ test("LG01 promo media uses published assets with an accessible reduced-motion f
   assert.doesNotMatch(html, /attached_assets|localhost|127\.0\.0\.1/);
 });
 
-test("asset preparation produces optimized content and social images", async () => {
+test("asset preparation produces optimized content, specimen, and social images", async () => {
   await preparePublicPages();
   const contentPath = resolve(root, "public/assets/c-drama-fandom/which-xianxia-fate-chose-you-lg01.webp");
+  const glossarySpecimenPath = resolve(root, "public/assets/c-drama-fandom/legendary-grid-liu-xueyi-2026-08-29.webp");
   const socialPath = resolve(root, "public/assets/c-drama-fandom/lg01-master-og.jpg");
   const journalSocialPath = resolve(root, "public/assets/c-drama-fandom/watch-journal-og.jpg");
   const promoVideoPath = resolve(root, "public/assets/c-drama-fandom/xianxia-fate-lg01-promo.mp4");
   const promoPosterPath = resolve(root, "public/assets/c-drama-fandom/xianxia-fate-lg01-promo-poster.jpg");
   assert.equal(existsSync(contentPath), true);
+  assert.equal(existsSync(glossarySpecimenPath), true);
   assert.equal(existsSync(socialPath), true);
   assert.equal(existsSync(journalSocialPath), true);
   assert.equal(existsSync(promoVideoPath), true);
   assert.equal(existsSync(promoPosterPath), true);
 
   const contentMeta = await sharp(contentPath).metadata();
+  const glossarySpecimenMeta = await sharp(glossarySpecimenPath).metadata();
   const socialMeta = await sharp(socialPath).metadata();
   const journalSocialMeta = await sharp(journalSocialPath).metadata();
   assert.equal(contentMeta.format, "webp");
   assert.ok((contentMeta.width ?? 0) <= 1100);
+  assert.equal(glossarySpecimenMeta.format, "webp");
+  assert.equal(glossarySpecimenMeta.width, 1080);
+  assert.equal(glossarySpecimenMeta.height, 1350);
   assert.equal(socialMeta.format, "jpeg");
   assert.equal(socialMeta.width, 1200);
   assert.equal(socialMeta.height, 630);

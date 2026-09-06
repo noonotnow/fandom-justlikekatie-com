@@ -475,6 +475,10 @@ button { font: inherit; }
   object-fit: cover;
   width: 100%;
 }
+.studio-specimen--grid-export img {
+  aspect-ratio: auto;
+  object-fit: contain;
+}
 .studio-specimen figcaption {
   color: var(--mist);
   font-size: 14px;

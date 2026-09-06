@@ -11,6 +11,10 @@ const source = resolve(
   root,
   "attached_assets/Firefly_Gemini_Flash_--ATE._THE._ENTIRE._TABLE.--_No_crumbs,_n_1788112484176.png",
 );
+const glossaryLegendaryGridSource = resolve(
+  root,
+  "attached_assets/vibe-guide_2026-09-01_liu-xueyi_star-of-day_ep01_1788298770496.png",
+);
 const outputDir = resolve(root, "public/assets/c-drama-fandom");
 const promoVideo = resolve(outputDir, "xianxia-fate-lg01-promo.mp4");
 const promoPoster = resolve(outputDir, "xianxia-fate-lg01-promo-poster.jpg");
@@ -481,6 +485,9 @@ export async function preparePublicPages() {
   if (!existsSync(source)) {
     throw new Error(`LG · 01 master is missing: ${source}`);
   }
+  if (!existsSync(glossaryLegendaryGridSource)) {
+    throw new Error(`Legendary Grid glossary specimen is missing: ${glossaryLegendaryGridSource}`);
+  }
   for (const asset of [promoVideo, promoPoster]) {
     if (!existsSync(asset)) {
       throw new Error(`LG · 01 promo asset is missing: ${asset}`);
@@ -510,6 +517,11 @@ export async function preparePublicPages() {
       .resize({ width: 1100, withoutEnlargement: true })
       .webp({ quality: 86 })
       .toFile(resolve(outputDir, "which-xianxia-fate-chose-you-lg01.webp")),
+    sharp(glossaryLegendaryGridSource)
+      .rotate()
+      .resize({ width: 1080, withoutEnlargement: true })
+      .webp({ quality: 84 })
+      .toFile(resolve(outputDir, "legendary-grid-liu-xueyi-2026-08-29.webp")),
     sharp(source)
       .rotate()
       .resize(1200, 630, {
