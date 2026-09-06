@@ -590,26 +590,28 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         </section>
         {meta && (
           <div className="atlas-edition">
-            <div className="atlas-edition__label">
-              {selectedEditionDate ? `Archived card drop · ${formatEditionDate(meta.date)}` : "Today's curated card drop"}
-            </div>
-            <div className="atlas-edition__name">
-              <span>Today's star</span> {meta.vibeEmoji} {meta.actorName}
-            </div>
-            <div className="atlas-edition__name">
-              <span>Today's vibe</span> {meta.vibeLabel}
-            </div>
-            <div className="atlas-edition__subline">
-              {meta.vibeLabelEn} — {meta.vibeSubtitleEn}
-            </div>
-            {meta.vibeSupportingCopyEn && (
-              <div className="atlas-edition__supporting-copy">{meta.vibeSupportingCopyEn}</div>
-            )}
-            {meta.stale && (
-              <div className="atlas-edition__stale">
-                ⏳ Showing yesterday's picks while today's grid builds
+            <div className="atlas-edition__meta">
+              <div className="atlas-edition__label">
+                {selectedEditionDate ? `Archived card drop · ${formatEditionDate(meta.date)}` : "Today's curated card drop"}
               </div>
-            )}
+              <div className="atlas-edition__name">
+                <span>Today's star</span> {meta.vibeEmoji} {meta.actorName}
+              </div>
+              <div className="atlas-edition__name">
+                <span>Today's vibe</span> {meta.vibeLabel}
+              </div>
+              <div className="atlas-edition__subline">
+                {meta.vibeLabelEn} — {meta.vibeSubtitleEn}
+              </div>
+              {meta.vibeSupportingCopyEn && (
+                <div className="atlas-edition__supporting-copy">{meta.vibeSupportingCopyEn}</div>
+              )}
+              {meta.stale && (
+                <div className="atlas-edition__stale">
+                  ⏳ Showing yesterday's picks while today's grid builds
+                </div>
+              )}
+            </div>
             {selectedEditionDate && isValidVibeAtlasEditionDate(selectedEditionDate) && (
               <div className="daily-edition-share">
                 <button type="button" onClick={copyArchivedEditionLink}>
@@ -621,16 +623,18 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
               </div>
             )}
             {rawData && exportData && (
-            <div className="daily-actions">
-              <WholeCardTierControls tier={wholeCardTier} onTierChange={setWholeCardTier} />
-              <WholeCardTierBadge tier={wholeCardTier} />
-              <div className="daily-actions__primary">
-                <ExportButton
-                  rawData={exportData}
-                  onShareComplete={() => trackDailyDropShared(exportData.date, 'image')}
-                />
+              <div className="daily-actions">
+                <div className="daily-actions__classification">
+                  <WholeCardTierControls tier={wholeCardTier} onTierChange={setWholeCardTier} />
+                  <WholeCardTierBadge tier={wholeCardTier} />
+                </div>
+                <div className="daily-actions__primary">
+                  <ExportButton
+                    rawData={exportData}
+                    onShareComplete={() => trackDailyDropShared(exportData.date, 'image')}
+                  />
+                </div>
               </div>
-            </div>
             )}
           </div>
         )}

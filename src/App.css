@@ -196,11 +196,20 @@
 }
 
 .atlas-edition {
-  max-width: 760px;
+  max-width: 700px;
   margin: 3.5rem 0 0 12%;
-  padding: 1rem 1.15rem;
-  border-left: 3px solid #d3ae62;
-  background: rgba(211, 174, 98, .1);
+  padding: clamp(1rem, 2.4vw, 1.4rem);
+  border: 1px solid rgba(36, 62, 64, .16);
+  border-radius: 12px;
+  background: rgba(211, 174, 98, .12);
+  background: color-mix(in srgb, #d3ae62 12%, transparent);
+  display: grid;
+  gap: 1rem;
+}
+
+.atlas-edition__meta {
+  display: grid;
+  gap: .38rem;
 }
 
 .atlas-edition__label {
@@ -229,7 +238,7 @@
 }
 
 .atlas-edition__subline {
-  margin-top: .25rem;
+  margin-top: .2rem;
   color: #74807d;
   font-size: .76rem;
 }
@@ -241,23 +250,23 @@
 }
 
 .atlas-edition__stale {
-  margin-top: .5rem;
+  margin-top: .45rem;
   color: #a26b30;
   font-size: .68rem;
 }
 
 .daily-edition-share {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   flex-wrap: wrap;
-  gap: .65rem;
-  margin-top: .85rem;
+  gap: .55rem;
 }
 
 .daily-edition-share button {
-  padding: .5rem .75rem;
+  min-height: 44px;
+  padding: .5rem .9rem;
   border: 1px solid #b35f49;
-  border-radius: 2px;
+  border-radius: 10px;
   background: transparent;
   color: #b35f49;
   font: 600 .64rem "DM Mono", monospace;
@@ -273,6 +282,7 @@
 
 .daily-edition-share__notice {
   margin: 0;
+  align-self: center;
   color: #74807d;
   font-size: .68rem;
 }
@@ -508,7 +518,11 @@
 .dark .atlas-hero__intro,
 .dark .atlas-hero__thesis,
 .dark .atlas-edition__subline { color: #a4a4a5; }
-.dark .atlas-edition { background: rgba(211, 174, 98, .09); }
+.dark .atlas-edition {
+  border-color: rgba(236, 231, 221, .18);
+  background: rgba(255, 255, 255, .03);
+  background: color-mix(in srgb, #d3ae62 10%, rgba(255, 255, 255, .03));
+}
 .dark .atlas-edition__name { color: #f0e8dc; }
 .dark .atlas-edition__label,
 .dark .atlas-edition__name span { color: #e0c171; }
@@ -621,30 +635,46 @@ h1 {
 .daily-actions,
 .daily-actions__primary {
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
 }
 
 .daily-actions__primary {
-  gap: 8px;
+  flex: 1;
+  min-width: min(100%, 315px);
 }
 
 .daily-actions {
-  /* More breathing room than the default 8px rhythm: this stack groups
-     three visually distinct things (whole-board edition controls, its
-     preview badge, and the Save/Send actions) that each need clear
-     separation, not the tight spacing appropriate for two buttons in
-     the same row. Values match the app's existing 1rem/1.5rem scale
-     (see nav's gap-6 and the button's 1.5rem padding) rather than
-     introducing new arbitrary spacing. */
-  margin-top: 1.5rem;
+  margin-top: .35rem;
   gap: 1rem;
-  flex-direction: column;
-  align-items: center;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.daily-actions__classification {
+  display: grid;
+  gap: .45rem;
 }
 
 @media (max-width: 520px) {
+  .atlas-edition {
+    margin-top: 2.4rem;
+  }
+
   .daily-actions__primary {
-    flex-wrap: wrap;
+    min-width: 100%;
+  }
+
+  .daily-actions {
+    gap: .75rem;
+    align-items: stretch;
+  }
+
+  .daily-actions__classification {
+    justify-items: start;
+  }
+
+  .daily-edition-share__notice {
+    width: 100%;
   }
 }
 
