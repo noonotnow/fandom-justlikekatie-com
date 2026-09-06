@@ -63,6 +63,8 @@ export interface StarOfDayArchiveEntry {
   vibeLabelEn: string;
   vibeSubtitleEn?: string;
   generatedAt?: string;
+  previewThumbnails?: string[];
+  legendaryMisprint?: boolean;
 }
 
 function proxyUrl(url: string): string {
