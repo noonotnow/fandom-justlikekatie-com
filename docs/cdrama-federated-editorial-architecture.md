@@ -2853,6 +2853,55 @@ Contextual actions use precise mutations:
 There is no universal “Add to Series” or “Promote” action whose mutation depends
 on hidden context.
 
+### Preserved is complete; unshaped is neutral
+
+CAPTURE is not a task queue. Saving a private dispatch completes the act of
+preservation. The record may remain **Unshaped** forever without becoming
+overdue, unfinished content, a Draft Post, or work Katie is expected to process.
+
+An existing CAPTURE record may expose three categories of contextual action:
+
+- **Preserve:** already complete; no further action is required.
+- **Relate:** add a typed Series, source, evidence, or open-question relationship
+  without creating a new artifact.
+- **Make:** explicitly commit selected authorized material to a definite CREATE
+  shape.
+
+`Unshaped`, `In use`, `Related`, and `Archived` are descriptive filters, not
+mandatory workflow stages. Creating a derivative does not move or reclassify
+the source. The Capture instead gains additive lineage to one or more CREATE
+objects.
+
+**Make something from this** must therefore cross a visible commitment boundary:
+
+1. Select the exact material that may cross: the entire record, a selected
+   passage, or selected material plus named evidence references.
+2. Choose the definite shape: domain expansion, editorial object, post-shaped
+   Idea Packet, or known platform expression.
+3. Preview the source version, privacy and spoiler restrictions, resulting
+   object class, canonical owner, and later authority.
+4. Confirm the Creative Commitment.
+
+The preview states what will *not* happen: the source will not move or change,
+unselected private text will not cross, no schedule will be created, and no
+live domain state will change. A website expansion creates a CREATE-owned
+Website Expansion Proposal subject to later Fandom review; a new Series idea
+creates a Series Idea Packet rather than a canonical Series; a Post seed creates
+a platform-agnostic post-shaped Idea Packet; and a known platform choice may
+start that treatment directly in CREATE.
+
+Relationship is not promotion:
+
+```text
+Relate to open question
+→ typed relationship only
+→ remains in CAPTURE/domain context
+
+Make FAQ response
+→ definite CREATE artifact
+→ Creative Commitment Receipt
+```
+
 ### Continuity summary
 
 The continuity rail answers:
@@ -2927,8 +2976,9 @@ proposal; they never mutate any of those records silently.
 6. Katie closes the cockpit.
 
 **Pass:** returning later shows the dispatch as a complete private observation
-with no overdue or unmade-content state. **Make from this** remains an optional
-contextual action.
+with descriptive state `Unshaped`, no overdue or unmade-content state, and no
+downstream obligation. **Make something from this** remains an optional
+contextual action; staying in CAPTURE requires no button or decision.
 
 ### Manual walkthrough 2 — CAPTURE invokes a Fandom-owned evidence filing
 
@@ -2951,13 +3001,23 @@ limit, spoiler boundary, and correction path remain Fandom-controlled.
 
 1. From the private dispatch, Katie selects only the passage about the cameo
    extending the unfinished search.
-2. She chooses **Make from this → Website expansion**.
-3. The cockpit previews the selected excerpt, source version, restrictions, and
-   target artifact class before commitment.
-4. Confirming creates a Website Expansion proposal in CREATE plus a Creative
+2. She chooses **Make something from this**.
+3. The boundary asks which exact material may cross: the entire dispatch, the
+   selected passage, or the dispatch plus named evidence references.
+4. She chooses **Expand the domain → Website expansion**.
+5. The cockpit previews the selected excerpt, source version, privacy and
+   spoiler restrictions, `Website Expansion Proposal`, Creator OS CREATE
+   ownership, and later Fandom review authority.
+6. The preview states that the original dispatch will not move or change,
+   unselected private text will not cross, nothing will be scheduled, and the
+   website will not be edited.
+7. Confirming creates a Website Expansion Proposal in CREATE plus a Creative
    Commitment Receipt.
-5. The original dispatch remains private and unchanged in CAPTURE.
-6. CREATE may develop the argument and submit a Domain Contribution, but Fandom
+8. The original dispatch remains private and unchanged in CAPTURE, changes its
+   descriptive state from `Unshaped` to `In use`, and shows the new derivative
+   lineage. The CREATE summary shows the newly created proposal as `Shaping`;
+   PLAN remains unchanged.
+9. CREATE may develop the argument and submit a Domain Contribution, but Fandom
    separately accepts, versions, and publishes any website change.
 
 **Pass:** a non-post artifact crosses into CREATE through additive lineage

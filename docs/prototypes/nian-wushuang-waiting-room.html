@@ -2,7 +2,7 @@
 <!--
 THESIS: A Series home is a continuity ledger: understand and preserve first, make only by choice. It refuses the equal-column dashboard.
 OWN-WORLD: FANDOM ink, parchment, gold, sage, lilac, and coral; ruled ledgers, restrained panels, explicit authority labels, system sans.
-STORY: Katie sees what remains unresolved, chooses what kind of thing she is preserving, and can inspect downstream work without entering a pipeline.
+STORY: Katie sees what remains unresolved, preserves something as complete, and only then may commit selected material to a definite CREATE shape.
 FIRST VIEWPORT: Waiting Room identity spans the top; CAPTURE owns the broad left sheet; continuity and three compact downstream ledgers stack at right.
 FORM: Capture-first continuity ledger, selected for an operate surface. The prototype is illustrative, local, and read-oriented.
 -->
@@ -10,6 +10,7 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
   <title>Nian Wushuang Waiting Room — Paper Cockpit</title>
   <style>
     :root {
@@ -57,6 +58,7 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
 
     button,
     input,
+    select,
     textarea {
       font: inherit;
     }
@@ -67,6 +69,7 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
 
     button:focus-visible,
     input:focus-visible,
+    select:focus-visible,
     textarea:focus-visible {
       outline: 2px solid var(--gold);
       outline-offset: 3px;
@@ -165,6 +168,39 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
       border-radius: 50%;
       background: var(--gold);
       box-shadow: 0 0 0 4px rgba(201, 169, 110, 0.12);
+    }
+
+    .module-spine {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    .module-spine span {
+      position: relative;
+      padding: 10px 12px 9px;
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .module-spine span[aria-current="page"] {
+      color: var(--gold-soft);
+    }
+
+    .module-spine span[aria-current="page"]::after {
+      position: absolute;
+      right: 12px;
+      bottom: -1px;
+      left: 12px;
+      height: 2px;
+      background: var(--gold);
+      content: "";
     }
 
     .header-main {
@@ -420,19 +456,149 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
       color: #656b68;
     }
 
-    .generic-capture {
+    .instrument-panel {
       display: grid;
       gap: 18px;
     }
 
-    .generic-capture[hidden],
-    .journal-capture[hidden] {
+    .instrument-panel[hidden] {
       display: none;
     }
 
-    .journal-capture {
+    .field-grid {
       display: grid;
-      gap: 16px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 11px;
+    }
+
+    .field-grid label,
+    .field-block {
+      display: grid;
+      gap: 5px;
+      align-content: start;
+    }
+
+    .field-grid label > span,
+    .field-block > span,
+    .option-set legend {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 650;
+    }
+
+    .field-grid input,
+    .field-grid select,
+    .field-grid textarea,
+    .field-block input,
+    .field-block textarea {
+      width: 100%;
+      min-height: 39px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #101014;
+      color: var(--ink);
+      padding: 9px 10px;
+      line-height: 1.45;
+    }
+
+    .field-grid textarea,
+    .field-block textarea {
+      min-height: 66px;
+    }
+
+    .field-grid input:disabled {
+      color: var(--gold-soft);
+      opacity: 1;
+    }
+
+    .field-grid .wide {
+      grid-column: 1 / -1;
+    }
+
+    .field-grid .wide textarea {
+      min-height: 82px;
+    }
+
+    .option-set {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 7px;
+      margin: 0;
+      border: 0;
+      padding: 0;
+    }
+
+    .option-set legend {
+      grid-column: 1 / -1;
+      margin-bottom: 1px;
+    }
+
+    .option {
+      position: relative;
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #101014;
+      padding: 9px;
+      color: #c9ceca;
+      font-size: 10px;
+      line-height: 1.35;
+    }
+
+    .option:has(input:checked) {
+      border-color: rgba(201, 169, 110, 0.52);
+      background: rgba(201, 169, 110, 0.08);
+      color: var(--gold-soft);
+    }
+
+    .option input {
+      flex: 0 0 auto;
+      width: auto;
+      min-height: 0;
+      margin: 2px 0 0;
+      accent-color: var(--gold);
+    }
+
+    .privacy-row,
+    .claim-warning,
+    .capture-complete {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      margin: 0;
+      border-radius: 8px;
+      padding: 10px 11px;
+      color: var(--muted);
+      font-size: 9px;
+      line-height: 1.45;
+    }
+
+    .privacy-row {
+      border: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.11);
+    }
+
+    .privacy-row strong {
+      color: var(--ink);
+    }
+
+    .claim-warning {
+      border: 1px solid rgba(201, 130, 100, 0.3);
+      background: rgba(201, 130, 100, 0.08);
+      color: var(--coral-soft);
+    }
+
+    .capture-complete {
+      border: 1px solid rgba(134, 169, 155, 0.4);
+      background: rgba(134, 169, 155, 0.09);
+      color: var(--sage-soft);
+    }
+
+    .capture-complete[hidden] {
+      display: none;
     }
 
     .journal-boundary {
@@ -465,53 +631,6 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
       color: var(--muted);
       font-size: 10px;
       text-align: right;
-    }
-
-    .journal-fields {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 11px;
-    }
-
-    .journal-fields label {
-      display: grid;
-      gap: 5px;
-      align-content: start;
-    }
-
-    .journal-fields label > span {
-      color: var(--muted);
-      font-size: 10px;
-      font-weight: 650;
-    }
-
-    .journal-fields input,
-    .journal-fields textarea {
-      width: 100%;
-      min-height: 39px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #101014;
-      color: var(--ink);
-      padding: 9px 10px;
-      line-height: 1.45;
-    }
-
-    .journal-fields textarea {
-      min-height: 66px;
-    }
-
-    .journal-fields input:disabled {
-      color: var(--gold-soft);
-      opacity: 1;
-    }
-
-    .journal-fields .wide {
-      grid-column: 1 / -1;
-    }
-
-    .journal-fields .wide textarea {
-      min-height: 82px;
     }
 
     .journal-contract {
@@ -671,6 +790,45 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
       max-width: 230px;
     }
 
+    .record-state {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 9px;
+    }
+
+    .record-state[data-state="in-use"] {
+      color: var(--lilac-soft);
+    }
+
+    .record-lineage {
+      display: grid;
+      gap: 2px;
+      margin-top: 8px;
+      border-left: 2px solid rgba(169, 138, 199, 0.5);
+      padding-left: 9px;
+      color: var(--lilac-soft);
+      font-size: 9px;
+    }
+
+    .record-lineage[hidden] {
+      display: none;
+    }
+
+    .action-group {
+      display: grid;
+      gap: 2px;
+    }
+
+    .action-group > span {
+      padding-left: 8px;
+      color: var(--muted);
+      font-size: 7px;
+      font-weight: 800;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
     .right-rail {
       display: grid;
       gap: 12px;
@@ -779,6 +937,196 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
 
     .ledger-line strong[data-state="blocked"] {
       color: var(--coral-soft);
+    }
+
+    .ledger-line[data-new="true"] {
+      margin: 3px -7px 0;
+      border: 1px solid rgba(169, 138, 199, 0.36);
+      border-radius: 7px;
+      background: rgba(169, 138, 199, 0.09);
+      padding: 8px 7px;
+    }
+
+    .ledger-line[hidden] {
+      display: none;
+    }
+
+    .ledger-line[data-new="true"] span {
+      color: var(--lilac-soft);
+    }
+
+    .commitment-dialog {
+      width: min(860px, calc(100% - 28px));
+      max-height: calc(100vh - 40px);
+      overflow: auto;
+      border: 1px solid rgba(169, 138, 199, 0.46);
+      border-radius: 16px;
+      background: #151519;
+      color: var(--ink);
+      padding: 0;
+      box-shadow: 0 30px 100px rgba(0, 0, 0, 0.65);
+    }
+
+    .commitment-dialog::backdrop {
+      background: rgba(5, 5, 8, 0.78);
+      backdrop-filter: blur(5px);
+    }
+
+    .commitment-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      border-bottom: 1px solid var(--line);
+      padding: 20px 22px 16px;
+    }
+
+    .commitment-header h2 {
+      margin: 3px 0 4px;
+      font-size: 22px;
+    }
+
+    .commitment-header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .dialog-close {
+      align-self: flex-start;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      padding: 3px 5px;
+      font-size: 20px;
+    }
+
+    .commitment-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+    }
+
+    .commitment-steps {
+      display: grid;
+      gap: 22px;
+      padding: 22px;
+    }
+
+    .commitment-step {
+      display: grid;
+      gap: 10px;
+    }
+
+    .step-heading {
+      display: flex;
+      gap: 10px;
+      align-items: baseline;
+    }
+
+    .step-heading span {
+      color: var(--lilac-soft);
+      font-size: 9px;
+      font-weight: 850;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .step-heading strong {
+      font-size: 13px;
+    }
+
+    .material-options {
+      display: grid;
+      gap: 6px;
+    }
+
+    .material-options .option {
+      min-height: 38px;
+    }
+
+    .excerpt-preview {
+      margin: 0;
+      border-left: 2px solid var(--gold);
+      padding: 8px 10px;
+      background: rgba(201, 169, 110, 0.055);
+      color: #d7d9d6;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .shape-groups {
+      display: grid;
+      gap: 12px;
+    }
+
+    .shape-group {
+      display: grid;
+      gap: 5px;
+    }
+
+    .shape-group > span {
+      color: var(--muted);
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .shape-options {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .commitment-preview {
+      display: grid;
+      align-content: start;
+      gap: 14px;
+      border-left: 1px solid var(--line);
+      background: rgba(169, 138, 199, 0.045);
+      padding: 22px;
+    }
+
+    .preview-line {
+      display: grid;
+      gap: 3px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 10px;
+    }
+
+    .preview-line span,
+    .will-not strong {
+      color: var(--muted);
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+    }
+
+    .preview-line strong {
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .will-not {
+      display: grid;
+      gap: 6px;
+    }
+
+    .will-not ul {
+      display: grid;
+      gap: 5px;
+      margin: 0;
+      padding-left: 16px;
+      color: #b7bbb8;
+      font-size: 9px;
+      line-height: 1.45;
+    }
+
+    .commitment-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 2px;
     }
 
     .question-list {
@@ -919,11 +1267,13 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
         grid-template-columns: 1fr;
       }
 
-      .journal-fields {
+      .field-grid,
+      .option-set,
+      .shape-options {
         grid-template-columns: 1fr;
       }
 
-      .journal-fields .wide {
+      .field-grid .wide {
         grid-column: auto;
       }
 
@@ -933,6 +1283,19 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
 
       .journal-boundary p {
         text-align: left;
+      }
+
+      .module-spine {
+        overflow-x: auto;
+      }
+
+      .commitment-body {
+        grid-template-columns: 1fr;
+      }
+
+      .commitment-preview {
+        border-top: 1px solid var(--line);
+        border-left: 0;
       }
     }
 
@@ -967,6 +1330,13 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
           CDRAMA Lens
         </div>
       </div>
+
+      <nav class="module-spine" aria-label="Creator OS module orientation">
+        <span aria-current="page">Capture</span>
+        <span>Create</span>
+        <span>Plan</span>
+        <span>Connect</span>
+      </nav>
 
       <div class="header-main">
         <div>
@@ -1057,19 +1427,37 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
 
             <div>
               <h3 class="detail-title" id="instrument-title">Write private dispatch</h3>
-              <p class="prompt" id="instrument-prompt">What is happening in the story, audience, or universe that you do not want to lose?</p>
+              <p class="prompt" id="instrument-prompt">Preserve the experience first. It may remain complete and unshaped here forever.</p>
             </div>
 
-            <div class="generic-capture" id="generic-capture">
-              <textarea id="capture-text" aria-label="Capture text" placeholder="The cameo matters because Yuan Zhong is still searching…"></textarea>
-
-              <div class="detail-actions" id="detail-actions">
-                <button type="button" class="primary" id="primary-action">Save private dispatch</button>
+            <form class="instrument-panel" data-panel="dispatch">
+              <div class="field-grid">
+                <label class="wide">
+                  <span>What changed or struck you?</span>
+                  <textarea id="dispatch-text" placeholder="The cameo matters because Yuan Zhong is still searching…"></textarea>
+                </label>
+                <label class="wide">
+                  <span>Why does it matter to the Waiting Room?</span>
+                  <textarea placeholder="It proves the unfinished search remains legible enough to be used elsewhere in the universe."></textarea>
+                </label>
+                <label>
+                  <span>Related open question · optional</span>
+                  <input type="text" placeholder="Choose an open question">
+                </label>
+                <label>
+                  <span>Source or evidence relationship · optional</span>
+                  <input type="text" placeholder="Paste a reference or leave blank">
+                </label>
+              </div>
+              <p class="privacy-row"><strong>Privacy · Private</strong> Only you can see this dispatch unless selected material is later used in a new CREATE object.</p>
+              <p class="capture-complete" id="capture-complete" hidden><strong>Preserved.</strong> Nothing else is required. This dispatch is complete in CAPTURE and remains unshaped unless you later choose to make something.</p>
+              <div class="detail-actions">
+                <button type="submit" class="primary">Save private dispatch</button>
                 <button type="button" class="secondary">Relate to open question</button>
               </div>
-            </div>
+            </form>
 
-            <form class="journal-capture" id="journal-capture" hidden>
+            <form class="instrument-panel" data-panel="journal" hidden>
               <div class="journal-boundary">
                 <div>
                   <span>Latest filed boundary</span>
@@ -1078,7 +1466,7 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
                 <p>Next entry must begin with Episode 23.<br>Draft protected locally · sealed when filed.</p>
               </div>
 
-              <div class="journal-fields">
+              <div class="field-grid">
                 <label>
                   <span>Episode start</span>
                   <input type="number" value="23" disabled>
@@ -1125,6 +1513,119 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
                 <button type="button" class="text-action">Reference existing entry</button>
               </div>
             </form>
+
+            <form class="instrument-panel" data-panel="evidence" hidden>
+              <div class="field-grid">
+                <label>
+                  <span>Source work</span>
+                  <input type="text" value="Fate Chooses You">
+                </label>
+                <label>
+                  <span>Character</span>
+                  <input type="text" value="Yuan Zhong">
+                </label>
+                <label>
+                  <span>Episode or scene anchor</span>
+                  <input type="text" placeholder="Episode, timestamp, or scene description">
+                </label>
+                <label>
+                  <span>Provenance</span>
+                  <input type="url" placeholder="Official clip, episode, or source URL">
+                </label>
+                <label>
+                  <span>Spoiler level</span>
+                  <select>
+                    <option>Choose boundary</option>
+                    <option>Public premise</option>
+                    <option>Episode-specific</option>
+                    <option>Ending / major reveal</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Evidence class</span>
+                  <select>
+                    <option>Universe continuity</option>
+                    <option>Character continuity</option>
+                    <option>Official announcement</option>
+                    <option>Audience interpretation</option>
+                  </select>
+                </label>
+                <label class="wide">
+                  <span>Narrow claim</span>
+                  <textarea placeholder="The shared universe invokes Yuan Zhong’s unfinished search; it does not confirm another installment."></textarea>
+                </label>
+              </div>
+              <p class="claim-warning">Claim-strength limit: this evidence may support the unfinished-thread argument. It cannot establish that a sequel or production plan exists.</p>
+              <div class="detail-actions">
+                <button type="submit" class="primary">Submit to Fandom evidence workflow</button>
+                <button type="button" class="secondary">Review evidence rules</button>
+              </div>
+            </form>
+
+            <form class="instrument-panel" data-panel="question" hidden>
+              <div class="field-grid">
+                <label>
+                  <span>Platform or source</span>
+                  <input type="text" placeholder="Rednote, Instagram, YouTube…">
+                </label>
+                <label>
+                  <span>Post or comment reference</span>
+                  <input type="url" placeholder="Native URL or source identifier">
+                </label>
+                <label class="wide">
+                  <span>Exact excerpt</span>
+                  <textarea placeholder="Wait—is Season 2 actually real?"></textarea>
+                </label>
+                <label>
+                  <span>Observed date</span>
+                  <input type="date" value="2026-09-06">
+                </label>
+                <label>
+                  <span>Quotation permission</span>
+                  <select>
+                    <option>Not reviewed</option>
+                    <option>Private reference only</option>
+                    <option>Approved for quotation</option>
+                  </select>
+                </label>
+              </div>
+              <fieldset class="option-set">
+                <legend>Preserve as</legend>
+                <label class="option"><input type="radio" name="question-destination" checked> CONNECT signal</label>
+                <label class="option"><input type="radio" name="question-destination"> Private Creator OS Capture</label>
+              </fieldset>
+              <div class="detail-actions">
+                <button type="submit" class="primary">Preserve with source lineage</button>
+                <button type="button" class="secondary">Review source comment</button>
+              </div>
+            </form>
+
+            <form class="instrument-panel" data-panel="source" hidden>
+              <div class="field-grid">
+                <label>
+                  <span>Source link or work</span>
+                  <input type="text" placeholder="URL, title, or source reference">
+                </label>
+                <label>
+                  <span>Episode or scene</span>
+                  <input type="text" placeholder="Episode, timestamp, or scene">
+                </label>
+                <label class="wide">
+                  <span>What matters?</span>
+                  <textarea placeholder="Describe the detail and why it is worth preserving."></textarea>
+                </label>
+              </div>
+              <fieldset class="option-set">
+                <legend>Record type</legend>
+                <label class="option"><input type="radio" name="source-type" checked> Private observation</label>
+                <label class="option"><input type="radio" name="source-type"> Source reference</label>
+                <label class="option"><input type="radio" name="source-type"> Domain evidence</label>
+              </fieldset>
+              <div class="detail-actions">
+                <button type="submit" class="primary">Preserve as selected type</button>
+                <button type="button" class="secondary">Open source explorer</button>
+              </div>
+            </form>
           </div>
         </div>
 
@@ -1142,10 +1643,21 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
             <div class="record-copy">
               <strong>The universe is still using the unfinished search.</strong>
               <p>Yuan Zhong’s appearance works because the audience remembers exactly who he is still looking for.</p>
+              <span class="record-state" id="dispatch-state">Unshaped · preserved and complete · no downstream work</span>
+              <span class="record-lineage" id="dispatch-lineage" hidden>
+                <strong>Used in 1 CREATE object</strong>
+                <span id="dispatch-derivative">Website expansion proposal · Shaping</span>
+              </span>
             </div>
             <div class="record-actions">
-              <button type="button" class="text-action">Make from this</button>
-              <button type="button" class="text-action">Add to open question</button>
+              <div class="action-group">
+                <span>Make</span>
+                <button type="button" class="text-action" id="choose-shape">Choose a shape…</button>
+              </div>
+              <div class="action-group">
+                <span>Relate</span>
+                <button type="button" class="text-action">Open question ▾</button>
+              </div>
             </div>
           </article>
 
@@ -1213,12 +1725,16 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
               <small>Create · definite work</small>
               <strong>What is being made?</strong>
             </span>
-            <span class="ledger-count">4</span>
+            <span class="ledger-count" id="create-count">4</span>
           </button>
           <div class="ledger-body">
+            <div class="ledger-line" id="new-create-object" data-new="true" hidden>
+              <span>Website expansion · Newly created</span>
+              <strong data-state="pending">Shaping</strong>
+            </div>
             <div class="ledger-line">
-              <span>Website expansion</span>
-              <strong data-state="active">Shaping</strong>
+              <span>Editorial ideas</span>
+              <strong data-state="active">2 shaping</strong>
             </div>
             <div class="ledger-line">
               <span>Rednote expression</span>
@@ -1297,19 +1813,120 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
     </div>
   </main>
 
+  <dialog class="commitment-dialog" id="commitment-dialog">
+    <div class="commitment-header">
+      <div>
+        <span class="module-mark">Capture → Create</span>
+        <h2>Make something from this</h2>
+        <p>Preservation is already complete. Continue only if you want to commit selected material to a definite shape.</p>
+      </div>
+      <button type="button" class="dialog-close" id="close-commitment" aria-label="Close">×</button>
+    </div>
+
+    <form id="commitment-form">
+      <div class="commitment-body">
+        <div class="commitment-steps">
+          <section class="commitment-step">
+            <div class="step-heading">
+              <span>Step 1</span>
+              <strong>Choose the material</strong>
+            </div>
+            <div class="material-options">
+              <label class="option"><input type="radio" name="material" value="Entire dispatch"> Entire private dispatch</label>
+              <label class="option"><input type="radio" name="material" value="Selected passage" checked> Selected passage</label>
+              <label class="option"><input type="radio" name="material" value="Dispatch plus evidence references"> Dispatch plus selected evidence references</label>
+            </div>
+            <blockquote class="excerpt-preview">“The universe is still using the unfinished search.”</blockquote>
+          </section>
+
+          <section class="commitment-step">
+            <div class="step-heading">
+              <span>Step 2</span>
+              <strong>Choose what you want to make</strong>
+            </div>
+            <div class="shape-groups">
+              <div class="shape-group">
+                <span>Expand the domain</span>
+                <div class="shape-options">
+                  <label class="option"><input type="radio" name="shape" value="Website Expansion Proposal" data-action="Create website proposal" checked> Website expansion</label>
+                  <label class="option"><input type="radio" name="shape" value="FAQ Response" data-action="Create FAQ response"> FAQ response</label>
+                  <label class="option"><input type="radio" name="shape" value="Timeline Addition Proposal" data-action="Create timeline proposal"> Evidence-based timeline</label>
+                </div>
+              </div>
+              <div class="shape-group">
+                <span>Develop an editorial object</span>
+                <div class="shape-options">
+                  <label class="option"><input type="radio" name="shape" value="Series Idea Packet" data-action="Create Series idea"> New Series idea</label>
+                  <label class="option"><input type="radio" name="shape" value="Editorial Article" data-action="Create article"> Editorial article</label>
+                  <label class="option"><input type="radio" name="shape" value="Guide or Game" data-action="Create guide or game"> Guide or game</label>
+                </div>
+              </div>
+              <div class="shape-group">
+                <span>Make a post-shaped object</span>
+                <div class="shape-options">
+                  <label class="option"><input type="radio" name="shape" value="Post-shaped Idea Packet" data-action="Create post seed"> Post seed</label>
+                  <label class="option"><input type="radio" name="shape" value="Rednote Post" data-action="Create Rednote post"> Rednote post</label>
+                  <label class="option"><input type="radio" name="shape" value="Instagram Carousel" data-action="Create Instagram carousel"> Instagram carousel</label>
+                  <label class="option"><input type="radio" name="shape" value="YouTube Short" data-action="Create YouTube Short"> YouTube Short</label>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="commitment-preview" aria-label="Creative commitment preview">
+          <div class="step-heading">
+            <span>Step 3</span>
+            <strong>Preview the result</strong>
+          </div>
+          <div class="preview-line">
+            <span>Source</span>
+            <strong id="preview-material">Private Waiting Room dispatch · selected passage</strong>
+          </div>
+          <div class="preview-line">
+            <span>Will create</span>
+            <strong id="preview-shape">Website Expansion Proposal</strong>
+          </div>
+          <div class="preview-line">
+            <span>Canonical owner</span>
+            <strong>Creator OS · CREATE</strong>
+          </div>
+          <div class="preview-line">
+            <span>Later authority</span>
+            <strong id="preview-authority">Fandom review before the live Waiting Room changes</strong>
+          </div>
+          <div class="preview-line">
+            <span>Restrictions</span>
+            <strong>Source v3 · selected text only · private remainder excluded</strong>
+          </div>
+          <div class="will-not">
+            <strong>Will not happen</strong>
+            <ul>
+              <li>The original dispatch will not move or change.</li>
+              <li>Nothing will be scheduled.</li>
+              <li>The website will not be edited.</li>
+              <li>Unselected private text will not cross.</li>
+            </ul>
+          </div>
+          <div class="commitment-actions">
+            <button type="submit" class="primary" id="confirm-commitment">Create website proposal</button>
+            <button type="button" class="secondary" id="cancel-commitment">Cancel</button>
+          </div>
+        </aside>
+      </div>
+    </form>
+  </dialog>
+
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script>
     const instruments = {
       dispatch: {
         title: "Write private dispatch",
-        prompt: "What is happening in the story, audience, or universe that you do not want to lose?",
+        prompt: "Preserve the experience first. It may remain complete and unshaped here forever.",
         destination: "This will become a private Waiting Room dispatch.",
         copy: "It may remain complete here forever. Saving does not create an Idea, task, or platform expression.",
         owner: "Creator OS · Capture",
-        placeholder: "The cameo matters because Yuan Zhong is still searching…",
-        action: "Save private dispatch",
-        secondary: "Relate to open question",
         notice: "Prototype: private dispatch preserved in CAPTURE. Nothing moved downstream."
       },
       journal: {
@@ -1318,9 +1935,6 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
         destination: "This will become an immutable, episode-bound Fandom Journal entry.",
         copy: "The cockpit embeds the capture protocol. Veteran moderation, safe-reader preview, and public snapshot controls stay in the Fandom specialist view.",
         owner: "Fandom · First-Watch",
-        placeholder: "",
-        action: "File first-watch entry",
-        secondary: "Open full Journal in Fandom",
         notice: "Prototype: first-watch entry filed with its episode boundary and predictions sealed."
       },
       evidence: {
@@ -1329,9 +1943,6 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
         destination: "This will enter the Fandom Waiting Room evidence workflow.",
         copy: "Accepted evidence may support the unfinished-thread argument. It cannot declare a sequel.",
         owner: "Fandom · Waiting Room",
-        placeholder: "Yuan Zhong appears in Fate Chooses You still carrying the unresolved search…",
-        action: "Open evidence filing",
-        secondary: "Review evidence rules",
         notice: "Prototype: invoking Fandom evidence filing with claim limits intact."
       },
       question: {
@@ -1339,11 +1950,8 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
         prompt: "Choose whether this is a bounded CONNECT signal or a private question you want to think about.",
         destination: "You will choose the destination before saving.",
         copy: "A native comment remains canonical on its platform. One question cannot become a broad audience claim.",
-        owner: "Connect or Creator OS",
-        placeholder: "Wait—is Season 2 actually real?",
-        action: "Choose signal or Capture",
-        secondary: "Review source comment",
-        notice: "Prototype: destination choice required before the audience question can be preserved."
+        owner: "CONNECT or Creator OS",
+        notice: "Prototype: audience question preserved with its source lineage and chosen owner."
       },
       source: {
         title: "Preserve source, scene, or reaction",
@@ -1351,24 +1959,30 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
         destination: "The content determines its owner; the cockpit will not guess.",
         copy: "Private thought, source reference, and domain evidence remain different records.",
         owner: "Owner selected next",
-        placeholder: "Paste a source link or describe the scene and why it matters…",
-        action: "Choose record type",
-        secondary: "Open source explorer",
-        notice: "Prototype: record type and owner must be chosen before preservation."
+        notice: "Prototype: source material preserved as the explicitly selected record type."
       }
     };
 
     const tabs = [...document.querySelectorAll("[data-instrument]")];
+    const panels = [...document.querySelectorAll("[data-panel]")];
     const title = document.querySelector("#instrument-title");
     const prompt = document.querySelector("#instrument-prompt");
     const destinationTitle = document.querySelector("#destination-title");
     const destinationCopy = document.querySelector("#destination-copy");
     const destinationOwner = document.querySelector("#destination-owner");
-    const textarea = document.querySelector("#capture-text");
-    const genericCapture = document.querySelector("#generic-capture");
-    const journalCapture = document.querySelector("#journal-capture");
-    const primaryAction = document.querySelector("#primary-action");
-    const detailActions = document.querySelector("#detail-actions");
+    const captureComplete = document.querySelector("#capture-complete");
+    const chooseShape = document.querySelector("#choose-shape");
+    const commitmentDialog = document.querySelector("#commitment-dialog");
+    const commitmentForm = document.querySelector("#commitment-form");
+    const confirmCommitment = document.querySelector("#confirm-commitment");
+    const previewMaterial = document.querySelector("#preview-material");
+    const previewShape = document.querySelector("#preview-shape");
+    const previewAuthority = document.querySelector("#preview-authority");
+    const dispatchState = document.querySelector("#dispatch-state");
+    const dispatchLineage = document.querySelector("#dispatch-lineage");
+    const dispatchDerivative = document.querySelector("#dispatch-derivative");
+    const newCreateObject = document.querySelector("#new-create-object");
+    const createCount = document.querySelector("#create-count");
     const toast = document.querySelector("#toast");
     let current = "dispatch";
     let toastTimer;
@@ -1391,33 +2005,70 @@ FORM: Capture-first continuity ledger, selected for an operate surface. The prot
       destinationTitle.textContent = instrument.destination;
       destinationCopy.textContent = instrument.copy;
       destinationOwner.textContent = instrument.owner;
-      const isJournal = key === "journal";
-      genericCapture.hidden = isJournal;
-      journalCapture.hidden = !isJournal;
-      textarea.placeholder = instrument.placeholder;
-      textarea.value = "";
-      primaryAction.textContent = instrument.action;
-      detailActions.querySelector(".secondary").textContent = instrument.secondary;
+      panels.forEach(panel => {
+        panel.hidden = panel.dataset.panel !== key;
+      });
     }
 
     tabs.forEach(tab => {
       tab.addEventListener("click", () => selectInstrument(tab.dataset.instrument));
     });
 
-    primaryAction.addEventListener("click", () => {
-      showToast(instruments[current].notice);
-    });
-
-    journalCapture.addEventListener("submit", event => {
-      event.preventDefault();
-      showToast(instruments.journal.notice);
+    panels.forEach(panel => {
+      panel.addEventListener("submit", event => {
+        event.preventDefault();
+        if (panel.dataset.panel === "dispatch") {
+          captureComplete.hidden = false;
+        }
+        showToast(instruments[panel.dataset.panel].notice);
+      });
     });
 
     document.querySelectorAll(".secondary, .text-action").forEach(button => {
       button.addEventListener("click", () => {
+        if (button.id === "choose-shape") return;
         showToast(`Prototype route: ${button.textContent.trim()}. No record was changed.`);
       });
     });
+
+    function updateCommitmentPreview() {
+      const material = commitmentForm.querySelector('input[name="material"]:checked');
+      const shape = commitmentForm.querySelector('input[name="shape"]:checked');
+      previewMaterial.textContent = `Private Waiting Room dispatch · ${material.value.toLowerCase()}`;
+      previewShape.textContent = shape.value;
+      confirmCommitment.textContent = shape.dataset.action;
+      previewAuthority.textContent = shape.value === "Series Idea Packet"
+        ? "Katie establishes any canonical Series separately"
+        : shape.value.includes("Website") || shape.value.includes("FAQ") || shape.value.includes("Timeline")
+          ? "Fandom review before the live Waiting Room changes"
+          : "CREATE shapes the artifact; PLAN receives it only after scheduling";
+    }
+
+    chooseShape.addEventListener("click", () => {
+      updateCommitmentPreview();
+      commitmentDialog.showModal();
+    });
+
+    commitmentForm.addEventListener("change", updateCommitmentPreview);
+
+    commitmentForm.addEventListener("submit", event => {
+      event.preventDefault();
+      const shape = commitmentForm.querySelector('input[name="shape"]:checked');
+      const shapeLabel = shape.closest(".option").textContent.trim();
+      dispatchState.textContent = "In use · 1 CREATE derivative; source remains complete";
+      dispatchState.dataset.state = "in-use";
+      dispatchLineage.hidden = false;
+      dispatchDerivative.textContent = `${shapeLabel} · Shaping`;
+      newCreateObject.hidden = false;
+      newCreateObject.querySelector("span").textContent = `${shapeLabel} · Newly created`;
+      createCount.textContent = "5";
+      chooseShape.textContent = "Make another thing…";
+      commitmentDialog.close();
+      showToast(`Creative Commitment recorded: ${shape.value} created in CREATE. CAPTURE source unchanged; nothing scheduled.`);
+    });
+
+    document.querySelector("#close-commitment").addEventListener("click", () => commitmentDialog.close());
+    document.querySelector("#cancel-commitment").addEventListener("click", () => commitmentDialog.close());
 
     document.querySelectorAll(".ledger-heading").forEach(button => {
       button.addEventListener("click", () => {
