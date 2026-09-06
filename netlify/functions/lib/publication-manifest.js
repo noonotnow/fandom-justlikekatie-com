@@ -11,17 +11,134 @@ import {
 export const GRID_MANIFEST_VERSION = "v1";
 export const GRID_MANIFEST_PREFIX = `vibeAtlas:grid-manifest:${GRID_MANIFEST_VERSION}:`;
 export const GRID_PENDING_PREFIX = `vibeAtlas:grid-pending:${GRID_MANIFEST_VERSION}:`;
+export const GRID_CORRECTION_VERSION = "v1";
+export const GRID_CORRECTION_PREFIX =
+  `vibeAtlas:grid-manifest-correction:${GRID_CORRECTION_VERSION}:`;
 export const PUBLICATION_ACTOR_INDEX_VERSION = "v1";
 export const PUBLICATION_ACTOR_INDEX_KEY =
   `vibeAtlas:grid-manifest-actor-index:${PUBLICATION_ACTOR_INDEX_VERSION}:latest`;
+export const PUBLICATION_MANIFEST_CATALOG_KEY =
+  `vibeAtlas:grid-manifest-catalog:${GRID_MANIFEST_VERSION}:dates`;
 const REQUIRED_CARD_COUNT = 9;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const PUBLICATION_LOCK_TTL_MS = 10 * 60 * 1000;
 const PUBLICATION_LOCK_PREFIX = `vibeAtlas:grid-lock:${GRID_MANIFEST_VERSION}:`;
+const CORRECTION_PUBLICATION_LOCK_KEY = "locks/misprint-publication";
+const CORRECTION_PUBLICATION_LOCK_TTL_MS = 10 * 60 * 1000;
+const CORRECTION_PUBLICATION_LOCK_WAIT_MS = 30 * 1000;
 
 export const gridManifestKey = date => `${GRID_MANIFEST_PREFIX}${date}`;
 export const gridPendingKey = date => `${GRID_PENDING_PREFIX}${date}`;
+export const gridCorrectionPrefix = date =>
+  `${GRID_CORRECTION_PREFIX}${encodeURIComponent(date)}/`;
+export const gridCorrectionKey = (date, correctionReceiptId) =>
+  `${gridCorrectionPrefix(date)}${encodeURIComponent(correctionReceiptId)}`;
 export const publicationActorIndexKey = () => PUBLICATION_ACTOR_INDEX_KEY;
+export const publicationManifestCatalogKey = () => PUBLICATION_MANIFEST_CATALOG_KEY;
+
+export async function recordPublicationCorrectionsForMisprint({
+  store,
+  correction,
+  matchesCandidate,
+  now = () => new Date().toISOString(),
+}) {
+  if (
+    correction?.status !== "active"
+    || correction.futureExclusion !== true
+    || typeof matchesCandidate !== "function"
+  ) return [];
+  const listing = await store.list({ prefix: GRID_MANIFEST_PREFIX });
+  const manifestKeys = new Set((listing?.blobs || [])
+    .map(blob => blob?.key)
+    .filter(key => typeof key === "string"));
+  const actorIndex = await store.get(publicationActorIndexKey(), {
+    type: "json",
+    consistency: "strong",
+  });
+  if (isPublicationActorIndex(actorIndex)) {
+    for (const entry of Object.values(actorIndex.actors)) {
+      manifestKeys.add(gridManifestKey(entry.latestPublicationDate));
+    }
+  }
+  const catalog = await store.get(publicationManifestCatalogKey(), {
+    type: "json",
+    consistency: "strong",
+  });
+  if (isPublicationManifestCatalog(catalog)) {
+    for (const date of catalog.dates) manifestKeys.add(gridManifestKey(date));
+  }
+  const manifests = (await Promise.all([...manifestKeys].map(key =>
+    store.get(key, { type: "json", consistency: "strong" })))).filter(manifest =>
+    isGridManifest(manifest) && correctionAppliesToManifest(correction, manifest));
+  const receipts = [];
+  for (const manifest of manifests) {
+    const affectedCards = manifest.cards
+      .filter(card => matchesCandidate(correction, {
+        candidateId: card.candidateId,
+        thumbnail: card.sourceUrl || card.media?.thumbnailUrl,
+        imageDigest: card.media?.checksum || null,
+        query: card.query || null,
+      }))
+      .map(card => ({ position: card.position, candidateId: card.candidateId }));
+    if (!affectedCards.length) continue;
+    const receipt = {
+      schemaVersion: 1,
+      correctionVersion: GRID_CORRECTION_VERSION,
+      receiptId: `publication-correction-${createHash("sha256").update(JSON.stringify({
+        manifestId: manifest.manifestId,
+        correctionReceiptId: correction.receiptId,
+      })).digest("hex").slice(0, 24)}`,
+      kind: "vibe-atlas-publication-correction",
+      status: "recorded",
+      manifestId: manifest.manifestId,
+      publicationDate: manifest.publicationDate,
+      boardHash: manifest.boardHash,
+      correctionReceiptId: correction.receiptId,
+      reason: correction.reason,
+      actorId: correction.actorId,
+      vibeKey: correction.vibeKey,
+      affectedCards,
+      affectedPositions: affectedCards.map(card => card.position),
+      affectedCandidateIds: affectedCards.map(card => card.candidateId),
+      recordedAt: (() => {
+        const value = now();
+        return value instanceof Date ? value.toISOString() : value;
+      })(),
+      resolution: "requires_explicit_supersession",
+    };
+    const key = gridCorrectionKey(manifest.publicationDate, correction.receiptId);
+    const write = await store.setJSON(key, receipt, { onlyIfNew: true });
+    const authoritative = write?.modified === false
+      ? await store.get(key, { type: "json", consistency: "strong" })
+      : receipt;
+    if (!authoritative || authoritative.manifestId !== manifest.manifestId) {
+      throw requestError("Publication correction history is immutable.", 409);
+    }
+    receipts.push(authoritative);
+  }
+  return receipts.sort((left, right) =>
+    left.publicationDate.localeCompare(right.publicationDate));
+}
+
+function correctionAppliesToManifest(correction, manifest) {
+  if (correction.correctionScope === "global_asset") return true;
+  if (manifest.actor.id !== correction.actorId) return false;
+  if (["actor_vibe", "result_set"].includes(correction.correctionScope)) {
+    return manifest.vibe.key === correction.vibeKey;
+  }
+  return ["actor_identity", "metadata_signal"].includes(correction.correctionScope);
+}
+
+export async function readPublicationCorrections(store, date) {
+  const listing = await store.list({ prefix: gridCorrectionPrefix(date) });
+  const receipts = await Promise.all((listing?.blobs || []).map(blob =>
+    typeof blob?.key === "string"
+      ? store.get(blob.key, { type: "json", consistency: "strong" })
+      : null));
+  return receipts.filter(receipt =>
+    receipt?.kind === "vibe-atlas-publication-correction"
+    && receipt.publicationDate === date);
+}
 
 /**
  * The actor index is derived state, not another source of publication truth.
@@ -427,6 +544,132 @@ function calendarDateOffset(dateString, days) {
   return date.toISOString().slice(0, 10);
 }
 
+function isPublicationManifestCatalog(value) {
+  return value?.schemaVersion === 1
+    && value.catalogVersion === GRID_MANIFEST_VERSION
+    && value.kind === "vibe-atlas-publication-manifest-catalog"
+    && Array.isArray(value.dates)
+    && value.dates.every(isPublicationDate);
+}
+
+async function ensurePublicationManifestCatalogDate(store, date, now) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const currentWithMetadata = typeof store.getWithMetadata === "function"
+      ? await store.getWithMetadata(publicationManifestCatalogKey(), {
+        type: "json",
+        consistency: "strong",
+      })
+      : null;
+    const current = currentWithMetadata?.data || await store.get(
+      publicationManifestCatalogKey(),
+      { type: "json", consistency: "strong" },
+    );
+    if (isPublicationManifestCatalog(current) && current.dates.includes(date)) return current;
+    if (current && !isPublicationManifestCatalog(current)) {
+      throw requestError("The publication manifest catalog is invalid.", 503);
+    }
+    const next = {
+      schemaVersion: 1,
+      catalogVersion: GRID_MANIFEST_VERSION,
+      kind: "vibe-atlas-publication-manifest-catalog",
+      dates: [...new Set([...(current?.dates || []), date])].sort(),
+      updatedAt: asTimestamp(now()),
+    };
+    const write = await store.setJSON(
+      publicationManifestCatalogKey(),
+      next,
+      currentWithMetadata?.etag
+        ? { onlyIfMatch: currentWithMetadata.etag }
+        : current ? {} : { onlyIfNew: true },
+    );
+    if (write?.modified === false) continue;
+    const authoritative = await store.get(publicationManifestCatalogKey(), {
+      type: "json",
+      consistency: "strong",
+    });
+    if (isPublicationManifestCatalog(authoritative)
+      && authoritative.dates.includes(date)) return authoritative;
+  }
+  throw requestError("The publication manifest catalog could not be updated safely.", 503);
+}
+
+export async function acquireCorrectionPublicationLock(store, now = () => new Date()) {
+  const waitDeadline = Date.now() + CORRECTION_PUBLICATION_LOCK_WAIT_MS;
+  while (Date.now() < waitDeadline) {
+    const stampValue = now();
+    const stamp = stampValue instanceof Date ? stampValue.toISOString() : String(stampValue);
+    const startedAt = Date.parse(stamp);
+    const token = randomUUID();
+    const currentWithMetadata = typeof store.getWithMetadata === "function"
+      ? await store.getWithMetadata(CORRECTION_PUBLICATION_LOCK_KEY, {
+        type: "json",
+        consistency: "strong",
+      })
+      : null;
+    const current = currentWithMetadata?.data || await store.get(
+      CORRECTION_PUBLICATION_LOCK_KEY,
+      { type: "json", consistency: "strong" },
+    );
+    if (
+      current?.state !== "released"
+      && current?.startedAt
+      && startedAt - Date.parse(current.startedAt) <= CORRECTION_PUBLICATION_LOCK_TTL_MS
+    ) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      continue;
+    }
+    if (current && !currentWithMetadata?.etag) {
+      throw requestError("A stale correction/publication lock requires reconciliation.", 503);
+    }
+    const write = await store.setJSON(CORRECTION_PUBLICATION_LOCK_KEY, {
+      schemaVersion: 1,
+      token,
+      startedAt: stamp,
+    }, currentWithMetadata?.etag
+      ? { onlyIfMatch: currentWithMetadata.etag }
+      : { onlyIfNew: true });
+    if (write?.modified === false) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      continue;
+    }
+    const authoritative = await store.get(CORRECTION_PUBLICATION_LOCK_KEY, {
+      type: "json",
+      consistency: "strong",
+    });
+    if (authoritative?.token === token) return { token };
+  }
+  throw requestError("Misprint correction or publication is already in progress. Retry shortly.", 503);
+}
+
+export async function releaseCorrectionPublicationLock(store, lock) {
+  if (!store || !lock) return;
+  try {
+    if (typeof store.getWithMetadata === "function") {
+      const current = await store.getWithMetadata(CORRECTION_PUBLICATION_LOCK_KEY, {
+        type: "json",
+        consistency: "strong",
+      });
+      if (current?.data?.token === lock.token && current.etag) {
+        await store.setJSON(CORRECTION_PUBLICATION_LOCK_KEY, {
+          ...current.data,
+          state: "released",
+          releasedAt: new Date().toISOString(),
+        }, { onlyIfMatch: current.etag });
+      }
+      return;
+    }
+    const current = await store.get(CORRECTION_PUBLICATION_LOCK_KEY, {
+      type: "json",
+      consistency: "strong",
+    });
+    if (current?.token === lock.token && typeof store.delete === "function") {
+      await store.delete(CORRECTION_PUBLICATION_LOCK_KEY);
+    }
+  } catch {
+    // The bounded lease expires even if best-effort release fails.
+  }
+}
+
 async function updatePublicationActorIndexSafely(store, manifest, now) {
   try {
     await updatePublicationActorIndex(store, manifest, now);
@@ -436,7 +679,21 @@ async function updatePublicationActorIndexSafely(store, manifest, now) {
   }
 }
 
-export async function materializePublicationManifest({
+export async function materializePublicationManifest(input) {
+  const ownedLock = input.publicationCorrectionLock
+    ? null
+    : await acquireCorrectionPublicationLock(input.store, input.now);
+  try {
+    if (typeof input.validateBeforeCommit === "function") {
+      await input.validateBeforeCommit();
+    }
+    return await materializePublicationManifestUnlocked(input);
+  } finally {
+    if (ownedLock) await releaseCorrectionPublicationLock(input.store, ownedLock);
+  }
+}
+
+async function materializePublicationManifestUnlocked({
   store,
   date,
   actor,
@@ -449,6 +706,7 @@ export async function materializePublicationManifest({
   now = () => new Date().toISOString(),
 }) {
   validatePublicationInput(date, actor, vibe, board);
+  await ensurePublicationManifestCatalogDate(store, date, now);
   const boardHashValue = boardHash(board);
   const manifestKey = gridManifestKey(date);
   const existingManifest = await store.get(manifestKey, {

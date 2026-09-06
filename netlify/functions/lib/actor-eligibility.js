@@ -26,6 +26,36 @@ export const auditCalibrationReasonsPrefix = (actorId, vibeIdx, runId) => `calib
 export const auditCalibrationReasonsKey = (actorId, vibeIdx, runId, receiptId = "canonical") => `${auditCalibrationReasonsPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
 export const auditFeedbackPrefix = (actorId, vibeIdx, runId) => `feedback/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
 export const auditFeedbackKey = (actorId, vibeIdx, runId, receiptId) => `${auditFeedbackPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
+export const auditMisprintGlobalPrefix = () => "misprints/global/";
+export const auditMisprintActorPrefix = actorId => `misprints/actor/${actorId}/`;
+export const auditMisprintVibePrefix = (actorId, vibeIdx) => `misprints/vibe/${actorId}/${vibeIdx}/`;
+export const auditMisprintDecisionGlobalPrefix = () => "misprint-decisions/global/";
+export const auditMisprintDecisionActorPrefix = actorId => `misprint-decisions/actor/${actorId}/`;
+export const auditMisprintDecisionVibePrefix = (actorId, vibeIdx) =>
+  `misprint-decisions/vibe/${actorId}/${vibeIdx}/`;
+export const auditMisprintKey = (actorId, vibeIdx, correctionScope, receiptId) => {
+  if (correctionScope === "global_asset") {
+    return `${auditMisprintGlobalPrefix()}${encodeURIComponent(receiptId)}`;
+  }
+  if (["actor_identity", "metadata_signal"].includes(correctionScope)) {
+    return `${auditMisprintActorPrefix(actorId)}${encodeURIComponent(receiptId)}`;
+  }
+  return `${auditMisprintVibePrefix(actorId, vibeIdx)}${encodeURIComponent(receiptId)}`;
+};
+export const auditMisprintDecisionKey = (
+  actorId,
+  vibeIdx,
+  correctionScope,
+  receiptId,
+  decisionId,
+) => {
+  const prefix = correctionScope === "global_asset"
+    ? auditMisprintDecisionGlobalPrefix()
+    : ["actor_identity", "metadata_signal"].includes(correctionScope)
+      ? auditMisprintDecisionActorPrefix(actorId)
+      : auditMisprintDecisionVibePrefix(actorId, vibeIdx);
+  return `${prefix}${encodeURIComponent(receiptId)}/${encodeURIComponent(decisionId)}`;
+};
 export const auditRequestedReviewPrefix = (actorId, vibeIdx, runId) => `requested-reviews/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
 export const auditRequestedReviewKey = (actorId, vibeIdx, runId, feedbackHash) => `${auditRequestedReviewPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(feedbackHash)}`;
 export const auditRescueBoardPrefix = (actorId, vibeIdx, runId) => `rescue-boards/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;

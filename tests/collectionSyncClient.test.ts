@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   activateSyncState,
+  batchCollectionSyncOperations,
   buildSyncOperations,
   collectionScopeForCard,
+  createMisprint,
   createLegendaryMisprint,
   normalizeCardForCollection,
   markGridAsLegendaryMisprint,
@@ -53,6 +55,33 @@ function grid(): GridRecord {
     generatedAt: '2026-08-10T00:00:00Z',
     savedAt: '2026-08-10T01:00:00Z',
     sourceRoute: '/',
+    vibeKey: 'vibe-1',
+    releaseCandidateProvenance: {
+      schemaVersion: 1,
+      source: 'actor-preflight-approval',
+      identity: {
+        schemaVersion: 1,
+        auditRunId: 'audit-run-1',
+        publicationManifestId: null,
+        publicationSourceType: 'operator_rescue',
+        rescueReceiptId: 'receipt-1',
+        boardHash: 'a'.repeat(64),
+        orderedCandidateIds: Array.from({ length: 9 }, (_, index) => `grid-result-${index + 1}`),
+        actorId: 'actor-1',
+        vibeKey: 'vibe-1',
+        curationVersion: 4,
+        promiseContractVersion: 3,
+        identityProfileVersion: 2,
+      },
+      candidates: Array.from({ length: 9 }, (_, index) => ({
+        candidateId: `grid-result-${index + 1}`,
+        imageDigest: 'a'.repeat(64),
+        thumbnail: `https://images.example/grid-${index + 1}.jpg`,
+        title: `Grid result ${index + 1}`,
+        source: 'Publisher',
+        batchRank: null,
+      })),
+    },
     images: [{
       resultId: 'grid-result-1',
       imageUrl: '/api/image-proxy?url=https%3A%2F%2Fimages.example%2Fgrid.jpg',
@@ -98,6 +127,45 @@ test('large collections advance beyond the first 100 acknowledged upserts', () =
   assert.equal(second[0].localId, 'local-99');
 });
 
+test('sync request batches stay below the API body limit without dropping operations', () => {
+  const request = {
+    schemaVersion: 1 as const,
+    clientId: 'device-1',
+    expectedAccountId: 'account-a',
+    cursor: 0,
+  };
+  const operations = Array.from({ length: 4 }, (_, index) => ({
+    type: 'upsert',
+    mutationId: `large-${index}`,
+    localId: `large-${index}`,
+    item: { title: 'x'.repeat(80 * 1024) },
+  }));
+  const batch = batchCollectionSyncOperations(request, operations);
+  const bytes = new TextEncoder().encode(JSON.stringify({ ...request, operations: batch })).byteLength;
+
+  assert.equal(batch.length, 2);
+  assert.ok(bytes <= 224 * 1024);
+  assert.deepEqual(batch.map(operation => operation.mutationId), ['large-0', 'large-1']);
+});
+
+test('sync request batching reports a single unsyncable item clearly', () => {
+  const request = {
+    schemaVersion: 1 as const,
+    clientId: 'device-1',
+    expectedAccountId: 'account-a',
+    cursor: 0,
+  };
+  assert.throws(
+    () => batchCollectionSyncOperations(request, [{
+      type: 'upsert',
+      mutationId: 'oversized',
+      localId: 'oversized',
+      item: { title: 'x'.repeat(230 * 1024) },
+    }]),
+    /One saved item is too large to sync/,
+  );
+});
+
 test('saved grids sync as first-class artifacts without flattening their source results', () => {
   const operations = buildSyncOperations([card(1)], state(), 'account-a', [grid()]);
   const gridOperation = operations.find(operation => operation.localId === 'grid-local-1');
@@ -105,6 +173,10 @@ test('saved grids sync as first-class artifacts without flattening their source 
   assert.equal(Reflect.get(gridOperation?.item || {}, 'kind'), 'grid');
   assert.equal(Reflect.get(gridOperation?.item || {}, 'searchSpell'), 'editorial search spell');
   assert.equal(Reflect.get(gridOperation?.item || {}, 'images').length, 1);
+  assert.deepEqual(
+    Reflect.get(gridOperation?.item || {}, 'releaseCandidateProvenance'),
+    grid().releaseCandidateProvenance,
+  );
   assert.equal(operations.filter(operation => operation.type === 'upsert').length, 2);
 });
 
@@ -197,6 +269,55 @@ test('creator-entered Legendary Misprint identity and provenance survive card sy
     .find(candidate => candidate.localId === marked.localId);
   const synced = Reflect.get(operation?.item || {}, 'legendaryMisprint');
   assert.deepEqual(synced, marked.legendaryMisprint);
+});
+
+test('ordinary Misprint correction provenance survives sync independently of Legendary promotion', () => {
+  const source = {
+    ...card(6),
+    actor: '刘学义',
+    actorEn: 'Liu Xueyi',
+    actorId: 'liu-xueyi',
+    vibeKey: 'liu-xueyi:3',
+    searchQuery: '刘学义 editorial',
+  };
+  const misprint = createMisprint(source, {
+    reason: 'wrong_actor',
+    label: 'Some Other Man™',
+    learningScope: 'actor_identity',
+    calibrationStatus: 'applied',
+    unexpectedImageIdentity: 'Zhang Linghe auditioning as Liu Xueyi',
+    note: 'Metadata committed perjury.',
+    imageDigest: 'digest-6',
+    sourceRunId: 'run-6',
+    correctionReceiptId: 'receipt-6',
+  }, new Date('2026-08-28T12:00:00.000Z'));
+  const marked: CardRecord = { ...source, misprint };
+  const operation = buildSyncOperations([marked], state(), 'account-a')
+    .find(candidate => candidate.localId === marked.localId);
+  const synced = operation?.item as Record<string, unknown>;
+
+  assert.deepEqual(synced.misprint, misprint);
+  assert.equal(synced.actorId, 'liu-xueyi');
+  assert.equal(synced.vibeKey, 'liu-xueyi:3');
+  assert.equal(synced.legendaryMisprint, undefined);
+
+  const promoted: CardRecord = {
+    ...marked,
+    legendaryMisprint: createLegendaryMisprint(marked, misprint.unexpectedImageIdentity?.label || misprint.label),
+  };
+  const promotedOperation = buildSyncOperations([promoted], state(), 'account-a')
+    .find(candidate => candidate.localId === promoted.localId);
+  const promotedItem = promotedOperation?.item as Record<string, unknown>;
+  assert.deepEqual(promotedItem.misprint, misprint);
+  assert.equal((promotedItem.misprint as { calibrationStatus?: string }).calibrationStatus, 'applied');
+  assert.ok(promotedItem.legendaryMisprint);
+
+  const depromotedOperation = buildSyncOperations([
+    { ...promoted, legendaryMisprint: undefined },
+  ], state(), 'account-a').find(candidate => candidate.localId === promoted.localId);
+  const depromotedItem = depromotedOperation?.item as Record<string, unknown>;
+  assert.deepEqual(depromotedItem.misprint, misprint);
+  assert.equal(depromotedItem.legendaryMisprint, undefined);
 });
 
 test('Legendary Misprint metadata is created only by an explicit creator description', () => {

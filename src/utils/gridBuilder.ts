@@ -7,7 +7,13 @@
  * downstream copy stops sounding templated.
  */
 import type { GridItemData } from '../types';
-import type { CardRecord, GridRecord, GridMediaSnapshot, LegendaryMisprint } from './collectionDB';
+import {
+  collectionScopeForCard,
+  type CardRecord,
+  type GridRecord,
+  type GridMediaSnapshot,
+  type LegendaryMisprint,
+} from './collectionDB';
 import { detectEditorialSets } from './editorialDetection';
 
 /** A normalized card in the builder pool (saved card or saved-grid image). */
@@ -318,8 +324,8 @@ export function uniqueVisualCards(cards: BuilderCard[]): BuilderCard[] {
   });
 }
 
-export function isVibeAtlasActorIdentity(value: string): boolean {
-  return (value.match(/\p{Script=Han}/gu)?.length || 0) >= 2;
+function isVibeAtlasGrid(grid: GridRecord): boolean {
+  return !grid.sourceRoute.startsWith('/memeforge/middle-earth');
 }
 
 export function buildVibeAtlasPool(
@@ -330,11 +336,12 @@ export function buildVibeAtlasPool(
   const includeMisprints = mode === 'misprints';
   return buildPool(
     cards.filter(card =>
-      isVibeAtlasActorIdentity(card.actor)
+      collectionScopeForCard(card) === 'vibe-atlas'
       && Boolean(card.legendaryMisprint) === includeMisprints),
     grids.filter(grid => includeMisprints
-      ? grid.intent === 'legendary-misprint' || Boolean(grid.legendaryMisprint)
-      : isVibeAtlasActorIdentity(grid.actor)
+      ? isVibeAtlasGrid(grid)
+        && (grid.intent === 'legendary-misprint' || Boolean(grid.legendaryMisprint))
+      : isVibeAtlasGrid(grid)
         && grid.intent !== 'legendary-misprint'
         && !grid.legendaryMisprint),
   );

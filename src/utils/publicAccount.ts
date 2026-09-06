@@ -95,7 +95,7 @@ export async function syncPublicCollection(user: PublicUser): Promise<void> {
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'Collection sync failed.');
       await dbApplySyncResponse(user.accountId, body, payload.operations);
-      if (payload.operations.length < 100) break;
+      if (payload.operations.length === 0) break;
       if (batch === 99) throw new Error('Collection sync exceeded the safe batch limit.');
     }
     notifyCollection('synced');

@@ -20,6 +20,14 @@ import {
   auditCalibrationReasonsPrefix,
   auditFeedbackKey,
   auditFeedbackPrefix,
+  auditMisprintActorPrefix,
+  auditMisprintDecisionActorPrefix,
+  auditMisprintDecisionGlobalPrefix,
+  auditMisprintDecisionKey,
+  auditMisprintDecisionVibePrefix,
+  auditMisprintGlobalPrefix,
+  auditMisprintKey,
+  auditMisprintVibePrefix,
   auditRunKey,
   auditRunPrefix,
   auditRequestedReviewKey,
@@ -63,7 +71,13 @@ import {
   STAR_OF_DAY_VERSION,
 } from "../star-of-day.js";
 import { getShanghaiDateString } from "./date-seed.js";
-import { readLatestPublicationDatesByActor } from "./publication-manifest.js";
+import {
+  acquireCorrectionPublicationLock,
+  readLatestPublicationDatesByActor,
+  recordPublicationCorrectionsForMisprint,
+  releaseCorrectionPublicationLock,
+} from "./publication-manifest.js";
+import { approvedBoardAuthorityKey } from "./approved-board-provenance.js";
 
 const MAX_BODY_BYTES = 48 * 1024;
 const MAX_NOTE_LENGTH = 2000;
@@ -75,6 +89,7 @@ const MAX_RAW_RESULTS = 36;
 const MAX_IDENTITY_ITEMS = 36;
 const MAX_FEEDBACK_EVENTS = 72;
 const MAX_FEEDBACK_NOTE_LENGTH = 400;
+const MISPRINT_RECEIPT_CATALOG_KEY = "vibeAtlas:misprint-receipt-catalog:v1";
 const RESCUE_CALIBRATION_VERSION = 1;
 const MIN_REUSABLE_SIGNAL_DELTA = 0.15;
 const MIN_REUSABLE_SIGNAL_SUPPORT = 2;
@@ -117,6 +132,17 @@ const DEFAULT_PRODUCTION_REASONS = {
   provenanceRights: "Review source provenance and confirm rights for publication.",
 };
 const FEEDBACK_INTENTS = new Set(["pin", "hero", "supporting", "exclude", "challenge"]);
+const MISPRINT_REASONS = new Map([
+  ["wrong_actor", { label: "Some Other Man™", correctionScope: "actor_identity", futureExclusion: true }],
+  ["wrong_vibe", { label: "Technically Him, Spiritually Incorrect", correctionScope: "actor_vibe", futureExclusion: true }],
+  ["query_mismatch", { label: "The Search Has Wandered", correctionScope: "result_set", futureExclusion: true }],
+  ["misleading_metadata", { label: "Metadata Committed Perjury", correctionScope: "metadata_signal", futureExclusion: true }],
+  ["composite_or_collage", { label: "Nine Men in a Trench Coat", correctionScope: "global_asset", futureExclusion: true }],
+  ["bad_asset", { label: "Cursed Asset", correctionScope: "global_asset", futureExclusion: true }],
+  ["duplicate", { label: "Same Man, Same Photo", correctionScope: "board", futureExclusion: false }],
+  ["ranking_bug", { label: "The Machine Has Become Confused", correctionScope: "diagnostic", futureExclusion: false }],
+  ["other", { label: "Other Misprint", correctionScope: "local", futureExclusion: false }],
+]);
 const CHALLENGE_REASONS = new Set([
   "stronger_vibe_match",
   "better_silhouette",
@@ -156,6 +182,15 @@ const HARD_BLOCKING_DROP_REASONS = new Set([
   "safety_prohibited",
   "confirmed_wrong_identity",
 ]);
+const MISPRINT_PUBLICATION_ACTIONS = new Set([
+  "mark_collection_misprint",
+  "mark_grid_misprint",
+  "mark_misprint",
+  "review_collection_misprint",
+  "retract_misprint",
+  "verdict",
+  "publish_backfill",
+]);
 
 export function createActorAuditHandler({
   auth,
@@ -172,10 +207,37 @@ export function createActorAuditHandler({
   fetchImpl = fetch,
 }) {
   return async (req, context) => {
+    let misprintPublicationLock = null;
+    let lockStore = null;
     try {
-      const operator = await auth.authenticateAdmin(req, context);
+      let input = null;
+      let collectionFeedbackTrusted = true;
+      if (req.method === "POST") {
+        requireSameOrigin(req);
+        input = await readJson(req);
+      }
+      let operator;
+      if (input?.action === "mark_collection_misprint") {
+        operator = await auth.authenticate(req, context);
+        try {
+          await auth.authenticateAdmin(req, context);
+        } catch (error) {
+          if (![401, 403].includes(error?.status)) throw error;
+          collectionFeedbackTrusted = false;
+        }
+      } else {
+        operator = await auth.authenticateAdmin(req, context);
+      }
       const store = getStore(ELIGIBILITY_STORE, context);
       const url = new URL(req.url);
+      if (
+        req.method === "POST"
+        && MISPRINT_PUBLICATION_ACTIONS.has(input?.action)
+        && (input.action !== "mark_collection_misprint" || collectionFeedbackTrusted)
+      ) {
+        lockStore = getPublicationStore(context);
+        misprintPublicationLock = await acquireCorrectionPublicationLock(lockStore, now);
+      }
 
       if (req.method === "GET") {
         const actorId = url.searchParams.get("actorId");
@@ -210,16 +272,99 @@ export function createActorAuditHandler({
           const run = await readRun(store, pair, runId);
           return run ? json(200, { run: clientRun(run, pair) }) : json(404, { error: "Audit run not found." });
         }
-        return json(200, detailResponse(pair, report));
+        const misprintReviewQueue = (await readScopedMisprints(store, pair))
+          .filter(receipt =>
+            receipt.originalStatus === "pending_review"
+            && receipt.status === "pending_review");
+        return json(200, {
+          ...detailResponse(pair, report),
+          misprintReviewQueue,
+        });
       }
 
       if (req.method !== "POST") {
         return json(405, { error: "Method not allowed." }, { Allow: "GET, POST" });
       }
-      requireSameOrigin(req);
-      const input = await readJson(req);
-      const pair = resolvePair(actorPacks, input.actorId, input.vibeKey);
+      const pair = resolvePair(actorPacks, input.actorId, input.vibeKey)
+        || (["mark_grid_misprint", "mark_collection_misprint"].includes(input.action)
+          ? resolvePairByCollectionContext(
+            actorPacks,
+            input.actorId,
+            input.actorName,
+            input.vibeLabel,
+          )
+          : null);
       if (!pair) return json(400, { error: "Unknown actor or Vibe Pack." });
+
+      if (["review_collection_misprint", "retract_misprint"].includes(input.action)) {
+        const receiptId = boundedText(input.receiptId, 160);
+        const note = boundedText(input.note, MAX_FEEDBACK_NOTE_LENGTH);
+        if (!receiptId || note === null) {
+          return json(400, { error: "A valid Misprint receipt and note are required." });
+        }
+        const receipts = await readScopedMisprints(store, pair);
+        const source = receipts.find(receipt => receipt.receiptId === receiptId);
+        if (!source) return json(404, { error: "Misprint receipt not found." });
+        const decisionKind = input.action === "review_collection_misprint" ? "review" : "retraction";
+        const decisionValue = decisionKind === "review" ? input.decision : "retracted";
+        if (decisionKind === "review"
+          && !["approved", "rejected"].includes(decisionValue)) {
+          return json(400, { error: "Pending Misprint review must be approved or rejected." });
+        }
+        if (decisionKind === "review" && source.originalStatus !== "pending_review") {
+          return json(409, { error: "Only pending Collection feedback can receive a review decision." });
+        }
+        if (decisionKind === "retraction" && source.status !== "active") {
+          return json(409, { error: "Only an active Misprint correction can be retracted." });
+        }
+        if (decisionKind === "retraction" && !note) {
+          return json(400, { error: "Explain why this correction is being retracted." });
+        }
+        const priorDecisions = await readMisprintDecisions(store, pair);
+        const decisionReason = note || "Reviewed by operator.";
+        const prior = priorDecisions.find(decision =>
+          decision.sourceReceiptId === receiptId && decision.kind === decisionKind);
+        if (prior) {
+          if (prior.decision !== decisionValue || prior.note !== decisionReason) {
+            return json(409, { error: "That immutable Misprint decision has already been recorded." });
+          }
+          const effective = applyMisprintDecisions(source, priorDecisions);
+          return json(200, {
+            decision: prior,
+            misprint: effective,
+            calibrationStatus: calibrationStatusFor(effective),
+          });
+        }
+        const authoritative = await appendMisprintDecision({
+          store,
+          pair,
+          sourceReceipt: source,
+          kind: decisionKind,
+          decision: decisionValue,
+          reason: decisionReason,
+          principal: operator.user.accountId,
+          now,
+        });
+        if (authoritative.decision !== decisionValue || authoritative.note !== decisionReason) {
+          return json(409, { error: "That immutable Misprint decision has already been recorded." });
+        }
+        const effective = applyMisprintDecisions(source, [...priorDecisions, authoritative]);
+        const affectedPublications = effective.status === "active"
+          ? await applyActiveMisprintConsequences({
+            store,
+            publicationStore: getPublicationStore(context),
+            pair,
+            correction: effective,
+            now,
+          })
+          : [];
+        return json(200, {
+          decision: authoritative,
+          misprint: effective,
+          calibrationStatus: calibrationStatusFor(effective),
+          affectedPublications,
+        });
+      }
 
       if (input.action === "production_transition") {
         const stage = input.stage === "provenance_rights"
@@ -260,6 +405,7 @@ export function createActorAuditHandler({
         if (!scope) return json(400, { error: "Audit scope must be representative or full." });
         const previous = await readReport(store, pair);
         const calibrationProfile = await readRescueCalibrationProfile(store, pair);
+        const misprintCorrections = await readApplicableMisprints(store, pair);
         const reviewPreferenceCandidateIds = nextReviewPreferenceIds(previous.currentRun);
         const preferredCandidateIds = [
           ...new Set([
@@ -275,6 +421,7 @@ export function createActorAuditHandler({
           preferredCandidateIds,
           reviewPreferenceCandidateIds,
           calibrationProfile,
+          misprintCorrections,
         });
         const { report, advanced } = await appendRun(store, pair, run);
         if (advanced) {
@@ -517,6 +664,20 @@ export function createActorAuditHandler({
             publishableConfirmed,
             rescuePreference,
           })) {
+            const invalidatingMisprints = APPROVED_VERDICTS.has(input.verdict)
+              ? await reconcileApprovedEligibilityWithMisprints({
+                store,
+                publicationStore: getPublicationStore(context),
+                pair,
+                now,
+              })
+              : [];
+            if (invalidatingMisprints.length > 0) {
+              return json(409, {
+                error: "This approval contains evidence with an active Misprint correction. Run and review a corrected board.",
+                misprintReceiptIds: invalidatingMisprints.map(item => item.receiptId),
+              });
+            }
             return json(200, {
               actor: await actorSummary(store, actorPacks, pair.actor),
               pairing: pairingSummary(pair, raced),
@@ -588,6 +749,20 @@ export function createActorAuditHandler({
           eligible: APPROVED_VERDICTS.has(input.verdict),
           decidedAt: stamp,
         });
+        const invalidatingMisprints = APPROVED_VERDICTS.has(input.verdict)
+          ? await reconcileApprovedEligibilityWithMisprints({
+            store,
+            publicationStore: getPublicationStore(context),
+            pair,
+            now,
+          })
+          : [];
+        if (invalidatingMisprints.length > 0) {
+          return json(409, {
+            error: "This approval contains evidence with an active Misprint correction. Run and review a corrected board.",
+            misprintReceiptIds: invalidatingMisprints.map(item => item.receiptId),
+          });
+        }
         return json(200, {
           actor: await actorSummary(store, actorPacks, pair.actor),
           pairing: pairingSummary(pair, next),
@@ -707,6 +882,488 @@ export function createActorAuditHandler({
         });
       }
 
+      if (["mark_misprint", "mark_grid_misprint", "mark_collection_misprint"].includes(input.action)) {
+        if (input.action === "mark_collection_misprint") {
+          const reason = typeof input.reason === "string" ? MISPRINT_REASONS.get(input.reason) : null;
+          if (!reason) {
+            return json(400, { error: "Choose one of the listed Misprint reasons." });
+          }
+          const sourceCollectionId = boundedText(input.collectionItemId, 512);
+          const candidate = {
+            candidateId: typeof input.candidate?.candidateId === "string"
+              && input.candidate.candidateId.length > 0
+              && input.candidate.candidateId.length <= 4096
+              ? input.candidate.candidateId
+              : null,
+            query: boundedText(input.candidate?.query, 500),
+            title: boundedText(input.candidate?.title, 240),
+            source: boundedText(input.candidate?.source, 120),
+            link: boundedText(input.candidate?.link, 700),
+            thumbnail: boundedText(input.candidate?.thumbnail, 4096),
+            imageDigest: boundedText(input.candidate?.imageDigest, 256),
+          };
+          if (
+            !sourceCollectionId
+            || !candidate.candidateId
+            || !candidate.thumbnail
+            || [
+              [input.candidate?.query, candidate.query],
+              [input.candidate?.title, candidate.title],
+              [input.candidate?.source, candidate.source],
+              [input.candidate?.link, candidate.link],
+              [input.candidate?.imageDigest, candidate.imageDigest],
+            ].some(([raw, bounded]) => raw != null && bounded === null)
+          ) {
+            return json(400, { error: "The saved result does not contain enough provenance to correct curator evidence." });
+          }
+          const actualIdentity = boundedText(input.actualIdentity, 160);
+          const note = boundedText(input.note, MAX_FEEDBACK_NOTE_LENGTH);
+          if (actualIdentity === null || note === null) {
+            return json(400, { error: "Misprint details exceed the allowed length." });
+          }
+          const existingMisprints = await readScopedMisprints(store, pair);
+          const existing = existingMisprints.find(item =>
+            item.action === "mark_collection_misprint"
+            && item.sourceCollectionId === sourceCollectionId
+            && item.markedBy === operator.user.accountId
+            && item.reason === input.reason
+            && sameMisprintCandidateIdentity(item.candidate, candidate));
+          if (existing) {
+            let effective = existing;
+            let affectedPublications = [];
+            if (collectionFeedbackTrusted && existing.status === "pending_review") {
+              const approval = await appendMisprintDecision({
+                store,
+                pair,
+                sourceReceipt: existing,
+                kind: "review",
+                decision: "approved",
+                reason: "Trusted resubmission approved the previously pending correction.",
+                principal: operator.user.accountId,
+                now,
+              });
+              effective = applyMisprintDecisions(existing, [
+                ...(await readMisprintDecisions(store, pair)),
+                approval,
+              ]);
+              affectedPublications = await applyActiveMisprintConsequences({
+                store,
+                publicationStore: getPublicationStore(context),
+                pair,
+                correction: effective,
+                now,
+              });
+            } else if (existing.status === "active") {
+              affectedPublications = await applyActiveMisprintConsequences({
+                store,
+                publicationStore: getPublicationStore(context),
+                pair,
+                correction: existing,
+                now,
+              });
+            }
+            return json(200, {
+              misprint: effective,
+              calibrationStatus: calibrationStatusFor(effective),
+              affectedPublications,
+            });
+          }
+
+          const receiptId = misprintReceiptId({
+            action: input.action,
+            sourceCollectionId,
+            actorId: pair.actor.id,
+            vibeKey: pair.vibeKey,
+            reason: input.reason,
+            candidate,
+            principal: operator.user.accountId,
+          });
+          const receipt = {
+            schemaVersion: 1,
+            receiptId,
+            status: collectionFeedbackTrusted ? "active" : "pending_review",
+            action: "mark_collection_misprint",
+            sourceCollectionId,
+            sourceRunId: boundedText(input.sourceRunId, 128) || null,
+            actorId: pair.actor.id,
+            vibeKey: pair.vibeKey,
+            vibeIdx: pair.vibeIdx,
+            candidateId: candidate.candidateId,
+            reason: input.reason,
+            label: reason.label,
+            correctionScope: reason.correctionScope,
+            futureExclusion: reason.futureExclusion,
+            actualIdentity: actualIdentity || null,
+            note,
+            candidate,
+            versions: {
+              identityProfileVersion: IDENTITY_PROFILE_VERSION,
+              aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+              promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+              curationVersion: null,
+            },
+            markedAt: now().toISOString(),
+            markedBy: operator.user.accountId,
+          };
+          const receiptKey = auditMisprintKey(
+            pair.actor.id,
+            pair.vibeIdx,
+            reason.correctionScope,
+            receiptId,
+          );
+          await ensureMisprintReceiptCatalog(store, receiptKey, now);
+          const write = await store.setJSON(
+            receiptKey,
+            receipt,
+            { onlyIfNew: true },
+          );
+          if (write?.modified === false) {
+            const authoritative = await store.get(
+              receiptKey,
+              { type: "json", consistency: "strong" },
+            );
+            if (!authoritative) {
+              return json(409, { error: "Another correction used this receipt identity first." });
+            }
+            let effective = authoritative;
+            let affectedPublications = [];
+            if (collectionFeedbackTrusted && authoritative.status === "pending_review") {
+              const approval = await appendMisprintDecision({
+                store,
+                pair,
+                sourceReceipt: authoritative,
+                kind: "review",
+                decision: "approved",
+                reason: "Trusted resubmission approved the previously pending correction.",
+                principal: operator.user.accountId,
+                now,
+              });
+              effective = applyMisprintDecisions(authoritative, [
+                ...(await readMisprintDecisions(store, pair)),
+                approval,
+              ]);
+              affectedPublications = await applyActiveMisprintConsequences({
+                store,
+                publicationStore: getPublicationStore(context),
+                pair,
+                correction: effective,
+                now,
+              });
+            }
+            return json(200, {
+              misprint: effective,
+              calibrationStatus: calibrationStatusFor(effective),
+              affectedPublications,
+            });
+          }
+          const affectedPublications = collectionFeedbackTrusted
+            ? await applyActiveMisprintConsequences({
+              store,
+              publicationStore: getPublicationStore(context),
+              pair,
+              correction: receipt,
+              now,
+            })
+            : [];
+          return json(200, {
+            misprint: receipt,
+            calibrationStatus: calibrationStatusFor(receipt),
+            affectedPublications,
+          });
+        }
+        if (input.action === "mark_grid_misprint") {
+          const candidates = Array.isArray(input.candidates) ? input.candidates : [];
+          if (!candidates.length || candidates.length > 12) {
+            return json(400, { error: "A Misprint grid must contain between one and twelve candidates." });
+          }
+          const normalized = candidates.map(candidate => ({
+            candidateId: typeof candidate?.candidateId === "string"
+              && candidate.candidateId.length > 0
+              && candidate.candidateId.length <= 4096
+              ? candidate.candidateId
+              : null,
+            query: boundedText(candidate?.query, 500),
+            title: boundedText(candidate?.title, 240),
+            source: boundedText(candidate?.source, 120),
+            link: boundedText(candidate?.link, 700),
+            thumbnail: boundedText(candidate?.thumbnail, 700),
+            imageDigest: boundedText(candidate?.imageDigest, 256),
+          }));
+          if (normalized.some(candidate =>
+            !candidate.candidateId
+            || [candidate.query, candidate.title, candidate.source, candidate.link, candidate.thumbnail, candidate.imageDigest]
+              .some(value => value === null))) {
+            return json(400, { error: "Every Misprint grid candidate needs valid retained provenance." });
+          }
+          const gridId = boundedText(input.gridId, 512);
+          const note = boundedText(input.note, MAX_FEEDBACK_NOTE_LENGTH);
+          if (!gridId || note === null) {
+            return json(400, { error: "The Misprint grid identity or note is invalid." });
+          }
+          const scopedMisprints = await readScopedMisprints(store, pair);
+          const markedAt = now().toISOString();
+          const receipts = [];
+          const affectedPublications = [];
+          for (const candidate of normalized) {
+            const existing = scopedMisprints.find(item =>
+              item.sourceGridId === gridId
+              && item.reason === "query_mismatch"
+              && sameMisprintCandidateIdentity(item.candidate, candidate));
+            if (existing) {
+              receipts.push(existing);
+              affectedPublications.push(...await applyActiveMisprintConsequences({
+                store,
+                publicationStore: getPublicationStore(context),
+                pair,
+                correction: existing,
+                now,
+              }));
+              continue;
+            }
+            const receiptId = misprintReceiptId({
+              action: input.action,
+              sourceGridId: gridId,
+              actorId: pair.actor.id,
+              vibeKey: pair.vibeKey,
+              reason: "query_mismatch",
+              candidate,
+              principal: operator.user.accountId,
+            });
+            const receipt = {
+              schemaVersion: 1,
+              receiptId,
+              status: "active",
+              action: "mark_grid_misprint",
+              sourceGridId: gridId,
+              sourceRunId: boundedText(input.runId, 128) || null,
+              actorId: pair.actor.id,
+              vibeKey: pair.vibeKey,
+              vibeIdx: pair.vibeIdx,
+              candidateId: candidate.candidateId,
+              reason: "query_mismatch",
+              label: MISPRINT_REASONS.get("query_mismatch").label,
+              correctionScope: "result_set",
+              futureExclusion: true,
+              actualIdentity: null,
+              note,
+              candidate,
+              versions: {
+                identityProfileVersion: IDENTITY_PROFILE_VERSION,
+                aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+                promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+                curationVersion: null,
+              },
+              markedAt,
+              markedBy: operator.user.accountId,
+            };
+            const receiptKey = auditMisprintKey(
+              pair.actor.id,
+              pair.vibeIdx,
+              receipt.correctionScope,
+              receiptId,
+            );
+            await ensureMisprintReceiptCatalog(store, receiptKey, now);
+            const write = await store.setJSON(
+              receiptKey,
+              receipt,
+              { onlyIfNew: true },
+            );
+            if (write?.modified === false) {
+              const authoritative = await store.get(
+                receiptKey,
+                { type: "json", consistency: "strong" },
+              );
+              if (!authoritative) {
+                return json(409, { error: "Another operator recorded this grid correction first." });
+              }
+              receipts.push(authoritative);
+              affectedPublications.push(...await applyActiveMisprintConsequences({
+                store,
+                publicationStore: getPublicationStore(context),
+                pair,
+                correction: authoritative,
+                now,
+              }));
+              continue;
+            }
+            receipts.push(receipt);
+            affectedPublications.push(...await applyActiveMisprintConsequences({
+              store,
+              publicationStore: getPublicationStore(context),
+              pair,
+              correction: receipt,
+              now,
+            }));
+          }
+          return json(200, {
+            correctedCandidateCount: receipts.length,
+            receiptIds: receipts.map(receipt => receipt.receiptId),
+            affectedPublications,
+          });
+        }
+        const report = await readReport(store, pair);
+        const run = await readRun(store, pair, input.runId);
+        if (!run || run.runId !== input.runId) {
+          return json(409, { error: "This Misprint is not from a retained audit run. Refresh and try again." });
+        }
+        if (report.currentRun?.runId !== run.runId) {
+          return json(409, { error: "Only the current audit run can receive new Misprint corrections." });
+        }
+        if (currentRunMatchesCurrentContract(run, pair)
+          && !run.blindReview?.choice
+          && run.blindReview?.status !== "unavailable") {
+          return json(409, { error: "Choose the blind board result before correcting retained evidence." });
+        }
+        if (typeof input.candidateId !== "string" || !/^[a-f0-9]{24}$/.test(input.candidateId)) {
+          return json(400, { error: "A valid retained candidate is required." });
+        }
+        const reason = typeof input.reason === "string" ? MISPRINT_REASONS.get(input.reason) : null;
+        if (!reason) {
+          return json(400, { error: "Choose one of the listed Misprint reasons." });
+        }
+        const candidate = (run.rawResults || []).find(item =>
+          item.candidateId === input.candidateId
+          || (!item.candidateId
+            && candidateIdForResult({ ...item, batchKey: item.query }) === input.candidateId));
+        if (!candidate) {
+          return json(404, { error: "That image is not part of this audit's retained evidence." });
+        }
+        const actualIdentity = boundedText(input.actualIdentity, 160);
+        if (actualIdentity === null) {
+          return json(400, { error: "The unexpected identity must be text under 160 characters." });
+        }
+        const note = boundedText(input.note, MAX_FEEDBACK_NOTE_LENGTH);
+        if (note === null) {
+          return json(400, { error: "The Misprint note must be text under 400 characters." });
+        }
+        const scopedMisprints = await readScopedMisprints(store, pair);
+        const existing = scopedMisprints.find(item =>
+          item.sourceRunId === run.runId
+          && item.reason === input.reason
+          && sameMisprintCandidateIdentity(item.candidate, candidate));
+        if (existing) {
+          const affectedPublications = await applyActiveMisprintConsequences({
+            store,
+            publicationStore: getPublicationStore(context),
+            pair,
+            correction: existing,
+            now,
+          });
+          return json(200, {
+            actor: await actorSummary(store, actorPacks, pair.actor),
+            pairing: pairingSummary(pair, report),
+            misprint: existing,
+            calibrationStatus: calibrationStatusFor(existing),
+            affectedPublications,
+            ...detailResponse(pair, report),
+          });
+        }
+        if ((run.editorialFeedback?.eventCount || 0) >= MAX_FEEDBACK_EVENTS) {
+          return json(409, { error: "This run has reached its editorial feedback receipt limit." });
+        }
+        const markedAt = now().toISOString();
+        const receiptCandidate = {
+          candidateId: input.candidateId,
+          query: String(candidate.query || "").slice(0, 500),
+          title: String(candidate.title || "").slice(0, 240),
+          source: String(candidate.source || "").slice(0, 120),
+          link: String(candidate.link || "").slice(0, 700),
+          thumbnail: String(candidate.thumbnail || "").slice(0, 700),
+          imageDigest: String(candidate.imageDigest || "").slice(0, 256) || null,
+        };
+        const receiptId = misprintReceiptId({
+          action: input.action,
+          sourceRunId: run.runId,
+          actorId: pair.actor.id,
+          vibeKey: pair.vibeKey,
+          reason: input.reason,
+          candidate: receiptCandidate,
+          principal: operator.user.accountId,
+        });
+        const receipt = {
+          schemaVersion: 1,
+          receiptId,
+          status: "active",
+          action: "mark_misprint",
+          sourceRunId: run.runId,
+          actorId: pair.actor.id,
+          vibeKey: pair.vibeKey,
+          vibeIdx: pair.vibeIdx,
+          candidateId: input.candidateId,
+          reason: input.reason,
+          label: reason.label,
+          correctionScope: reason.correctionScope,
+          futureExclusion: reason.futureExclusion,
+          actualIdentity: actualIdentity || null,
+          note,
+          candidate: receiptCandidate,
+          versions: {
+            identityProfileVersion: run.identityProfileVersion || run.profileVersion || null,
+            aestheticClusterVersion: run.aestheticClusterVersion || null,
+            promiseContractVersion: run.promiseContractVersion || null,
+            curationVersion: run.curationReceipt?.curationVersion || null,
+          },
+          markedAt,
+          markedBy: operator.user.accountId,
+        };
+        const receiptKey = auditMisprintKey(
+          pair.actor.id,
+          pair.vibeIdx,
+          reason.correctionScope,
+          receiptId,
+        );
+        await ensureMisprintReceiptCatalog(store, receiptKey, now);
+        const write = await store.setJSON(
+          receiptKey,
+          receipt,
+          { onlyIfNew: true },
+        );
+        if (write?.modified === false) {
+          const authoritative = await store.get(
+            receiptKey,
+            { type: "json", consistency: "strong" },
+          );
+          if (!authoritative) {
+            return json(409, { error: "Another operator recorded this Misprint first." });
+          }
+          const affectedPublications = await applyActiveMisprintConsequences({
+            store,
+            publicationStore: getPublicationStore(context),
+            pair,
+            correction: authoritative,
+            now,
+          });
+          return json(200, {
+            actor: await actorSummary(store, actorPacks, pair.actor),
+            pairing: pairingSummary(pair, report),
+            misprint: authoritative,
+            calibrationStatus: calibrationStatusFor(authoritative),
+            affectedPublications,
+            ...detailResponse(pair, report),
+          });
+        }
+        const affectedPublications = await applyActiveMisprintConsequences({
+          store,
+          publicationStore: getPublicationStore(context),
+          pair,
+          correction: receipt,
+          now,
+        });
+        const refreshed = await readReport(store, pair);
+        if (refreshed.currentRun?.runId === run.runId) {
+          await persistRequestedReview(store, pair, refreshed.currentRun, now);
+        }
+        const next = await readReport(store, pair);
+        return json(200, {
+          actor: await actorSummary(store, actorPacks, pair.actor),
+          pairing: pairingSummary(pair, next),
+          misprint: receipt,
+          calibrationStatus: calibrationStatusFor(receipt),
+          affectedPublications,
+          ...detailResponse(pair, next),
+        });
+      }
+
       if (input.action === "flag_candidate") {
         const report = await readReport(store, pair);
         const run = await readRun(store, pair, input.runId);
@@ -757,6 +1414,9 @@ export function createActorAuditHandler({
         }
         const feedback = run.editorialFeedback || emptyEditorialFeedback();
         const existing = feedback.flags.find(item => item.candidateId === input.candidateId);
+        if (existing?.misprint) {
+          return json(409, { error: "This result is preserved as a Misprint and cannot be restored through ordinary board flags." });
+        }
         if (
           (existing?.flagged === input.flagged && (!input.flagged || (
             existing.intent === requestedIntent
@@ -961,6 +1621,7 @@ export function createActorAuditHandler({
               env,
               fetchImpl,
               now: () => now().toISOString(),
+              publicationCorrectionLock: misprintPublicationLock,
             });
             payload = materialized.payload;
           } catch (error) {
@@ -1225,6 +1886,56 @@ export function createActorAuditHandler({
           return json(409, { error: "The saved rescue arrangement no longer passes the current audit gates. Rebuild it before exporting." });
         }
         const exportedAt = now().toISOString();
+        const publicationSource = run.operatorVerdict?.publicationSource;
+        const exportedBoardHash = boardHash(validation.board);
+        const exactApprovedBoard = run.operatorVerdict?.verdict === "approved"
+          && run.operatorVerdict.vibeConfirmed === true
+          && run.operatorVerdict.publishableConfirmed === true
+          && publicationSource?.type === "operator_rescue"
+          && publicationSource.rescueReceiptId === receipt.receiptId
+          && publicationSource.boardHash === exportedBoardHash;
+        const hasCompleteImageEvidence = validation.board.candidates.every(candidate =>
+          typeof candidate.imageDigest === "string" && /^[a-f0-9]{64}$/i.test(candidate.imageDigest));
+        const releaseCandidateProvenance = exactApprovedBoard && hasCompleteImageEvidence ? {
+          schemaVersion: 1,
+          source: "actor-preflight-approval",
+          identity: {
+            schemaVersion: 1,
+            auditRunId: run.runId,
+            publicationManifestId: null,
+            publicationSourceType: publicationSource.type,
+            rescueReceiptId: receipt.receiptId,
+            boardHash: publicationSource.boardHash,
+            orderedCandidateIds: validation.board.candidates.map(candidate => candidate.candidateId),
+            actorId: pair.actor.id,
+            vibeKey: pair.vibeKey,
+            curationVersion: CURATION_VERSION,
+            promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+            identityProfileVersion: IDENTITY_PROFILE_VERSION,
+          },
+          candidates: validation.board.candidates.map(candidate => ({
+            candidateId: candidate.candidateId,
+            imageDigest: candidate.imageDigest,
+            thumbnail: candidate.thumbnail || "",
+            title: candidate.title || "",
+            source: candidate.source || "",
+            batchRank: candidate.batchRank ?? null,
+          })),
+        } : null;
+        if (releaseCandidateProvenance) {
+          const authorityKey = approvedBoardAuthorityKey(run.runId);
+          const authorityWrite = await store.setJSON(
+            authorityKey,
+            releaseCandidateProvenance,
+            { onlyIfNew: true },
+          );
+          if (authorityWrite?.modified === false) {
+            const authority = await store.get(authorityKey, { type: "json", consistency: "strong" });
+            if (recordHash(authority) !== recordHash(releaseCandidateProvenance)) {
+              return json(409, { error: "The approved-board identity no longer matches its immutable authority record." });
+            }
+          }
+        }
         return json(200, {
           rescueExport: {
             schemaVersion: 1,
@@ -1249,6 +1960,7 @@ export function createActorAuditHandler({
               subtitleEn: pair.vibe.subtitle_en || pair.vibe.subtitle || "",
               searchSpell: pair.vibe.queries?.[0] || pair.vibeKey,
             },
+            ...(releaseCandidateProvenance ? { releaseCandidateProvenance } : {}),
             candidates: validation.board.candidates.map(candidate => ({
               candidateId: candidate.candidateId,
               imageDigest: candidate.imageDigest || null,
@@ -1257,6 +1969,7 @@ export function createActorAuditHandler({
               source: candidate.source || "",
               link: candidate.link || "",
               thumbnail: candidate.thumbnail || "",
+              batchRank: candidate.batchRank ?? null,
             })),
           },
         });
@@ -1269,6 +1982,8 @@ export function createActorAuditHandler({
       return json(status, {
         error: status === 500 ? "Actor audit request failed." : error.message,
       });
+    } finally {
+      await releaseCorrectionPublicationLock(lockStore, misprintPublicationLock);
     }
   };
 }
@@ -1284,6 +1999,7 @@ export async function runPreflight(
     preferredCandidateIds = [],
     reviewPreferenceCandidateIds = [],
     calibrationProfile = null,
+    misprintCorrections = [],
   } = {},
 ) {
   const startedAt = now().toISOString();
@@ -1307,7 +2023,9 @@ export async function runPreflight(
       throw error;
     }
   });
-  const baselineRanked = rankCandidates(candidates);
+  const appliedMisprintReceiptIds = matchedMisprintReceiptIds(candidates, misprintCorrections);
+  const correctedCandidates = applyMisprintCorrectionsToCandidates(candidates, misprintCorrections);
+  const baselineRanked = rankCandidates(correctedCandidates);
   const ranked = baselineRanked;
   const baselineTop = baselineRanked.slice(0, RANKED_BATCH_LIMIT);
   const calibratedTop = ranked.slice(0, RANKED_BATCH_LIMIT);
@@ -1345,10 +2063,11 @@ export async function runPreflight(
       } : null,
     })
     : { displayResults: [], curation: null, diagnostics: null };
-  const diagnostics = curated.diagnostics || emptyDiagnostics();
+  const correctedCurated = applyMisprintCorrectionsToCurated(curated, misprintCorrections);
+  const diagnostics = correctedCurated.diagnostics || emptyDiagnostics();
   const profile = ACTOR_IDENTITY_PROFILES[pair.actor.id];
-  const identityEvidence = summarizeIdentityEvidence(candidates, profile);
-  const queryRuns = candidates.map(candidate => queryRun(
+  const identityEvidence = summarizeIdentityEvidence(correctedCandidates, profile);
+  const queryRuns = correctedCandidates.map(candidate => queryRun(
     candidate,
     searchReceipts.get(candidate.query),
     ranked.findIndex(item => item.query === candidate.query),
@@ -1358,11 +2077,11 @@ export async function runPreflight(
   const learnedQueriesUsed = learnedQueries.filter(query =>
     queryRuns.some(item => item.query === query));
   const completedAt = now().toISOString();
-  const automaticPublicationReady = curated.displayResults.length >= 9;
+  const automaticPublicationReady = correctedCurated.displayResults.length >= 9;
   const publicationQualified = automaticPublicationReady;
   const retainedProposal = bestRetainedProposal(diagnostics);
-  const proposalResults = Array.isArray(curated.proposalResults)
-    ? curated.proposalResults
+  const proposalResults = Array.isArray(correctedCurated.proposalResults)
+    ? correctedCurated.proposalResults
     : retainedProposal?.candidates?.map(candidate => candidate.result || candidate) || [];
   const proposalComplete = proposalResults.length >= 9;
   const completeProposalCardCount = Math.max(
@@ -1386,7 +2105,7 @@ export async function runPreflight(
     : null;
   const curationReceipt = {
     ...(diagnostics.receipt || {}),
-    ...(curated.curation || {}),
+    ...(correctedCurated.curation || {}),
     rawCandidates: diagnostics.rawCandidates || [],
     sourceEvidenceCandidates: diagnostics.sourceEvidenceCandidates
       || diagnostics.rawCandidates
@@ -1431,7 +2150,12 @@ export async function runPreflight(
       sourceReceiptIds: calibrationProfile.sourceReceiptIds,
     } : null,
     calibrationProof,
-    rawResults: boundedRawResults(candidates, diagnostics),
+    rawResults: boundedRawResultsWithMisprints(
+      correctedCandidates,
+      candidates,
+      diagnostics,
+      misprintCorrections,
+    ),
     rejections: buildRejectionLedger(queryRuns, diagnostics),
     identityEvidence,
     detectedEvents: diagnostics.eventFamilies || [],
@@ -1450,17 +2174,18 @@ export async function runPreflight(
       : null,
     curationReceipt,
     curatorProposal: proposalComplete && !publicationQualified ? {
-      ...(curated.proposalCuration || {}),
+      ...(correctedCurated.proposalCuration || {}),
       ...(retainedProposal || {}),
       candidates: retainedProposal?.candidates?.slice(0, 9) || proposalResults.slice(0, 9),
     } : null,
-    displayCount: curated.displayResults.length,
+    displayCount: correctedCurated.displayResults.length,
     proposalCount: proposalResults.length,
     proposalComplete,
     publicationQualified,
     completeProposalCardCount,
     materialSufficient: automaticPublicationReady || completeProposalCardCount >= 9,
     automaticPublicationReady,
+    appliedMisprintReceiptIds,
     operatorVerdict: null,
   };
   run.rescueDraft = buildFrozenRescueBoard(run, []);
@@ -1468,6 +2193,242 @@ export async function runPreflight(
   run.suggestedState = run.preflightOutcome.state;
   run.missingEvidenceSearchSuggestions = missingEvidenceSearchSuggestions(run.partialClusters);
   return run;
+}
+
+function applyMisprintCorrectionsToCandidates(candidates, corrections) {
+  const active = corrections.filter(correction => correction.futureExclusion === true);
+  if (!active.length) return candidates;
+  return candidates.map(batch => {
+    const results = (batch.results || []).filter(result => !active.some(correction =>
+      misprintMatchesCandidate(correction, {
+        ...result,
+        query: result.query || batch.query,
+        candidateId: result.candidateId || candidateIdForResult({
+          ...result,
+          batchKey: result.batchKey || batch.query,
+          digest: result.imageDigest || "",
+        }),
+      })));
+    return {
+      ...batch,
+      results,
+      count: results.length,
+      distinctSources: new Set(results.map(result => result.source).filter(Boolean)).size,
+    };
+  });
+}
+
+function matchedMisprintReceiptIds(candidates, corrections) {
+  const active = corrections.filter(correction => correction.futureExclusion === true);
+  return active.filter(correction => candidates.some(batch =>
+    (batch.results || []).some(result => misprintMatchesCandidate(correction, {
+      ...result,
+      query: result.query || batch.query,
+      candidateId: result.candidateId || candidateIdForResult({
+        ...result,
+        batchKey: result.batchKey || batch.query,
+        digest: result.imageDigest || "",
+      }),
+    })))).map(correction => correction.receiptId);
+}
+
+function applyMisprintCorrectionsToCurated(curated, corrections) {
+  const active = corrections.filter(correction => correction.futureExclusion === true);
+  const diagnostics = curated.diagnostics;
+  if (!active.length || !diagnostics) return curated;
+  const rawCandidates = diagnostics.rawCandidates || [];
+  const corrected = rawCandidates.filter(candidate =>
+    active.some(correction => misprintMatchesCandidate(correction, candidate)));
+  if (!corrected.length) return curated;
+  const excludedIds = new Set(corrected.map(candidate => candidate.candidateId).filter(Boolean));
+  const filterBoard = board => {
+    if (!board || !Array.isArray(board.candidates)) return board;
+    return {
+      ...board,
+      candidates: board.candidates.filter(candidate => !excludedIds.has(candidate.candidateId)),
+    };
+  };
+  const filterDiagnostic = diagnostic => {
+    if (!diagnostic) return diagnostic;
+    const proposal = filterBoard(diagnostic.proposal);
+    const candidateCount = Array.isArray(proposal?.candidates) ? proposal.candidates.length : 0;
+    return {
+      ...diagnostic,
+      proposal,
+      available: diagnostic.available === true && candidateCount >= 9,
+      completeProposalAvailable: diagnostic.completeProposalAvailable === true && candidateCount >= 9,
+      candidateCount: Math.min(Number(diagnostic.candidateCount) || candidateCount, candidateCount),
+    };
+  };
+  const correctionFor = candidate =>
+    active.find(correction => misprintMatchesCandidate(correction, candidate));
+  const nextRawCandidates = rawCandidates.map(candidate => {
+    const correction = correctionFor(candidate);
+    return correction ? {
+      ...candidate,
+      dropReason: "curator_misprint",
+      dropDetail: `${correction.label} · ${correction.reason}`,
+      misprintReceiptId: correction.receiptId,
+    } : candidate;
+  });
+  const nextDropped = [
+    ...(diagnostics.dropped || []),
+    ...corrected
+      .filter(candidate => !(diagnostics.dropped || []).some(item =>
+        item.candidateId === candidate.candidateId && item.dropReason === "curator_misprint"))
+      .map(candidate => {
+        const correction = correctionFor(candidate);
+        return {
+          ...candidate,
+          dropReason: "curator_misprint",
+          dropDetail: `${correction.label} · ${correction.reason}`,
+          misprintReceiptId: correction.receiptId,
+        };
+      }),
+  ];
+  const nextDiagnostics = {
+    ...diagnostics,
+    rawCandidates: nextRawCandidates,
+    dropped: nextDropped,
+    strongestEvent: filterBoard(diagnostics.strongestEvent),
+    strongestCompiled: filterBoard(diagnostics.strongestCompiled),
+    eventAlternatives: (diagnostics.eventAlternatives || []).map(filterBoard),
+    compiledAlternatives: (diagnostics.compiledAlternatives || []).map(filterBoard),
+    boardDiagnostics: {
+      ...(diagnostics.boardDiagnostics || {}),
+      event: filterDiagnostic(diagnostics.boardDiagnostics?.event),
+      compiled: filterDiagnostic(diagnostics.boardDiagnostics?.compiled),
+    },
+    partialClusters: (diagnostics.partialClusters || []).map(cluster => ({
+      ...cluster,
+      candidateIds: Array.isArray(cluster.candidateIds)
+        ? cluster.candidateIds.filter(candidateId => !excludedIds.has(candidateId))
+        : cluster.candidateIds,
+    })),
+  };
+  return {
+    ...curated,
+    displayResults: (curated.displayResults || []).filter(candidate =>
+      !excludedIds.has(candidate.candidateId)),
+    diagnostics: nextDiagnostics,
+  };
+}
+
+function misprintMatchesCandidate(correction, candidate) {
+  if (!correction || !candidate) return false;
+  if (
+    correction.reason === "query_mismatch"
+    && correction.candidate?.query
+    && correction.candidate.query === candidate.query
+  ) return true;
+  const correctionDigest = correction.candidate?.imageDigest
+    || correction.candidate?.media?.checksum;
+  const candidateDigest = candidate.imageDigest || candidate.media?.checksum;
+  if (correctionDigest && candidateDigest) {
+    if (correctionDigest === candidateDigest) return true;
+    if (correction.correctionScope === "global_asset") return false;
+  }
+  if (correction.candidateId && correction.candidateId === candidate.candidateId) return true;
+  const correctionImage = canonicalImageIdentity(
+    correction.candidate?.thumbnail
+    || correction.candidate?.imageUrl
+    || correction.candidate?.sourceUrl,
+  );
+  const candidateImage = canonicalImageIdentity(
+    candidate.thumbnail
+    || candidate.imageUrl
+    || candidate.sourceUrl
+    || candidate.media?.thumbnailUrl
+    || candidate.media?.deliveryUrl,
+  );
+  if (correctionImage && candidateImage && correctionImage === candidateImage) return true;
+  return false;
+}
+
+function canonicalImageIdentity(value) {
+  if (typeof value !== "string" || !value.trim()) return "";
+  let raw = value.trim();
+  for (let depth = 0; depth < 4; depth += 1) {
+    try {
+      const url = new URL(raw, "https://fandom.justlikekatie.com");
+      if (
+        url.pathname.endsWith("/.netlify/functions/image-proxy")
+        || url.pathname.endsWith("/api/image-proxy")
+      ) {
+        const original = url.searchParams.get("url");
+        if (original) {
+          raw = original;
+          continue;
+        }
+      }
+      url.hash = "";
+      url.hostname = url.hostname.toLowerCase();
+      for (const key of [...url.searchParams.keys()]) {
+        if (/^(?:token|sig|signature|expires?|exp|auth|policy|cache|cachebust|cb)$/i.test(key)) {
+          url.searchParams.delete(key);
+        }
+      }
+      url.searchParams.sort();
+      return url.toString();
+    } catch {
+      return raw;
+    }
+  }
+  return raw;
+}
+
+function strongestMisprintCandidateIdentity(candidate) {
+  const digest = String(candidate?.imageDigest || "").trim();
+  if (digest) return `digest:${digest}`;
+  const canonical = canonicalImageIdentity(candidate?.thumbnail || candidate?.imageUrl || "");
+  if (canonical) return `image:${canonical}`;
+  const candidateId = String(candidate?.candidateId || "").trim();
+  if (candidateId) return `candidate:${candidateId}`;
+  const query = normalizeQuery(candidate?.query);
+  return query ? `query:${query}` : "unknown";
+}
+
+function sameMisprintCandidateIdentity(left, right) {
+  const leftDigest = String(left?.imageDigest || "").trim();
+  const rightDigest = String(right?.imageDigest || "").trim();
+  if (leftDigest && rightDigest) return leftDigest === rightDigest;
+  const leftImage = canonicalImageIdentity(left?.thumbnail || left?.imageUrl || "");
+  const rightImage = canonicalImageIdentity(right?.thumbnail || right?.imageUrl || "");
+  if (leftImage && rightImage) return leftImage === rightImage;
+  const leftId = String(left?.candidateId || "").trim();
+  const rightId = String(right?.candidateId || "").trim();
+  return Boolean(leftId && rightId && leftId === rightId);
+}
+
+function misprintReceiptId({
+  action,
+  sourceCollectionId,
+  sourceGridId,
+  sourceRunId,
+  actorId,
+  vibeKey,
+  reason,
+  candidate,
+  principal,
+}) {
+  return createHash("sha256").update(JSON.stringify({
+    action,
+    sourceCollectionId: sourceCollectionId || null,
+    sourceGridId: sourceGridId || null,
+    sourceRunId: sourceRunId || null,
+    actorId,
+    vibeKey,
+    reason,
+    principal,
+    candidateIdentity: strongestMisprintCandidateIdentity(candidate),
+  })).digest("hex").slice(0, 24);
+}
+
+function calibrationStatusFor(correction) {
+  if (correction?.status === "pending_review") return "submitted";
+  if (correction?.status === "rejected") return "rejected";
+  if (correction?.status === "retracted") return "retracted";
+  return correction?.futureExclusion === true ? "applied" : "recorded";
 }
 
 function strongestProposal(diagnostics, mode) {
@@ -1659,6 +2620,7 @@ function boundedRawResults(candidates, diagnostics = {}) {
       thumbnail: String(item.thumbnail || "").slice(0, 700),
       dropReason: item.dropReason || null,
       dropDetail: String(item.dropDetail || "").slice(0, 400) || null,
+      misprintReceiptId: item.misprintReceiptId || null,
       promise: item.promise || null,
     }));
   }
@@ -1672,6 +2634,50 @@ function boundedRawResults(candidates, diagnostics = {}) {
     link: String(result.link || "").slice(0, 700),
     thumbnail: String(result.thumbnail || "").slice(0, 700),
   }))).slice(0, MAX_RAW_RESULTS);
+}
+
+function boundedRawResultsWithMisprints(
+  correctedCandidates,
+  originalCandidates,
+  diagnostics,
+  corrections,
+) {
+  const visible = boundedRawResults(correctedCandidates, diagnostics);
+  const active = corrections.filter(correction => correction.futureExclusion === true);
+  if (!active.length) return visible;
+  const correctedEvidence = new Map();
+  for (const batch of originalCandidates) {
+    for (const result of batch.results || []) {
+      const candidateId = result.candidateId || candidateIdForResult({
+        ...result,
+        batchKey: result.batchKey || batch.query,
+        digest: result.imageDigest || "",
+      });
+      const correction = active.find(item => misprintMatchesCandidate(item, {
+        ...result,
+        query: result.query || batch.query,
+        candidateId,
+      }));
+      if (!correction || correctedEvidence.has(candidateId)) continue;
+      correctedEvidence.set(candidateId, {
+        candidateId,
+        imageDigest: String(result.imageDigest || "").slice(0, 256) || null,
+        query: String(result.query || batch.query || "").slice(0, 500),
+        title: String(result.title || "").slice(0, 240),
+        description: String(result.description || "").slice(0, 400),
+        source: String(result.source || "").slice(0, 120),
+        link: String(result.link || "").slice(0, 700),
+        thumbnail: String(result.thumbnail || "").slice(0, 700),
+        dropReason: "curator_misprint",
+        dropDetail: `${correction.label} · ${correction.reason}`,
+        misprintReceiptId: correction.receiptId,
+      });
+    }
+  }
+  return [
+    ...correctedEvidence.values(),
+    ...visible.filter(item => !correctedEvidence.has(item.candidateId)),
+  ].slice(0, MAX_RAW_RESULTS);
 }
 
 function buildRejectionLedger(queryRuns, diagnostics) {
@@ -2500,6 +3506,7 @@ function emptyEditorialFeedback() {
     schemaVersion: 1,
     eventCount: 0,
     flags: [],
+    misprints: [],
     feedbackHash: feedbackHash([]),
     requestedReview: null,
     operatorRescueBoard: null,
@@ -2533,6 +3540,222 @@ function reportWithRescueReceipt(report, pair, receipt) {
   };
 }
 
+async function readApplicableMisprints(store, pair) {
+  return (await readScopedMisprints(store, pair))
+    .filter(receipt => receipt?.status === "active")
+    .sort((left, right) =>
+      String(left.markedAt || "").localeCompare(String(right.markedAt || ""))
+      || left.receiptId.localeCompare(right.receiptId));
+}
+
+async function readScopedMisprints(store, pair) {
+  const receipts = (await Promise.all([
+    readReceipts(store, auditMisprintGlobalPrefix(), "markedAt"),
+    readReceipts(store, auditMisprintActorPrefix(pair.actor.id), "markedAt"),
+    readReceipts(store, auditMisprintVibePrefix(pair.actor.id, pair.vibeIdx), "markedAt"),
+  ])).flat();
+  const decisions = await readMisprintDecisions(store, pair);
+  return [...new Map(receipts
+    .filter(receipt =>
+      typeof receipt?.receiptId === "string"
+      && (receipt.correctionScope === "global_asset"
+        || receipt.actorId === pair.actor.id)
+      && (!["actor_vibe", "result_set", "board", "diagnostic", "local"].includes(receipt.correctionScope)
+        || receipt.vibeKey === pair.vibeKey))
+    .map(receipt => [
+      receipt.receiptId,
+      applyMisprintDecisions(receipt, decisions),
+    ])).values()];
+}
+
+async function readMisprintDecisions(store, pair) {
+  return (await Promise.all([
+    readReceipts(store, auditMisprintDecisionGlobalPrefix(), "decidedAt"),
+    readReceipts(store, auditMisprintDecisionActorPrefix(pair.actor.id), "decidedAt"),
+    readReceipts(store, auditMisprintDecisionVibePrefix(pair.actor.id, pair.vibeIdx), "decidedAt"),
+  ])).flat().filter(decision =>
+    typeof decision?.sourceReceiptId === "string"
+    && (decision.correctionScope === "global_asset"
+      || decision.actorId === pair.actor.id)
+    && (!["actor_vibe", "result_set", "board", "diagnostic", "local"].includes(decision.correctionScope)
+      || decision.vibeKey === pair.vibeKey));
+}
+
+function applyMisprintDecisions(receipt, decisions) {
+  const applicable = decisions
+    .filter(decision => decision.sourceReceiptId === receipt.receiptId)
+    .sort((left, right) =>
+      String(left.decidedAt || "").localeCompare(String(right.decidedAt || ""))
+      || String(left.decisionId || "").localeCompare(String(right.decisionId || "")));
+  let status = receipt.status;
+  const review = applicable.find(decision => decision.kind === "review");
+  if (review && receipt.status === "pending_review") {
+    status = review.decision === "approved" ? "active" : "rejected";
+  }
+  if (
+    status === "active"
+    && applicable.some(decision => decision.kind === "retraction")
+  ) {
+    status = "retracted";
+  }
+  return {
+    ...receipt,
+    originalStatus: receipt.status,
+    status,
+    decisionIds: applicable.map(decision => decision.decisionId),
+  };
+}
+
+async function appendMisprintDecision({
+  store,
+  pair,
+  sourceReceipt,
+  kind,
+  decision,
+  reason,
+  principal,
+  now,
+}) {
+  const decidedAt = now().toISOString();
+  const decisionId = createHash("sha256").update(JSON.stringify({
+    sourceReceiptId: sourceReceipt.receiptId,
+    kind,
+  })).digest("hex").slice(0, 24);
+  const record = {
+    schemaVersion: 1,
+    decisionId,
+    kind,
+    decision: decision || null,
+    note: reason,
+    sourceReceiptId: sourceReceipt.receiptId,
+    sourceStatus: sourceReceipt.originalStatus || sourceReceipt.status,
+    actorId: sourceReceipt.actorId,
+    vibeKey: sourceReceipt.vibeKey,
+    vibeIndex: sourceReceipt.vibeIndex,
+    correctionScope: sourceReceipt.correctionScope,
+    decidedBy: principal,
+    decidedAt,
+  };
+  const key = auditMisprintDecisionKey(
+    pair.actor.id,
+    pair.vibeIdx,
+    sourceReceipt.correctionScope,
+    sourceReceipt.receiptId,
+    decisionId,
+  );
+  await ensureMisprintReceiptCatalog(store, key, now);
+  const write = await store.setJSON(key, record, { onlyIfNew: true });
+  if (write?.modified !== false) return record;
+  const authoritative = await store.get(key, { type: "json", consistency: "strong" });
+  if (!authoritative) throw new Error("Misprint decision conflict could not be resolved.");
+  return authoritative;
+}
+
+async function applyActiveMisprintConsequences({
+  store,
+  publicationStore,
+  pair,
+  correction,
+  now,
+}) {
+  if (correction?.status !== "active" || correction?.futureExclusion !== true) return [];
+  const affectedPairs = affectedPairsForCorrection(pair, correction);
+  for (const affectedPair of affectedPairs) {
+    const [eligibility, snapshot] = await Promise.all([
+      getEligibility(store, affectedPair.actor, affectedPair.vibeIdx),
+      store.get(eligibilityKey(affectedPair.actor.id, affectedPair.vibeIdx), {
+        type: "json",
+        consistency: "strong",
+      }),
+    ]);
+    if (
+      eligibility?.publicationBoard?.candidates?.some(candidate =>
+        misprintMatchesCandidate(correction, candidate))
+      && snapshot
+    ) {
+      await writeEligibility(
+        store,
+        affectedPair,
+        {
+          ...snapshot,
+          eligible: false,
+          verdict: "invalidated_by_misprint",
+          invalidatedByMisprint: {
+            receiptId: correction.receiptId,
+            reason: correction.reason,
+            markedAt: correction.markedAt,
+          },
+          evaluatedAt: now().toISOString(),
+        },
+      );
+    }
+  }
+  return recordPublicationCorrectionsForMisprint({
+    store: publicationStore,
+    correction,
+    matchesCandidate: (_sourceCorrection, candidate) =>
+      misprintMatchesCandidate(correction, candidate),
+    now,
+  });
+}
+
+function affectedPairsForCorrection(pair, correction) {
+  if (correction.correctionScope === "global_asset") {
+    return (pair.packs || [pair.actor]).flatMap(actor =>
+      (actor.vibes || []).map((vibe, vibeIdx) => ({
+        packs: pair.packs,
+        actor,
+        vibe,
+        vibeIdx,
+        vibeKey: vibeKeyFor(actor.id, vibeIdx),
+      })));
+  }
+  if (["actor_identity", "metadata_signal"].includes(correction.correctionScope)) {
+    return (pair.actor.vibes || []).map((vibe, vibeIdx) => ({
+      packs: pair.packs,
+      actor: pair.actor,
+      vibe,
+      vibeIdx,
+      vibeKey: vibeKeyFor(pair.actor.id, vibeIdx),
+    }));
+  }
+  return [pair];
+}
+
+async function reconcileApprovedEligibilityWithMisprints({
+  store,
+  publicationStore,
+  pair,
+  now,
+}) {
+  const rawSnapshot = await store.get(eligibilityKey(pair.actor.id, pair.vibeIdx), {
+    type: "json",
+    consistency: "strong",
+  });
+  if (rawSnapshot?.verdict === "invalidated_by_misprint") {
+    return rawSnapshot.invalidatedByMisprint
+      ? [rawSnapshot.invalidatedByMisprint]
+      : [];
+  }
+  const eligibility = await getEligibility(store, pair.actor, pair.vibeIdx);
+  const candidates = eligibility?.publicationBoard?.candidates;
+  if (!Array.isArray(candidates) || candidates.length === 0) return [];
+  const corrections = (await readApplicableMisprints(store, pair))
+    .filter(correction =>
+      correction.futureExclusion === true
+      && candidates.some(candidate => misprintMatchesCandidate(correction, candidate)));
+  for (const correction of corrections) {
+    await applyActiveMisprintConsequences({
+      store,
+      publicationStore,
+      pair,
+      correction,
+      now,
+    });
+  }
+  return corrections;
+}
+
 async function readEditorialFeedback(store, pair, run) {
   const listing = await store.list({
     prefix: auditFeedbackPrefix(pair.actor.id, pair.vibeIdx, run.runId),
@@ -2545,11 +3768,32 @@ async function readEditorialFeedback(store, pair, run) {
   receipts.sort((left, right) =>
     String(left.value.createdAt || "").localeCompare(String(right.value.createdAt || ""))
     || left.key.localeCompare(right.key));
+  const runMisprints = (await readApplicableMisprints(store, pair))
+    .filter(receipt => receipt.sourceRunId === run.runId);
   const latest = new Map();
   for (const receipt of receipts) {
     if (receipt.value.runId !== run.runId || receipt.value.actorId !== pair.actor.id
       || receipt.value.vibeKey !== pair.vibeKey) continue;
     latest.set(receipt.value.candidateId, receipt.value);
+  }
+  for (const misprint of runMisprints) {
+    latest.set(misprint.candidateId, {
+      schemaVersion: 1,
+      eventId: misprint.receiptId,
+      action: "mark_misprint",
+      flagged: true,
+      intent: "exclude",
+      reasons: [misprint.reason],
+      runId: run.runId,
+      actorId: pair.actor.id,
+      vibeKey: pair.vibeKey,
+      candidateId: misprint.candidateId,
+      candidate: misprint.candidate,
+      note: misprint.note,
+      createdAt: misprint.markedAt,
+      createdBy: misprint.markedBy,
+      misprint,
+    });
   }
   const flags = [...latest.values()]
     .filter(receipt => receipt.flagged === true)
@@ -2616,8 +3860,9 @@ async function readEditorialFeedback(store, pair, run) {
   }));
   const feedback = {
     schemaVersion: 1,
-    eventCount: receipts.length,
+    eventCount: receipts.length + runMisprints.length,
     flags,
+    misprints: runMisprints,
     feedbackHash: feedbackHash(flags),
     requestedReview: null,
     operatorRescueBoards,
@@ -2639,6 +3884,7 @@ function feedbackHash(flags) {
     flagged: flag.flagged,
     intent: flag.intent,
     reasons: flag.reasons || [],
+    misprintReceiptId: flag.misprint?.receiptId || null,
   }))).slice(0, 32);
 }
 
@@ -4193,16 +5439,77 @@ async function readCanonicalReceipt(store, key, prefix, timestampField) {
 }
 
 async function readReceipts(store, prefix, timestampField) {
-  const listing = await store.list({ prefix });
-  const receipts = (await Promise.all((listing?.blobs || []).map(async blob => {
-    if (typeof blob?.key !== "string") return null;
-    const value = await store.get(blob.key, { type: "json", consistency: "strong" });
-    return value ? { key: blob.key, value } : null;
+  const [listing, catalog] = await Promise.all([
+    store.list({ prefix }),
+    store.get(MISPRINT_RECEIPT_CATALOG_KEY, { type: "json", consistency: "strong" }),
+  ]);
+  const keys = new Set((listing?.blobs || [])
+    .map(blob => blob?.key)
+    .filter(key => typeof key === "string"));
+  if (isMisprintReceiptCatalog(catalog)) {
+    for (const key of catalog.keys) {
+      if (key.startsWith(prefix)) keys.add(key);
+    }
+  }
+  const receipts = (await Promise.all([...keys].map(async key => {
+    const value = await store.get(key, { type: "json", consistency: "strong" });
+    return value ? { key, value } : null;
   }))).filter(Boolean);
   receipts.sort((left, right) =>
     String(right.value[timestampField] || "").localeCompare(String(left.value[timestampField] || ""))
     || right.key.localeCompare(left.key));
   return receipts.map(receipt => receipt.value);
+}
+
+function isMisprintReceiptCatalog(value) {
+  return value?.schemaVersion === 1
+    && value.kind === "vibe-atlas-misprint-receipt-catalog"
+    && Array.isArray(value.keys)
+    && value.keys.every(key => typeof key === "string");
+}
+
+async function ensureMisprintReceiptCatalog(store, receiptKey, now) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const currentWithMetadata = typeof store.getWithMetadata === "function"
+      ? await store.getWithMetadata(MISPRINT_RECEIPT_CATALOG_KEY, {
+        type: "json",
+        consistency: "strong",
+      })
+      : null;
+    const current = currentWithMetadata?.data || await store.get(
+      MISPRINT_RECEIPT_CATALOG_KEY,
+      { type: "json", consistency: "strong" },
+    );
+    if (isMisprintReceiptCatalog(current) && current.keys.includes(receiptKey)) return current;
+    if (current && !isMisprintReceiptCatalog(current)) {
+      const error = new Error("The Misprint receipt catalog is invalid.");
+      error.status = 503;
+      throw error;
+    }
+    const next = {
+      schemaVersion: 1,
+      kind: "vibe-atlas-misprint-receipt-catalog",
+      keys: [...new Set([...(current?.keys || []), receiptKey])].sort(),
+      updatedAt: now().toISOString(),
+    };
+    const write = await store.setJSON(
+      MISPRINT_RECEIPT_CATALOG_KEY,
+      next,
+      currentWithMetadata?.etag
+        ? { onlyIfMatch: currentWithMetadata.etag }
+        : current ? {} : { onlyIfNew: true },
+    );
+    if (write?.modified === false) continue;
+    const authoritative = await store.get(MISPRINT_RECEIPT_CATALOG_KEY, {
+      type: "json",
+      consistency: "strong",
+    });
+    if (isMisprintReceiptCatalog(authoritative)
+      && authoritative.keys.includes(receiptKey)) return authoritative;
+  }
+  const error = new Error("The Misprint receipt catalog could not be updated safely.");
+  error.status = 503;
+  throw error;
 }
 
 function recordHash(value) {
@@ -4266,7 +5573,42 @@ function resolvePair(packs, actorId, vibeKey) {
   if (!match) return null;
   const vibeIdx = Number(match[1]);
   const vibe = actor.vibes?.[vibeIdx];
-  return vibe ? { actor, vibe, vibeIdx, vibeKey } : null;
+  return vibe ? { packs, actor, vibe, vibeIdx, vibeKey } : null;
+}
+
+function resolvePairByLabel(packs, actorId, vibeLabel) {
+  if (typeof actorId !== "string" || typeof vibeLabel !== "string") return null;
+  const actor = packs.find(item => item.id === actorId);
+  if (!actor) return null;
+  const normalized = vibeLabel.trim().toLocaleLowerCase();
+  const vibeIdx = actor.vibes?.findIndex(vibe =>
+    [vibe.label, vibe.label_en].some(label =>
+      typeof label === "string" && label.trim().toLocaleLowerCase() === normalized));
+  if (!Number.isInteger(vibeIdx) || vibeIdx < 0) return null;
+  return {
+    packs,
+    actor,
+    vibe: actor.vibes[vibeIdx],
+    vibeIdx,
+    vibeKey: vibeKeyFor(actor.id, vibeIdx),
+  };
+}
+
+function resolvePairByCollectionContext(packs, actorId, actorName, vibeLabel) {
+  const direct = resolvePairByLabel(packs, actorId, vibeLabel);
+  if (direct) return direct;
+  if (typeof actorName !== "string" || typeof vibeLabel !== "string") return null;
+  const normalizedActor = actorName.trim().toLocaleLowerCase();
+  const actor = packs.find(item => [
+    item.id,
+    item.name,
+    item.shortName,
+    item.shortName_en,
+    item.canonicalName,
+    item.romanizedName,
+    ...(item.aliases || []),
+  ].some(value => typeof value === "string" && value.trim().toLocaleLowerCase() === normalizedActor));
+  return actor ? resolvePairByLabel(packs, actor.id, vibeLabel) : null;
 }
 
 function parseScope(value) {

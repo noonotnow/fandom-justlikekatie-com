@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { validateGridEditorialContract } from "./grid-editorial-contract.js";
+import { isReleaseCandidateProvenance } from "./approved-board-provenance.js";
 
 const MAX_OPERATIONS = 100;
 
@@ -145,6 +146,10 @@ function validateItem(item) {
       ))
     ) throw new TypeError("Collection grid is invalid.");
     if (item.media !== undefined) validateCollectionMedia(item.media);
+    if (item.releaseCandidateProvenance !== undefined
+      && !isReleaseCandidateProvenance(item.releaseCandidateProvenance)) {
+      throw new TypeError("Collection release-candidate provenance is invalid.");
+    }
     if (item.misprintMetadata !== undefined) validateMisprintMetadata(item.misprintMetadata);
     for (const image of item.images) {
       if (image.legendaryMisprint !== undefined) validateLegendaryMisprint(image.legendaryMisprint);
@@ -180,6 +185,7 @@ function validateItem(item) {
       throw new TypeError("Collection MEDIA URLs do not match the saved descriptor.");
     }
   }
+  if (item.misprint !== undefined) validateMisprint(item.misprint);
   if (item.legendaryMisprint !== undefined) validateLegendaryMisprint(item.legendaryMisprint);
   if (item.memeRework !== undefined) validateMemeRework(item.memeRework);
 }
@@ -194,6 +200,63 @@ function validateMisprintMetadata(metadata) {
     || [...metadata.intendedIdentities, ...metadata.unexpectedImageIdentities, ...metadata.sourceResultIds]
       .some(value => typeof value !== "string" || value.length > 4096)
   ) throw new TypeError("Legendary Misprint metadata is invalid.");
+}
+
+function validateMisprint(misprint) {
+  const reasons = new Set([
+    "wrong_actor",
+    "wrong_vibe",
+    "query_mismatch",
+    "misleading_metadata",
+    "composite_or_collage",
+    "bad_asset",
+    "duplicate",
+    "ranking_bug",
+    "other",
+  ]);
+  const scopes = new Set([
+    "actor_identity",
+    "actor_vibe",
+    "result_set",
+    "metadata_signal",
+    "global_asset",
+    "board",
+    "diagnostic",
+    "local",
+  ]);
+  const calibrationStatuses = new Set([
+    "applied",
+    "recorded",
+    "submitted",
+    "rejected",
+    "retracted",
+  ]);
+  if (
+    !misprint
+    || misprint.kind !== "misprint"
+    || misprint.confirmedByCreator !== true
+    || typeof misprint.markedAt !== "string"
+    || !reasons.has(misprint.reason)
+    || typeof misprint.label !== "string"
+    || misprint.label.length < 1
+    || misprint.label.length > 160
+    || !scopes.has(misprint.learningScope)
+    || (misprint.calibrationStatus !== undefined
+      && !calibrationStatuses.has(misprint.calibrationStatus))
+    || typeof misprint.intendedIdentity?.actor !== "string"
+    || typeof misprint.intendedIdentity?.actorEn !== "string"
+    || typeof misprint.intendedIdentity?.vibe !== "string"
+    || typeof misprint.intendedIdentity?.vibeEn !== "string"
+    || !["vibe-atlas", "middle-earth"].includes(misprint.intendedIdentity?.collectionScope)
+    || typeof misprint.provenance?.imageUrl !== "string"
+    || misprint.provenance.imageUrl.length > 4096
+    || (misprint.unexpectedImageIdentity !== undefined
+      && (typeof misprint.unexpectedImageIdentity?.label !== "string"
+        || misprint.unexpectedImageIdentity.label.length < 1
+        || misprint.unexpectedImageIdentity.label.length > 160))
+    || (misprint.note !== undefined
+      && (typeof misprint.note !== "string" || misprint.note.length > 400))
+  ) throw new TypeError("Misprint provenance is invalid.");
 }
 
 function validateLegendaryMisprint(misprint) {

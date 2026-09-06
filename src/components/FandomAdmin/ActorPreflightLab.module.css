@@ -226,6 +226,15 @@
 .intentButtons .flagButton,.intentButtons .flagButtonActive { min-height:32px; padding:4px; line-height:1.2; }
 .challengeControls { display:grid; gap:4px; padding-top:5px; border-top:1px solid var(--admin-border); }
 .challengeSelect { width:100%; min-width:0; padding:6px; border:1px solid var(--admin-border); border-radius:5px; background:color-mix(in srgb,Canvas 94%,currentColor 6%); color:inherit; font:inherit; font-size:9px; }
+.misprintControls { display:grid; gap:7px; padding:7px; border:1px solid color-mix(in srgb,#c98264 55%,var(--admin-border)); border-radius:6px; background:color-mix(in srgb,#c98264 7%,transparent); }
+.misprintControls[open] summary { color:#f0c0aa; }
+.misprintControls summary { color:#e5b09a; font-size:10px; font-weight:800; cursor:pointer; }
+.misprintControls p,.misprintControls small { margin:0; color:#b9bfbb; font-size:9px; line-height:1.4; }
+.misprintControls label { display:grid; gap:4px; color:#b9bfbb; font-size:9px; font-weight:700; }
+.misprintControls label span { color:#8d928f; font-weight:400; }
+.misprintButton { min-height:32px; padding:0 9px; border:1px solid #c98264; border-radius:6px; background:color-mix(in srgb,#c98264 13%,transparent); color:#f0c0aa; font:inherit; font-size:10px; font-weight:800; cursor:pointer; }
+.misprintButton:hover:not(:disabled),.misprintButton:focus-visible { background:color-mix(in srgb,#c98264 22%,transparent); }
+.misprintButton:disabled { cursor:not-allowed; opacity:.45; }
 .requestedReview { display:grid; gap:10px; margin-top:14px; padding:13px; border:1px solid color-mix(in srgb,#c9a96e 45%,var(--admin-border)); border-radius:8px; background:color-mix(in srgb,#c9a96e 5%,transparent); }
 .calibrationProfile { display:grid; gap:9px; margin:0 0 14px; padding:12px; border:1px solid color-mix(in srgb,#c9a96e 45%,var(--admin-border)); border-radius:8px; background:color-mix(in srgb,#c9a96e 5%,transparent); }
 .calibrationProfile h5 { margin:0; color:#c9a96e; }

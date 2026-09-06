@@ -3,6 +3,11 @@ import { CreatorPostAction } from '../CreatorPostAction/CreatorPostAction';
 import { dbGetVisibleGrids, type GridRecord } from '../../utils/collectionDB';
 import { makeCreatorPostFromGrid } from '../../utils/creatorDraft';
 import { getPublicSession } from '../../utils/publicAccount';
+import {
+  boardProvenanceLabel,
+  classifyGridProvenance,
+  type ClassifiedBoardProvenance,
+} from '../../utils/approvedBoardProvenance';
 import styles from './ReleaseDesk.module.css';
 
 type AnyRecord = Record<string, any>;
@@ -276,6 +281,7 @@ function ProductionReadiness({
 
 function WorkstationHandoffDesk() {
   const [grids, setGrids] = useState<GridRecord[]>([]);
+  const [provenanceByGrid, setProvenanceByGrid] = useState<Record<string, ClassifiedBoardProvenance>>({});
   const [selectedGridId, setSelectedGridId] = useState('');
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
@@ -287,10 +293,15 @@ function WorkstationHandoffDesk() {
         if (!user) throw new Error('Operator session unavailable. Sign in again to load saved grids.');
         return dbGetVisibleGrids(user.accountId);
       })
-      .then(records => {
+      .then(async records => {
+        const classifications = Object.fromEntries(await Promise.all(records.map(async grid => [
+          grid.id,
+          await classifyGridProvenance(grid),
+        ] as const)));
         if (!live) return;
         const ordered = [...records].sort((a, b) => b.savedAt.localeCompare(a.savedAt));
         setGrids(ordered);
+        setProvenanceByGrid(classifications);
         setSelectedGridId(current => (
           ordered.some(grid => grid.id === current) ? current : ordered[0]?.id ?? ''
         ));
@@ -307,6 +318,7 @@ function WorkstationHandoffDesk() {
   }, []);
 
   const selectedGrid = grids.find(grid => grid.id === selectedGridId);
+  const selectedProvenance = selectedGrid ? provenanceByGrid[selectedGrid.id] : null;
 
   return (
     <section className={styles.workstationDesk} aria-labelledby="workstation-handoff-title">
@@ -336,6 +348,7 @@ function WorkstationHandoffDesk() {
                     {grids.map(grid => (
                       <option key={grid.id} value={grid.id}>
                         {grid.capturedDate} · {grid.actor} · {grid.vibe}
+                        {' · '}{boardProvenanceLabel(provenanceByGrid[grid.id]?.classification || 'unverified-saved-grid')}
                       </option>
                     ))}
                   </select>
@@ -343,12 +356,21 @@ function WorkstationHandoffDesk() {
                     <p>
                       {selectedGrid.images.length} source result{selectedGrid.images.length === 1 ? '' : 's'}
                       {' · '}{selectedGrid.rendererVersion}
+                      {selectedProvenance && (
+                        <>{' · '}{boardProvenanceLabel(selectedProvenance.classification)}</>
+                      )}
                     </p>
+                  )}
+                  {selectedProvenance?.classification === 'unverified-saved-grid' && (
+                    <p>This grid remains available to the operator, but automatic Workstation handoff is disabled because it has no verified approval lineage.</p>
+                  )}
+                  {selectedProvenance?.classification === 'derived-from-approved-board' && (
+                    <p>This grid may start a new creative source. It does not inherit the approved board receipt.</p>
                   )}
                 </div>
                 <CreatorPostAction
                   entryPoint="operator_console"
-                  disabled={!selectedGrid}
+                  disabled={!selectedGrid || selectedProvenance?.classification === 'unverified-saved-grid'}
                   onSubmit={(platforms, onProgress) => {
                     if (!selectedGrid) throw new Error('Select a saved grid before continuing.');
                     return makeCreatorPostFromGrid(selectedGrid, platforms, onProgress);
