@@ -217,9 +217,13 @@ test("the studio glossary demonstrates collectible vocabulary without inventing 
   const wangtermelonSpecimen = glossary.match(
     /<figure class="[^"]*studio-specimen--misprint-story[^"]*">\s*<img src="\/assets\/c-drama-fandom\/legendary-misprint-dylan-wangtermelon-2026-08-15\.webp"[\s\S]*?<\/figure>/,
   )?.[0];
+  const anatomyPanel = glossary.match(
+    /<section class="[^"]*studio-specimen--misprint-anatomy[^"]*"[^>]*>[\s\S]*?<\/section>/,
+  )?.[0];
   assert.ok(liuSpecimen);
   assert.ok(gandalfSpecimen);
   assert.ok(wangtermelonSpecimen);
+  assert.ok(anatomyPanel);
   assert.match(glossary, /Legendary Star of the Day Grid/);
   assert.match(glossary, /legendary-grid-liu-xueyi-2026-08-29\.webp/);
   assert.match(glossary, /August 29 Liu Xueyi · #0829-01/);
@@ -237,12 +241,26 @@ test("the studio glossary demonstrates collectible vocabulary without inventing 
   assert.match(glossary, /First, there was Man\.<br>Then, there was Melon\.<br>Then Man entered the melon patch and discovered he had always been Melon\./);
   assert.match(glossary, /human form is merely one temporary phase of the Wang Hedi lifecycle/);
   assert.match(glossary, /Nothing is mislabeled\. Nothing crossed universes\. The retrieval is technically impeccable\./);
-  assert.match(glossary, /The prompt was “Variety Show Chaos\.” The Atlas responded with a man becoming produce\. No correction was required\. Recovery took longer\./);
+  assert.match(glossary, /The prompt was “Variety Show Chaos\.” The Atlas responded with a man becoming melon\. No correction was required\. Recovery took longer\./);
+  assert.doesNotMatch(glossary, /The Atlas responded with a man becoming produce\./);
   assert.match(glossary, /Dylan Wang being chaotic on variety shows\./);
   assert.match(glossary, /Dylan entered the room\. The cameras began rolling\. The melon completed its transformation\./);
   assert.match(glossary, /Disturbingly relevant\. Technically correct\. Legendary Misprint\./);
   assert.match(glossary, /Fruit-based character development made the Dylan Wangtermelon incident canon\./);
   assert.match(glossary, /The correction restored his identity\. The Collection remembered what he became\./);
+  assert.match(anatomyPanel, /src="\/assets\/cards\/badges\/misprint\.svg"/);
+  assert.match(anatomyPanel, /How a misprint becomes collectible/);
+  assert.match(anatomyPanel, /What’s a Legendary Misprint\?/);
+  assert.match(anatomyPanel, /<dt>Intended identity<\/dt><dd>Who or what the search was meant to find\.<\/dd>/);
+  assert.match(anatomyPanel, /<dt>Unexpected identity<\/dt><dd>What the image actually shows\.<\/dd>/);
+  assert.match(anatomyPanel, /<dt>Why it survived<\/dt><dd>The funny, beautiful, revealing, or uncanny reason a curator preserved it\.<\/dd>/);
+  const liuPosition = glossary.indexOf("studio-specimen--legendary-grid");
+  const anatomyPosition = glossary.indexOf("studio-specimen--misprint-anatomy");
+  const gandalfPosition = glossary.indexOf("legendary-misprint-gandalf-collection-2026-08-28.webp");
+  const wangtermelonPosition = glossary.indexOf("legendary-misprint-dylan-wangtermelon-2026-08-15.webp");
+  assert.ok(liuPosition < anatomyPosition);
+  assert.ok(anatomyPosition < gandalfPosition);
+  assert.ok(anatomyPosition < wangtermelonPosition);
   assert.match(glossary, /Explore fandom games/);
   assert.match(glossary, /Try a fandom game/);
   assert.match(glossary, /Open fandom games →/);
@@ -250,6 +268,8 @@ test("the studio glossary demonstrates collectible vocabulary without inventing 
   assert.doesNotMatch(liuSpecimen, /Misprint/i);
   assert.doesNotMatch(gandalfSpecimen, /Star of the Day/i);
   assert.doesNotMatch(wangtermelonSpecimen, /Legendary Grid/i);
+  assert.doesNotMatch(glossary, /\/assets\/c-drama-fandom\/lg01-master-og\.jpg/i);
+  assert.doesNotMatch(glossary, /Legendary Grid · LG 01/i);
   assert.doesNotMatch(glossary, /Open the living example/i);
   assert.doesNotMatch(glossary, /See a Legendary Grid in action/i);
   assert.doesNotMatch(glossary, /See terms in motion/i);
