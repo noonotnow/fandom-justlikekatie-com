@@ -66,8 +66,8 @@
 }
 
 .tierButton:focus-visible {
-  outline: 2px solid #c9a96e;
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: inset 0 0 0 2px #c9a96e;
 }
 
 .tierButton.tierActive {
@@ -87,6 +87,16 @@
 :global(:not(.dark)) .tierButton {
   background: rgb(255 255 255 / 65%);
   color: #3f3f46;
+}
+
+:global(:not(.dark)) .misprint.tierActive {
+  color: #5b21b6;
+  background: rgb(139 92 246 / 18%);
+}
+
+:global(:not(.dark)) .legendary.tierActive {
+  color: #92400e;
+  background: rgb(245 158 11 / 18%);
 }
 
 :global(:not(.dark)) .buttons,
