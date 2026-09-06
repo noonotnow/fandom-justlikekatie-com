@@ -15,6 +15,14 @@ const glossaryLegendaryGridSource = resolve(
   root,
   "attached_assets/legendary-grid-liu-xueyi-0829-01-issue44.png",
 );
+const glossaryCollectionMisprintSource = resolve(
+  root,
+  "attached_assets/legendary-misprint-gandalf-collection-2026-08-28.png",
+);
+const glossaryWangtermelonMisprintSource = resolve(
+  root,
+  "attached_assets/legendary-misprint-dylan-wangtermelon-2026-08-15.png",
+);
 const outputDir = resolve(root, "public/assets/c-drama-fandom");
 const promoVideo = resolve(outputDir, "xianxia-fate-lg01-promo.mp4");
 const promoPoster = resolve(outputDir, "xianxia-fate-lg01-promo-poster.jpg");
@@ -525,6 +533,22 @@ export async function preparePublicPages() {
       })
       .webp({ quality: 84 })
       .toFile(resolve(outputDir, "legendary-grid-liu-xueyi-2026-08-29.webp")),
+    sharp(glossaryCollectionMisprintSource)
+      .rotate()
+      .resize(1080, 1350, {
+        fit: "contain",
+        background: { r: 6, g: 19, b: 33, alpha: 1 },
+      })
+      .webp({ quality: 84 })
+      .toFile(resolve(outputDir, "legendary-misprint-gandalf-collection-2026-08-28.webp")),
+    sharp(glossaryWangtermelonMisprintSource)
+      .rotate()
+      .resize(1080, 1350, {
+        fit: "contain",
+        background: { r: 6, g: 19, b: 33, alpha: 1 },
+      })
+      .webp({ quality: 84 })
+      .toFile(resolve(outputDir, "legendary-misprint-dylan-wangtermelon-2026-08-15.webp")),
     sharp(source)
       .rotate()
       .resize(1200, 630, {

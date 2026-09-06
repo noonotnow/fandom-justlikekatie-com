@@ -459,6 +459,7 @@ button { font: inherit; }
 }
 .topic-interest:hover, .topic-interest:focus-visible { color: var(--paper); }
 .studio-specimens {
+  align-items: start;
   display: grid;
   gap: 18px;
   grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr);
@@ -479,6 +480,13 @@ button { font: inherit; }
   aspect-ratio: auto;
   object-fit: contain;
 }
+.studio-specimen--legendary-grid {
+  align-items: center;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+}
+.studio-specimen--legendary-grid figcaption { padding: clamp(24px, 4vw, 46px); }
 .studio-specimen figcaption {
   color: var(--mist);
   font-size: 14px;
@@ -509,10 +517,26 @@ button { font: inherit; }
   text-transform: uppercase;
 }
 .studio-specimen h3 { font-size: clamp(26px, 3vw, 34px); margin: 10px 0 24px; }
+.studio-specimen--misprint-story figcaption {
+  display: grid;
+  gap: 16px;
+  padding: clamp(24px, 3vw, 36px);
+}
+.studio-specimen--misprint-story figcaption p,
+.studio-specimen--misprint-story figcaption blockquote { margin: 0; }
+.studio-specimen--misprint-story figcaption blockquote {
+  border-inline-start: 1px solid var(--gold);
+  color: var(--paper);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 17px;
+  line-height: 1.6;
+  padding-inline-start: 16px;
+}
 .specimen-anatomy { display: grid; gap: 1px; margin: 0; }
 .specimen-anatomy div { background: rgba(6, 19, 33, .72); outline: 1px solid var(--line); padding: 14px; }
 .specimen-anatomy dt { color: var(--paper); font: 600 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; }
 .specimen-anatomy dd { color: var(--mist); font-size: 13px; margin: 5px 0 0; }
+.studio-specimen--misprint-story .specimen-anatomy dd { font-size: 14px; line-height: 1.55; }
 .game-stage {
   background: rgba(8, 26, 42, .86);
   border: 1px solid var(--line);
@@ -700,6 +724,7 @@ button { font: inherit; }
   .lens-grid { grid-template-columns: 1fr; }
   .signal-grid { grid-template-columns: 1fr; }
   .studio-specimens { grid-template-columns: 1fr; }
+  .studio-specimen--legendary-grid { grid-template-columns: 1fr; }
   .comparison-table { display: block; overflow-x: auto; }
   .decoder-tools, .trope-grid { grid-template-columns: 1fr; }
   .decoder-tools { align-items: stretch; display: grid; gap: 8px; }

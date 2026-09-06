@@ -208,16 +208,48 @@ test("the third authority batch preserves nuance and measurable reader tools", (
 
 test("the studio glossary demonstrates collectible vocabulary without inventing provenance", () => {
   const glossary = read("public/c-drama-fandom/glossary/index.html");
-  assert.match(glossary, /Legendary Grid · August 29 Liu Xueyi export/);
+  const liuSpecimen = glossary.match(
+    /<figure class="[^"]*studio-specimen--legendary-grid[^"]*">[\s\S]*?<\/figure>/,
+  )?.[0];
+  const gandalfSpecimen = glossary.match(
+    /<figure class="[^"]*studio-specimen--misprint-story[^"]*">\s*<img src="\/assets\/c-drama-fandom\/legendary-misprint-gandalf-collection-2026-08-28\.webp"[\s\S]*?<\/figure>/,
+  )?.[0];
+  const wangtermelonSpecimen = glossary.match(
+    /<figure class="[^"]*studio-specimen--misprint-story[^"]*">\s*<img src="\/assets\/c-drama-fandom\/legendary-misprint-dylan-wangtermelon-2026-08-15\.webp"[\s\S]*?<\/figure>/,
+  )?.[0];
+  assert.ok(liuSpecimen);
+  assert.ok(gandalfSpecimen);
+  assert.ok(wangtermelonSpecimen);
+  assert.match(glossary, /Legendary Star of the Day Grid/);
   assert.match(glossary, /legendary-grid-liu-xueyi-2026-08-29\.webp/);
-  assert.match(glossary, /August 29 Liu Xueyi export/i);
-  assert.match(glossary, /not a Legendary Misprint/i);
+  assert.match(glossary, /August 29 Liu Xueyi · #0829-01/);
+  assert.match(glossary, /Nine real photos, a sharply resolved vibe, and relic-class cohesion made this an excellent grid worth preserving as a whole\./);
+  assert.match(glossary, /legendary-misprint-gandalf-collection-2026-08-28\.webp/);
+  assert.match(glossary, /Collection-Level Legendary Misprint/);
+  assert.match(glossary, /Before Collections learned to respect dimensional borders, a random C-drama grid reached into MemeForge and returned with two Gandalf study memes, Ao Ruipeng, and Riley\./);
+  assert.match(glossary, /Nine random saves from the C-drama Collection\./);
+  assert.match(glossary, /MemeForge had not yet been informed that Middle-earth and C-drama were separate universes\./);
+  assert.match(glossary, /Two Gandalf study memes casually joined Ao Ruipeng and Riley\./);
+  assert.match(glossary, /Universe boundaries fixed\. Artifact preserved\. Collection-Level Legendary Misprint\./);
+  assert.match(glossary, /legendary-misprint-dylan-wangtermelon-2026-08-15\.webp/);
+  assert.match(glossary, /Variety Show Chaos Legendary Misprint/);
+  assert.match(glossary, /The Vibe Pack was asked for Dylan Wang: Variety Show Chaos, examined the evidence, and returned biblically accurate watermelon man\./);
+  assert.match(glossary, /First, there was Man\.<br>Then, there was Melon\.<br>Then Man entered the melon patch and discovered he had always been Melon\./);
+  assert.match(glossary, /human form is merely one temporary phase of the Wang Hedi lifecycle/);
+  assert.match(glossary, /Nothing is mislabeled\. Nothing crossed universes\. The retrieval is technically impeccable\./);
+  assert.match(glossary, /The prompt was “Variety Show Chaos\.” The Atlas responded with a man becoming produce\. No correction was required\. Recovery took longer\./);
+  assert.match(glossary, /Dylan Wang being chaotic on variety shows\./);
+  assert.match(glossary, /Dylan entered the room\. The cameras began rolling\. The melon completed its transformation\./);
+  assert.match(glossary, /Disturbingly relevant\. Technically correct\. Legendary Misprint\./);
+  assert.match(glossary, /Fruit-based character development made the Dylan Wangtermelon incident canon\./);
+  assert.match(glossary, /The correction restored his identity\. The Collection remembered what he became\./);
   assert.match(glossary, /Explore fandom games/);
   assert.match(glossary, /Try a fandom game/);
   assert.match(glossary, /Open fandom games →/);
-  assert.match(glossary, /Intended identity/);
-  assert.match(glossary, /Unexpected identity/);
-  assert.match(glossary, /Why it survived/);
+  assert.doesNotMatch(glossary, /not a Legendary Misprint/i);
+  assert.doesNotMatch(liuSpecimen, /Misprint/i);
+  assert.doesNotMatch(gandalfSpecimen, /Star of the Day/i);
+  assert.doesNotMatch(wangtermelonSpecimen, /Legendary Grid/i);
   assert.doesNotMatch(glossary, /Open the living example/i);
   assert.doesNotMatch(glossary, /See a Legendary Grid in action/i);
   assert.doesNotMatch(glossary, /See terms in motion/i);
@@ -457,6 +489,10 @@ test("asset preparation produces optimized content, specimen, and social images"
   const contentPath = resolve(root, "public/assets/c-drama-fandom/which-xianxia-fate-chose-you-lg01.webp");
   const glossarySourcePath = "attached_assets/legendary-grid-liu-xueyi-0829-01-issue44.png";
   const glossarySpecimenPath = resolve(root, "public/assets/c-drama-fandom/legendary-grid-liu-xueyi-2026-08-29.webp");
+  const collectionMisprintSourcePath = "attached_assets/legendary-misprint-gandalf-collection-2026-08-28.png";
+  const collectionMisprintPath = resolve(root, "public/assets/c-drama-fandom/legendary-misprint-gandalf-collection-2026-08-28.webp");
+  const wangtermelonMisprintSourcePath = "attached_assets/legendary-misprint-dylan-wangtermelon-2026-08-15.png";
+  const wangtermelonMisprintPath = resolve(root, "public/assets/c-drama-fandom/legendary-misprint-dylan-wangtermelon-2026-08-15.webp");
   const socialPath = resolve(root, "public/assets/c-drama-fandom/lg01-master-og.jpg");
   const journalSocialPath = resolve(root, "public/assets/c-drama-fandom/watch-journal-og.jpg");
   const promoVideoPath = resolve(root, "public/assets/c-drama-fandom/xianxia-fate-lg01-promo.mp4");
@@ -464,6 +500,10 @@ test("asset preparation produces optimized content, specimen, and social images"
   assert.equal(existsSync(contentPath), true);
   assert.equal(existsSync(resolve(root, glossarySourcePath)), true);
   assert.equal(existsSync(glossarySpecimenPath), true);
+  assert.equal(existsSync(resolve(root, collectionMisprintSourcePath)), true);
+  assert.equal(existsSync(collectionMisprintPath), true);
+  assert.equal(existsSync(resolve(root, wangtermelonMisprintSourcePath)), true);
+  assert.equal(existsSync(wangtermelonMisprintPath), true);
   assert.equal(existsSync(socialPath), true);
   assert.equal(existsSync(journalSocialPath), true);
   assert.equal(existsSync(promoVideoPath), true);
@@ -471,6 +511,8 @@ test("asset preparation produces optimized content, specimen, and social images"
 
   const contentMeta = await sharp(contentPath).metadata();
   const glossarySpecimenMeta = await sharp(glossarySpecimenPath).metadata();
+  const collectionMisprintMeta = await sharp(collectionMisprintPath).metadata();
+  const wangtermelonMisprintMeta = await sharp(wangtermelonMisprintPath).metadata();
   const socialMeta = await sharp(socialPath).metadata();
   const journalSocialMeta = await sharp(journalSocialPath).metadata();
   assert.equal(contentMeta.format, "webp");
@@ -482,6 +524,20 @@ test("asset preparation produces optimized content, specimen, and social images"
   assert.equal(glossarySpecimenMeta.format, "webp");
   assert.equal(glossarySpecimenMeta.width, 1080);
   assert.equal(glossarySpecimenMeta.height, 1350);
+  assert.equal(
+    sha256(collectionMisprintSourcePath),
+    "5c01366a86f9acf493316b2a16f34197c496a5eb184ec9eb84e1bd2764cf6683",
+  );
+  assert.equal(collectionMisprintMeta.format, "webp");
+  assert.equal(collectionMisprintMeta.width, 1080);
+  assert.equal(collectionMisprintMeta.height, 1350);
+  assert.equal(
+    sha256(wangtermelonMisprintSourcePath),
+    "6f1d026907414f5a20ceb6396f8e7f8f9268a820fd967f52a9cee73da6fbd4fa",
+  );
+  assert.equal(wangtermelonMisprintMeta.format, "webp");
+  assert.equal(wangtermelonMisprintMeta.width, 1080);
+  assert.equal(wangtermelonMisprintMeta.height, 1350);
   assert.equal(socialMeta.format, "jpeg");
   assert.equal(socialMeta.width, 1200);
   assert.equal(socialMeta.height, 630);
