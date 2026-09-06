@@ -2310,7 +2310,10 @@ function misprintMatchesCandidate(correction, candidate) {
   const correctionDigest = correction.candidate?.imageDigest
     || correction.candidate?.media?.checksum;
   const candidateDigest = candidate.imageDigest || candidate.media?.checksum;
-  if (correctionDigest && candidateDigest) return correctionDigest === candidateDigest;
+  if (correctionDigest && candidateDigest) {
+    if (correctionDigest === candidateDigest) return true;
+    if (correction.correctionScope === "global_asset") return false;
+  }
   if (correction.candidateId && correction.candidateId === candidate.candidateId) return true;
   const correctionImage = canonicalImageIdentity(
     correction.candidate?.thumbnail
