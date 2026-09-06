@@ -521,7 +521,7 @@ export async function preparePublicPages() {
       .rotate()
       .resize(1080, 1350, {
         fit: "contain",
-        background: { r: 0, g: 0, b: 0, alpha: 0 },
+        background: { r: 6, g: 19, b: 33, alpha: 1 },
       })
       .webp({ quality: 84 })
       .toFile(resolve(outputDir, "legendary-grid-liu-xueyi-2026-08-29.webp")),
