@@ -1,6 +1,6 @@
 # CDRAMA Federated Editorial Architecture — Constitution & Case Law
 
-**Status:** Constitution frozen; Cases 1–5 evaluated on 2026-09-06
+**Status:** Constitution frozen; all six cases evaluated on 2026-09-06
 **Scope:** Fandom Vibes, the CDRAMA Lens, CREATE, PLAN, EXECUTE, CONNECT,
 domain operations, and diagnostics
 **Implementation status:** Planning contract only. This document does not
@@ -1632,13 +1632,458 @@ Each channel succeeds, fails, corrects, and measures independently.
 | Domain-state transition ledger | Case 2 | Verified events produce explicit transitions; analytics and rumors cannot mutate public truth | Closed unless Case 6 contradicts it |
 | Participation ledger | Case 2 | Preserve truthful participation meaning, privacy, withdrawal, aggregation, and abuse controls | Waiting Room-specific |
 
+## Case 6 — Rednote publication and reconciliation
+
+### Governing purpose
+
+Rednote closes the external-expression lifecycle. It must preserve every
+authority transition without allowing intent, an attempted action, a native
+result, verified publication, or performance learning to impersonate another.
+
+```text
+Editorial Idea
+→ Rednote expression
+→ PLAN placement
+→ execution authorization
+→ operator or integration attempt
+→ native Rednote result
+→ CONNECT verification
+→ metrics snapshot
+→ learning returned to CREATE / Series
+```
+
+The governing states are:
+
+```text
+planned
+≠ authorized
+≠ attempted
+≠ operator_scheduled_receipt_pending
+≠ published
+≠ reconciled
+≠ measured
+```
+
+Only authenticated native evidence establishes publication. Scheduling,
+operator memory, a PLAN status, an expected URL, or the absence of an error is
+not enough.
+
+### Publication truth and identity
+
+A reconciled Rednote publication must bind:
+
+```text
+Editorial Idea ID
++ Rednote Expression ID and version
++ PLAN placement ID and version
++ execution authorization ID
++ attempt ID
++ native account
++ native Note ID
++ authenticated native existence
++ native publication timestamp when available
+```
+
+A stable public URL is useful but not required to establish existence when the
+authenticated platform response supplies a Note ID and publication state.
+Metrics are subsequent observations of that native publication, not stronger
+proof that planning intent existed.
+
+### Case 6 contract summary
+
+| ID | Action | Current result | Case-law result |
+| --- | --- | --- | --- |
+| C6.1 | Promote an Editorial Idea into a Rednote expression | Conceptually supported by CREATE; durable Idea → expression contract is not implemented here | Passes constitution; implementation incomplete |
+| C6.2 | Place the expression in PLAN | Notion-backed Posts support status/schedule and stale-write rejection | Passes, subject to expression-lineage gap |
+| C6.3 | Authorize execution | Approved post with readiness and exact schedule can enter the operator lane | Partial; durable authorization receipt is missing |
+| C6.4 | Record operator or automated attempts | Operator-scheduled marker exists with idempotency forwarding | Partial; automated and general attempt history are missing |
+| C6.5 | Resolve ambiguous attempts before retry | Upstream unavailable state fails closed, but PLAN cannot query native attempt outcome directly | Required safe-operation contract |
+| C6.6 | Verify native publication and reconcile | `reconciled` is recognized and projected as Published | Partial; Note ID, account, native timestamp, and verification evidence are not exposed in the current contract |
+| C6.7 | Match an existing native note without duplicating PLAN | No matching contract is present in this repository | Missing reconciliation contract |
+| C6.8 | Snapshot metrics | PLAN explicitly does not invent metrics; no durable metrics snapshot is represented | Missing CONNECT contract |
+| C6.9 | Return learning to CREATE / Series | No automatic mutation exists, which is correct; recommendation/Capture contract is missing | Passes authority rule; implementation incomplete |
+| C6.10 | Correct, retract, supersede, or isolate failure | Current lifecycle has pending/reconciled/unavailable but no append-only reversal ledger | Missing safe-operation contract |
+
+### C6.1 — Promote an Editorial Idea into a Rednote expression
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | CREATE owns additive promotion and expression composition; the source owner retains authority over the Editorial Idea |
+| Canonical record affected | New Rednote Platform Expression linked to the immutable Idea/source passage and optional Series |
+| Input projection allowed | Selected Idea content, authorized sources, Series context, Rednote treatment, audience signal, rights constraints, and prior related expressions |
+| Mutation allowed | Create expression-specific title, Chinese source copy, assets, tags, product bindings, and creative versions. Do not rewrite the Idea |
+| Privacy boundary | Only selected source material crosses into the expression. Private journal context, sealed evidence, and unrelated audience identities remain excluded |
+| Lineage / idempotency key | Idea ID + Rednote expression ID + source version + promotion action key |
+| Stale/conflict behavior | Source correction, privacy change, rights withdrawal, or concurrent expression edit places the draft in review instead of silently refreshing it |
+| Receipt/event produced | Additive promotion receipt and expression-version receipt |
+| Downstream effect | A complete expression version may be proposed to PLAN |
+| Correction/reversal path | Retire or supersede the expression; preserve the Idea and all prior expression versions |
+| Current surface | CREATE/Workstation conceptually; no complete Idea → expression contract is implemented in this repository |
+| Future surface | Embedded CREATE in the CDRAMA Lens |
+
+### C6.2 — Place the expression in PLAN
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | PLAN owns placement, priority, status, and schedule after receiving the expression projection |
+| Canonical record affected | PLAN placement record linked to exact Rednote expression version |
+| Input projection allowed | Expression identity/version, publication-ready copy/assets, readiness, account/channel constraints, source lineage, and correction state |
+| Mutation allowed | Set canonical PLAN status and timezone-bearing schedule. Do not alter canonical expression copy or source Idea |
+| Privacy boundary | PLAN receives execution-ready material and constraints, not raw private sources or native credentials |
+| Lineage / idempotency key | PLAN record ID + expression version + expected Notion `last_edited_time` |
+| Stale/conflict behavior | Concurrent Notion changes return conflict. A changed expression version requires explicit re-placement or reauthorization |
+| Receipt/event produced | Placement/version receipt and schedule-intent history |
+| Downstream effect | A ready and approved placement may be authorized for execution |
+| Correction/reversal path | Unschedule, hold, cancel, or link a successor placement before execution; preserve prior placement history |
+| Current surface | PLAN Posts DB |
+| Future surface | PLAN projection inside the CDRAMA Lens |
+
+The current Posts record does not prove which immutable expression version it
+contains. That lineage is required before the cockpit may present a seamless
+Idea → expression → PLAN chain.
+
+### C6.3 — Authorize execution
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | Katie or an explicitly authorized policy approves the exact expression/version, account, and execution condition |
+| Canonical record affected | Append-only execution-authorization receipt |
+| Input projection allowed | Exact PLAN placement/version, exact expression/version, readiness, target account, native timing, restrictions, and current correction state |
+| Mutation allowed | Authorize one execution request within defined parameters. Authorization does not publish or change the expression |
+| Privacy boundary | Authorization may reference a credential/account alias; secret material stays in EXECUTE |
+| Lineage / idempotency key | Authorization ID bound to placement version, expression version, account, and schedule |
+| Stale/conflict behavior | Any bound field change invalidates the authorization and requires a new receipt |
+| Receipt/event produced | Signed/attributed authorization receipt with actor, scope, and expiry or one-use rule |
+| Downstream effect | EXECUTE may accept an operator or automated attempt |
+| Correction/reversal path | Revoke unused authorization; after attempt, append cancellation/retraction handling without erasing the authorization |
+| Current surface | Inferred from Approved + ready PLAN state and operator action; no standalone durable authorization receipt |
+| Future surface | PLAN authorization gate |
+
+### C6.4 — Record an operator or automated execution attempt
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | EXECUTE records what the human operator or integration actually attempted |
+| Canonical record affected | Append-only execution-attempt ledger |
+| Input projection allowed | Authorization ID, exact expression payload/version, target account, schedule, executor type, and safe platform request metadata |
+| Mutation allowed | Append attempt, native request reference, immediate response, and outcome classification. Do not mark Published merely because a request was sent |
+| Privacy boundary | Credentials, cookies, tokens, and private platform response details remain inside EXECUTE; safe facts project outward |
+| Lineage / idempotency key | Stable execution request key shared by operator/integration coordination, plus attempt ID for each intentional new try |
+| Stale/conflict behavior | Reusing a key with different payload/account/schedule is a conflict. Concurrent operator and automation claims require one winner or native verification |
+| Receipt/event produced | Attempt receipt: operator/automation, request key, payload digest, attemptedAt, immediate outcome, and native reference if available |
+| Downstream effect | CONNECT verifies uncertain/success-shaped results; PLAN shows receipt pending rather than Published |
+| Correction/reversal path | Append outcome correction, cancellation, late success, or duplicate classification |
+| Current surface | Operator scheduling marker is forwarded to XHS with an idempotency UUID |
+| Future surface | Shared EXECUTE attempt ledger for human and automated modes |
+
+Operator and automated execution must use compatible history. They may have
+different adapters, but they cannot maintain independent duplicate-posting
+truths.
+
+### C6.5 — Resolve an ambiguous attempt before retry
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | CONNECT verifies native state; EXECUTE may retry only after the prior outcome is resolved or the native API guarantees idempotency |
+| Canonical record affected | Attempt-resolution receipt linked to the uncertain attempt |
+| Input projection allowed | Attempt ID, request key, target account, payload fingerprint, time window, native request reference, and authenticated native search results |
+| Mutation allowed | Classify prior attempt as published, failed, canceled, duplicate, or still unknown; authorize retry only under explicit policy |
+| Privacy boundary | Native lookup credentials and raw response remain private; safe classification projects to PLAN |
+| Lineage / idempotency key | Original request key + native account + payload fingerprint; retry receives a new attempt ID only after resolution |
+| Stale/conflict behavior | Timeout, 5xx, browser loss, or malformed response stays unknown/unavailable. It never becomes safe-to-retry by elapsed time alone |
+| Receipt/event produced | Verification/retry-decision receipt with evidence and confidence |
+| Downstream effect | Prevents duplicate notes while allowing deliberate recovery |
+| Correction/reversal path | Later native evidence may supersede the classification append-only and reconcile a late publication |
+| Current surface | Integration outage becomes `unavailable`; PLAN removes affected ready posts from the dispatch lane |
+| Future surface | CONNECT exception and reconciliation queue |
+
+The current fail-closed state is necessary but not sufficient: it prevents a
+blind second click in PLAN, but the repository does not prove native outcome
+lookup or retry authorization.
+
+### C6.6 — Verify native publication and reconcile
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | CONNECT owns verification; Rednote owns native publication fact |
+| Canonical record affected | Verified external-publication receipt and reconciled PLAN projection |
+| Input projection allowed | Attempt lineage, authenticated account lookup, native Note ID, native existence/state, publication timestamp, URL when available, and expression payload fingerprint |
+| Mutation allowed | Append verified publication receipt; project PLAN production stage/status as Published. Do not modify source Idea or canonical expression copy |
+| Privacy boundary | Public Note ID/URL and safe timestamps may be shown; native credentials and private account data remain in CONNECT |
+| Lineage / idempotency key | Native account + Note ID, linked to expression version, placement, authorization, and attempt |
+| Stale/conflict behavior | Account mismatch, payload mismatch, multiple candidates, deleted/hidden state, or unavailable lookup cannot reconcile automatically |
+| Receipt/event produced | Verification receipt with method, authenticated evidence digest, Note ID, account, publishedAt, verifiedAt, and optional stable URL |
+| Downstream effect | PLAN may truthfully project Published; CONNECT may begin metrics observation |
+| Correction/reversal path | Append deletion, visibility change, incorrect-match, or supersession receipt; preserve the original verified publication event |
+| Current surface | XHS returns `reconciled`; PLAN then shows Published |
+| Future surface | CONNECT publication ledger with native identity and verification evidence |
+
+Current PLAN intentionally does not invent Note ID, URL, native publication
+time, or metrics. Its validated execution object proves reconciliation state
+and scheduling lineage, but not the full native publication identity required
+by this contract. A manually set Notion `Published` status is also not
+equivalent to authenticated native verification.
+
+### C6.7 — Reconcile an existing native note without duplicating PLAN
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | CONNECT proposes a match; Katie confirms ambiguous evidence |
+| Canonical record affected | Reconciliation/link receipt between an existing PLAN placement/expression and native Note ID |
+| Input projection allowed | Native account/Note ID/URL, candidate PLAN records, title/copy fingerprint, asset fingerprint, schedule/publication window, and prior attempt history |
+| Mutation allowed | Link the native note to an existing record and append reconciliation evidence. Create a new PLAN row only when no legitimate source record exists and policy explicitly permits backfill |
+| Privacy boundary | Matching uses minimum publication metadata; private source content is not exposed to Rednote |
+| Lineage / idempotency key | Native account + Note ID as uniqueness boundary |
+| Stale/conflict behavior | Exact Note ID/account match outranks URL; URL match outranks high-confidence title/date/asset evidence. Multiple plausible records require review |
+| Receipt/event produced | Match receipt with method, confidence, reviewer where applicable, and rejected alternatives |
+| Downstream effect | Prevents duplicate Posts rows and connects metrics to the correct expression |
+| Correction/reversal path | Append incorrect-match receipt, unlink current projection, and link the right record without deleting either history |
+| Current surface | Not implemented in this repository |
+| Future surface | CONNECT reconciliation queue |
+
+High-confidence title/date evidence is a fallback, not publication identity.
+It must never auto-create a second planning record for a note whose lineage can
+be recovered.
+
+### C6.8 — Capture a metrics snapshot
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | CONNECT observes native metrics; the platform remains authoritative for each observed value |
+| Canonical record affected | Append-only time-stamped metrics snapshot linked to native Note ID and expression version |
+| Input projection allowed | Native Note ID/account, metric names/values, collection time, visibility state, and verification method |
+| Mutation allowed | Append a new snapshot; derive trends and comparisons. Never overwrite earlier snapshots or publication truth |
+| Privacy boundary | Public aggregate engagement may project to CREATE. Individual viewer/commenter identity remains excluded unless a separate authorized Capture is created |
+| Lineage / idempotency key | Native account + Note ID + observedAt + metric schema/version |
+| Stale/conflict behavior | Missing, delayed, hidden, or platform-redefined metrics are recorded as unavailable/changed semantics, not zero |
+| Receipt/event produced | Metrics snapshot with collection receipt and schema |
+| Downstream effect | CONNECT can produce recommendations, detect audience questions, or propose a new Capture |
+| Correction/reversal path | Append corrected/reinterpreted snapshot when platform discrepancies or schema changes are discovered |
+| Current surface | Not implemented in PLAN; README explicitly states the operator marker does not invent metrics |
+| Future surface | CONNECT Signals |
+
+### C6.9 — Return learning to CREATE / Series
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | CONNECT recommends; Katie/CREATE decides whether to capture, promote, or change future work |
+| Canonical record affected | Recommendation, audience-signal Capture, or explicitly approved Series learning |
+| Input projection allowed | Metrics trends, safe comment themes, publication context, expression treatment, and confidence/limitations |
+| Mutation allowed | Create additive recommendation/Capture. Series changes require explicit review and their own receipt |
+| Privacy boundary | Aggregate or de-identified audience evidence crosses into CREATE; raw identities and unrelated comments do not |
+| Lineage / idempotency key | Learning event ID + source Note ID + snapshot IDs + analysis version |
+| Stale/conflict behavior | Deleted notes, corrected snapshots, sample bias, or conflicting platform evidence lower confidence and trigger reevaluation |
+| Receipt/event produced | Recommendation/Capture receipt with evidence lineage and decision status |
+| Downstream effect | May inspire a new Idea, revise a future treatment, or inform Series strategy |
+| Correction/reversal path | Supersede or reject the recommendation; never retroactively rewrite the published expression or silently mutate Series |
+| Current surface | No end-to-end durable learning handoff is implemented |
+| Future surface | CONNECT Signals → CREATE Capture / Series review |
+
+Analytics may advise editorial judgment. They cannot become an invisible
+optimization process that edits canonical copy, reclassifies the Series, or
+changes Fandom truth.
+
+### C6.10 — Correct, retract, supersede, and isolate failure
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | Rednote establishes native state; CONNECT verifies discrepancies; CREATE/PLAN decide successor expression and placement; Fandom remains independent |
+| Canonical record affected | Append-only correction/reversal ledger across native receipt, expression, placement, and attempt history |
+| Input projection allowed | Native note state, original verification, current expression/placement, correction reason, successor Note ID/expression, and affected dependencies |
+| Mutation allowed | Project deleted/retracted/hidden/incorrectly matched/superseded state; hold future work; create linked successor copy. Do not erase the original publication receipt |
+| Privacy boundary | Public correction language is separately authorized; internal discrepancy evidence remains restricted |
+| Lineage / idempotency key | Correction/reversal ID + affected receipt/Note ID + optional successor ID |
+| Stale/conflict behavior | Conflicting native observations or uncertain deletion remain under review. Restrictive holds apply before optimistic restoration |
+| Receipt/event produced | Deletion, incorrect-match, retraction, supersession, discrepancy, or restoration receipt |
+| Downstream effect | Current projections become truthful while history remains auditable; only dependent Rednote objects are affected |
+| Correction/reversal path | Every reversal is itself append-only and may later be superseded by stronger evidence |
+| Current surface | Pending/reconciled/unavailable states exist; durable reversal and discrepancy history do not |
+| Future surface | CONNECT publication exception ledger |
+
+Rednote failure or reversal cannot mutate:
+
+- the originating Editorial Idea;
+- another platform's expression or receipt;
+- an independently valid Fandom edition;
+- immutable source copy or prior expression versions;
+- unrelated Series truth.
+
+### Canonical-copy ruling
+
+The approved Chinese source copy belongs to the Rednote expression version.
+Any app-native translation, alternate-language display, accessibility text, or
+platform-generated rendering is a derivative observation:
+
+```text
+canonical Chinese source copy
+→ native Rednote rendering
+→ optional translation projection
+```
+
+The native rendering or translation may be captured for reconciliation, but it
+cannot overwrite the Chinese source copy. A materially revised Chinese post is
+a successor expression/version, not a translation cleanup.
+
+No app-native translation lineage is implemented in the current repository.
+
+### Case 6 verdict
+
+**Result: The Rednote lifecycle passes the constitution, and the six-case
+case-law phase is complete. The implementation proves safe intent and
+operator-scheduling boundaries, but only a partial execution/reconciliation
+contract.**
+
+Implemented strengths:
+
+- README and code explicitly define scheduling as editorial intent, not a
+  timer, publisher, or automatic status transition.
+- PLAN sends the exact Notion page ID, current Notion version, timezone-bearing
+  schedule, and idempotency key to the XHS integration.
+- A repeated compatible request may replay; a schedule mismatch remains a
+  named conflict.
+- PLAN does not fabricate public URL, Note ID, publication time, or metrics.
+- `operator_scheduled_receipt_pending` remains distinct from `reconciled`.
+- Unavailable upstream state fails closed and removes affected ready posts from
+  the dispatch lane.
+- An exact refresh that has already reconciled is not regressed to an earlier
+  pending response.
+- Non-Rednote posts do not inherit Rednote execution state.
+
+Required contracts:
+
+1. Immutable Rednote expression/version lineage through PLAN and EXECUTE.
+2. Explicit one-use/revocable execution authorization receipts.
+3. Shared operator/automation attempt ledger and duplicate-prevention policy.
+4. Native outcome lookup before retrying ambiguous attempts.
+5. Verified publication receipt containing account, Note ID, native existence,
+   native timestamp, and verification evidence.
+6. Native note reconciliation and incorrect-match reversal.
+7. Append-only metrics snapshots with schema and unavailable semantics.
+8. Recommendation/Capture return path that cannot silently mutate Series.
+9. Native deletion, retraction, visibility, discrepancy, and successor ledger.
+10. Canonical-copy and native-translation lineage.
+
+No constitutional amendment is required. The final case confirms:
+
+```text
+PLAN expresses intent.
+EXECUTE records attempts and native responses.
+CONNECT establishes and corrects publication truth.
+Metrics create evidence, not authority.
+Learning returns additively.
+Failures remain isolated to their dependent branch.
+```
+
+## Ranked implementation obligations after all six cases
+
+The ranks below describe when a contract becomes mandatory. They do not
+authorize schema, UI, or migration work.
+
+### Required for safe operation
+
+1. **Stable action and attempt idempotency.** Every mutation or native attempt
+   must return the original receipt after an ambiguous success and reject
+   payload drift under the same key.
+2. **Execution authorization and attempt history.** Bind expression version,
+   PLAN version, account, schedule, executor, payload digest, and every retry.
+3. **Ambiguous-outcome verification.** Query authenticated native state before
+   retry unless the platform supplies a proven idempotency guarantee.
+4. **Verified publication identity.** Store account, Note ID, native existence,
+   native publication time, verification method, and optional URL.
+5. **Append-only correction and reversal.** Support hold, cancellation,
+   incorrect match, deletion, retraction, visibility change, rights withdrawal,
+   supersession, restoration, and discrepancy without rewriting history.
+6. **Durable candidate/edition hold and retirement.** Prevent stale or unsafe
+   work from entering PLAN/EXECUTE while retaining approval and readiness
+   evidence.
+7. **Publication correction and superseding editions.** Preserve original
+   manifests/posts and visibly connect replacements.
+8. **Dependency invalidation.** Project source corrections to affected Ideas,
+   candidates, expressions, placements, attempts, publications, and caches.
+
+### Required for the federated CDRAMA cockpit
+
+1. **Minimal typed projections.** Define explicit read projections and mutation
+   commands between Fandom, CREATE, PLAN, EXECUTE, and CONNECT.
+2. **Canonical edition publication package.** Hand an immutable Fandom edition
+   into CREATE with versioning, restrictions, lineage, and correction state.
+3. **First-class Platform Expression identity.** Bind source, platform, format,
+   canonical copy, draft version, PLAN placement, and native receipt.
+4. **Additive source promotion.** Turn passages, evidence, audience signals,
+   Ideas, and editions into derivatives without moving or rewriting sources.
+5. **Cross-surface current-state projections.** Derive active/held/stale/
+   superseded state from immutable ledgers without granting mutation authority
+   to the cockpit.
+6. **Intentional omission.** Represent “no external derivative” and partial
+   channel coverage as complete editorial choices.
+7. **CONNECT learning return.** Create attributed recommendations or Captures;
+   require explicit review before Series mutation.
+8. **Permissioned privacy boundaries.** Enforce First-Watch spoiler safety,
+   sealed evidence, audience de-identification, rights restrictions, and
+   minimal receipt visibility in every composed view.
+
+### Future platform capability
+
+1. **Automated Rednote execution.** It must share the same authorization,
+   idempotency, attempt, verification, and correction contracts as operator
+   execution.
+2. **YouTube derivatives by format.** Shorts, long-form video, and community
+   posts require separate treatment, asset, scheduling, execution, and receipt
+   rules.
+3. **Instagram/Weibo native execution adapters.** Manual URL receipts do not
+   provide Rednote-equivalent attempt or verification guarantees.
+4. **Canonical-copy translation lineage.** Preserve approved Chinese copy while
+   recording app-native or editorial translations as derivatives.
+5. **Stable URL enrichment.** Backfill or repair public URLs without making URL
+   presence the definition of publication.
+6. **Safe replacement publication.** Support platform-native corrected or
+   successor posts where platform capabilities permit.
+
+### Diagnostic or repair infrastructure
+
+1. **Durable projection/cache rebuild receipts.** Record affected keys,
+   correction source, before/after state, partial failures, and retries.
+2. **Dependency-impact inventory.** Show every downstream candidate, Idea,
+   handoff, expression, placement, publication, and cache affected by a source
+   correction.
+3. **Perceptual asset identity.** Match materially identical crops,
+   recompressions, and rehosts without conflating distinct editorial variants.
+4. **Partial repair queues.** Resume failed media sync, cache rebuild,
+   correction propagation, receipt enrichment, and reconciliation safely.
+5. **Public correction-state diagnostics.** Verify that withdrawn, held, or
+   superseded editions render truthfully across archive and external links.
+6. **Publication discrepancy monitoring.** Detect deleted/hidden native notes,
+   stale URLs, metric-schema changes, and receipt/native-state disagreement.
+
+## Final cross-case ruling
+
+All six cases pass the frozen constitution:
+
+1. *The Untamed* proves privacy, chronology, immutable predictions, sealed
+   evidence, spoiler boundaries, and additive promotion.
+2. *Nian Wushuang* proves evolving Series argument, audience participation,
+   universe evidence, optional expressions, and domain contribution.
+3. Vibe Atlas proves exact candidate identity, immutable curator evidence,
+   receipt-backed readiness, and PLAN eligibility.
+4. Misprint proves collectible/correction separation, restrictive
+   invalidation, immutable publication, and cache repair boundaries.
+5. Daily Drop proves canonical Fandom publication and optional,
+   independently failing external derivatives.
+6. Rednote proves intent/attempt/publication/measurement separation,
+   fail-closed reconciliation, additive learning, and failure isolation.
+
+The case-law phase is complete. The next architecture decision is the physical
+host of the CDRAMA Lens, using the six cases' required projections, permissions,
+failure boundaries, and duplication cost. Only after that decision may the
+paper cockpit be drawn.
+
 ## Unresolved-decisions register
 
 | Decision | Why unresolved | Evidence needed | Decision point |
 | --- | --- | --- | --- |
-| Physical host of the CDRAMA Lens | Fandom, Creator OS, or a shared shell could all render the conceptual Lens | Results of all six cases, required projections, privacy boundaries, failure isolation, and duplication cost | After Case 6 passes |
+| Physical host of the CDRAMA Lens | Fandom, Creator OS, or a shared shell could all render the conceptual Lens | Results of all six cases, required projections, privacy boundaries, failure isolation, and duplication cost | **Now: first decision after case law** |
 | Domain-native scheduling mechanism | Different outputs need calendar, boundary, event, manual, or immediate triggers | Cases 1, 2, and 5 | Before paper cockpit |
-| Final Release Desk name and decomposition | Current vocabulary mixes approved candidates, production readiness, scheduling, receipts, and handoff | Cases 3–5 plus current-control migration map | Before implementation planning |
+| Final Release Desk name and decomposition | Current vocabulary mixes approved candidates, production readiness, scheduling, receipts, and handoff | Cases 3–6 plus current-control migration map | Before implementation planning |
 | Posts DB scope | Non-social expressions and domain state changes may make “Post” dishonest | Cases 2, 5, and 6 | Before any schema proposal |
 | Canonical edition publication-package transport | Saved-grid handoff proves the mechanics but does not establish immutable manifest → CREATE lineage | Cases 5 and 6, plus physical-host and projection-transport decisions | Before external derivative implementation |
 | YouTube derivative support | Shorts, long-form video, and community posts have different asset, treatment, execution, and receipt requirements | Real intended YouTube treatments and Case 6 execution lessons | Before adding YouTube to any platform enum |
@@ -1660,9 +2105,9 @@ A case passes only when every action has:
 10. No analytics process silently rewriting editorial truth.
 11. A correction/reversal path that preserves history.
 
-## Gate after the six cases
+## Gate after case law
 
-When all six cases pass:
+All six cases have passed. Proceed in this order:
 
 1. Decide the CDRAMA Lens's physical host.
 2. Map every current Fandom operator control to its future surface.
@@ -1671,4 +2116,5 @@ When all six cases pass:
 5. Identify repeated friction.
 6. Evaluate the smallest implementation justified by that friction.
 
-Until then: no UI, schema, or migration work.
+Until the host decision and paper-cockpit evaluation are complete: no UI,
+schema, or migration work.
