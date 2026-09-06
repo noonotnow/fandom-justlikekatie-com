@@ -13,7 +13,7 @@ const source = resolve(
 );
 const glossaryLegendaryGridSource = resolve(
   root,
-  "attached_assets/vibe-guide_2026-09-01_liu-xueyi_star-of-day_ep01_1788298770496.png",
+  "attached_assets/legendary-grid-liu-xueyi-0829-01-issue44.png",
 );
 const outputDir = resolve(root, "public/assets/c-drama-fandom");
 const promoVideo = resolve(outputDir, "xianxia-fate-lg01-promo.mp4");

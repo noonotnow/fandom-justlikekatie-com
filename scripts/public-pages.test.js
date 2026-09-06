@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +18,10 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 function read(path) {
   return readFileSync(resolve(root, path), "utf8");
+}
+
+function sha256(path) {
+  return createHash("sha256").update(readFileSync(resolve(root, path))).digest("hex");
 }
 
 test("the C-drama fandom routes are substantial static HTML documents", () => {
@@ -443,12 +448,14 @@ test("LG01 promo media uses published assets with an accessible reduced-motion f
 test("asset preparation produces optimized content, specimen, and social images", async () => {
   await preparePublicPages();
   const contentPath = resolve(root, "public/assets/c-drama-fandom/which-xianxia-fate-chose-you-lg01.webp");
+  const glossarySourcePath = "attached_assets/legendary-grid-liu-xueyi-0829-01-issue44.png";
   const glossarySpecimenPath = resolve(root, "public/assets/c-drama-fandom/legendary-grid-liu-xueyi-2026-08-29.webp");
   const socialPath = resolve(root, "public/assets/c-drama-fandom/lg01-master-og.jpg");
   const journalSocialPath = resolve(root, "public/assets/c-drama-fandom/watch-journal-og.jpg");
   const promoVideoPath = resolve(root, "public/assets/c-drama-fandom/xianxia-fate-lg01-promo.mp4");
   const promoPosterPath = resolve(root, "public/assets/c-drama-fandom/xianxia-fate-lg01-promo-poster.jpg");
   assert.equal(existsSync(contentPath), true);
+  assert.equal(existsSync(resolve(root, glossarySourcePath)), true);
   assert.equal(existsSync(glossarySpecimenPath), true);
   assert.equal(existsSync(socialPath), true);
   assert.equal(existsSync(journalSocialPath), true);
@@ -461,6 +468,10 @@ test("asset preparation produces optimized content, specimen, and social images"
   const journalSocialMeta = await sharp(journalSocialPath).metadata();
   assert.equal(contentMeta.format, "webp");
   assert.ok((contentMeta.width ?? 0) <= 1100);
+  assert.equal(
+    sha256(glossarySourcePath),
+    "83451fd778110b46acdba1838f04e83ee6b346dd55ca8064bf42dd25e1bff426",
+  );
   assert.equal(glossarySpecimenMeta.format, "webp");
   assert.equal(glossarySpecimenMeta.width, 1080);
   assert.equal(glossarySpecimenMeta.height, 1350);
