@@ -74,6 +74,42 @@ test('Vibe Atlas builder uses collection scope instead of actor-script heuristic
   assert.equal(pool.some(item => /Gandalf|Frodo|Middle-earth|Fellowship/.test(item.actor)), false);
 });
 
+test('builder browsing keeps distinct saved records while automatic proposals deduplicate visuals', () => {
+  const first = {
+    ...card('刘学义', 'first-record'),
+    media: {
+      schemaVersion: 1 as const,
+      assetId: '11111111-1111-4111-8111-111111111111',
+      deliveryUrl: 'https://media.example/first.jpg',
+      thumbnailUrl: 'https://media.example/first-thumb.jpg',
+      mimeType: 'image/jpeg' as const,
+      sizeBytes: 1024,
+      checksum: 'a'.repeat(64),
+      dimensions: { width: 800, height: 1200 },
+      association: { type: 'collection' as const, id: 'collection', itemId: 'first' },
+    },
+  };
+  const second = {
+    ...card('刘学义', 'second-record'),
+    media: {
+      ...first.media,
+      assetId: '22222222-2222-4222-8222-222222222222',
+      deliveryUrl: 'https://media.example/second.jpg',
+      thumbnailUrl: 'https://media.example/second-thumb.jpg',
+      association: { type: 'collection' as const, id: 'collection', itemId: 'second' },
+    },
+  };
+
+  const pool = buildVibeAtlasPool([first, second], []);
+
+  assert.equal(pool.length, 2);
+  assert.deepEqual(pool.map(item => item.imageUrl), [
+    'https://media.example/first-thumb.jpg',
+    'https://media.example/second-thumb.jpg',
+  ]);
+  assert.equal(proposeGrid(pool, {}, 'compiled').slots.length, 1);
+});
+
 test('creator-marked mismatches are excluded ordinarily and included only in the Misprints lens', () => {
   const ordinary = card('刘学义', 'ordinary');
   const marked = {
