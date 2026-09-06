@@ -1,6 +1,6 @@
 # CDRAMA Federated Editorial Architecture — Constitution & Case Law
 
-**Status:** Constitution frozen; Cases 1–4 evaluated on 2026-09-06
+**Status:** Constitution frozen; Cases 1–5 evaluated on 2026-09-06
 **Scope:** Fandom Vibes, the CDRAMA Lens, CREATE, PLAN, EXECUTE, CONNECT,
 domain operations, and diagnostics
 **Implementation status:** Planning contract only. This document does not
@@ -1303,6 +1303,335 @@ Publication history is append-only.
 | Domain-state transition ledger | Case 2 | Verified events produce explicit transitions; analytics and rumors cannot mutate public truth | Case 5 |
 | Participation ledger | Case 2 | Preserve truthful participation meaning, privacy, withdrawal, aggregation, and abuse controls | Waiting Room-specific unless another case proves reuse |
 
+## Case 5 — Daily Drop with optional external derivatives
+
+### Governing purpose
+
+A Daily Drop is first a Fandom-native edition. Rednote, Instagram, Weibo,
+YouTube, or another channel may receive a related expression, but none is
+required to make the Fandom edition real.
+
+```text
+Approved exact edition
+→ Fandom publication manifest
+   ├── no external derivative
+   ├── Rednote expression
+   ├── Instagram expression
+   ├── YouTube expression
+   └── other explicitly supported expression
+```
+
+Each external branch follows its own lifecycle:
+
+```text
+Fandom edition projection
+→ CREATE expression
+→ PLAN placement and authorization
+→ EXECUTE native attempt
+→ CONNECT verification and reconciliation
+```
+
+Failure on one branch does not roll back Fandom publication or another
+platform. “Optional” applies both to the existence of derivatives and to every
+individual channel.
+
+### Edition and expression identity
+
+The canonical edition identity is:
+
+```text
+Fandom manifest ID
++ publication date
++ board hash
++ actor × Vibe identity
++ exact ordered candidate IDs
+```
+
+An external expression has its own identity:
+
+```text
+expression ID
++ source manifest ID
++ source board hash
++ platform
++ treatment / format
++ source version
+```
+
+The expression may transform copy, crop, pacing, sequencing, and argument for
+its channel. It may not silently replace the approved nine, claim a different
+canonical Vibe, or become the sole record that the Fandom edition exists.
+
+### Case 5 contract summary
+
+| ID | Action | Current result | Case-law result |
+| --- | --- | --- | --- |
+| C5.1 | Publish one canonical Fandom Daily Drop | Implemented as an immutable nine-card manifest with permanent MEDIA references | Passes |
+| C5.2 | Choose zero or more derivative destinations | Saved-grid handoff supports Rednote, Weibo, and Instagram lists; canonical-edition selection is not implemented | Passes constitution; implementation contract incomplete |
+| C5.3 | Hand an edition projection to CREATE | Current direct Workstation handoff originates from a saved grid, not the immutable publication manifest | Missing canonical publication-package handoff |
+| C5.4 | Compose platform-specific expressions | Workstation owns draft development after handoff | Partial; expression-to-edition lineage and YouTube format are missing |
+| C5.5 | Place and authorize an expression in PLAN | PLAN owns status and schedule with stale-write checks | Passes for represented Posts; general non-social/output representation remains unresolved |
+| C5.6 | Execute and reconcile Rednote publication | Implemented operator-scheduled and reconciled states with idempotency and fail-closed availability | Passes Rednote boundary; Case 6 tests it fully |
+| C5.7 | Record external publication receipts | Manual Rednote, Weibo, and Instagram receipts attach one URL per channel to a manifest | Partial; receipt lacks expression/version/attempt lineage |
+| C5.8 | Survive external failure independently | Fandom manifest and channel receipts are separate stores/lifecycles | Passes architecture; durable per-expression failure receipts remain incomplete |
+| C5.9 | Correct or supersede an edition with derivatives | Publication correction exists, but derivative-impact projection and successor propagation do not | Missing cross-system correction contract |
+| C5.10 | Publish no derivative | No external receipt is required for Fandom publication | Passes; UI must not imply incompleteness |
+
+### C5.1 — Publish one canonical Fandom Daily Drop
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | Fandom release authority publishes after current approval and Production Readiness permit it |
+| Canonical record affected | Immutable Fandom Daily Drop publication manifest |
+| Input projection allowed | Exact approved candidate, current eligibility, nine verified MEDIA assets, actor/Vibe metadata, provenance, publication date, and readiness |
+| Mutation allowed | Create one manifest for the publication date using `onlyIfNew`; update derived actor/date indexes separately |
+| Privacy boundary | Public manifest projection includes the edition and safe provenance. Raw curator evidence, internal rights notes, and production receipts remain private |
+| Lineage / idempotency key | `vibe-atlas:daily-drop:{date}` plus manifest ID derived from date and board hash |
+| Stale/conflict behavior | Eligibility is revalidated inside the shared correction/publication lock. A different board already occupying the date wins and causes conflict |
+| Receipt/event produced | Immutable publication manifest with exact board hash, ordered source candidate IDs, permanent asset references, and published timestamp |
+| Downstream effect | Fandom can serve/archive the edition and optionally offer a minimal projection for external expression work |
+| Correction/reversal path | Append publication correction, rights withdrawal, hold, or superseding-edition receipt. Never rewrite the manifest |
+| Current surface | Automatic Daily Drop publication and Fandom archive |
+| Future surface | Fandom Published Editions within the CDRAMA Lens |
+
+### C5.2 — Choose zero or more derivative destinations
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | Katie in CREATE chooses whether the edition needs an external expression and which channels deserve one |
+| Canonical record affected | Optional derivative-intent record linked to the edition; Fandom manifest remains unchanged |
+| Input projection allowed | Minimal edition projection, Series context, prior expressions, audience questions, platform strategy, and current channel constraints |
+| Mutation allowed | Select or omit destinations independently. Blank platform slots are valid |
+| Privacy boundary | CREATE may receive approved assets and safe editorial context, not private curator telemetry or unrelated audience identities |
+| Lineage / idempotency key | Source manifest ID + derivative-intent ID; each platform expression receives a distinct identity |
+| Stale/conflict behavior | Destination choice against a corrected, withdrawn, or superseded source becomes stale before composition/authorization |
+| Receipt/event produced | Derivative-intent receipt, including explicit selected destinations. Absence is not an error |
+| Downstream effect | Opens only the selected CREATE work; does not schedule or publish anything |
+| Correction/reversal path | Add/remove a planned destination before execution; after execution, preserve its receipt and use correction/retraction rules |
+| Current surface | Saved-grid handoff accepts Rednote, Weibo, and Instagram destinations |
+| Future surface | CDRAMA Lens → Make / Adapt, with “no external expression” as an ordinary outcome |
+
+Current support does not include YouTube. Adding Shorts, long-form video, or a
+community post requires a platform/format contract rather than treating
+“YouTube” as one interchangeable slot.
+
+### C5.3 — Hand an edition projection to CREATE
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | Fandom authorizes the projection; CREATE accepts a derivative source without acquiring Fandom authority |
+| Canonical record affected | Fandom handoff receipt and CREATE source-link record |
+| Input projection allowed | Manifest ID, board hash, actor/Vibe, exact ordered assets, hero position, safe copy/credits, provenance/rights status, constraints, correction status, and source version |
+| Mutation allowed | CREATE creates or updates a linked derivative source/draft. It may not mutate the manifest, exact-board approval, or Fandom publication state |
+| Privacy boundary | Only cleared assets and minimum necessary provenance cross the boundary. Private audit evidence and sensitive rights notes remain in Fandom |
+| Lineage / idempotency key | `fandom/publication/{manifestId}/{outputId}/{platform}/{format}` with source version and expected prior version |
+| Stale/conflict behavior | A changed source version, correction, rights withdrawal, or operator-diverged CREATE draft requires explicit refresh/merge; no silent overwrite |
+| Receipt/event produced | Durable handoff receipt containing derivative ID, source version, disposition, media-sync state, and warnings |
+| Downstream effect | CREATE can compose platform-specific expressions while Fandom remains independently published |
+| Correction/reversal path | Append stale/withdrawn/superseded source notice to the handoff; preserve prior drafts and handoff history |
+| Current surface | **Not implemented for canonical editions.** Existing direct handoff uses saved Collection grids and stable `fandom/direct/grid/...` identity |
+| Future surface | Published Edition → Create Expression |
+
+The saved-grid handoff is useful prior art for versioning, HMAC authorization,
+durable media, idempotency, and operator-diverged drafts. It must not be
+misrepresented as publication-manifest lineage.
+
+### C5.4 — Compose platform-specific expressions
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | CREATE owns derivative composition; Katie approves creative content |
+| Canonical record affected | Platform Expression draft/version history in Creator OS |
+| Input projection allowed | Authorized edition projection, Series memory, selected editorial angle, treatment, and platform constraints |
+| Mutation allowed | Change caption, title, hook, crop, pacing, asset subset/order where the treatment permits it, and platform metadata. It may not redefine the Fandom edition |
+| Privacy boundary | Draft content remains private until PLAN/EXECUTE authorization. Platform credentials never enter Fandom or the draft payload |
+| Lineage / idempotency key | Expression ID + source manifest/version + platform + format + draft version |
+| Stale/conflict behavior | Source correction or supersession marks the expression stale/held. Operator-diverged drafts require explicit merge rather than source overwrite |
+| Receipt/event produced | Draft creation/update receipt with source lineage and divergence status |
+| Downstream effect | Approved expression may enter PLAN; other selected channels can remain blank or unfinished |
+| Correction/reversal path | Create a new expression version, hold it, retire it, or link a successor. Never rewrite native publication receipts |
+| Current surface | Workstation direct drafts for saved grids |
+| Future surface | Embedded CREATE inside the CDRAMA Lens |
+
+### C5.5 — Place and authorize an expression in PLAN
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | PLAN owns platform placement, priority, schedule, and authorization for external expressions |
+| Canonical record affected | PLAN placement/schedule record linked to the expression and source edition |
+| Input projection allowed | Approved expression, target platform, required assets/copy, constraints, readiness, correction status, and source lineage |
+| Mutation allowed | Set sequence, schedule, status, and authorization. PLAN may not alter the source edition or silently edit expression content |
+| Privacy boundary | PLAN receives publication-ready materials and constraints, not raw Fandom audits or platform credentials |
+| Lineage / idempotency key | PLAN record ID + expression version + expected PLAN version |
+| Stale/conflict behavior | Notion/PLAN edits use expected versions. Once native operator scheduling is recorded, schedule/status lock pending reconciliation |
+| Receipt/event produced | Placement and scheduling-intent receipts |
+| Downstream effect | Authorized expression becomes eligible for EXECUTE on its channel |
+| Correction/reversal path | Unschedule or hold before execution; after attempt, preserve execution history and reconcile through CONNECT |
+| Current surface | PLAN Posts and Rednote execution integration |
+| Future surface | PLAN with explicit expression and source-edition lineage |
+
+PLAN governs external placement only. The Fandom-native Daily Drop publication
+does not become a PLAN-owned record merely because derivatives exist.
+
+### C5.6 — Execute and reconcile Rednote publication
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | EXECUTE/XHS integration performs the native action; CONNECT verifies the result |
+| Canonical record affected | Native execution receipt and reconciled external-publication state |
+| Input projection allowed | Authorized PLAN post ID/version, timezone-bearing schedule, approved assets/copy, and platform-specific credentials held by the executor |
+| Mutation allowed | Record operator scheduling, native attempt, and reconciliation. It may not fabricate publication success in PLAN |
+| Privacy boundary | Integration secret and platform credentials stay server-side. Fandom receives at most safe receipt projection |
+| Lineage / idempotency key | PLAN post ID + expected Notion version/schedule + `Idempotency-Key` |
+| Stale/conflict behavior | Schedule mismatch, stale PLAN version, unavailable execution state, or duplicate conflicting request fails closed |
+| Receipt/event produced | Operator-scheduled receipt, then reconciled native ID/URL/timestamps through the executor contract |
+| Downstream effect | PLAN/CONNECT may truthfully show Published only after reconciliation |
+| Correction/reversal path | Append failure, cancellation, deletion, replacement, or corrected-post receipt according to platform capability |
+| Current surface | PLAN → XHS integration |
+| Future surface | Same lifecycle, surfaced in the CDRAMA Lens without relocating authority |
+
+Case 6 examines this path in full. Instagram, Weibo, and YouTube do not inherit
+Rednote’s execution guarantees merely because they can be named as destinations.
+
+### C5.7 — Record an external publication receipt
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | CONNECT/integration records verified native facts; a trusted operator may enter a manual receipt |
+| Canonical record affected | Append-only external publication ledger linked to both expression and Fandom edition |
+| Input projection allowed | Native platform, account, post ID/URL, published timestamp, expression version, source manifest ID/board hash, and verification method |
+| Mutation allowed | Append or idempotently replay a verified receipt. It may not change the Fandom manifest or mark another channel published |
+| Privacy boundary | Public URL and safe account identity may be shown. Credentials, private drafts, and internal failure payloads remain private |
+| Lineage / idempotency key | Platform + native account/post ID, with expression ID/version and source manifest ID |
+| Stale/conflict behavior | Conflicting URL/native identity for the same receipt key requires reconciliation rather than overwrite |
+| Receipt/event produced | Verified or manual external-publication receipt |
+| Downstream effect | CONNECT can measure the expression and the Release Desk can show optional derivative coverage |
+| Correction/reversal path | Append corrected URL, deletion, retraction, or successor receipt; preserve the original publication fact |
+| Current surface | Release Desk manually records one Rednote, Weibo, or Instagram URL per Fandom publication date |
+| Future surface | CONNECT-owned publication ledger projected into Published Editions |
+
+The current receipt proves that a channel URL was attached to a manifest. It
+does not prove which Workstation draft/version produced it, which native account
+published it, or whether a later verification reconciled the result.
+
+### C5.8 — Survive external publication failure independently
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | EXECUTE reports failure; PLAN decides retry/reschedule; Fandom retains its own publication |
+| Canonical record affected | External attempt/failure ledger and PLAN exception state only |
+| Input projection allowed | Expression and placement identity, attempt metadata, safe error classification, retry policy, and source correction state |
+| Mutation allowed | Record failure, pending receipt, timeout, retry, abandonment, or manual-reconciliation requirement |
+| Privacy boundary | Platform error details and credentials remain within EXECUTE/CONNECT; safe status may project to PLAN/Fandom |
+| Lineage / idempotency key | Execution request/attempt ID linked to expression and placement |
+| Stale/conflict behavior | Unknown outcome remains pending/unavailable, never success-shaped. Retry must use platform-safe idempotency or explicit reconciliation |
+| Receipt/event produced | Attempt/failure/timeout receipt |
+| Downstream effect | Only the affected derivative is blocked. Fandom edition and other channel expressions remain valid |
+| Correction/reversal path | Reconcile late success, retry as a linked attempt, reschedule, or abandon. Do not roll back Fandom publication |
+| Current surface | Rednote path exposes pending/reconciled/unavailable; other channels rely on manual receipts |
+| Future surface | EXECUTE/CONNECT exception queue |
+
+### C5.9 — Correct or supersede an edition with derivatives
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | Fandom corrects or supersedes the canonical edition; CREATE/PLAN/CONNECT govern their dependent records |
+| Canonical record affected | Fandom correction/supersession ledger plus dependency-impact receipts for every expression, placement, attempt, and external publication |
+| Input projection allowed | Source manifest and correction, dependency graph, derivative/publication states, rights constraints, and successor edition if any |
+| Mutation allowed | Mark dependent drafts stale, hold unexecuted placements, block pending execution, and append review-required notices to already published derivatives |
+| Privacy boundary | Each surface receives only the correction facts necessary for safe action. Public language is authored separately per surface |
+| Lineage / idempotency key | Source correction/supersession ID + dependent object ID |
+| Stale/conflict behavior | Fail closed for unexecuted derivatives. Already published external posts remain historical facts and require platform-specific review |
+| Receipt/event produced | Dependency-impact receipt per affected object and explicit successor links where created |
+| Downstream effect | No corrected source silently leaves stale derivatives scheduled or presented as current |
+| Correction/reversal path | Reevaluate after correction retraction; do not automatically restore invalidated approval or external placement |
+| Current surface | Publication correction exists in Fandom; cross-system propagation is not implemented |
+| Future surface | Published Edition impact review spanning Fandom, CREATE, PLAN, EXECUTE, and CONNECT |
+
+### C5.10 — Publish no derivative
+
+| Contract field | Decision |
+| --- | --- |
+| Authority | Katie decides that the Fandom-native edition is sufficient |
+| Canonical record affected | Optional explicit “no derivative planned” editorial decision, if useful; no platform record is required |
+| Input projection allowed | Edition, Series strategy, recent channel activity, performance learning, and available creative capacity |
+| Mutation allowed | Record intentional omission or do nothing. No placeholder Posts are created |
+| Privacy boundary | Private rationale need not be public |
+| Lineage / idempotency key | Source manifest ID + optional omission-decision ID |
+| Stale/conflict behavior | Later audience evidence may inspire a new derivative without making the earlier omission wrong |
+| Receipt/event produced | Optional editorial decision, not a publication receipt |
+| Downstream effect | Fandom edition remains complete; no external work is considered blocked or overdue |
+| Correction/reversal path | Create a later expression with the same source manifest lineage |
+| Current surface | Implicit: absence of channel receipts |
+| Future surface | Explicit neutral state: “No external adaptation planned” |
+
+### Case 5 verdict
+
+**Result: The separation of native edition and optional derivatives passes.
+Current implementation proves native publication and partial distribution
+receipts, but not a complete federated derivative lifecycle.**
+
+Implemented strengths:
+
+- The Fandom Daily Drop manifest is immutable, exact-board-bound, permanent,
+  and independently publishable.
+- Derived indexes may fail without changing publication truth.
+- Existing saved-grid Workstation handoff demonstrates durable source versions,
+  expected-version conflict handling, idempotency, minimal receipts, and
+  operator-diverged draft behavior.
+- PLAN owns schedule/status and rejects stale writes.
+- Rednote distinguishes scheduled intent, pending receipt, reconciled
+  publication, and unavailable state.
+- Manual external receipts are tied to an existing manifest and do not create
+  Fandom publication retroactively.
+
+Required contracts:
+
+1. Versioned publication-manifest → CREATE handoff.
+2. First-class expression identity linking platform/format/draft version to the
+   source edition.
+3. Destination contracts beyond Rednote, including separate YouTube formats.
+4. Verified external receipts with native account/post and expression lineage.
+5. Durable per-expression execution failure/retry receipts.
+6. Dependency-impact propagation for correction, rights withdrawal, and
+   supersession.
+7. Public/editorial display that treats zero derivatives as complete, not
+   missing.
+
+No constitutional amendment is required. The case confirms:
+
+```text
+Fandom publication is canonical and sufficient.
+External expressions are optional derivatives.
+PLAN governs their placement, not the source edition.
+Each channel succeeds, fails, corrects, and measures independently.
+```
+
+### Cumulative required-contract register after Case 5
+
+| Contract | Origin | Required behavior | Needed again |
+| --- | --- | --- | --- |
+| Additive source promotion | Cases 1, 2, and 5 | Create derivatives from selected authorized projections; preserve source authority and shared lineage | Case 6 |
+| Stable action idempotency | Cases 1–5 | Ambiguous retries return the original receipt instead of appending duplicate semantic actions | Case 6 |
+| Append-only correction chain | Cases 1–5 | Preserve original records; derive effective state from corrections and supersessions | Case 6 |
+| Immutable publication ledger | Cases 1–5 | Separate historical publication receipts from replaceable current public projections | Case 6 |
+| Dependency invalidation | Cases 1–5 | Source corrections mark candidates, Ideas, handoffs, schedules, expressions, and projections stale or held | Case 6 |
+| Minimal authorized projection | Cases 1–5 | Send only selected content, required context, restrictions, readiness, and lineage across boundaries | Case 6 |
+| Fail-closed restrictive correction | Cases 1–5 | Remove unsafe or invalid current delivery before fallible widening or rebuild work | Case 6 |
+| Candidate identity and supersession | Cases 3–5 | Bind readiness/publication to exact editions and record successor relationships | Case 6 |
+| Hold and release ledger | Cases 3 and 5 | Pause scheduling/execution without altering approval or readiness history | Case 6 |
+| Retirement and rights withdrawal | Cases 3–5 | Remove editions/pairings/assets/expressions from active use while preserving historical records | Case 6 |
+| Derived-state rebuild receipt | Cases 4 and 5 | Record correction impact, affected projections/cache keys, rebuild result, and unresolved failures | Case 6 |
+| Publication correction and superseding edition | Cases 4 and 5 | Preserve original manifests/receipts and visibly link replacement actions | Case 6 |
+| Publication-package handoff | Case 5 | Project a canonical Fandom edition into CREATE without transferring authority | Case 6 |
+| Platform Expression identity | Case 5 | Bind platform, format, draft version, source edition, and native receipt | Case 6 |
+| Independent execution attempts | Case 5 | Record pending, failed, reconciled, retried, and abandoned outcomes per expression | Case 6 |
+| Intentional channel omission | Case 5 | Permit zero or partial derivatives without placeholders or false blockers | Case 6 |
+| Perceptual asset identity | Case 4 | Match materially identical crops/recompressions/rehosts without collapsing distinct variants | Vibe Atlas-specific unless Case 6 proves reuse |
+| Domain contribution intake | Case 2 | CREATE proposes; Fandom accepts, versions, publishes, corrects, or rejects | Case 6 if Rednote produces website follow-up |
+| Domain-state transition ledger | Case 2 | Verified events produce explicit transitions; analytics and rumors cannot mutate public truth | Closed unless Case 6 contradicts it |
+| Participation ledger | Case 2 | Preserve truthful participation meaning, privacy, withdrawal, aggregation, and abuse controls | Waiting Room-specific |
+
 ## Unresolved-decisions register
 
 | Decision | Why unresolved | Evidence needed | Decision point |
@@ -1311,6 +1640,8 @@ Publication history is append-only.
 | Domain-native scheduling mechanism | Different outputs need calendar, boundary, event, manual, or immediate triggers | Cases 1, 2, and 5 | Before paper cockpit |
 | Final Release Desk name and decomposition | Current vocabulary mixes approved candidates, production readiness, scheduling, receipts, and handoff | Cases 3–5 plus current-control migration map | Before implementation planning |
 | Posts DB scope | Non-social expressions and domain state changes may make “Post” dishonest | Cases 2, 5, and 6 | Before any schema proposal |
+| Canonical edition publication-package transport | Saved-grid handoff proves the mechanics but does not establish immutable manifest → CREATE lineage | Cases 5 and 6, plus physical-host and projection-transport decisions | Before external derivative implementation |
+| YouTube derivative support | Shorts, long-form video, and community posts have different asset, treatment, execution, and receipt requirements | Real intended YouTube treatments and Case 6 execution lessons | Before adding YouTube to any platform enum |
 | Projection transport | The required data is known conceptually, but API ownership and failure behavior are not | All six contract matrices | After physical-host decision |
 
 ## Architecture pass conditions
