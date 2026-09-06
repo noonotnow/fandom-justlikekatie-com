@@ -250,10 +250,17 @@ test("the studio glossary demonstrates collectible vocabulary without inventing 
   assert.match(glossary, /The correction restored his identity\. The Collection remembered what he became\./);
   assert.match(anatomyPanel, /src="\/assets\/cards\/badges\/misprint\.svg"/);
   assert.match(anatomyPanel, /How a misprint becomes collectible/);
-  assert.match(anatomyPanel, /Keep the surprise\. Keep the truth too\./);
+  assert.match(anatomyPanel, /What’s a Legendary Misprint\?/);
   assert.match(anatomyPanel, /<dt>Intended identity<\/dt><dd>Who or what the search was meant to find\.<\/dd>/);
   assert.match(anatomyPanel, /<dt>Unexpected identity<\/dt><dd>What the image actually shows\.<\/dd>/);
   assert.match(anatomyPanel, /<dt>Why it survived<\/dt><dd>The funny, beautiful, revealing, or uncanny reason a curator preserved it\.<\/dd>/);
+  const liuPosition = glossary.indexOf("studio-specimen--legendary-grid");
+  const anatomyPosition = glossary.indexOf("studio-specimen--misprint-anatomy");
+  const gandalfPosition = glossary.indexOf("legendary-misprint-gandalf-collection-2026-08-28.webp");
+  const wangtermelonPosition = glossary.indexOf("legendary-misprint-dylan-wangtermelon-2026-08-15.webp");
+  assert.ok(liuPosition < anatomyPosition);
+  assert.ok(anatomyPosition < gandalfPosition);
+  assert.ok(anatomyPosition < wangtermelonPosition);
   assert.match(glossary, /Explore fandom games/);
   assert.match(glossary, /Try a fandom game/);
   assert.match(glossary, /Open fandom games →/);
