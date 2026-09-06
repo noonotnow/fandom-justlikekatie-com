@@ -11,6 +11,18 @@ const source = resolve(
   root,
   "attached_assets/Firefly_Gemini_Flash_--ATE._THE._ENTIRE._TABLE.--_No_crumbs,_n_1788112484176.png",
 );
+const glossaryLegendaryGridSource = resolve(
+  root,
+  "attached_assets/legendary-grid-liu-xueyi-0829-01-issue44.png",
+);
+const glossaryCollectionMisprintSource = resolve(
+  root,
+  "attached_assets/legendary-misprint-gandalf-collection-2026-08-28.png",
+);
+const glossaryWangtermelonMisprintSource = resolve(
+  root,
+  "attached_assets/legendary-misprint-dylan-wangtermelon-2026-08-15.png",
+);
 const outputDir = resolve(root, "public/assets/c-drama-fandom");
 const promoVideo = resolve(outputDir, "xianxia-fate-lg01-promo.mp4");
 const promoPoster = resolve(outputDir, "xianxia-fate-lg01-promo-poster.jpg");
@@ -481,6 +493,9 @@ export async function preparePublicPages() {
   if (!existsSync(source)) {
     throw new Error(`LG · 01 master is missing: ${source}`);
   }
+  if (!existsSync(glossaryLegendaryGridSource)) {
+    throw new Error(`Legendary Grid glossary specimen is missing: ${glossaryLegendaryGridSource}`);
+  }
   for (const asset of [promoVideo, promoPoster]) {
     if (!existsSync(asset)) {
       throw new Error(`LG · 01 promo asset is missing: ${asset}`);
@@ -510,6 +525,30 @@ export async function preparePublicPages() {
       .resize({ width: 1100, withoutEnlargement: true })
       .webp({ quality: 86 })
       .toFile(resolve(outputDir, "which-xianxia-fate-chose-you-lg01.webp")),
+    sharp(glossaryLegendaryGridSource)
+      .rotate()
+      .resize(1080, 1350, {
+        fit: "contain",
+        background: { r: 6, g: 19, b: 33, alpha: 1 },
+      })
+      .webp({ quality: 84 })
+      .toFile(resolve(outputDir, "legendary-grid-liu-xueyi-2026-08-29.webp")),
+    sharp(glossaryCollectionMisprintSource)
+      .rotate()
+      .resize(1080, 1350, {
+        fit: "contain",
+        background: { r: 6, g: 19, b: 33, alpha: 1 },
+      })
+      .webp({ quality: 84 })
+      .toFile(resolve(outputDir, "legendary-misprint-gandalf-collection-2026-08-28.webp")),
+    sharp(glossaryWangtermelonMisprintSource)
+      .rotate()
+      .resize(1080, 1350, {
+        fit: "contain",
+        background: { r: 6, g: 19, b: 33, alpha: 1 },
+      })
+      .webp({ quality: 84 })
+      .toFile(resolve(outputDir, "legendary-misprint-dylan-wangtermelon-2026-08-15.webp")),
     sharp(source)
       .rotate()
       .resize(1200, 630, {
