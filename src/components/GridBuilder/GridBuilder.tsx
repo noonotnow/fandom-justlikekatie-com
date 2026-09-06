@@ -89,18 +89,19 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
 
   const smartPool = useMemo(() => (pool ? uniqueVisualCards(pool) : null), [pool]);
   const activePool = builderMode === 'smart' ? smartPool : pool;
-  const options = useMemo(() => (activePool ? lensOptions(activePool) : null), [activePool]);
+  const savedOptions = useMemo(() => (pool ? lensOptions(pool) : null), [pool]);
+  const smartOptions = useMemo(() => (smartPool ? lensOptions(smartPool) : null), [smartPool]);
   const eligibleEventFamilyIds = useMemo(() => new Set(
     (smartPool || [])
       .filter(card => card.familyEvidence === 'batch' || card.familyEvidence === 'persisted-event')
       .map(card => card.familyId),
   ), [smartPool]);
   const familyOptions = useMemo(() => {
-    if (!options) return [];
+    if (!smartOptions) return [];
     return editorialMode === 'event'
-      ? options.families.filter(option => eligibleEventFamilyIds.has(option.value))
-      : options.families;
-  }, [editorialMode, eligibleEventFamilyIds, options]);
+      ? smartOptions.families.filter(option => eligibleEventFamilyIds.has(option.value))
+      : smartOptions.families;
+  }, [editorialMode, eligibleEventFamilyIds, smartOptions]);
   const lensedCount = useMemo(
     () => (activePool ? applyLens(activePool, lens).length : 0),
     [activePool, lens],
@@ -108,14 +109,13 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
   const collectionCounts = useMemo(() => {
     const cards = sourceRecords?.cards || [];
     const count = (mode: 'standard' | 'misprints') => {
-      const modePool = buildVibeAtlasPool(cards, mode);
-      return (builderMode === 'smart' ? uniqueVisualCards(modePool) : modePool).length;
+      return buildVibeAtlasPool(cards, mode).length;
     };
     return {
       standard: count('standard'),
       misprints: count('misprints'),
     };
-  }, [builderMode, sourceRecords]);
+  }, [sourceRecords]);
   const manualCandidates = useMemo(
     () => pool && lens.actor ? applyLens(pool, { mode: lens.mode, actor: lens.actor }) : [],
     [pool, lens.actor, lens.mode],
@@ -411,7 +411,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
   }
 
   if (loadError) return <div className={styles.notice} role="alert">{loadError}</div>;
-  if (!pool || !options) {
+  if (!pool || !savedOptions || !smartOptions) {
     return <div className={styles.loading} aria-label="Loading saved collection"><span /><span /><span /></div>;
   }
   if (pool.length === 0) {
@@ -430,7 +430,11 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
           <h3>Vibe Atlas Grid Builder</h3>
           <p>Start with a smart proposal or choose and arrange every image yourself.</p>
         </div>
-        <span>{builderMode === 'manual' ? manualCandidates.length : lensedCount} of {pool.length} cards in lens</span>
+        <span>
+          {builderMode === 'manual'
+            ? `${countLabel(manualCandidates.length, 'saved result')} for this star`
+            : `${countLabel(lensedCount, 'unique proposal image')} from ${countLabel(pool.length, 'saved result')}`}
+        </span>
       </header>
 
       <div className={styles.modeTabs} role="tablist" aria-label="Grid building method">
@@ -505,8 +509,8 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
           active={lens.mode || 'standard'}
           onToggle={value => setMode(value as 'standard' | 'misprints')}
         />
-        <LensRow label="Star" options={options.actors} active={lens.actor} onToggle={value => toggle('actor', value)} />
-        {builderMode === 'smart' && <LensRow label="Vibe" options={options.vibes} active={lens.vibe} onToggle={value => toggle('vibe', value)} />}
+        <LensRow label="Star" options={savedOptions.actors} active={lens.actor} onToggle={value => toggle('actor', value)} />
+        {builderMode === 'smart' && <LensRow label="Vibe" options={smartOptions.vibes} active={lens.vibe} onToggle={value => toggle('vibe', value)} />}
         {builderMode === 'smart' && familyOptions.length > 0 && (
           <LensRow label="Visual family" options={familyOptions} active={lens.familyId} onToggle={value => toggle('familyId', value)} />
         )}
@@ -674,6 +678,10 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     </section>
   );
 };
+
+function countLabel(count: number, singular: string): string {
+  return `${count} ${singular}${count === 1 ? '' : 's'}`;
+}
 
 function LensRow({ label, options, active, onToggle }: {
   label: string;

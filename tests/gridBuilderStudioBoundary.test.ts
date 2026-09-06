@@ -106,6 +106,28 @@ test('builder browsing keeps distinct saved records while automatic proposals de
   assert.equal(proposeGrid(pool, {}, 'compiled').slots.length, 1);
 });
 
+test('saved actor identity stays authoritative over stale search spell metadata', () => {
+  const songWeilong = {
+    ...card('宋威龙', 'song-weilong'),
+    actorEn: 'Song Weilong',
+    gridContext: {
+      batchKey: '敖瑞鹏 笑容 帅气',
+      position: 0,
+    },
+  };
+  const duplicateSave = {
+    ...songWeilong,
+    localId: 'second-save',
+  };
+
+  const pool = buildVibeAtlasPool([songWeilong, duplicateSave]);
+
+  assert.equal(pool.length, 2);
+  assert.deepEqual(pool.map(item => item.actor), ['宋威龙', '宋威龙']);
+  assert.deepEqual(pool.map(item => item.actorEn), ['Song Weilong', 'Song Weilong']);
+  assert.equal(proposeGrid(pool, {}, 'compiled').slots.length, 1);
+});
+
 test('creator-marked mismatches are excluded ordinarily and included only in the Misprints lens', () => {
   const ordinary = card('刘学义', 'ordinary');
   const marked = {
