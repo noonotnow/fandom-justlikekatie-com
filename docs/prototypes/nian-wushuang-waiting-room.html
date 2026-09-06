@@ -1,0 +1,1231 @@
+<!doctype html>
+<!--
+THESIS: A Series home is a continuity ledger: understand and preserve first, make only by choice. It refuses the equal-column dashboard.
+OWN-WORLD: FANDOM ink, parchment, gold, sage, lilac, and coral; ruled ledgers, restrained panels, explicit authority labels, system sans.
+STORY: Katie sees what remains unresolved, chooses what kind of thing she is preserving, and can inspect downstream work without entering a pipeline.
+FIRST VIEWPORT: Waiting Room identity spans the top; CAPTURE owns the broad left sheet; continuity and three compact downstream ledgers stack at right.
+FORM: Capture-first continuity ledger, selected for an operate surface. The prototype is illustrative, local, and read-oriented.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nian Wushuang Waiting Room — Paper Cockpit</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f3f1eb;
+      --muted: #969b98;
+      --ground: #0e0e12;
+      --panel: #151519;
+      --panel-raised: #1b1b20;
+      --line: rgba(243, 241, 235, 0.13);
+      --line-strong: rgba(201, 169, 110, 0.38);
+      --gold: #c9a96e;
+      --gold-soft: #e2c88e;
+      --sage: #86a99b;
+      --sage-soft: #b8d2c6;
+      --lilac: #a98ac7;
+      --lilac-soft: #d0b9ef;
+      --coral: #c98264;
+      --coral-soft: #e5b09a;
+      --blue: #7895b5;
+      --shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+      --radius: 14px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--ground);
+    }
+
+    body {
+      min-width: 320px;
+      margin: 0;
+      background:
+        radial-gradient(circle at 72% -10%, rgba(169, 138, 199, 0.12), transparent 31rem),
+        radial-gradient(circle at 8% 18%, rgba(201, 169, 110, 0.11), transparent 28rem),
+        var(--ground);
+      color: var(--ink);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    button,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    button:focus-visible,
+    textarea:focus-visible {
+      outline: 2px solid var(--gold);
+      outline-offset: 3px;
+    }
+
+    .shell {
+      width: min(1480px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+    }
+
+    .prototype-note {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .prototype-note strong {
+      color: var(--gold-soft);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .series-header {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line-strong);
+      border-radius: 20px;
+      background:
+        linear-gradient(115deg, rgba(201, 169, 110, 0.13), transparent 44%),
+        linear-gradient(300deg, rgba(111, 141, 131, 0.09), transparent 48%),
+        var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .series-header::after {
+      position: absolute;
+      top: -115px;
+      right: 8%;
+      width: 260px;
+      height: 260px;
+      border: 1px solid rgba(201, 169, 110, 0.18);
+      border-radius: 50%;
+      content: "";
+      box-shadow:
+        0 0 0 36px rgba(201, 169, 110, 0.025),
+        0 0 0 76px rgba(201, 169, 110, 0.018);
+      pointer-events: none;
+    }
+
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 16px 22px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .crumbs,
+    .lens-switch {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .crumbs {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .crumbs strong {
+      color: var(--ink);
+    }
+
+    .lens-switch {
+      padding: 6px 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.12);
+      color: var(--gold-soft);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .lens-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--gold);
+      box-shadow: 0 0 0 4px rgba(201, 169, 110, 0.12);
+    }
+
+    .header-main {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 36px;
+      align-items: end;
+      padding: 30px 32px 28px;
+    }
+
+    .eyebrow {
+      margin: 0 0 7px;
+      color: var(--gold);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      max-width: 850px;
+      margin-bottom: 10px;
+      font-size: clamp(31px, 5vw, 60px);
+      font-weight: 650;
+      letter-spacing: -0.055em;
+      line-height: 0.98;
+    }
+
+    .thesis {
+      max-width: 720px;
+      margin: 0;
+      color: #c9ceca;
+      font-size: clamp(14px, 1.8vw, 18px);
+      line-height: 1.55;
+    }
+
+    .state-ledger {
+      display: grid;
+      min-width: 290px;
+      border-left: 2px solid var(--gold);
+      padding-left: 18px;
+    }
+
+    .state-row {
+      display: grid;
+      grid-template-columns: 105px 1fr;
+      gap: 12px;
+      padding: 7px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .state-row:last-child {
+      border-bottom: 0;
+    }
+
+    .state-row span {
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .state-row strong {
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .state-row [data-tone="gold"] {
+      color: var(--gold-soft);
+    }
+
+    .state-row [data-tone="sage"] {
+      color: var(--sage-soft);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.85fr) minmax(320px, 0.72fr);
+      gap: 16px;
+      align-items: start;
+      margin-top: 16px;
+    }
+
+    .sheet,
+    .ledger {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(21, 21, 25, 0.92);
+    }
+
+    .capture-sheet {
+      min-width: 0;
+      box-shadow: var(--shadow);
+    }
+
+    .section-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 22px 24px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section-header h2 {
+      margin-bottom: 4px;
+      font-size: 23px;
+      letter-spacing: -0.025em;
+    }
+
+    .section-header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .module-mark {
+      color: var(--gold);
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .capture-body {
+      display: grid;
+      grid-template-columns: minmax(210px, 0.62fr) minmax(0, 1.38fr);
+      min-height: 430px;
+    }
+
+    .instrument-list {
+      padding: 16px;
+      border-right: 1px solid var(--line);
+    }
+
+    .instrument-list button {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 10px;
+      width: 100%;
+      margin: 0 0 6px;
+      padding: 12px 10px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--ink);
+      text-align: left;
+    }
+
+    .instrument-list button:hover {
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .instrument-list button[aria-selected="true"] {
+      border-color: rgba(201, 169, 110, 0.42);
+      background: rgba(201, 169, 110, 0.1);
+    }
+
+    .instrument-index {
+      color: var(--gold);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+
+    .instrument-copy {
+      display: grid;
+      gap: 2px;
+    }
+
+    .instrument-copy strong {
+      font-size: 12px;
+    }
+
+    .instrument-copy span {
+      color: var(--muted);
+      font-size: 9px;
+      line-height: 1.35;
+    }
+
+    .instrument-detail {
+      display: grid;
+      align-content: start;
+      gap: 18px;
+      padding: 24px;
+    }
+
+    .destination {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: start;
+      padding: 12px 14px;
+      border-left: 2px solid var(--sage);
+      background: rgba(111, 141, 131, 0.09);
+    }
+
+    .destination strong {
+      display: block;
+      margin-bottom: 3px;
+      font-size: 12px;
+    }
+
+    .destination p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .owner {
+      color: var(--sage-soft);
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .detail-title {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: -0.02em;
+    }
+
+    .prompt {
+      color: #d7d9d6;
+      font-size: 13px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 138px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #101014;
+      color: var(--ink);
+      padding: 14px;
+      line-height: 1.6;
+    }
+
+    textarea::placeholder {
+      color: #656b68;
+    }
+
+    .detail-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .primary,
+    .secondary,
+    .text-action {
+      min-height: 39px;
+      border-radius: 8px;
+      padding: 8px 13px;
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .primary {
+      border: 1px solid var(--gold);
+      background: var(--gold);
+      color: #17130e;
+    }
+
+    .primary:hover {
+      background: var(--gold-soft);
+    }
+
+    .secondary {
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--ink);
+    }
+
+    .secondary:hover,
+    .text-action:hover {
+      border-color: rgba(201, 169, 110, 0.48);
+      color: var(--gold-soft);
+    }
+
+    .text-action {
+      min-height: 31px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      padding: 4px 8px;
+    }
+
+    .recent {
+      padding: 20px 24px 24px;
+      border-top: 1px solid var(--line);
+    }
+
+    .recent-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    .recent-heading h3 {
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .recent-heading span {
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .record {
+      display: grid;
+      grid-template-columns: 118px minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: start;
+      padding: 14px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .record:first-of-type {
+      border-top-color: var(--line-strong);
+    }
+
+    .record-kind {
+      display: grid;
+      gap: 4px;
+    }
+
+    .record-kind strong {
+      width: max-content;
+      padding: 3px 6px;
+      border-radius: 4px;
+      background: rgba(201, 169, 110, 0.12);
+      color: var(--gold-soft);
+      font-size: 8px;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .record[data-kind="evidence"] .record-kind strong {
+      background: rgba(111, 141, 131, 0.15);
+      color: var(--sage-soft);
+    }
+
+    .record[data-kind="signal"] .record-kind strong {
+      background: rgba(169, 138, 199, 0.15);
+      color: var(--lilac-soft);
+    }
+
+    .record-kind span {
+      color: var(--muted);
+      font-size: 9px;
+    }
+
+    .record-copy strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 12px;
+    }
+
+    .record-copy p {
+      margin: 0;
+      color: #b7bbb8;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .record-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 3px;
+      max-width: 230px;
+    }
+
+    .right-rail {
+      display: grid;
+      gap: 12px;
+    }
+
+    .ledger {
+      overflow: hidden;
+    }
+
+    .ledger[data-tone="continuity"] {
+      border-color: rgba(201, 169, 110, 0.34);
+    }
+
+    .ledger[data-tone="create"] {
+      border-color: rgba(169, 138, 199, 0.34);
+    }
+
+    .ledger[data-tone="plan"] {
+      border-color: rgba(120, 149, 181, 0.34);
+    }
+
+    .ledger[data-tone="connect"] {
+      border-color: rgba(111, 141, 131, 0.38);
+    }
+
+    .ledger button.ledger-heading {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      width: 100%;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+      color: var(--ink);
+      padding: 15px 16px 13px;
+      text-align: left;
+    }
+
+    .ledger-heading span:first-child {
+      display: grid;
+      gap: 2px;
+    }
+
+    .ledger-heading small {
+      color: var(--muted);
+      font-size: 9px;
+      letter-spacing: 0.04em;
+    }
+
+    .ledger-heading strong {
+      font-size: 13px;
+      letter-spacing: 0.02em;
+    }
+
+    .ledger-count {
+      align-self: center;
+      min-width: 28px;
+      color: var(--gold-soft);
+      font-size: 16px;
+      text-align: right;
+    }
+
+    .ledger-body {
+      display: grid;
+      gap: 0;
+      padding: 4px 16px 12px;
+    }
+
+    .ledger[data-open="false"] .ledger-body {
+      display: none;
+    }
+
+    .ledger-line {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      padding: 9px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .ledger-line:first-child {
+      border-top: 0;
+    }
+
+    .ledger-line span {
+      color: #c9ceca;
+      font-size: 10px;
+    }
+
+    .ledger-line strong {
+      color: var(--muted);
+      font-size: 9px;
+      text-align: right;
+    }
+
+    .ledger-line strong[data-state="active"] {
+      color: var(--sage-soft);
+    }
+
+    .ledger-line strong[data-state="attention"] {
+      color: var(--gold-soft);
+    }
+
+    .ledger-line strong[data-state="pending"] {
+      color: var(--lilac-soft);
+    }
+
+    .ledger-line strong[data-state="blocked"] {
+      color: var(--coral-soft);
+    }
+
+    .question-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 10px 0 3px;
+      list-style: none;
+    }
+
+    .question-list li {
+      padding-left: 12px;
+      border-left: 2px solid rgba(201, 169, 110, 0.4);
+      color: #c9ceca;
+      font-size: 10px;
+      line-height: 1.45;
+    }
+
+    .authority-key {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+      margin-top: 14px;
+      padding: 12px 15px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--muted);
+      font-size: 9px;
+    }
+
+    .authority-key span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .key-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--gold);
+    }
+
+    .key-dot[data-owner="fandom"] {
+      background: var(--sage);
+    }
+
+    .key-dot[data-owner="connect"] {
+      background: var(--lilac);
+    }
+
+    .toast {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      z-index: 5;
+      max-width: 360px;
+      transform: translateY(24px);
+      border: 1px solid rgba(134, 169, 155, 0.5);
+      border-radius: 10px;
+      background: #1a2420;
+      color: var(--sage-soft);
+      padding: 12px 15px;
+      box-shadow: var(--shadow);
+      font-size: 11px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+
+    .toast[data-visible="true"] {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    @media (max-width: 1000px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .right-rail {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 720px) {
+      .shell {
+        width: min(100% - 20px, 1480px);
+        padding-top: 10px;
+      }
+
+      .prototype-note,
+      .header-top,
+      .section-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .header-main {
+        grid-template-columns: 1fr;
+        padding: 24px 20px;
+      }
+
+      .state-ledger {
+        min-width: 0;
+      }
+
+      .capture-body {
+        grid-template-columns: 1fr;
+      }
+
+      .instrument-list {
+        display: flex;
+        overflow-x: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .instrument-list button {
+        flex: 0 0 190px;
+      }
+
+      .right-rail {
+        grid-template-columns: 1fr;
+      }
+
+      .record {
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+
+      .record-actions {
+        justify-content: flex-start;
+        max-width: none;
+      }
+
+      .destination {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="prototype-note">
+      <strong>Paper Cockpit #1 · interactive prototype</strong>
+      <span>Illustrative local data · no records will be created</span>
+    </div>
+
+    <header class="series-header">
+      <div class="header-top">
+        <nav class="crumbs" aria-label="Breadcrumb">
+          <span>Creator OS</span>
+          <span aria-hidden="true">/</span>
+          <span>CDRAMA</span>
+          <span aria-hidden="true">/</span>
+          <strong>Waiting Room</strong>
+        </nav>
+        <div class="lens-switch">
+          <span class="lens-dot" aria-hidden="true"></span>
+          CDRAMA Lens
+        </div>
+      </div>
+
+      <div class="header-main">
+        <div>
+          <p class="eyebrow">Nian Wushuang · Series home</p>
+          <h1>The story has not accepted that it is over.</h1>
+          <p class="thesis">Neither have we. The Waiting Room preserves why Yuan Zhong’s search still feels unfinished—without pretending another installment has been announced.</p>
+        </div>
+
+        <div class="state-ledger" aria-label="Waiting Room state">
+          <div class="state-row">
+            <span>Public state</span>
+            <strong data-tone="gold">Still waiting</strong>
+          </div>
+          <div class="state-row">
+            <span>Clock Ins</span>
+            <strong>1,284</strong>
+          </div>
+          <div class="state-row">
+            <span>Evidence</span>
+            <strong data-tone="sage">4 verified · 1 held</strong>
+          </div>
+          <div class="state-row">
+            <span>Projection</span>
+            <strong>Current · 14:42</strong>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <section class="sheet capture-sheet" aria-labelledby="capture-title">
+        <header class="section-header">
+          <div>
+            <div class="module-mark">Capture</div>
+            <h2 id="capture-title">What kind of thing are you preserving?</h2>
+            <p>Choose the record and its owner before you begin. Nothing here promises a post.</p>
+          </div>
+          <span class="owner">Primary working area</span>
+        </header>
+
+        <div class="capture-body">
+          <div class="instrument-list" role="tablist" aria-label="Capture instruments">
+            <button type="button" role="tab" aria-selected="true" data-instrument="dispatch">
+              <span class="instrument-index">01</span>
+              <span class="instrument-copy">
+                <strong>Private dispatch</strong>
+                <span>Creator Capture · private</span>
+              </span>
+            </button>
+            <button type="button" role="tab" aria-selected="false" data-instrument="journal">
+              <span class="instrument-index">02</span>
+              <span class="instrument-copy">
+                <strong>First-Watch Journal</strong>
+                <span>Reference, open, or file in Fandom</span>
+              </span>
+            </button>
+            <button type="button" role="tab" aria-selected="false" data-instrument="evidence">
+              <span class="instrument-index">03</span>
+              <span class="instrument-copy">
+                <strong>Canon / universe evidence</strong>
+                <span>Fandom contribution</span>
+              </span>
+            </button>
+            <button type="button" role="tab" aria-selected="false" data-instrument="question">
+              <span class="instrument-index">04</span>
+              <span class="instrument-copy">
+                <strong>Audience question</strong>
+                <span>Signal or private Capture</span>
+              </span>
+            </button>
+            <button type="button" role="tab" aria-selected="false" data-instrument="source">
+              <span class="instrument-index">05</span>
+              <span class="instrument-copy">
+                <strong>Source, scene, reaction</strong>
+                <span>Choose owner from context</span>
+              </span>
+            </button>
+          </div>
+
+          <div class="instrument-detail" role="tabpanel">
+            <div class="destination">
+              <div>
+                <strong id="destination-title">This will become a private Waiting Room dispatch.</strong>
+                <p id="destination-copy">It may remain complete here forever. Saving does not create an Idea, task, or platform expression.</p>
+              </div>
+              <span class="owner" id="destination-owner">Creator OS · Capture</span>
+            </div>
+
+            <div>
+              <h3 class="detail-title" id="instrument-title">Write private dispatch</h3>
+              <p class="prompt" id="instrument-prompt">What is happening in the story, audience, or universe that you do not want to lose?</p>
+            </div>
+
+            <textarea id="capture-text" aria-label="Capture text" placeholder="The cameo matters because Yuan Zhong is still searching…"></textarea>
+
+            <div class="detail-actions" id="detail-actions">
+              <button type="button" class="primary" id="primary-action">Save private dispatch</button>
+              <button type="button" class="secondary">Relate to open question</button>
+            </div>
+          </div>
+        </div>
+
+        <section class="recent" aria-labelledby="recent-title">
+          <div class="recent-heading">
+            <h3 id="recent-title">Recent records in this context</h3>
+            <span>Different records · visible authority</span>
+          </div>
+
+          <article class="record" data-kind="dispatch">
+            <div class="record-kind">
+              <strong>Private dispatch</strong>
+              <span>Creator OS · yesterday</span>
+            </div>
+            <div class="record-copy">
+              <strong>The universe is still using the unfinished search.</strong>
+              <p>Yuan Zhong’s appearance works because the audience remembers exactly who he is still looking for.</p>
+            </div>
+            <div class="record-actions">
+              <button type="button" class="text-action">Make from this</button>
+              <button type="button" class="text-action">Add to open question</button>
+            </div>
+          </article>
+
+          <article class="record" data-kind="evidence">
+            <div class="record-kind">
+              <strong>Universe evidence</strong>
+              <span>Fandom · verified</span>
+            </div>
+            <div class="record-copy">
+              <strong>Yuan Zhong appears in <em>Fate Chooses You</em>.</strong>
+              <p>Accepted scope: supports the unfinished-thread argument. It does not confirm a sequel or production plan.</p>
+            </div>
+            <div class="record-actions">
+              <button type="button" class="text-action">Open source</button>
+              <button type="button" class="text-action">View receipt</button>
+            </div>
+          </article>
+
+          <article class="record" data-kind="signal">
+            <div class="record-kind">
+              <strong>Audience signal</strong>
+              <span>Connect · 3 comments</span>
+            </div>
+            <div class="record-copy">
+              <strong>“Wait—is Season 2 actually real?”</strong>
+              <p>Recurring onboarding question. Public quotation is not yet approved; interpretation remains provisional.</p>
+            </div>
+            <div class="record-actions">
+              <button type="button" class="text-action">Preserve question</button>
+              <button type="button" class="text-action">Make FAQ response</button>
+            </div>
+          </article>
+        </section>
+      </section>
+
+      <aside class="right-rail" aria-label="Series continuity and downstream modules">
+        <section class="ledger" data-tone="continuity" data-open="true">
+          <button class="ledger-heading" type="button" aria-expanded="true">
+            <span>
+              <small>Series continuity</small>
+              <strong>What is still unresolved?</strong>
+            </span>
+            <span class="ledger-count">3</span>
+          </button>
+          <div class="ledger-body">
+            <ul class="question-list">
+              <li>What does Yuan Zhong now know about finding Wushuang?</li>
+              <li>Is the cameo continuity, audience play, or both?</li>
+              <li>What evidence would justify changing public state?</li>
+            </ul>
+            <div class="ledger-line">
+              <span>Evidence trail</span>
+              <strong data-state="active">4 current</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Recent change</span>
+              <strong>2 days ago</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="ledger" data-tone="create" data-open="true">
+          <button class="ledger-heading" type="button" aria-expanded="true">
+            <span>
+              <small>Create · definite work</small>
+              <strong>What is being made?</strong>
+            </span>
+            <span class="ledger-count">4</span>
+          </button>
+          <div class="ledger-body">
+            <div class="ledger-line">
+              <span>Website expansion</span>
+              <strong data-state="active">Shaping</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Rednote expression</span>
+              <strong data-state="attention">Make</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Rendition family</span>
+              <strong>3 exports</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Ready for scheduling</span>
+              <strong data-state="active">1 item</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="ledger" data-tone="plan" data-open="true">
+          <button class="ledger-heading" type="button" aria-expanded="true">
+            <span>
+              <small>Plan · placement</small>
+              <strong>What is authorized next?</strong>
+            </span>
+            <span class="ledger-count">2</span>
+          </button>
+          <div class="ledger-body">
+            <div class="ledger-line">
+              <span>Sep 8 · Rednote</span>
+              <strong data-state="attention">Needs rendition</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Sep 12 · Instagram</span>
+              <strong data-state="blocked">Copy hold</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Automation consent</span>
+              <strong>Not granted</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="ledger" data-tone="connect" data-open="true">
+          <button class="ledger-heading" type="button" aria-expanded="true">
+            <span>
+              <small>Connect · outcome</small>
+              <strong>What happened?</strong>
+            </span>
+            <span class="ledger-count">3</span>
+          </button>
+          <div class="ledger-body">
+            <div class="ledger-line">
+              <span>Latest Rednote post</span>
+              <strong data-state="active">Verified</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Instagram receipt</span>
+              <strong data-state="pending">Verification pending</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Audience questions</span>
+              <strong data-state="attention">3 to review</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Correction chain</span>
+              <strong>1 superseded</strong>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <div class="authority-key" aria-label="Authority key">
+      <span><i class="key-dot"></i> Creator OS record</span>
+      <span><i class="key-dot" data-owner="fandom"></i> Fandom record or projection</span>
+      <span><i class="key-dot" data-owner="connect"></i> CONNECT observation</span>
+      <span>Prototype actions demonstrate routing only; they do not persist.</span>
+    </div>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const instruments = {
+      dispatch: {
+        title: "Write private dispatch",
+        prompt: "What is happening in the story, audience, or universe that you do not want to lose?",
+        destination: "This will become a private Waiting Room dispatch.",
+        copy: "It may remain complete here forever. Saving does not create an Idea, task, or platform expression.",
+        owner: "Creator OS · Capture",
+        placeholder: "The cameo matters because Yuan Zhong is still searching…",
+        action: "Save private dispatch",
+        secondary: "Relate to open question",
+        notice: "Prototype: private dispatch preserved in CAPTURE. Nothing moved downstream."
+      },
+      journal: {
+        title: "Work with First-Watch Journal",
+        prompt: "Reference an existing entry, open the protocol-bound Journal, or file a new episode-bound entry.",
+        destination: "These actions remain inside the Fandom First-Watch protocol.",
+        copy: "Referencing does not copy the entry. Filing does not create a generic Creator OS Capture.",
+        owner: "Fandom · First-Watch",
+        placeholder: "Optional note about the entry you need…",
+        action: "Open protocol-bound Journal",
+        secondary: "File in First Watch",
+        notice: "Prototype: opening the Fandom-owned First-Watch specialist view."
+      },
+      evidence: {
+        title: "Add canon or universe evidence",
+        prompt: "What source, scene anchor, provenance, spoiler level, and narrow claim should Fandom review?",
+        destination: "This will enter the Fandom Waiting Room evidence workflow.",
+        copy: "Accepted evidence may support the unfinished-thread argument. It cannot declare a sequel.",
+        owner: "Fandom · Waiting Room",
+        placeholder: "Yuan Zhong appears in Fate Chooses You still carrying the unresolved search…",
+        action: "Open evidence filing",
+        secondary: "Review evidence rules",
+        notice: "Prototype: invoking Fandom evidence filing with claim limits intact."
+      },
+      question: {
+        title: "Preserve an audience question",
+        prompt: "Choose whether this is a bounded CONNECT signal or a private question you want to think about.",
+        destination: "You will choose the destination before saving.",
+        copy: "A native comment remains canonical on its platform. One question cannot become a broad audience claim.",
+        owner: "Connect or Creator OS",
+        placeholder: "Wait—is Season 2 actually real?",
+        action: "Choose signal or Capture",
+        secondary: "Review source comment",
+        notice: "Prototype: destination choice required before the audience question can be preserved."
+      },
+      source: {
+        title: "Preserve source, scene, or reaction",
+        prompt: "Is this a private observation, a source reference, or evidence that requires domain review?",
+        destination: "The content determines its owner; the cockpit will not guess.",
+        copy: "Private thought, source reference, and domain evidence remain different records.",
+        owner: "Owner selected next",
+        placeholder: "Paste a source link or describe the scene and why it matters…",
+        action: "Choose record type",
+        secondary: "Open source explorer",
+        notice: "Prototype: record type and owner must be chosen before preservation."
+      }
+    };
+
+    const tabs = [...document.querySelectorAll("[data-instrument]")];
+    const title = document.querySelector("#instrument-title");
+    const prompt = document.querySelector("#instrument-prompt");
+    const destinationTitle = document.querySelector("#destination-title");
+    const destinationCopy = document.querySelector("#destination-copy");
+    const destinationOwner = document.querySelector("#destination-owner");
+    const textarea = document.querySelector("#capture-text");
+    const primaryAction = document.querySelector("#primary-action");
+    const detailActions = document.querySelector("#detail-actions");
+    const toast = document.querySelector("#toast");
+    let current = "dispatch";
+    let toastTimer;
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.dataset.visible = "true";
+      window.clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => {
+        toast.dataset.visible = "false";
+      }, 3200);
+    }
+
+    function selectInstrument(key) {
+      current = key;
+      const instrument = instruments[key];
+      tabs.forEach(tab => tab.setAttribute("aria-selected", String(tab.dataset.instrument === key)));
+      title.textContent = instrument.title;
+      prompt.textContent = instrument.prompt;
+      destinationTitle.textContent = instrument.destination;
+      destinationCopy.textContent = instrument.copy;
+      destinationOwner.textContent = instrument.owner;
+      textarea.placeholder = instrument.placeholder;
+      textarea.value = "";
+      primaryAction.textContent = instrument.action;
+      detailActions.querySelector(".secondary").textContent = instrument.secondary;
+    }
+
+    tabs.forEach(tab => {
+      tab.addEventListener("click", () => selectInstrument(tab.dataset.instrument));
+    });
+
+    primaryAction.addEventListener("click", () => {
+      showToast(instruments[current].notice);
+    });
+
+    document.querySelectorAll(".secondary, .text-action").forEach(button => {
+      button.addEventListener("click", () => {
+        showToast(`Prototype route: ${button.textContent.trim()}. No record was changed.`);
+      });
+    });
+
+    document.querySelectorAll(".ledger-heading").forEach(button => {
+      button.addEventListener("click", () => {
+        const ledger = button.closest(".ledger");
+        const isOpen = ledger.dataset.open === "true";
+        ledger.dataset.open = String(!isOpen);
+        button.setAttribute("aria-expanded", String(!isOpen));
+      });
+    });
+  </script>
+</body>
+</html>
