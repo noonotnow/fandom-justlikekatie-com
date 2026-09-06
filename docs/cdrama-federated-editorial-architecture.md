@@ -2268,12 +2268,14 @@ legible.
 
 ### Durable boundary objects
 
-The Lens needs seven durable cross-authority intermediates. Other concepts may
-remain owner-native records, views, commands, or specialist tools.
+The Lens needs eight durable cross-stage or cross-authority intermediates.
+Other concepts may remain owner-native records, views, commands, or specialist
+tools.
 
 | Boundary object | Producer → consumer | Required contents | Explicit non-authority |
 | --- | --- | --- | --- |
 | **Authorized Fandom Projection** | Fandom → Lens/CREATE | Source ID/version, safe selected fields, restrictions, correction state, projection schema, receipt | Cannot mutate or fully reconstruct the private/domain record |
+| **Creative Commitment Receipt** | CAPTURE/domain owner → CREATE | Selected source IDs/versions, safe excerpt/projection, target artifact ID/type, actor, timestamp, idempotency key | Does not move the source, require every Capture to become an artifact, or apply to direct-to-CREATE work |
 | **Publication Package** | Fandom edition → CREATE | Immutable edition identity/version, exact assets/order, canonical copy, provenance/rights, release constraints, correction state | Does not transfer edition ownership or guarantee an external derivative |
 | **Expression Draft** | CREATE → PLAN | Expression ID/version, platform/format, canonical copy, assets, source lineage, readiness | Is not a schedule, authorization, attempt, or publication |
 | **Execution Request** | PLAN → EXECUTE | Exact expression/placement versions, account, schedule/condition, authorization, payload digest, idempotency key | Does not prove an attempt or publication |
@@ -2349,6 +2351,44 @@ rather than shape a creative output: filing a First-Watch entry, recording a
 clock-in, correcting canon metadata, moderating evidence, and changing a domain
 lifecycle state.
 
+#### CAPTURE → CREATE boundary
+
+This boundary is **creative commitment**, not generic promotion. It exists only
+when Katie decides:
+
+> This selected material should become a definite made thing, and it now needs
+> shaping work.
+
+The handoff:
+
+```text
+selected authorized Capture/domain material
++ chosen artifact class and initial creative intention
++ explicit actor decision
+        ↓
+new or linked CREATE artifact
++ additive source lineage
++ promotion receipt
+```
+
+The receipt records the selected source IDs and versions, safe excerpt or
+projection, target artifact ID and type, actor, timestamp, and idempotency key.
+The source remains in CAPTURE or with its domain owner; the new artifact may
+change independently without rewriting it.
+
+This boundary is optional:
+
+- most Captures and domain filings never cross it;
+- a selected passage may cross without moving the surrounding record;
+- one source may produce several differently shaped artifacts;
+- several authorized sources may support one artifact;
+- an inherently post-shaped intention may begin directly in CREATE and has no
+  CAPTURE → CREATE receipt.
+
+Stale, corrected, withdrawn, private, or newly unsafe source material must
+block or flag the handoff according to the source owner's rules. The boundary
+cannot widen a projection merely because CREATE would find more context useful.
+
 For example:
 
 ```text
@@ -2415,9 +2455,37 @@ PLAN narrows to placement and authorization for external expressions:
 - select expression version;
 - choose platform/account;
 - prioritize and sequence;
-- set schedule;
+- receive or revise an admitted placement schedule;
 - authorize execution;
 - hold/cancel before attempt.
+
+The **CREATE → PLAN boundary is schedule admission**. In the current Creator OS
+implementation, appearing in PLAN is `ScheduledDate`-gated, but CREATE cannot
+assign that date arbitrarily. `Production Next Step = Ready for scheduling`
+makes a committed Post eligible to cross; an explicit promotion/scheduling
+action writes `ScheduledDate`; the resulting dated placement is the rendered
+handoff object that PLAN can see and govern.
+
+```text
+committed Post in CREATE
+→ explicit promotion or Ready for scheduling
+→ schedule-setting handoff writes ScheduledDate
+→ ScheduledDate admits the Post to PLAN
+→ PLAN selects/rebinds the exact ready rendition and reviews the packet
+→ Ready for publishing
+→ explicit Publish packet ready consent
+→ EXECUTE/PUBLISH boundary
+```
+
+These are separate gates:
+
+| Gate | Meaning | What it does not prove |
+| --- | --- | --- |
+| `Ready for scheduling` | CREATE says the committed Post may enter schedule-setting handoff | It does not itself make the Post visible in PLAN |
+| `ScheduledDate` | The placement now appears in PLAN | It does not prove packet completeness or execution consent |
+| `Status = Ready` | Legacy/compatibility PLAN readiness signal | It does not replace rendition, media, caption, title/cover, or packet validation |
+| `Ready for publishing` | The assembled work's next action is publication | It does not authorize automation |
+| `Publish packet ready` | Explicit packet-level automation gate | It does not prove an attempt or publication |
 
 It stops pretending that every CDRAMA output is a Post. Domain-native releases
 use their own release conditions and records. The Lens composes both external
