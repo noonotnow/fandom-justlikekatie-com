@@ -245,6 +245,13 @@ export async function buildPayloadForDate(
             generationPrompt: vibe.mjPrompt || "",
           },
           board: publicationBoard,
+          validateBeforeCommit: async () => {
+            if (!await pairIsReleaseReady(actor, seed.vIdx, eligibilityStore)) {
+              const error = new Error("This actor pack changed after Daily Drop selection.");
+              error.status = 409;
+              throw error;
+            }
+          },
           provenance: {
             sourceType: "daily_curation",
             runId: approval.runId || null,
@@ -367,6 +374,13 @@ async function buildEditorialBackup({
             generationPrompt: vibe.mjPrompt || "",
           },
           board,
+          validateBeforeCommit: async () => {
+            if (!await pairIsReleaseReady(actor, seed.vIdx, eligibilityStore)) {
+              const error = new Error("This actor pack changed after backup selection.");
+              error.status = 409;
+              throw error;
+            }
+          },
           provenance,
           env: mediaEnv,
           fetchImpl,

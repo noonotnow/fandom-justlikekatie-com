@@ -3,6 +3,7 @@ import {
   dbGetVisibleCardsByScope,
   dbReplaceCardImage,
   normalizeCardForCollection,
+  createMisprint,
   createLegendaryMisprint,
   markGridAsLegendaryMisprint,
   dbGetVisibleGrids,
@@ -10,7 +11,10 @@ import {
   dbSaveGrid,
   type CardRecord,
   type GridRecord,
+  type MisprintLearningScope,
+  type MisprintReason,
 } from '../../utils/collectionDB';
+import { MISPRINT_REASONS, misprintReasonDefinition } from '../../utils/misprintReasons';
 import {
   persistRemoval,
   forgetPendingRemoval,
@@ -64,7 +68,42 @@ type ExpandedArtifact =
   | { kind: 'grid'; record: GridRecord }
   | { kind: 'card'; record: CardRecord };
 
-const LEGENDARY_MISPRINT_FILTER = '__legendary-misprints__';
+const MISPRINT_FILTER = '__misprints__';
+type MisprintDraft = {
+  reason: MisprintReason;
+  unexpectedIdentity: string;
+  note: string;
+};
+
+function cardRecordKey(card: CardRecord): string {
+  return card.localId || card.serverId || card.imageUrl;
+}
+
+async function correctLegendaryGridEvidence(grid: GridRecord): Promise<number> {
+  const response = await fetch('/.netlify/functions/actor-audits', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      action: 'mark_grid_misprint',
+      actorId: grid.actorId,
+      vibeLabel: grid.vibe,
+      gridId: grid.id,
+      note: 'Legendary Misprint grid: collectible preserved; source evidence remains negative.',
+      candidates: grid.images.map(image => ({
+        candidateId: image.resultId,
+        query: image.batchKey || grid.searchSpell,
+        title: image.title,
+        source: image.publisher,
+        link: image.sourceUrl,
+        thumbnail: image.imageUrl,
+      })),
+    }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(result?.error || 'The curator correction could not be recorded.');
+  return Number(result?.correctedCandidateCount) || 0;
+}
 
 export const Collection: React.FC<Props> = ({
   scope = 'vibe-atlas',
@@ -94,6 +133,7 @@ export const Collection: React.FC<Props> = ({
   const [expandedArtifact, setExpandedArtifact] = useState<ExpandedArtifact | null>(null);
   const [failedCardImages, setFailedCardImages] = useState<Record<string, boolean>>({});
   const [failedGridImages, setFailedGridImages] = useState<Record<string, boolean>>({});
+  const [misprintDrafts, setMisprintDrafts] = useState<Record<string, MisprintDraft>>({});
   const accountIdRef = useRef<string | undefined>(undefined);
   const pendingRemovalRef = useRef<PendingRemoval | null>(null);
 
@@ -289,7 +329,7 @@ export const Collection: React.FC<Props> = ({
 
   async function moveCardToScope(card: CardRecord) {
     const targetScope = isMiddleEarth ? 'vibe-atlas' : 'middle-earth';
-    const moveKey = `move:${card.localId || card.imageUrl}`;
+    const moveKey = `move:${cardRecordKey(card)}`;
     setBusyKey(moveKey);
     try {
       await dbSaveCard({
@@ -317,8 +357,13 @@ export const Collection: React.FC<Props> = ({
       await dbSaveGrid(markGridAsLegendaryMisprint(grid));
       await loadCollection(user?.accountId);
       schedulePublicCollectionSync();
-      setFilterActor(LEGENDARY_MISPRINT_FILTER);
-      setAccountNotice('Legendary Misprint preserved. It is separated from ordinary actor filters and Builder proposals.');
+      setFilterActor(MISPRINT_FILTER);
+      try {
+        const correctedCount = await correctLegendaryGridEvidence(grid);
+        setAccountNotice(`Legendary Misprint preserved. ${correctedCount} source result${correctedCount === 1 ? '' : 's'} will stay out of future curator evidence.`);
+      } catch (correctionError) {
+        setAccountNotice(`Legendary Misprint preserved, but curator learning was not recorded: ${messageFrom(correctionError, 'open Actor Preflight to correct its source evidence.')}`);
+      }
     } catch (error) {
       setAccountNotice(messageFrom(error, 'The grid could not be marked as a Legendary Misprint.'));
     } finally {
@@ -326,41 +371,130 @@ export const Collection: React.FC<Props> = ({
     }
   }
 
-  async function markCardLegendaryMisprint(card: CardRecord) {
-    const unexpectedIdentity = window.prompt(
-      'Who or what is unexpectedly shown in this image? This is saved as creator-entered provenance; the image is not analyzed.',
-      '',
-    )?.trim();
-    if (!unexpectedIdentity) return;
-    const misprintKey = `card-misprint:${card.localId || card.imageUrl}`;
+  async function markCardMisprint(card: CardRecord, draft: MisprintDraft) {
+    const misprintKey = `card-misprint:${cardRecordKey(card)}`;
+    const actualIdentity = draft.unexpectedIdentity.trim() || undefined;
+    const note = draft.note.trim() || undefined;
     setBusyKey(misprintKey);
+    let correctionSaved = false;
     try {
+      const response = await fetch('/.netlify/functions/actor-audits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          action: 'mark_collection_misprint',
+          collectionItemId: card.localId || card.serverId || card.imageUrl,
+          actorId: card.actorId,
+          actorName: card.actor,
+          vibeKey: card.vibeKey,
+          vibeLabel: card.vibe,
+          reason: draft.reason,
+          actualIdentity,
+          note,
+          candidate: {
+            candidateId: card.resultId || card.imageUrl,
+            query: card.searchQuery || card.gridContext?.batchKey || null,
+            title: card.title || null,
+            source: card.publisher || null,
+            link: card.sourceUrl || null,
+            thumbnail: card.imageUrl,
+            imageDigest: card.media?.checksum || null,
+          },
+        }),
+      });
+      const payload = await response.json().catch(() => null) as {
+        error?: string;
+        misprint?: {
+          receiptId: string;
+          sourceRunId?: string | null;
+          reason: MisprintReason;
+          label: string;
+          correctionScope: MisprintLearningScope;
+          actualIdentity?: string | null;
+          note?: string;
+          markedAt: string;
+          candidate?: { imageDigest?: string | null };
+        };
+        calibrationStatus?: 'applied' | 'recorded' | 'submitted' | 'rejected' | 'retracted';
+      } | null;
+      if (!response.ok || !payload?.misprint) {
+        throw new Error(payload?.error || 'The curator correction could not be recorded.');
+      }
+      correctionSaved = true;
       await dbSaveCard({
         ...card,
         savedAt: new Date().toISOString(),
-        legendaryMisprint: createLegendaryMisprint(card, unexpectedIdentity),
+        misprint: createMisprint(card, {
+          reason: payload.misprint.reason,
+          label: payload.misprint.label,
+          learningScope: payload.misprint.correctionScope,
+          calibrationStatus: payload.calibrationStatus || 'submitted',
+          unexpectedImageIdentity: payload.misprint.actualIdentity || undefined,
+          note: payload.misprint.note,
+          imageDigest: payload.misprint.candidate?.imageDigest || undefined,
+          sourceRunId: payload.misprint.sourceRunId || undefined,
+          correctionReceiptId: payload.misprint.receiptId,
+        }, new Date(payload.misprint.markedAt)),
       });
       await loadCollection(user?.accountId);
       schedulePublicCollectionSync();
-      setFilterActor(LEGENDARY_MISPRINT_FILTER);
-      setAccountNotice('Saved as an intentional Legendary Misprint. It now appears only in the Misprints lens.');
+      setFilterActor(MISPRINT_FILTER);
+      setMisprintDrafts(current => {
+        const next = { ...current };
+        delete next[misprintKey];
+        return next;
+      });
+      setAccountNotice(payload.calibrationStatus === 'applied'
+        ? `${payload.misprint.label} preserved. The collectible stays visible while its correction teaches future curation.`
+        : payload.calibrationStatus === 'recorded'
+          ? `${payload.misprint.label} preserved. The collectible stays visible and its diagnostic evidence was recorded.`
+          : payload.calibrationStatus === 'rejected' || payload.calibrationStatus === 'retracted'
+            ? `${payload.misprint.label} preserved as a collectible. Its curator correction is no longer active.`
+            : `${payload.misprint.label} preserved. The collectible stays visible and its correction was submitted for curator review.`);
     } catch (error) {
-      setAccountNotice(messageFrom(error, 'The Legendary Misprint could not be saved.'));
+      setAccountNotice(correctionSaved
+        ? `Curator correction saved, but the collectible could not be preserved: ${messageFrom(error, 'unknown storage error.')}`
+        : messageFrom(error, 'The curator correction could not be recorded, so the collectible was not changed.'));
     } finally {
       setBusyKey('');
     }
   }
 
-  async function restoreOrdinaryResult(card: CardRecord) {
-    const misprintKey = `card-misprint:${card.localId || card.imageUrl}`;
+  async function promoteCardMisprint(card: CardRecord) {
+    const identity = card.misprint?.unexpectedImageIdentity?.label
+      || card.legendaryMisprint?.unexpectedImageIdentity.label
+      || card.misprint?.label
+      || 'unexpected result';
+    const misprintKey = `card-misprint:${cardRecordKey(card)}`;
+    setBusyKey(misprintKey);
+    try {
+      await dbSaveCard({
+        ...card,
+        savedAt: new Date().toISOString(),
+        legendaryMisprint: createLegendaryMisprint(card, identity),
+      });
+      await loadCollection(user?.accountId);
+      schedulePublicCollectionSync();
+      setFilterActor(MISPRINT_FILTER);
+      setAccountNotice('Promoted to Legendary Misprint. Its correction remains negative evidence for the curator.');
+    } catch (error) {
+      setAccountNotice(messageFrom(error, 'The Misprint could not be promoted.'));
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  async function removeLegendaryPromotion(card: CardRecord) {
+    const misprintKey = `card-misprint:${cardRecordKey(card)}`;
     setBusyKey(misprintKey);
     try {
       await dbSaveCard({ ...card, savedAt: new Date().toISOString(), legendaryMisprint: undefined });
       await loadCollection(user?.accountId);
       schedulePublicCollectionSync();
-      setAccountNotice('Restored as an ordinary saved result.');
+      setAccountNotice('Legendary promotion removed. The result remains a Misprint.');
     } catch (error) {
-      setAccountNotice(messageFrom(error, 'The saved result could not be restored.'));
+      setAccountNotice(messageFrom(error, 'The Legendary promotion could not be removed.'));
     } finally {
       setBusyKey('');
     }
@@ -378,7 +512,7 @@ export const Collection: React.FC<Props> = ({
       setAccountNotice('That image is larger than 8 MB. Choose a smaller image.');
       return;
     }
-    setBusyKey(`media:${card.localId || card.imageUrl}`);
+    setBusyKey(`media:${cardRecordKey(card)}`);
     try {
       const localId = card.localId || crypto.randomUUID();
       if (!card.localId) await dbSaveCard({ ...card, localId });
@@ -395,7 +529,7 @@ export const Collection: React.FC<Props> = ({
   }
 
   async function recoverCardMedia(card: CardRecord) {
-    const recoveryKey = `recover:${card.localId || card.imageUrl}`;
+    const recoveryKey = `recover:${cardRecordKey(card)}`;
     setBusyKey(recoveryKey);
     try {
       const result = await recoverCollectionCard(
@@ -506,21 +640,21 @@ export const Collection: React.FC<Props> = ({
 
   const allActors = Array.from(new Set([
     ...grids.filter(grid => !grid.legendaryMisprint && grid.intent !== 'legendary-misprint').map(grid => grid.actor),
-    ...cards.filter(card => !card.legendaryMisprint).map(card => card.actor),
+    ...cards.filter(card => !card.misprint && !card.legendaryMisprint).map(card => card.actor),
   ]));
-  if (grids.some(grid => grid.legendaryMisprint || grid.intent === 'legendary-misprint') || cards.some(card => card.legendaryMisprint)) {
-    allActors.unshift(LEGENDARY_MISPRINT_FILTER);
+  if (grids.some(grid => grid.legendaryMisprint || grid.intent === 'legendary-misprint') || cards.some(card => card.misprint || card.legendaryMisprint)) {
+    allActors.unshift(MISPRINT_FILTER);
   }
-  const displayedGrids = filterActor === LEGENDARY_MISPRINT_FILTER
+  const displayedGrids = filterActor === MISPRINT_FILTER
     ? grids.filter(grid => grid.legendaryMisprint || grid.intent === 'legendary-misprint')
     : filterActor
       ? grids.filter(grid => !grid.legendaryMisprint && grid.intent !== 'legendary-misprint' && grid.actor === filterActor)
       : grids.filter(grid => !grid.legendaryMisprint && grid.intent !== 'legendary-misprint');
-  const displayedCards = filterActor === LEGENDARY_MISPRINT_FILTER
-    ? cards.filter(card => card.legendaryMisprint)
+  const displayedCards = filterActor === MISPRINT_FILTER
+    ? cards.filter(card => card.misprint || card.legendaryMisprint)
     : filterActor
-      ? cards.filter(card => !card.legendaryMisprint && card.actor === filterActor)
-      : cards.filter(card => !card.legendaryMisprint);
+      ? cards.filter(card => !card.misprint && !card.legendaryMisprint && card.actor === filterActor)
+      : cards.filter(card => !card.misprint && !card.legendaryMisprint);
 
   return (
     <main className={styles.collection}>
@@ -618,7 +752,7 @@ export const Collection: React.FC<Props> = ({
               aria-pressed={filterActor === actor}
               onClick={() => setFilterActor(actor)}
             >
-              {actor === LEGENDARY_MISPRINT_FILTER ? '🔥 Legendary Misprints' : actor}
+              {actor === MISPRINT_FILTER ? '🖨️ Misprints' : actor}
             </button>
           ))}
         </div>
@@ -778,8 +912,16 @@ export const Collection: React.FC<Props> = ({
         />
       ) : (
         <section className={styles.savedResults} aria-label="Saved results">
-          {displayedCards.map(card => (
-            <article key={card.imageUrl} className={card.contentKind === 'middle-earth-meme' ? styles.memeResult : undefined}>
+          {displayedCards.map(card => {
+            const recordKey = cardRecordKey(card);
+            const misprintKey = `card-misprint:${recordKey}`;
+            const misprintDraft = misprintDrafts[misprintKey] || {
+              reason: 'wrong_actor' as const,
+              unexpectedIdentity: '',
+              note: '',
+            };
+            return (
+            <article key={recordKey} className={card.contentKind === 'middle-earth-meme' ? styles.memeResult : undefined}>
               <button
                 type="button"
                 className={styles.resultPreviewButton}
@@ -819,6 +961,14 @@ export const Collection: React.FC<Props> = ({
                     {' '}· unexpected {card.legendaryMisprint.unexpectedImageIdentity.label}
                   </span>
                 )}
+                {card.misprint && !card.legendaryMisprint && (
+                  <span>
+                    Misprint · {card.misprint.label} · intended {card.misprint.intendedIdentity.actor}
+                    {card.misprint.unexpectedImageIdentity?.label
+                      ? ` · unexpected ${card.misprint.unexpectedImageIdentity.label}`
+                      : ''}
+                  </span>
+                )}
                 {card.contentKind === 'middle-earth-meme' && card.sourceUrl && <a href={card.sourceUrl} target="_blank" rel="noreferrer">{card.publisher ? `Source: ${card.publisher}` : 'Open original source'}</a>}
                 <small>{card.capturedDate}</small>
                 {(!card.thumbnailUrl || failedCardImages[card.imageUrl] || card.mediaRecovery?.status === 'unrecoverable') && (
@@ -832,7 +982,7 @@ export const Collection: React.FC<Props> = ({
                       disabled={Boolean(busyKey)}
                       onClick={() => void recoverCardMedia(card)}
                     >
-                      {busyKey === `recover:${card.localId || card.imageUrl}` ? 'Recovering…' : 'Recover in MEDIA'}
+                      {busyKey === `recover:${recordKey}` ? 'Recovering…' : 'Recover in MEDIA'}
                     </button>
                   </div>
                 )}
@@ -840,7 +990,7 @@ export const Collection: React.FC<Props> = ({
               </div>
               {!card.media && (
                 <label className={styles.collectionUpload}>
-                  {busyKey === `media:${card.localId || card.imageUrl}` ? 'Registering…' : 'Register replacement in MEDIA'}
+                  {busyKey === `media:${recordKey}` ? 'Registering…' : 'Register replacement in MEDIA'}
                   <input
                     type="file"
                     accept="image/png,image/jpeg,image/webp"
@@ -851,26 +1001,96 @@ export const Collection: React.FC<Props> = ({
                 </label>
               )}
               {!isMiddleEarth && (
-                <button
-                  type="button"
-                  disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
-                  onClick={() => void (card.legendaryMisprint
-                    ? restoreOrdinaryResult(card)
-                    : markCardLegendaryMisprint(card))}
-                >
-                  {busyKey === `card-misprint:${card.localId || card.imageUrl}`
-                    ? 'Saving…'
-                    : card.legendaryMisprint
-                      ? 'Restore ordinary result'
-                      : 'Mark Legendary Misprint'}
-                </button>
+                <>
+                  {!card.misprint && !card.legendaryMisprint && (
+                    <details className={styles.misprintControls}>
+                      <summary>Mark Misprint</summary>
+                      <div>
+                      <label>
+                        Misprint reason
+                        <select
+                          value={misprintDraft.reason}
+                          disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
+                          onChange={event => setMisprintDrafts(current => ({
+                            ...current,
+                            [misprintKey]: {
+                              ...misprintDraft,
+                              reason: event.target.value as MisprintReason,
+                            },
+                          }))}
+                        >
+                          {MISPRINT_REASONS.map(reason => (
+                            <option key={reason.value} value={reason.value}>{reason.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      {misprintDraft.reason === 'wrong_actor' && (
+                        <label>
+                          Who wandered in?
+                          <input
+                            value={misprintDraft.unexpectedIdentity}
+                            maxLength={160}
+                            placeholder="Zhang Linghe"
+                            disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
+                            onChange={event => setMisprintDrafts(current => ({
+                              ...current,
+                              [misprintKey]: {
+                                ...misprintDraft,
+                                unexpectedIdentity: event.target.value,
+                              },
+                            }))}
+                          />
+                        </label>
+                      )}
+                      <label>
+                        Curator note <span>(optional)</span>
+                        <input
+                          value={misprintDraft.note}
+                          maxLength={400}
+                          placeholder={misprintReasonDefinition(misprintDraft.reason).description}
+                          disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
+                          onChange={event => setMisprintDrafts(current => ({
+                            ...current,
+                            [misprintKey]: { ...misprintDraft, note: event.target.value },
+                          }))}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
+                        onClick={() => void markCardMisprint(card, misprintDraft)}
+                      >
+                        {busyKey === misprintKey ? 'Teaching curator…' : 'Preserve & teach curator'}
+                      </button>
+                      </div>
+                    </details>
+                  )}
+                  {card.misprint && !card.legendaryMisprint && (
+                    <button
+                      type="button"
+                      disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
+                      onClick={() => void promoteCardMisprint(card)}
+                    >
+                      {busyKey === `card-misprint:${recordKey}` ? 'Saving…' : 'Make Legendary'}
+                    </button>
+                  )}
+                  {card.legendaryMisprint && (
+                    <button
+                      type="button"
+                      disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
+                      onClick={() => void removeLegendaryPromotion(card)}
+                    >
+                      {busyKey === `card-misprint:${recordKey}` ? 'Saving…' : 'Remove Legendary'}
+                    </button>
+                  )}
+                </>
               )}
               <button
                 type="button"
                 disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
                 onClick={() => void moveCardToScope(card)}
               >
-                {busyKey === `move:${card.localId || card.imageUrl}`
+                {busyKey === `move:${recordKey}`
                   ? 'Moving…'
                   : isMiddleEarth
                     ? 'Move to Vibe Atlas'
@@ -884,7 +1104,8 @@ export const Collection: React.FC<Props> = ({
                 Remove
               </button>
             </article>
-          ))}
+            );
+          })}
         </section>
       )}
       {pendingRemoval && (
@@ -920,7 +1141,9 @@ export const Collection: React.FC<Props> = ({
               : `Middle-earth · ${expandedArtifact.record.actor} · ${expandedArtifact.record.resultId?.startsWith('generated-') ? 'reaction card' : 'saved as-is'}`
             : `${expandedArtifact.record.vibe} · ${expandedArtifact.record.vibeEn}${expandedArtifact.record.legendaryMisprint
               ? ` · Legendary Misprint: unexpected ${expandedArtifact.record.legendaryMisprint.unexpectedImageIdentity.label}`
-              : ''}`}
+              : expandedArtifact.record.misprint
+                ? ` · Misprint: ${expandedArtifact.record.misprint.label}`
+                : ''}`}
           images={[{
             src: expandedArtifact.record.imageUrl || expandedArtifact.record.thumbnailUrl,
             alt: expandedArtifact.record.title || `${expandedArtifact.record.actor} · ${expandedArtifact.record.vibe}`,

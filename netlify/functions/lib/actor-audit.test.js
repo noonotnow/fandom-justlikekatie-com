@@ -12,6 +12,8 @@ import {
   auditCalibrationPrefix,
   auditEligibilityDecisionPrefix,
   auditFeedbackPrefix,
+  auditMisprintActorPrefix,
+  auditMisprintDecisionActorPrefix,
   auditRescueBoardKey,
   auditRescueBoardPrefix,
   auditRescuePreferenceKey,
@@ -36,7 +38,11 @@ import {
   vibeKeyFor,
 } from "./actor-audit.js";
 import { candidateIdForResult, CURATION_VERSION } from "./grid-curation.js";
-import { gridManifestKey } from "./publication-manifest.js";
+import {
+  gridCorrectionPrefix,
+  gridManifestKey,
+  readPublicationCorrections,
+} from "./publication-manifest.js";
 
 const ORIGIN = "https://fandom.example";
 const PREVIOUS_CURATION_VERSION = 7;
@@ -167,8 +173,8 @@ function request(method = "GET", body, query = "") {
   });
 }
 
-function searchResults(query) {
-  return Array.from({ length: 9 }, (_, index) => ({
+function searchResults(query, count = 9) {
+  return Array.from({ length: count }, (_, index) => ({
     title: index === 0 ? `成毅 collision ${query}` : `刘学义 ${query} ${index}`,
     description: "刘学义 editorial frame",
     source: index % 2 ? "official.example" : "magazine.example",
@@ -424,6 +430,7 @@ function harness({
   duplicateRejected = false,
   calibrationTransfers = true,
   authorized = true,
+  publicAuthorized = true,
   onCurateOptions = () => {},
   curationDelays = [],
   runIdFactory = null,
@@ -432,12 +439,22 @@ function harness({
   materializePublication = null,
   publicationStore = null,
   actorPacks = [pairActor],
+  searchResultCount = 9,
 } = {}) {
   const store = memoryStore();
   let runNumber = 0;
+  let adminAuthorized = authorized;
   const auth = {
+    async authenticate() {
+      if (!publicAuthorized) {
+        const error = new Error("Sign in is required.");
+        error.status = 401;
+        throw error;
+      }
+      return { user: { accountId: "collector-1" } };
+    },
     async authenticateAdmin() {
-      if (!authorized) {
+      if (!adminAuthorized) {
         const error = new Error("Admin access is required.");
         error.status = 403;
         throw error;
@@ -465,7 +482,7 @@ function harness({
     actorPacks,
     searchOneQuery: async query => {
       const pass = Math.floor(searchCall++ / actorPacks[0].vibes[0].queries.length);
-      const results = searchResults(query).map(result => freshEvidenceOnRerun && pass > 0 ? {
+      const results = searchResults(query, searchResultCount).map(result => freshEvidenceOnRerun && pass > 0 ? {
         ...result,
         link: `${result.link}?fresh=${pass}`,
         thumbnail: `${result.thumbnail}?fresh=${pass}`,
@@ -493,7 +510,13 @@ function harness({
       return curateFixture(...args);
     },
   });
-  return { handler, store };
+  return {
+    handler,
+    store,
+    setAuthorized(value) {
+      adminAuthorized = value;
+    },
+  };
 }
 
 test("every configured actor has a complete private identity profile", () => {
@@ -1653,6 +1676,933 @@ test("run-scoped image flags persist as append-only feedback without rewriting c
   }), {});
   assert.equal(staleExport.status, 409);
   assert.match((await staleExport.json()).error, /stale|rebuild/i);
+});
+
+test("Misprints preserve an immutable correction and exclude matching evidence from later audits", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const firstRun = await choiceResponse.json();
+  const candidate = firstRun.currentRun.rawResults.find(item => item.candidateId);
+
+  const misprintResponse = await handler(request("POST", {
+    action: "mark_misprint",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: candidate.candidateId,
+    reason: "wrong_actor",
+    actualIdentity: "Zhang Linghe auditioning as Liu Xueyi",
+    note: "Metadata committed perjury.",
+  }), {});
+  const corrected = await misprintResponse.json();
+  assert.equal(misprintResponse.status, 200, JSON.stringify(corrected));
+  assert.equal(corrected.misprint.reason, "wrong_actor");
+  assert.equal(corrected.misprint.label, "Some Other Man™");
+  assert.equal(corrected.misprint.correctionScope, "actor_identity");
+  assert.equal(corrected.misprint.actualIdentity, "Zhang Linghe auditioning as Liu Xueyi");
+  assert.equal(corrected.currentRun.editorialFeedback.misprints.length, 1);
+  assert.equal(corrected.currentRun.editorialFeedback.flags[0].misprint.receiptId, corrected.misprint.receiptId);
+  assert.equal(
+    [...store.records.keys()].filter(key => key.startsWith(auditMisprintActorPrefix(pairActor.id))).length,
+    1,
+  );
+  const list = store.list.bind(store);
+  store.list = async options => String(options?.prefix || "").includes("misprint")
+    ? { blobs: [] }
+    : list(options);
+
+  const overwriteResponse = await handler(request("POST", {
+    action: "flag_candidate",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: candidate.candidateId,
+    flagged: true,
+    intent: "hero",
+  }), {});
+  assert.equal(overwriteResponse.status, 409);
+  assert.match((await overwriteResponse.json()).error, /Misprint/i);
+
+  const rerunResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  assert.equal(rerunResponse.status, 200);
+  const revealResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-2", choice: "compiled",
+  }), {});
+  const rerun = await revealResponse.json();
+  assert.equal(revealResponse.status, 200, JSON.stringify(rerun));
+  assert.ok(rerun.currentRun.appliedMisprintReceiptIds.includes(corrected.misprint.receiptId));
+  assert.equal(
+    rerun.currentRun.rawResults.find(item => item.candidateId === candidate.candidateId)?.dropReason,
+    "curator_misprint",
+  );
+  assert.equal(
+    (rerun.currentRun.strongestCompiled?.candidates || [])
+      .some(item => item.candidateId === candidate.candidateId),
+    false,
+  );
+});
+
+test("Legendary grid correction quarantines its result set without deleting the collectible evidence", async () => {
+  const { handler } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const firstRun = await choiceResponse.json();
+  const candidates = firstRun.currentRun.rawResults.slice(0, 9);
+
+  const correctionResponse = await handler(request("POST", {
+    action: "mark_grid_misprint",
+    actorId: pairActor.id,
+    vibeLabel: pairActor.vibes[0].label,
+    gridId: "legendary-grid-1",
+    note: "Man turning into melon.",
+    candidates: candidates.map(candidate => ({
+      candidateId: candidate.candidateId,
+      query: candidate.query,
+      title: candidate.title,
+      source: candidate.source,
+      link: candidate.link,
+      thumbnail: candidate.thumbnail,
+    })),
+  }), {});
+  const correction = await correctionResponse.json();
+  assert.equal(correctionResponse.status, 200, JSON.stringify(correction));
+  assert.equal(correction.correctedCandidateCount, 9);
+  assert.equal(correction.receiptIds.length, 9);
+
+  const rerunResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  assert.equal(rerunResponse.status, 200);
+  const revealResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-2", choice: "compiled",
+  }), {});
+  const rerun = await revealResponse.json();
+  assert.ok(rerun.currentRun.rawResults.some(candidate =>
+    candidate.dropReason === "curator_misprint"));
+  assert.equal(rerun.currentRun.appliedMisprintReceiptIds.length, 9);
+});
+
+test("signed-in Collection Misprints resolve legacy labels, stay idempotent, and exclude matching image evidence", async () => {
+  const { handler } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const choiceResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+  }), {});
+  const firstRun = await choiceResponse.json();
+  const candidate = firstRun.currentRun.rawResults[0];
+  const collectionCorrection = {
+    action: "mark_collection_misprint",
+    collectionItemId: "saved-card-1",
+    actorName: pairActor.shortName_en,
+    vibeLabel: pairActor.vibes[0].label,
+    reason: "wrong_actor",
+    actualIdentity: "Zhang Linghe",
+    note: "The metadata committed perjury.",
+    candidate: {
+      candidateId: candidate.thumbnail,
+      query: candidate.query,
+      title: candidate.title,
+      source: candidate.source,
+      link: candidate.link,
+      thumbnail: `${ORIGIN}/.netlify/functions/image-proxy?url=${encodeURIComponent(candidate.thumbnail)}`,
+      imageDigest: null,
+    },
+  };
+
+  const correctionResponse = await handler(request("POST", collectionCorrection), {});
+  const corrected = await correctionResponse.json();
+  assert.equal(correctionResponse.status, 200, JSON.stringify(corrected));
+  assert.equal(corrected.misprint.action, "mark_collection_misprint");
+  assert.equal(corrected.misprint.markedBy, "collector-1");
+  assert.equal(corrected.misprint.correctionScope, "actor_identity");
+
+  const duplicateResponse = await handler(request("POST", collectionCorrection), {});
+  const duplicate = await duplicateResponse.json();
+  assert.equal(duplicateResponse.status, 200, JSON.stringify(duplicate));
+  assert.equal(duplicate.misprint.receiptId, corrected.misprint.receiptId);
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const revealResponse = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-2", choice: "compiled",
+  }), {});
+  const rerun = await revealResponse.json();
+  assert.equal(revealResponse.status, 200, JSON.stringify(rerun));
+  assert.ok(rerun.currentRun.appliedMisprintReceiptIds.includes(corrected.misprint.receiptId));
+  assert.equal(
+    rerun.currentRun.rawResults.find(item => item.candidateId === candidate.candidateId)?.dropReason,
+    "curator_misprint",
+  );
+});
+
+test("anonymous Collection Misprints are rejected", async () => {
+  const { handler } = harness({ publicAuthorized: false });
+  const response = await handler(request("POST", {
+    action: "mark_collection_misprint",
+    collectionItemId: "saved-card-1",
+    actorId: pairActor.id,
+    vibeLabel: pairActor.vibes[0].label,
+    reason: "wrong_actor",
+    candidate: {
+      candidateId: "candidate-1",
+      thumbnail: "https://images.example/candidate-1.jpg",
+    },
+  }), {});
+  assert.equal(response.status, 401);
+});
+
+test("ordinary signed-in Collection feedback is preserved for review without poisoning shared exclusions", async () => {
+  const { handler, store } = harness({ authorized: false });
+  const response = await handler(request("POST", {
+    action: "mark_collection_misprint",
+    collectionItemId: "saved-card-pending",
+    actorId: pairActor.id,
+    vibeLabel: pairActor.vibes[0].label,
+    reason: "bad_asset",
+    candidate: {
+      candidateId: "candidate-pending",
+      thumbnail: "https://images.example/candidate-pending.jpg",
+    },
+  }), {});
+  const body = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(body));
+  assert.equal(body.calibrationStatus, "submitted");
+  assert.equal(body.misprint.status, "pending_review");
+  assert.equal(
+    [...store.records.values()].filter(receipt =>
+      receipt?.action === "mark_collection_misprint" && receipt?.status === "active").length,
+    0,
+  );
+});
+
+test("trusted diagnostic Misprints are recorded without claiming future exclusion", async () => {
+  const { handler } = harness();
+  const response = await handler(request("POST", {
+    action: "mark_collection_misprint",
+    collectionItemId: "saved-card-diagnostic",
+    actorId: pairActor.id,
+    vibeLabel: pairActor.vibes[0].label,
+    reason: "ranking_bug",
+    candidate: {
+      candidateId: "candidate-diagnostic",
+      thumbnail: "https://images.example/candidate-diagnostic.jpg",
+    },
+  }), {});
+  const body = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(body));
+  assert.equal(body.calibrationStatus, "recorded");
+  assert.equal(body.misprint.futureExclusion, false);
+});
+
+test("every Misprint reason keeps its configured learning scope and exclusion behavior", async () => {
+  const cases = [
+    ["wrong_actor", "actor_identity", true],
+    ["wrong_vibe", "actor_vibe", true],
+    ["query_mismatch", "result_set", true],
+    ["misleading_metadata", "metadata_signal", true],
+    ["composite_or_collage", "global_asset", true],
+    ["bad_asset", "global_asset", true],
+    ["duplicate", "board", false],
+    ["ranking_bug", "diagnostic", false],
+    ["other", "local", false],
+  ];
+  for (const [reason, correctionScope, futureExclusion] of cases) {
+    const { handler } = harness();
+    const vibeKey = vibeKeyFor(pairActor.id, 0);
+    const query = pairActor.vibes[0].queries[0];
+    const candidate = searchResults(query)[0];
+    const markedResponse = await handler(request("POST", {
+      action: "mark_collection_misprint",
+      collectionItemId: `scope-${reason}`,
+      actorId: pairActor.id,
+      vibeKey,
+      reason,
+      candidate: {
+        candidateId: `scope-${reason}`,
+        query,
+        thumbnail: candidate.thumbnail,
+      },
+    }), {});
+    const marked = await markedResponse.json();
+    assert.equal(markedResponse.status, 200, `${reason}: ${JSON.stringify(marked)}`);
+    assert.equal(marked.misprint.correctionScope, correctionScope, reason);
+    assert.equal(marked.misprint.futureExclusion, futureExclusion, reason);
+    assert.equal(
+      marked.calibrationStatus,
+      futureExclusion ? "applied" : "recorded",
+      reason,
+    );
+
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const revealResponse = await handler(request("POST", {
+      action: "blind_choice",
+      actorId: pairActor.id,
+      vibeKey,
+      runId: "run-1",
+      choice: "compiled",
+    }), {});
+    const run = (await revealResponse.json()).currentRun;
+    const evidence = run.rawResults.find(item => item.thumbnail === candidate.thumbnail);
+    assert.equal(evidence?.dropReason === "curator_misprint", futureExclusion, reason);
+  }
+});
+
+test("actor and global scopes cross vibes while vibe and result-set scopes stay local", async () => {
+  const sharedQueriesActor = {
+    ...pairActorWithAlternateVibe,
+    vibes: [
+      pairActorWithAlternateVibe.vibes[0],
+      {
+        ...pairActorWithAlternateVibe.vibes[1],
+        queries: [...pairActorWithAlternateVibe.vibes[0].queries],
+      },
+    ],
+  };
+  const cases = [
+    ["wrong_actor", true],
+    ["misleading_metadata", true],
+    ["composite_or_collage", true],
+    ["bad_asset", true],
+    ["wrong_vibe", false],
+    ["query_mismatch", false],
+  ];
+  for (const [reason, crossesVibes] of cases) {
+    const { handler } = harness({ actorPacks: [sharedQueriesActor] });
+    const sourceVibeKey = vibeKeyFor(pairActor.id, 0);
+    const targetVibeKey = vibeKeyFor(pairActor.id, 1);
+    const query = sharedQueriesActor.vibes[0].queries[0];
+    const candidate = searchResults(query)[0];
+    const markedResponse = await handler(request("POST", {
+      action: "mark_collection_misprint",
+      collectionItemId: `cross-vibe-${reason}`,
+      actorId: pairActor.id,
+      vibeKey: sourceVibeKey,
+      reason,
+      candidate: {
+        candidateId: `cross-vibe-${reason}`,
+        query,
+        thumbnail: candidate.thumbnail,
+      },
+    }), {});
+    assert.equal(markedResponse.status, 200, reason);
+
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey: targetVibeKey, scope: "full",
+    }), {});
+    const revealResponse = await handler(request("POST", {
+      action: "blind_choice",
+      actorId: pairActor.id,
+      vibeKey: targetVibeKey,
+      runId: "run-1",
+      choice: "compiled",
+    }), {});
+    const run = (await revealResponse.json()).currentRun;
+    const evidence = run.rawResults.find(item => item.thumbnail === candidate.thumbnail);
+    assert.equal(evidence?.dropReason === "curator_misprint", crossesVibes, reason);
+  }
+});
+
+test("canonical identity unwraps proxies and rotating tokens without removing meaningful keys", async () => {
+  const { handler } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const query = pairActor.vibes[0].queries[0];
+  const [matched, distinct] = searchResults(query);
+  const proxied = `${ORIGIN}/.netlify/functions/image-proxy?url=${encodeURIComponent(
+    `${matched.thumbnail}?token=temporary&expires=123`,
+  )}`;
+  await handler(request("POST", {
+    action: "mark_collection_misprint",
+    collectionItemId: "canonical-token-card",
+    actorId: pairActor.id,
+    vibeKey,
+    reason: "wrong_actor",
+    candidate: {
+      candidateId: "canonical-token-card",
+      query,
+      thumbnail: proxied,
+    },
+  }), {});
+  await handler(request("POST", {
+    action: "mark_collection_misprint",
+    collectionItemId: "distinct-variant-card",
+    actorId: pairActor.id,
+    vibeKey,
+    reason: "wrong_actor",
+    candidate: {
+      candidateId: "distinct-variant-card",
+      query,
+      thumbnail: `${distinct.thumbnail}?key=other`,
+    },
+  }), {});
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const run = await (await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    choice: "compiled",
+  }), {})).json();
+  assert.equal(
+    run.currentRun.rawResults.find(item => item.thumbnail === matched.thumbnail)?.dropReason,
+    "curator_misprint",
+  );
+  assert.notEqual(
+    run.currentRun.rawResults.find(item => item.thumbnail === distinct.thumbnail)?.dropReason,
+    "curator_misprint",
+  );
+});
+
+test("pending Collection feedback is inert until approved and remains append-only through retraction", async () => {
+  const { handler, store, setAuthorized } = harness({ authorized: false });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const query = pairActor.vibes[0].queries[0];
+  const candidate = searchResults(query)[0];
+  const submissionResponse = await handler(request("POST", {
+    action: "mark_collection_misprint",
+    collectionItemId: "pending-review-card",
+    actorId: pairActor.id,
+    vibeKey,
+    reason: "wrong_actor",
+    candidate: {
+      candidateId: "pending-review-card",
+      query,
+      thumbnail: candidate.thumbnail,
+    },
+  }), {});
+  const submission = await submissionResponse.json();
+  assert.equal(submission.calibrationStatus, "submitted");
+
+  setAuthorized(true);
+  const reviewQueueResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const reviewQueue = await reviewQueueResponse.json();
+  assert.deepEqual(
+    reviewQueue.misprintReviewQueue.map(item => item.receiptId),
+    [submission.misprint.receiptId],
+  );
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const inertRun = await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    choice: "compiled",
+  }), {});
+  assert.equal(
+    (await inertRun.json()).currentRun.appliedMisprintReceiptIds.length,
+    0,
+  );
+
+  const approvalResponse = await handler(request("POST", {
+    action: "review_collection_misprint",
+    actorId: pairActor.id,
+    vibeKey,
+    receiptId: submission.misprint.receiptId,
+    decision: "approved",
+    note: "Confirmed identity correction.",
+  }), {});
+  const approval = await approvalResponse.json();
+  assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+  assert.equal(approval.misprint.status, "active");
+  assert.equal(approval.calibrationStatus, "applied");
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const activeRun = await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-2",
+    choice: "compiled",
+  }), {});
+  assert.ok(
+    (await activeRun.json()).currentRun.appliedMisprintReceiptIds
+      .includes(submission.misprint.receiptId),
+  );
+
+  const retractionResponse = await handler(request("POST", {
+    action: "retract_misprint",
+    actorId: pairActor.id,
+    vibeKey,
+    receiptId: submission.misprint.receiptId,
+    note: "Identity was verified after source review.",
+  }), {});
+  const retraction = await retractionResponse.json();
+  assert.equal(retractionResponse.status, 200, JSON.stringify(retraction));
+  assert.equal(retraction.misprint.status, "retracted");
+  assert.equal(retraction.calibrationStatus, "retracted");
+
+  for (const [key, value] of store.records) {
+    if (key.startsWith(auditMisprintDecisionActorPrefix(pairActor.id))) {
+      store.records.set(key, {
+        ...value,
+        decidedAt: "2026-08-31T12:00:00.000Z",
+      });
+    }
+  }
+  const sourceReceipt = [...store.records.values()]
+    .find(value => value?.receiptId === submission.misprint.receiptId);
+  assert.equal(sourceReceipt.status, "pending_review");
+  assert.equal(
+    [...store.records.keys()]
+      .filter(key => key.startsWith(auditMisprintDecisionActorPrefix(pairActor.id))).length,
+    2,
+  );
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const restoredRun = await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-3",
+    choice: "compiled",
+  }), {});
+  assert.equal(
+    (await restoredRun.json()).currentRun.appliedMisprintReceiptIds
+      .includes(submission.misprint.receiptId),
+    false,
+  );
+});
+
+test("rejected pending feedback never becomes active correction evidence", async () => {
+  const { handler, setAuthorized } = harness({ authorized: false });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const submission = await (await handler(request("POST", {
+    action: "mark_collection_misprint",
+    collectionItemId: "rejected-review-card",
+    actorId: pairActor.id,
+    vibeKey,
+    reason: "bad_asset",
+    candidate: {
+      candidateId: "rejected-review-card",
+      thumbnail: "https://images.example/rejected-review-card.jpg",
+    },
+  }), {})).json();
+  setAuthorized(true);
+  const rejectionResponse = await handler(request("POST", {
+    action: "review_collection_misprint",
+    actorId: pairActor.id,
+    vibeKey,
+    receiptId: submission.misprint.receiptId,
+    decision: "rejected",
+    note: "Asset is valid.",
+  }), {});
+  const rejection = await rejectionResponse.json();
+  assert.equal(rejectionResponse.status, 200, JSON.stringify(rejection));
+  assert.equal(rejection.misprint.status, "rejected");
+  assert.equal(rejection.calibrationStatus, "rejected");
+});
+
+test("all result-level Misprint actions are concurrency-safe and semantically idempotent", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const chosen = await (await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    choice: "compiled",
+  }), {})).json();
+  const [preflightCandidate, gridCandidate] = chosen.currentRun.rawResults;
+  const preflightRequest = request("POST", {
+    action: "mark_misprint",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: preflightCandidate.candidateId,
+    reason: "wrong_actor",
+  });
+  const preflightResponses = await Promise.all([
+    handler(preflightRequest.clone(), {}),
+    handler(preflightRequest.clone(), {}),
+  ]);
+  const preflightBodies = await Promise.all(preflightResponses.map(response => response.json()));
+  assert.deepEqual(
+    preflightBodies.map(body => body.misprint.receiptId),
+    [preflightBodies[0].misprint.receiptId, preflightBodies[0].misprint.receiptId],
+  );
+
+  const collectionBody = {
+    action: "mark_collection_misprint",
+    collectionItemId: "concurrent-collection",
+    actorId: pairActor.id,
+    vibeKey,
+    reason: "bad_asset",
+    candidate: {
+      candidateId: "concurrent-collection",
+      thumbnail: "https://images.example/concurrent-collection.jpg",
+    },
+  };
+  const collectionResponses = await Promise.all([
+    handler(request("POST", collectionBody), {}),
+    handler(request("POST", collectionBody), {}),
+  ]);
+  const collectionBodies = await Promise.all(collectionResponses.map(response => response.json()));
+  assert.equal(collectionBodies[0].misprint.receiptId, collectionBodies[1].misprint.receiptId);
+
+  const gridBody = {
+    action: "mark_grid_misprint",
+    actorId: pairActor.id,
+    vibeKey,
+    gridId: "concurrent-grid",
+    candidates: [{
+      candidateId: gridCandidate.candidateId,
+      query: gridCandidate.query,
+      title: gridCandidate.title,
+      source: gridCandidate.source,
+      link: gridCandidate.link,
+      thumbnail: gridCandidate.thumbnail,
+    }],
+  };
+  const gridResponses = await Promise.all([
+    handler(request("POST", gridBody), {}),
+    handler(request("POST", gridBody), {}),
+  ]);
+  const gridBodies = await Promise.all(gridResponses.map(response => response.json()));
+  assert.equal(gridBodies[0].receiptIds[0], gridBodies[1].receiptIds[0]);
+  assert.equal(
+    [...store.records.values()].filter(value => value?.action === "mark_misprint").length,
+    1,
+  );
+  assert.equal(
+    [...store.records.values()]
+      .filter(value => value?.sourceCollectionId === "concurrent-collection").length,
+    1,
+  );
+  assert.equal(
+    [...store.records.values()]
+      .filter(value => value?.sourceGridId === "concurrent-grid").length,
+    1,
+  );
+});
+
+test("corrected evidence survives the display cap without mutating its historical run", async () => {
+  const { handler, store } = harness({ searchResultCount: 12 });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const first = await (await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    choice: "compiled",
+  }), {})).json();
+  const candidate = first.currentRun.rawResults[0];
+  const frozenBefore = structuredClone(store.records.get(auditRunKey(pairActor.id, 0, "run-1")));
+  const correction = await (await handler(request("POST", {
+    action: "mark_misprint",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: candidate.candidateId,
+    reason: "wrong_actor",
+  }), {})).json();
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const rerun = await (await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-2",
+    choice: "compiled",
+  }), {})).json();
+  assert.equal(rerun.currentRun.rawResults.length, 36);
+  const correctedEvidence = rerun.currentRun.rawResults
+    .find(item => item.misprintReceiptId === correction.misprint.receiptId);
+  assert.equal(correctedEvidence?.dropReason, "curator_misprint");
+  assert.deepEqual(
+    store.records.get(auditRunKey(pairActor.id, 0, "run-1")),
+    frozenBefore,
+  );
+});
+
+test("a correction invalidates an approved board and appends a notice without rewriting its publication", async () => {
+  const publicationStore = memoryStore();
+  const { handler, store } = harness({ publicationStore });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const chosen = await (await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    choice: "compiled",
+  }), {})).json();
+  await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+  }), {});
+  const candidate = chosen.currentRun.strongestCompiled.candidates[0];
+  const manifest = publicationManifest("2026-08-30");
+  manifest.provenance.sourceCandidateIds[0] = candidate.candidateId;
+  manifest.cards[0].candidateId = candidate.candidateId;
+  const frozenManifest = structuredClone(manifest);
+  await publicationStore.setJSON(gridManifestKey(manifest.publicationDate), manifest);
+
+  const correctionResponse = await handler(request("POST", {
+    action: "mark_misprint",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: candidate.candidateId,
+    reason: "wrong_actor",
+  }), {});
+  const correction = await correctionResponse.json();
+  assert.equal(correctionResponse.status, 200, JSON.stringify(correction));
+  assert.equal((await getEligibility(store, pairActor, 0)), null);
+  assert.equal(
+    store.records.get(eligibilityKey(pairActor.id, 0)).verdict,
+    "invalidated_by_misprint",
+  );
+  assert.deepEqual(
+    publicationStore.records.get(gridManifestKey(manifest.publicationDate)),
+    frozenManifest,
+  );
+  const notices = await readPublicationCorrections(publicationStore, manifest.publicationDate);
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].correctionReceiptId, correction.misprint.receiptId);
+  assert.deepEqual(notices[0].affectedPositions, [0]);
+  assert.equal(notices[0].resolution, "requires_explicit_supersession");
+  assert.equal(
+    [...publicationStore.records.keys()]
+      .filter(key => key.startsWith(gridCorrectionPrefix(manifest.publicationDate))).length,
+    1,
+  );
+
+  const publishResponse = await handler(request("POST", {
+    action: "publish_backfill",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    rescueReceiptId: "stale-approved-board",
+    date: "2026-09-01",
+  }), {});
+  const publishBody = await publishResponse.json();
+  assert.equal(publishResponse.status, 409, JSON.stringify(publishBody));
+  assert.match(publishBody.error, /eligible|approval/i);
+});
+
+test("publication and correction activation serialize so an in-flight edition receives its correction notice", async () => {
+  const publicationStore = memoryStore();
+  let releaseMaterialization;
+  let materializationStarted;
+  const materializationGate = new Promise(resolve => {
+    releaseMaterialization = resolve;
+  });
+  const started = new Promise(resolve => {
+    materializationStarted = resolve;
+  });
+  const { handler, store } = harness({
+    sufficient: false,
+    publicationStore,
+    materializePublication: async input => {
+      const manifest = publicationManifest(input.date);
+      manifest.actor.id = input.actor.id;
+      manifest.vibe.key = input.vibe.key;
+      manifest.vibe.idx = input.vibe.idx;
+      manifest.provenance.sourceCandidateIds = input.board.candidates
+        .map(candidate => candidate.candidateId);
+      manifest.cards = manifest.cards.map((card, position) => ({
+        ...card,
+        candidateId: input.board.candidates[position].candidateId,
+      }));
+      materializationStarted();
+      await materializationGate;
+      await publicationStore.setJSON(gridManifestKey(input.date), manifest);
+      return {
+        manifest,
+        payload: {
+          version: "v10",
+          date: input.date,
+          actorId: input.actor.id,
+          actorName: input.actor.name,
+          vibeIdx: input.vibe.idx,
+          rankedBatches: [],
+          displayResults: input.board.candidates.map(candidate => ({
+            title: candidate.title || "",
+            thumbnail: candidate.thumbnail || "",
+            link: candidate.link || "",
+            source: candidate.source || "",
+          })),
+          generatedAt: "2026-09-03T12:00:00.000Z",
+        },
+      };
+    },
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const detail = await (await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {})).json();
+  const candidateIds = detail.currentRun.rawResults
+    .slice(0, 9)
+    .map(candidate => candidate.candidateId);
+  const rescue = await (await handler(request("POST", {
+    action: "save_rescue_board",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateIds,
+  }), {})).json();
+  const rescueReceiptId = rescue.currentRun.editorialFeedback.operatorRescueBoard.receiptId;
+  const verdictResponse = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+    rescuePreferred: true,
+    rescueReceiptId,
+  }), {});
+  assert.equal(verdictResponse.status, 200, await verdictResponse.text());
+
+  const publishPromise = handler(request("POST", {
+    action: "publish_backfill",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    rescueReceiptId,
+    date: "2026-09-03",
+  }), {});
+  await started;
+  const correctionPromise = handler(request("POST", {
+    action: "mark_misprint",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: candidateIds[0],
+    reason: "wrong_actor",
+  }), {});
+  releaseMaterialization();
+
+  const publishResponse = await publishPromise;
+  const correctionResponse = await correctionPromise;
+  const correction = await correctionResponse.json();
+  assert.equal(publishResponse.status, 200, await publishResponse.text());
+  assert.equal(correctionResponse.status, 200, JSON.stringify(correction));
+  assert.equal((await getEligibility(store, pairActor, 0)), null);
+  const notices = await readPublicationCorrections(publicationStore, "2026-09-03");
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].correctionReceiptId, correction.misprint.receiptId);
+});
+
+test("an active correction recorded before approval prevents the corrected board from becoming eligible", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const chosen = await (await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    choice: "compiled",
+  }), {})).json();
+  const candidate = chosen.currentRun.strongestCompiled.candidates[0];
+  await handler(request("POST", {
+    action: "mark_misprint",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: candidate.candidateId,
+    reason: "wrong_actor",
+  }), {});
+
+  const verdictResponse = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    verdict: "approved",
+  }), {});
+  const verdict = await verdictResponse.json();
+  assert.equal(verdictResponse.status, 409, JSON.stringify(verdict));
+  assert.match(verdict.error, /active Misprint correction/i);
+  assert.equal((await getEligibility(store, pairActor, 0)), null);
+  assert.equal(
+    store.records.get(eligibilityKey(pairActor.id, 0)).verdict,
+    "invalidated_by_misprint",
+  );
+});
+
+test("conflicting image digests override matching candidate IDs and URLs", async () => {
+  const publicationStore = memoryStore();
+  const { handler } = harness({ publicationStore });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const manifest = publicationManifest("2026-09-02");
+  manifest.provenance.sourceCandidateIds[0] = "reused-candidate";
+  manifest.cards[0].candidateId = "reused-candidate";
+  manifest.cards[0].media = {
+    ...manifest.cards[0].media,
+    checksum: "sha256:new-bytes",
+  };
+  await publicationStore.setJSON(gridManifestKey(manifest.publicationDate), manifest);
+
+  const correctionResponse = await handler(request("POST", {
+    action: "mark_collection_misprint",
+    collectionItemId: "digest-conflict",
+    actorId: pairActor.id,
+    vibeKey,
+    reason: "bad_asset",
+    candidate: {
+      candidateId: "reused-candidate",
+      thumbnail: manifest.cards[0].media.deliveryUrl,
+      imageDigest: "sha256:old-bytes",
+    },
+  }), {});
+  const correction = await correctionResponse.json();
+  assert.equal(correctionResponse.status, 200, JSON.stringify(correction));
+  assert.deepEqual(
+    await readPublicationCorrections(publicationStore, manifest.publicationDate),
+    [],
+  );
 });
 
 test("a historical rescue receipt cannot be exported as the current board", async () => {
