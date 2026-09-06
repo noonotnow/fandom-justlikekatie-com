@@ -11,12 +11,11 @@ import {
   collectionScopeForCard,
   type CardRecord,
   type GridRecord,
-  type GridMediaSnapshot,
   type LegendaryMisprint,
 } from './collectionDB';
 import { detectEditorialSets } from './editorialDetection';
 
-/** A normalized card in the builder pool (saved card or saved-grid image). */
+/** A normalized saved result in the builder pool. */
 export interface BuilderCard {
   /** Stable pool key (image URL). */
   key: string;
@@ -123,68 +122,6 @@ function fromSavedCard(card: CardRecord): BuilderCard {
   };
 }
 
-function fromGridImage(grid: GridRecord, image: GridMediaSnapshot): BuilderCard {
-  const gridLegendaryMisprint = grid.intent === 'legendary-misprint' || Boolean(grid.legendaryMisprint)
-    ? {
-      kind: 'legendary-misprint' as const,
-      confirmedByCreator: true as const,
-      markedAt: grid.legendaryMisprint?.markedAt || grid.savedAt,
-      intendedIdentity: {
-        actor: grid.misprintMetadata?.intendedIdentities[0] || 'Vibe Atlas',
-        actorEn: grid.misprintMetadata?.intendedIdentities[0] || 'Vibe Atlas',
-        vibe: grid.vibe,
-        vibeEn: grid.vibeEn,
-        collectionScope: 'vibe-atlas' as const,
-      },
-      unexpectedImageIdentity: {
-        label: grid.legendaryMisprint?.unexpectedActor.name
-          || grid.misprintMetadata?.unexpectedImageIdentities[0]
-          || grid.actor,
-      },
-      provenance: {
-        imageUrl: image.imageUrl,
-        resultId: image.resultId,
-        sourceUrl: image.sourceUrl,
-        ...(image.publisher ? { publisher: image.publisher } : {}),
-        ...(image.batchKey ? { batchKey: image.batchKey } : {}),
-      },
-    }
-    : undefined;
-  return {
-    key: image.imageUrl,
-    imageUrl: image.media?.thumbnailUrl || image.imageUrl,
-    sourceUrl: image.sourceUrl,
-    title: image.title,
-    ...(image.publisher ? { publisher: image.publisher } : {}),
-    actor: grid.actor,
-    actorEn: grid.actorEn,
-    actorId: grid.actorId,
-    actorAccentColor: grid.actorAccentColor,
-    vibe: grid.vibe,
-    vibeEn: grid.vibeEn,
-    vibeEmoji: grid.vibeEmoji,
-    vibeSubtitle: grid.vibeSubtitle,
-    vibeSubtitleEn: grid.vibeSubtitleEn,
-    ...(image.batchKey || grid.searchSpell
-      ? { batchKey: image.batchKey || grid.searchSpell }
-      : {}),
-    capturedDate: grid.capturedDate,
-    savedAt: grid.savedAt,
-    resultId: image.resultId,
-    ...(image.media?.checksum ? { mediaChecksum: image.media.checksum } : {}),
-    origin: 'saved-grid',
-    sourceGridId: grid.id,
-    familyId: image.familyId || '',
-    familyLabel: image.familyLabel || '',
-    ...(image.familyEvidence || (grid.editorial?.mode === 'event' && image.familyId)
-      ? { familyEvidence: image.familyEvidence || 'persisted-event' as const }
-      : {}),
-    ...(image.legendaryMisprint || gridLegendaryMisprint
-      ? { legendaryMisprint: image.legendaryMisprint || gridLegendaryMisprint }
-      : {}),
-  };
-}
-
 function slugify(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-').replace(/^-+|-+$/g, '') || 'x';
 }
@@ -221,11 +158,12 @@ function reconcileIdentity(card: BuilderCard): BuilderCard {
 }
 
 /**
- * Build the builder pool from saved cards + saved-grid images,
- * and assign a crude visual family to every card:
+ * Build the builder pool from saved result cards and assign a crude visual family:
  * editorialDetection sets where possible, batch/spell key otherwise.
+ * Finished grids remain first-class artifacts in the Grids collection instead
+ * of being unpacked back into result cards.
  */
-export function buildPool(cards: CardRecord[], grids: GridRecord[]): BuilderCard[] {
+export function buildPool(cards: CardRecord[]): BuilderCard[] {
   const byKey = new Map<string, BuilderCard>();
   const admit = (built: BuilderCard) => {
     const existing = byKey.get(built.key);
@@ -247,9 +185,6 @@ export function buildPool(cards: CardRecord[], grids: GridRecord[]): BuilderCard
     }
   };
   for (const card of cards) admit(reconcileIdentity(fromSavedCard(card)));
-  for (const grid of grids) {
-    for (const image of grid.images) admit(reconcileIdentity(fromGridImage(grid, image)));
-  }
   const pool = [...byKey.values()];
 
   // Editorial detection over items that carry publisher/title signal.
@@ -323,13 +258,8 @@ export function uniqueVisualCards(cards: BuilderCard[]): BuilderCard[] {
   });
 }
 
-function isVibeAtlasGrid(grid: GridRecord): boolean {
-  return !grid.sourceRoute.startsWith('/memeforge/middle-earth');
-}
-
 export function buildVibeAtlasPool(
   cards: CardRecord[],
-  grids: GridRecord[],
   mode: 'standard' | 'misprints' = 'standard',
 ): BuilderCard[] {
   const includeMisprints = mode === 'misprints';
@@ -337,12 +267,6 @@ export function buildVibeAtlasPool(
     cards.filter(card =>
       collectionScopeForCard(card) === 'vibe-atlas'
       && Boolean(card.legendaryMisprint) === includeMisprints),
-    grids.filter(grid => includeMisprints
-      ? isVibeAtlasGrid(grid)
-        && (grid.intent === 'legendary-misprint' || Boolean(grid.legendaryMisprint))
-      : isVibeAtlasGrid(grid)
-        && grid.intent !== 'legendary-misprint'
-        && !grid.legendaryMisprint),
   );
 }
 

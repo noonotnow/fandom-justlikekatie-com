@@ -55,23 +55,19 @@ function grid(actor: string, id: string, sourceRoute = '/collection'): GridRecor
   };
 }
 
-test('Vibe Atlas builder uses collection scope instead of actor-script heuristics', () => {
+test('Vibe Atlas builder uses saved result scope and does not unpack finished grids', () => {
   const pool = buildVibeAtlasPool(
     [
       card('Liu Xueyi', 'romanized-cdrama-card'),
       card('刘学义', 'cdrama-card'),
       card('Gandalf', 'gandalf-card', 'middle-earth'),
     ],
-    [
-      grid('Zhang Linghe', 'romanized-cdrama-grid'),
-      grid('Frodo', 'frodo-grid', '/memeforge/middle-earth'),
-    ],
   );
   assert.deepEqual(
     [...new Set(pool.map(item => item.actor))].sort(),
-    ['Liu Xueyi', 'Zhang Linghe', '刘学义'],
+    ['Liu Xueyi', '刘学义'],
   );
-  assert.equal(pool.some(item => /Gandalf|Frodo|Middle-earth|Fellowship/.test(item.actor)), false);
+  assert.equal(pool.some(item => /Gandalf|Middle-earth/.test(item.actor)), false);
 });
 
 test('builder browsing keeps distinct saved records while automatic proposals deduplicate visuals', () => {
@@ -100,7 +96,7 @@ test('builder browsing keeps distinct saved records while automatic proposals de
     },
   };
 
-  const pool = buildVibeAtlasPool([first, second], []);
+  const pool = buildVibeAtlasPool([first, second]);
 
   assert.equal(pool.length, 2);
   assert.deepEqual(pool.map(item => item.imageUrl), [
@@ -135,8 +131,8 @@ test('creator-marked mismatches are excluded ordinarily and included only in the
     },
   };
 
-  assert.deepEqual(buildVibeAtlasPool([ordinary, marked], []).map(item => item.resultId), ['ordinary']);
-  const misprintPool = buildVibeAtlasPool([ordinary, marked], [], 'misprints');
+  assert.deepEqual(buildVibeAtlasPool([ordinary, marked]).map(item => item.resultId), ['ordinary']);
+  const misprintPool = buildVibeAtlasPool([ordinary, marked], 'misprints');
   assert.deepEqual(misprintPool.map(item => item.resultId), ['gandalf']);
   assert.equal(misprintPool[0].legendaryMisprint?.unexpectedImageIdentity.label, 'Gandalf');
 });
@@ -162,7 +158,7 @@ test('a Misprints-lens grid preserves both identities and intentional provenance
       },
     },
   }));
-  const pool = buildVibeAtlasPool(markedCards, [], 'misprints');
+  const pool = buildVibeAtlasPool(markedCards, 'misprints');
   const proposal = proposeGrid(pool, { mode: 'misprints' });
   const record = gridRecordFromProposal(proposal.slots, proposal.rationale, new Date('2026-08-28T12:00:00.000Z'));
 
@@ -176,7 +172,7 @@ test('a Misprints-lens grid preserves both identities and intentional provenance
   assert.match(record.generationPrompt || '', /Lens: Legendary Misprints/);
 });
 
-test('a creator-marked Gandalf grid can round-trip through the Misprints builder, export, and CREATE', () => {
+test('a creator-marked Gandalf grid stays in the Grids collection', () => {
   const gandalfGrid = grid('Gandalf', 'gandalf-grid');
   gandalfGrid.images = Array.from({ length: 9 }, (_, index) => ({
     resultId: `gandalf-${index}`,
@@ -190,23 +186,9 @@ test('a creator-marked Gandalf grid can round-trip through the Misprints builder
     new Date('2026-08-28T12:00:00.000Z'),
   );
 
-  assert.equal(buildVibeAtlasPool([], [marked]).length, 0);
-  const pool = buildVibeAtlasPool([], [marked], 'misprints');
-  assert.equal(pool.length, 9);
-  assert.equal(pool[0].legendaryMisprint?.intendedIdentity.actor, 'Vibe Atlas');
-  assert.equal(pool[0].legendaryMisprint?.unexpectedImageIdentity.label, 'Gandalf');
+  assert.equal(buildVibeAtlasPool([]).length, 0);
+  assert.equal(buildVibeAtlasPool([], 'misprints').length, 0);
 
-  const proposal = proposeGrid(pool, { mode: 'misprints' });
-  const rebuilt = gridRecordFromProposal(
-    proposal.slots,
-    proposal.rationale,
-    new Date('2026-08-28T13:00:00.000Z'),
-  );
-  assert.equal(rebuilt.intent, 'legendary-misprint');
-  assert.deepEqual(rebuilt.misprintMetadata?.intendedIdentities, ['Vibe Atlas']);
-  assert.deepEqual(rebuilt.misprintMetadata?.unexpectedImageIdentities, ['Gandalf']);
-  assert.equal(rebuilt.images[0].legendaryMisprint?.provenance.resultId, 'gandalf-0');
-
-  const exportData = starDataFromCollectionGrid(rebuilt);
+  const exportData = starDataFromCollectionGrid(marked);
   assert.equal(classifyEditionTier(exportData.rankedBatches[0]), 'legendary-misprint');
 });

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { dbGetVisibleCardsByScope, dbGetVisibleGrids, dbRemoveGrid, dbSaveGrid, type CardRecord, type GridRecord } from '../../utils/collectionDB';
-import { migrateLegacyGridHistory } from '../../utils/collectionHistory';
+import { dbGetVisibleCardsByScope, dbRemoveGrid, dbSaveGrid, type CardRecord } from '../../utils/collectionDB';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
 import { saveShareCard, buildExportPayload, classifyEditionTier } from '../../utils/exportCanvas';
 import { deleteGridExports, gridExportEventFromRecord, logGridExport, uploadExportedCard } from '../../utils/gridExportLog';
@@ -14,6 +13,7 @@ import {
   proposeGrid,
   rationaleBrief,
   rebuildRationale,
+  uniqueVisualCards,
   type BuilderCard,
   type CollectionLens,
   type EditorialMode,
@@ -37,7 +37,7 @@ interface Props {
  */
 export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember = false, onUpgrade }) => {
   const [pool, setPool] = useState<BuilderCard[] | null>(null);
-  const [sourceRecords, setSourceRecords] = useState<{ cards: CardRecord[]; grids: GridRecord[] } | null>(null);
+  const [sourceRecords, setSourceRecords] = useState<{ cards: CardRecord[] } | null>(null);
   const [loadError, setLoadError] = useState('');
   const [lens, setLens] = useState<CollectionLens>({});
   const [builderMode, setBuilderMode] = useState<'smart' | 'manual'>('smart');
@@ -75,14 +75,10 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     setProposal(null);
     (async () => {
       try {
-        await migrateLegacyGridHistory();
-        const [cards, grids] = await Promise.all([
-          dbGetVisibleCardsByScope(accountId, 'vibe-atlas'),
-          dbGetVisibleGrids(accountId),
-        ]);
+        const cards = await dbGetVisibleCardsByScope(accountId, 'vibe-atlas');
         if (!cancelled) {
-          setSourceRecords({ cards, grids });
-          setPool(buildVibeAtlasPool(cards, grids, 'standard'));
+          setSourceRecords({ cards });
+          setPool(buildVibeAtlasPool(cards, 'standard'));
         }
       } catch (caught) {
         if (!cancelled) setLoadError(caught instanceof Error ? caught.message : 'Saved collection could not be loaded.');
@@ -91,19 +87,35 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     return () => { cancelled = true; };
   }, [accountId]);
 
-  const options = useMemo(() => (pool ? lensOptions(pool) : null), [pool]);
+  const smartPool = useMemo(() => (pool ? uniqueVisualCards(pool) : null), [pool]);
+  const activePool = builderMode === 'smart' ? smartPool : pool;
+  const options = useMemo(() => (activePool ? lensOptions(activePool) : null), [activePool]);
   const eligibleEventFamilyIds = useMemo(() => new Set(
-    (pool || [])
+    (smartPool || [])
       .filter(card => card.familyEvidence === 'batch' || card.familyEvidence === 'persisted-event')
       .map(card => card.familyId),
-  ), [pool]);
+  ), [smartPool]);
   const familyOptions = useMemo(() => {
     if (!options) return [];
     return editorialMode === 'event'
       ? options.families.filter(option => eligibleEventFamilyIds.has(option.value))
       : options.families;
   }, [editorialMode, eligibleEventFamilyIds, options]);
-  const lensedCount = useMemo(() => (pool ? applyLens(pool, lens).length : 0), [pool, lens]);
+  const lensedCount = useMemo(
+    () => (activePool ? applyLens(activePool, lens).length : 0),
+    [activePool, lens],
+  );
+  const collectionCounts = useMemo(() => {
+    const cards = sourceRecords?.cards || [];
+    const count = (mode: 'standard' | 'misprints') => {
+      const modePool = buildVibeAtlasPool(cards, mode);
+      return (builderMode === 'smart' ? uniqueVisualCards(modePool) : modePool).length;
+    };
+    return {
+      standard: count('standard'),
+      misprints: count('misprints'),
+    };
+  }, [builderMode, sourceRecords]);
   const manualCandidates = useMemo(
     () => pool && lens.actor ? applyLens(pool, { mode: lens.mode, actor: lens.actor }) : [],
     [pool, lens.actor, lens.mode],
@@ -123,7 +135,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
 
   function setMode(mode: 'standard' | 'misprints') {
     if (!sourceRecords) return;
-    setPool(buildVibeAtlasPool(sourceRecords.cards, sourceRecords.grids, mode));
+    setPool(buildVibeAtlasPool(sourceRecords.cards, mode));
     setLens({ mode });
     setProposal(null);
     setSwapSlot(null);
@@ -244,8 +256,8 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
   }
 
   function propose() {
-    if (!pool) return;
-    const next = proposeGrid(pool, lens, editorialMode);
+    if (!smartPool) return;
+    const next = proposeGrid(smartPool, lens, editorialMode);
     setProposal(next);
     setSwapSlot(null);
     setIsGridSaved(false);
@@ -479,8 +491,16 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
         <LensRow
           label="Collection"
           options={[
-            { value: 'standard', label: 'Ordinary Vibe Atlas', count: buildVibeAtlasPool(sourceRecords?.cards || [], sourceRecords?.grids || [], 'standard').length },
-            { value: 'misprints', label: 'Legendary Misprints', count: buildVibeAtlasPool(sourceRecords?.cards || [], sourceRecords?.grids || [], 'misprints').length },
+            {
+              value: 'standard',
+              label: 'Ordinary Vibe Atlas',
+              count: collectionCounts.standard,
+            },
+            {
+              value: 'misprints',
+              label: 'Legendary Misprints',
+              count: collectionCounts.misprints,
+            },
           ]}
           active={lens.mode || 'standard'}
           onToggle={value => setMode(value as 'standard' | 'misprints')}
