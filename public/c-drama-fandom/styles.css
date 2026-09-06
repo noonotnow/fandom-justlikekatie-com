@@ -509,6 +509,10 @@ button { font: inherit; }
   padding: clamp(24px, 4vw, 36px);
 }
 .studio-specimen--misprint > img { height: 72px; width: 72px; }
+.studio-specimen--misprint-anatomy {
+  grid-column: 1 / -1;
+  grid-template-columns: auto minmax(0, 1fr);
+}
 .studio-specimen__label {
   color: var(--gold) !important;
   font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -725,6 +729,7 @@ button { font: inherit; }
   .signal-grid { grid-template-columns: 1fr; }
   .studio-specimens { grid-template-columns: 1fr; }
   .studio-specimen--legendary-grid { grid-template-columns: 1fr; }
+  .studio-specimen--misprint-anatomy { grid-template-columns: 1fr; }
   .comparison-table { display: block; overflow-x: auto; }
   .decoder-tools, .trope-grid { grid-template-columns: 1fr; }
   .decoder-tools { align-items: stretch; display: grid; gap: 8px; }
