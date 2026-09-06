@@ -75,6 +75,10 @@ type MisprintDraft = {
   note: string;
 };
 
+function cardRecordKey(card: CardRecord): string {
+  return card.localId || card.serverId || card.imageUrl;
+}
+
 async function correctLegendaryGridEvidence(grid: GridRecord): Promise<number> {
   const response = await fetch('/.netlify/functions/actor-audits', {
     method: 'POST',
@@ -325,7 +329,7 @@ export const Collection: React.FC<Props> = ({
 
   async function moveCardToScope(card: CardRecord) {
     const targetScope = isMiddleEarth ? 'vibe-atlas' : 'middle-earth';
-    const moveKey = `move:${card.localId || card.imageUrl}`;
+    const moveKey = `move:${cardRecordKey(card)}`;
     setBusyKey(moveKey);
     try {
       await dbSaveCard({
@@ -368,7 +372,9 @@ export const Collection: React.FC<Props> = ({
   }
 
   async function markCardMisprint(card: CardRecord, draft: MisprintDraft) {
-    const misprintKey = `card-misprint:${card.localId || card.imageUrl}`;
+    const misprintKey = `card-misprint:${cardRecordKey(card)}`;
+    const actualIdentity = draft.unexpectedIdentity.trim() || undefined;
+    const note = draft.note.trim() || undefined;
     setBusyKey(misprintKey);
     let correctionSaved = false;
     try {
@@ -384,8 +390,8 @@ export const Collection: React.FC<Props> = ({
           vibeKey: card.vibeKey,
           vibeLabel: card.vibe,
           reason: draft.reason,
-          actualIdentity: draft.unexpectedIdentity.trim(),
-          note: draft.note.trim(),
+          actualIdentity,
+          note,
           candidate: {
             candidateId: card.resultId || card.imageUrl,
             query: card.searchQuery || card.gridContext?.batchKey || null,
@@ -460,7 +466,7 @@ export const Collection: React.FC<Props> = ({
       || card.legendaryMisprint?.unexpectedImageIdentity.label
       || card.misprint?.label
       || 'unexpected result';
-    const misprintKey = `card-misprint:${card.localId || card.imageUrl}`;
+    const misprintKey = `card-misprint:${cardRecordKey(card)}`;
     setBusyKey(misprintKey);
     try {
       await dbSaveCard({
@@ -480,7 +486,7 @@ export const Collection: React.FC<Props> = ({
   }
 
   async function removeLegendaryPromotion(card: CardRecord) {
-    const misprintKey = `card-misprint:${card.localId || card.imageUrl}`;
+    const misprintKey = `card-misprint:${cardRecordKey(card)}`;
     setBusyKey(misprintKey);
     try {
       await dbSaveCard({ ...card, savedAt: new Date().toISOString(), legendaryMisprint: undefined });
@@ -506,7 +512,7 @@ export const Collection: React.FC<Props> = ({
       setAccountNotice('That image is larger than 8 MB. Choose a smaller image.');
       return;
     }
-    setBusyKey(`media:${card.localId || card.imageUrl}`);
+    setBusyKey(`media:${cardRecordKey(card)}`);
     try {
       const localId = card.localId || crypto.randomUUID();
       if (!card.localId) await dbSaveCard({ ...card, localId });
@@ -523,7 +529,7 @@ export const Collection: React.FC<Props> = ({
   }
 
   async function recoverCardMedia(card: CardRecord) {
-    const recoveryKey = `recover:${card.localId || card.imageUrl}`;
+    const recoveryKey = `recover:${cardRecordKey(card)}`;
     setBusyKey(recoveryKey);
     try {
       const result = await recoverCollectionCard(
@@ -907,14 +913,15 @@ export const Collection: React.FC<Props> = ({
       ) : (
         <section className={styles.savedResults} aria-label="Saved results">
           {displayedCards.map(card => {
-            const misprintKey = `card-misprint:${card.localId || card.imageUrl}`;
+            const recordKey = cardRecordKey(card);
+            const misprintKey = `card-misprint:${recordKey}`;
             const misprintDraft = misprintDrafts[misprintKey] || {
               reason: 'wrong_actor' as const,
               unexpectedIdentity: '',
               note: '',
             };
             return (
-            <article key={card.imageUrl} className={card.contentKind === 'middle-earth-meme' ? styles.memeResult : undefined}>
+            <article key={recordKey} className={card.contentKind === 'middle-earth-meme' ? styles.memeResult : undefined}>
               <button
                 type="button"
                 className={styles.resultPreviewButton}
@@ -975,7 +982,7 @@ export const Collection: React.FC<Props> = ({
                       disabled={Boolean(busyKey)}
                       onClick={() => void recoverCardMedia(card)}
                     >
-                      {busyKey === `recover:${card.localId || card.imageUrl}` ? 'Recovering…' : 'Recover in MEDIA'}
+                      {busyKey === `recover:${recordKey}` ? 'Recovering…' : 'Recover in MEDIA'}
                     </button>
                   </div>
                 )}
@@ -983,7 +990,7 @@ export const Collection: React.FC<Props> = ({
               </div>
               {!card.media && (
                 <label className={styles.collectionUpload}>
-                  {busyKey === `media:${card.localId || card.imageUrl}` ? 'Registering…' : 'Register replacement in MEDIA'}
+                  {busyKey === `media:${recordKey}` ? 'Registering…' : 'Register replacement in MEDIA'}
                   <input
                     type="file"
                     accept="image/png,image/jpeg,image/webp"
@@ -1064,7 +1071,7 @@ export const Collection: React.FC<Props> = ({
                       disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
                       onClick={() => void promoteCardMisprint(card)}
                     >
-                      {busyKey === `card-misprint:${card.localId || card.imageUrl}` ? 'Saving…' : 'Make Legendary'}
+                      {busyKey === `card-misprint:${recordKey}` ? 'Saving…' : 'Make Legendary'}
                     </button>
                   )}
                   {card.legendaryMisprint && (
@@ -1073,7 +1080,7 @@ export const Collection: React.FC<Props> = ({
                       disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
                       onClick={() => void removeLegendaryPromotion(card)}
                     >
-                      {busyKey === `card-misprint:${card.localId || card.imageUrl}` ? 'Saving…' : 'Remove Legendary'}
+                      {busyKey === `card-misprint:${recordKey}` ? 'Saving…' : 'Remove Legendary'}
                     </button>
                   )}
                 </>
@@ -1083,7 +1090,7 @@ export const Collection: React.FC<Props> = ({
                 disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
                 onClick={() => void moveCardToScope(card)}
               >
-                {busyKey === `move:${card.localId || card.imageUrl}`
+                {busyKey === `move:${recordKey}`
                   ? 'Moving…'
                   : isMiddleEarth
                     ? 'Move to Vibe Atlas'

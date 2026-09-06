@@ -208,10 +208,10 @@ export const ActorPreflightLab: React.FC = () => {
           label:receipt.label||definition.label,
           learningScope:receipt.correctionScope||definition.scope,
           calibrationStatus:result.calibrationStatus||'applied',
-          unexpectedImageIdentity:actualIdentity,
-          note,
+          unexpectedImageIdentity:receipt.actualIdentity || undefined,
+          note:receipt.note || undefined,
           imageDigest:candidate.imageDigest,
-          sourceRunId:currentRun.runId,
+          sourceRunId:receipt.sourceRunId || currentRun.runId,
           correctionReceiptId:receipt.receiptId,
         },new Date(receipt.markedAt)),
       });
