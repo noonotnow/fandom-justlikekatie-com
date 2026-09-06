@@ -791,6 +791,9 @@ function isUsableDate(value) {
 }
 
 async function listArchivedEditions(store, todayStr) {
+  const canonicalLegendaryMisprints = new Map([
+    ["2026-08-04|王鹤棣", "The Dylan Wangtermelon incident"],
+  ]);
   const [listing, manifestListing] = await Promise.all([
     store.list({ prefix: "starOfDay:" }),
     store.list({ prefix: GRID_MANIFEST_PREFIX }),
@@ -828,6 +831,7 @@ async function listArchivedEditions(store, todayStr) {
     const legendaryMisprint = (payload.rankedBatches || []).some(batch =>
       batch?.intentionalMisprint === true || (batch?.legendary === true && batch?.misprint === true)
     );
+    const canonicalMisprintTitle = canonicalLegendaryMisprints.get(`${date}|${payload.actorName}`);
     return {
       date,
       actorName: payload.actorName,
@@ -841,7 +845,8 @@ async function listArchivedEditions(store, todayStr) {
         .map(result => result?.thumbnail)
         .filter(thumbnail => typeof thumbnail === "string" && thumbnail.length > 0))]
         .slice(0, 9),
-      ...(legendaryMisprint ? { legendaryMisprint: true } : {}),
+      ...(legendaryMisprint || canonicalMisprintTitle ? { legendaryMisprint: true } : {}),
+      ...(canonicalMisprintTitle ? { legendaryMisprintTitle: canonicalMisprintTitle } : {}),
     };
   }));
 

@@ -65,6 +65,7 @@ export interface StarOfDayArchiveEntry {
   generatedAt?: string;
   previewThumbnails?: string[];
   legendaryMisprint?: boolean;
+  legendaryMisprintTitle?: string;
 }
 
 function proxyUrl(url: string): string {

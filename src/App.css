@@ -550,14 +550,24 @@
   top: .75rem;
   left: .75rem;
   display: grid;
-  width: 2.15rem;
-  height: 2.15rem;
+  min-width: 2.9rem;
+  min-height: 2.9rem;
+  padding: .4rem;
   place-items: center;
   background: #f3eee5;
   color: #263e40;
-  font: 600 .6rem "DM Mono", monospace;
+  font: 600 .72rem "DM Mono", monospace;
   letter-spacing: .06em;
+  line-height: 1;
   box-shadow: 4px 5px 0 rgba(179, 95, 73, .82);
+}
+
+.archive-card__number small {
+  display: block;
+  margin-bottom: .25rem;
+  font-size: .42rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
 }
 
 .archive-card__caption {
@@ -692,6 +702,28 @@
 
 .archive-card--misprint .archive-card__caption {
   border-top-color: #e0c171;
+}
+
+.archive-card__misprint-title {
+  display: flex;
+  flex-direction: column;
+  gap: .32rem;
+  margin: -.15rem 0 1rem;
+  padding: .7rem .8rem;
+  border: 1px solid rgba(224, 193, 113, .5);
+  background: rgba(122, 82, 158, .18);
+}
+
+.archive-card__misprint-title small {
+  color: #e0c171;
+  font: 600 .5rem "DM Mono", monospace;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.archive-card__misprint-title b {
+  color: #f5f0e8;
+  font: italic 600 clamp(1rem, 2vw, 1.35rem) "Fraunces", serif;
 }
 
 .archive-card--misprint .archive-card__meta,
