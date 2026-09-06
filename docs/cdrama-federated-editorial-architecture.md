@@ -1,7 +1,7 @@
 # CDRAMA Federated Editorial Architecture — Constitution & Case Law
 
-**Status:** Constitution frozen; all six cases evaluated; Lens host and
-capability placement decided on 2026-09-06
+**Status:** Constitution frozen; all six cases evaluated; Creator OS Lens
+placement and capability map decided on 2026-09-06
 **Scope:** Fandom Vibes, the CDRAMA Lens, CREATE, PLAN, EXECUTE, CONNECT,
 domain operations, and diagnostics
 **Implementation status:** Planning contract only. This document does not
@@ -2079,23 +2079,29 @@ host of the CDRAMA Lens, using the six cases' required projections, permissions,
 failure boundaries, and duplication cost. Only after that decision may the
 paper cockpit be drawn.
 
-## CDRAMA Lens host and capability placement
+## CDRAMA Lens placement and capability map
 
-### Host decision
+### Placement decision
 
-**Decision: the CDRAMA Lens is a Creator OS workspace that composes authorized
-domain projections and invokes domain-owned commands.**
+**Decision: the CDRAMA Lens is a selectable Creator OS view across the existing
+CAPTURE, CREATE, PLAN, CONNECT, and Publications surfaces.**
+
+It changes which CDRAMA modules, engines, records, and contextual actions are
+visible. It is not a separate workspace, tab hierarchy, or persistence owner.
+Creator OS renders the Lens; each displayed capability keeps its own authority.
 
 It is not:
 
 - a new source of truth;
 - a renamed Fandom admin;
+- a new Creator OS workspace;
+- an “Operator” or “Katie-only” navigation silo;
 - a shared database between Fandom and Creator OS;
 - a universal publication queue;
 - a proxy that grants Creator OS mutation authority over every visible record.
 
-Creator OS is the correct physical host because the Lens's continuous spine is
-cross-domain creative work:
+Creator OS is the correct rendering host because the Lens's continuous spine
+is cross-domain editorial work:
 
 ```text
 Sources
@@ -2120,21 +2126,26 @@ Release Operations
 Fandom publication
 ```
 
-Hosting the Lens in Fandom would make non-Fandom CDRAMA work and other brands
-appear subordinate to one domain product. A neutral shared shell would add a
-third authentication, persistence, command, and failure owner while duplicating
-Creator OS's existing cross-product responsibilities. Creator OS can render the
-complete creative context with less duplication as long as Fandom exposes
-narrow read projections and explicit command contracts.
+Making the Lens a Fandom screen would make non-Fandom CDRAMA work and other
+brands appear subordinate to one domain product. Making it a new workspace or
+neutral shell would add another navigation, persistence, command, and failure
+owner while duplicating Creator OS's existing lifecycle surfaces. Creator OS
+can render the complete creative context with less duplication as long as
+Fandom exposes narrow read projections and explicit command contracts.
 
-The host decision does not move canonical records. It decides where the
-composed work context appears.
+The placement decision does not move canonical records. It decides which tools
+and projections appear when the CDRAMA Lens is selected.
+
+The Lens may **render a domain cockpit without owning the authoritative
+domain**. In particular, the Nian Wushuang Waiting Room may appear as a
+contextual CDRAMA Lens view while Fandom retains public Waiting Room state,
+clock-ins, canon evidence, moderation, and publication rules.
 
 ### Four ways a capability appears in the Lens
 
 | Placement mode | Meaning | Mutation rule |
 | --- | --- | --- |
-| **Native workspace** | Creator OS owns the record and workflow | Lens may create and mutate it under Creator OS rules |
+| **Native module** | Creator OS owns the record and workflow | Lens may create and mutate it under Creator OS rules |
 | **Authorized projection** | Another domain owns the record; Lens receives a minimal read model | Lens cannot mutate the source |
 | **Domain command** | Lens invokes an explicit action on the owning system | Owner validates authority, concurrency, privacy, and idempotency and returns a receipt |
 | **Linked specialist surface** | The work needs full domain context or elevated/system authority | Lens deep-links or opens the owner; it does not imitate the tool |
@@ -2146,15 +2157,17 @@ inside Creator OS remains a Fandom command.
 
 | Capability / surface | Current surface or engine | Canonical owner | Lens placement | Future disposition |
 | --- | --- | --- | --- | --- |
-| CDRAMA Sources | Research notes, source URLs, evidence currently distributed across tools | Creator OS for general sources; domain owner for domain evidence | Native workspace plus authorized domain projections | One source explorer with typed links to domain evidence; no evidence copying by default |
-| General Capture | Ad hoc drafts and tool-specific intake | Creator OS | Native workspace | Private Capture Inbox; classify or promote later |
+| CDRAMA Sources | Research notes, source URLs, evidence currently distributed across tools | Creator OS for general sources; domain owner for domain evidence | Native module plus authorized domain projections | One source explorer with typed links to domain evidence; no evidence copying by default |
+| General Capture | Ad hoc drafts and tool-specific intake | Creator OS | Native module | Private Capture Inbox; classify or promote later |
 | First-Watch capture | `WatchJournalCapture`, watch-journal API | Fandom First-Watch | Projection + domain command + specialist link | Show safe boundary/selected entries; file, resolve, seal, moderate, and publish through Fandom contracts |
-| Waiting Room capture and evidence | Constitutional design; future Fandom domain records | Fandom Waiting Room | Projection + domain command | Show argument/evidence/state; submit private observation or contribution without moving the record |
-| Series continuity | Conceptual Creator OS Series | Creator OS | Native workspace | Holds recurring thesis, continuity, audience questions, treatments, and linked expressions |
-| Editorial Ideas | Conceptual additive derivatives | Creator OS | Native workspace | Promote selected Capture/domain passages with immutable lineage |
-| Kits / Treatments | Creative grammar and platform adaptation rules | Creator OS | Native workspace | Reusable instructions applied by CREATE without becoming publication authority |
+| Waiting Room cockpit | Future composed Nian Wushuang Lens view | Creator OS renders; no transfer of domain authority | Contextual Lens view | Assemble Fandom state/evidence with CREATE dispatches, Ideas, expressions, PLAN, and CONNECT |
+| Waiting Room private dispatch | Creative observation related to the Series | Creator OS CREATE | Native module | Editable Capture that may promote additively to an Idea or expression |
+| Waiting Room public state, canon evidence, clock-ins, and contributions | Constitutional design; future Fandom domain records | Fandom Waiting Room | Projection + domain command | Show safe state/aggregate; route evidence, clock-in, moderation, and contribution actions to Fandom |
+| Series continuity | Conceptual Creator OS Series | Creator OS | Native module | Holds recurring thesis, continuity, audience questions, treatments, and linked expressions |
+| Editorial Ideas | Conceptual additive derivatives | Creator OS | Native module | Promote selected Capture/domain passages with immutable lineage |
+| Kits / Treatments | Creative grammar and platform adaptation rules | Creator OS | Native module | Reusable instructions applied by CREATE without becoming publication authority |
 | Workstation draft studio | External Workstation and current saved-grid handoff | Creator OS CREATE | Native engine embedded in Lens | “Open Workstation” becomes “Create/continue expression”; Workstation remains the composition engine, not a separate conceptual destination |
-| Platform Expression versions | Draft copy, title, tags, assets, art direction | Creator OS CREATE | Native workspace | First-class expression identity linked to Idea/Series/domain source |
+| Platform Expression versions | Draft copy, title, tags, assets, art direction | Creator OS CREATE | Native module | First-class expression identity linked to Idea/Series/domain source |
 | Collection | `Collection`, local/account stores | Fandom member experience | Authorized selected-artifact projection + specialist link | Remains a personal Fandom shelf; selected cards/grids may be promoted or handed off explicitly |
 | Native Grid Builder | `GridBuilder`, export/share tools | Fandom member experience | Specialist link; optional artifact projection | Remains a Fandom-native creation tool and never requires Creator OS |
 | Vibe Atlas source exploration | Query ladders and raw candidate investigation inside `ActorPreflightLab` | Fandom evidence authority today | Specialist link; later narrow source projection | May reuse CDRAMA Sources discovery helpers, but retained audit evidence stays Fandom-owned |
@@ -2167,18 +2180,42 @@ inside Creator OS remains a Fandom command.
 | Fandom Public Editions | Publication manifest, Daily Drop, Archive | Fandom publication | Authorized projection | Lens shows immutable edition, current correction state, and derivative relationships |
 | Fandom native publication | `materializePublicationManifest`, Daily Drop operations | Fandom publication | Domain command or specialist link | Never routed through external PLAN; succeeds without Creator OS |
 | Publication-package handoff | Current saved-grid → Workstation handoff is prior art | Fandom authorizes projection; Creator OS owns accepted draft | Domain command crossing boundary | New manifest-bound package creates/updates an expression and returns a receipt |
-| External placement | PLAN Posts DB and scheduling UI | Creator OS PLAN | Native workspace | PLAN references exact expression version and owns priority, schedule, and authorization |
+| External placement | PLAN Posts DB and scheduling UI | Creator OS PLAN | Native module | PLAN references exact expression version and owns priority, schedule, and authorization |
 | Domain-native release conditions | Calendar/boundary/event/manual/immediate contracts | Owning domain | Projection + domain command | Not coerced into Posts DB or external PLAN |
 | Rednote operator execution | XHS integration and PLAN marker | EXECUTE/XHS | Native status/action in Lens, executed by integration | One authorization/attempt history shared by operator and automation |
 | Other platform execution | Manual receipts or future adapters | Each native platform through EXECUTE | Native status/action when adapter exists | Platform-specific contracts; no inherited Rednote guarantees |
-| External publication ledger | Partial PLAN/XHS reconciliation and manual URLs | CONNECT | Native workspace | Verified account + native ID + published time + optional URL, linked to expression |
-| Metrics snapshots | Not implemented end to end | CONNECT | Native workspace | Append-only observations; missing/unavailable is not zero |
-| Audience Signals | Current Release Desk engagement summary mixes editorial evidence and quality | CONNECT | Native workspace | Editorially useful patterns, questions, saves, shares, and expression performance |
+| External publication ledger | Partial PLAN/XHS reconciliation and manual URLs | CONNECT | Native module | Verified account + native ID + published time + optional URL, linked to expression |
+| Metrics snapshots | Not implemented end to end | CONNECT | Native module | Append-only observations; missing/unavailable is not zero |
+| Audience Signals | Current Release Desk engagement summary mixes editorial evidence and quality | CONNECT | Native module | Editorially useful patterns, questions, saves, shares, and expression performance |
 | Data Health | Current engagement data-quality panel/export | Diagnostics | Linked specialist surface; small status projection | Instrumentation coverage, malformed records, cache/storage failures, and repair controls leave editorial CONNECT |
-| Recommendations / learning | Not implemented end to end | CONNECT recommends; CREATE/Series accepts | Native workspace | Produce attributed recommendation or Capture; never mutate Series silently |
+| Recommendations / learning | Not implemented end to end | CONNECT recommends; CREATE/Series accepts | Native module | Produce attributed recommendation or Capture; never mutate Series silently |
 | Court Rulings / domain policy | Operator Console Court Rulings | Fandom domain policy | Relevant projection + specialist link | Policy remains with the domain whose behavior it governs |
 | Cache rebuild and repair | `rebuild-cache`, sync/recovery utilities | Diagnostics/system control | Linked specialist surface | Never presented as editorial CREATE, PLAN, or CONNECT work |
 | Authentication and secrets | Fandom admin/member auth, Creator OS auth, integration tokens | Each system | Session-aware boundary only | No shared credential store; commands use scoped service authorization |
+
+### Modules visible when the CDRAMA Lens is selected
+
+The Lens is applied to Creator OS's existing lifecycle surfaces. It does not
+add an Operator tab or a Katie-only tab.
+
+| Creator OS surface | CDRAMA modules, engines, and tools visible through the Lens |
+| --- | --- |
+| **CAPTURE** | Quick Capture; private Waiting Room dispatch; source/link capture; audience-question capture; “file in First Watch” Fandom command; “add Waiting Room evidence” Fandom command; Collection artifact picker; recent safe domain context |
+| **CREATE** | Series context; Editorial Ideas; CDRAMA Sources; Kits/Treatments; Workstation expression composer; media/source selector; Fandom publication-package intake; Domain Contribution drafting; expression version and provenance |
+| **PLAN** | External expression placements; platform/account choice; schedule intent; execution authorization; readiness and hold projections; domain-native release-condition projection; conflicts requiring action |
+| **CONNECT** | Attempt and reconciliation status; verified external publications; metrics snapshots; audience signals; correction/discrepancy review; learning proposals; “capture this finding” and “propose to Series” actions |
+| **Publications** | Fandom Public Editions; verified external publications; derivative lineage; current correction/supersession state; optional-channel coverage; source edition → expression → native post history |
+
+Permission changes actions, not information architecture:
+
+- ordinary safe projections may be visible wherever their workflow needs them;
+- Fandom editorial commands appear only to an authorized Fandom editor;
+- publication authorization appears only to an authorized planner;
+- execution actions appear only to an authorized operator/integration;
+- diagnostic repair controls never appear merely because Katie can access them.
+
+“Katie-only” and “operator” therefore remain capability checks. They are not
+destinations users must visit to find the CDRAMA work.
 
 ### Workbench and intermediate disposition
 
@@ -2204,6 +2241,21 @@ legible.
 | Metrics snapshot | Time-bound observation | Recommendation, Capture, or analysis | Editorial truth |
 | Recommendation | CONNECT interpretation | Accepted Capture or reviewed Series learning | Silent Series mutation |
 
+### Durable boundary objects
+
+The Lens needs seven durable cross-authority intermediates. Other concepts may
+remain owner-native records, views, commands, or specialist tools.
+
+| Boundary object | Producer → consumer | Required contents | Explicit non-authority |
+| --- | --- | --- | --- |
+| **Authorized Fandom Projection** | Fandom → Lens/CREATE | Source ID/version, safe selected fields, restrictions, correction state, projection schema, receipt | Cannot mutate or fully reconstruct the private/domain record |
+| **Publication Package** | Fandom edition → CREATE | Immutable edition identity/version, exact assets/order, canonical copy, provenance/rights, release constraints, correction state | Does not transfer edition ownership or guarantee an external derivative |
+| **Expression Draft** | CREATE → PLAN | Expression ID/version, platform/format, canonical copy, assets, source lineage, readiness | Is not a schedule, authorization, attempt, or publication |
+| **Execution Request** | PLAN → EXECUTE | Exact expression/placement versions, account, schedule/condition, authorization, payload digest, idempotency key | Does not prove an attempt or publication |
+| **Attempt Receipt** | EXECUTE → CONNECT/PLAN | Attempt ID, request key, executor, attempted/retried time, native response/reference, outcome class | A success-shaped response is not verified publication |
+| **Verified Publication Receipt** | CONNECT → Lens/PLAN | Native account and ID, authenticated existence, verified `publishedAt`, optional URL, reconciliation evidence, correction state | Does not rewrite expression copy or source authority |
+| **Learning Proposal** | CONNECT → CREATE/Series | Source receipt/snapshots, finding, confidence, limitations, recommended action | Cannot mutate Series, Idea, or source without explicit acceptance |
+
 ### How the lifecycle surfaces change
 
 #### Capture
@@ -2224,6 +2276,34 @@ Domain protocols remain domain-owned:
 
 The Lens may offer these actions together because context is shared. It may not
 store them as one undifferentiated Journal.
+
+For example:
+
+```text
+Creator OS → CDRAMA → Nian Wushuang → Waiting Room
+```
+
+may render:
+
+- Fandom public state, canon evidence, and clock-in aggregate;
+- CREATE private dispatches;
+- Creator OS Editorial Ideas;
+- last/next external expressions and PLAN placements;
+- CONNECT-verified publication and performance;
+- website-expansion contributions awaiting Fandom action.
+
+Its actions preserve authority:
+
+| Action | Route |
+| --- | --- |
+| Clock in | Fandom command |
+| Add canon evidence | Fandom contribution workflow |
+| Write private dispatch | CREATE Capture |
+| Turn into an Idea | Creator OS additive promotion |
+| Make Rednote post | CREATE Platform Expression |
+| Schedule | PLAN |
+| Review performance | CONNECT |
+| Repair malformed evidence | Diagnostics specialist link |
 
 #### CREATE
 
@@ -2351,9 +2431,9 @@ External platform timing remains PLAN-owned. The Lens may place both kinds of
 timing on one contextual timeline, but it does not route domain conditions
 through Posts DB.
 
-The permanent operator grouping is **Fandom Operations**, not Release Desk.
-Release Desk remains a temporary compatibility shell while capabilities move
-to their authority-based homes:
+**Fandom Operations** names the authority plane and service boundary; it is not
+a proposed Creator OS tab. Release Desk remains a temporary compatibility shell
+while Fandom-owned capabilities become independently projectable modules:
 
 ```text
 Fandom Operations
@@ -2379,13 +2459,14 @@ The Lens uses an event timeline rather than one overloaded date:
 | `capturedAt` | Capture/domain intake | Observation entered the system |
 | `observedAt` | Source/CONNECT | Source fact or metric was observed |
 | `filedAt` | Domain protocol | Journal/evidence record became immutable |
+| `composedAt` | CREATE | Expression version was completed |
 | `approvedAt` | Domain/CREATE authority | Exact candidate, contribution, or expression was approved |
 | `readyAt` | Production owner | Required readiness gates passed |
 | `scheduledAt` | PLAN/domain scheduler | Intended native execution/release time |
 | `authorizedAt` | PLAN/domain authority | Exact action was allowed |
 | `attemptedAt` | EXECUTE | Native action was attempted |
 | `retriedAt` | EXECUTE | A later linked attempt began after retry authorization |
-| `publishedAt` | Native platform/domain | Publication became native fact |
+| `publishedAt` | CONNECT for external platforms; domain publisher for native editions | Authenticated native publication time |
 | `reconciledAt` | CONNECT | Native fact was matched to internal lineage |
 | `measuredAt` | CONNECT | Metrics snapshot was observed |
 | `correctedAt` | Owning authority | Additive correction took effect |
@@ -2412,9 +2493,9 @@ projection schema version
 
 That envelope is how the Lens can be coherent without centralizing truth.
 
-### Host decision pass conditions
+### Lens placement pass conditions
 
-The Creator OS host is valid only while:
+The Creator OS CDRAMA Lens view is valid only while:
 
 1. Fandom remains operable when Creator OS is unavailable.
 2. Creator OS remains operable for other projects when Fandom is unavailable.
@@ -2458,7 +2539,8 @@ A case passes only when every action has:
 
 All six cases have passed. Proceed in this order:
 
-1. ~~Decide the CDRAMA Lens's physical host.~~ **Complete: Creator OS.**
+1. ~~Decide the CDRAMA Lens's placement.~~ **Complete: a selectable view across
+   Creator OS lifecycle surfaces, not a separate workspace.**
 2. ~~Map every current Fandom operator control to its future surface.~~
    **Complete: capability-placement and Release Desk decomposition above.**
 3. Draw a paper cockpit using real records.
