@@ -2270,6 +2270,22 @@ add an Operator tab or a Katie-only tab.
 | **PLAN** | External expression placements; platform/account choice; schedule intent; execution authorization; readiness and hold projections; domain-native release-condition projection; conflicts requiring action |
 | **CONNECT** | Attempt and reconciliation status; Fandom Public Edition projections; verified external publications; derivative lineage; correction/supersession state; metrics snapshots; audience signals; learning proposals; “capture this finding” and “propose to Series” actions |
 
+### Concrete Creator OS module homes
+
+The four modules compose existing workbenches rather than replacing them:
+
+| Module | Engines and views it homes | Boundary it prepares or receives |
+| --- | --- | --- |
+| **CAPTURE** | First-Watch interface; Waiting Room journal/dispatch; ordinary CDRAMA journal; source/evidence capture; scene/reaction capture; audience questions; inspiration and Series observations | Optionally prepares a Creative Commitment Receipt for selected material; most filings end with their canonical owner |
+| **CREATE** | Editorial Ideas; Idea Packet Studio; Studio Pipeline; source/media assembly; copy, titles, tags, Treatments; artifact/post families; rendition generation, recipes, versions, fingerprints, and exports | Produces a committed artifact eligible for schedule admission |
+| **PLAN** | Exact rendition/export selection; canonical Post binding; seven-day dated view; platform/account placement; expression packet requirements; readiness review; manual versus automated path; holds, conflicts, and authorization | Receives a dated placement from CREATE; emits EXECUTE/PUBLISH boundary receipts to CONNECT |
+| **CONNECT** | Receipt Pending; external verification and reconciliation; public-state projection; correction chains; metrics snapshots; audience response; learning proposals | Receives automated attempt results or manual operator attestations and rules on external publication truth |
+
+CREATE owns making the available rendition family. PLAN owns which exact ready,
+immutable export is bound to this placement. Fandom separately owns readiness
+for canonical Fandom editions; its production gates may project beside PLAN but
+must not share an unlabeled readiness state with expression packets.
+
 Permission changes actions, not information architecture:
 
 - ordinary safe projections may be visible wherever their workflow needs them;
@@ -2316,7 +2332,7 @@ tools.
 | **Authorized Fandom Projection** | Fandom → Lens/CREATE | Source ID/version, safe selected fields, restrictions, correction state, projection schema, receipt | Cannot mutate or fully reconstruct the private/domain record |
 | **Creative Commitment Receipt** | CAPTURE/domain owner → CREATE | Selected source IDs/versions, safe excerpt/projection, target artifact ID/type, actor, timestamp, idempotency key | Does not move the source, require every Capture to become an artifact, or apply to direct-to-CREATE work |
 | **Publication Package** | Fandom edition → CREATE | Immutable edition identity/version, exact assets/order, canonical copy, provenance/rights, release constraints, correction state | Does not transfer edition ownership or guarantee an external derivative |
-| **Expression Draft** | CREATE → PLAN | Expression ID/version, platform/format, canonical copy, assets, source lineage, readiness | Is not a schedule, authorization, attempt, or publication |
+| **Schedule Admission** | CREATE handoff → PLAN | Expression/Post ID and version, explicit promotion or `Ready for scheduling` eligibility, `ScheduledDate`, actor, timestamp, idempotency key | Does not select the final rendition, prove packet readiness, authorize execution, or prove publication |
 | **Execution Request** | PLAN → EXECUTE | Exact expression/placement versions, account, schedule/condition, authorization, payload digest, idempotency key | Does not prove an attempt or publication |
 | **Attempt Receipt** | EXECUTE → CONNECT/PLAN | Attempt ID, request key, executor, attempted/retried time, native response/reference, outcome class | A success-shaped response is not verified publication |
 | **Verified Publication Receipt** | CONNECT → Lens/PLAN | Native account and ID, authenticated existence, verified `publishedAt`, optional URL, reconciliation evidence, correction state | Does not rewrite expression copy or source authority |
@@ -2511,8 +2527,9 @@ committed Post in CREATE
 → schedule-setting handoff writes ScheduledDate
 → ScheduledDate admits the Post to PLAN
 → PLAN selects/rebinds the exact ready rendition and reviews the packet
-→ Ready for publishing
-→ explicit Publish packet ready consent
+→ resolve caption/media/title/cover and other packet requirements
+→ choose manual handling or explicit Publish packet ready automation consent
+→ validated Ready / Ready for publishing state
 → EXECUTE/PUBLISH boundary
 ```
 
@@ -2522,7 +2539,8 @@ These are separate gates:
 | --- | --- | --- |
 | `Ready for scheduling` | CREATE says the committed Post may enter schedule-setting handoff | It does not itself make the Post visible in PLAN |
 | `ScheduledDate` | The placement now appears in PLAN | It does not prove packet completeness or execution consent |
-| `Status = Ready` | Legacy/compatibility PLAN readiness signal | It does not replace rendition, media, caption, title/cover, or packet validation |
+| Exact rendition/export selection | PLAN binds one ready immutable export from CREATE's rendition family to the Draft Post | It does not prove the rest of the packet is complete |
+| `Status = Ready` | PLAN's validated readiness state after required caption, media, and `Publish packet ready` checks pass; legacy records also use it for lane compatibility | It does not prove an attempt, native publication, or CONNECT verification |
 | `Ready for publishing` | The assembled work's next action is publication | It does not authorize automation |
 | `Publish packet ready` | Explicit packet-level automation gate | It does not prove an attempt or publication |
 
