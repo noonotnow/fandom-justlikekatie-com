@@ -249,7 +249,7 @@ test('Collection shows local records when account sync fails', { timeout: 60_000
   }
 });
 
-test('Grid Builder keeps romanized Vibe Atlas results in its source pool', { timeout: 60_000 }, async () => {
+test('Grid Builder keeps saved results but does not unpack saved grids into its source pool', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();
   const page = await browser.newPage();
@@ -270,9 +270,9 @@ test('Grid Builder keeps romanized Vibe Atlas results in its source pool', { tim
     await seedCollection(page);
     await page.goto(`${origin}/vibe-atlas?view=collection`);
     await page.getByRole('button', { name: 'Grid Builder', exact: true }).click();
-    await page.getByText('2 of 2 cards in lens').waitFor();
+    await page.getByText('1 of 1 cards in lens').waitFor();
     await page.getByRole('button', { name: /Card cleanup actor 1/ }).waitFor();
-    await page.getByRole('button', { name: /Grid cleanup actor 1/ }).waitFor();
+    assert.equal(await page.getByRole('button', { name: /Grid cleanup actor 1/ }).count(), 0);
   } finally {
     await browser.close();
     await server.close();
