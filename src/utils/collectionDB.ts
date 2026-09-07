@@ -730,7 +730,8 @@ export function buildSyncOperations(
     .map(card => {
       const localId = card.localId!;
       const collectionScope = collectionScopeForCard(card);
-      const mutationId = `upsert:${state.clientId}:${localId}:${card.savedAt || card.capturedDate}:${collectionScope}:saved-record-v2`;
+      const scopeKey = collectionScope === 'middle-earth' ? 'm' : 'v';
+      const mutationId = `upsert:v2:${state.clientId}:${localId}:${card.savedAt || card.capturedDate}:${scopeKey}`;
       return {
         type: 'upsert',
         mutationId,
