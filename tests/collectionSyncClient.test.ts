@@ -142,7 +142,30 @@ test('saved-card identity migration re-uploads previously acknowledged records',
     .find(candidate => candidate.type === 'upsert');
   assert.ok(operation);
   assert.equal(operation.localId, saved.localId);
-  assert.match(String(operation.mutationId), /:saved-record-v2$/);
+  assert.match(String(operation.mutationId), /^upsert:v2:/);
+  assert.ok(String(operation.mutationId).length <= 120);
+});
+
+test('saved-card identity mutation stays within the sync API limit for every collection scope', () => {
+  const syncState = state();
+  syncState.clientId = 'a'.repeat(36);
+  const localId = 'b'.repeat(36);
+  const savedAt = '2026-09-07T12:00:00.000Z';
+  const cards = [
+    { ...card(1), localId, savedAt, collectionScope: 'vibe-atlas' as const },
+    {
+      ...card(2),
+      localId: 'c'.repeat(36),
+      savedAt,
+      collectionScope: 'middle-earth' as const,
+      contentKind: 'middle-earth-meme' as const,
+    },
+  ];
+
+  const operations = buildSyncOperations(cards, syncState, 'account-a')
+    .filter(operation => operation.type === 'upsert');
+  assert.equal(operations.length, 2);
+  assert.equal(operations.every(operation => String(operation.mutationId).length <= 120), true);
 });
 
 test('sync response updates the matching saved record when legacy mappings share a server id', async () => {
