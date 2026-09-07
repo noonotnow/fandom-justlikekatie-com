@@ -13,7 +13,7 @@ import {
   proposeGrid,
   rationaleBrief,
   rebuildRationale,
-  uniqueVisualCards,
+  uniqueVisualCardsForLens,
   type BuilderCard,
   type CollectionLens,
   type EditorialMode,
@@ -87,15 +87,20 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     return () => { cancelled = true; };
   }, [accountId]);
 
-  const smartPool = useMemo(() => (pool ? uniqueVisualCards(pool) : null), [pool]);
-  const activePool = builderMode === 'smart' ? smartPool : pool;
   const savedOptions = useMemo(() => (pool ? lensOptions(pool) : null), [pool]);
-  const smartOptions = useMemo(() => (smartPool ? lensOptions(smartPool) : null), [smartPool]);
+  const smartOptionPool = useMemo(
+    () => (pool ? uniqueVisualCardsForLens(pool, { mode: lens.mode, actor: lens.actor }) : null),
+    [pool, lens.actor, lens.mode],
+  );
+  const smartOptions = useMemo(
+    () => (smartOptionPool ? lensOptions(smartOptionPool) : null),
+    [smartOptionPool],
+  );
   const eligibleEventFamilyIds = useMemo(() => new Set(
-    (smartPool || [])
+    (smartOptionPool || [])
       .filter(card => card.familyEvidence === 'batch' || card.familyEvidence === 'persisted-event')
       .map(card => card.familyId),
-  ), [smartPool]);
+  ), [smartOptionPool]);
   const familyOptions = useMemo(() => {
     if (!smartOptions) return [];
     return editorialMode === 'event'
@@ -103,8 +108,13 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
       : smartOptions.families;
   }, [editorialMode, eligibleEventFamilyIds, smartOptions]);
   const lensedCount = useMemo(
-    () => (activePool ? applyLens(activePool, lens).length : 0),
-    [activePool, lens],
+    () => {
+      if (!pool) return 0;
+      return builderMode === 'smart'
+        ? uniqueVisualCardsForLens(pool, lens).length
+        : applyLens(pool, lens).length;
+    },
+    [builderMode, lens, pool],
   );
   const savedLensedCount = useMemo(
     () => (pool ? applyLens(pool, lens).length : 0),
@@ -150,7 +160,12 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
   }
 
   function toggle(key: keyof CollectionLens, value: string) {
-    setLens(current => ({ ...current, [key]: current[key] === value ? undefined : value }));
+    setLens(current => {
+      const nextValue = current[key] === value ? undefined : value;
+      if (key === 'actor') return { mode: current.mode, actor: nextValue };
+      if (key === 'vibe') return { ...current, vibe: nextValue, familyId: undefined };
+      return { ...current, [key]: nextValue };
+    });
     setProposal(null);
     setSwapSlot(null);
     setIsGridSaved(false);
@@ -260,8 +275,8 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
   }
 
   function propose() {
-    if (!smartPool) return;
-    const next = proposeGrid(smartPool, lens, editorialMode);
+    if (!pool) return;
+    const next = proposeGrid(pool, lens, editorialMode);
     setProposal(next);
     setSwapSlot(null);
     setIsGridSaved(false);
