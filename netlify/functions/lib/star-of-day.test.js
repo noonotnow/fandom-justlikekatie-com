@@ -393,6 +393,24 @@ test("archive lists current and legacy payload dates with edition identity and e
   assert.deepEqual(body.editions[0].previewThumbnails, ["https://images.test/evidence.jpg"]);
 });
 
+test("archive preserves the Dylan Wangtermelon edition as a named legendary misprint", async () => {
+  const payload = {
+    ...archivePayload("2026-08-04"),
+    actorName: "王鹤棣",
+  };
+  const store = makeStore({ "starOfDay:v6:2026-08-04": payload });
+
+  const response = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1" },
+    contextFor(store),
+  );
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.editions[0].legendaryMisprint, true);
+  assert.equal(body.editions[0].legendaryMisprintTitle, "The Dylan Wangtermelon incident");
+});
+
 test("historical date reads use the existing cache without starting a build", async () => {
   const archived = archivePayload("2026-08-29");
   const store = makeStore({ "starOfDay:v6:2026-08-29": archived });

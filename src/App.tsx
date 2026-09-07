@@ -763,9 +763,11 @@ function archivePreviewUrl(url: string): string {
 function ArchiveEditionCard({
   edition,
   index,
+  issueNumber,
 }: {
   edition: StarOfDayArchiveEntry;
   index: number;
+  issueNumber: number;
 }) {
   const images = edition.previewThumbnails ?? [];
   const isLatest = index === 0;
@@ -780,7 +782,7 @@ function ArchiveEditionCard({
       className={className}
       href={`/vibe-atlas?date=${encodeURIComponent(edition.date)}`}
       onClick={() => trackDailyArchiveEditionSelected(edition.date, isLatest)}
-      aria-label={`Open ${formatEditionDate(edition.date)}: ${edition.actorName}, ${edition.vibeLabelEn}`}
+      aria-label={`Open Issue ${issueNumber}, ${formatEditionDate(edition.date)}: ${edition.actorName}, ${edition.vibeLabelEn}`}
     >
       <span className="archive-card__plate" aria-hidden="true">
         {images.length > 0 ? (
@@ -799,12 +801,21 @@ function ArchiveEditionCard({
           <span className="archive-card__placeholder">{edition.vibeEmoji}</span>
         )}
         <span className="archive-card__wash" />
-        <span className="archive-card__number">{String(index + 1).padStart(2, '0')}</span>
+        <span className="archive-card__number">
+          <small>Issue</small>
+          {String(issueNumber).padStart(2, '0')}
+        </span>
         {edition.legendaryMisprint && (
           <span className="archive-card__misprint-seal">Legendary<br />misprint</span>
         )}
       </span>
       <span className="archive-card__caption">
+        {edition.legendaryMisprint && (
+          <span className="archive-card__misprint-title">
+            <small>Archive anomaly · Legendary Misprint</small>
+            <b>{edition.legendaryMisprintTitle ?? 'Preserved retrieval anomaly'}</b>
+          </span>
+        )}
         <span className="archive-card__meta">
           <time dateTime={edition.date}>{formatEditionDate(edition.date)}</time>
           <span>{isLatest ? 'Latest edition' : 'Published edition'}</span>
@@ -874,6 +885,7 @@ function ArchivePage({
                 key={edition.date}
                 edition={edition}
                 index={index}
+                issueNumber={archive.length - index}
               />
             ))}
           </div>

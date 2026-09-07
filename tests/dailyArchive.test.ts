@@ -48,8 +48,11 @@ test('archived editions expose an accessible date-aware copy link, but today doe
 test('full archive renders visual board plates and preserves genuine legendary misprints', () => {
   assert.match(hookSource, /previewThumbnails\?: string\[\]/);
   assert.match(hookSource, /legendaryMisprint\?: boolean/);
+  assert.match(hookSource, /legendaryMisprintTitle\?: string/);
   assert.match(appSource, /function ArchiveEditionCard/);
   assert.match(appSource, /archive-card__mosaic/);
   assert.match(appSource, /edition\.legendaryMisprint/);
+  assert.match(appSource, /archive\.length - index/);
+  assert.match(appSource, /Archive anomaly · Legendary Misprint/);
   assert.match(appSource, /The Star of the Day Archive/);
 });
