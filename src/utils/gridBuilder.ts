@@ -202,41 +202,6 @@ export function buildPool(cards: CardRecord[]): BuilderCard[] {
   });
 }
 
-function canonicalImageUrl(value: string): string {
-  const localOrigin = 'https://collection.invalid';
-  try {
-    const url = new URL(value, localOrigin);
-    if (url.pathname === '/.netlify/functions/image-proxy') {
-      const upstreamUrl = url.searchParams.get('url');
-      if (upstreamUrl) return canonicalImageUrl(upstreamUrl);
-    }
-    url.search = '';
-    url.hash = '';
-    return url.origin === localOrigin
-      ? url.pathname
-      : `${url.hostname.toLowerCase()}${url.pathname}`;
-  } catch {
-    return value.split(/[?#]/, 1)[0];
-  }
-}
-
-export function visualIdentityKeys(card: BuilderCard): string[] {
-  return [...new Set([
-    card.mediaChecksum ? `checksum:${card.mediaChecksum.toLowerCase()}` : '',
-    card.imageUrl ? `image:${canonicalImageUrl(card.imageUrl)}` : '',
-  ].filter(Boolean))];
-}
-
-export function uniqueVisualCards(cards: BuilderCard[]): BuilderCard[] {
-  const seen = new Set<string>();
-  return cards.filter(card => {
-    const identities = visualIdentityKeys(card);
-    if (identities.some(identity => seen.has(identity))) return false;
-    identities.forEach(identity => seen.add(identity));
-    return true;
-  });
-}
-
 export function buildVibeAtlasPool(
   cards: CardRecord[],
   mode: 'standard' | 'misprints' = 'standard',
@@ -282,13 +247,6 @@ export function applyLens(pool: BuilderCard[], lens: CollectionLens): BuilderCar
     && (!lens.familyId || card.familyId === lens.familyId));
 }
 
-export function uniqueVisualCardsForLens(
-  pool: BuilderCard[],
-  lens: CollectionLens,
-): BuilderCard[] {
-  return uniqueVisualCards(applyLens(pool, lens));
-}
-
 // ── Proposal engine ────────────────────────────────────────────────
 
 const MAX_PER_FAMILY = 3;
@@ -311,7 +269,7 @@ function rankPool(pool: BuilderCard[]): BuilderCard[] {
 }
 
 function proposeEventGrid(pool: BuilderCard[], lens: CollectionLens): GridProposal {
-  const ranked = rankPool(uniqueVisualCardsForLens(pool, lens));
+  const ranked = rankPool(applyLens(pool, lens));
   const families = new Map<string, BuilderCard[]>();
   for (const card of ranked) {
     if (card.familyEvidence !== 'batch' && card.familyEvidence !== 'persisted-event') continue;
@@ -339,7 +297,7 @@ function proposeEventGrid(pool: BuilderCard[], lens: CollectionLens): GridPropos
 }
 
 function proposeCompiledGrid(pool: BuilderCard[], lens: CollectionLens): GridProposal {
-  const ranked = rankPool(uniqueVisualCardsForLens(pool, lens));
+  const ranked = rankPool(applyLens(pool, lens));
   const slots: BuilderCard[] = [];
   const rest: BuilderCard[] = [];
   const familyCounts = new Map<string, number>();

@@ -13,7 +13,6 @@ import {
   proposeGrid,
   rationaleBrief,
   rebuildRationale,
-  uniqueVisualCardsForLens,
   type BuilderCard,
   type CollectionLens,
   type EditorialMode,
@@ -89,7 +88,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
 
   const savedOptions = useMemo(() => (pool ? lensOptions(pool) : null), [pool]);
   const smartOptionPool = useMemo(
-    () => (pool ? uniqueVisualCardsForLens(pool, { mode: lens.mode, actor: lens.actor }) : null),
+    () => (pool ? applyLens(pool, { mode: lens.mode, actor: lens.actor }) : null),
     [pool, lens.actor, lens.mode],
   );
   const smartOptions = useMemo(
@@ -108,15 +107,6 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
       : smartOptions.families;
   }, [editorialMode, eligibleEventFamilyIds, smartOptions]);
   const lensedCount = useMemo(
-    () => {
-      if (!pool) return 0;
-      return builderMode === 'smart'
-        ? uniqueVisualCardsForLens(pool, lens).length
-        : applyLens(pool, lens).length;
-    },
-    [builderMode, lens, pool],
-  );
-  const savedLensedCount = useMemo(
     () => (pool ? applyLens(pool, lens).length : 0),
     [pool, lens],
   );
@@ -452,7 +442,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
         <span>
           {builderMode === 'manual'
             ? `${countLabel(manualCandidates.length, 'saved result')} for this star`
-            : `${countLabel(lensedCount, 'unique proposal image')} from ${countLabel(savedLensedCount, 'saved result')}`}
+            : `${countLabel(lensedCount, 'saved result')} ${lensedCount === 1 ? 'matches' : 'match'} this lens`}
         </span>
       </header>
 
@@ -621,7 +611,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
                   <span className={styles.noAlternates}>No other cards match this lens.</span>
                 ) : (
                   <div className={styles.alternateStrip}>
-                    {proposal.alternates.slice(0, 12).map(card => (
+                    {proposal.alternates.map(card => (
                       <button key={card.key} type="button" onClick={() => swapInto(swapSlot, card)} title={card.familyLabel}>
                         <img src={card.imageUrl} alt={card.title} loading="lazy" />
                       </button>
