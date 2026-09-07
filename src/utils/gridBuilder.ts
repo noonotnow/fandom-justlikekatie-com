@@ -17,7 +17,7 @@ import { detectEditorialSets } from './editorialDetection';
 
 /** A normalized saved result in the builder pool. */
 export interface BuilderCard {
-  /** Stable pool key (image URL). */
+  /** Stable saved-record key used for browsing and manual selection. */
   key: string;
   imageUrl: string;
   sourceUrl: string;
@@ -95,9 +95,21 @@ export interface GridProposal {
 
 // ── Pool construction ──────────────────────────────────────────────
 
-function fromSavedCard(card: CardRecord): BuilderCard {
+function savedRecordKey(card: CardRecord, index: number): string {
+  return card.localId
+    || card.serverId
+    || [
+      card.resultId || card.imageUrl,
+      card.savedAt || card.capturedDate,
+      card.actor,
+      card.gridContext?.position ?? 'unpositioned',
+      index,
+    ].join(':');
+}
+
+function fromSavedCard(card: CardRecord, index: number): BuilderCard {
   return {
-    key: card.imageUrl,
+    key: savedRecordKey(card, index),
     imageUrl: card.media?.thumbnailUrl || card.thumbnailUrl || card.imageUrl,
     sourceUrl: card.sourceUrl || card.imageUrl,
     title: `${card.actor} · ${card.vibe}`,
@@ -127,65 +139,13 @@ function slugify(value: string): string {
 }
 
 /**
- * Extract the actor identity a search spell testifies to. Spells are built as
- * "<actor name> <vibe words>" so the first token is the canonical identity of
- * whoever the images were actually fetched for. Only a plausible CJK name
- * (2–4 han characters) counts as evidence; anything else returns undefined.
- */
-function actorEvidenceFromSpell(batchKey: string | undefined): string | undefined {
-  if (!batchKey) return undefined;
-  const first = batchKey.trim().split(/\s+/)[0];
-  return first && /^[\u4e00-\u9fff]{2,4}$/.test(first) ? first : undefined;
-}
-
-/**
- * Identity purification: a card's `actor` metadata is inherited from the saved
- * record and can drift (e.g. a grid record labeled 王以纶 holding images fetched
- * with an 敖瑞鹏 spell). The spell is primary evidence — when it names a
- * different person than the metadata, the spell wins. This must happen before
- * any lens filtering so "star: X" can never seat a separate human man.
- */
-function reconcileIdentity(card: BuilderCard): BuilderCard {
-  const evidence = actorEvidenceFromSpell(card.batchKey);
-  if (!evidence || evidence === card.actor) return card;
-  return {
-    ...card,
-    actor: evidence,
-    actorEn: '',
-    actorId: `spell-${slugify(evidence)}`,
-    title: card.origin === 'saved-card' ? `${evidence} · ${card.vibe}` : card.title,
-  };
-}
-
-/**
  * Build the builder pool from saved result cards and assign a crude visual family:
  * editorialDetection sets where possible, batch/spell key otherwise.
  * Finished grids remain first-class artifacts in the Grids collection instead
  * of being unpacked back into result cards.
  */
 export function buildPool(cards: CardRecord[]): BuilderCard[] {
-  const byKey = new Map<string, BuilderCard>();
-  const admit = (built: BuilderCard) => {
-    const existing = byKey.get(built.key);
-    if (!existing) {
-      byKey.set(built.key, built);
-      return;
-    }
-    // Same image, two records: if the discarded duplicate carries spell
-    // identity evidence and the kept one doesn't, adopt its identity so
-    // dedupe order can never launder a drifted actor label.
-    if (!actorEvidenceFromSpell(existing.batchKey) && actorEvidenceFromSpell(built.batchKey)) {
-      byKey.set(built.key, {
-        ...existing,
-        actor: built.actor,
-        actorEn: built.actorEn,
-        actorId: built.actorId,
-        ...(built.batchKey ? { batchKey: built.batchKey } : {}),
-      });
-    }
-  };
-  for (const card of cards) admit(reconcileIdentity(fromSavedCard(card)));
-  const pool = [...byKey.values()];
+  const pool = cards.map(fromSavedCard);
 
   // Editorial detection over items that carry publisher/title signal.
   const detectable: GridItemData[] = pool.map(card => ({
