@@ -121,6 +121,24 @@ test('automatic proposals preserve separately saved records with the same MEDIA 
   );
 });
 
+test('Compiled mode keeps all 23 saved records when six generic visuals share one family', () => {
+  const pool = Array.from({ length: 23 }, (_, index) => ({
+    ...card(index, 'good-looking-man-next-to-a-building'),
+    key: `saved-record-${index}`,
+    imageUrl: `https://images.example/shared-look-${index % 6}.jpg`,
+    resultId: `saved-result-${index}`,
+    mediaChecksum: String(index % 6).repeat(64),
+  }));
+
+  const proposal = proposeGrid(pool, { actor: '刘学义' }, 'compiled');
+  const available = [...proposal.slots, ...proposal.alternates];
+
+  assert.equal(proposal.slots.length, 9);
+  assert.equal(proposal.alternates.length, 14);
+  assert.equal(available.length, 23);
+  assert.equal(new Set(available.map(item => item.key)).size, 23);
+});
+
 test('reused result ids do not collapse independently saved images', () => {
   const reusedResultId = Array.from({ length: 23 }, (_, index) => ({
     ...card(index, `family-${index % 4}`),
