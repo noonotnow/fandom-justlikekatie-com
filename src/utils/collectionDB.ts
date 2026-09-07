@@ -492,6 +492,13 @@ export function collectionScopeForCard(card: CardRecord): CollectionScope {
 }
 
 export function normalizeCardForCollection(card: CardRecord): CardRecord {
+  if (card.collectionScope === 'vibe-atlas' && card.contentKind === 'middle-earth-meme') {
+    const normalized = { ...card };
+    delete normalized.contentKind;
+    if (normalized.title === 'Existing Middle-earth meme') delete normalized.title;
+    if (normalized.sourceRoute?.startsWith('/memeforge/middle-earth')) delete normalized.sourceRoute;
+    return normalized;
+  }
   if (
     collectionScopeForCard(card) !== 'middle-earth'
     || (
@@ -727,11 +734,12 @@ export function buildSyncOperations(
   const acknowledged = state.acknowledgedUpsertsByAccount[accountId] || {};
   const upserts = cards
     .filter(card => !card.ownerAccountId || card.ownerAccountId === accountId)
-    .map(card => {
+    .map(rawCard => {
+      const card = normalizeCardForCollection(rawCard);
       const localId = card.localId!;
       const collectionScope = collectionScopeForCard(card);
       const scopeKey = collectionScope === 'middle-earth' ? 'm' : 'v';
-      const mutationId = `upsert:v2:${state.clientId}:${localId}:${card.savedAt || card.capturedDate}:${scopeKey}`;
+      const mutationId = `upsert:v3:${state.clientId}:${localId}:${card.savedAt || card.capturedDate}:${scopeKey}`;
       const compactUrl = (value: string | undefined): string | undefined =>
         value?.startsWith('data:image/') ? undefined : value;
       const compactRecovery = (() => {
@@ -892,8 +900,9 @@ export async function dbApplySyncResponse(
       // downloads are account-scoped and removed from the local cache on logout.
       ownerAccountId: existing?.ownerAccountId || (existing ? undefined : accountId),
     };
-    if (existing && existing.imageUrl !== record.imageUrl) cardStore.delete(existing.imageUrl);
-    cardStore.put({ ...existing, ...record });
+    const mergedRecord = normalizeCardForCollection({ ...existing, ...record });
+    if (existing && existing.imageUrl !== mergedRecord.imageUrl) cardStore.delete(existing.imageUrl);
+    cardStore.put(mergedRecord);
   }
   for (const tombstone of response.tombstones) {
     const mappedLocalId = Object.entries(mappings).find(([, serverId]) => serverId === tombstone.id)?.[0];

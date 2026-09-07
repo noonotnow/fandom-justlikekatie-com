@@ -142,7 +142,7 @@ test('saved-card identity migration re-uploads previously acknowledged records',
     .find(candidate => candidate.type === 'upsert');
   assert.ok(operation);
   assert.equal(operation.localId, saved.localId);
-  assert.match(String(operation.mutationId), /^upsert:v2:/);
+  assert.match(String(operation.mutationId), /^upsert:v3:/);
   assert.ok(String(operation.mutationId).length <= 120);
 });
 
@@ -213,6 +213,67 @@ test('sync response updates the matching saved record when legacy mappings share
   assert.equal(persisted.find(saved => saved.localId === song.localId)?.imageUrl, song.imageUrl);
   assert.equal(persisted.find(saved => saved.localId === liu.localId)?.actor, 'Liu Xueyi');
   assert.equal(persisted.find(saved => saved.localId === liu.localId)?.serverId, 'liu-server-v2');
+});
+
+test('sync removes stale Middle-earth metadata from explicitly scoped Vibe Atlas cards', async () => {
+  Object.assign(globalThis, { indexedDB: new IDBFactory() });
+  const contaminated = {
+    ...card(3),
+    collectionScope: 'vibe-atlas' as const,
+    contentKind: 'middle-earth-meme' as const,
+    title: 'Existing Middle-earth meme',
+    sourceRoute: '/memeforge/middle-earth?view=collection',
+    gridContext: { batchKey: '刘学义 古装 白衣 仙侠 剧照', position: 0 },
+  };
+  await dbSaveCard(contaminated);
+
+  const operation = buildSyncOperations([contaminated], state(), 'account-a')
+    .find(candidate => candidate.type === 'upsert');
+  assert.ok(operation);
+  const item = operation.item as Record<string, unknown>;
+  assert.equal(item.contentKind, undefined);
+  assert.equal(item.title, undefined);
+  assert.equal(item.sourceRoute, undefined);
+
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.open('vibe-atlas-collection', 3);
+    request.onsuccess = () => {
+      const transaction = request.result.transaction('cards', 'readwrite');
+      transaction.objectStore('cards').put(contaminated);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    };
+    request.onerror = () => reject(request.error);
+  });
+
+  await dbApplySyncResponse('account-a', {
+    cursor: 1,
+    items: [{
+      kind: 'card',
+      id: 'server-3',
+      localId: contaminated.localId,
+      imageUrl: contaminated.imageUrl,
+      thumbnailUrl: contaminated.thumbnailUrl,
+      actor: contaminated.actor,
+      actorEn: contaminated.actorEn,
+      vibe: contaminated.vibe,
+      vibeEn: contaminated.vibeEn,
+      vibeEmoji: contaminated.vibeEmoji,
+      capturedDate: contaminated.capturedDate,
+      collectionScope: 'vibe-atlas',
+      revision: 1,
+    }],
+    tombstones: [],
+    mappings: { [contaminated.localId!]: 'server-3' },
+    acknowledgedMutationIds: [],
+  }, []);
+
+  const repaired = (await dbGetAllCards()).find(saved => saved.localId === contaminated.localId);
+  assert.equal(repaired?.actor, contaminated.actor);
+  assert.deepEqual(repaired?.gridContext, contaminated.gridContext);
+  assert.equal(repaired?.contentKind, undefined);
+  assert.equal(repaired?.title, undefined);
+  assert.equal(repaired?.sourceRoute, undefined);
 });
 
 test('sync request batches stay below the API body limit without dropping operations', () => {
@@ -581,6 +642,25 @@ test('already-moved Middle-earth cards with Vibe grid context are repaired after
   assert.equal(repaired.vibe, 'Existing Middle-earth meme');
   assert.equal(repaired.gridContext, undefined);
   assert.equal(repaired.sourceRoute, '/memeforge/middle-earth?view=collection');
+});
+
+test('explicit Vibe Atlas scope removes stale Middle-earth fields without changing identity', () => {
+  const repaired = normalizeCardForCollection({
+    ...card(7),
+    actor: '刘学义',
+    actorEn: 'Liu Xueyi',
+    collectionScope: 'vibe-atlas',
+    contentKind: 'middle-earth-meme',
+    title: 'Existing Middle-earth meme',
+    sourceRoute: '/memeforge/middle-earth?view=collection',
+    gridContext: { batchKey: '刘学义 cold jade', position: 0 },
+  });
+  assert.equal(repaired.actor, '刘学义');
+  assert.equal(repaired.imageUrl, 'https://images.example/7.jpg');
+  assert.deepEqual(repaired.gridContext, { batchKey: '刘学义 cold jade', position: 0 });
+  assert.equal(repaired.contentKind, undefined);
+  assert.equal(repaired.title, undefined);
+  assert.equal(repaired.sourceRoute, undefined);
 });
 
 test('Legendary Misprints preserve the unexpected actor while setting both export tier flags', () => {
