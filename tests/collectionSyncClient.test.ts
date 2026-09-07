@@ -254,6 +254,75 @@ test('sync request batching reports a single unsyncable item clearly', () => {
   );
 });
 
+test('card sync strips embedded image copies after MEDIA persistence', () => {
+  const embeddedImage = `data:image/png;base64,${'x'.repeat(230 * 1024)}`;
+  const saved = {
+    ...card(101),
+    imageUrl: 'https://media.justlikekatie.com/collection/vibe-atlas/asset.png',
+    thumbnailUrl: embeddedImage,
+    sourceUrl: embeddedImage,
+    mediaRecovery: {
+      classification: 'media-backed' as const,
+      status: 'recovered' as const,
+      attemptedAt: '2026-08-10T01:00:00Z',
+      sourceUrl: embeddedImage,
+    },
+    misprint: {
+      ...createMisprint(card(101), {
+        reason: 'wrong_actor',
+        label: 'Wrong actor',
+        learningScope: 'actor_identity',
+        calibrationStatus: 'recorded',
+      }),
+      provenance: {
+        ...createMisprint(card(101), {
+          reason: 'wrong_actor',
+          label: 'Wrong actor',
+          learningScope: 'actor_identity',
+          calibrationStatus: 'recorded',
+        }).provenance,
+        imageUrl: embeddedImage,
+        sourceUrl: embeddedImage,
+      },
+    },
+  };
+  const operations = buildSyncOperations([saved], state(), 'account-a');
+  const serialized = JSON.stringify(operations);
+  const item = operations.find(operation => operation.localId === saved.localId)?.item as Record<string, unknown>;
+
+  assert.equal(serialized.includes('data:image/'), false);
+  assert.equal(item.thumbnailUrl, saved.imageUrl);
+  assert.equal((item.mediaRecovery as { sourceUrl?: string }).sourceUrl, undefined);
+  assert.equal(
+    (item.misprint as { provenance: { imageUrl: string } }).provenance.imageUrl,
+    saved.imageUrl,
+  );
+  assert.doesNotThrow(() => batchCollectionSyncOperations({
+    schemaVersion: 1,
+    clientId: 'device-1',
+    expectedAccountId: 'account-a',
+    cursor: 0,
+  }, operations));
+});
+
+test('account sync persists embedded cards from every collection scope before building requests', async () => {
+  const source = await readFile(new URL('../src/utils/publicAccount.ts', import.meta.url), 'utf8');
+  const syncBody = source.match(
+    /export async function syncPublicCollection[\s\S]*?\n}\n\n\/\*\* Sync only/,
+  )?.[0] || '';
+  const persistenceBody = source.match(
+    /async function persistEmbeddedCollectionImages[\s\S]*?\n}\n\nlet retryOnReconnect/,
+  )?.[0] || '';
+
+  assert.ok(
+    syncBody.indexOf('persistEmbeddedCollectionImages') < syncBody.indexOf('dbBuildSyncRequest'),
+    'embedded MEDIA persistence must finish before collection operations are serialized',
+  );
+  assert.match(persistenceBody, /dbGetVisibleCards\(accountId\)/);
+  assert.doesNotMatch(persistenceBody, /dbGetVisibleCardsByScope/);
+  assert.match(persistenceBody, /collectionScopeForCard\(card\)/);
+});
+
 test('saved grids sync as first-class artifacts without flattening their source results', () => {
   const operations = buildSyncOperations([card(1)], state(), 'account-a', [grid()]);
   const gridOperation = operations.find(operation => operation.localId === 'grid-local-1');

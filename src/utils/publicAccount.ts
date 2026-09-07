@@ -2,7 +2,8 @@ import {
   dbApplySyncResponse,
   dbBuildGridSyncRequest,
   dbBuildSyncRequest,
-  dbGetVisibleCardsByScope,
+  collectionScopeForCard,
+  dbGetVisibleCards,
   dbGetSyncState,
   dbReplaceCardImage,
   dbRemoveAccountCache,
@@ -127,11 +128,15 @@ export async function syncPublicGrid(user: PublicUser, gridId: string): Promise<
 }
 
 async function persistEmbeddedCollectionImages(accountId: string): Promise<void> {
-  const cards = await dbGetVisibleCardsByScope(accountId, 'middle-earth');
+  const cards = await dbGetVisibleCards(accountId);
   for (const card of cards) {
     if (!card.imageUrl.startsWith('data:image/')) continue;
     if (!card.localId) throw new Error('Collection image is missing its local identity.');
-    const uploaded = await uploadCollectionImage(card.imageUrl, 'middle-earth', card.localId);
+    const uploaded = await uploadCollectionImage(
+      card.imageUrl,
+      collectionScopeForCard(card),
+      card.localId,
+    );
     await dbReplaceCardImage(card.imageUrl, uploaded);
   }
 }

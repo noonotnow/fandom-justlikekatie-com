@@ -732,6 +732,52 @@ export function buildSyncOperations(
       const collectionScope = collectionScopeForCard(card);
       const scopeKey = collectionScope === 'middle-earth' ? 'm' : 'v';
       const mutationId = `upsert:v2:${state.clientId}:${localId}:${card.savedAt || card.capturedDate}:${scopeKey}`;
+      const compactUrl = (value: string | undefined): string | undefined =>
+        value?.startsWith('data:image/') ? undefined : value;
+      const compactRecovery = (() => {
+        if (!card.mediaRecovery) return undefined;
+        const { sourceUrl, ...recovery } = card.mediaRecovery;
+        const compactSourceUrl = compactUrl(sourceUrl);
+        return { ...recovery, ...(compactSourceUrl ? { sourceUrl: compactSourceUrl } : {}) };
+      })();
+      const compactMisprint = (() => {
+        if (!card.misprint) return undefined;
+        const { sourceUrl, ...provenance } = card.misprint.provenance;
+        const compactSourceUrl = compactUrl(sourceUrl);
+        return {
+          ...card.misprint,
+          provenance: {
+            ...provenance,
+            imageUrl: compactUrl(provenance.imageUrl) || card.imageUrl,
+            ...(compactSourceUrl ? { sourceUrl: compactSourceUrl } : {}),
+          },
+        };
+      })();
+      const compactLegendaryMisprint = (() => {
+        if (!card.legendaryMisprint) return undefined;
+        const { sourceUrl, ...provenance } = card.legendaryMisprint.provenance;
+        const compactSourceUrl = compactUrl(sourceUrl);
+        return {
+          ...card.legendaryMisprint,
+          provenance: {
+            ...provenance,
+            imageUrl: compactUrl(provenance.imageUrl) || card.imageUrl,
+            ...(compactSourceUrl ? { sourceUrl: compactSourceUrl } : {}),
+          },
+        };
+      })();
+      const compactMemeRework = (() => {
+        if (!card.memeRework) return undefined;
+        const { sourceUrl, ...original } = card.memeRework.original;
+        const compactSourceUrl = compactUrl(sourceUrl);
+        return {
+          ...card.memeRework,
+          original: {
+            ...original,
+            ...(compactSourceUrl ? { sourceUrl: compactSourceUrl } : {}),
+          },
+        };
+      })();
       return {
         type: 'upsert',
         mutationId,
@@ -739,11 +785,11 @@ export function buildSyncOperations(
         item: {
           kind: 'card',
           imageUrl: card.imageUrl,
-          thumbnailUrl: card.thumbnailUrl,
+          thumbnailUrl: compactUrl(card.thumbnailUrl) || card.imageUrl,
           resultId: card.resultId,
           actorId: card.actorId,
           vibeKey: card.vibeKey,
-          sourceUrl: card.sourceUrl,
+          sourceUrl: compactUrl(card.sourceUrl),
           actor: card.actor,
           actorEn: card.actorEn,
           vibe: card.vibe,
@@ -758,11 +804,11 @@ export function buildSyncOperations(
           searchQuery: card.searchQuery,
           sourceRoute: card.sourceRoute,
           media: card.media,
-          mediaRecovery: card.mediaRecovery,
+          mediaRecovery: compactRecovery,
           collectionScope,
-          misprint: card.misprint,
-          legendaryMisprint: card.legendaryMisprint,
-          memeRework: card.memeRework,
+          misprint: compactMisprint,
+          legendaryMisprint: compactLegendaryMisprint,
+          memeRework: compactMemeRework,
         },
       };
     })
