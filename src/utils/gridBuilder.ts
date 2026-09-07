@@ -113,6 +113,7 @@ function fromSavedCard(card: CardRecord, index: number): BuilderCard {
     imageUrl: card.media?.thumbnailUrl || card.thumbnailUrl || card.imageUrl,
     sourceUrl: card.sourceUrl || card.imageUrl,
     title: `${card.actor} · ${card.vibe}`,
+    ...(card.publisher ? { publisher: card.publisher } : {}),
     actor: card.actor,
     actorEn: card.actorEn,
     actorId: `saved-${slugify(card.actorEn || card.actor)}`,
@@ -138,6 +139,17 @@ function slugify(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-').replace(/^-+|-+$/g, '') || 'x';
 }
 
+const GENERIC_BATCH_KEYS = new Set([
+  'daily-grid',
+  'verified-publication-manifest',
+]);
+
+function editorialBatchKey(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed || GENERIC_BATCH_KEYS.has(trimmed.toLowerCase())) return undefined;
+  return trimmed;
+}
+
 /**
  * Build the builder pool from saved result cards and assign a crude visual family:
  * editorialDetection sets where possible, batch/spell key otherwise.
@@ -161,6 +173,15 @@ export function buildPool(cards: CardRecord[]): BuilderCard[] {
 
   return pool.map(card => {
     if (card.familyId && card.familyLabel) return card;
+    const batchKey = editorialBatchKey(card.batchKey);
+    if (batchKey) {
+      return {
+        ...card,
+        familyId: `batch-${slugify(batchKey)}`,
+        familyLabel: batchKey,
+        familyEvidence: 'batch',
+      };
+    }
     // A missing publisher must not turn unrelated saved images into one
     // synthetic "unknown" Event family.
     const editorial = card.publisher ? setById.get(card.key) : undefined;
@@ -169,15 +190,14 @@ export function buildPool(cards: CardRecord[]): BuilderCard[] {
         ...card,
         familyId: editorial,
         familyLabel: card.publisher || editorial.replace(/^editorial-/, ''),
-        familyEvidence: card.batchKey ? 'batch' : 'publisher',
+        familyEvidence: 'publisher',
       };
     }
-    const batch = card.batchKey ? `batch-${slugify(card.batchKey)}` : `vibe-${slugify(card.vibeEn || card.vibe)}`;
     return {
       ...card,
-      familyId: batch,
-      familyLabel: card.batchKey || card.vibeEn || card.vibe,
-      familyEvidence: card.batchKey ? 'batch' : 'fallback',
+      familyId: `vibe-${slugify(card.vibeEn || card.vibe)}`,
+      familyLabel: card.vibeEn || card.vibe,
+      familyEvidence: 'fallback',
     };
   });
 }
@@ -203,7 +223,6 @@ function canonicalImageUrl(value: string): string {
 export function visualIdentityKeys(card: BuilderCard): string[] {
   return [...new Set([
     card.mediaChecksum ? `checksum:${card.mediaChecksum.toLowerCase()}` : '',
-    card.resultId ? `result:${card.resultId}` : '',
     card.imageUrl ? `image:${canonicalImageUrl(card.imageUrl)}` : '',
   ].filter(Boolean))];
 }
@@ -263,6 +282,13 @@ export function applyLens(pool: BuilderCard[], lens: CollectionLens): BuilderCar
     && (!lens.familyId || card.familyId === lens.familyId));
 }
 
+export function uniqueVisualCardsForLens(
+  pool: BuilderCard[],
+  lens: CollectionLens,
+): BuilderCard[] {
+  return uniqueVisualCards(applyLens(pool, lens));
+}
+
 // ── Proposal engine ────────────────────────────────────────────────
 
 const MAX_PER_FAMILY = 3;
@@ -285,7 +311,7 @@ function rankPool(pool: BuilderCard[]): BuilderCard[] {
 }
 
 function proposeEventGrid(pool: BuilderCard[], lens: CollectionLens): GridProposal {
-  const ranked = rankPool(uniqueVisualCards(applyLens(pool, lens)));
+  const ranked = rankPool(uniqueVisualCardsForLens(pool, lens));
   const families = new Map<string, BuilderCard[]>();
   for (const card of ranked) {
     if (card.familyEvidence !== 'batch' && card.familyEvidence !== 'persisted-event') continue;
@@ -313,7 +339,7 @@ function proposeEventGrid(pool: BuilderCard[], lens: CollectionLens): GridPropos
 }
 
 function proposeCompiledGrid(pool: BuilderCard[], lens: CollectionLens): GridProposal {
-  const ranked = rankPool(uniqueVisualCards(applyLens(pool, lens)));
+  const ranked = rankPool(uniqueVisualCardsForLens(pool, lens));
   const slots: BuilderCard[] = [];
   const rest: BuilderCard[] = [];
   const familyCounts = new Map<string, number>();

@@ -122,6 +122,16 @@ test('automatic proposals never seat one MEDIA image twice through duplicate rec
   );
 });
 
+test('reused result ids do not collapse independently saved images', () => {
+  const reusedResultId = Array.from({ length: 23 }, (_, index) => ({
+    ...card(index, `family-${index % 4}`),
+    resultId: 'reused-search-result-id',
+  }));
+
+  assert.equal(uniqueVisualCards(reusedResultId).length, 23);
+  assert.equal(proposeGrid(reusedResultId, { actor: '刘学义' }, 'compiled').slots.length, 9);
+});
+
 test('distinct images behind the image proxy remain distinct builder cards', () => {
   const proxied = Array.from({ length: 9 }, (_, index) => ({
     ...card(index, `family-${index % 3}`),

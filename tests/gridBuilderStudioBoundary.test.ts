@@ -4,6 +4,7 @@ import {
   buildVibeAtlasPool,
   gridRecordFromProposal,
   proposeGrid,
+  uniqueVisualCardsForLens,
 } from '../src/utils/gridBuilder';
 import { markGridAsLegendaryMisprint, type CardRecord, type GridRecord } from '../src/utils/collectionDB';
 import { starDataFromCollectionGrid } from '../src/utils/collectionHistoryModel';
@@ -126,6 +127,43 @@ test('saved actor identity stays authoritative over stale search spell metadata'
   assert.deepEqual(pool.map(item => item.actor), ['宋威龙', '宋威龙']);
   assert.deepEqual(pool.map(item => item.actorEn), ['Song Weilong', 'Song Weilong']);
   assert.equal(proposeGrid(pool, {}, 'compiled').slots.length, 1);
+});
+
+test('actor lenses run before visual deduplication', () => {
+  const song = Array.from({ length: 5 }, (_, index) => ({
+    ...card('宋威龙', `song-${index}`),
+    actorEn: 'Song Weilong',
+    imageUrl: `https://images.example/shared-${index}.jpg`,
+    thumbnailUrl: `https://images.example/shared-${index}.jpg`,
+  }));
+  const ao = song.map((record, index) => ({
+    ...record,
+    localId: `ao-save-${index}`,
+    resultId: `ao-result-${index}`,
+    actor: '敖瑞鹏',
+    actorEn: 'Ao Ruipeng',
+  }));
+
+  const pool = buildVibeAtlasPool([...song, ...ao]);
+
+  assert.equal(uniqueVisualCardsForLens(pool, { actor: '宋威龙' }).length, 5);
+  assert.equal(uniqueVisualCardsForLens(pool, { actor: '敖瑞鹏' }).length, 5);
+});
+
+test('generic publication markers do not become Event families', () => {
+  const records = Array.from({ length: 3 }, (_, index) => ({
+    ...card('刘宇宁', `published-${index}`),
+    publisher: 'Liu Yuning · source.example',
+    gridContext: {
+      batchKey: 'verified-publication-manifest',
+      position: index,
+    },
+  }));
+
+  const pool = buildVibeAtlasPool(records);
+
+  assert.ok(pool.every(item => item.familyLabel === 'Liu Yuning · source.example'));
+  assert.ok(pool.every(item => item.familyEvidence === 'publisher'));
 });
 
 test('creator-marked mismatches are excluded ordinarily and included only in the Misprints lens', () => {
