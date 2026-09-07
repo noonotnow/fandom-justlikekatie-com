@@ -1,0 +1,2545 @@
+<!doctype html>
+<!--
+THESIS: A Series home is a continuity ledger: understand and preserve first, make only by choice. It refuses the equal-column dashboard.
+OWN-WORLD: FANDOM ink, parchment, gold, sage, lilac, and coral; ruled ledgers, restrained panels, explicit authority labels, system sans.
+STORY: Katie sees what remains unresolved, preserves something as complete, and only then may commit selected material to a definite CREATE shape.
+FIRST VIEWPORT: Waiting Room identity spans the top; CAPTURE owns the broad left sheet; continuity and three compact downstream ledgers stack at right.
+FORM: Capture-first continuity ledger, selected for an operate surface. The prototype is illustrative, local, and read-oriented.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Nian Wushuang Waiting Room — Paper Cockpit</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f3f1eb;
+      --muted: #969b98;
+      --ground: #0e0e12;
+      --panel: #151519;
+      --panel-raised: #1b1b20;
+      --line: rgba(243, 241, 235, 0.13);
+      --line-strong: rgba(201, 169, 110, 0.38);
+      --gold: #c9a96e;
+      --gold-soft: #e2c88e;
+      --sage: #86a99b;
+      --sage-soft: #b8d2c6;
+      --lilac: #a98ac7;
+      --lilac-soft: #d0b9ef;
+      --coral: #c98264;
+      --coral-soft: #e5b09a;
+      --blue: #7895b5;
+      --shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+      --radius: 14px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--ground);
+    }
+
+    body {
+      min-width: 320px;
+      margin: 0;
+      background:
+        radial-gradient(circle at 72% -10%, rgba(169, 138, 199, 0.12), transparent 31rem),
+        radial-gradient(circle at 8% 18%, rgba(201, 169, 110, 0.11), transparent 28rem),
+        var(--ground);
+      color: var(--ink);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible {
+      outline: 2px solid var(--gold);
+      outline-offset: 3px;
+    }
+
+    .shell {
+      width: min(1480px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+    }
+
+    .prototype-note {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .prototype-note strong {
+      color: var(--gold-soft);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .series-header {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line-strong);
+      border-radius: 20px;
+      background:
+        linear-gradient(115deg, rgba(201, 169, 110, 0.13), transparent 44%),
+        linear-gradient(300deg, rgba(111, 141, 131, 0.09), transparent 48%),
+        var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .series-header::after {
+      position: absolute;
+      top: -115px;
+      right: 8%;
+      width: 260px;
+      height: 260px;
+      border: 1px solid rgba(201, 169, 110, 0.18);
+      border-radius: 50%;
+      content: "";
+      box-shadow:
+        0 0 0 36px rgba(201, 169, 110, 0.025),
+        0 0 0 76px rgba(201, 169, 110, 0.018);
+      pointer-events: none;
+    }
+
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 16px 22px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .crumbs,
+    .lens-switch {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .crumbs {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .crumbs strong {
+      color: var(--ink);
+    }
+
+    .lens-switch {
+      padding: 6px 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.12);
+      color: var(--gold-soft);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .lens-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--gold);
+      box-shadow: 0 0 0 4px rgba(201, 169, 110, 0.12);
+    }
+
+    .module-spine {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    .module-spine span {
+      position: relative;
+      padding: 10px 12px 9px;
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .module-spine span[aria-current="page"] {
+      color: var(--gold-soft);
+    }
+
+    .module-spine span[aria-current="page"]::after {
+      position: absolute;
+      right: 12px;
+      bottom: -1px;
+      left: 12px;
+      height: 2px;
+      background: var(--gold);
+      content: "";
+    }
+
+    .header-main {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 36px;
+      align-items: end;
+      padding: 30px 32px 28px;
+    }
+
+    .eyebrow {
+      margin: 0 0 7px;
+      color: var(--gold);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      max-width: 850px;
+      margin-bottom: 10px;
+      font-size: clamp(31px, 5vw, 60px);
+      font-weight: 650;
+      letter-spacing: -0.055em;
+      line-height: 0.98;
+    }
+
+    .thesis {
+      max-width: 720px;
+      margin: 0;
+      color: #c9ceca;
+      font-size: clamp(14px, 1.8vw, 18px);
+      line-height: 1.55;
+    }
+
+    .state-ledger {
+      display: grid;
+      min-width: 290px;
+      border-left: 2px solid var(--gold);
+      padding-left: 18px;
+    }
+
+    .state-row {
+      display: grid;
+      grid-template-columns: 105px 1fr;
+      gap: 12px;
+      padding: 7px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .state-row:last-child {
+      border-bottom: 0;
+    }
+
+    .state-row span {
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .state-row strong {
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .state-row [data-tone="gold"] {
+      color: var(--gold-soft);
+    }
+
+    .state-row [data-tone="sage"] {
+      color: var(--sage-soft);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.85fr) minmax(320px, 0.72fr);
+      gap: 16px;
+      align-items: start;
+      margin-top: 16px;
+    }
+
+    .sheet,
+    .ledger {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(21, 21, 25, 0.92);
+    }
+
+    .capture-sheet {
+      min-width: 0;
+      box-shadow: var(--shadow);
+    }
+
+    .section-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 22px 24px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section-header h2 {
+      margin-bottom: 4px;
+      font-size: 23px;
+      letter-spacing: -0.025em;
+    }
+
+    .section-header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .module-mark {
+      color: var(--gold);
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .capture-body {
+      display: grid;
+      grid-template-columns: minmax(210px, 0.62fr) minmax(0, 1.38fr);
+      min-height: 430px;
+    }
+
+    .instrument-list {
+      padding: 16px;
+      border-right: 1px solid var(--line);
+    }
+
+    .instrument-list button {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 10px;
+      width: 100%;
+      margin: 0 0 6px;
+      padding: 12px 10px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--ink);
+      text-align: left;
+    }
+
+    .instrument-list button:hover {
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .instrument-list button[aria-selected="true"] {
+      border-color: rgba(201, 169, 110, 0.42);
+      background: rgba(201, 169, 110, 0.1);
+    }
+
+    .instrument-index {
+      color: var(--gold);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+
+    .instrument-copy {
+      display: grid;
+      gap: 2px;
+    }
+
+    .instrument-copy strong {
+      font-size: 12px;
+    }
+
+    .instrument-copy span {
+      color: var(--muted);
+      font-size: 9px;
+      line-height: 1.35;
+    }
+
+    .instrument-detail {
+      display: grid;
+      align-content: start;
+      gap: 18px;
+      padding: 24px;
+    }
+
+    .destination {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: start;
+      padding: 12px 14px;
+      border-left: 2px solid var(--sage);
+      background: rgba(111, 141, 131, 0.09);
+    }
+
+    .destination strong {
+      display: block;
+      margin-bottom: 3px;
+      font-size: 12px;
+    }
+
+    .destination p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .owner {
+      color: var(--sage-soft);
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .detail-title {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: -0.02em;
+    }
+
+    .prompt {
+      color: #d7d9d6;
+      font-size: 13px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 138px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #101014;
+      color: var(--ink);
+      padding: 14px;
+      line-height: 1.6;
+    }
+
+    textarea::placeholder {
+      color: #656b68;
+    }
+
+    .instrument-panel {
+      display: grid;
+      gap: 18px;
+    }
+
+    .instrument-panel[hidden] {
+      display: none;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 11px;
+    }
+
+    .field-grid label,
+    .field-block {
+      display: grid;
+      gap: 5px;
+      align-content: start;
+    }
+
+    .field-grid label > span,
+    .field-block > span,
+    .option-set legend {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 650;
+    }
+
+    .field-grid input,
+    .field-grid select,
+    .field-grid textarea,
+    .field-block input,
+    .field-block textarea {
+      width: 100%;
+      min-height: 39px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #101014;
+      color: var(--ink);
+      padding: 9px 10px;
+      line-height: 1.45;
+    }
+
+    .field-grid textarea,
+    .field-block textarea {
+      min-height: 66px;
+    }
+
+    .field-grid input:disabled {
+      color: var(--gold-soft);
+      opacity: 1;
+    }
+
+    .field-grid .wide {
+      grid-column: 1 / -1;
+    }
+
+    .field-grid .wide textarea {
+      min-height: 82px;
+    }
+
+    .option-set {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 7px;
+      margin: 0;
+      border: 0;
+      padding: 0;
+    }
+
+    .option-set legend {
+      grid-column: 1 / -1;
+      margin-bottom: 1px;
+    }
+
+    .option {
+      position: relative;
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #101014;
+      padding: 9px;
+      color: #c9ceca;
+      font-size: 10px;
+      line-height: 1.35;
+    }
+
+    .option:has(input:checked) {
+      border-color: rgba(201, 169, 110, 0.52);
+      background: rgba(201, 169, 110, 0.08);
+      color: var(--gold-soft);
+    }
+
+    .option input {
+      flex: 0 0 auto;
+      width: auto;
+      min-height: 0;
+      margin: 2px 0 0;
+      accent-color: var(--gold);
+    }
+
+    .privacy-row,
+    .claim-warning,
+    .capture-complete {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      margin: 0;
+      border-radius: 8px;
+      padding: 10px 11px;
+      color: var(--muted);
+      font-size: 9px;
+      line-height: 1.45;
+    }
+
+    .privacy-row {
+      border: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.11);
+    }
+
+    .privacy-row strong {
+      color: var(--ink);
+    }
+
+    .claim-warning {
+      border: 1px solid rgba(201, 130, 100, 0.3);
+      background: rgba(201, 130, 100, 0.08);
+      color: var(--coral-soft);
+    }
+
+    .capture-complete {
+      border: 1px solid rgba(134, 169, 155, 0.4);
+      background: rgba(134, 169, 155, 0.09);
+      color: var(--sage-soft);
+    }
+
+    .capture-complete[hidden] {
+      display: none;
+    }
+
+    .journal-boundary {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: center;
+      padding: 12px 14px;
+      border: 1px solid rgba(201, 169, 110, 0.3);
+      border-radius: 10px;
+      background: rgba(201, 169, 110, 0.065);
+    }
+
+    .journal-boundary > div > span {
+      display: block;
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 750;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .journal-boundary strong {
+      color: var(--gold-soft);
+      font-size: 20px;
+    }
+
+    .journal-boundary p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 10px;
+      text-align: right;
+    }
+
+    .journal-empty {
+      display: grid;
+      gap: 12px;
+      border: 1px solid rgba(134, 169, 155, 0.35);
+      border-radius: 10px;
+      background: rgba(134, 169, 155, 0.055);
+      padding: 15px;
+    }
+
+    .journal-empty[hidden],
+    .journal-session[hidden],
+    .journal-watching[hidden],
+    .journal-filing[hidden] {
+      display: none;
+    }
+
+    .journal-context {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 14px;
+      align-items: center;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .journal-context:last-of-type {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .journal-context span {
+      display: block;
+      color: var(--muted);
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .journal-context strong {
+      font-size: 11px;
+    }
+
+    .journal-context em {
+      color: var(--muted);
+      font-size: 9px;
+      font-style: normal;
+      text-align: right;
+    }
+
+    .journal-session,
+    .journal-watching,
+    .journal-filing {
+      display: grid;
+      gap: 16px;
+    }
+
+    .journal-experience {
+      display: grid;
+      gap: 6px;
+      border-left: 2px solid var(--gold);
+      padding: 4px 0 4px 13px;
+    }
+
+    .journal-experience strong {
+      font-size: 18px;
+    }
+
+    .journal-experience p {
+      max-width: 62ch;
+      margin: 0;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.5;
+    }
+
+    .journal-contract {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 9px;
+      line-height: 1.45;
+    }
+
+    .journal-contract::before {
+      flex: 0 0 auto;
+      width: 7px;
+      height: 7px;
+      margin-top: 3px;
+      border-radius: 50%;
+      background: var(--sage);
+      content: "";
+    }
+
+    .detail-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .primary,
+    .secondary,
+    .text-action {
+      min-height: 39px;
+      border-radius: 8px;
+      padding: 8px 13px;
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .primary {
+      border: 1px solid var(--gold);
+      background: var(--gold);
+      color: #17130e;
+    }
+
+    .primary:hover {
+      background: var(--gold-soft);
+    }
+
+    .secondary {
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--ink);
+    }
+
+    .secondary:hover,
+    .text-action:hover {
+      border-color: rgba(201, 169, 110, 0.48);
+      color: var(--gold-soft);
+    }
+
+    .text-action {
+      min-height: 31px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      padding: 4px 8px;
+    }
+
+    .recent {
+      padding: 20px 24px 24px;
+      border-top: 1px solid var(--line);
+    }
+
+    .recent-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    .recent-heading h3 {
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .recent-heading span {
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .record {
+      display: grid;
+      grid-template-columns: 118px minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: start;
+      padding: 14px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .record[hidden] {
+      display: none;
+    }
+
+    .record:first-of-type {
+      border-top-color: var(--line-strong);
+    }
+
+    .record-kind {
+      display: grid;
+      gap: 4px;
+    }
+
+    .record-kind strong {
+      width: max-content;
+      padding: 3px 6px;
+      border-radius: 4px;
+      background: rgba(201, 169, 110, 0.12);
+      color: var(--gold-soft);
+      font-size: 8px;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .record[data-kind="evidence"] .record-kind strong {
+      background: rgba(111, 141, 131, 0.15);
+      color: var(--sage-soft);
+    }
+
+    .record[data-kind="signal"] .record-kind strong {
+      background: rgba(169, 138, 199, 0.15);
+      color: var(--lilac-soft);
+    }
+
+    .record-kind span {
+      color: var(--muted);
+      font-size: 9px;
+    }
+
+    .record-copy strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 12px;
+    }
+
+    .record-copy p {
+      margin: 0;
+      color: #b7bbb8;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .record-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 3px;
+      max-width: 230px;
+    }
+
+    .record-state {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 9px;
+    }
+
+    .record-state[data-state="in-use"] {
+      color: var(--lilac-soft);
+    }
+
+    .record-lineage {
+      display: grid;
+      gap: 2px;
+      margin-top: 8px;
+      border-left: 2px solid rgba(169, 138, 199, 0.5);
+      padding-left: 9px;
+      color: var(--lilac-soft);
+      font-size: 9px;
+    }
+
+    .record-lineage[hidden] {
+      display: none;
+    }
+
+    .action-group {
+      display: grid;
+      gap: 2px;
+    }
+
+    .action-group > span {
+      padding-left: 8px;
+      color: var(--muted);
+      font-size: 7px;
+      font-weight: 800;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
+    .right-rail {
+      display: grid;
+      gap: 12px;
+    }
+
+    .ledger {
+      overflow: hidden;
+    }
+
+    .ledger[data-tone="continuity"] {
+      border-color: rgba(201, 169, 110, 0.34);
+    }
+
+    .ledger[data-tone="create"] {
+      border-color: rgba(169, 138, 199, 0.34);
+    }
+
+    .ledger[data-tone="plan"] {
+      border-color: rgba(120, 149, 181, 0.34);
+    }
+
+    .ledger[data-tone="connect"] {
+      border-color: rgba(111, 141, 131, 0.38);
+    }
+
+    .ledger button.ledger-heading {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      width: 100%;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+      color: var(--ink);
+      padding: 15px 16px 13px;
+      text-align: left;
+    }
+
+    .ledger-heading span:first-child {
+      display: grid;
+      gap: 2px;
+    }
+
+    .ledger-heading small {
+      color: var(--muted);
+      font-size: 9px;
+      letter-spacing: 0.04em;
+    }
+
+    .ledger-heading strong {
+      font-size: 13px;
+      letter-spacing: 0.02em;
+    }
+
+    .ledger-count {
+      align-self: center;
+      min-width: 28px;
+      color: var(--gold-soft);
+      font-size: 16px;
+      text-align: right;
+    }
+
+    .ledger-body {
+      display: grid;
+      gap: 0;
+      padding: 4px 16px 12px;
+    }
+
+    .ledger[data-open="false"] .ledger-body {
+      display: none;
+    }
+
+    .ledger-line {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      padding: 9px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .ledger-line:first-child {
+      border-top: 0;
+    }
+
+    .ledger-line span {
+      color: #c9ceca;
+      font-size: 10px;
+    }
+
+    .ledger-line strong {
+      color: var(--muted);
+      font-size: 9px;
+      text-align: right;
+    }
+
+    .ledger-line strong[data-state="active"] {
+      color: var(--sage-soft);
+    }
+
+    .ledger-line strong[data-state="attention"] {
+      color: var(--gold-soft);
+    }
+
+    .ledger-line strong[data-state="pending"] {
+      color: var(--lilac-soft);
+    }
+
+    .ledger-line strong[data-state="blocked"] {
+      color: var(--coral-soft);
+    }
+
+    .ledger-line[data-new="true"] {
+      margin: 3px -7px 0;
+      border: 1px solid rgba(169, 138, 199, 0.36);
+      border-radius: 7px;
+      background: rgba(169, 138, 199, 0.09);
+      padding: 8px 7px;
+    }
+
+    .ledger-line[hidden] {
+      display: none;
+    }
+
+    .ledger-line[data-new="true"] span {
+      color: var(--lilac-soft);
+    }
+
+    .learning-return {
+      display: grid;
+      gap: 10px;
+      margin-top: 7px;
+      border: 1px solid rgba(111, 141, 131, 0.42);
+      border-radius: 9px;
+      background: rgba(111, 141, 131, 0.07);
+      padding: 11px;
+    }
+
+    .learning-return-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: baseline;
+    }
+
+    .learning-return-head span {
+      color: var(--sage-soft);
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+
+    .learning-return-head strong {
+      color: var(--gold-soft);
+      font-size: 8px;
+      text-align: right;
+    }
+
+    .learning-fact {
+      display: grid;
+      gap: 2px;
+    }
+
+    .learning-fact span,
+    .return-group > span {
+      color: var(--muted);
+      font-size: 7px;
+      font-weight: 800;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+
+    .learning-fact strong {
+      color: #d8dcd9;
+      font-size: 9px;
+      font-weight: 650;
+      line-height: 1.45;
+    }
+
+    .learning-confidence {
+      color: var(--muted);
+      font-size: 8px;
+      line-height: 1.45;
+    }
+
+    .return-actions {
+      display: grid;
+      gap: 8px;
+      padding-top: 2px;
+      border-top: 1px solid var(--line);
+    }
+
+    .return-group {
+      display: grid;
+      gap: 4px;
+    }
+
+    .return-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .learning-action {
+      min-height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.025);
+      color: #d7d9d7;
+      padding: 5px 7px;
+      font-size: 8px;
+      font-weight: 750;
+      text-align: left;
+    }
+
+    .learning-action:hover:not(:disabled) {
+      border-color: rgba(111, 141, 131, 0.7);
+      color: var(--sage-soft);
+    }
+
+    .learning-action:disabled {
+      cursor: not-allowed;
+      opacity: 0.42;
+    }
+
+    .learning-return[data-disposition="accepted"] .learning-action,
+    .learning-return[data-disposition="dismissed"] .learning-action {
+      pointer-events: none;
+      opacity: 0.34;
+    }
+
+    .commitment-dialog {
+      width: min(860px, calc(100% - 28px));
+      max-height: calc(100vh - 40px);
+      overflow: auto;
+      border: 1px solid rgba(169, 138, 199, 0.46);
+      border-radius: 16px;
+      background: #151519;
+      color: var(--ink);
+      padding: 0;
+      box-shadow: 0 30px 100px rgba(0, 0, 0, 0.65);
+    }
+
+    .commitment-dialog::backdrop {
+      background: rgba(5, 5, 8, 0.78);
+      backdrop-filter: blur(5px);
+    }
+
+    .commitment-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      border-bottom: 1px solid var(--line);
+      padding: 20px 22px 16px;
+    }
+
+    .commitment-header h2 {
+      margin: 3px 0 4px;
+      font-size: 22px;
+    }
+
+    .commitment-header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .dialog-close {
+      align-self: flex-start;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      padding: 3px 5px;
+      font-size: 20px;
+    }
+
+    .commitment-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+    }
+
+    .commitment-steps {
+      display: grid;
+      gap: 22px;
+      padding: 22px;
+    }
+
+    .commitment-step {
+      display: grid;
+      gap: 10px;
+    }
+
+    .step-heading {
+      display: flex;
+      gap: 10px;
+      align-items: baseline;
+    }
+
+    .step-heading span {
+      color: var(--lilac-soft);
+      font-size: 9px;
+      font-weight: 850;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .step-heading strong {
+      font-size: 13px;
+    }
+
+    .material-options {
+      display: grid;
+      gap: 6px;
+    }
+
+    .material-options .option {
+      min-height: 38px;
+    }
+
+    .excerpt-preview {
+      margin: 0;
+      border-left: 2px solid var(--gold);
+      padding: 8px 10px;
+      background: rgba(201, 169, 110, 0.055);
+      color: #d7d9d6;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .shape-groups {
+      display: grid;
+      gap: 12px;
+    }
+
+    .shape-group {
+      display: grid;
+      gap: 5px;
+    }
+
+    .shape-group > span {
+      color: var(--muted);
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .shape-options {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .commitment-preview {
+      display: grid;
+      align-content: start;
+      gap: 14px;
+      border-left: 1px solid var(--line);
+      background: rgba(169, 138, 199, 0.045);
+      padding: 22px;
+    }
+
+    .preview-line {
+      display: grid;
+      gap: 3px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 10px;
+    }
+
+    .preview-line span,
+    .will-not strong {
+      color: var(--muted);
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+    }
+
+    .preview-line strong {
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .will-not {
+      display: grid;
+      gap: 6px;
+    }
+
+    .will-not ul {
+      display: grid;
+      gap: 5px;
+      margin: 0;
+      padding-left: 16px;
+      color: #b7bbb8;
+      font-size: 9px;
+      line-height: 1.45;
+    }
+
+    .commitment-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 2px;
+    }
+
+    .question-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 10px 0 3px;
+      list-style: none;
+    }
+
+    .question-list li {
+      padding-left: 12px;
+      border-left: 2px solid rgba(201, 169, 110, 0.4);
+      color: #c9ceca;
+      font-size: 10px;
+      line-height: 1.45;
+    }
+
+    .authority-key {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+      margin-top: 14px;
+      padding: 12px 15px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--muted);
+      font-size: 9px;
+    }
+
+    .authority-key span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .key-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--gold);
+    }
+
+    .key-dot[data-owner="fandom"] {
+      background: var(--sage);
+    }
+
+    .key-dot[data-owner="connect"] {
+      background: var(--lilac);
+    }
+
+    .toast {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      z-index: 5;
+      max-width: 360px;
+      transform: translateY(24px);
+      border: 1px solid rgba(134, 169, 155, 0.5);
+      border-radius: 10px;
+      background: #1a2420;
+      color: var(--sage-soft);
+      padding: 12px 15px;
+      box-shadow: var(--shadow);
+      font-size: 11px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+
+    .toast[data-visible="true"] {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    @media (max-width: 1000px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .right-rail {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 720px) {
+      .shell {
+        width: min(100% - 20px, 1480px);
+        padding-top: 10px;
+      }
+
+      .prototype-note,
+      .header-top,
+      .section-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .header-main {
+        grid-template-columns: 1fr;
+        padding: 24px 20px;
+      }
+
+      .state-ledger {
+        min-width: 0;
+      }
+
+      .capture-body {
+        grid-template-columns: 1fr;
+      }
+
+      .instrument-list {
+        display: flex;
+        overflow-x: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .instrument-list button {
+        flex: 0 0 190px;
+      }
+
+      .right-rail {
+        grid-template-columns: 1fr;
+      }
+
+      .record {
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+
+      .record-actions {
+        justify-content: flex-start;
+        max-width: none;
+      }
+
+      .destination {
+        grid-template-columns: 1fr;
+      }
+
+      .field-grid,
+      .option-set,
+      .shape-options {
+        grid-template-columns: 1fr;
+      }
+
+      .field-grid .wide {
+        grid-column: auto;
+      }
+
+      .journal-boundary {
+        grid-template-columns: 1fr;
+      }
+
+      .journal-boundary p {
+        text-align: left;
+      }
+
+      .journal-context {
+        grid-template-columns: 1fr;
+      }
+
+      .journal-context em {
+        text-align: left;
+      }
+
+      .module-spine {
+        overflow-x: auto;
+      }
+
+      .commitment-body {
+        grid-template-columns: 1fr;
+      }
+
+      .commitment-preview {
+        border-top: 1px solid var(--line);
+        border-left: 0;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="prototype-note">
+      <strong>Paper Cockpit #1 · interactive prototype</strong>
+      <span>Illustrative local data · no records will be created</span>
+    </div>
+
+    <header class="series-header">
+      <div class="header-top">
+        <nav class="crumbs" aria-label="Breadcrumb">
+          <span>Creator OS</span>
+          <span aria-hidden="true">/</span>
+          <span>CDRAMA</span>
+          <span aria-hidden="true">/</span>
+          <strong>Waiting Room</strong>
+        </nav>
+        <div class="lens-switch">
+          <span class="lens-dot" aria-hidden="true"></span>
+          CDRAMA Lens
+        </div>
+      </div>
+
+      <nav class="module-spine" aria-label="Creator OS module orientation">
+        <span aria-current="page">Capture</span>
+        <span>Create</span>
+        <span>Plan</span>
+        <span>Connect</span>
+      </nav>
+
+      <div class="header-main">
+        <div>
+          <p class="eyebrow">Nian Wushuang · Series home</p>
+          <h1>The story has not accepted that it is over.</h1>
+          <p class="thesis">Neither have we. The Waiting Room preserves why Yuan Zhong’s search still feels unfinished—without pretending another installment has been announced.</p>
+        </div>
+
+        <div class="state-ledger" aria-label="Waiting Room state">
+          <div class="state-row">
+            <span>Public state</span>
+            <strong data-tone="gold">Still waiting</strong>
+          </div>
+          <div class="state-row">
+            <span>Clock Ins</span>
+            <strong>1,284</strong>
+          </div>
+          <div class="state-row">
+            <span>Evidence</span>
+            <strong data-tone="sage">4 verified · 1 held</strong>
+          </div>
+          <div class="state-row">
+            <span>Projection</span>
+            <strong>Current · 14:42</strong>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <section class="sheet capture-sheet" aria-labelledby="capture-title">
+        <header class="section-header">
+          <div>
+            <div class="module-mark">Capture</div>
+            <h2 id="capture-title">What kind of thing are you preserving?</h2>
+            <p>Choose the record and its owner before you begin. Nothing here promises a post.</p>
+          </div>
+          <span class="owner">Primary working area</span>
+        </header>
+
+        <div class="capture-body">
+          <div class="instrument-list" role="tablist" aria-label="Capture instruments">
+            <button type="button" role="tab" aria-selected="true" data-instrument="dispatch">
+              <span class="instrument-index">01</span>
+              <span class="instrument-copy">
+                <strong>Private dispatch</strong>
+                <span>Creator Capture · private</span>
+              </span>
+            </button>
+            <button type="button" role="tab" aria-selected="false" data-instrument="journal">
+              <span class="instrument-index">02</span>
+              <span class="instrument-copy">
+                <strong>First-Watch Journal</strong>
+                <span>Reference, open, or file in Fandom</span>
+              </span>
+            </button>
+            <button type="button" role="tab" aria-selected="false" data-instrument="evidence">
+              <span class="instrument-index">03</span>
+              <span class="instrument-copy">
+                <strong>Canon / universe evidence</strong>
+                <span>Fandom contribution</span>
+              </span>
+            </button>
+            <button type="button" role="tab" aria-selected="false" data-instrument="question">
+              <span class="instrument-index">04</span>
+              <span class="instrument-copy">
+                <strong>Audience question</strong>
+                <span>Signal or private Capture</span>
+              </span>
+            </button>
+            <button type="button" role="tab" aria-selected="false" data-instrument="source">
+              <span class="instrument-index">05</span>
+              <span class="instrument-copy">
+                <strong>Source, scene, reaction</strong>
+                <span>Choose owner from context</span>
+              </span>
+            </button>
+          </div>
+
+          <div class="instrument-detail" role="tabpanel">
+            <div class="destination">
+              <div>
+                <strong id="destination-title">This will become a private Waiting Room dispatch.</strong>
+                <p id="destination-copy">It may remain complete here forever. Saving does not create an Idea, task, or platform expression.</p>
+              </div>
+              <span class="owner" id="destination-owner">Creator OS · Capture</span>
+            </div>
+
+            <div>
+              <h3 class="detail-title" id="instrument-title">Write private dispatch</h3>
+              <p class="prompt" id="instrument-prompt">Preserve the experience first. It may remain complete and unshaped here forever.</p>
+            </div>
+
+            <form class="instrument-panel" data-panel="dispatch">
+              <div class="field-grid">
+                <label class="wide">
+                  <span>What changed or struck you?</span>
+                  <textarea id="dispatch-text" placeholder="The cameo matters because Yuan Zhong is still searching…"></textarea>
+                </label>
+                <label class="wide">
+                  <span>Why does it matter to the Waiting Room?</span>
+                  <textarea placeholder="It proves the unfinished search remains legible enough to be used elsewhere in the universe."></textarea>
+                </label>
+                <label>
+                  <span>Related open question · optional</span>
+                  <input type="text" placeholder="Choose an open question">
+                </label>
+                <label>
+                  <span>Source or evidence relationship · optional</span>
+                  <input type="text" placeholder="Paste a reference or leave blank">
+                </label>
+              </div>
+              <p class="privacy-row"><strong>Privacy · Private</strong> Only you can see this dispatch unless selected material is later used in a new CREATE object.</p>
+              <p class="capture-complete" id="capture-complete" hidden><strong>Preserved.</strong> Nothing else is required. This dispatch is complete in CAPTURE and remains unshaped unless you later choose to make something.</p>
+              <div class="detail-actions">
+                <button type="submit" class="primary">Save private dispatch</button>
+                <button type="button" class="secondary">Relate to open question</button>
+              </div>
+            </form>
+
+            <form class="instrument-panel" data-panel="journal" hidden>
+              <div class="journal-empty" id="journal-empty">
+                <div class="journal-context">
+                  <div>
+                    <span>Current Series</span>
+                    <strong>Nian Wushuang</strong>
+                  </div>
+                  <em>No First-Watch Journal attached</em>
+                </div>
+                <div class="journal-context">
+                  <div>
+                    <span>CDRAMA Lens horizon</span>
+                    <strong>No active First-Watch Journal</strong>
+                  </div>
+                  <em>Active or related Journals would appear here</em>
+                </div>
+                <div class="detail-actions">
+                  <button type="button" class="primary" id="start-journal">Start a First-Watch Journal</button>
+                  <button type="button" class="secondary">Browse CDRAMA Journals</button>
+                </div>
+              </div>
+
+              <div class="journal-session" id="journal-session" hidden>
+                <div class="journal-boundary">
+                  <div>
+                    <span>Session setup · nothing filed</span>
+                    <div>Current boundary: <strong>Not started</strong></div>
+                  </div>
+                  <p>Choose the experience boundary.<br>Do not answer Journal prompts yet.</p>
+                </div>
+
+                <div class="field-grid">
+                  <label class="wide">
+                    <span>Drama or Series</span>
+                    <input id="journal-drama" type="text" placeholder="The Untamed">
+                  </label>
+                  <label>
+                    <span>Next episode</span>
+                    <input type="number" value="1" disabled>
+                  </label>
+                  <label>
+                    <span>Prior filed boundary</span>
+                    <input type="text" value="Not started" disabled>
+                  </label>
+                  <label class="wide">
+                    <span>Prior knowledge boundary · optional</span>
+                    <textarea placeholder="Record only what you already know before pressing play; do not research or predict"></textarea>
+                  </label>
+                </div>
+
+                <p class="journal-contract">Beginning records the intended episode, prior boundary, and local start time. It creates no entry, advances no boundary, and asks for no prediction.</p>
+
+                <div class="detail-actions">
+                  <button type="button" class="primary" id="begin-journal-session">Begin Episode 1</button>
+                  <button type="button" class="secondary" id="cancel-journal-setup">Back to Journal choices</button>
+                </div>
+              </div>
+
+              <div class="journal-watching" id="journal-watching" hidden>
+                <div class="journal-boundary">
+                  <div>
+                    <span>Experience in progress · nothing filed</span>
+                    <div><strong id="journal-watch-title">Episode 1</strong></div>
+                  </div>
+                  <p>Started <span id="journal-started-at">just now</span><br>Durable boundary remains: Not started</p>
+                </div>
+
+                <div class="journal-experience">
+                  <strong>Watch without being interrogated.</strong>
+                  <p>Return after the episode ends. If you stop midway, end the session without filing and the durable First-Watch boundary will not move.</p>
+                </div>
+
+                <div class="detail-actions">
+                  <button type="button" class="primary" id="complete-journal-session">Episode 1 complete · write entry</button>
+                  <button type="button" class="secondary" id="end-journal-session">End session without filing</button>
+                </div>
+              </div>
+
+              <div class="journal-filing" id="journal-filing" hidden>
+                <div class="journal-boundary">
+                  <div>
+                    <span>Post-episode filing · illustrative Entry 1 draft</span>
+                    <div>New knowledge horizon: Episode <strong>1</strong></div>
+                  </div>
+                  <p>Write before research or discussion.<br>Boundary advances only when filed.</p>
+                </div>
+
+                <div class="field-grid">
+                  <label class="wide">
+                    <span>Drama or Series</span>
+                    <input id="journal-entry-drama" type="text" placeholder="Chosen at session start" disabled>
+                  </label>
+                  <label>
+                    <span>Episode start</span>
+                    <input type="number" value="1" disabled>
+                  </label>
+                  <label>
+                    <span>Episode end</span>
+                    <input type="number" min="1" max="999" value="1">
+                  </label>
+                  <label class="wide">
+                    <span>Unsorted first impressions</span>
+                    <textarea placeholder="Capture freely from memory before organizing or checking anything"></textarea>
+                  </label>
+                  <label>
+                    <span>Current emotional condition</span>
+                    <textarea placeholder="Intrigued, under-informed, already attached"></textarea>
+                  </label>
+                  <label>
+                    <span>Relationship I’m monitoring</span>
+                    <textarea placeholder="Who or what dynamic has your attention?"></textarea>
+                  </label>
+                  <label>
+                    <span>People I trust</span>
+                    <textarea placeholder="One person or suspicion per line"></textarea>
+                  </label>
+                  <label>
+                    <span>People I absolutely do not trust</span>
+                    <textarea placeholder="One person or suspicion per line"></textarea>
+                  </label>
+                  <label class="wide">
+                    <span>Recurring suspects or objects</span>
+                    <textarea placeholder="Symbols, props, people, or details that keep returning"></textarea>
+                  </label>
+                  <label class="wide">
+                    <span>What I think is happening</span>
+                    <textarea placeholder="Your present inference, without correcting it through research"></textarea>
+                  </label>
+                  <label class="wide">
+                    <span>Predictions submitted for future humiliation</span>
+                    <textarea placeholder="One prediction per line"></textarea>
+                  </label>
+                  <label class="wide">
+                    <span>What I do not understand yet</span>
+                    <textarea placeholder="Questions and uncertainty that should remain unresolved"></textarea>
+                  </label>
+                  <label class="wide">
+                    <span>Scenes, images, or lines I want to remember</span>
+                    <textarea placeholder="Describe them from memory before checking anything"></textarea>
+                  </label>
+                </div>
+
+                <p class="journal-contract">Keep what the episode showed, what you inferred, what you felt, what you predict, and what remains unclear distinguishable. Filing creates one immutable, episode-bound Fandom Journal entry; later knowledge cannot make it retroactively intelligent.</p>
+
+                <div class="detail-actions">
+                  <button type="submit" class="primary">File and seal Episode 1 entry</button>
+                  <button type="button" class="secondary" id="back-to-journal-session">Back to episode session</button>
+                </div>
+              </div>
+            </form>
+
+            <form class="instrument-panel" data-panel="evidence" hidden>
+              <div class="field-grid">
+                <label>
+                  <span>Source work</span>
+                  <input type="text" value="Fate Chooses You">
+                </label>
+                <label>
+                  <span>Character</span>
+                  <input type="text" value="Yuan Zhong">
+                </label>
+                <label>
+                  <span>Episode or scene anchor</span>
+                  <input type="text" placeholder="Episode, timestamp, or scene description">
+                </label>
+                <label>
+                  <span>Provenance</span>
+                  <input type="url" placeholder="Official clip, episode, or source URL">
+                </label>
+                <label>
+                  <span>Spoiler level</span>
+                  <select>
+                    <option>Choose boundary</option>
+                    <option>Public premise</option>
+                    <option>Episode-specific</option>
+                    <option>Ending / major reveal</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Evidence class</span>
+                  <select>
+                    <option>Universe continuity</option>
+                    <option>Character continuity</option>
+                    <option>Official announcement</option>
+                    <option>Audience interpretation</option>
+                  </select>
+                </label>
+                <label class="wide">
+                  <span>Narrow claim</span>
+                  <textarea placeholder="The shared universe invokes Yuan Zhong’s unfinished search; it does not confirm another installment."></textarea>
+                </label>
+              </div>
+              <p class="claim-warning">Claim-strength limit: this evidence may support the unfinished-thread argument. It cannot establish that a sequel or production plan exists.</p>
+              <div class="detail-actions">
+                <button type="submit" class="primary">Submit to Fandom evidence workflow</button>
+                <button type="button" class="secondary">Review evidence rules</button>
+              </div>
+            </form>
+
+            <form class="instrument-panel" data-panel="question" hidden>
+              <div class="field-grid">
+                <label>
+                  <span>Platform or source</span>
+                  <input type="text" placeholder="Rednote, Instagram, YouTube…">
+                </label>
+                <label>
+                  <span>Post or comment reference</span>
+                  <input type="url" placeholder="Native URL or source identifier">
+                </label>
+                <label class="wide">
+                  <span>Exact excerpt</span>
+                  <textarea placeholder="Wait—is Season 2 actually real?"></textarea>
+                </label>
+                <label>
+                  <span>Observed date</span>
+                  <input type="date" value="2026-09-06">
+                </label>
+                <label>
+                  <span>Quotation permission</span>
+                  <select>
+                    <option>Not reviewed</option>
+                    <option>Private reference only</option>
+                    <option>Approved for quotation</option>
+                  </select>
+                </label>
+              </div>
+              <fieldset class="option-set">
+                <legend>Preserve as</legend>
+                <label class="option"><input type="radio" name="question-destination" checked> CONNECT signal</label>
+                <label class="option"><input type="radio" name="question-destination"> Private Creator OS Capture</label>
+              </fieldset>
+              <div class="detail-actions">
+                <button type="submit" class="primary">Preserve with source lineage</button>
+                <button type="button" class="secondary">Review source comment</button>
+              </div>
+            </form>
+
+            <form class="instrument-panel" data-panel="source" hidden>
+              <div class="field-grid">
+                <label>
+                  <span>Source link or work</span>
+                  <input type="text" placeholder="URL, title, or source reference">
+                </label>
+                <label>
+                  <span>Episode or scene</span>
+                  <input type="text" placeholder="Episode, timestamp, or scene">
+                </label>
+                <label class="wide">
+                  <span>What matters?</span>
+                  <textarea placeholder="Describe the detail and why it is worth preserving."></textarea>
+                </label>
+              </div>
+              <fieldset class="option-set">
+                <legend>Record type</legend>
+                <label class="option"><input type="radio" name="source-type" checked> Private observation</label>
+                <label class="option"><input type="radio" name="source-type"> Source reference</label>
+                <label class="option"><input type="radio" name="source-type"> Domain evidence</label>
+              </fieldset>
+              <div class="detail-actions">
+                <button type="submit" class="primary">Preserve as selected type</button>
+                <button type="button" class="secondary">Open source explorer</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <section class="recent" aria-labelledby="recent-title">
+          <div class="recent-heading">
+            <h3 id="recent-title">Recent records in this context</h3>
+            <span>Different records · visible authority</span>
+          </div>
+
+          <article class="record" data-kind="dispatch">
+            <div class="record-kind">
+              <strong>Private dispatch</strong>
+              <span>Creator OS · yesterday</span>
+            </div>
+            <div class="record-copy">
+              <strong>The universe is still using the unfinished search.</strong>
+              <p>Yuan Zhong’s appearance works because the audience remembers exactly who he is still looking for.</p>
+              <span class="record-state" id="dispatch-state">Unshaped · preserved and complete · no downstream work</span>
+              <span class="record-lineage" id="dispatch-lineage" hidden>
+                <strong id="dispatch-lineage-title">Used in 1 derivative</strong>
+                <span id="dispatch-derivative">Website expansion proposal · Shaping</span>
+              </span>
+            </div>
+            <div class="record-actions">
+              <div class="action-group">
+                <span>Make</span>
+                <button type="button" class="text-action" id="choose-shape">Choose a commitment…</button>
+              </div>
+              <div class="action-group">
+                <span>Relate</span>
+                <button type="button" class="text-action">Open question ▾</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="record" data-kind="evidence">
+            <div class="record-kind">
+              <strong>Universe evidence</strong>
+              <span>Fandom · verified</span>
+            </div>
+            <div class="record-copy">
+              <strong>Yuan Zhong appears in <em>Fate Chooses You</em>.</strong>
+              <p>Accepted scope: supports the unfinished-thread argument. It does not confirm a sequel or production plan.</p>
+            </div>
+            <div class="record-actions">
+              <button type="button" class="text-action">Open source</button>
+              <button type="button" class="text-action">View receipt</button>
+            </div>
+          </article>
+
+          <article class="record" data-kind="signal">
+            <div class="record-kind">
+              <strong>Audience signal</strong>
+              <span>Connect · 3 comments</span>
+            </div>
+            <div class="record-copy">
+              <strong>“Wait—is Season 2 actually real?”</strong>
+              <p>Recurring onboarding question. Public quotation is not yet approved; interpretation remains provisional.</p>
+            </div>
+            <div class="record-actions">
+              <button type="button" class="text-action">Open CONNECT evidence</button>
+              <button type="button" class="text-action">Relate to open question</button>
+            </div>
+          </article>
+
+          <article class="record" id="learning-capture-record" data-kind="dispatch" hidden>
+            <div class="record-kind">
+              <strong>Audience question</strong>
+              <span>Creator OS · returned from CONNECT</span>
+            </div>
+            <div class="record-copy">
+              <strong>Is Season 2 actually real?</strong>
+              <p>Preserved from a bounded Learning Return. The observation window, confidence, limitations, and source-publication lineage remain attached.</p>
+              <span class="record-state">Unshaped · preserved and complete · no downstream work</span>
+            </div>
+            <div class="record-actions">
+              <button type="button" class="text-action">Open learning receipt</button>
+            </div>
+          </article>
+        </section>
+      </section>
+
+      <aside class="right-rail" aria-label="Series continuity and downstream modules">
+        <section class="ledger" data-tone="continuity" data-open="true">
+          <button class="ledger-heading" type="button" aria-expanded="true">
+            <span>
+              <small>Series continuity</small>
+              <strong>What is still unresolved?</strong>
+            </span>
+            <span class="ledger-count">3</span>
+          </button>
+          <div class="ledger-body">
+            <ul class="question-list">
+              <li>What does Yuan Zhong now know about finding Wushuang?</li>
+              <li>Is the cameo continuity, audience play, or both?</li>
+              <li>What evidence would justify changing public state?</li>
+            </ul>
+            <div class="ledger-line">
+              <span>Evidence trail</span>
+              <strong data-state="active">4 current</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Recent change</span>
+              <strong>2 days ago</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="ledger" data-tone="create" data-open="true">
+          <button class="ledger-heading" type="button" aria-expanded="true">
+            <span>
+              <small>Create · Ideas + Artifacts</small>
+              <strong>What is developing or being made?</strong>
+            </span>
+            <span class="ledger-count" id="create-count">4</span>
+          </button>
+          <div class="ledger-body">
+            <div class="ledger-line" id="new-create-object" data-new="true" hidden>
+              <span>Website expansion · Newly created</span>
+              <strong data-state="pending">Shaping</strong>
+            </div>
+            <div class="ledger-line" id="learning-create-object" data-new="true" hidden>
+              <span>Waiting Room onboarding · Learning return</span>
+              <strong data-state="pending">Proposed</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Editorial ideas</span>
+              <strong data-state="active">2 exploring</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Rednote expression</span>
+              <strong data-state="attention">Make</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Rendition family</span>
+              <strong>3 exports</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Ready for scheduling</span>
+              <strong data-state="active">1 item</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="ledger" data-tone="plan" data-open="true">
+          <button class="ledger-heading" type="button" aria-expanded="true">
+            <span>
+              <small>Plan · placement</small>
+              <strong>What is authorized next?</strong>
+            </span>
+            <span class="ledger-count">2</span>
+          </button>
+          <div class="ledger-body">
+            <div class="ledger-line">
+              <span>Sep 8 · Rednote</span>
+              <strong data-state="attention">Needs rendition</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Sep 12 · Instagram</span>
+              <strong data-state="blocked">Copy hold</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Automation consent</span>
+              <strong>Not granted</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="ledger" data-tone="connect" data-open="true">
+          <button class="ledger-heading" type="button" aria-expanded="true">
+            <span>
+              <small>Connect · outcome</small>
+              <strong>What happened—and what returns?</strong>
+            </span>
+            <span class="ledger-count">1</span>
+          </button>
+          <div class="ledger-body">
+            <div class="ledger-line">
+              <span>Latest Rednote post</span>
+              <strong data-state="active">Verified</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Instagram receipt</span>
+              <strong data-state="pending">Verification pending</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Audience questions</span>
+              <strong data-state="attention">3 to review</strong>
+            </div>
+            <div class="ledger-line">
+              <span>Correction chain</span>
+              <strong>1 superseded</strong>
+            </div>
+            <section class="learning-return" id="learning-return" aria-labelledby="learning-return-title">
+              <div class="learning-return-head">
+                <span id="learning-return-title">Learning return</span>
+                <strong id="learning-disposition">Pending review</strong>
+              </div>
+              <div class="learning-fact">
+                <span>Observed</span>
+                <strong>Three readers asked whether Season 2 had been announced.</strong>
+              </div>
+              <div class="learning-fact">
+                <span>Interpretation</span>
+                <strong>The premise attracts attention, but its unofficial status may need clearer onboarding.</strong>
+              </div>
+              <div class="learning-confidence">Moderate confidence · September 4–6 · limited sample · public quotation not approved</div>
+              <div class="return-actions">
+                <div class="return-group">
+                  <span>Notice this</span>
+                  <div class="return-buttons">
+                    <button type="button" class="learning-action" data-return="capture">Preserve audience question</button>
+                  </div>
+                </div>
+                <div class="return-group">
+                  <span>Consider making this</span>
+                  <div class="return-buttons">
+                    <button type="button" class="learning-action" data-return="idea">Develop an Idea</button>
+                    <button type="button" class="learning-action" data-return="faq">Make FAQ Artifact</button>
+                  </div>
+                </div>
+                <div class="return-group">
+                  <span>Consider placing this</span>
+                  <div class="return-buttons">
+                    <button type="button" class="learning-action" disabled title="No exact existing ready Artifact is linked to this finding">Unavailable · no ready Artifact</button>
+                  </div>
+                </div>
+                <div class="return-buttons">
+                  <button type="button" class="learning-action" data-return="dismiss">Dismiss interpretation</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <div class="authority-key" aria-label="Authority key">
+      <span><i class="key-dot"></i> Creator OS record</span>
+      <span><i class="key-dot" data-owner="fandom"></i> Fandom record or projection</span>
+      <span><i class="key-dot" data-owner="connect"></i> CONNECT observation</span>
+      <span>Prototype actions demonstrate routing only; they do not persist.</span>
+    </div>
+  </main>
+
+  <dialog class="commitment-dialog" id="commitment-dialog">
+    <div class="commitment-header">
+      <div>
+        <span class="module-mark">Capture · routing membrane</span>
+        <h2>Choose a commitment</h2>
+        <p>Preservation is already complete. Decide whether to develop an Idea, make an Artifact, or invoke a governed domain action.</p>
+      </div>
+      <button type="button" class="dialog-close" id="close-commitment" aria-label="Close">×</button>
+    </div>
+
+    <form id="commitment-form">
+      <div class="commitment-body">
+        <div class="commitment-steps">
+          <section class="commitment-step">
+            <div class="step-heading">
+              <span>Step 1</span>
+              <strong>Choose the material</strong>
+            </div>
+            <div class="material-options">
+              <label class="option"><input type="radio" name="material" value="Entire dispatch"> Entire private dispatch</label>
+              <label class="option"><input type="radio" name="material" value="Selected passage" checked> Selected passage</label>
+              <label class="option"><input type="radio" name="material" value="Dispatch plus evidence references"> Dispatch plus selected evidence references</label>
+            </div>
+            <blockquote class="excerpt-preview">“The universe is still using the unfinished search.”</blockquote>
+          </section>
+
+          <section class="commitment-step">
+            <div class="step-heading">
+              <span>Step 2</span>
+              <strong>Choose the interaction and resulting object</strong>
+            </div>
+            <div class="shape-groups">
+              <div class="shape-group">
+                <span>Develop an Idea · proposition</span>
+                <div class="shape-options">
+                  <label class="option"><input type="radio" name="shape" value="Website Expansion Idea" data-route="idea" data-action="Develop website expansion idea" checked> Website expansion idea</label>
+                  <label class="option"><input type="radio" name="shape" value="Series Premise" data-route="idea" data-action="Develop Series premise"> Series premise</label>
+                  <label class="option"><input type="radio" name="shape" value="Post Seed" data-route="idea" data-action="Develop post seed"> Post seed</label>
+                </div>
+              </div>
+              <div class="shape-group">
+                <span>Make an Artifact · definite object</span>
+                <div class="shape-options">
+                  <label class="option"><input type="radio" name="shape" value="C-drama Guide Section" data-route="artifact" data-action="Make Guide section"> C-drama Guide section</label>
+                  <label class="option"><input type="radio" name="shape" value="FAQ Artifact" data-route="artifact" data-action="Make FAQ Artifact"> FAQ artifact</label>
+                  <label class="option"><input type="radio" name="shape" value="Rednote Post" data-route="artifact" data-action="Make Rednote post"> Rednote post</label>
+                  <label class="option"><input type="radio" name="shape" value="Instagram Carousel" data-route="artifact" data-action="Make Instagram carousel"> Instagram carousel</label>
+                  <label class="option"><input type="radio" name="shape" value="YouTube Short" data-route="artifact" data-action="Make YouTube Short"> YouTube Short</label>
+                </div>
+              </div>
+              <div class="shape-group">
+                <span>Invoke a Domain Action · governed protocol</span>
+                <div class="shape-options">
+                  <label class="option"><input type="radio" name="shape" value="Website Change Proposal" data-route="domain" data-action="Propose bounded website change"> Propose website change</label>
+                  <label class="option"><input type="radio" name="shape" value="Waiting Room Evidence Proposal" data-route="domain" data-action="Submit evidence proposal"> Submit Waiting Room evidence</label>
+                  <label class="option"><input type="radio" name="shape" value="Public-State Proposal" data-route="domain" data-action="Propose public-state change"> Propose public-state change</label>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="commitment-preview" aria-label="Creative commitment preview">
+          <div class="step-heading">
+            <span>Step 3</span>
+            <strong>Preview the result</strong>
+          </div>
+          <div class="preview-line">
+            <span>Source</span>
+            <strong id="preview-material">Private Waiting Room dispatch · selected passage</strong>
+          </div>
+          <div class="preview-line">
+            <span>Result</span>
+            <strong id="preview-shape">Website Expansion Idea</strong>
+          </div>
+          <div class="preview-line">
+            <span>Canonical owner</span>
+            <strong id="preview-owner">Creator OS · CREATE — Ideas</strong>
+          </div>
+          <div class="preview-line">
+            <span>Later authority</span>
+            <strong id="preview-authority">No destination or publication is implied</strong>
+          </div>
+          <div class="preview-line">
+            <span>Restrictions</span>
+            <strong>Source v3 · selected text only · private remainder excluded</strong>
+          </div>
+          <div class="will-not">
+            <strong>Will not happen</strong>
+            <ul>
+              <li>The original dispatch will not move or change.</li>
+              <li>Nothing will be scheduled.</li>
+              <li>The website will not be edited.</li>
+              <li>Unselected private text will not cross.</li>
+            </ul>
+          </div>
+          <div class="commitment-actions">
+            <button type="submit" class="primary" id="confirm-commitment">Create website proposal</button>
+            <button type="button" class="secondary" id="cancel-commitment">Cancel</button>
+          </div>
+        </aside>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const instruments = {
+      dispatch: {
+        title: "Write private dispatch",
+        prompt: "Preserve the experience first. It may remain complete and unshaped here forever.",
+        destination: "This will become a private Waiting Room dispatch.",
+        copy: "It may remain complete here forever. Saving does not create an Idea, task, or platform expression.",
+        owner: "Creator OS · Capture",
+        notice: "Prototype: private dispatch preserved in CAPTURE. Nothing moved downstream."
+      },
+      journal: {
+        title: "First-Watch Journal",
+        prompt: "The protocol is reusable; the visible Journal must belong to a named drama and explain why it appears in this CDRAMA context.",
+        destination: "No First-Watch Journal is active in the CDRAMA Lens.",
+        copy: "Nian Wushuang has no attached Journal. Active, related, or recent CDRAMA Journals may appear here later; unrelated Lens work will not.",
+        owner: "Fandom · First-Watch",
+        notice: "Prototype: a new named Journal and its first bounded entry would be filed in Fandom."
+      },
+      evidence: {
+        title: "Add canon or universe evidence",
+        prompt: "What source, scene anchor, provenance, spoiler level, and narrow claim should Fandom review?",
+        destination: "This will enter the Fandom Waiting Room evidence workflow.",
+        copy: "Accepted evidence may support the unfinished-thread argument. It cannot declare a sequel.",
+        owner: "Fandom · Waiting Room",
+        notice: "Prototype: invoking Fandom evidence filing with claim limits intact."
+      },
+      question: {
+        title: "Preserve an audience question",
+        prompt: "Choose whether this is a bounded CONNECT signal or a private question you want to think about.",
+        destination: "You will choose the destination before saving.",
+        copy: "A native comment remains canonical on its platform. One question cannot become a broad audience claim.",
+        owner: "CONNECT or Creator OS",
+        notice: "Prototype: audience question preserved with its source lineage and chosen owner."
+      },
+      source: {
+        title: "Preserve source, scene, or reaction",
+        prompt: "Is this a private observation, a source reference, or evidence that requires domain review?",
+        destination: "The content determines its owner; the cockpit will not guess.",
+        copy: "Private thought, source reference, and domain evidence remain different records.",
+        owner: "Owner selected next",
+        notice: "Prototype: source material preserved as the explicitly selected record type."
+      }
+    };
+
+    const tabs = [...document.querySelectorAll("[data-instrument]")];
+    const panels = [...document.querySelectorAll("[data-panel]")];
+    const title = document.querySelector("#instrument-title");
+    const prompt = document.querySelector("#instrument-prompt");
+    const destinationTitle = document.querySelector("#destination-title");
+    const destinationCopy = document.querySelector("#destination-copy");
+    const destinationOwner = document.querySelector("#destination-owner");
+    const captureComplete = document.querySelector("#capture-complete");
+    const journalEmpty = document.querySelector("#journal-empty");
+    const journalSession = document.querySelector("#journal-session");
+    const journalWatching = document.querySelector("#journal-watching");
+    const journalFiling = document.querySelector("#journal-filing");
+    const journalDrama = document.querySelector("#journal-drama");
+    const journalEntryDrama = document.querySelector("#journal-entry-drama");
+    const journalWatchTitle = document.querySelector("#journal-watch-title");
+    const journalStartedAt = document.querySelector("#journal-started-at");
+    const chooseShape = document.querySelector("#choose-shape");
+    const commitmentDialog = document.querySelector("#commitment-dialog");
+    const commitmentForm = document.querySelector("#commitment-form");
+    const confirmCommitment = document.querySelector("#confirm-commitment");
+    const previewMaterial = document.querySelector("#preview-material");
+    const previewShape = document.querySelector("#preview-shape");
+    const previewOwner = document.querySelector("#preview-owner");
+    const previewAuthority = document.querySelector("#preview-authority");
+    const dispatchState = document.querySelector("#dispatch-state");
+    const dispatchLineage = document.querySelector("#dispatch-lineage");
+    const dispatchLineageTitle = document.querySelector("#dispatch-lineage-title");
+    const dispatchDerivative = document.querySelector("#dispatch-derivative");
+    const newCreateObject = document.querySelector("#new-create-object");
+    const learningCreateObject = document.querySelector("#learning-create-object");
+    const learningCaptureRecord = document.querySelector("#learning-capture-record");
+    const learningReturn = document.querySelector("#learning-return");
+    const learningDisposition = document.querySelector("#learning-disposition");
+    const createCount = document.querySelector("#create-count");
+    const toast = document.querySelector("#toast");
+    let current = "dispatch";
+    let toastTimer;
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.dataset.visible = "true";
+      window.clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => {
+        toast.dataset.visible = "false";
+      }, 3200);
+    }
+
+    function selectInstrument(key) {
+      current = key;
+      const instrument = instruments[key];
+      tabs.forEach(tab => tab.setAttribute("aria-selected", String(tab.dataset.instrument === key)));
+      title.textContent = instrument.title;
+      prompt.textContent = instrument.prompt;
+      destinationTitle.textContent = instrument.destination;
+      destinationCopy.textContent = instrument.copy;
+      destinationOwner.textContent = instrument.owner;
+      panels.forEach(panel => {
+        panel.hidden = panel.dataset.panel !== key;
+      });
+    }
+
+    tabs.forEach(tab => {
+      tab.addEventListener("click", () => selectInstrument(tab.dataset.instrument));
+    });
+
+    document.querySelector("#start-journal").addEventListener("click", () => {
+      journalEmpty.hidden = true;
+      journalSession.hidden = false;
+      showToast("Prototype: preparing a First-Watch session. Nothing has been filed.");
+    });
+
+    document.querySelector("#cancel-journal-setup").addEventListener("click", () => {
+      journalSession.hidden = true;
+      journalEmpty.hidden = false;
+    });
+
+    document.querySelector("#begin-journal-session").addEventListener("click", () => {
+      const drama = journalDrama.value.trim();
+      if (!drama) {
+        journalDrama.focus();
+        showToast("Choose the drama before beginning the Episode 1 session.");
+        return;
+      }
+
+      journalSession.hidden = true;
+      journalWatching.hidden = false;
+      journalWatchTitle.textContent = `${drama} · Episode 1`;
+      journalEntryDrama.value = drama;
+      journalStartedAt.textContent = new Intl.DateTimeFormat(undefined, {
+        hour: "numeric",
+        minute: "2-digit"
+      }).format(new Date());
+      showToast("Session begun. Nothing is filed, and the durable boundary has not advanced.");
+    });
+
+    document.querySelector("#complete-journal-session").addEventListener("click", () => {
+      journalWatching.hidden = true;
+      journalFiling.hidden = false;
+      showToast("Episode 1 marked complete for this session. Write before research or discussion.");
+    });
+
+    document.querySelector("#back-to-journal-session").addEventListener("click", () => {
+      journalFiling.hidden = true;
+      journalWatching.hidden = false;
+    });
+
+    document.querySelector("#end-journal-session").addEventListener("click", () => {
+      journalWatching.hidden = true;
+      journalEmpty.hidden = false;
+      journalDrama.value = "";
+      journalEntryDrama.value = "";
+      showToast("Session ended without filing. No First-Watch boundary advanced.");
+    });
+
+    panels.forEach(panel => {
+      panel.addEventListener("submit", event => {
+        event.preventDefault();
+        if (panel.dataset.panel === "dispatch") {
+          captureComplete.hidden = false;
+        }
+        showToast(instruments[panel.dataset.panel].notice);
+      });
+    });
+
+    document.querySelectorAll(".secondary, .text-action").forEach(button => {
+      button.addEventListener("click", () => {
+        if (button.id) return;
+        showToast(`Prototype route: ${button.textContent.trim()}. No record was changed.`);
+      });
+    });
+
+    function updateCommitmentPreview() {
+      const material = commitmentForm.querySelector('input[name="material"]:checked');
+      const shape = commitmentForm.querySelector('input[name="shape"]:checked');
+      const route = shape.dataset.route;
+      previewMaterial.textContent = `Private Waiting Room dispatch · ${material.value.toLowerCase()}`;
+      previewShape.textContent = shape.value;
+      confirmCommitment.textContent = shape.dataset.action;
+      previewOwner.textContent = route === "idea"
+        ? "Creator OS · CREATE — Ideas"
+        : route === "artifact"
+          ? "Creator OS · CREATE workbench"
+          : "Fandom · governed domain workflow";
+      previewAuthority.textContent = route === "domain"
+        ? "Fandom defines the review, result, and publication contract"
+        : shape.value === "Series Premise"
+          ? "Katie must explicitly establish any canonical Series"
+          : shape.value === "C-drama Guide Section"
+            ? "Fandom review before the live Guide changes"
+            : ["Rednote Post", "Instagram Carousel", "YouTube Short"].includes(shape.value)
+              ? "PLAN only after an exact ready Artifact requests placement"
+              : "No destination or publication is implied";
+    }
+
+    chooseShape.addEventListener("click", () => {
+      updateCommitmentPreview();
+      commitmentDialog.showModal();
+    });
+
+    commitmentForm.addEventListener("change", updateCommitmentPreview);
+
+    commitmentForm.addEventListener("submit", event => {
+      event.preventDefault();
+      const shape = commitmentForm.querySelector('input[name="shape"]:checked');
+      const route = shape.dataset.route;
+      const shapeLabel = shape.closest(".option").textContent.trim();
+      dispatchState.textContent = route === "domain"
+        ? "In use · 1 governed derivative; source remains complete"
+        : "In use · 1 CREATE derivative; source remains complete";
+      dispatchState.dataset.state = "in-use";
+      dispatchLineage.hidden = false;
+      dispatchLineageTitle.textContent = route === "domain"
+        ? "Used in 1 governed proposal"
+        : "Used in 1 CREATE object";
+      dispatchDerivative.textContent = `${shapeLabel} · ${route === "idea" ? "Exploring" : route === "artifact" ? "Shaping" : "Awaiting Fandom review"}`;
+      if (route !== "domain") {
+        revealCreateObject(
+          newCreateObject,
+          `${shapeLabel} · Newly created`,
+          route === "idea" ? "Exploring" : "Shaping"
+        );
+      }
+      chooseShape.textContent = "Choose another commitment…";
+      commitmentDialog.close();
+      showToast(route === "domain"
+        ? `Domain Action proposed: ${shape.value}. CAPTURE source unchanged; CREATE and PLAN were bypassed.`
+        : `Creative Commitment recorded: ${shape.value} created in CREATE. CAPTURE source unchanged; nothing scheduled.`);
+    });
+
+    function revealCreateObject(element, label, status) {
+      if (element.hidden) {
+        createCount.textContent = String(Number(createCount.textContent) + 1);
+      }
+      element.hidden = false;
+      element.querySelector("span").textContent = label;
+      element.querySelector("strong").textContent = status;
+    }
+
+    document.querySelectorAll("[data-return]").forEach(button => {
+      button.addEventListener("click", () => {
+        const action = button.dataset.return;
+        if (action === "capture") {
+          learningCaptureRecord.hidden = false;
+          learningDisposition.textContent = "Accepted · returned to CAPTURE";
+          showToast("Learning Return accepted: audience question preserved in CAPTURE. No Idea, Artifact, or placement was created.");
+        } else if (action === "idea") {
+          revealCreateObject(learningCreateObject, "Onboarding clarity · Idea from CONNECT", "Exploring");
+          learningDisposition.textContent = "Accepted · Idea created";
+          showToast("Learning Return accepted: attributed Idea created in CREATE. No Artifact or placement was created.");
+        } else if (action === "faq") {
+          revealCreateObject(learningCreateObject, "Waiting Room FAQ · Artifact from CONNECT", "Shaping");
+          learningDisposition.textContent = "Accepted · Artifact committed";
+          showToast("Learning Return accepted: FAQ Artifact committed in CREATE. Destination review remains separate; nothing was scheduled.");
+        } else {
+          learningDisposition.textContent = "Dismissed · evidence retained";
+          showToast("Interpretation dismissed. The underlying CONNECT observation remains in history.");
+        }
+        learningReturn.dataset.disposition = action === "dismiss" ? "dismissed" : "accepted";
+      });
+    });
+
+    document.querySelector("#close-commitment").addEventListener("click", () => commitmentDialog.close());
+    document.querySelector("#cancel-commitment").addEventListener("click", () => commitmentDialog.close());
+
+    document.querySelectorAll(".ledger-heading").forEach(button => {
+      button.addEventListener("click", () => {
+        const ledger = button.closest(".ledger");
+        const isOpen = ledger.dataset.open === "true";
+        ledger.dataset.open = String(!isOpen);
+        button.setAttribute("aria-expanded", String(!isOpen));
+      });
+    });
+  </script>
+</body>
+</html>

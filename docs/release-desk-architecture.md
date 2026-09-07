@@ -5,6 +5,15 @@ readiness are implemented; Schedule remains independently owned by PLAN.
 Audience Evidence now provides an operator-only telemetry inventory and
 read-only dataset export without claiming unique-user conversion.
 
+**Superseded target structure:** The completed case-law and host decision in
+[`cdrama-federated-editorial-architecture.md`](./cdrama-federated-editorial-architecture.md)
+retain Release Desk as a compatibility shell but place its permanent
+capabilities by authority. Fandom Operations owns Approved Candidates,
+Production Readiness, Public Editions, and Held / Retired. Creator OS PLAN owns
+external placement; CONNECT owns external publication truth and editorial
+signals; Diagnostics owns instrumentation/data health. The implemented Phase 1
+and Phase 2 behavior below remains valid.
+
 ## Decision summary
 
 Release Inventory should become the first view inside a private **Release Desk**
