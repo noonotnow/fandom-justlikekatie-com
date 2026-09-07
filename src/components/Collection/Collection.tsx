@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  dbGetSyncState,
+  dbGetVisibleCards,
   dbGetVisibleCardsByScope,
   dbReplaceCardImage,
   normalizeCardForCollection,
@@ -14,6 +16,7 @@ import {
   type MisprintLearningScope,
   type MisprintReason,
 } from '../../utils/collectionDB';
+import { createCollectionDiagnostic } from '../../utils/collectionDiagnostic';
 import { MISPRINT_REASONS, misprintReasonDefinition } from '../../utils/misprintReasons';
 import {
   persistRemoval,
@@ -324,6 +327,43 @@ export const Collection: React.FC<Props> = ({
       setAccountNotice('Signed out. Local saves still work on this device.');
     } catch (error) {
       setAccountNotice(messageFrom(error, 'Could not sign out.'));
+    }
+  }
+
+  async function downloadDiagnosticData() {
+    setBusyKey('diagnostic-export');
+    try {
+      const [diagnosticCards, diagnosticGrids, syncState] = await Promise.all([
+        dbGetVisibleCards(user?.accountId),
+        dbGetVisibleGrids(user?.accountId),
+        dbGetSyncState(),
+      ]);
+      const exportedAt = new Date();
+      const diagnostic = createCollectionDiagnostic(
+        diagnosticCards,
+        diagnosticGrids,
+        syncState,
+        exportedAt,
+        user?.accountId,
+      );
+      const blob = new Blob([JSON.stringify(diagnostic, null, 2)], {
+        type: 'application/json',
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `fandom-collection-diagnostic-${exportedAt.toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setAccountNotice(
+        `Diagnostic data downloaded: ${diagnostic.counts.cards} saved results and ${diagnostic.counts.grids} grids. Nothing in your Collection was changed.`,
+      );
+    } catch (error) {
+      setAccountNotice(messageFrom(error, 'Collection diagnostic data could not be downloaded.'));
+    } finally {
+      setBusyKey('');
     }
   }
 
@@ -665,7 +705,16 @@ export const Collection: React.FC<Props> = ({
             ? 'Your separate MemeForge shelf for finished Middle-earth memes.'
             : 'Collect individual finds, keep finished worlds, and compose Event or Compiled editorial sets.'}</p>
         </div>
-        <span>{isMiddleEarth ? `${cards.length} memes` : `${grids.length} grids · ${cards.length} results`}</span>
+        <div className={styles.heroActions}>
+          <span>{isMiddleEarth ? `${cards.length} memes` : `${grids.length} grids · ${cards.length} results`}</span>
+          <button
+            type="button"
+            disabled={Boolean(busyKey)}
+            onClick={() => void downloadDiagnosticData()}
+          >
+            {busyKey === 'diagnostic-export' ? 'Preparing data…' : 'Download diagnostic data'}
+          </button>
+        </div>
       </header>
 
       <section className={styles.account}>

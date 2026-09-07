@@ -15,7 +15,24 @@
 
 .hero h2 { margin: 0; color: #c9a96e; font-size: clamp(1.8rem, 4vw, 3rem); line-height: 1; }
 .hero p { max-width: 60ch; margin: 12px 0 0; color: color-mix(in srgb, currentColor 68%, transparent); }
-.hero > span { flex: none; color: #c9a96e; font-size: .82rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.heroActions {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 10px;
+}
+.heroActions > span { color: #c9a96e; font-size: .82rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.heroActions button {
+  min-height: 38px;
+  padding: 7px 12px;
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font-size: .78rem;
+}
+.heroActions button:disabled { cursor: wait; opacity: .58; }
 
 .account {
   margin: 24px 0 32px;
@@ -392,7 +409,7 @@
 @media (max-width: 760px) {
   .collection { width: min(100% - 24px, 1120px); padding-top: 28px; }
   .hero, .account form, .signedIn { align-items: stretch; flex-direction: column; }
-  .hero > span { align-self: start; }
+  .heroActions { align-items: flex-start; }
   .account form > div { width: 100%; }
   .gridArtifact { grid-template-columns: 1fr; }
   .gridPreviewButton { grid-row: auto; width: min(100%, 440px); }
