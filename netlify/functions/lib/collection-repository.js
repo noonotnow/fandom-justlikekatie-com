@@ -48,10 +48,11 @@ function applyOperation(collection, operation, mappings, current) {
   if (operation.type === "upsert") {
     const sourceKey = operation.item.kind === "grid"
       ? `grid:${operation.item.id}`
-      : operation.item.resultId
-        ? `result:${operation.item.resultId}`
-        : `local:${operation.localId}`;
-    const existing = Object.values(collection.items).find(item => item.sourceKey === sourceKey);
+      : `local:${operation.localId}`;
+    const existing = Object.values(collection.items).find(item => (
+      item.localId === operation.localId
+      || item.sourceKey === sourceKey
+    ));
     const serverId = existing?.id || randomUUID();
     collection.items[serverId] = {
       ...operation.item,

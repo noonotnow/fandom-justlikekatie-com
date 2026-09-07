@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash, createHmac } from "node:crypto";
 import { createPublicAuth, pruneExpiredRateLimits } from "./public-auth.js";
-import { syncCollection } from "./collection-repository.js";
+import { readCollection, syncCollection } from "./collection-repository.js";
 import { createCollectionHandlers } from "./collection-api.js";
 import { sendMagicLinkEmail } from "./resend-email.js";
 
@@ -393,7 +393,7 @@ test("Resend rejection (unverified domain / bad key) surfaces a 503 to the user,
   }
 });
 
-test("collection sync is idempotent, URL-independent, cursor-based, and tombstoned", async () => {
+test("collection sync is idempotent, saved-record-specific, cursor-based, and tombstoned", async () => {
   const store = memoryStore();
   const upsert = {
     schemaVersion: 1,
@@ -426,16 +426,25 @@ test("collection sync is idempotent, URL-independent, cursor-based, and tombston
       item: { ...upsert.operations[0].item, imageUrl: "https://images.example/two.jpg" },
     }],
   });
-  assert.equal(secondDevice.mappings["local-b"], id);
+  const secondId = secondDevice.mappings["local-b"];
+  assert.notEqual(secondId, id);
+  assert.equal(secondDevice.items.length, 2);
+  assert.deepEqual(
+    secondDevice.items.map(item => item.localId).sort(),
+    ["local-a", "local-b"],
+  );
 
   const removed = await syncCollection(store, "usr_test", {
     schemaVersion: 1,
     clientId: "device-b",
     cursor: first.cursor,
-    operations: [{ type: "delete", mutationId: "mutation-c", localId: "local-b", serverId: id }],
+    operations: [{ type: "delete", mutationId: "mutation-c", localId: "local-b", serverId: secondId }],
   });
   assert.equal(removed.items.length, 0);
-  assert.equal(removed.tombstones[0].id, id);
+  assert.equal(removed.tombstones[0].id, secondId);
+  const remaining = await readCollection(store, "usr_test");
+  assert.equal(remaining.items.length, 1);
+  assert.equal(remaining.items[0].id, id);
 });
 
 test("collection sync enforces complete editorial compositions while preserving legacy grids", async () => {

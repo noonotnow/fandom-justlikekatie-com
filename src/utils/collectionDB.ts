@@ -730,7 +730,7 @@ export function buildSyncOperations(
     .map(card => {
       const localId = card.localId!;
       const collectionScope = collectionScopeForCard(card);
-      const mutationId = `upsert:${state.clientId}:${localId}:${card.savedAt || card.capturedDate}:${collectionScope}`;
+      const mutationId = `upsert:${state.clientId}:${localId}:${card.savedAt || card.capturedDate}:${collectionScope}:saved-record-v2`;
       return {
         type: 'upsert',
         mutationId,
@@ -829,11 +829,17 @@ export async function dbApplySyncResponse(
       gridStore.put({ ...existing, ...record });
       continue;
     }
-    const existing = byServerId.get(serverId) || byLocalId.get(localId);
+    const existingByLocalId = byLocalId.get(localId);
+    const existingByServerId = byServerId.get(serverId);
+    const existing = existingByLocalId || (
+      !localId || existingByServerId?.localId === localId
+        ? existingByServerId
+        : undefined
+    );
     const record = {
       ...(item as unknown as CardRecord),
       collectionScope: collectionScopeForCard(item as unknown as CardRecord),
-      localId: existing?.localId || localId || crypto.randomUUID(),
+      localId: localId || existing?.localId || crypto.randomUUID(),
       serverId,
       // Preserve cards that began as anonymous device data; only cloud-only
       // downloads are account-scoped and removed from the local cache on logout.
