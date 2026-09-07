@@ -270,7 +270,7 @@ test('Grid Builder keeps saved results but does not unpack saved grids into its 
     await seedCollection(page);
     await page.goto(`${origin}/vibe-atlas?view=collection`);
     await page.getByRole('button', { name: 'Grid Builder', exact: true }).click();
-    await page.getByText('1 unique proposal image from 1 saved result').waitFor();
+    await page.getByText('1 saved result matches this lens').waitFor();
     await page.getByRole('button', { name: /Card cleanup actor 1/ }).waitFor();
     assert.equal(await page.getByRole('button', { name: /Grid cleanup actor 1/ }).count(), 0);
   } finally {

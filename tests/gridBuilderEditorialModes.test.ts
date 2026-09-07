@@ -4,7 +4,6 @@ import {
   gridRecordFromProposal,
   proposeGrid,
   rebuildRationale,
-  uniqueVisualCards,
   type BuilderCard,
 } from '../src/utils/gridBuilder.ts';
 import { creatorDraftSourceFromGrid } from '../src/utils/creatorDraft.ts';
@@ -95,7 +94,7 @@ test('Compiled mode keeps the ordinary nine-frame path and builds range across f
   assert.match(proposal.rationale.whyTogether, /balances/i);
 });
 
-test('automatic proposals never seat one MEDIA image twice through duplicate records', () => {
+test('automatic proposals preserve separately saved records with the same MEDIA checksum', () => {
   const original = card(0, 'family-a');
   const duplicate = {
     ...card(99, 'family-b'),
@@ -118,8 +117,26 @@ test('automatic proposals never seat one MEDIA image twice through duplicate rec
   assert.equal(
     [...proposal.slots, ...proposal.alternates]
       .filter(item => item.mediaChecksum === 'a'.repeat(64)).length,
-    1,
+    2,
   );
+});
+
+test('Compiled mode keeps all 23 saved records when six generic visuals share one family', () => {
+  const pool = Array.from({ length: 23 }, (_, index) => ({
+    ...card(index, 'good-looking-man-next-to-a-building'),
+    key: `saved-record-${index}`,
+    imageUrl: `https://images.example/shared-look-${index % 6}.jpg`,
+    resultId: `saved-result-${index}`,
+    mediaChecksum: String(index % 6).repeat(64),
+  }));
+
+  const proposal = proposeGrid(pool, { actor: '刘学义' }, 'compiled');
+  const available = [...proposal.slots, ...proposal.alternates];
+
+  assert.equal(proposal.slots.length, 9);
+  assert.equal(proposal.alternates.length, 14);
+  assert.equal(available.length, 23);
+  assert.equal(new Set(available.map(item => item.key)).size, 23);
 });
 
 test('reused result ids do not collapse independently saved images', () => {
@@ -128,8 +145,9 @@ test('reused result ids do not collapse independently saved images', () => {
     resultId: 'reused-search-result-id',
   }));
 
-  assert.equal(uniqueVisualCards(reusedResultId).length, 23);
-  assert.equal(proposeGrid(reusedResultId, { actor: '刘学义' }, 'compiled').slots.length, 9);
+  const proposal = proposeGrid(reusedResultId, { actor: '刘学义' }, 'compiled');
+  assert.equal(proposal.slots.length, 9);
+  assert.equal([...proposal.slots, ...proposal.alternates].length, 23);
 });
 
 test('distinct images behind the image proxy remain distinct builder cards', () => {
@@ -139,8 +157,9 @@ test('distinct images behind the image proxy remain distinct builder cards', () 
     imageUrl: `/.netlify/functions/image-proxy?url=${encodeURIComponent(`https://images.example/frame-${index}.jpg?size=large`)}`,
   }));
 
-  assert.equal(uniqueVisualCards(proxied).length, 9);
-  assert.equal(proposeGrid(proxied, {}, 'compiled').slots.length, 9);
+  const proposal = proposeGrid(proxied, {}, 'compiled');
+  assert.equal(proposal.slots.length, 9);
+  assert.equal([...proposal.slots, ...proposal.alternates].length, 9);
 });
 
 test('a 12-frame Event record preserves mode, family provenance, export order, and handoff context', async () => {

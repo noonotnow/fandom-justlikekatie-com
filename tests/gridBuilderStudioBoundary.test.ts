@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  applyLens,
   buildVibeAtlasPool,
   gridRecordFromProposal,
   proposeGrid,
-  uniqueVisualCardsForLens,
 } from '../src/utils/gridBuilder';
 import { markGridAsLegendaryMisprint, type CardRecord, type GridRecord } from '../src/utils/collectionDB';
 import { starDataFromCollectionGrid } from '../src/utils/collectionHistoryModel';
@@ -71,7 +71,7 @@ test('Vibe Atlas builder uses saved result scope and does not unpack finished gr
   assert.equal(pool.some(item => /Gandalf|Middle-earth/.test(item.actor)), false);
 });
 
-test('builder browsing keeps distinct saved records while automatic proposals deduplicate visuals', () => {
+test('builder and automatic proposals preserve every distinct saved record', () => {
   const first = {
     ...card('刘学义', 'first-record'),
     media: {
@@ -104,7 +104,7 @@ test('builder browsing keeps distinct saved records while automatic proposals de
     'https://media.example/first-thumb.jpg',
     'https://media.example/second-thumb.jpg',
   ]);
-  assert.equal(proposeGrid(pool, {}, 'compiled').slots.length, 1);
+  assert.equal(proposeGrid(pool, {}, 'compiled').slots.length, 2);
 });
 
 test('saved actor identity stays authoritative over stale search spell metadata', () => {
@@ -126,10 +126,10 @@ test('saved actor identity stays authoritative over stale search spell metadata'
   assert.equal(pool.length, 2);
   assert.deepEqual(pool.map(item => item.actor), ['宋威龙', '宋威龙']);
   assert.deepEqual(pool.map(item => item.actorEn), ['Song Weilong', 'Song Weilong']);
-  assert.equal(proposeGrid(pool, {}, 'compiled').slots.length, 1);
+  assert.equal(proposeGrid(pool, {}, 'compiled').slots.length, 2);
 });
 
-test('actor lenses run before visual deduplication', () => {
+test('actor lenses preserve every saved record even when image URLs overlap', () => {
   const song = Array.from({ length: 5 }, (_, index) => ({
     ...card('宋威龙', `song-${index}`),
     actorEn: 'Song Weilong',
@@ -146,8 +146,8 @@ test('actor lenses run before visual deduplication', () => {
 
   const pool = buildVibeAtlasPool([...song, ...ao]);
 
-  assert.equal(uniqueVisualCardsForLens(pool, { actor: '宋威龙' }).length, 5);
-  assert.equal(uniqueVisualCardsForLens(pool, { actor: '敖瑞鹏' }).length, 5);
+  assert.equal(applyLens(pool, { actor: '宋威龙' }).length, 5);
+  assert.equal(applyLens(pool, { actor: '敖瑞鹏' }).length, 5);
 });
 
 test('generic publication markers do not become Event families', () => {
