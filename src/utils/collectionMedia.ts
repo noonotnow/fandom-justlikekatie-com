@@ -64,7 +64,7 @@ export async function recoverCollectionCard(
   const localId = card.localId || await dbEnsureCardLocalId(card.imageUrl);
   if (!localId) throw new Error('Saved result is no longer available for MEDIA recovery.');
   const collectionId = collectionScopeForCard(card);
-  const candidate = findCandidate(card.resultId, card.imageUrl, collectionId, packetCandidates);
+  const candidate = findCandidate(card.imageUrl, collectionId, packetCandidates);
   const existing = card.media && isVerifiedMediaReference(card.media) ? card.media : candidate?.media;
   const source = imageSourcesForCard(card);
 
@@ -101,7 +101,6 @@ export async function recoverCollectionGrid(
   const localId = grid.localId || await dbEnsureGridLocalId(grid.id);
   if (!localId) throw new Error('Saved grid is no longer available for MEDIA recovery.');
   const candidate = findCandidate(
-    grid.images[0]?.resultId,
     grid.legacyCompositeUrl || grid.images[0]?.imageUrl,
     'vibe-atlas',
     packetCandidates,
@@ -278,7 +277,6 @@ async function registerFirstReachableImage(
 }
 
 function findCandidate(
-  resultId: string | undefined,
   imageUrl: string | undefined,
   collectionScope: CollectionScope,
   candidates: CollectionMediaCandidate[],
@@ -286,10 +284,8 @@ function findCandidate(
   return candidates.find(candidate => (
     candidate.collectionScope === collectionScope
     && isVerifiedMediaReference(candidate.media)
-    && (
-      (resultId && candidate.resultId === resultId)
-      || (imageUrl && candidate.imageUrl === imageUrl)
-    )
+    && imageUrl
+    && candidate.imageUrl === imageUrl
   ));
 }
 

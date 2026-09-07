@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { IDBFactory } from 'fake-indexeddb';
 import {
   activateSyncState,
   batchCollectionSyncOperations,
@@ -8,6 +9,9 @@ import {
   collectionScopeForCard,
   createMisprint,
   createLegendaryMisprint,
+  dbApplySyncResponse,
+  dbGetAllCards,
+  dbSaveCard,
   normalizeCardForCollection,
   markGridAsLegendaryMisprint,
   queueCardDelete,
@@ -125,6 +129,67 @@ test('large collections advance beyond the first 100 acknowledged upserts', () =
   const second = buildSyncOperations(cards, syncState, 'account-a');
   assert.equal(second.length, 51);
   assert.equal(second[0].localId, 'local-99');
+});
+
+test('saved-card identity migration re-uploads previously acknowledged records', () => {
+  const saved = card(1);
+  const syncState = state();
+  syncState.acknowledgedUpsertsByAccount['account-a'] = {
+    [saved.localId!]: `upsert:${syncState.clientId}:${saved.localId}:${saved.savedAt}:vibe-atlas`,
+  };
+
+  const operation = buildSyncOperations([saved], syncState, 'account-a')
+    .find(candidate => candidate.type === 'upsert');
+  assert.ok(operation);
+  assert.equal(operation.localId, saved.localId);
+  assert.match(String(operation.mutationId), /:saved-record-v2$/);
+});
+
+test('sync response updates the matching saved record when legacy mappings share a server id', async () => {
+  Object.assign(globalThis, { indexedDB: new IDBFactory() });
+  const song = {
+    ...card(1),
+    serverId: 'legacy-shared-server',
+    actor: 'Song Weilong',
+    imageUrl: 'https://images.example/song.jpg',
+    thumbnailUrl: 'https://images.example/song-thumb.jpg',
+  };
+  const liu = {
+    ...card(2),
+    serverId: 'legacy-shared-server',
+    actor: 'Liu Xueyi',
+    imageUrl: 'https://images.example/liu.jpg',
+    thumbnailUrl: 'https://images.example/liu-thumb.jpg',
+  };
+  await dbSaveCard(song);
+  await dbSaveCard(liu);
+
+  await dbApplySyncResponse('account-a', {
+    cursor: 1,
+    items: [{
+      kind: 'card',
+      id: 'liu-server-v2',
+      localId: liu.localId,
+      imageUrl: liu.imageUrl,
+      thumbnailUrl: liu.thumbnailUrl,
+      actor: liu.actor,
+      actorEn: liu.actorEn,
+      vibe: liu.vibe,
+      vibeEn: liu.vibeEn,
+      vibeEmoji: liu.vibeEmoji,
+      capturedDate: liu.capturedDate,
+      revision: 1,
+    }],
+    tombstones: [],
+    mappings: { [liu.localId!]: 'liu-server-v2' },
+    acknowledgedMutationIds: [],
+  }, []);
+
+  const persisted = await dbGetAllCards();
+  assert.equal(persisted.find(saved => saved.localId === song.localId)?.actor, 'Song Weilong');
+  assert.equal(persisted.find(saved => saved.localId === song.localId)?.imageUrl, song.imageUrl);
+  assert.equal(persisted.find(saved => saved.localId === liu.localId)?.actor, 'Liu Xueyi');
+  assert.equal(persisted.find(saved => saved.localId === liu.localId)?.serverId, 'liu-server-v2');
 });
 
 test('sync request batches stay below the API body limit without dropping operations', () => {
