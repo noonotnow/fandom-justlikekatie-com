@@ -101,6 +101,7 @@ const MISPRINT_RECEIPT_CATALOG_KEY = "vibeAtlas:misprint-receipt-catalog:v1";
 const RESCUE_CALIBRATION_VERSION = 1;
 const MIN_REUSABLE_SIGNAL_DELTA = 0.15;
 const MIN_REUSABLE_SIGNAL_SUPPORT = 2;
+const MIN_HUMAN_PROXY_REVIEWED_SAMPLE = 5;
 const CALIBRATION_SIGNAL_FAMILIES = new Map([
   ["query", "queries"],
   ["queries", "queries"],
@@ -3693,6 +3694,7 @@ async function attachVerdict(store, pair, run) {
     boardDiagnostics,
     editorialFeedback,
     humanVisualJudgments,
+    humanProxyComparison: humanProxyComparison(normalizedRun, humanVisualJudgments),
     operatorVerdict: operatorVerdict || null,
     blindReview: calibration
       ? { ...calibration, ...(reasons || {}) }
@@ -3725,9 +3727,17 @@ function calibrationAuditExport(run, pair, humanVisualJudgments = []) {
     "calibrationProof", "blindReview", "publication",
     "publicationSource", "auditContract", "curationVersion", "identityProfileVersion",
     "aestheticClusterVersion", "promiseContractVersion", "calibrationAnalysis",
+    "humanProxyComparison",
   ];
-  const projectedRun = { runId: run.runId };
+  const comparison = run.humanProxyComparison
+    || humanProxyComparison(run, humanVisualJudgments);
+  const projectedRun = {
+    runId: run.runId,
+    humanProxyComparison: comparison,
+  };
   for (const field of fields) {
+    if (field === "humanProxyComparison") continue;
+    if (!comparison.sampleSufficient && field === "calibrationAnalysis") continue;
     if (Object.prototype.hasOwnProperty.call(run, field)) projectedRun[field] = run[field];
   }
   const missingFields = fields
@@ -3742,6 +3752,9 @@ function calibrationAuditExport(run, pair, humanVisualJudgments = []) {
       "This export is a projection of the raw selected immutable run, not a rerun, recomputation, or normalized UI detail.",
       "Fields not retained by the selected run are reported as missing and are not inferred.",
       "Later verdict, calibration, feedback, rescue, and publication receipts are excluded unless they were embedded in the selected run.",
+      ...(!comparison.sampleSufficient
+        ? ["Proxy-bearing calibration analysis is withheld until the minimum blind human review is complete."]
+        : []),
     ],
   };
   return {
@@ -3751,8 +3764,11 @@ function calibrationAuditExport(run, pair, humanVisualJudgments = []) {
     source: { actorId: pair.actor.id, vibeKey: pair.vibeKey, runId: run.runId },
     run: projectedRun,
     classifications: {
-      proxy: run.calibrationAnalysis?.candidates || [],
+      proxy: comparison.sampleSufficient
+        ? run.calibrationAnalysis?.candidates || []
+        : [],
       human: humanVisualJudgments,
+      proxyWithheldUntilComplete: !comparison.sampleSufficient,
     },
   };
 }
@@ -5966,6 +5982,148 @@ function visualJudgmentQueue(run) {
       thumbnail: candidate.thumbnail,
     }))
     .sort((left, right) => left.judgmentToken.localeCompare(right.judgmentToken));
+}
+
+function humanProxyComparison(run, receipts = []) {
+  const candidates = (run?.calibrationAnalysis?.candidates || []).filter(candidate =>
+    (candidate?.selected === false || candidate?.dropReason)
+    && candidate?.thumbnail
+    && candidate?.occurrenceId);
+  const receiptsByOccurrence = new Map();
+  for (const receipt of receipts) {
+    if (!receipt?.sourceOccurrenceId) continue;
+    const occurrenceReceipts = receiptsByOccurrence.get(receipt.sourceOccurrenceId) || [];
+    occurrenceReceipts.push(receipt);
+    receiptsByOccurrence.set(receipt.sourceOccurrenceId, occurrenceReceipts);
+  }
+  const ladderByQuery = new Map((run?.calibrationAnalysis?.queryVisualYield || [])
+    .filter(item => typeof item?.query === "string")
+    .map(item => [item.query, item.ladderRung]));
+  const occurrences = candidates.map(candidate => {
+    const occurrenceReceipts = receiptsByOccurrence.get(candidate.occurrenceId) || [];
+    const humanClass = occurrenceReceipts.length === 1
+      ? occurrenceReceipts[0].classification
+      : null;
+    return {
+      occurrenceId: candidate.occurrenceId,
+      proxyClass: candidate.visualClass || "unclassified",
+      humanClass,
+      query: candidate.query || "unknown query",
+      ladderRung: ladderByQuery.get(candidate.query) ?? candidate.ladderRung ?? null,
+      rejectionStage: humanProxyRejectionStage(candidate),
+      rejectionReason: candidate.dropReason || "post_ranking_omission",
+      judgmentCount: occurrenceReceipts.length,
+      agreement: humanClass ? humanClass === candidate.visualClass : null,
+    };
+  });
+  const missingOccurrences = occurrences
+    .filter(item => item.judgmentCount === 0)
+    .map(item => item.occurrenceId);
+  const multiplyJudgedOccurrences = occurrences
+    .filter(item => item.judgmentCount > 1)
+    .map(item => ({ occurrenceId: item.occurrenceId, judgmentCount: item.judgmentCount }));
+  const reviewed = occurrences.filter(item => item.judgmentCount === 1);
+  const agreementCount = reviewed.filter(item => item.agreement).length;
+  const group = (keyFor) => [...new Set(occurrences.map(keyFor))]
+    .map(key => {
+      const members = occurrences.filter(item => keyFor(item) === key);
+      const usable = members.filter(item => item.judgmentCount === 1);
+      const agreements = usable.filter(item => item.agreement).length;
+      const transitions = [...new Set(usable
+        .filter(item => !item.agreement)
+        .map(item => `${item.proxyClass} → ${item.humanClass}`))]
+        .map(transition => ({
+          transition,
+          count: usable.filter(item =>
+            !item.agreement
+            && `${item.proxyClass} → ${item.humanClass}` === transition).length,
+        }))
+        .sort((left, right) => right.count - left.count || left.transition.localeCompare(right.transition));
+      return {
+        key,
+        occurrenceCount: members.length,
+        reviewedCount: usable.length,
+        missingCount: members.filter(item => item.judgmentCount === 0).length,
+        multiplyJudgedCount: members.filter(item => item.judgmentCount > 1).length,
+        agreementCount: agreements,
+        disagreementCount: usable.length - agreements,
+        agreementRate: usable.length ? agreements / usable.length : null,
+        sampleSufficient: usable.length >= MIN_HUMAN_PROXY_REVIEWED_SAMPLE,
+        disagreementTransitions: transitions,
+      };
+    })
+    .sort((left, right) => String(left.key).localeCompare(String(right.key)));
+  const sampleSufficient = reviewed.length >= MIN_HUMAN_PROXY_REVIEWED_SAMPLE
+    && missingOccurrences.length === 0
+    && multiplyJudgedOccurrences.length === 0;
+  const agreementRate = reviewed.length ? agreementCount / reviewed.length : null;
+  const dimensions = {
+    byProxyClass: group(item => item.proxyClass),
+    byQueryLadder: group(item =>
+      item.ladderRung === null ? `${item.query} · rung unknown` : `${item.query} · rung ${item.ladderRung}`),
+    byRejectionStage: group(item => item.rejectionStage),
+  };
+  const concerningGroups = Object.entries(dimensions)
+    .flatMap(([dimension, groups]) => groups
+      .filter(group => group.sampleSufficient && group.agreementRate < 0.7)
+      .map(group => ({ dimension, key: group.key, agreementRate: group.agreementRate })))
+    .sort((left, right) => left.agreementRate - right.agreementRate);
+  const recommendation = !sampleSufficient
+    ? {
+      status: "insufficient_sample",
+      summary: `Do not propose calibration. Complete at least ${MIN_HUMAN_PROXY_REVIEWED_SAMPLE} singly judged occurrences with no missing or multiply judged evidence.`,
+    }
+    : agreementRate < 0.7 || concerningGroups.length
+      ? {
+        status: "review_disagreement",
+        summary: concerningGroups.length
+          ? `Review sampled disagreement in ${concerningGroups.slice(0, 3).map(item => item.key).join(", ")} before opening a separate scoring-change task.`
+          : "Review the overall disagreement pattern before opening a separate scoring-change task.",
+      }
+      : {
+        status: "retain_proxy",
+        summary: "Retain the current proxy pending more evidence; this reviewed sample does not justify a scoring change.",
+      };
+  return {
+    schemaVersion: 1,
+    minimumReviewedSample: MIN_HUMAN_PROXY_REVIEWED_SAMPLE,
+    occurrenceCount: occurrences.length,
+    reviewedCount: reviewed.length,
+    missingCount: missingOccurrences.length,
+    multiplyJudgedCount: multiplyJudgedOccurrences.length,
+    agreementCount: sampleSufficient ? agreementCount : null,
+    disagreementCount: sampleSufficient ? reviewed.length - agreementCount : null,
+    agreementRate: sampleSufficient ? agreementRate : null,
+    sampleSufficient,
+    missingOccurrences,
+    multiplyJudgedOccurrences,
+    ...(sampleSufficient ? dimensions : {
+      byProxyClass: [],
+      byQueryLadder: [],
+      byRejectionStage: [],
+    }),
+    comparisonWithheldUntilComplete: !sampleSufficient,
+    recommendation: {
+      ...recommendation,
+      productionScoringChanged: false,
+      requiresSeparateApproval: true,
+    },
+  };
+}
+
+function humanProxyRejectionStage(candidate) {
+  const reason = candidate?.dropReason;
+  if (reason === "exact_duplicate") {
+    return "deduplication";
+  }
+  if (reason) return "pre_analysis_filter";
+  if (
+    candidate?.visualClass === "contradictory"
+    || candidate?.visualClass === "irrelevant"
+  ) {
+    return "promise_rejection";
+  }
+  return "post_ranking_omission";
 }
 async function readFirstReceipt(store, prefix, timestampField) {
   const listing = await store.list({ prefix });

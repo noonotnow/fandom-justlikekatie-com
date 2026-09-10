@@ -13,7 +13,7 @@ type BoardDiagnostic = { available?: boolean; completeProposalAvailable?: boolea
 
 type RunnerUpDiagnostic = { available?: boolean; minimumCardDifference?: number; qualifiedProposalCount?: number; meaningfulAlternativeCount?: number; rejectedForCardOverlap?: number; rejectedForSameArgument?: number; summary?: string };
 type AuditContract = { status?: 'current'|'legacy'; isCurrent?: boolean; isLegacy?: boolean; legacyReasons?: string[]; currentVersions?: AnyRecord };
-type Run = AnyRecord & { runId?: string; scope?: string; curationVersion?: number; identityProfileVersion?: number; aestheticClusterVersion?: number; promiseContractVersion?: number; queryRuns?: AnyRecord[]; rawResults?: AnyRecord[]; rejections?: AnyRecord[]; identityEvidence?: AnyRecord; detectedEvents?: AnyRecord[]; boardDiagnostics?: { event?: BoardDiagnostic; compiled?: BoardDiagnostic }; runnerUpDiagnostics?: { event?: RunnerUpDiagnostic; compiled?: RunnerUpDiagnostic }; partialClusters?: AnyRecord[]; strongestEvent?: AnyRecord; strongestCompiled?: AnyRecord; winner?: AnyRecord; alternate?: AnyRecord; curationReceipt?: AnyRecord; blindReview?: BlindReview; auditContract?: AuditContract; humanVisualJudgments?: AnyRecord[]; visualJudgmentQueue?: AnyRecord[] };
+type Run = AnyRecord & { runId?: string; scope?: string; curationVersion?: number; identityProfileVersion?: number; aestheticClusterVersion?: number; promiseContractVersion?: number; queryRuns?: AnyRecord[]; rawResults?: AnyRecord[]; rejections?: AnyRecord[]; identityEvidence?: AnyRecord; detectedEvents?: AnyRecord[]; boardDiagnostics?: { event?: BoardDiagnostic; compiled?: BoardDiagnostic }; runnerUpDiagnostics?: { event?: RunnerUpDiagnostic; compiled?: RunnerUpDiagnostic }; partialClusters?: AnyRecord[]; strongestEvent?: AnyRecord; strongestCompiled?: AnyRecord; winner?: AnyRecord; alternate?: AnyRecord; curationReceipt?: AnyRecord; blindReview?: BlindReview; auditContract?: AuditContract; humanVisualJudgments?: AnyRecord[]; visualJudgmentQueue?: AnyRecord[]; humanProxyComparison?: AnyRecord };
 
 function confirmsCompleteProposal(diagnostic?: BoardDiagnostic) {
   return Boolean(
@@ -674,6 +674,24 @@ function CandidateFunnelSummary({run}:{run:Run}) {
         <small>{candidate.visualClass ?? 'unclassified'} · {candidate.dropReason ?? 'post-ranking omission'}</small>
       </a>)}</div>
     </details>
+    <HumanProxyComparison comparison={run.humanProxyComparison}/>
+  </section>;
+}
+
+function HumanProxyComparison({comparison}:{comparison?:AnyRecord}) {
+  if(!comparison)return null;
+  const dimensions:Array<[string,AnyRecord[]]>=[
+    ['Proxy class',comparison.byProxyClass??EMPTY_RECORDS],
+    ['Query ladder',comparison.byQueryLadder??EMPTY_RECORDS],
+    ['Rejection stage',comparison.byRejectionStage??EMPTY_RECORDS],
+  ];
+  const percent=(value:unknown)=>typeof value==='number'?`${Math.round(value*100)}%`:'—';
+  return <section className={styles.humanProxyComparison} aria-label="Human versus proxy calibration comparison">
+    <div className={styles.calibrationLearningHeader}><div><h6>Human judgment versus proxy</h6><p>Only singly judged occurrences count toward agreement. Missing and multiply judged evidence is excluded, not resolved by inference.</p></div><span className={comparison.sampleSufficient?styles.calibrationPass:styles.calibrationPending}>{comparison.sampleSufficient?'Reviewable sample':'Sample incomplete'}</span></div>
+    <div className={styles.evidenceSummary}><strong>{comparison.reviewedCount??0}</strong><span>reviewed of {comparison.occurrenceCount??0}</span><strong>{percent(comparison.agreementRate)}</strong><span>overall agreement</span><strong>{comparison.missingCount??0}</strong><span>missing</span><strong>{comparison.multiplyJudgedCount??0}</strong><span>multiply judged</span></div>
+    {(comparison.missingCount>0||comparison.multiplyJudgedCount>0)&&<details><summary>Occurrence exceptions</summary><pre>{text({missing:comparison.missingOccurrences,multiplyJudged:comparison.multiplyJudgedOccurrences})}</pre></details>}
+    {comparison.comparisonWithheldUntilComplete?<p>Grouped proxy comparisons stay hidden until the minimum reviewed sample is complete, with no missing or multiply judged occurrences.</p>:dimensions.map(([label,rows])=><details key={label} open={label==='Proxy class'}><summary>{label} agreement <span className={styles.muted}>{rows.length} groups</span></summary><div className={styles.comparisonTable}>{rows.map(row=><div key={row.key}><strong>{String(row.key).replaceAll('_',' ')}</strong><span>{row.reviewedCount}/{row.occurrenceCount} reviewed</span><span>{percent(row.agreementRate)} agreement</span><span>{row.disagreementCount} disagree · {row.disagreementTransitions?.map((item:AnyRecord)=>`${item.transition} (${item.count})`).join(', ')||'no class transitions'}</span></div>)}</div></details>)}
+    <div className={styles.calibrationRecommendation} data-status={comparison.recommendation?.status}><strong>Calibration recommendation</strong><p>{comparison.recommendation?.summary}</p><small>Diagnostic only. Ranking, eligibility, publication scoring, and existing receipts are unchanged. Any scoring change requires a separate approved task.</small></div>
   </section>;
 }
 

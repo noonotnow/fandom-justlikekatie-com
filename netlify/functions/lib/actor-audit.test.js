@@ -10,6 +10,7 @@ import {
 } from "./actor-identity-profiles.js";
 import {
   auditCalibrationPrefix,
+  auditVisualJudgmentKey,
   auditVisualJudgmentPrefix,
   auditEligibilityDecisionPrefix,
   auditFeedbackPrefix,
@@ -579,7 +580,9 @@ test("private calibration export projects retained receipts without searches or 
   assert.deepEqual(payload.run.rejections, run.rejections);
   assert.deepEqual(payload.run.eventFamilies, run.eventFamilies);
   assert.deepEqual(payload.run.deduplication, run.deduplication);
-  assert.deepEqual(payload.run.calibrationAnalysis, run.calibrationAnalysis);
+  assert.equal("calibrationAnalysis" in payload.run, false);
+  assert.ok(payload.exportMetadata.limitations.some(item =>
+    item.includes("Proxy-bearing calibration analysis is withheld")));
   assert.ok(payload.exportMetadata.missingFields.includes("run.publication"));
   assert.equal(payload.publicationJoinReceipt.kind, "vibe-atlas-audit-publication-join");
   assert.deepEqual(payload.publicationJoinReceipt.counts, {
@@ -707,8 +710,153 @@ test("blind visual judgments append human receipts by source occurrence without 
     `?export=calibration&actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=${run.runId}`,
   ), {});
   const exported = await exportResponse.json();
-  assert.deepEqual(exported.classifications.proxy, run.calibrationAnalysis.candidates);
+  assert.deepEqual(exported.classifications.proxy, []);
+  assert.equal(exported.classifications.proxyWithheldUntilComplete, true);
+  assert.equal("calibrationAnalysis" in exported.run, false);
+  const proxyKeys = [];
+  const visit = (value, path = "payload") => {
+    if (Array.isArray(value)) return value.forEach((item, index) => visit(item, `${path}[${index}]`));
+    if (!value || typeof value !== "object") return;
+    for (const [key, item] of Object.entries(value)) {
+      if (key === "visualClass" || key === "proxyClass" || key === "visualClassCounts") {
+        proxyKeys.push(`${path}.${key}`);
+      }
+      visit(item, `${path}.${key}`);
+    }
+  };
+  visit(exported);
+  assert.deepEqual(proxyKeys, []);
   assert.deepEqual(exported.classifications.human.map(item => item.classification), ["core", "irrelevant"]);
+  assert.equal(exported.run.humanProxyComparison.reviewedCount, 2);
+  assert.equal(exported.run.humanProxyComparison.agreementCount, null);
+  assert.equal(exported.run.humanProxyComparison.disagreementCount, null);
+  assert.equal(exported.run.humanProxyComparison.agreementRate, null);
+  assert.equal(exported.run.humanProxyComparison.sampleSufficient, false);
+  assert.deepEqual(exported.run.humanProxyComparison.missingOccurrences, []);
+  assert.equal(exported.run.humanProxyComparison.comparisonWithheldUntilComplete, true);
+  assert.deepEqual(exported.run.humanProxyComparison.byProxyClass, []);
+  assert.deepEqual(exported.run.humanProxyComparison.byQueryLadder, []);
+  assert.deepEqual(exported.run.humanProxyComparison.byRejectionStage, []);
+  assert.equal(exported.run.humanProxyComparison.recommendation.productionScoringChanged, false);
+  assert.equal(exported.run.humanProxyComparison.recommendation.requiresSeparateApproval, true);
+});
+
+test("human versus proxy comparison exposes stage and class transitions without masking sampled subgroup disagreement", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runId = "run-human-proxy-complete";
+  const candidates = Array.from({ length: 20 }, (_, index) => ({
+    occurrenceId: `9:${index}`,
+    thumbnail: `https://images.example/comparison-${index}.jpg`,
+    query: index < 5 ? "weak query" : "strong query",
+    visualClass: index < 5 ? "supporting" : "core",
+    selected: false,
+    dropReason: index < 5 ? "unusable_image" : null,
+  }));
+  store.records.set(auditRunKey(pairActor.id, 0, runId), {
+    runId,
+    calibrationAnalysis: {
+      candidates,
+      queryVisualYield: [
+        { query: "weak query", ladderRung: 0 },
+        { query: "strong query", ladderRung: 1 },
+      ],
+    },
+  });
+  candidates.forEach((candidate, index) => {
+    const receiptId = `comparison-${index}`;
+    store.records.set(
+      auditVisualJudgmentKey(pairActor.id, 0, runId, receiptId),
+      {
+        receiptId,
+        runId,
+        sourceOccurrenceId: candidate.occurrenceId,
+        classification: index < 5 ? "core" : candidate.visualClass,
+        judgedAt: `2026-09-01T00:00:${String(index).padStart(2, "0")}.000Z`,
+      },
+    );
+  });
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    `?export=calibration&actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=${runId}`,
+  ), {});
+  const comparison = (await response.json()).run.humanProxyComparison;
+
+  assert.equal(response.status, 200);
+  assert.equal(comparison.sampleSufficient, true);
+  assert.equal((await (await handler(request(
+    "GET",
+    undefined,
+    `?export=calibration&actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=${runId}`,
+  ), {})).json()).classifications.proxyWithheldUntilComplete, false);
+  assert.equal(comparison.agreementRate, 0.75);
+  assert.equal(comparison.recommendation.status, "review_disagreement");
+  assert.match(comparison.recommendation.summary, /weak query · rung 0/);
+  assert.deepEqual(comparison.byProxyClass
+    .find(item => item.key === "supporting").disagreementTransitions, [
+    { transition: "supporting → core", count: 5 },
+  ]);
+  assert.equal(comparison.byQueryLadder
+    .find(item => item.key === "weak query · rung 0").agreementRate, 0);
+  assert.equal(comparison.byRejectionStage
+    .find(item => item.key === "pre_analysis_filter").disagreementCount, 5);
+});
+
+test("human versus proxy comparison explicitly withholds grouped labels for missing or multiply judged occurrences", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runId = "run-human-proxy-exceptions";
+  const candidates = Array.from({ length: 6 }, (_, index) => ({
+    occurrenceId: `10:${index}`,
+    thumbnail: `https://images.example/exception-${index}.jpg`,
+    query: "exception query",
+    visualClass: "core",
+    selected: false,
+    dropReason: "exact_duplicate",
+  }));
+  store.records.set(auditRunKey(pairActor.id, 0, runId), {
+    runId,
+    calibrationAnalysis: { candidates },
+  });
+  candidates.slice(0, 5).forEach((candidate, index) => {
+    const receiptId = `exception-${index}`;
+    store.records.set(auditVisualJudgmentKey(pairActor.id, 0, runId, receiptId), {
+      receiptId,
+      runId,
+      sourceOccurrenceId: candidate.occurrenceId,
+      classification: "core",
+      judgedAt: `2026-09-02T00:00:${String(index).padStart(2, "0")}.000Z`,
+    });
+  });
+  store.records.set(auditVisualJudgmentKey(pairActor.id, 0, runId, "exception-duplicate"), {
+    receiptId: "exception-duplicate",
+    runId,
+    sourceOccurrenceId: candidates[0].occurrenceId,
+    classification: "supporting",
+    judgedAt: "2026-09-02T00:01:00.000Z",
+  });
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    `?export=calibration&actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=${runId}`,
+  ), {});
+  const comparison = (await response.json()).run.humanProxyComparison;
+
+  assert.equal(comparison.sampleSufficient, false);
+  assert.deepEqual(comparison.missingOccurrences, ["10:5"]);
+  assert.deepEqual(comparison.multiplyJudgedOccurrences, [
+    { occurrenceId: "10:0", judgmentCount: 2 },
+  ]);
+  assert.equal(comparison.comparisonWithheldUntilComplete, true);
+  assert.equal(comparison.agreementCount, null);
+  assert.equal(comparison.disagreementCount, null);
+  assert.equal(comparison.agreementRate, null);
+  assert.deepEqual(comparison.byProxyClass, []);
+  assert.deepEqual(comparison.byQueryLadder, []);
+  assert.deepEqual(comparison.byRejectionStage, []);
 });
 
 test("a comparable board run exposes image-only judgments before allowing system reveal", async () => {

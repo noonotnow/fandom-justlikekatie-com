@@ -114,6 +114,15 @@
 .calibrationProof > span,.calibrationProof > small { color:#b9bfbb; font-size:10px; line-height:1.45; }
 .calibrationProof > small { color:#8d928f; }
 .calibrationProofFailed { border-top-color:#9b5b4b; }
+.humanProxyComparison { display:grid; gap:10px; padding-top:12px; border-top:1px solid color-mix(in srgb,#6f8d83 35%,var(--admin-border)); }
+.comparisonTable { display:grid; gap:5px; margin-top:8px; }
+.comparisonTable > div { display:grid; grid-template-columns:minmax(130px,1.5fr) repeat(3,minmax(90px,1fr)); gap:8px; padding:7px 8px; border:1px solid var(--admin-border); border-radius:5px; color:#8d928f; font-size:9px; }
+.comparisonTable strong { color:#b9bfbb; font-size:10px; overflow-wrap:anywhere; }
+.calibrationRecommendation { display:grid; gap:4px; padding:10px; border:1px solid #6f8d83; border-radius:6px; background:color-mix(in srgb,#6f8d83 9%,transparent); }
+.calibrationRecommendation[data-status=insufficient_sample] { border-color:#c98264; background:color-mix(in srgb,#c98264 8%,transparent); }
+.calibrationRecommendation strong { color:#c9a96e; font-size:10px; text-transform:uppercase; letter-spacing:.06em; }
+.calibrationRecommendation p,.calibrationRecommendation small { margin:0; color:#b9bfbb; font-size:10px; line-height:1.45; }
+.calibrationRecommendation small { color:#8d928f; }
 .boardTileWrap { min-width:0; }
 .calibrationCardBadge { display:grid; gap:2px; margin-top:3px; padding:3px 4px; border-left:2px solid #6f8d83; color:#b8d2c6; font-size:8px; line-height:1.35; }
 .calibrationCardBadge span { overflow:hidden; color:#8d928f; font:8px/1.35 ui-monospace,SFMono-Regular,monospace; text-overflow:ellipsis; white-space:nowrap; }
@@ -326,4 +335,4 @@
 .legacyAudit p { color:#f0d0c1; font-size:12px; }
 .legacyAudit small { color:#e5b09a; font-size:10px; text-transform:capitalize; }
 .legacyBadge { width:max-content; padding:5px 8px; border-radius:5px; background:#c98264; color:#17110e; font-size:10px; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
-@media (max-width:760px) { .masthead,.detailHead,.inventoryHeader { align-items:start; flex-direction:column; } .cutoff { width:100%; box-sizing:border-box; } .inventoryMetrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .workspace,.workspaceCollapsed { grid-template-columns:1fr; } .workspaceCollapsed .rail { display:none; } .actorList { display:flex; overflow:auto; } .actorButton { min-width:150px; border-bottom:0; border-right:1px solid var(--admin-border); } .grid { grid-template-columns:1fr; } .cardWide { grid-column:auto; } .verdict { grid-template-columns:1fr; } .status { margin-left:0; } .boardComparison,.revealSummary,.reasonGrid,.runnerUpDiagnostics { grid-template-columns:1fr; } .boardReviewHeader,.requestedReviewHeader,.rescuePickerHeader,.visualJudgmentHeader { align-items:start; flex-direction:column; } .rescuePicker { grid-template-columns:repeat(4,minmax(0,1fr)); } .visualJudgmentChoices { grid-template-columns:repeat(2,minmax(0,1fr)); } .visualJudgmentStage { grid-template-columns:1fr 1fr; } .visualJudgmentImage { grid-column:1/-1; grid-row:1; } .revealBadges { justify-content:flex-start; } }
+@media (max-width:760px) { .masthead,.detailHead,.inventoryHeader { align-items:start; flex-direction:column; } .cutoff { width:100%; box-sizing:border-box; } .inventoryMetrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .workspace,.workspaceCollapsed { grid-template-columns:1fr; } .workspaceCollapsed .rail { display:none; } .actorList { display:flex; overflow:auto; } .actorButton { min-width:150px; border-bottom:0; border-right:1px solid var(--admin-border); } .grid { grid-template-columns:1fr; } .cardWide { grid-column:auto; } .verdict { grid-template-columns:1fr; } .status { margin-left:0; } .boardComparison,.revealSummary,.reasonGrid,.runnerUpDiagnostics { grid-template-columns:1fr; } .comparisonTable > div { grid-template-columns:1fr 1fr; } .boardReviewHeader,.requestedReviewHeader,.rescuePickerHeader,.visualJudgmentHeader { align-items:start; flex-direction:column; } .rescuePicker { grid-template-columns:repeat(4,minmax(0,1fr)); } .visualJudgmentChoices { grid-template-columns:repeat(2,minmax(0,1fr)); } .visualJudgmentStage { grid-template-columns:1fr 1fr; } .visualJudgmentImage { grid-column:1/-1; grid-row:1; } .revealBadges { justify-content:flex-start; } }
