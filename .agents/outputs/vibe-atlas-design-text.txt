@@ -1,0 +1,3094 @@
+
+
+===== PAGE 1 =====
+Vibe Atlas
+System Design Document — Architecture, Scoring, Search & UX 
+Specification
+Document Type: Internal Technical Reference — Confidential
+Version: 1.5  |  Status: Active — Revised July 15, 2026
+Date: July 9, 2026
+Audience: Senior Engineers, Product Managers, Technical Leads
+Prepared by: Platform Architecture Team
+Table of Contents
+1. Executive Summary
+1.1 Platform Mission  |  1.2 Core Problem  |  1.3 Architectural Bet  |  1.4 Design Principles
+2. System Architecture Overview
+2.1 High-Level Component Diagram  |  2.2 Data Flow Narrative  |  2.3 Technology Stack  
+|  2.4 Scalability Targets
+3. Grid Classification System
+3.1 Grid Classes  |  3.2 Classification Algorithm  |  3.3 Grid Packing  |  3.4 Viewport 
+Breakpoints  |  3.5 Editorial Pin System  |  3.6 Re-Classification Triggers
+4. Quality Score Engine
+4.1 Composite Quality Score  |  4.2 Sub-Score Definitions  |  4.3 Update Cadence  |  4.4 
+Score Bands & Eligibility  |  4.5 Penalties  |  4.6 Data Pipeline
+5. Quality Heuristics
+5.1 Rationale  |  5.2 Heuristic Categories  |  5.3 Application Rules  |  5.4 Quality Council
+6. Promo Detection
+6.1 Threat Model  |  6.2 Signal Groups  |  6.3 Ensemble Classifier  |  6.4 Decision 
+Thresholds  |  6.5 Human Review Workflow  |  6.6 Creator Appeals  |  6.7 Model 
+Governance
+7. Search Strategy
+
+
+===== PAGE 2 =====
+7.1 Search Modes  |  7.2 Query Understanding Service  |  7.3 Retrieval  |  7.4 Ranking  |  
+7.5 Result Shaping  |  7.6 Vibe Taxonomy  |  7.7 Autocomplete  |  7.8 Telemetry
+8. Height Emphasis System
+8.1 Purpose  |  8.2 Base Height Formula  |  8.3 HeightEmphasisFactor Inputs  |  8.4 
+Aspect Ratio Policies  |  8.5 Animation & Transition Rules  |  8.6 Grid Reflow Strategy
+9. Connect Hub Integration
+9.1 What is Connect Hub  |  9.2 Bidirectional Bridge  |  9.3 Data Flows & Payload 
+Schemas  |  9.4 Authentication  |  9.5 SLA Commitments
+10. UX Specification
+10.1 Design Principles  |  10.2 Grid Card Anatomy  |  10.3 Card States  |  10.4 Search UX 
+|  10.5 Vibe Filter Panel  |  10.6 Content Detail Page  |  10.7 Connect Hub Creator 
+Surfaces  |  10.8 Accessibility
+11. Implementation Phases
+Phase 0–4 Breakdown  |  Phase Gate Governance  |  Cross-Phase Dependencies
+12. Open Questions and Future Work
+1. Executive Summary
+1.1 Platform Mission
+Vibe Atlas is a spatially organized, quality-driven content discovery platform for 
+music and cultural content. Its defining characteristic is a dynamic, living grid 
+surface in which the size, position, and visual weight of each content card is a direct 
+function of computed quality — not of paid placement, recency alone, or raw 
+popularity. The grid is the product: it communicates editorial judgment at a glance, 
+rewards authentic creativity, and provides users with a discovery experience that 
+feels curated without being opaque.
+The platform serves three constituencies simultaneously. Listeners and fans receive 
+a discovery surface that surfaces genuinely excellent work, not merely trending or 
+promoted content. Artists and creators receive transparency into how their work is 
+ranked and tools to understand — and legitimately improve — their standing. 
+Curators and editorial teams receive a first-class set of override and annotation 
+
+
+===== PAGE 3 =====
+tools that let human judgment complement algorithmic classification without 
+overriding its integrity.
+1.2 The Core Problem
+The dominant content discovery paradigm across music streaming, social video, 
+and cultural media platforms has converged on engagement optimization: maximize 
+clicks, plays, shares, and time-on-platform as proxied signals for content quality. 
+This paradigm contains a structural flaw: engagement metrics are gameable. 
+Velocity-injected plays, bot-driven saves, coordinated cross-platform promotion, and 
+paid follower networks all produce engagement signals that are indistinguishable 
+from organic discovery at the raw data layer. Over time, platforms optimizing for 
+these signals amplify inauthentic content, train their recommendation models on 
+corrupted data, and erode user trust in the discovery experience.
+The secondary problem is opacity. Creators whose content is demoted or 
+suppressed have no mechanism to understand why, no recourse to contest 
+erroneous classification, and no signal about what authentic improvement looks 
+like. This asymmetry creates antagonism between creators and platforms that 
+serves neither party.
+1.3 The Architectural Bet
+Vibe Atlas makes three architectural commitments that differentiate it from 
+engagement-first platforms:
+1. Compute quality holistically at index time. Rather than ranking content 
+reactively at query time using raw engagement signals, Vibe Atlas computes 
+a composite Quality Score for every piece of content on a continuous basis. 
+The score integrates engagement, retention, authenticity, and freshness — 
+four dimensions that are harder to game in concert than any single metric. 
+The score is the first-class indexing artifact; raw engagement data is an input, 
+not the output.
+2. Make the grid a living surface driven by real-time signals. The 
+discovery grid is not a static ranked list. Card dimensions, visual emphasis, 
+and grid position update as quality scores change. A track experiencing a 
+
+
+===== PAGE 4 =====
+genuine resurgence physically grows on the grid. A content item flagged for 
+inauthentic promotion shrinks or disappears. The grid surface is the visual 
+expression of the scoring system, not a layer applied on top of it.
+3. Give creators transparency into how their content is ranked. Through 
+the Connect Hub integration, creators receive structured score explanations, 
+sub-score breakdowns, flag notifications with evidence, and a formal appeal 
+pathway. Transparency is a first-class product feature, not an afterthought.
+1.4 Design Principles
+Four complementary forces govern every significant design decision in this 
+document:
+Principle
+What It Means in 
+Practice
+Where It Appears
+Authenticity
+Organic signals are 
+weighted more than 
+promotional ones. 
+Inauthentic behavior is 
+detected, penalized, and 
+disclosed.
+Promo Detection, 
+Authenticity sub-score, 
+Penalty table
+Momentum
+Content that is gaining 
+genuine traction is 
+rewarded with greater 
+visual prominence, 
+regardless of absolute score 
+level.
+Freshness Score, 
+Resurgence Boost, 
+Momentum Factor in Height 
+Emphasis
+Personalization
+Discovery is shaped by 
+individual listening context, 
+not only global quality 
+rankings.
+Search personalization 
+feature group, 
+Personalization Factor in 
+Height Emphasis, 
+collaborative filtering
+Editorial Curation
+Human judgment is a 
+legitimate, bounded input to 
+the grid. Editors can amplify 
+content within defined 
+constraints but cannot 
+arbitrarily suppress organic 
+rankings.
+Editorial pin system, 
+Editorial Emphasis Score, 
+time-boxed overrides
+
+
+===== PAGE 5 =====
+Document Scope
+This document covers the full architectural surface of Vibe Atlas: ingestion, scoring, 
+classification, search, UX, creator tooling, and implementation phasing. It is intended as 
+a living reference for engineering, product, and technical leadership. Sub-components 
+may produce their own detailed technical specifications; this document governs the 
+interfaces and contracts between them.
+2. System Architecture Overview
+2.1 High-Level Component Diagram
+The following ASCII diagram represents the top-level data flow through the Vibe 
+Atlas platform. Each box corresponds to a major subsystem; arrows represent 
+primary data flow directions. Bidirectional arrows indicate systems with both 
+inbound and outbound integration responsibilities.
+┌─────────────────────────────────────────────────────────────────────────┐ │ 
+SIGNAL INGESTION LAYER                          │ │ 
+│ │  Platform Events ──► Kafka Topics ──► Signal Normalizer                 │ 
+│  (plays, saves,        (partitioned      (deduplication,                │ │ 
+shares, comments,     by content_id)    type normalization,           │ │   
+completion events)                      bot pre-filter)               │ 
+└────────────────────────────────┬────────────────────────────────────────┘ 
+│                                  ▼ 
+┌─────────────────────────────────────────────────────────────────────────┐ │ 
+QUALITY SCORE ENGINE                             │ │ 
+│ │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────┐  │ 
+│  │  Engagement      │  │  Retention       │  │  Authenticity        │  │ │ 
+│  Sub-Score (35%) │  │  Sub-Score (25%) │  │  Sub-Score (20%)     │  │ │  
+└──────────────────┘  └──────────────────┘  └──────────────────────┘  │ │ 
+┌──────────────────┐                             │ │                        │ 
+Freshness       │                             │ │                        │  
+Sub-Score (20%) │                             │ │                        
+└──────────────────┘                             │ │ 
+│                                       │ │              Weighted Aggregator 
+──► Composite Score [0–100]            │ │                       + Heuristic 
+Adjustments                           │ 
+└───────────────────────────┬─────────────────┬───────────────────────────┘ 
+│                 │                             ▼                 ▼ 
+┌─────────────────────┐   ┌─────────────────────┐               │   Redis 
+(real-time  │   │   Postgres (durable  │               │   score cache)      
+│   │   score history &    │               │                     │   │   
+audit log)         │               └──────────┬──────────┘   
+
+
+===== PAGE 6 =====
+└──────────┬──────────┘                          │                         │ 
+┌──────────▼──────────┐   ┌──────────▼──────────┐               │  GRID 
+CLASSIFIER    │   │  SEARCH RANKER       │               │  (Class 
+Assignment: │   │  (Elasticsearch +    │               │  HERO/FEATURE/STD/  
+│   │   FAISS hybrid;      │               │  COMPACT/GHOST)     │   │   
+LambdaRank model)  │               └──────────┬──────────┘   
+└──────────┬──────────┘                          │                         │ 
+└──────────┬──────────────┘                                     │ 
+▼               ┌─────────────────────────────────────────┐               │ 
+UX RENDERING LAYER           │               │  Grid Surface │ Search Results 
+│ Detail  │               └─────────────────────┬───────────────────┘ 
+│                                     ▼               
+┌─────────────────────────────────────────┐               │         CONNECT 
+HUB INTEGRATION         │               │  Quality Webhooks │ Creator 
+Dashboard    │               │  Appeal Workflow  │ Promo Declarations   │ 
+└─────────────────────────────────────────┘               
+┌─────────────────────────────────────────┐               │         PROMO 
+DETECTION SERVICE         │               │  Ensemble Classifier │ Human 
+Review Queue│               │  Signal Groups A/B/C │ Model Retraining  │ 
+└─────────────────────────────────────────┘
+2.2 Data Flow Narrative
+The lifecycle of a piece of content — from initial publish to appearance in the 
+discovery grid — follows a deterministic pipeline with defined latency budgets at 
+each stage.
+Step 1 — Ingestion: When a user action (play, save, share, comment) or a 
+platform event (content publish, DMCA notice) occurs, the event is published to the 
+appropriate Kafka topic. Topics are partitioned by content_id to ensure all signals 
+for a given item are consumed by the same downstream consumer group, 
+preserving ordering guarantees needed for deduplication. The Signal Normalizer 
+consumes events, applies deduplication based on event fingerprints (user × content 
+× event_type × 5-minute window), normalizes signal types to a canonical schema, 
+and runs a lightweight bot pre-filter (IP velocity, user-agent heuristics) before 
+forwarding to sub-score calculators.
+Step 2 — Scoring: Sub-score calculators maintain running aggregates per content 
+item in Redis. On each signal arrival, the relevant sub-score (Engagement, 
+Retention) is recomputed and the composite Quality Score is updated. The full re-
+score including Authenticity and Freshness components runs on a 6-hour batch 
+cycle. Scores are written to both Redis (for low-latency reads by the Grid Classifier) 
+and Postgres (for durable history, audit logs, and the Connect Hub webhook trigger).
+Step 3 — Classification: The Grid Classifier reads the updated composite score 
+from Redis, applies the classification algorithm (§3.2), and determines the content 
+
+
+===== PAGE 7 =====
+item's grid class. If the class has changed from the previous assignment, a re-
+classification event is published, triggering a grid repack for any grid instance that 
+includes the item. The classifier also notifies the Search Ranker to reindex the 
+item's quality feature vector.
+Step 4 — Serving: The UX Rendering Layer assembles grid pages from pre-
+computed grid layouts stored in Redis, applying real-time Height Emphasis factors 
+(§8) and personalization overlays before response serialization. Search results are 
+assembled by the Search Ranker at query time using the four-stage pipeline 
+described in §7.
+Step 5 — Connect Hub Notification: When a score update exceeds the delta 
+threshold (configurable per creator tier), or when a promo flag is raised, the 
+Connect Hub bridge emits a webhook to the creator's registered endpoint and 
+updates the creator dashboard data store. Appeals and metadata updates flow in 
+the opposite direction: Connect Hub → Atlas ingestion pipeline.
+2.3 Technology Stack
+Component
+Technology Choice
+Rationale
+Signal streaming
+Apache Kafka
+High-throughput, durable, 
+partitioned event streaming 
+with strong ordering 
+guarantees per partition. 
+Proven at scale for event-
+driven scoring pipelines.
+Lexical search
+Elasticsearch (BM25+)
+Mature, horizontally 
+scalable full-text retrieval 
+with BM25+ scoring, field 
+boosting, and faceted 
+filtering. Native support for 
+index aliases enables zero-
+downtime reindexing.
+Semantic search
+FAISS (768-dim BERT 
+embeddings)
+Sub-millisecond 
+approximate nearest-
+neighbor search at billion-
+vector scale. FAISS IVF-PQ 
+indices fit within GPU 
+memory for low-latency 
+embedding lookups.
+Score cache
+Redis (sorted sets)
+Sub-millisecond reads for 
+Grid Classifier and UX 
+Rendering Layer. Sorted 
+
+
+===== PAGE 8 =====
+Component
+Technology Choice
+Rationale
+sets support efficient range 
+queries for score band 
+filtering.
+Score persistence
+PostgreSQL
+ACID-compliant audit log 
+and score history. Serves as 
+the source of truth for 
+Connect Hub webhook 
+triggers and appeal 
+evidence packages.
+ML services
+Python (PyTorch, scikit-
+learn, Hugging Face)
+Mature ML ecosystem for 
+LambdaRank, ensemble 
+classifiers, BERT fine-tuning, 
+and collaborative filtering. 
+Python services deployed as 
+containerized gRPC 
+microservices.
+Grid state management
+Redis (hash maps + 
+pub/sub)
+Grid layout state is stored 
+as Redis hashes per grid 
+instance. Pub/sub channels 
+notify UX rendering workers 
+of re-classification events 
+requiring grid repack.
+API layer
+Python (FastAPI)
+High-performance async API 
+framework with automatic 
+OpenAPI documentation. 
+Native Pydantic validation 
+for Connect Hub payload 
+schemas.
+Orchestration
+Kubernetes + Helm
+Container orchestration with 
+horizontal pod autoscaling 
+keyed to Kafka consumer 
+lag metrics for the scoring 
+pipeline.
+Observability
+Prometheus + Grafana + 
+OpenTelemetry
+Unified metrics, distributed 
+tracing, and alerting across 
+all pipeline stages. Latency 
+SLOs enforced via 
+Prometheus alerting rules.
+2.4 Scalability Targets
+Performance Envelope
+All system components must be designed to sustain the following targets under peak 
+
+
+===== PAGE 9 =====
+load. These are hard SLOs, not aspirational goals. Each phase gate (§11) includes load 
+test validation against these figures before promotion to production.
+•  Concurrent users: 50,000 sustained; 75,000 burst (1.5× multiplier)
+•  API latency: P99 ≤ 300ms for grid page assembly; P99 ≤ 150ms for search 
+result retrieval
+•  Score update throughput: ≥ 50,000 signal events per second across all 
+Kafka topics
+•  Grid re-classification SLA: P95 ≤ 90 seconds from score delta to updated 
+grid class in Redis
+•  Webhook delivery SLA: P95 ≤ 5 seconds from score delta trigger to 
+webhook HTTP delivery
+•  Autocomplete latency: P99 ≤ 80ms end-to-end
+•  Availability target: 99.9% monthly uptime (excluding planned 
+maintenance windows)
+3. Grid Classification System
+The grid classification system is the mechanism by which every piece of content on 
+Vibe Atlas is assigned a visual weight — a grid class — that determines how much 
+space it occupies on the discovery surface. Classification is not merely a UI decision; 
+it is the primary feedback mechanism by which the quality scoring system 
+communicates its judgments to users. The grid is the score made visible.
+3.1 The Five Grid Classes
+
+
+===== PAGE 10 =====
+Class
+Size Multiplier
+Score 
+Requirement
+Additional 
+Trigger 
+Conditions
+Eligibility 
+Constraints
+HERO
+4 × 4 grid units
+Quality Score ≥ 
+85 (Platinum 
+band)
+Editorial pin OR 
+Momentum 
+Factor ≥ 0.90 
+OR trending 
+rank ≤ 5 in 
+category
+≤ 2 HERO cards 
+per grid page; 
+no two adjacent 
+HERO cards; 
+requires 
+Authenticity 
+sub-score ≥ 70
+FEATURE
+2 × 2 grid units
+Quality Score 
+70–84 (Gold 
+band)
+Score 65–69 
+with Momentum 
+Factor ≥ 0.80 
+OR editorial 
+soft-pin
+≤ 6 FEATURE 
+cards per grid 
+page; 
+Authenticity 
+sub-score ≥ 55
+STANDARD
+1 × 1 grid units
+Quality Score 
+45–69 
+(Silver/Bronze 
+band)
+Default class for 
+eligible, non-
+suppressed 
+content
+No additional 
+constraints; 
+majority of grid 
+population
+COMPACT
+1 × 0.5 grid 
+units
+Quality Score 
+20–44 (Bronze 
+band, lower 
+range)
+Cold-start 
+content with 
+insufficient 
+signal; 
+heuristic-
+adjusted items 
+in lower bands
+No column may 
+contain more 
+than 3 
+consecutive 
+COMPACT cards
+GHOST
+Hidden (0 × 0)
+Quality Score < 
+20 (Suppressed 
+band) OR 
+Promo 
+Detection score 
+≥ 0.85
+Active DMCA 
+hold; 
+community 
+report threshold 
+exceeded; 
+human review 
+pending
+Content 
+remains 
+indexed but is 
+excluded from 
+all organic 
+discovery 
+surfaces; 
+appears only in 
+direct search by 
+exact title
+Design Decision: GHOST vs. Removal
+GHOST class deliberately preserves content in the index rather than deleting it. This is 
+intentional: removal is irreversible and removes the evidence trail needed for appeals. 
+GHOST items remain discoverable via direct title search so that creators can verify the 
+item still exists and initiate an appeal via Connect Hub. Removal from the index requires 
+a separate explicit action (e.g., DMCA takedown confirmed by legal review) and is 
+outside the scope of the classification system.
+
+
+===== PAGE 11 =====
+3.2 The Classification Algorithm
+The classifier runs as an async worker consuming from the score-updates Kafka 
+topic. Every score update event triggers evaluation of the classification function. 
+The algorithm is deterministic given the same inputs; all randomness is excluded to 
+ensure auditability.
+function classify_content(content_item):     score      = 
+content_item.quality_score          # float [0, 100]     auth_score = 
+content_item.authenticity_sub_score # float [0, 100]     momentum   = 
+content_item.momentum_factor        # float [0, 1]     flags      = 
+content_item.active_flags           # set of flag types     editorial  = 
+content_item.editorial_override     # None | OverrideRecord     trending_rank 
+= content_item.trending_rank       # int | None      # --- Step 1: 
+Suppression checks (highest priority) ---     if "DMCA_HOLD" in flags: 
+return GHOST, reason="dmca_hold"      if "PROMO_CONFIRMED" in flags and 
+content_item.promo_score >= 0.85:         return GHOST, 
+reason="promo_confirmed"      if "COMMUNITY_REPORT_THRESHOLD" in flags: 
+return GHOST, reason="community_reports"      if score < 20:         return 
+GHOST, reason="low_quality_score"      # --- Step 2: Editorial override check 
+(time-boxed) ---     if editorial is not None and editorial.is_valid(): 
+target_class = editorial.target_class         # Heuristics cannot push to 
+HERO via editorial; HERO requires         # organic score >= 85 OR explicit 
+HERO editorial pin with approval         if target_class == HERO and score < 
+85:             if not editorial.has_hero_approval:                 
+target_class = FEATURE  # cap to FEATURE         return target_class, 
+reason="editorial_override"      # --- Step 3: HERO eligibility ---     if 
+score >= 85 and auth_score >= 70:         hero_trigger = 
+(             (momentum >= 0.90) or             (trending_rank is not None 
+and trending_rank <= data-id="228" 5)         )         if hero_trigger: 
+return HERO, reason="organic_hero"      # --- Step 4: FEATURE eligibility --- 
+if score >= 70 and auth_score >= 55:         return FEATURE, 
+reason="organic_feature"      if score >= 65 and auth_score >= 55 and 
+momentum >= 0.80:         return FEATURE, reason="momentum_feature"      # 
+--- Step 5: STANDARD eligibility ---     if score >= 45:         return 
+STANDARD, reason="organic_standard"      # --- Step 6: COMPACT eligibility 
+---     if score >= 20:         return COMPACT, reason="organic_compact" 
+# --- Fallback (should not reach here after Step 1 check) ---     return 
+GHOST, reason="fallback_suppression"
+3.3 The Grid Packing Algorithm
+Once content items have been classified, the grid packer assembles them into a 
+two-dimensional grid layout subject to anti-clustering constraints. The algorithm is a 
+modified bin-packing approach that treats the grid as a column-major matrix of unit 
+cells.
+
+
+===== PAGE 12 =====
+Anti-Clustering Rules
+●
+No two adjacent HERO cards: HERO cards (4×4) must be separated by at 
+least one column of non-HERO content. The packer enforces this by marking 
+a 1-column exclusion zone to the right of each placed HERO card.
+●
+No column with more than 3 consecutive COMPACT cards: The packer 
+tracks per-column consecutive COMPACT counts. When the count would 
+reach 4, a STANDARD or higher card is injected from the pending queue.
+●
+FEATURE card distribution: No more than 2 FEATURE cards may appear in 
+adjacent columns at the same vertical position, preventing the grid from 
+feeling visually monotonous at mid-tier density.
+●
+GHOST cards: Not placed in the grid. The packer's input queue filters 
+GHOST items before layout computation begins.
+function pack_grid(classified_items, viewport_columns):     grid = 
+Grid(columns=viewport_columns)     hero_count = 0     pending = 
+sort_by_quality_score(classified_items)      for item in pending:         if 
+item.class == HERO:             if hero_count >= 2:                 
+item.class = FEATURE  # demote if HERO quota exceeded             else: 
+position = grid.find_hero_slot(exclusion_zones)                 if position 
+is None:                     item.class = FEATURE  # no valid slot; demote 
+else:                     grid.place(item, position, size=(4,4)) 
+grid.mark_exclusion(position, width=1)                     hero_count += 1 
+continue          if item.class == COMPACT:             col = 
+grid.next_available_column()             if 
+grid.consecutive_compact_count(col) >= 3:                 # Force a STANDARD 
+injection before placing COMPACT                 standard_item = 
+pending.pop_next_eligible(min_class=STANDARD)                 if 
+standard_item:                     grid.place(standard_item, 
+grid.next_slot(col), size=(1,1))             grid.place(item, 
+grid.next_slot(col), size=(1,0.5))             continue          
+grid.place(item, grid.next_best_slot(), size=item.class.size)      return 
+grid.layout
+3.4 Viewport Breakpoints and Responsive Behavior
+Breakpoint
+Label
+Width 
+Range
+Grid 
+Columns
+HERO Max
+Notes
+xs
+Mobile 
+Portrait
+0 – 479px
+2
+0 (hidden)
+HERO class 
+rendered as 
+FEATURE; 
+COMPACT 
+renders at 
+1×1
+
+
+===== PAGE 13 =====
+Breakpoint
+Label
+Width 
+Range
+Grid 
+Columns
+HERO Max
+Notes
+sm
+Mobile 
+Landscape
+480 – 767px
+4
+1
+HERO 
+rendered at 
+2×2 
+(reduced); 
+anti-
+clustering 
+rules relaxed
+md
+Tablet
+768 – 
+1023px
+6
+1
+Full HERO 
+size at 3×3 
+equivalent; 
+standard 
+packing 
+rules apply
+lg
+Desktop
+1024 – 
+1439px
+8
+2
+Full packing 
+algorithm; 
+all anti-
+clustering 
+rules active
+xl
+Wide 
+Desktop
+≥ 1440px
+12
+2
+Extended 
+gutter; 
+Height 
+Emphasis 
+factor scales 
+up to 1.25× 
+maximum
+3.5 Editorial Pin and Override System
+Curators with appropriate role permissions may create time-boxed editorial 
+overrides that assign a specific grid class to a content item, bypassing the organic 
+classification algorithm. Overrides are not permanent: they carry an expiry 
+timestamp, and on expiry the item reverts to organic classification without manual 
+intervention.
+Key constraints on editorial overrides:
+●
+Time-boxing: All overrides must specify a duration (minimum 1 hour, 
+maximum 30 days). Overrides with no expiry are rejected by the system.
+●
+HERO approval gate: Elevating content to HERO class via editorial pin 
+requires secondary approval from a Senior Curator. The system enforces this 
+via an approval workflow in the Admin Console; un-approved HERO pins 
+default to FEATURE.
+
+
+===== PAGE 14 =====
+●
+Suppression protection: Editorial overrides cannot lift content out of 
+GHOST class if the GHOST classification was triggered by an active DMCA 
+hold or confirmed promo violation. Legal review must clear the flag before 
+editorial tools can act.
+●
+Audit log: Every override creation, modification, and expiry is written to an 
+immutable audit log in Postgres with curator identity, timestamp, and 
+justification note.
+●
+Sponsored labeling: Any editorial pin associated with a commercial 
+arrangement (paid placement) must include a sponsored=true flag. This flag 
+triggers the "Sponsored" badge in the UX and is enforced at the API level — it 
+cannot be omitted by client applications.
+3.6 Re-Classification Triggers and Async Worker 
+SLA
+Re-classification is triggered by any of the following events:
+●
+Composite Quality Score delta exceeds ± 5 points from the score recorded at 
+last classification
+●
+Promo Detection score exceeds any threshold boundary (see §6.4)
+●
+Editorial override created, modified, or expired
+●
+Active flag status change (DMCA hold applied or lifted; community report 
+threshold crossed)
+●
+Forced re-classification requested via Admin Console
+The async worker pool processing re-classification events must sustain a P95 end-
+to-end latency of ≤ 90 seconds from trigger event publication on the Kafka topic 
+to updated class value written to Redis. This SLA is monitored by a Prometheus 
+alerting rule; breach of P99 ≤ 3 minutes triggers an on-call page.
+
+
+===== PAGE 15 =====
+4. Quality Score Engine
+The Quality Score Engine is the computational heart of Vibe Atlas. It transforms raw 
+engagement, behavioral, and contextual signals into a single composite score — a 
+float in the range [0, 100] — that serves as the primary ranking artifact across the 
+grid classification system, search ranker, and Connect Hub transparency tools. The 
+engine is designed to be difficult to game: because the score integrates four 
+conceptually distinct dimensions, optimizing for one at the expense of others is 
+structurally visible as a signal anomaly.
+4.1 Composite Quality Score Formula
+The composite Quality Score Q is a weighted linear combination of four sub-scores, 
+each independently normalized to [0, 100]:
+Q = (0.35 × E) + (0.25 × R) + (0.20 × A) + (0.20 × F)  Where:   E = 
+Engagement Score     [0, 100]  — weight: 35%   R = Retention Score      [0, 
+100]  — weight: 25%   A = Authenticity Score   [0, 100]  — weight: 20%   F = 
+Freshness Score      [0, 100]  — weight: 20%
+Heuristic adjustments (§5) are additive post-aggregation, subject to band ceiling 
+protection and cap constraints defined in §5.3. The raw Q value before heuristic 
+adjustment is stored separately to allow full auditability of the adjustment 
+contribution.
+4.2 Sub-Score Definitions
+4.2.1 Engagement Score (E) — Weight: 35%
+The Engagement Score measures the breadth and depth of user interaction with a 
+content item, normalized against peer content in the same category and release 
+cohort to control for inherent popularity differences between genres and audience 
+sizes.
+Signal
+Raw Weight
+Normalization
+Rationale
+Saves / bookmarks
+3.0
+Peer-normalized 
+(category cohort)
+High-intent signal; 
+requires deliberate 
+action; strongly 
+predictive of re-
+engagement
+Shares (external + 
+2.5
+Peer-normalized
+Social amplification; 
+
+
+===== PAGE 16 =====
+Signal
+Raw Weight
+Normalization
+Rationale
+internal)
+external shares 
+weighted 1.3× 
+internal shares
+Comments
+2.0
+Peer-normalized; 
+sentiment-filtered
+High intent; 
+negative-sentiment 
+comments excluded 
+from positive signal 
+but tracked 
+separately for 
+community 
+moderation
+Plays (qualified)
+1.5
+Peer-normalized; 
+bot-filtered
+Qualified play = play 
+lasting ≥ 20% of 
+track duration; raw 
+play counts are not 
+used directly
+Likes / reactions
+1.0
+Peer-normalized
+Low-friction; 
+weighted lowest due 
+to susceptibility to 
+automated inflation
+Peer normalization uses a z-score transformation against a rolling 30-day 
+distribution of the same signals for content in the same category and release cohort 
+(content published within the same 90-day window). This ensures that a track 
+receiving 1,000 saves in a niche genre competes fairly against a track receiving 
+100,000 saves in a mainstream genre.
+4.2.2 Retention Score (R) — Weight: 25%
+The Retention Score measures whether users who encounter content are compelled 
+to stay with it and return to it. It is composed of three components:
+●
+Completion Rate (50% of R): The median percentage of track/content 
+duration consumed per qualified play session. Bucketed into deciles and 
+scored 0–100. A completion rate at the 90th percentile of the peer cohort 
+scores 90+.
+●
+Re-engagement Rate (30% of R): The proportion of users who play or 
+save the same content item more than once within a 30-day window. High re-
+engagement is a strong proxy for genuine quality independent of initial 
+discovery context.
+
+
+===== PAGE 17 =====
+●
+Session Depth (20% of R): The average number of additional content 
+items consumed by users in the same session after encountering this item. 
+Content that deepens session engagement — rather than ending it — 
+receives a positive signal.
+4.2.3 Authenticity Score (A) — Weight: 20%
+The Authenticity Score quantifies the probability that a content item's engagement 
+signals are organic. It is the primary defense against score inflation via inauthentic 
+promotion. A low Authenticity Score is a strong suppressive force on the composite 
+Q, regardless of raw engagement volume.
+●
+Bot Probability (inverse, 40% of A): A_bot = 1 - P(bot | 
+engagement_pattern), derived from the Promo Detection ensemble classifier 
+(§6). High bot probability directly reduces A.
+●
+Source Diversity Index (30% of A): Herfindahl-Hirschman Index (HHI) 
+applied to the geographic, platform-referral, and user-demographic 
+distribution of signal sources. Organic discovery produces diverse, 
+geographically distributed signals; coordinated promotion produces 
+concentrated ones.
+●
+Velocity Anomaly Score (inverse, 20% of A): Flags sudden, unsustained 
+engagement spikes inconsistent with the item's historical trajectory. A 
+content item accumulating its entire 30-day engagement in a 6-hour window 
+receives a high velocity anomaly score, which suppresses A.
+●
+Promo Detection Confidence (inverse, 10% of A): Direct feed from the 
+Promo Detection service output probability. Values above 0.50 linearly 
+suppress A; values above 0.85 zero out A entirely (triggering GHOST 
+classification).
+4.2.4 Freshness Score (F) — Weight: 20%
+The Freshness Score rewards recency while penalizing staleness, using category-
+tuned exponential decay to prevent older high-quality content from monopolizing 
+the grid indefinitely.
+
+
+===== PAGE 18 =====
+F_base = 100 × e^(-λ × age_in_days)  Category-specific decay constants (λ): 
+Viral / trending content:   λ = 0.15  (half-life ≈ 4.6 days)   New releases 
+(pop/hip-hop): λ = 0.07  (half-life ≈ 9.9 days)   Album-cycle content: 
+λ = 0.03  (half-life ≈ 23 days)   Evergreen / catalog:        λ = 0.01  
+(half-life ≈ 69 days)   Archived / legacy:          λ = 0.005 (half-life ≈ 
+139 days)
+Resurgence Boost Mechanism: When a content item's engagement velocity in 
+the trailing 7 days exceeds 2× its trailing 30-day baseline, the Freshness Score 
+receives a resurgence boost: F = min(F_base × 1.40, 100). This mechanism 
+ensures that genuinely rediscovered catalog content can re-enter competitive grid 
+positions without requiring a new release.
+4.3 Score Update Cadence
+Update Type
+Trigger
+Cadence / Latency
+Components 
+Updated
+Real-time update
+Signal event arrives 
+on Kafka topic
+< 60 seconds end-
+to-end
+Engagement Score, 
+Retention Score 
+(completion events)
+Batch update
+Scheduled timer
+Every 15 minutes
+All four sub-scores; 
+composite Q 
+recomputed; 
+Freshness decay 
+applied
+Full re-score
+Scheduled timer
+Every 6 hours
+Full pipeline 
+including 
+Authenticity Score 
+(requires Promo 
+Detection 
+inference), heuristic 
+re-evaluation, 
+Postgres audit 
+record
+Forced re-score
+Admin Console or 
+flag status change
+On-demand; queued 
+behind real-time 
+updates
+All components; 
+triggers immediate 
+re-classification
+4.4 Score Bands and Grid Class Eligibility
+Band
+Score Range
+Grid Classes 
+Eligible
+Connect Hub 
+Label
+Platinum
+85–100
+HERO, FEATURE, 
+STANDARD
+Platinum
+
+
+===== PAGE 19 =====
+Band
+Score Range
+Grid Classes 
+Eligible
+Connect Hub 
+Label
+Gold
+70–84
+FEATURE, 
+STANDARD
+Gold
+Silver
+55–69
+STANDARD
+Silver
+Bronze
+20–54
+STANDARD, 
+COMPACT
+Bronze
+Suppressed
+0–19
+GHOST only
+Suppressed
+4.5 Penalties Table
+Penalties are applied as subtractive adjustments to the composite Q score before 
+band assignment. Penalty adjustments do not affect sub-score values stored in the 
+audit log — the unadjusted sub-scores are always preserved for transparency and 
+appeal purposes.
+Penalty Type
+Trigger 
+Condition
+Q Score 
+Adjustment
+Duration
+Override Path
+DMCA Notice
+Valid DMCA 
+takedown 
+notice received
+GHOST 
+(immediate)
+Until legal 
+review clears
+Legal team via 
+Admin Console
+Community 
+Reports (Level 
+1)
+≥ 25 unique 
+user reports in 
+24 hours
+−15
+72 hours or 
+until review
+Moderation 
+review
+Community 
+Reports (Level 
+2)
+≥ 100 unique 
+user reports in 
+24 hours
+GHOST + 
+human review 
+queue
+Until review 
+decision
+Senior 
+moderation 
+review
+Promo 
+Detection 
+(Medium)
+Promo score 
+0.60–0.84
+−20 to −35 
+(scaled)
+Until next full 
+re-score clears
+Creator appeal 
+via Connect 
+Hub
+Promo 
+Detection 
+(High)
+Promo score ≥ 
+0.85
+GHOST
+Until human 
+review decision
+Human 
+reviewer + 
+creator appeal
+Promo History 
+Strike
+Confirmed 
+promo violation 
+in trailing 12 
+months
+−10 (ongoing, 
+applied to all 
+content by 
+creator)
+12 months from 
+confirmation 
+date
+Expires 
+automatically; 
+cannot be 
+appealed
+Metadata 
+Inconsistency
+Submitted 
+metadata fails 
+validation 
+(genre 
+mismatch, 
+−5
+Until metadata 
+corrected via 
+Connect Hub
+Creator 
+metadata 
+update
+
+
+===== PAGE 20 =====
+Penalty Type
+Trigger 
+Condition
+Q Score 
+Adjustment
+Duration
+Override Path
+invalid ISRC, 
+duplicate title 
+attack)
+4.6 Data Pipeline
+The Quality Score Engine data pipeline is the operational backbone connecting raw 
+signal events to scored, indexed content. The pipeline must sustain high throughput 
+with low latency while providing durable state for audit and appeal purposes.
+Signal Sources     │     ▼ Kafka Topics   ├── topic: platform.events.plays   
+├── topic: platform.events.engagement  (saves, shares, comments, likes)   ├── 
+topic: platform.events.completion  (play-end events with percentage)   └── 
+topic: platform.events.flags       (DMCA, reports, promo decisions)     │ 
+▼ Signal Normalizer (Python microservice, Kafka Streams)   - Deduplication 
+(event fingerprint, 5-min idempotency window)   - Schema validation and type 
+normalization   - Bot pre-filter (IP velocity, user-agent block list)   - 
+Outputs: canonical SignalEvent protobuf     │     ▼ Sub-Score Calculators 
+(parallel workers, keyed by content_id)   ├── Engagement Calculator    → E 
+[0,100] → Redis hash: scores:{content_id}:E   ├── Retention Calculator     → 
+R [0,100] → Redis hash: scores:{content_id}:R   ├── Authenticity Calculator  
+→ A [0,100] (calls Promo Detection gRPC service)   └── Freshness Calculator 
+→ F [0,100] (reads content publish timestamp + category λ)     │     ▼ 
+Weighted Aggregator   - Q = (0.35×E) + (0.25×R) + (0.20×A) + (0.20×F)   - 
+Applies active penalties (reads flags from Postgres)   - Applies heuristic 
+adjustments (reads heuristic config from Config Service)   - Writes Q to 
+Redis sorted set: content:scores (ZADD content_id Q)   - Writes Q + sub-
+scores to Postgres: content_quality_scores table   - Publishes score-update 
+event to Kafka: topic: atlas.score.updates     │     ▼ Downstream Consumers 
+of atlas.score.updates   ├── Grid Classifier          (re-classification if 
+delta ≥ 5 points)   ├── Search Ranker            (reindex quality feature 
+vector in Elasticsearch)   └── Connect Hub Bridge       (webhook trigger if 
+delta ≥ configured threshold)
+5. Quality Heuristics
+5.1 Why Heuristics Exist Alongside the Statistical 
+Score
+The composite Quality Score is a powerful and auditable ranking signal, but it has 
+two structural blind spots that heuristics are designed to address.
+
+
+===== PAGE 21 =====
+The Cold Start Problem: Newly published content has no engagement history. A 
+purely data-driven score for a brand-new release from a verified, established artist 
+would be identical to a score for a brand-new release from an unknown creator with 
+no prior activity — both would receive near-zero scores and land in COMPACT or 
+GHOST class regardless of intrinsic quality. Heuristics allow the system to make 
+reasonable prior assumptions based on creator reputation, content metadata, and 
+external signals that exist before organic data accumulates.
+Edge Cases the Data Cannot See: Real-world context matters in ways that 
+engagement signals cannot capture automatically. A track nominated for a Grammy 
+Award, a song that scores on a Billboard chart, or a creator who has been the victim 
+of a coordinated harassment campaign leading to artificially elevated community 
+reports — these are factual contexts that the statistical model cannot infer from 
+engagement data alone. Heuristics provide a structured, auditable mechanism for 
+injecting these real-world facts into the ranking system without circumventing the 
+scoring architecture.
+Design Decision: Heuristics as Bounded Adjustments
+Heuristics are deliberately constrained: they cannot override band boundaries for 
+suppression decisions, cannot elevate content to HERO class on their own, and are 
+subject to a total bonus cap and penalty cap. This prevents heuristic abuse — whether 
+accidental or adversarial — from producing outcomes inconsistent with the statistical 
+quality signal. A heuristic that would push content into HERO territory is capped at 
+FEATURE; a heuristic penalty cannot exceed the Suppressed band floor unless it is itself 
+a flag-based suppression (which is handled by the penalty system, not the heuristic 
+system).
+5.2 Heuristic Categories and Key Rules
+Category 1: Cold Start Heuristics
+Heuristic Rule
+Condition
+Adjustment
+Expiry
+Verified artist new 
+release
+Creator has verified 
+badge; content 
++20
+14 days from 
+publish, or until 
+
+
+===== PAGE 22 =====
+Heuristic Rule
+Condition
+Adjustment
+Expiry
+published within 7 
+days; creator has ≥ 
+1 prior content item 
+with Gold+ score
+score reaches Silver 
+band organically
+First-time creator
+Creator has no prior 
+content items on 
+platform; content 
+passes metadata 
+validation
++5
+30 days from 
+publish
+Label-submitted 
+content
+Content submitted 
+via verified 
+distributor / label 
+Connect Hub 
+account
++8
+21 days from 
+publish
+Cold start data 
+threshold
+Content has fewer 
+than 100 qualified 
+plays
++10 (baseline floor)
+Until 100 qualified 
+plays threshold 
+crossed
+Category 2: Content Quality Heuristics
+Heuristic Rule
+Condition
+Adjustment
+Expiry
+High audio fidelity
+Content meets 
+lossless or HiFi audio 
+quality standard 
+(verified via 
+metadata + audio 
+analysis)
++5
+Permanent while 
+content remains at 
+that quality tier
+Rich metadata 
+completeness
+Content has 
+complete ISRC, 
+genre tags, mood 
+tags, credits, and 
+artwork above 
+minimum resolution
++3
+Permanent; 
+removed if 
+metadata degrades
+Duplicate content 
+penalty
+Content flagged as 
+near-duplicate 
+(audio fingerprint 
+match ≥ 0.92) of 
+existing indexed 
+content not by same 
+creator
+−25
+Until fingerprint 
+dispute resolved via 
+Creator appeal
+Category 3: Community and Social Heuristics
+
+
+===== PAGE 23 =====
+Heuristic Rule
+Condition
+Adjustment
+Expiry
+Editorial playlist 
+inclusion
+Content included in 
+an official Vibe Atlas 
+editorial playlist
++12
+Duration of playlist 
+inclusion
+User-created playlist 
+density
+Content appears in 
+≥ 500 user-created 
+playlists
++8
+Recomputed on 15-
+minute cadence
+Harassment-driven 
+report spike
+Moderation review 
+determines reports 
+resulted from 
+coordinated 
+harassment, not 
+legitimate policy 
+violations
++10 (restoration 
+credit)
+90 days
+Category 4: Creator Reputation Heuristics
+Heuristic Rule
+Condition
+Adjustment
+Expiry
+Promo violation 
+history
+Creator has ≥ 1 
+confirmed promo 
+violation in trailing 
+12 months
+−10 (applied to all 
+content by creator)
+12 months from 
+confirmation date
+Verified 
+independent artist
+Creator is verified as 
+independent (no 
+label affiliation) with 
+consistent release 
+history (≥ 3 
+releases)
++5
+Permanent while 
+status holds
+Creator good 
+standing streak
+Creator has no 
+violations and ≥ 2 
+Gold+ content items 
+in trailing 6 months
++5
+Rolling 6-month 
+window
+Category 5: Real-World Events Heuristics
+Heuristic Rule
+Condition
+Adjustment
+Expiry
+Award recognition
+Content or creator 
+wins or is nominated 
+for a recognized 
+industry award 
+(Grammy, Mercury 
+Prize, etc.)
++15 (win); +8 
+(nomination)
+365 days from 
+award date
+Chart recognition
+Content appears on 
++15 per chart (max 
+Duration of chart 
+
+
+===== PAGE 24 =====
+Heuristic Rule
+Condition
+Adjustment
+Expiry
+a recognized chart 
+(Billboard Hot 100, 
+Official UK Charts, 
+etc.)
+3 charts counted)
+presence + 14 days
+Cultural moment 
+sync
+Content associated 
+with a verified 
+cultural event 
+(film/TV sync, major 
+sporting event, 
+etc.), confirmed via 
+metadata tag and 
+editorial approval
++10
+90 days from event 
+date
+Press coverage 
+spike
+Content or creator is 
+subject of significant 
+press coverage 
+(detected via media 
+monitoring feed 
+integration; editorial 
+confirmation 
+required)
++5
+30 days from 
+coverage date
+5.3 Application Rules
+●
+Total bonus cap: +30. The sum of all positive heuristic adjustments applied 
+to a single content item at any given time is capped at +30 points. 
+Adjustments beyond this cap are accumulated in a queue and applied as prior 
+adjustments expire, up to the cap.
+●
+Total penalty cap: −50. The sum of all negative heuristic adjustments 
+(excluding flag-based GHOST penalties) is capped at −50 points. Content 
+cannot be pushed below Q = 0 via heuristics alone.
+●
+Band ceiling protection: Heuristic adjustments cannot push content into 
+the HERO band (Q ≥ 85). The effective maximum for heuristic-adjusted 
+content is Q = 84 (top of Gold band). HERO status requires organic scoring at 
+the Platinum level.
+●
+Expiry and recomputation: All heuristic adjustments carry explicit expiry 
+timestamps. An expiry worker scans active adjustments every 5 minutes and 
+removes expired rules; the Weighted Aggregator triggers a re-score for 
+affected content items within the next batch cycle.
+
+
+===== PAGE 25 =====
+●
+Heuristic override policy: Heuristics are configured in a versioned Config 
+Service, not hardcoded. Changes to heuristic weights or conditions require a 
+config change review by the Quality Council (see §5.4) and are logged in the 
+heuristic audit trail.
+5.4 The Quarterly Quality Council Review
+The Quality Council is a cross-functional governance body responsible for reviewing 
+and approving changes to the heuristic system, the penalty table, and the sub-score 
+weighting parameters. It convenes quarterly and produces a written decision record 
+that is stored in the internal engineering wiki and linked from the Config Service 
+changelog.
+Membership: Head of Platform Engineering, Head of Trust and Safety, Head of 
+Creator Relations, Head of Editorial, and one rotating external advisor (music 
+industry or academic). Decisions require majority vote; the Head of Trust and Safety 
+holds veto rights over any change to the Authenticity sub-score or penalty table.
+6. Promo Detection
+Promo Detection is the system responsible for identifying and acting on inauthentic 
+promotional activity — the practice of artificially inflating a content item's 
+engagement signals to improve its Quality Score and grid classification. It operates 
+as an independent ML service with its own data pipeline, model governance 
+process, and human review workflow.
+6.1 Threat Model
+Inauthentic promotion takes several structurally distinct forms, each with different 
+signal signatures:
+●
+Velocity bursts: A large volume of engagement signals (plays, saves, likes) 
+arriving in a compressed time window, inconsistent with the creator's 
+historical trajectory or the content's genre/audience size.
+
+
+===== PAGE 26 =====
+●
+Geographic clustering: Engagement signals concentrated in an 
+anomalously narrow geographic region, particularly if inconsistent with the 
+creator's known fanbase geography or the platform's typical engagement 
+distribution for the genre.
+●
+Bot fingerprints: Device characteristics, IP address patterns, user-agent 
+strings, and behavioral timing patterns (e.g., play events with identical 
+duration down to the millisecond) consistent with automated script execution.
+●
+Coordinated account networks: Clusters of accounts that exhibit 
+correlated behavior — creating accounts at similar times, following identical 
+patterns of playlist addition, or engaging with exactly the same set of content 
+items across multiple sessions.
+●
+Cross-platform synchrony: Engagement spikes that are temporally 
+correlated across multiple platforms simultaneously, suggesting coordinated 
+off-platform promotion through paid engagement services.
+6.2 Signal Groups
+Promo Detection signals are organized into three groups, each contributing a sub-
+score to the ensemble classifier:
+Group A: Engagement Patterns
+●
+Play velocity (plays per hour, normalized by creator tier)
+●
+Save velocity (saves per hour, normalized)
+●
+Play duration distribution (variance from expected distribution; bot plays 
+cluster at fixed durations)
+●
+Engagement-to-impression ratio anomaly (saves per unique impression; 
+abnormally high ratios are suspicious)
+●
+Re-engagement rate spike (sudden large increase in re-engagement 
+inconsistent with content age)
+
+
+===== PAGE 27 =====
+Group B: Source Attribution
+●
+Geographic concentration (HHI of engagement by country; values above 0.80 
+are anomalous)
+●
+Platform referral source distribution (proportion of engagement arriving via 
+direct link vs. organic discovery; unusually high direct-link proportion is a 
+signal)
+●
+IP address entropy (Shannon entropy of IP address range diversity; low 
+entropy = few source IPs)
+●
+Known promo service IP ranges (direct match against maintained blocklist; 
+deterministic signal)
+●
+VPN/proxy concentration (proportion of sessions using anonymizing proxies 
+above genre-specific baseline)
+Group C: Network and Metadata
+●
+Account age distribution of engaging users (accounts created within 30 days 
+of engagement event; high concentration is suspicious)
+●
+Correlated behavior clustering (graph-based detection of account clusters 
+engaging with identical content sequences)
+●
+Cross-platform timing correlation (temporal cross-correlation with external 
+platform signal feeds, where available via API)
+●
+Creator declaration absence (creator has not submitted a Promotional 
+Campaign Declaration via Connect Hub for content with high-velocity 
+engagement)
+●
+Prior promo detection history (creator or associated accounts have previous 
+confirmed promo violations)
+6.3 The Ensemble Classifier
+The promo detection model is an ensemble classifier that combines Group A, B, and 
+C sub-scores using a weighted sigmoid function. The architecture is intentionally 
+conservative: a bias term is included to reduce false positives, accepting a slightly 
+
+
+===== PAGE 28 =====
+higher false-negative rate in preference to wrongly flagging legitimate organic 
+promotion.
+# Sub-score computation (each group produces a score in [0, 1]) score_A = 
+group_A_model.predict(engagement_features)   # gradient boosted tree score_B 
+= group_B_model.predict(source_features)       # logistic regression score_C 
+= group_C_model.predict(network_features)      # graph neural network  # 
+Weighted combination raw_score = (0.45 × score_A) + (0.35 × score_B) + (0.20 
+× score_C)  # Weighted sigmoid with bias term (bias shifts decision boundary 
+right, # reducing false positives at the cost of slightly higher false 
+negatives) promo_score = sigmoid(raw_score, weight=6.0, bias=-0.8)  # Where: 
+sigmoid(x, w, b) = 1 / (1 + e^(-w×(x + b)))
+6.4 Decision Thresholds
+Promo Score 
+Range
+Classification
+Automated Action
+Notification
+0.00 – 0.39
+No anomaly
+None
+None
+0.40 – 0.59
+Low suspicion
+Authenticity sub-
+score suppressed by 
+15%; monitoring 
+flag added; 
+increased signal 
+sampling rate for 
+next 7 days
+None to creator; 
+internal monitoring 
+alert to Trust and 
+Safety dashboard
+0.60 – 0.74
+Medium suspicion
+Q score penalty 
+−20; COMPACT floor 
+applied regardless 
+of score; 30-day 
+enhanced 
+monitoring window
+Creator notification 
+via Connect Hub: 
+"Engagement 
+anomaly detected — 
+review pending"
+0.75 – 0.84
+High suspicion
+Q score penalty 
+−35; content 
+capped at 
+STANDARD 
+regardless of score; 
+human review 
+queue entry created
+Creator notification: 
+"Promotional activity 
+review initiated" 
+with appeal link
+0.85 – 0.94
+Confirmed likely
+GHOST class applied 
+immediately; 
+Connect Hub promo 
+flag webhook sent
+Formal promo flag 
+notification with 
+evidence summary 
+and appeal rights
+0.95 – 1.00
+Confirmed
+GHOST class 
+applied; promo 
+violation recorded 
+on creator account; 
+human review for 
+escalation decision
+Formal promo 
+violation notice with 
+full evidence 
+package; 30-day 
+appeal window 
+opened
+
+
+===== PAGE 29 =====
+6.5 Human Review Workflow
+Any content item that reaches the 0.75–1.00 threshold enters the human review 
+queue. The workflow has defined SLAs at each step:
+4. Auto-hold (≤ 2 minutes): Content automatically transitions to GHOST or 
+STANDARD-cap state (depending on threshold band). A review case is created 
+in the moderation platform, populated with the evidence package: promo score 
+breakdown, signal group sub-scores, engagement timeline visualization, and a 
+comparison to peer cohort distributions.
+5. Reviewer assigned (≤ 4 business hours): A trained Trust and Safety reviewer 
+is assigned to the case based on workload balancing. The reviewer receives an 
+evidence package PDF (auto-generated from the case data) and access to the 
+raw signal explorer tool.
+6. Decision (≤ 48 business hours from assignment): Three decision paths are 
+available:
+○
+Confirm violation: GHOST or penalty maintained; promo violation 
+recorded on creator account; creator notified with full evidence.
+○
+Clear — organic: Content restored to organic classification; score 
+recalculated without promo penalties; creator notified of clearance; 
+monitoring flag remains active for 30 days.
+○
+Clear — declared promotion: Creator had submitted or now submits a 
+valid Promotional Campaign Declaration; content restored with 
+"Sponsored" badge applied to grid card.
+6.6 Creator Appeal Rights
+Creators who believe a promo flag is erroneous have a formal appeal right. Key 
+parameters of the appeal process:
+●
+Appeal window: 30 days from the date of the promo flag notification.
+
+
+===== PAGE 30 =====
+●
+Appeal submission: Via the Connect Hub 4-step Appeal Flow (§10.7). 
+Creators may submit evidence of organic promotion activity: campaign 
+receipts, social media posts, press coverage links, distribution records.
+●
+Appeal review SLA: Appeals are reviewed by a senior Trust and Safety 
+reviewer within 5 business days.
+●
+Appeal outcome: Full reversal (all penalties removed; creator reputation 
+heuristic restored), partial reversal (some penalties reduced; monitoring 
+maintained), or upheld (original decision stands; creator informed of reason).
+●
+Escalation path: If a creator believes their appeal was wrongly denied, a 
+second-level review by the Head of Trust and Safety is available within 14 
+days of the first appeal decision. Second-level decisions are final.
+6.7 Model Governance
+Governance Dimension
+Specification
+Retraining cadence
+Every 30 days, using confirmed review 
+decisions as labeled training data
+Precision target
+Precision ≥ 0.92 at the 0.85 threshold 
+boundary (measured on held-out labeled 
+test set)
+Recall target
+Recall ≥ 0.75 at the 0.60 threshold 
+boundary (acceptable to miss some 
+medium-suspicion cases; prioritize 
+precision at high threshold)
+Fairness audits
+Quarterly fairness audit measuring false 
+positive rates across creator genre, 
+geographic origin, and account age cohorts; 
+documented disparity above 15% triggers 
+model adjustment
+Model versioning
+All model versions are stored in the ML 
+model registry with full training metadata; 
+rollback to previous version available within 
+15 minutes via feature flag
+Threshold review
+Decision thresholds reviewed at each 
+Quality Council meeting (§5.4) using 
+precision-recall curve analysis
+
+
+===== PAGE 31 =====
+7. Search Strategy
+Vibe Atlas's search system is a four-stage pipeline: Query Understanding → 
+Retrieval → Ranking → Result Shaping. The pipeline is designed to handle five 
+distinct search modes, each with different intent profiles, and to integrate Quality 
+Score signals as a first-class ranking factor alongside relevance. Search is not a 
+separate system from the grid — it shares the same scoring infrastructure and 
+produces results on the same quality-weighted basis.
+7.1 The Five Search Modes
+Mode
+Trigger
+Example Query
+Primary Signal
+Keyword
+User types a literal 
+query (artist name, 
+track title, album)
+"Beyoncé 
+Lemonade"
+BM25+ lexical 
+match on title, 
+artist, album fields
+Semantic
+User types a 
+descriptive or 
+abstract query 
+without exact entity 
+names
+"sad rainy day 
+music"
+FAISS nearest-
+neighbor on 768-dim 
+embedding space
+Vibe Query
+User selects vibe 
+tags from the Vibe 
+Taxonomy (§7.6)
+[High Energy] + 
+[Late Night] + 
+[Euphoric]
+Vibe taxonomy 
+vector match + 
+semantic 
+embedding
+Similarity
+User triggers "more 
+like this" from a 
+content item
+(from a playing 
+track card)
+FAISS embedding 
+similarity from seed 
+item vector
+Contextual
+System-initiated; 
+uses session context 
+(time of day, recent 
+plays, location)
+(no explicit query)
+Session embedding 
++ collaborative 
+filtering + Quality 
+Score
+7.2 Stage 1: Query Understanding Service (QUS)
+The Query Understanding Service is a Python gRPC microservice that transforms a 
+raw user query string into a structured intent object consumed by the retrieval 
+stage. It runs on every search request and must complete within 30ms to preserve 
+the total P99 latency budget.
+QUS Processing Pipeline:
+
+
+===== PAGE 32 =====
+7. Typo Correction: Edit-distance-based candidate generation against a 
+phonetic vocabulary index. Corrections are applied silently if confidence ≥ 
+0.90; otherwise the corrected query is surfaced as a "Did you mean?" 
+suggestion.
+8. Intent Classification: A fine-tuned BERT classifier assigns the query to one 
+of: Entity Lookup, Mood/Vibe Discovery, Genre Exploration, Chart/Trending, or 
+Exploratory. Intent class determines which retrieval path is weighted most 
+heavily.
+9. Entity Extraction: Named entity recognition identifies artist names, track 
+titles, album names, genre terms, and location references. Recognized 
+entities are linked to the content knowledge graph to resolve ambiguity (e.g., 
+"drake" → artist entity, not the name).
+10.Mood and Vibe Tagging: Adjective and descriptor terms in the query are 
+mapped to Vibe Taxonomy nodes (§7.6) using a fine-tuned classification 
+model. Multi-label output; up to 5 vibe tags assigned per query.
+11.Query Expansion: Synonym expansion and related-term injection using a 
+music-domain-specific word embedding model. Expansion terms are added to 
+the retrieval query at reduced weight (0.3× of primary term weight).
+12.Embedding Generation: The full query (original + expanded terms) is 
+encoded by the same 768-dim BERT model used to embed content items, 
+producing a query vector for FAISS retrieval.
+# QUS output schema QueryIntent {     original_query:    string     
+corrected_query:   string | None     intent_class:      enum [entity_lookup, 
+mood_vibe, genre, chart, exploratory]     entities: [         { type: 
+"artist"|"track"|"album"|"genre"|"location",           value: string, 
+entity_id: string | None }     ]     vibe_tags:         [string]  # taxonomy 
+node IDs, max 5     query_vector:      float[768]     expanded_terms:    
+[{ term: string, weight: float }]     confidence:        float  # overall QUS 
+confidence [0,1] }
+7.3 Stage 2: Retrieval
+The retrieval stage runs two parallel paths — lexical and semantic — and merges 
+their results using Reciprocal Rank Fusion (RRF) before passing the merged 
+candidate set to the ranker.
+
+
+===== PAGE 33 =====
+Lexical Path: BM25+ on Elasticsearch
+Elasticsearch is queried with a multi-field BM25+ query across indexed fields: title 
+(boost 3.0), artist_name (boost 2.5), album_name (boost 1.5), genre_tags (boost 1.2), 
+description (boost 1.0). Entity-linked queries use a term filter on entity_id for exact 
+entity matching at maximum precision. The lexical path returns the top 200 
+candidates.
+Semantic Path: FAISS + 768-dim BERT Embeddings
+Content items are indexed at publish time with a 768-dimensional BERT embedding 
+computed from a concatenation of title, artist name, genre tags, vibe tags, and 
+description text. The query vector from QUS is used to perform an IVF-PQ 
+approximate nearest-neighbor search in FAISS, returning the top 200 semantic 
+candidates. For Similarity mode queries, the seed item's stored embedding vector is 
+used directly as the query vector.
+Reciprocal Rank Fusion Merge
+# RRF score computation for each candidate item # k = 60 (standard RRF 
+smoothing constant) # Positions from lexical ranking: rank_lex(item) # 
+Positions from semantic ranking: rank_sem(item)  rrf_score(item) = (1 / (k + 
+rank_lex(item))) + (1 / (k + rank_sem(item)))  # Items appearing in only one 
+path receive the other path's contribution as 0 # Merged candidate set: top 
+100 items by rrf_score, passed to ranker
+7.4 Stage 3: Ranking
+The ranking stage applies a LambdaRank model to the merged candidate set of 100 
+items, producing a final ranked list of up to 50 results returned to the UX layer. 
+LambdaRank is a pairwise learning-to-rank algorithm trained on click-through data 
+with NDCG@10 as the optimization objective.
+Feature Groups
+Feature Group
+Weight
+Key Features
+Relevance
+40%
+RRF score from retrieval 
+stage; entity match flag; 
+vibe tag overlap count; 
+query-title edit distance
+Quality
+30%
+Composite Quality Score Q; 
+Authenticity sub-score; 
+
+
+===== PAGE 34 =====
+Feature Group
+Weight
+Key Features
+score band (ordinal 
+encoded); score delta in 
+trailing 24h
+Personalization
+20%
+Collaborative filtering score 
+(user × item affinity from 
+matrix factorization); 
+session context vector 
+similarity; user genre 
+preference alignment; 
+recency of user's interaction 
+with same artist
+Freshness
+10%
+Freshness sub-score F; 
+resurgence boost flag; days 
+since publish (log-
+normalized)
+7.5 Stage 4: Result Shaping
+Result shaping applies post-ranking transformations to the ranked list before 
+serialization. These transformations enforce diversity, compliance, and business 
+rules:
+●
+Diversity enforcement: No more than 3 content items by the same artist in 
+the top 10 results. Duplicate items are demoted to positions 11+ regardless 
+of rank score.
+●
+Promo suppression: GHOST-class items are excluded from results entirely. 
+Items with active promo flags below GHOST threshold are moved to positions 
+20+.
+●
+Sponsored slot rules: Sponsored results (editorially pinned with 
+sponsored=true) are capped at 1 item per 10 results and must be labeled with 
+a "Sponsored" badge. They cannot occupy position 1.
+●
+A/B experiment slots: The search ranker reserves positions 5, 10, and 15 
+as configurable experiment slots. These positions receive their content from 
+the A/B test configuration service rather than from the LambdaRank output, 
+allowing controlled experiments on ranking features without affecting the 
+remainder of the result list.
+
+
+===== PAGE 35 =====
+7.6 The Vibe Taxonomy
+The Vibe Taxonomy is a 120-node hierarchical ontology that provides a shared 
+vocabulary for describing the emotional, energetic, and contextual character of 
+music and cultural content. It is the backbone of Vibe Query mode and the Vibe 
+Filter Panel UX component.
+The taxonomy is organized across three primary dimensions, each with subordinate 
+nodes:
+Dimension
+Node Count
+Example Nodes
+UX Color Code
+Energy Level
+40 nodes
+Anthemic, High-
+Octane, Steady 
+Pulse, Drifting, Still
+Orange (#e65c00 
+spectrum)
+Mood
+50 nodes
+Euphoric, 
+Bittersweet, 
+Melancholic, 
+Triumphant, Tense, 
+Playful, Raw
+Blue (#2b5797 
+spectrum)
+Setting
+30 nodes
+Late Night, Morning 
+Ritual, Festival, 
+Commute, Focus, 
+Intimate, Outdoor
+Green (#006633 
+spectrum)
+Content items receive vibe tags at index time via an automated tagging model 
+(fine-tuned audio classifier + text classifier ensemble), supplemented by creator-
+submitted tags via Connect Hub metadata updates. Human editorial teams may add 
+or override up to 3 taxonomy tags per content item. Tag changes are versioned and 
+logged.
+7.7 Autocomplete
+Autocomplete suggestions are served from a pre-computed trie data structure 
+stored in Redis. The trie is updated every 30 minutes via a batch job that computes 
+the top 10,000 queries by volume in the trailing 7-day window, supplemented by 
+entity name entries for all verified artists and top-tier content items. Vibe taxonomy 
+node names are also included as autocomplete candidates.
+Each autocomplete request returns up to 8 suggestions, categorized as:
+●
+4 content item matches (track / album titles)
+
+
+===== PAGE 36 =====
+●
+2 artist name matches
+●
+2 vibe tag matches (taxonomy node names)
+The P99 autocomplete latency target is ≤ 80ms end-to-end, measured from 
+request receipt at the API gateway to response delivery. The trie lookup itself must 
+complete in ≤ 5ms; the budget for network and serialization is 75ms.
+7.8 Search Telemetry and Evaluation Metrics
+Metric
+Definition
+Target
+Measurement 
+Cadence
+NDCG@10
+Normalized 
+Discounted 
+Cumulative Gain at 
+rank 10; primary 
+offline ranking 
+quality metric
+≥ 0.72 on labeled 
+evaluation set
+After each model 
+retraining
+MRR
+Mean Reciprocal 
+Rank of first 
+relevant result
+≥ 0.58
+After each model 
+retraining
+Click-Through Rate 
+(CTR)
+Proportion of search 
+sessions resulting in 
+at least one content 
+item interaction
+≥ 42% (Phase 2 
+target)
+Daily; 7-day rolling 
+average
+Zero-result rate
+Proportion of 
+queries returning 
+zero results
+≤ 3%
+Real-time 
+monitoring
+Query abandonment 
+rate
+Proportion of 
+searches with no 
+interaction within 60 
+seconds
+≤ 25%
+Daily; 7-day rolling 
+average
+Autocomplete 
+adoption rate
+Proportion of 
+searches where user 
+selected an 
+autocomplete 
+suggestion
+≥ 55%
+Daily
+
+
+===== PAGE 37 =====
+8. Height Emphasis System
+The Height Emphasis System is a dynamic vertical scaling mechanism that 
+modulates the actual rendered height of grid cards beyond their base class 
+multiplier. While grid class determines the nominal footprint of a content item on 
+the grid, Height Emphasis makes the grid feel alive and editorial by allowing cards 
+within the same class to have meaningfully different vertical presences based on 
+real-time signals.
+8.1 Purpose and Rationale
+A grid in which all STANDARD cards are identical in size is visually static. It 
+communicates only the binary fact of class assignment, not the richness of the 
+signal underneath. Height Emphasis translates the momentum, editorial 
+importance, media richness, and personalization relevance of a content item into a 
+continuous visual dimension — the vertical axis — creating a surface that users can 
+read intuitively without knowing the underlying mechanics.
+Design Decision: Continuous vs. Discrete Scaling
+An earlier design used discrete height tiers (small/medium/large within each class) 
+rather than a continuous HeightEmphasisFactor. Discrete tiers were rejected because 
+they produced perceptible "jumps" in card height during re-classification events, and 
+because the tier boundaries introduced additional classification parameters that were 
+difficult to govern. Continuous scaling within defined clip bounds [0.80, 1.50] produces 
+smoother transitions and is governed by a single formula rather than a lookup table.
+8.2 The Base Height Formula
+RenderedHeight = BaseRowHeight               × ClassMultiplier               
+× HeightEmphasisFactor               × ResponsiveScaleFactor  Where:   
+BaseRowHeight        = 120px (the fundamental grid row unit)   
+ClassMultiplier      = { HERO: 4.0, FEATURE: 2.0, STANDARD: 1.0, 
+COMPACT: 0.5, GHOST: 0.0 }   HeightEmphasisFactor = float in [0.80, 1.50]  
+(computed below)   ResponsiveScaleFactor = { xs: 0.75, sm: 0.85, md: 0.95, 
+lg: 1.00, xl: 1.10 }
+
+
+===== PAGE 38 =====
+8.3 HeightEmphasisFactor: The Four Inputs
+HeightEmphasisFactor = clip(     (0.40 × MomentumFactor)   + (0.30 × 
+EditorialEmphasisScore)   + (0.20 × MediaRichnessFactor)   + (0.10 × 
+PersonalizationFactor),     min=0.80, max=1.50 )
+Input Factor
+Weight
+Range
+Definition
+Update 
+Source
+Momentum 
+Factor
+40%
+[0, 1]
+Normalized rate 
+of change of 
+the Quality 
+Score Q over 
+the trailing 24 
+hours, scaled to 
+[0,1]. A score 
+gaining 10+ 
+points in 24h 
+receives 
+MomentumFact
+or ≈ 1.0.
+Real-time; 
+recomputed on 
+each score 
+update event
+Editorial 
+Emphasis Score
+30%
+[0, 1]
+Curator-
+assigned 
+emphasis value 
+[0, 1] set at 
+editorial pin 
+time, or 0.5 if 
+no editorial pin 
+is active 
+(neutral 
+default). Value 
+of 1.0 
+represents 
+maximum 
+editorial 
+amplification.
+Set at editorial 
+override 
+creation; 
+persists for 
+override 
+duration
+Media Richness 
+Factor
+20%
+[0, 1]
+Composite of: 
+animated cover 
+art (0.8), high-
+res static 
+artwork ≥ 
+3000×3000 
+(0.6), standard 
+artwork (0.4), 
+text-only card 
+(0.2). Content 
+with multi-
+media assets 
+(video preview 
+available) 
+scores 1.0.
+Computed at 
+content index 
+time; updated 
+on metadata 
+change
+Personalization 
+Factor
+10%
+[0, 1]
+User-specific 
+affinity score 
+for this content 
+Computed per-
+request by the 
+personalization 
+
+
+===== PAGE 39 =====
+Input Factor
+Weight
+Range
+Definition
+Update 
+Source
+item, derived 
+from 
+collaborative 
+filtering and 
+session context. 
+0.0 = no affinity 
+signal; 1.0 = 
+very strong 
+predicted 
+affinity.
+service
+8.4 Aspect Ratio Policies
+Artwork rendering within cards must respect content-type-appropriate aspect ratio 
+policies. Height Emphasis scales the card container; the artwork within adapts 
+according to these rules:
+Content Type
+Aspect Ratio Policy
+Overflow Behavior
+Album art (square)
+Constrained to 1:1; card 
+height increase creates 
+letterbox above/below with 
+gradient overlay
+Background blur of artwork 
+fills letterbox areas
+Landscape artwork (16:9)
+Width-constrained; height 
+follows natural aspect ratio; 
+excess card height filled 
+with gradient
+Bottom gradient into card 
+footer metadata area
+Portrait artwork (2:3 or 3:4)
+Center-cropped at card 
+width; vertical overflow 
+clipped at card boundary
+Hard clip; no overflow 
+permitted outside card 
+bounds
+Text card (no artwork)
+Full card height used for 
+typography layout; no 
+aspect ratio constraint
+Typography scales with 
+HeightEmphasisFactor
+Animated cover (GIF / video 
+loop)
+Treated as square artwork; 
+animation plays at native 
+frame rate, paused when 
+card is off-screen
+Same as album art letterbox 
+policy
+8.5 Animation and Transition Rules
+
+
+===== PAGE 40 =====
+Transition Type
+Duration
+Easing Function
+Notes
+Initial page load
+280ms
+ease-out
+Cards fade in and 
+scale up 
+simultaneously; 
+staggered by 
+column index (20ms 
+per column)
+Re-classification 
+event
+450ms
+cubic-bezier(0.4, 0, 
+0.2, 1)
+Height change is 
+animated; 
+neighboring cards 
+shift to 
+accommodate; 
+animation deferred 
+until card is in 
+viewport
+Editorial override 
+applied
+350ms
+ease-in-out
+Subtle brightness 
+pulse (1.05×) 
+accompanies height 
+change to signal 
+editorial action to 
+user
+Momentum spike
+600ms
+spring (damping 
+0.7)
+Overshoot allowed; 
+card briefly scales to 
+1.55× before 
+settling at computed 
+value; creates 
+organic feel
+Score decay / height 
+reduction
+800ms
+ease-in
+Slower reduction 
+than increase; 
+gradual visual 
+contraction is less 
+disruptive to reading 
+the grid
+Reduced Motion Support
+All animations must respect the prefers-reduced-motion media query. When reduced 
+motion is preferred, all transitions collapse to instantaneous opacity changes (no 
+movement, no scaling). This affects height transitions, card state changes, and the 
+momentum pulse animation. See §10.8 for full accessibility specifications.
+
+
+===== PAGE 41 =====
+8.6 Grid Reflow Strategy
+Height changes in one card may necessitate reflow of neighboring cards. The reflow 
+strategy balances visual stability against responsiveness to score updates:
+●
+Deferred reflow on scroll intersection: If a card whose height has 
+changed is not currently in the viewport, the height update is applied 
+immediately to the data model but the DOM reflow is deferred until the card 
+enters the viewport intersection observer's threshold (10% visibility). This 
+prevents off-screen layout thrashing from impacting scrolling performance.
+●
+Immediate reflow for small deltas: If the height change is ≤ 1 row unit 
+(120px), the reflow is applied immediately regardless of viewport position. 
+Small adjustments have negligible impact on layout stability.
+●
+Reflow batching: Multiple height updates arriving within a 500ms window 
+are batched into a single reflow pass to prevent multiple consecutive layout 
+recalculations.
+●
+Scroll position preservation: If a reflow event would shift the user's 
+current scroll position, the scroll position is adjusted by the same pixel delta 
+to keep the currently centered content in view. This is critical for maintaining 
+a non-disruptive reading experience during live grid updates.
+9. Connect Hub Integration
+9.1 What is Connect Hub
+Connect Hub is the creator-facing portal through which artists, labels, and 
+distributors interact with the Vibe Atlas platform. It provides three primary 
+capabilities: transparency (creators can see how their content is scoring and why), 
+control (creators can submit metadata updates, declare promotional campaigns, 
+and manage their catalog), and recourse (creators can appeal promo flags and 
+moderation decisions). Connect Hub is a separate frontend application that 
+communicates with the Atlas backend through a dedicated API bridge.
+
+
+===== PAGE 42 =====
+9.2 The Bidirectional Bridge
+The Atlas ↔ Connect Hub integration is bidirectional. Each direction carries distinct 
+data types with different latency requirements:
+Direction
+Data Types
+Mechanism
+SLA
+Atlas → Connect Hub
+Quality score 
+updates, promo flag 
+alerts, moderation 
+decisions, appeal 
+status changes
+HMAC-SHA256 
+signed webhooks to 
+creator-registered 
+endpoints; fallback 
+to Connect Hub 
+inbox if no endpoint 
+registered
+P95 delivery ≤ 5 
+seconds from trigger 
+event
+Connect Hub → Atlas
+Creator metadata 
+updates, 
+promotional 
+campaign 
+declarations, appeal 
+submissions, catalog 
+management 
+actions
+REST API 
+(PATCH/POST 
+endpoints on Atlas 
+API v1); 
+synchronous 
+acknowledgment; 
+async processing
+Metadata reindex 
+P95 ≤ 5 minutes; 
+score update after 
+appeal decision P95 
+≤ 5 minutes
+9.3 Data Flows and Payload Schemas
+Flow 1: Quality Score Update Webhook (Atlas → Connect Hub)
+Triggered when a creator's content item Quality Score delta meets or exceeds the 
+creator's configured notification threshold (default: ±10 points; configurable per 
+creator tier).
+POST {creator_webhook_url} Headers:   X-Vibe-Signature: HMAC-SHA256({secret}, 
+{payload_body})   X-Vibe-Event: quality_score.updated   Content-Type: 
+application/json  Payload: {   "event_type": "quality_score.updated",   
+"event_id": "evt_01HXYZ1234",   "timestamp": "2026-07-09T19:10:00Z",   
+"content": {     "content_id": "ctr_abc123",     "title": "string",     
+"artist_id": "art_xyz789"   },   "quality_score": {     "current": 72.4,     
+"previous": 61.1,     "delta": 11.3,     "band": "gold",     "sub_scores": { 
+"engagement": 78.2,       "retention": 65.5,       "authenticity": 80.0, 
+"freshness": 55.3     },     "heuristic_adjustment": 5.0,     
+"penalties_applied": [],     "score_updated_at": "2026-07-09T19:09:55Z"   }, 
+"grid_class": {     "current": "FEATURE",     "previous": "STANDARD"   } }
+Flow 2: Promo Flag Webhook (Atlas → Connect Hub)
+Triggered when the Promo Detection service assigns a promo score above 0.60 
+(medium suspicion threshold).
+
+
+===== PAGE 43 =====
+POST {creator_webhook_url} Headers:   X-Vibe-Signature: HMAC-SHA256({secret}, 
+{payload_body})   X-Vibe-Event: promo_detection.flagged  Payload: 
+{   "event_type": "promo_detection.flagged",   "event_id": "evt_02ABCD5678", 
+"timestamp": "2026-07-09T19:10:00Z",   "content": {     "content_id": 
+"ctr_abc123",     "title": "string"   },   "promo_flag": {     "promo_score": 
+0.87,     "threshold_band": "confirmed_likely",     "action_taken": 
+"ghost_class_applied",     "score_penalty": null,     "evidence_summary": { 
+"group_a_score": 0.82,       "group_b_score": 0.91,       "group_c_score": 
+0.74,       "primary_signals": ["ip_concentration", "play_velocity_burst", 
+"account_age_cluster"]     },     "review_case_id": "rev_009XYZ",     
+"appeal_deadline": "2026-08-08T19:10:00Z",     "appeal_url": 
+"https://connect.vibeatlas.com/appeals/rev_009XYZ"   } }
+Flow 3: Creator Metadata Update (Connect Hub → Atlas)
+PATCH /api/v1/content/{content_id}/metadata Authorization: Bearer {jwt_token} 
+(scope: creator:metadata:write)  Request Body: {   "title": "string | null", 
+"genre_tags": ["string"] | null,   "mood_tags": ["taxonomy_node_id"] | null, 
+"description": "string | null",   "isrc": "string | null",   "credits": { 
+"producers": ["string"],     "writers": ["string"],     "features": 
+["string"]   } | null,   "artwork_url": "string | null",   "release_date": 
+"ISO8601 date | null",   "declared_promotion": boolean | null }  Response: { 
+"content_id": "ctr_abc123",   "status": "accepted",   "reindex_job_id": 
+"job_XYZ999",   "estimated_reindex_time": "2026-07-09T19:15:00Z" }
+Flow 4: Promotional Campaign Declaration (Connect Hub → 
+Atlas)
+POST /api/v1/creator/{artist_id}/promo-declarations Authorization: Bearer 
+{jwt_token}  (scope: creator:promo:write)  Request Body: {   "content_id": 
+"ctr_abc123",   "campaign": {     "name": "string",     "start_date": "2026-
+07-09",     "end_date": "2026-07-23",     "channels": ["paid_social", 
+"influencer", "playlist_pitching"],     "estimated_spend_usd": 5000,     
+"territories": ["US", "GB", "CA"],     "declaration_confirmed": true   } }  
+Response: {   "declaration_id": "decl_001ABC",   "status": "accepted",   
+"effect": "promo_monitoring_window_extended;              
+sponsored_badge_exemption_if_within_declared_parameters",   
+"confirmation_code": "VA-DECL-2026-001ABC" }
+Flow 5: Creator Appeal Submission (Connect Hub → Atlas)
+POST /api/v1/appeals Authorization: Bearer {jwt_token}  (scope: 
+creator:appeals:write)  Request Body: {   "review_case_id": "rev_009XYZ",   
+"content_id": "ctr_abc123",   "appeal": {     "statement": "string (max 2000 
+chars)",     "evidence_urls": ["string"],  // creator-supplied evidence links 
+"evidence_type": ["organic_campaign_receipt",                       
+"social_media_post",                       "press_coverage", 
+"distribution_report"],     "contact_email": "string",     "agreed_to_terms": 
+true   } }  Response: {   "appeal_id": "appl_777DEF",   "status": 
+"submitted",   "review_sla": "5 business days",   "case_url": 
+"https://connect.vibeatlas.com/appeals/appl_777DEF",   
+"acknowledgment_sent_to": "[email protected]" }
+
+
+===== PAGE 44 =====
+9.4 Authentication Model
+●
+OAuth 2.0 Client Credentials: Connect Hub backend-to-Atlas API 
+communication uses OAuth 2.0 client credentials flow. Tokens are issued with 
+1-hour TTL; refresh is handled transparently by the Connect Hub SDK.
+●
+JWT with Creator/Label Scopes: All API requests carry a JWT with scopes 
+defined per action. Creator accounts may hold scopes in the creator: 
+namespace. Label accounts additionally hold scopes in the label: namespace 
+that permit cross-roster actions. Scopes are validated at the API gateway 
+before routing to downstream services.
+●
+HMAC-SHA256 Webhook Verification: All outbound webhooks from Atlas 
+to Connect Hub creator endpoints include an X-Vibe-Signature header 
+containing the HMAC-SHA256 signature of the request body computed with a 
+per-creator shared secret. Creators are responsible for verifying this 
+signature before processing webhook payloads. The Atlas documentation 
+provides reference implementations in Python, JavaScript, and Go.
+●
+Webhook retry policy: Failed webhook deliveries (HTTP 4xx/5xx or timeout 
+after 10 seconds) are retried with exponential backoff: 30s, 2m, 10m, 30m, 
+2h. After 5 failed attempts, the webhook is marked as failed and the payload 
+is written to the creator's Connect Hub inbox as a fallback notification.
+9.5 SLA Commitments
+Integration Event
+SLA Target
+Measurement Point
+Quality score update 
+webhook delivery
+P95 ≤ 5 seconds from score 
+delta event
+Time from Postgres trigger 
+→ webhook HTTP 200 
+received
+Score update webhook after 
+delta
+≤ 60 seconds from quality 
+score computation
+Time from Q write to 
+Postgres → webhook 
+dispatch
+Metadata reindex after 
+PATCH
+P95 ≤ 5 minutes from API 
+acknowledgment
+Time from API 202 response 
+→ Elasticsearch document 
+updated
+Promo flag notification
+P95 ≤ 5 seconds from 
+Same as quality score 
+
+
+===== PAGE 45 =====
+Integration Event
+SLA Target
+Measurement Point
+promo decision
+webhook
+Appeal submission 
+acknowledgment
+Synchronous; ≤ 3 seconds 
+for API response
+Time from POST received → 
+202 response
+Appeal decision notification
+≤ 5 business days from 
+submission
+Operational SLA; monitored 
+via review queue dashboard
+10. UX Specification
+10.1 Design Principles
+The UX of Vibe Atlas is governed by three principles that must be held in balance 
+simultaneously. These principles occasionally tension against each other; where 
+they do, the resolution hierarchy is as listed below.
+13.Discovery feels effortless. The grid is the primary product. Users should be 
+able to navigate it without reading instructions, understanding scoring, or 
+making explicit choices. The quality and classification system communicates 
+through visual hierarchy, not through labels. A user who has never heard of 
+Quality Scores should be able to accurately intuit that HERO cards are the 
+most important items on the page.
+14.Context is visible but not intrusive. Users who want to understand why a 
+piece of content is prominently placed should be able to access that 
+information — but it should not interrupt the discovery flow for users who do 
+not. Explainability is accessible via a deliberate interaction (opening the "Why 
+this?" drawer), not surfaced unprompted in the main grid view.
+15.Creators feel respected. The platform's quality judgment is visible to 
+creators through Connect Hub, not just to users. Creators should never be 
+surprised by a classification decision without a clear, accessible explanation. 
+The UX of Connect Hub creator tools should match the quality of the 
+consumer-facing product.
+
+
+===== PAGE 46 =====
+10.2 Grid Card Anatomy per Class
+HERO Card
+●
+Artwork treatment: Full-bleed, fills the entire 4×4 card area. Gradient 
+overlay from bottom (opacity 0 → 0.85) to ensure metadata legibility.
+●
+Metadata visibility: Artist name (large, white), track title (medium, white), 
+primary genre tag, and top 2 vibe tags visible at rest. Quality band badge 
+("Platinum") displayed in top-right corner — subtle, not prominent.
+●
+Momentum indicator: If MomentumFactor ≥ 0.80, a thin animated border 
+(1px, pulsing at 2s interval) appears around the card edge. Color matches the 
+Energy Level vibe tag color. Animation respects prefers-reduced-motion.
+●
+Save / bookmark: Icon in bottom-right; tap/click toggles saved state; 
+accessible keyboard target (44px minimum).
+FEATURE Card
+●
+Artwork treatment: Top 60% of card; bottom 40% is metadata area with 
+solid background.
+●
+Metadata visibility: Artist name, track title, genre, 1 vibe tag. Quality band 
+badge hidden at FEATURE level (exposed in detail drawer only).
+●
+Momentum indicator: Static dot indicator (no animation) if 
+MomentumFactor ≥ 0.70.
+STANDARD Card
+●
+Artwork treatment: Square thumbnail (left-aligned, 48px), text metadata to 
+the right.
+●
+Metadata visibility: Artist name and track title only. No vibe tags, no 
+badges at rest.
+COMPACT Card
+●
+Artwork treatment: Small square thumbnail (32px), single line of text 
+(track title + artist).
+
+
+===== PAGE 47 =====
+●
+Metadata visibility: Truncated single line. No additional metadata at rest.
+10.3 HERO Card Special Behaviors
+●
+Auto-preview on hover: After 800ms hover dwell time on desktop, a 15-
+second audio preview begins playing (muted by default; unmute control 
+appears). Preview stops on mouse-out or on explicit close.
+●
+Expanded metadata drawer: Clicking the card surface (not the play CTA) 
+opens an inline metadata drawer from the bottom of the card, revealing: full 
+artist name, track title, album (if applicable), release date, genre, all vibe 
+tags, play count (rounded), and the Quality Band indicator with a brief tooltip 
+explaining what the band means. The drawer closes on second click or on 
+Escape key.
+●
+Momentum pulse animation: If MomentumFactor ≥ 0.90 ("momentum 
+spike"), the border animation described in §10.2 intensifies to a brighter 
+pulse. The word "Trending" (small caps, subtle) appears in the top-left corner 
+of the card.
+10.4 Card States
+State
+Visual Treatment
+Interaction Notes
+Default
+Full opacity; no overlay
+Standard interaction model
+Hovered
+Brightness +5%; overlay 
+chevron ("play") appears 
+center; save icon revealed
+Desktop only; 150ms 
+transition
+Focused
+2px solid outline (#2b5797); 
+no brightness change
+Keyboard navigation; ARIA 
+focus indicator; Tab-
+navigable
+Playing
+Animated waveform icon in 
+corner; brightness +10%; 
+play icon replaced with 
+pause icon
+Only one card in Playing 
+state at a time across the 
+grid
+Saved
+Save icon filled / 
+highlighted; no other 
+change to card appearance
+Persists across sessions; 
+synced to user account
+Sponsored
+"Sponsored" label (10pt, 
+Mandatory per editorial 
+
+
+===== PAGE 48 =====
+State
+Visual Treatment
+Interaction Notes
+gray) in bottom-left; no 
+other elevation change
+override with 
+sponsored=true flag; non-
+removable by client
+10.5 Search UX
+●
+Sticky search bar: Pinned to the top of the viewport on scroll; 56px height; 
+translucent background at rest, opaque on focus.
+●
+Typeahead: Activates after 2 characters; 8 suggestions maximum (4 content 
+items, 2 artist names, 2 vibe tags); each suggestion shows a type badge 
+(Track / Artist / Vibe) and a small thumbnail or icon. Keyboard navigable with 
+↑/↓ arrow keys; Enter confirms selection; Escape dismisses.
+●
+Mode switcher: Horizontal tab bar below the search input (visible after first 
+search): All | Tracks | Artists | Albums | Vibes. Defaults to All. Active tab 
+persists within a session.
+●
+Voice search: Microphone icon in search bar; activates device speech-to-
+text API; transcribed text pre-populates the search field for user confirmation 
+before submission.
+●
+Empty state: If search returns zero results, the empty state provides: a "Did 
+you mean?" suggestion (if available from QUS typo correction), 3 editorially 
+curated "Explore instead" suggestions relevant to the query category, and a 
+link to browse the Vibe Taxonomy.
+10.6 Vibe Filter Panel
+●
+Layout: Bottom sheet on mobile (xs, sm); right-side slide-in panel (296px 
+wide) on md+.
+●
+Multi-select: Up to 5 vibe tags may be selected simultaneously. Selecting a 
+6th tag replaces the oldest selected tag. Selected tags appear as filled chips; 
+unselected as outlined chips.
+
+
+===== PAGE 49 =====
+●
+Color-coding: Chips are color-coded by taxonomy category (Energy Level = 
+orange, Mood = blue, Setting = green). Colors are muted at rest, saturated 
+when selected.
+●
+Real-time grid update: Selecting or deselecting a vibe tag triggers a 
+debounced (300ms) grid re-query. The grid transitions with a 200ms fade 
+rather than a hard replace, maintaining positional context.
+●
+Filter state persistence: Selected vibe filters are preserved in the URL 
+query string, making filtered views shareable and bookmarkable. On page 
+load, URL-encoded vibe filters are restored and applied immediately.
+10.7 Content Detail Page
+●
+Parallax artwork header: Full-width artwork image; scrolls at 0.5× page 
+scroll speed, creating a parallax depth effect. On devices respecting prefers-
+reduced-motion, parallax is disabled and the header is static.
+●
+Play CTA: Large, primary play button immediately below the parallax 
+header. Initiates streaming. Secondary actions: Save, Share, Add to Playlist.
+●
+"Why this?" explainability drawer: Accessed via a subtle link ("Why is this 
+featured?") below the play CTA. Opens an inline panel showing: Quality Band 
+(with band name and definition), a simplified breakdown of the four sub-score 
+contributions (displayed as labeled bars, not exact values), and any active 
+heuristic adjustments (described in plain language, e.g., "This track is 
+boosted because it's a new release from a verified artist" or "This track has 
+high chart recognition"). The drawer never shows exact numeric scores; it 
+shows relative strength (Very High / High / Moderate / Low / Very Low) to 
+remain accessible to non-technical users.
+●
+Related content: "More like this" row powered by Similarity search mode 
+(§7.1), surfacing 8 content items by FAISS embedding similarity, filtered 
+through the same promo suppression and diversity rules as standard search.
+
+
+===== PAGE 50 =====
+10.8 Connect Hub Creator Surfaces
+Quality Dashboard
+●
+Score gauge: radial gauge showing current composite Q score (0–100) 
+against band boundaries. Current band highlighted.
+●
+Sub-score breakdown bars: four horizontal bars (Engagement, Retention, 
+Authenticity, Freshness) showing normalized sub-score values with 
+percentage labels. Each bar is accompanied by a plain-language explanation 
+of what the sub-score measures.
+●
+7-day trend chart: line chart of Q score history over the trailing 7 days. 
+Penalty events and heuristic changes are marked as annotations on the 
+chart.
+●
+Catalog overview: tabular list of all creator content items, sortable by Q 
+score, grid class, band, and trend direction.
+Score Explainability Panel
+●
+Available for each content item via the catalog detail view.
+●
+Shows: current sub-score breakdown, active heuristic adjustments with plain-
+language descriptions, active penalties with descriptions and estimated 
+resolution paths, and historical score events (re-score events, flag 
+applications, editorial overrides).
+●
+Designed for non-technical creators; all values shown as relative bands (Very 
+High / High / Moderate / Low / Very Low), not raw numbers. Raw numbers 
+available via an "Advanced view" toggle for technical users.
+Promo Flag Alert Center
+●
+Inbox-style interface for all promo flag notifications.
+●
+Each notification shows: content item name, flag date, promo score band, 
+automated action taken, evidence summary (plain language), appeal 
+deadline, and appeal CTA.
+●
+Notification status: New / Under Review / Resolved / Appealed.
+
+
+===== PAGE 51 =====
+4-Step Appeal Flow
+16.Step 1 — Select Content: Creator selects the flagged content item from 
+their catalog. The review case ID and flag details are pre-populated.
+17.Step 2 — Review Evidence: Creator reviews the evidence summary 
+provided by the platform (plain-language descriptions of signals detected). 
+Creator may download a full evidence package PDF.
+18.Step 3 — Submit Statement: Creator provides a written statement (max 
+2,000 characters) explaining their promotional activity. Creator may attach 
+evidence URLs (campaign receipts, social media posts, press coverage).
+19.Step 4 — Confirm and Submit: Creator reviews their statement, confirms 
+agreement to the appeal terms, and submits. Confirmation email sent 
+immediately; case status updates available in the Alert Center.
+10.9 Accessibility
+Requirement
+Standard / Specification
+Implementation Notes
+Color contrast
+WCAG 2.1 AA (4.5:1 for 
+body text; 3:1 for large text 
+and UI components)
+All card text on gradient 
+overlays must pass contrast 
+check at minimum overlay 
+opacity. Automated contrast 
+testing in CI pipeline.
+Keyboard navigation
+All interactive elements 
+reachable and operable via 
+keyboard
+Grid uses role="feed" with 
+arrow key navigation 
+between cards. Tab order 
+follows reading order. All 
+modal and drawer controls 
+keyboard dismissible.
+ARIA roles
+WCAG 2.1 AA; ARIA 1.2
+Grid: role="feed". Cards: 
+role="article" with aria-
+label including artist, title, 
+and grid class. Search: 
+role="combobox" with aria-
+expanded. Drawers: 
+role="dialog" with aria-
+modal="true".
+Reduced motion
+WCAG 2.1 Success Criterion 
+2.3.3 (AAA) honored as AA 
+commitment
+All animations and 
+transitions disabled when 
+prefers-reduced-motion: 
+reduce is detected. Height 
+
+
+===== PAGE 52 =====
+Requirement
+Standard / Specification
+Implementation Notes
+changes, card transitions, 
+momentum animations, and 
+parallax effects all 
+suppressed.
+Touch targets
+WCAG 2.5.5 — minimum 
+44×44px
+Save icons, play buttons, 
+tab controls, and filter chips 
+all meet 44px minimum. 
+Cards themselves serve as 
+primary touch targets.
+Screen reader support
+NVDA + Chrome; VoiceOver 
++ Safari tested
+Audio previews announced 
+to screen readers with 
+start/stop state. Playing 
+state changes announced 
+via aria-live="polite". 
+Grade changes in the grid 
+announced via live region.
+11. Implementation Phases
+The Vibe Atlas implementation is organized into five phases over a 52-week delivery 
+timeline. Each phase has defined deliverables, go/no-go criteria, and dependency 
+relationships with adjacent phases. Phases are not strictly sequential: Phase 1 
+begins before Phase 0 is fully complete, but each phase's go/no-go gate must be 
+cleared before the subsequent phase's production deployment.
+Phase 0 — Infrastructure (Weeks 1–8)
+Objective: Establish the foundational data pipeline and scoring infrastructure
+●
+Kafka cluster provisioning; topic schema design and documentation; Kafka 
+Connect setup for Postgres CDC
+●
+Signal Normalizer microservice: deduplication, schema validation, bot pre-
+filter
+●
+Quality Score calculator: all four sub-scores; Weighted Aggregator; Redis + 
+Postgres integration
+●
+Elasticsearch cluster setup; initial content index schema; indexing pipeline for 
+existing catalog
+
+
+===== PAGE 53 =====
+●
+Admin Console v0: score inspection, forced re-score, basic content 
+management
+●
+Atlas API v0: internal-only; health endpoints, score read endpoints, basic 
+content CRUD
+●
+Observability stack: Prometheus, Grafana, OpenTelemetry tracing across all 
+services
+Go/No-Go Criteria: Q score computed for 100% of catalog content; P99 score 
+update latency ≤ 60s on load test; all Kafka topics operational with ≥ 99.5% 
+delivery rate; Elasticsearch search latency P99 ≤ 150ms.
+Phase 1 — Grid MVP (Weeks 9–18)
+Objective: Deliver a functional, public-facing discovery grid
+●
+Grid Classifier: classification algorithm (§3.2); async worker pipeline; Redis 
+class state store
+●
+Grid Packing Algorithm: modified bin-packing; anti-clustering rules; column-
+major layout engine
+●
+Height Emphasis v1: base formula implemented; MomentumFactor and 
+MediaRichnessFactor; EditorialEmphasisScore and PersonalizationFactor 
+deferred to Phase 2
+●
+Promo Detection v1: Group A signals only (engagement patterns); simple 
+threshold-based classifier; manual review queue (no SLA tooling yet)
+●
+Editorial pin system: Admin Console editorial UI; time-boxed override 
+creation; HERO approval gate; audit log
+●
+UX Rendering Layer: grid page assembly; all five viewport breakpoints; card 
+state management; basic card animations
+●
+Responsive grid: all breakpoints tested across device matrix (iOS Safari, 
+Chrome Android, Windows Chrome/Edge, macOS Safari)
+Go/No-Go Criteria: Grid packing produces valid layouts with no anti-clustering 
+violations across 10,000 random content sets; P95 re-classification SLA ≤ 90s; grid 
+
+
+===== PAGE 54 =====
+page load P99 ≤ 300ms at 50,000 concurrent users (load test); WCAG 2.1 AA 
+compliance confirmed by automated audit (axe-core); Promo Detection Group A 
+precision ≥ 0.85 on labeled test set.
+Phase 2 — Search and Discovery (Weeks 19–28)
+Objective: Deliver full search capability and personalized discovery
+●
+Query Understanding Service: full 6-step pipeline (§7.2); intent classification; 
+entity extraction; vibe tagging; query expansion; embedding generation
+●
+Vibe Taxonomy: 120-node hierarchy designed; content auto-tagging model 
+trained and deployed; creator tag submission via metadata API
+●
+Retrieval: BM25+ Elasticsearch queries (§7.3); FAISS index build and 
+deployment; Reciprocal Rank Fusion merge layer
+●
+LambdaRank model: training data collection begins in Phase 1 via telemetry; 
+model trained and evaluated; four feature groups implemented
+●
+Result Shaping: diversity enforcement; promo suppression integration; 
+sponsored slot rules; A/B experiment slot framework
+●
+Collaborative filtering: matrix factorization model for personalization feature 
+group; user session embedding service
+●
+Autocomplete: trie construction pipeline; 30-minute refresh cadence; 8-
+suggestion response with category breakdown
+●
+Search telemetry: NDCG@10, MRR, CTR tracking; search evaluation 
+dashboard in Grafana
+●
+Height Emphasis v2: PersonalizationFactor integrated; 
+EditorialEmphasisScore integrated
+●
+Vibe Filter Panel UX: full implementation including debounced real-time grid 
+update and URL state persistence
+Go/No-Go Criteria: NDCG@10 ≥ 0.72 on labeled evaluation set; autocomplete P99 
+≤ 80ms; zero-result rate ≤ 3%; CTR ≥ 38% in beta user cohort; all five search 
+modes operational in production.
+
+
+===== PAGE 55 =====
+Phase 3 — Connect Hub Integration (Weeks 29–38)
+Objective: Deliver creator transparency and control tooling
+●
+Connect Hub API bridge: all five data flows with full payload schemas (§9.3); 
+OAuth 2.0 + JWT auth; HMAC-SHA256 webhook signing
+●
+Creator Quality Dashboard: score gauge; sub-score breakdown bars; 7-day 
+trend chart; catalog overview table
+●
+Score Explainability Panel: plain-language sub-score explanations; active 
+heuristic descriptions; historical score events
+●
+Promo Detection v2: Group B and Group C signals integrated; ensemble 
+classifier (§6.3) replacing threshold-based v1; decision thresholds 
+implemented (§6.4)
+●
+Human review queue: SLA tooling; evidence package auto-generation; 
+reviewer assignment system; 48-hour decision SLA enforcement and alerting
+●
+Appeal workflow: 4-step appeal flow UX (§10.8); Appeal submission API; 
+appeal review queue for Trust and Safety team; outcome notification 
+webhooks
+●
+Promotional Campaign Declaration endpoint: creator promo declaration 
+submission; atlas-side declaration processing and sponsored badge logic
+●
+Connect Hub Promo Alert Center: inbox UI; notification status management; 
+evidence package download
+Go/No-Go Criteria: Webhook delivery P95 ≤ 5s verified under load; metadata 
+reindex P95 ≤ 5 minutes; Promo Detection v2 precision ≥ 0.92 at 0.85 threshold; 
+appeal submission-to-acknowledgment ≤ 3s; human review queue tooling supports 
+≤ 48-hour SLA at projected review volume; first-party security audit of OAuth + 
+HMAC implementation.
+Phase 4 — Scale and Optimization (Weeks 39–52)
+Objective: Harden at production scale; deliver advanced personalization and platform APIs
+
+
+===== PAGE 56 =====
+●
+Real-time score updates: sub-60s end-to-end score update pipeline validated 
+at 50,000 concurrent user load; Kafka consumer lag alerting; autoscaling 
+tuned to peak traffic patterns
+●
+Automated model retraining: 30-day retraining pipeline for Promo Detection 
+ensemble; LambdaRank retraining cadence; model registry integration; 
+automated evaluation gates before production promotion
+●
+Grid personalization v2: per-user grid layout ordering (not just Height 
+Emphasis); A/B testing framework for personalization algorithms; opt-out 
+mechanism for personalized discovery
+●
+Atlas Public API v2: versioned public API for third-party integrations; rate 
+limiting; developer documentation; API key management
+●
+Geo-redundancy: multi-region deployment for Kafka, Redis, and 
+Elasticsearch; active-passive failover for Postgres; latency-based routing at 
+API gateway
+●
+WCAG 2.1 AA audit: third-party accessibility audit across all consumer-facing 
+surfaces and Connect Hub; remediation of all identified issues
+●
+Fairness audit: first Promo Detection fairness audit (§6.7); documentation of 
+findings; remediation plan if disparities exceed 15%
+●
+Quality Council: first meeting; heuristic review; penalty table review; sub-
+score weight review; decision record published
+Go/No-Go Criteria: Platform sustains 50,000 concurrent users with P99 API latency 
+≤ 300ms in 72-hour sustained load test; geo-redundancy failover tested with RTO ≤ 
+5 minutes; WCAG 2.1 AA third-party audit passed with zero critical findings; 
+automated retraining pipeline executes end-to-end without human intervention; 
+Public API v2 launched with full documentation.
+Phase Gate Governance
+Each phase gate is a formal go/no-go decision meeting with required attendees: 
+Engineering Lead, Product Lead, QA Lead, and Head of Trust and Safety (for phases 
+
+
+===== PAGE 57 =====
+involving moderation systems). The gate decision is documented in the project wiki 
+with:
+●
+Go/no-go criteria status (met / partially met / not met) with evidence links
+●
+Open risks and mitigations accepted by leadership
+●
+Feature flag rollback plan: all Phase N features are deployed behind feature 
+flags and can be rolled back to Phase N-1 state within 15 minutes by toggling 
+flags in the Config Service
+●
+Known issues deferred to the next phase, with explicit acceptance sign-off
+Cross-Phase Dependencies
+Dependency
+From Phase
+Required By 
+Phase
+Critical Path
+Kafka pipeline + 
+Signal Normalizer 
+operational
+Phase 0
+Phase 1, Phase 2, 
+Phase 3
+Yes — all 
+downstream scoring 
+depends on this
+Quality Score (all 4 
+sub-scores) in Redis
+Phase 0
+Phase 1 (Grid 
+Classifier), Phase 3 
+(Connect Hub)
+Yes
+Content embedding 
+index in FAISS
+Phase 2
+Phase 2 (Similarity 
+search), Phase 4 
+(personalization v2)
+Phase 2 internal
+LambdaRank 
+training data 
+(telemetry from 
+Phase 1)
+Phase 1
+Phase 2 (model 
+training)
+Yes — 8+ weeks of 
+telemetry needed 
+before Phase 2 
+model training
+Promo Detection v1 
+(Group A)
+Phase 1
+Phase 3 (v2 builds 
+on v1 infrastructure)
+Partial
+Connect Hub API 
+bridge
+Phase 3
+Phase 4 (Public API 
+v2 references 
+Connect Hub 
+contracts)
+No — Public API v2 
+can proceed 
+independently
+Vibe Taxonomy (120 
+nodes)
+Phase 2
+Phase 2 (Vibe Filter 
+Panel), Phase 3 
+(creator tag 
+submission)
+Phase 2 internal; 
+must be complete 
+before Vibe Filter 
+Panel ships
+
+
+===== PAGE 58 =====
+12. Open Questions and Future Work
+The following areas represent deliberate decisions to defer architectural design 
+beyond the 52-week delivery scope. Each represents a meaningful extension of the 
+platform's capabilities that requires either significant additional infrastructure 
+investment, resolution of unsettled technical questions, or dependencies on 
+external platform decisions.
+12.1 Federated Quality Scoring Across Platform 
+Partners
+The current Quality Score Engine is a closed system: all signals originate on the 
+Vibe Atlas platform. A federated scoring model would allow partner platforms — 
+distributors, other streaming services, live ticketing platforms — to contribute 
+verified, privacy-preserving signal contributions to a content item's Quality Score. 
+The primary open question is the trust model: how do we verify the integrity of a 
+signal contribution from an external party without exposing raw user data, and what 
+prevents a partner from injecting artificially elevated signals?
+Candidate approaches include differential privacy mechanisms for signal 
+aggregation, zero-knowledge proofs of engagement attestation, or a tiered trust 
+model where partner signals are heavily discounted and subject to the same Promo 
+Detection pipeline as first-party signals. This work requires both a technical proof-of-
+concept and a commercial/legal framework before architectural commitment.
+12.2 Real-Time Collaborative Playlist Integration
+Vibe Atlas's current architecture treats playlists as static metadata (content appears 
+in user playlists; playlist inclusion is one input to the Community heuristic). A real-
+time collaborative playlist model — where multiple users can co-edit a playlist 
+simultaneously, and where collaborative listening sessions are visible to other users 
+— would significantly enrich the social layer of the platform. Key design questions: 
+How does collaborative listening affect session context signals for the 
+personalization model? How do we render live collaborative activity in the grid 
+without disrupting individual discovery flow? How do we handle conflicts in 
+simultaneous playlist edits?
+
+
+===== PAGE 59 =====
+12.3 Generative AI Vibe Matching (Natural 
+Language → Vibe Vector)
+The current Vibe Taxonomy is a 120-node fixed hierarchy. A generative AI vibe 
+matching system would allow users to describe what they want in completely 
+freeform natural language ("music that sounds like driving through the desert at 
+dusk"), which would be transformed into a continuous vibe vector in the embedding 
+space rather than a discrete taxonomy node selection. This would replace the 
+current Semantic search mode's crude approximation of mood-based queries with a 
+purpose-built natural language interface.
+The open question is evaluation: how do we measure whether a generative vibe 
+vector accurately captures user intent, given the subjective nature of mood and 
+setting descriptions? A human evaluation framework for vibe matching quality 
+would need to be designed before this feature could graduate from research to 
+production.
+12.4 Creator-Owned Quality Signal Contributions
+An experimental direction in which creators contribute verified signal attestations 
+directly to the Quality Score pipeline — for example, live concert attendance data 
+from a ticketing partner, merchandise sales data from a storefront integration, or 
+verified radio airplay counts from a performing rights organization. The architectural 
+challenge is integrating heterogeneous, creator-controlled signal sources while 
+maintaining the integrity of the scoring system against manipulation via false 
+attestations.
+12.5 Multi-Modal Content Support (Video, 
+Podcasts, Live Streams)
+Vibe Atlas is currently designed for music and audio-primary content. Extension to 
+video content (music videos, visual albums, live concert films), podcast content 
+(long-form audio without a traditional track structure), and live streams (ephemeral 
+content with fundamentally different engagement patterns) would require 
+significant changes to the scoring model. Completion Rate as a retention signal 
+behaves differently for a 90-minute live stream than for a 3-minute track; the 
+Freshness decay model has no natural equivalent for ephemeral live content; and 
+
+
+===== PAGE 60 =====
+the grid card anatomy was designed around square album artwork, not landscape 
+video thumbnails.
+Multi-modal support is the most significant future architecture work item and would 
+effectively constitute a new major version of the scoring and classification systems. 
+It is deferred pending a product decision on content type expansion strategy.
+Document Status and Review Process
+This document is Version 1.0 and represents the architectural design as of the Phase 0 
+kickoff. It will be updated at each phase gate with decisions made during 
+implementation that diverge from the designs specified here. All changes require review 
+and approval by the Engineering Lead and Product Lead. Significant architectural 
+changes — defined as changes that affect inter-system contracts (API schemas, Kafka 
+topic schemas, scoring weights, or classification algorithm logic) — additionally require 
+sign-off from the Head of Platform Engineering. The document change history is 
+maintained in the engineering wiki alongside this document.
+Vibe Atlas — System Design Document  |  Version 1.0  |  July 9, 2026  |  Platform 
+Architecture Team  |  Confidential — Internal Use Only
