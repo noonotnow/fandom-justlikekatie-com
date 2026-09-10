@@ -11,11 +11,114 @@ import {
   materializePublicationManifest,
   publicationActorIndexKey,
   publicationManifestCatalogKey,
+  publicationJoinReceipt,
   readPublicationCorrections,
   recordPublicationCorrectionsForMisprint,
   readLatestPublicationDatesByActor,
   rebuildPublicationActorIndex,
 } from "./publication-manifest.js";
+
+test("publication join receipt preserves matched, missing, ambiguous, and unavailable audit occurrences", () => {
+  const input = publicationInput();
+  const cards = input.board.candidates.map((candidate, position) => ({
+    position,
+    candidateId: candidate.candidateId,
+    sourceUrl: candidate.thumbnail,
+    media: { checksum: `digest-${position}` },
+  }));
+  const manifest = {
+    publicationDate: "2026-09-03",
+    manifestId: "manifest-1",
+    boardHash: "a".repeat(64),
+    actor: input.actor,
+    vibe: input.vibe,
+    cards,
+  };
+  const receipt = publicationJoinReceipt({
+    runId: "run-1",
+    completedAt: "2026-09-01T00:00:00.000Z",
+    rawResults: [
+      { provisionalCandidateId: "occurrence-0", candidateId: "candidate-0", thumbnail: input.board.candidates[0].thumbnail },
+      { candidateId: "candidate-missing", thumbnail: "https://images.example/missing.png" },
+      {},
+      { candidateId: "candidate-1" },
+    ],
+  }, {
+    actor: input.actor,
+    vibeKey: input.vibe.key,
+  }, [manifest, { ...manifest, manifestId: "manifest-2", publicationDate: "2026-09-04" }]);
+
+  assert.deepEqual(receipt.counts, {
+    matched: 0,
+    missing: 1,
+    ambiguous: 2,
+    identity_unavailable: 1,
+  });
+  assert.equal(receipt.occurrences[0].auditOccurrenceId, "occurrence-0");
+  assert.deepEqual(receipt.occurrences.map(item => item.status), [
+    "ambiguous", "missing", "identity_unavailable", "ambiguous",
+  ]);
+  assert.deepEqual(receipt.occurrences[0].matches.map(match => match.publicationDate), [
+    "2026-09-03", "2026-09-04",
+  ]);
+});
+
+test("publication join uses the Shanghai audit date at the UTC day boundary", () => {
+  const input = publicationInput();
+  const card = {
+    position: 0,
+    candidateId: "candidate-0",
+    sourceUrl: input.board.candidates[0].thumbnail,
+    media: { checksum: "digest-0" },
+  };
+  const manifestFor = publicationDate => ({
+    publicationDate,
+    manifestId: `manifest-${publicationDate}`,
+    boardHash: "a".repeat(64),
+    actor: input.actor,
+    vibe: input.vibe,
+    cards: [card],
+  });
+  const pair = { actor: input.actor, vibeKey: input.vibe.key };
+  const run = {
+    runId: "run-boundary",
+    rawResults: [{
+      candidateId: card.candidateId,
+      thumbnail: card.sourceUrl,
+    }],
+  };
+  const manifests = [
+    manifestFor("2026-09-03"),
+    manifestFor("2026-09-04"),
+    manifestFor("2026-09-05"),
+  ];
+
+  const beforeRollover = publicationJoinReceipt({
+    ...run,
+    completedAt: "2026-09-03T15:59:59.999Z",
+  }, pair, manifests);
+  assert.equal(beforeRollover.source.auditDate, "2026-09-03");
+  assert.deepEqual(beforeRollover.occurrences[0].matches.map(match => match.publicationDate), [
+    "2026-09-03", "2026-09-04", "2026-09-05",
+  ]);
+
+  const afterRollover = publicationJoinReceipt({
+    ...run,
+    completedAt: "2026-09-03T16:00:00.000Z",
+  }, pair, manifests);
+  assert.equal(afterRollover.source.auditDate, "2026-09-04");
+  assert.deepEqual(afterRollover.occurrences[0].matches.map(match => match.publicationDate), [
+    "2026-09-04", "2026-09-05",
+  ]);
+
+  const invalidTimestamp = publicationJoinReceipt({
+    ...run,
+    completedAt: "not-a-timestamp",
+  }, pair, manifests);
+  assert.equal(invalidTimestamp.source.auditDate, null);
+  assert.equal(invalidTimestamp.occurrences[0].status, "missing");
+  assert.deepEqual(invalidTimestamp.occurrences[0].matches, []);
+});
 
 const ENV = {
   MEDIA_ASSETS_TOKEN: "media-token",

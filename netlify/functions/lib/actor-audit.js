@@ -73,6 +73,8 @@ import {
 import { getShanghaiDateString } from "./date-seed.js";
 import {
   acquireCorrectionPublicationLock,
+  publicationJoinReceipt,
+  readPublicationManifests,
   readLatestPublicationDatesByActor,
   recordPublicationCorrectionsForMisprint,
   releaseCorrectionPublicationLock,
@@ -246,12 +248,15 @@ export function createActorAuditHandler({
         if (!runId) {
           const range = calibrationExportDateRange(from, to);
           if (range.error) return json(400, { error: range.error });
+          const publicationStore = getPublicationStore(context);
+          const publicationInventory = await readPublicationManifests(publicationStore);
           const payload = await dateBoundedCalibrationAuditExport(
             store,
             actorPacks,
             range,
             url.origin,
             now().toISOString(),
+            publicationInventory,
           );
           return json(200, payload, {
             "Content-Disposition": `attachment; filename="actor-calibration-${range.from}-${range.to}.json"`,
@@ -270,7 +275,14 @@ export function createActorAuditHandler({
           consistency: "strong",
         });
         if (!run) return json(404, { error: `Source audit run ${runId} is no longer retained.`, runId });
+        const publicationInventory = await readPublicationManifests(getPublicationStore(context));
         const payload = calibrationAuditExport(run, pair);
+        payload.publicationJoinReceipt = publicationJoinReceipt(
+          run,
+          pair,
+          publicationInventory.manifests,
+        );
+        payload.exportMetadata.publicationInventory = publicationInventory.inventory;
         return json(200, payload, {
           "Content-Disposition": `attachment; filename="actor-calibration-${encodeURIComponent(actorId)}-${encodeURIComponent(runId)}.json"`,
         });
@@ -3728,7 +3740,14 @@ async function boundedHistoricalRunKeysForPair(store, pair, excludedKeys = new S
   return { keys, listingTruncated };
 }
 
-async function dateBoundedCalibrationAuditExport(store, actorPacks, range, origin, generatedAt) {
+async function dateBoundedCalibrationAuditExport(
+  store,
+  actorPacks,
+  range,
+  origin,
+  generatedAt,
+  publicationInventory,
+) {
   const exports = [];
   const pairs = actorPacks.flatMap(actor =>
     actor.vibes.map((_, vibeIdx) =>
@@ -3746,6 +3765,11 @@ async function dateBoundedCalibrationAuditExport(store, actorPacks, range, origi
       return;
     }
     const item = calibrationAuditExport(run, pair);
+    item.publicationJoinReceipt = publicationJoinReceipt(
+      run,
+      pair,
+      publicationInventory.manifests,
+    );
     const editions = retainedEditionDates(run);
     item.links = {
       pairing: `${origin}/?adminView=actor-preflight&actorId=${encodeURIComponent(pair.actor.id)}&vibeKey=${encodeURIComponent(pair.vibeKey)}&runId=${encodeURIComponent(run.runId)}`,
@@ -3811,6 +3835,7 @@ async function dateBoundedCalibrationAuditExport(store, actorPacks, range, origi
       generatedAt,
       dateRange: { from: range.from, to: range.to, dayCount: range.dayCount },
       runCount: exports.length,
+      publicationInventory: publicationInventory.inventory,
       inventory: {
         consistency: "eventual-listing-with-strong-current-head-and-run-reads",
         scannedRunCount,
@@ -3826,6 +3851,8 @@ async function dateBoundedCalibrationAuditExport(store, actorPacks, range, origi
         "The run inventory is an eventually consistent bounded snapshot; a newly written non-current run or a run beyond the scan caps may be absent.",
         "Each pairing's current run is read through its strongly consistent head so the latest known run does not depend on listing visibility.",
         "Historically unretained funnel stages remain explicitly missing and are not reconstructed.",
+        "Publication matches are a separate read-only join receipt; historical audit blobs are not changed.",
+        "Missing and ambiguous publication identities are reported explicitly and are not inferred.",
         "No searches, cache refreshes, scoring, deduplication, selection, or publication actions were run.",
       ],
     },

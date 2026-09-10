@@ -580,6 +580,13 @@ test("private calibration export projects retained receipts without searches or 
   assert.deepEqual(payload.run.deduplication, run.deduplication);
   assert.deepEqual(payload.run.calibrationAnalysis, run.calibrationAnalysis);
   assert.ok(payload.exportMetadata.missingFields.includes("run.publication"));
+  assert.equal(payload.publicationJoinReceipt.kind, "vibe-atlas-audit-publication-join");
+  assert.deepEqual(payload.publicationJoinReceipt.counts, {
+    matched: 0,
+    missing: 1,
+    ambiguous: 0,
+    identity_unavailable: 0,
+  });
   assert.equal("unrelatedPrivateState" in payload.run, false);
   assert.equal("report" in payload, false);
   assert.equal(getSearchCall(), 0);

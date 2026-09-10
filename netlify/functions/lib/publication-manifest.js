@@ -36,6 +36,116 @@ export const gridCorrectionKey = (date, correctionReceiptId) =>
 export const publicationActorIndexKey = () => PUBLICATION_ACTOR_INDEX_KEY;
 export const publicationManifestCatalogKey = () => PUBLICATION_MANIFEST_CATALOG_KEY;
 
+export async function readPublicationManifests(store) {
+  const catalog = await store.get(publicationManifestCatalogKey(), {
+    type: "json",
+    consistency: "strong",
+  });
+  const listedKeys = await readPublicationManifestKeys(store);
+  const catalogKeys = isPublicationManifestCatalog(catalog)
+    ? catalog.dates.map(gridManifestKey)
+    : [];
+  const keys = [...new Set([...catalogKeys, ...listedKeys])];
+  const manifests = await Promise.all(keys.map(key => store.get(key, {
+    type: "json",
+    consistency: "strong",
+  })));
+  return {
+    manifests: manifests.filter(isGridManifest),
+    inventory: {
+      catalogValid: isPublicationManifestCatalog(catalog),
+      catalogDateCount: catalogKeys.length,
+      listedManifestCount: listedKeys.length,
+      manifestCount: manifests.filter(isGridManifest).length,
+      complete: isPublicationManifestCatalog(catalog),
+    },
+  };
+}
+
+export function publicationJoinReceipt(run, pair, manifests) {
+  const auditDate = shanghaiDateFromTimestamp(run?.completedAt || run?.startedAt);
+  const eligibleManifests = auditDate
+    ? manifests.filter(manifest =>
+      manifest.actor.id === pair.actor.id
+      && manifest.vibe.key === pair.vibeKey
+      && manifest.publicationDate >= auditDate)
+    : [];
+  const occurrences = (run?.rawResults || []).map((candidate, index) => {
+    const auditOccurrenceId = candidate.provisionalCandidateId
+      || candidate.candidateId
+      || `rawResults:${index}`;
+    const identity = {
+      candidateId: candidate.candidateId || null,
+      imageDigest: candidate.imageDigest || null,
+      sourceUrl: candidate.thumbnail || null,
+    };
+    const hasIdentity = Boolean(identity.candidateId || identity.imageDigest || identity.sourceUrl);
+    const matches = hasIdentity
+      ? eligibleManifests.flatMap(manifest => manifest.cards
+        .filter(card => publicationCardMatchesAuditOccurrence(card, identity))
+        .map(card => ({
+          publicationDate: manifest.publicationDate,
+          manifestId: manifest.manifestId,
+          boardHash: manifest.boardHash,
+          position: card.position,
+          candidateId: card.candidateId,
+          sourceUrl: card.sourceUrl,
+          mediaChecksum: card.media?.checksum || null,
+        })))
+      : [];
+    return {
+      auditOccurrenceId,
+      auditIndex: index,
+      identity,
+      status: !hasIdentity
+        ? "identity_unavailable"
+        : matches.length === 0
+          ? "missing"
+          : matches.length === 1 ? "matched" : "ambiguous",
+      matches,
+    };
+  });
+  const counts = occurrences.reduce((summary, occurrence) => ({
+    ...summary,
+    [occurrence.status]: summary[occurrence.status] + 1,
+  }), { matched: 0, missing: 0, ambiguous: 0, identity_unavailable: 0 });
+  return {
+    schemaVersion: 1,
+    kind: "vibe-atlas-audit-publication-join",
+    readOnly: true,
+    source: {
+      actorId: pair.actor.id,
+      vibeKey: pair.vibeKey,
+      runId: run.runId,
+      auditDate,
+    },
+    matchPolicy: {
+      manifestScope: "same-actor-and-vibe-on-or-after-audit-date-in-Asia/Shanghai",
+      identityOrder: ["imageDigest/mediaChecksum", "candidateId+sourceUrl", "candidateId", "sourceUrl"],
+      ambiguity: "Every matching immutable manifest card is retained; multiple matches are never collapsed.",
+    },
+    counts,
+    occurrences,
+  };
+}
+
+function shanghaiDateFromTimestamp(value) {
+  const timestamp = Date.parse(String(value || ""));
+  if (!Number.isFinite(timestamp)) return null;
+  return new Date(timestamp + (8 * 60 * 60 * 1000)).toISOString().slice(0, 10);
+}
+
+function publicationCardMatchesAuditOccurrence(card, identity) {
+  if (identity.imageDigest && card.media?.checksum) {
+    return identity.imageDigest === card.media.checksum;
+  }
+  if (identity.candidateId && identity.sourceUrl) {
+    return identity.candidateId === card.candidateId && identity.sourceUrl === card.sourceUrl;
+  }
+  if (identity.candidateId) return identity.candidateId === card.candidateId;
+  return identity.sourceUrl === card.sourceUrl;
+}
+
 export async function recordPublicationCorrectionsForMisprint({
   store,
   correction,
