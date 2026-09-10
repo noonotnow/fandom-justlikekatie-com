@@ -1,0 +1,123 @@
+This is a **decisive audit**, with appropriate caveats. It confirms that repetition is not one bug; it is an interacting retrieval-and-curation failure.
+
+## What the numbers establish
+
+- **Exact retrieval repetition:** 10 of 61 consecutive comparisons, or **16.4%**, returned the identical digest set.
+- **Severe overlap:** 13 of 61, or **21.3%**, had at least 70% overlap. Assuming exact repeats are included in those 13, this is not additive.
+- **Provider concentration:** Google Images supplied **97.8%** of query batches—314 of 321.
+- **Promise attrition:** `coreSatisfied` rejected **68.3%** of retained candidate placements.
+- **Visual proof sample:** **80%** of sampled failures were visually useful; **45%** were direct core false negatives. Because the sample was stratified, these percentages prove the failure mode exists but do not estimate its population prevalence.
+- **Hidden inventory:** rejected rank 4–10 batches contained about **18 clean placements per batch** on average. That is substantial inaccessible inventory, although its usefulness remains unknown.
+- **Missing composition opportunity:** 120 viable 4–8-image families across 65 runs means the nine-image Event threshold is not an edge case. The system encountered roughly **1.85 such families per affected run**.
+
+## The counterfactual works
+
+The Cold Jade board makes the composition problem immediately visible.
+
+Its coherence comes from:
+
+- the white, silver, pale-blue palette;
+- controlled posture and restrained expression;
+- repeated flowing costume language;
+- cool exterior and shadowed architectural settings;
+- a consistent celestial-authority character.
+
+But the images are not performing one identical function. The board includes:
+
+- close facial evidence;
+- seated composure;
+- full-body silhouette;
+- environmental presence;
+- direct confrontation;
+- movement and atmospheric framing.
+
+The sameness creates **continuity**, while framing and expression create variation. Breaking this into unrelated sources merely to satisfy diversity would likely weaken the collectible/editorial effect.
+
+## The most important product conclusion
+
+`coreSatisfied` is being asked to decide a visual question using incomplete textual evidence. A metadata-derived score can be a useful confidence signal, but it should not be a hard proxy for visual truth—especially when it controls 70% of promise scoring.
+
+Likewise, “Event” should not mean:
+
+> Nine surviving images must all belong to one automatically detected family.
+> 
+
+A more faithful model is:
+
+> A dominant coherent family forms the board’s visual spine, while compatible supporting or connective images complete the argument.
+> 
+
+## Recommended intervention order
+
+Keep the interventions isolated so their effects remain measurable.
+
+### 1. Repair observability first
+
+Before changing behavior, prospectively retain:
+
+- cache-hit and cache-bypass status;
+- candidate identities and safe visual references for rank 4–10 batches;
+- pre/post-deduplication family membership;
+- exact reason for every candidate’s attrition;
+- query and ladder-rung provenance;
+- whether an image supplied core, supporting, or connective evidence.
+
+Without this, improvements could merely move losses into another invisible stage.
+
+### 2. Test retrieval changes independently
+
+Run controlled tests for:
+
+- diversified query jobs rather than adjective variations;
+- genuine cache bypass during refresh;
+- provider diversification;
+- a reserve beyond the top three batches;
+- ranking based on unique useful evidence rather than raw batch volume.
+
+Do not alter promise scoring in the same experiment.
+
+### 3. Recalibrate promise fulfillment
+
+Test a model in which:
+
+- metadata supplies evidence rather than a hard verdict;
+- visual review can rescue metadata-poor candidates;
+- core, supporting, connective, contradictory, and irrelevant roles are separate;
+- promise fulfillment is evaluated both per card and across the complete board;
+- only contradiction or true unusability causes automatic exclusion.
+
+The existing rejected-image sample should become the beginning of a regression set.
+
+### 4. Add dominant-family composition
+
+Test at least three board structures:
+
+- **Compiled:** broadly independent evidence.
+- **Event:** one sufficiently rich coherent family.
+- **Dominant family + support:** perhaps 4–8 family images completed by compatible supporting cards.
+
+Within Event-oriented modes, deduplicate photographs—not wardrobe, setting, lighting, or editorial continuity.
+
+### 5. Tighten recurrence only after improving supply
+
+Lowering the seven-of-nine threshold now could increase failed editions or rescue use because the upstream pool remains constrained. First improve retrieval and candidate survival; then set recurrence policy against the healthier pool.
+
+## What is proven versus still unknown
+
+**Proven:**
+
+- retrieval output materially repeats;
+- promise logic produces genuine visual false negatives;
+- the top-three boundary discards substantial clean inventory;
+- viable sub-nine families occur frequently;
+- dominant-family-plus-support is aesthetically credible.
+
+**Still unknown:**
+
+- cache versus provider stability as the cause of exact repeats;
+- population-wide false-negative rate;
+- visual usefulness of historical rank 4–10 batches;
+- the optimal family/support ratio;
+- how much each intervention independently reduces published recurrence.
+
+This is enough to authorize controlled experiments—not a blanket rewrite. Replit also handled the epistemics correctly: it distinguished confirmed funnel loss from unreviewable historical quality and did not mutate the system during diagnosis. That is the audit behavior you originally asked for.
