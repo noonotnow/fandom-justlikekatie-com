@@ -14,3 +14,31 @@ mtime_ms = 1788127889992
 storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:5c4c6624-d8e1-40e7-9334-39a9fdafb6de/3d7ba1e3-31c5-42d4-b564-9a700772a618/3413b69c-de15-4bbe-9e32-4bdf0746e90d"
 storage_version_token = "1788127894904706"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "yusBQOnoX8ahGPipeHPub"
+uri = "file://attached_assets/actor-calibration-audit-findings-2026-09-10.html"
+type = "text"
+title = "Actor Calibration Audit Findings"
+description = "Private-evidence diagnosis of recurrence, promise false negatives, ranking-boundary losses, and dominant-family board opportunities."
+logical_id = "5024f0d4-43ea-4f95-869d-0e423d828544"
+content_hash = "sha256:9bf01e29100f57f6b01e7fe6ed0359faa6e98b921a54ab12aeed1b7d136243a0"
+size = 90608
+mtime_ms = 1789064107701
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:5c4c6624-d8e1-40e7-9334-39a9fdafb6de/5024f0d4-43ea-4f95-869d-0e423d828544/1ccd1961-c817-43e1-9547-73d23e0f8c2f"
+storage_version_token = "1789064116950510"
+content_type = "text/html"
+
+[[outputs]]
+id = "hu0NIWBiZjjU1Qx0TjHne"
+uri = "file://attached_assets/cold-jade-counterfactual-board.jpg"
+type = "image"
+title = "Cold Jade Counterfactual Board"
+description = "Offline diagnostic board: six family frames plus three compatible supporting images. No product behavior was changed."
+logical_id = "0f52b262-81f7-4e51-86b2-6ba8a96863fd"
+content_hash = "sha256:1d0dd1d51ca111b3911273f824962563ecea6e54fee79bf5abeb7a5e51131965"
+size = 67998
+mtime_ms = 1789064116201
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:5c4c6624-d8e1-40e7-9334-39a9fdafb6de/0f52b262-81f7-4e51-86b2-6ba8a96863fd/bd32a13e-3bc0-4447-8509-614a9516ed25"
+storage_version_token = "1789064117606856"
+content_type = "image/jpeg"

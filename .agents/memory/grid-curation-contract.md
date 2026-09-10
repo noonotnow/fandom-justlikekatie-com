@@ -33,6 +33,12 @@ description: Editorial rules for deciding between coherent Event boards and vari
 
 **How to apply:** Review promise false negatives visually without showing the existing score or rejection reason where practical. Same-shoot continuity and recurring motifs are not duplication when distinct frames add evidence. Evaluate a dominant-family board—several coherent Event images plus compatible supporting cards—as a legitimate hypothesis rather than requiring all nine cards from one detected family.
 
+**Calibration audit result:** Both failure paths are material. Private retained-run evidence showed exact repeated retrieval sets and large clean-result volume outside accepted batches; a disjoint blind sample found most sampled promise failures visually useful, including direct core false negatives. Many 4–8-image families existed in runs with enough safe supporting material, and an offline Cold Jade dominant-family board formed a coherent nine.
+
+**Why:** Retrieval changes alone will not recover images already found and then rejected, while promise changes alone will not diversify repeated query output.
+
+**How to apply:** Keep query/cache diagnostics, promise calibration, and Event composition as separate interventions with separate tests. Do not infer cache hits or rank-boundary visual quality from historical receipts that did not retain those fields.
+
 **Professionally Devastated rule:** A compatible named role plus result-visible narrative state can corroborate Liu Xueyi when a search result omits his name. Blood/injury, collapse, protection, romantic aftermath, exhaustion, grief, and explicit devastation qualify; query terms, palette, costume, generic beauty, and saved-card identity do not.
 
 **Why:** Strong role-grounded tragedy was already present in fresh search evidence, but requiring every result title to repeat the actor name produced a false 0/9 promise failure.
