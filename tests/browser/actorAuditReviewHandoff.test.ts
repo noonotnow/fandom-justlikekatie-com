@@ -298,7 +298,7 @@ function responseBody(
   };
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, failVisualJudgment = false } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   exportRequests: AnyRecord[];
@@ -535,6 +535,16 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
       return;
     }
     if (input.action === 'record_visual_judgment' && visualReview) {
+      if (failVisualJudgment) {
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: 'LEAK SENTINEL QUERY · 47 · LEAK SENTINEL PROXY CLASS · LEAK SENTINEL BOARD RESULT · LEAK SENTINEL SYSTEM OUTCOME',
+          }),
+        });
+        return;
+      }
       visualJudgments.push({
         receiptId: `visual-receipt-${visualJudgments.length + 1}`,
         judgmentToken: input.judgmentToken,
@@ -1077,6 +1087,54 @@ test('an authenticated image-only review hides system cues until every occurrenc
         { judgmentToken: 'visual-token-1', classification: 'core' },
         { judgmentToken: 'visual-token-2', classification: 'supporting' },
       ],
+    );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('a failed image-only judgment stays blinded and ready to retry', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { auditRequests } = await configureNetwork(page, { visualReview: true, failVisualJudgment: true });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+
+    const review = page.getByLabel('Blind rejected thumbnail review');
+    const thumbnail = review.getByRole('img', { name: 'Rejected thumbnail for blind visual judgment' });
+    await thumbnail.waitFor();
+    const originalThumbnail = await thumbnail.getAttribute('src');
+
+    await review.getByRole('button', { name: 'Core', exact: true }).click();
+    await page.getByText('The image judgment was not saved. The same image remains ready—retry your choice.', { exact: true }).waitFor();
+
+    assert.equal(await thumbnail.getAttribute('src'), originalThumbnail);
+    assert.equal(await review.getByText('1/2 · 0 receipts', { exact: true }).isVisible(), true);
+    for (const choice of ['Core', 'Supporting', 'Connective', 'Contradictory', 'Irrelevant']) {
+      assert.equal(await review.getByRole('button', { name: choice, exact: true }).isEnabled(), true);
+    }
+    for (const leakedValue of [
+      'LEAK SENTINEL QUERY',
+      '47',
+      'LEAK SENTINEL PROXY CLASS',
+      'LEAK SENTINEL BOARD RESULT',
+      'LEAK SENTINEL SYSTEM OUTCOME',
+    ]) {
+      assert.equal(await page.getByText(leakedValue, { exact: true }).count(), 0);
+    }
+    assert.equal(await page.locator('summary').filter({ hasText: 'Query ladder' }).count(), 0);
+    assert.equal(await page.getByLabel('Visual board comparison').count(), 0);
+    assert.equal(await page.getByText('System winner:', { exact: false }).count(), 0);
+    assert.deepEqual(
+      auditRequests
+        .filter(request => request.action === 'record_visual_judgment')
+        .map(request => ({ judgmentToken: request.judgmentToken, classification: request.classification })),
+      [{ judgmentToken: 'visual-token-1', classification: 'core' }],
     );
   } finally {
     await browser.close();
