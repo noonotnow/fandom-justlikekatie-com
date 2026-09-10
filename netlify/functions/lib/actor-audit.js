@@ -230,6 +230,32 @@ export function createActorAuditHandler({
       }
       const store = getStore(ELIGIBILITY_STORE, context);
       const url = new URL(req.url);
+      const requestedExport = url.searchParams.get("export");
+      if (requestedExport === "calibration" || requestedExport === "calibration-audit") {
+        if (req.method !== "GET") {
+          return json(405, { error: "Calibration audit export is read-only and GET-only." }, { Allow: "GET" });
+        }
+        const actorId = url.searchParams.get("actorId");
+        const vibeKey = url.searchParams.get("vibeKey");
+        const runId = url.searchParams.get("runId");
+        if (!actorId || !vibeKey || !runId) {
+          return json(400, { error: "actorId, vibeKey, and retained runId are required for calibration audit export." });
+        }
+        if (!/^[A-Za-z0-9._:-]{1,160}$/.test(runId)) {
+          return json(400, { error: "Invalid audit run identifier." });
+        }
+        const pair = resolvePair(actorPacks, actorId, vibeKey);
+        if (!pair) return json(400, { error: "Unknown actor or Vibe Pack." });
+        const run = await store.get(auditRunKey(pair.actor.id, pair.vibeIdx, runId), {
+          type: "json",
+          consistency: "strong",
+        });
+        if (!run) return json(404, { error: `Source audit run ${runId} is no longer retained.`, runId });
+        const payload = calibrationAuditExport(run, pair);
+        return json(200, payload, {
+          "Content-Disposition": `attachment; filename="actor-calibration-${encodeURIComponent(actorId)}-${encodeURIComponent(runId)}.json"`,
+        });
+      }
       if (
         req.method === "POST"
         && MISPRINT_PUBLICATION_ACTIONS.has(input?.action)
@@ -3523,6 +3549,48 @@ async function attachVerdict(store, pair, run) {
   attachedRun.preflightOutcome = classifyPreflightOutcome(attachedRun);
   attachedRun.suggestedState = attachedRun.preflightOutcome.state;
   return attachedRun;
+}
+
+// This is deliberately a projection rather than a serialization of the client
+// run.  Calibration exports are an evidence record: they must not acquire
+// operator-only UI state or accidentally become a second publication format.
+function calibrationAuditExport(run, pair) {
+  const fields = [
+    "scope", "startedAt", "completedAt", "provider", "queryRuns", "rawResults",
+    "ranking", "rankedResults", "identityEvidence", "promise", "promiseEvidence",
+    "detectedEvents", "eventFamilies", "partialClusters", "rejections",
+    "deduplication", "dedup", "curationReceipt", "boardDiagnostics",
+    "runnerUpDiagnostics", "strongestEvent", "strongestCompiled", "eventAlternatives",
+    "compiledAlternatives", "winner", "alternate", "calibrationSignals",
+    "calibrationProof", "blindReview", "publication",
+    "publicationSource", "auditContract", "curationVersion", "identityProfileVersion",
+    "aestheticClusterVersion", "promiseContractVersion",
+  ];
+  const projectedRun = { runId: run.runId };
+  for (const field of fields) {
+    if (Object.prototype.hasOwnProperty.call(run, field)) projectedRun[field] = run[field];
+  }
+  const missingFields = fields
+    .filter(field => !Object.prototype.hasOwnProperty.call(run, field) || run[field] === null)
+    .map(field => `run.${field}`);
+  const exportMetadata = {
+    readOnly: true,
+    type: "curation-calibration-audit",
+    source: { actorId: pair.actor.id, vibeKey: pair.vibeKey, runId: run.runId },
+    missingFields,
+    limitations: [
+      "This export is a projection of the raw selected immutable run, not a rerun, recomputation, or normalized UI detail.",
+      "Fields not retained by the selected run are reported as missing and are not inferred.",
+      "Later verdict, calibration, feedback, rescue, and publication receipts are excluded unless they were embedded in the selected run.",
+    ],
+  };
+  return {
+    schemaVersion: 1,
+    exportMetadata,
+    export: exportMetadata,
+    source: { actorId: pair.actor.id, vibeKey: pair.vibeKey, runId: run.runId },
+    run: projectedRun,
+  };
 }
 
 function normalizeLegacyRunEvidence(run) {

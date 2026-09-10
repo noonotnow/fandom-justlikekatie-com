@@ -518,11 +518,127 @@ function harness({
   return {
     handler,
     store,
+    getSearchCall() {
+      return searchCall;
+    },
     setAuthorized(value) {
       adminAuthorized = value;
     },
   };
 }
+
+test("private calibration export projects retained receipts without searches or writes", async () => {
+  const { handler, store, getSearchCall } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const run = {
+    runId: "run-export",
+    scope: "full",
+    startedAt: "2026-08-31T12:00:00.000Z",
+    completedAt: "2026-08-31T12:01:00.000Z",
+    queryRuns: [{ query: "刘学义 editorial", provider: "test", rank: 1 }],
+    rawResults: [{
+      candidateId: "candidate-1",
+      title: "刘学义 editorial frame",
+      thumbnail: "https://images.example/candidate-1.jpg",
+      query: "刘学义 editorial",
+    }],
+    rejections: [{ candidateId: "candidate-2", reasonCode: "promise_not_fulfilled" }],
+    promiseEvidence: [{ candidateId: "candidate-1", coreSatisfied: true }],
+    eventFamilies: [{ familyId: "event-family-1", candidateIds: ["candidate-1"] }],
+    deduplication: { before: 2, after: 1 },
+    boardDiagnostics: { event: { reasonCode: "event_family_too_small" } },
+    curationReceipt: { rawCount: 2, analyzedCount: 1 },
+    unrelatedPrivateState: "must-not-export",
+  };
+  store.records.set(auditRunKey(pairActor.id, 0, run.runId), structuredClone(run));
+  const before = structuredClone([...store.records.entries()]);
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    `?export=calibration&actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=${run.runId}`,
+  ), {});
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-disposition"), /attachment; filename="actor-calibration-/);
+  assert.equal(payload.exportMetadata.readOnly, true);
+  assert.deepEqual(payload.exportMetadata.source, {
+    actorId: pairActor.id,
+    vibeKey,
+    runId: run.runId,
+  });
+  assert.deepEqual(payload.run.queryRuns, run.queryRuns);
+  assert.deepEqual(payload.run.rawResults, run.rawResults);
+  assert.deepEqual(payload.run.rejections, run.rejections);
+  assert.deepEqual(payload.run.eventFamilies, run.eventFamilies);
+  assert.deepEqual(payload.run.deduplication, run.deduplication);
+  assert.ok(payload.exportMetadata.missingFields.includes("run.publication"));
+  assert.equal("unrelatedPrivateState" in payload.run, false);
+  assert.equal("report" in payload, false);
+  assert.equal(getSearchCall(), 0);
+  assert.deepEqual([...store.records.entries()], before);
+});
+
+test("private calibration export is admin-only, GET-only, and requires a retained run", async () => {
+  const denied = harness({ authorized: false });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const query = `?export=calibration&actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=missing`;
+  const deniedResponse = await denied.handler(request("GET", undefined, query), {});
+  assert.equal(deniedResponse.status, 403);
+
+  const allowed = harness();
+  const methodResponse = await allowed.handler(request("POST", {}, query), {});
+  assert.equal(methodResponse.status, 405);
+  assert.equal(methodResponse.headers.get("allow"), "GET");
+
+  const missingResponse = await allowed.handler(request("GET", undefined, query), {});
+  assert.equal(missingResponse.status, 404);
+  const malformedResponse = await allowed.handler(request(
+    "GET",
+    undefined,
+    `?export=calibration&actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=${encodeURIComponent("../not-a-run")}`,
+  ), {});
+  assert.equal(malformedResponse.status, 400);
+  assert.equal(allowed.getSearchCall(), 0);
+});
+
+test("private calibration export does not synthesize legacy evidence or mix in current pairing state", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const historicalRun = {
+    runId: "historical-run",
+    scope: "representative",
+    startedAt: "2026-07-31T12:00:00.000Z",
+    completedAt: "2026-07-31T12:01:00.000Z",
+    rawResults: [{ title: "retained legacy result", thumbnail: "https://images.example/legacy.jpg" }],
+  };
+  const currentRun = {
+    runId: "current-run",
+    scope: "full",
+    boardDiagnostics: { compiled: { reasonCode: "current-only" } },
+    operatorVerdict: { verdict: "approved" },
+    rescueDraft: { candidates: ["current-only"] },
+  };
+  store.records.set(auditRunKey(pairActor.id, 0, historicalRun.runId), structuredClone(historicalRun));
+  store.records.set(auditRunKey(pairActor.id, 0, currentRun.runId), structuredClone(currentRun));
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    `?export=calibration&actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=${historicalRun.runId}`,
+  ), {});
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.run.runId, historicalRun.runId);
+  assert.deepEqual(payload.run.rawResults, historicalRun.rawResults);
+  assert.equal("boardDiagnostics" in payload.run, false);
+  assert.equal("operatorVerdict" in payload.run, false);
+  assert.equal("rescueDraft" in payload.run, false);
+  assert.ok(payload.exportMetadata.missingFields.includes("run.boardDiagnostics"));
+  assert.match(payload.exportMetadata.limitations[0], /raw selected immutable run/);
+});
 
 test("every configured actor has a complete private identity profile", () => {
   assert.equal(assertIdentityProfileCoverage(ACTOR_PACKS), true);

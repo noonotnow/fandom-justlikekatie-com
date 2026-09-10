@@ -257,6 +257,29 @@ export const ActorPreflightLab: React.FC = () => {
       setNotice(await saveRescueReceiptToCollection(currentRun.runId,receiptId));
     } catch(e:any){setNotice(`Collection save failed: ${e.message} Retry from this saved record.`)} finally{setBusy('')}
   }
+  async function downloadCalibrationExport() {
+    if (!run?.runId) return;
+    setBusy('calibration-export'); setNotice('');
+    try {
+      const query = new URLSearchParams({ export:'calibration', actorId, vibeKey, runId:run.runId });
+      const response = await fetch(`/.netlify/functions/actor-audits?${query.toString()}`, {
+        method:'GET',
+        credentials:'include',
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error || 'Calibration export unavailable.');
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `actor-calibration-${actorId}-${run.runId}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setNotice('Read-only retained calibration evidence downloaded. No audit was rerun.');
+    } catch(e:any) { setNotice(e.message); } finally { setBusy(''); }
+  }
   const selectedIsCurrent = Boolean(run?.runId && currentRun?.runId === run.runId);
   const review = run?.blindReview;
   const disagreementNeedsReasons = Boolean(review?.choice && review.agreement !== true && !review.reasonCodes?.length);
@@ -300,6 +323,7 @@ export const ActorPreflightLab: React.FC = () => {
               onFlag={saveCandidateFlag}
               onSaveRescue={saveRescueBoard}
               onExportRescue={exportRescueBoard}
+               onDownloadCalibrationExport={downloadCalibrationExport}
               onMarkCalibration={markRescueCalibration}
               onRetireCalibration={retireRescueCalibration}
                initialReceiptId={run?.runId===handoff.runId?handoff.receiptId:''}
@@ -337,11 +361,11 @@ function InfoCard({title,data,keys}:{title:string;data:AnyRecord;keys:string[]})
   return <section className={styles.calibrationProfile} aria-label="Calibration evidence profile"><div><h5>Calibration evidence profile</h5><p>{profile.evidenceCount??0} active · {profile.retiredEvidenceCount??0} retired · {profile.totalConfirmedEvidenceCount??profile.evidenceCount??0} confirmed total</p></div><div className={styles.calibrationLedger}><strong>All current-contract evidence</strong>{evidence.map((item:any)=><article key={item.sourceRescueReceiptId} data-retired={item.status==='retired'}><span>Receipt {String(item.sourceRescueReceiptId).slice(0,8)} · source audit {item.sourceRunId||'unknown'}</span><p>Confirmed {date(item.confirmedAt)} by {item.confirmedBy||'operator'} · {item.status==='retired'?'retired and excluded':'active in future aggregate profiles'}</p>{item.retirement?<small>{item.retirement.reason} · retired {date(item.retirement.retiredAt)} · immutable receipt {String(item.retirement.retirementId||'').slice(0,8)}</small>:<button type="button" className={styles.buttonDanger} disabled={Boolean(busy)} onClick={()=>{setRetiringReceiptId(item.sourceRescueReceiptId);setRetirementReason('')}}>Retire calibration evidence</button>}{retiringReceiptId===item.sourceRescueReceiptId&&!item.retirement&&<form className={styles.retirementForm} onSubmit={async event=>{event.preventDefault();if(!retirementReason.trim())return;const saved=await onRetireCalibration(item.sourceRescueReceiptId,retirementReason);if(saved){setRetiringReceiptId(null);setRetirementReason('')}}}><label className={styles.label}>Why should future audits ignore this evidence?<textarea className={`${styles.input} ${styles.textarea}`} value={retirementReason} maxLength={1000} required onChange={event=>setRetirementReason(event.target.value)} placeholder="Describe what made this calibration example misleading." /></label><p>The original calibration, rescue board, audit, verdict, and eligibility history remain unchanged.</p><div className={styles.rescueActions}><button type="submit" className={styles.buttonDanger} disabled={Boolean(busy)||!retirementReason.trim()}>{busy===`retirement:${item.sourceRescueReceiptId}`?'Retiring evidence…':'Create retirement receipt'}</button><button type="button" className={styles.buttonSecondary} disabled={Boolean(busy)} onClick={()=>{setRetiringReceiptId(null);setRetirementReason('')}}>Cancel</button></div></form>}</article>)}</div>{exclusions.length>0&&<div className={styles.calibrationExclusions}><strong>Excluded from future aggregate profiles</strong>{exclusions.map((item:any)=><article key={item.retirementId||item.sourceRescueReceiptId}><span>Receipt {String(item.sourceRescueReceiptId).slice(0,8)} · retired {date(item.retiredAt)} by {item.retiredBy||'operator'}</span><p>{item.reason}</p><small>Immutable retirement receipt {String(item.retirementId||'').slice(0,8)}</small></article>)}</div>}</section>;
 }
 function RunEvidence({
-  run,currentRun,priorRuns,busy,disagreementReasons,editorialNote,onChoice,onReasonChange,onNoteChange,onSaveReasons,onFlag,onSaveRescue,onExportRescue,onMarkCalibration,onRetireCalibration,onSelect,initialReceiptId,
+  run,currentRun,priorRuns,busy,disagreementReasons,editorialNote,onChoice,onReasonChange,onNoteChange,onSaveReasons,onFlag,onSaveRescue,onExportRescue,onDownloadCalibrationExport,onMarkCalibration,onRetireCalibration,onSelect,initialReceiptId,
 }:{
   run:Run|null;currentRun:Run|null;priorRuns:Run[];busy:string;disagreementReasons:string[];editorialNote:string;
   onChoice:(choice:'event'|'compiled'|'neither')=>void;onReasonChange:(reasons:string[])=>void;onNoteChange:(note:string)=>void;
-  onSaveReasons:(event:React.FormEvent)=>void;onFlag:(candidateId:string,flagged:boolean,intent?:string,reasons?:string[])=>void;onSaveRescue:(candidateIds:string[])=>void;onExportRescue:(receiptId:string)=>void;onMarkCalibration:(receiptId:string)=>void;onRetireCalibration:(receiptId:string,reason:string)=>Promise<boolean>;onSelect:(run:Run)=>void;initialReceiptId?:string;
+  onSaveReasons:(event:React.FormEvent)=>void;onFlag:(candidateId:string,flagged:boolean,intent?:string,reasons?:string[])=>void;onSaveRescue:(candidateIds:string[])=>void;onExportRescue:(receiptId:string)=>void;onDownloadCalibrationExport:()=>void;onMarkCalibration:(receiptId:string)=>void;onRetireCalibration:(receiptId:string,reason:string)=>Promise<boolean>;onSelect:(run:Run)=>void;initialReceiptId?:string;
 }) {
   const review = run?.blindReview;
   const isLegacy = Boolean(run?.auditContract?.isLegacy);
@@ -357,6 +381,7 @@ function RunEvidence({
   const disagreed = revealed && review?.agreement !== true;
   return <article id="actor-audit-evidence" className={`${styles.card} ${styles.cardWide} ${isLegacy?styles.legacyCard:''}`}>
     <h5>{isLegacy?'Legacy audit · retained history':'Audit evidence'} {run?.runId?`· ${run.runId}`:''}</h5>
+    {run?.runId&&<div className={styles.rescueActions}><button type="button" className={styles.buttonSecondary} disabled={busy==='calibration-export'} onClick={()=>void onDownloadCalibrationExport()}>{busy==='calibration-export'?'Preparing export…':'Download read-only calibration audit'}</button><small>Stored evidence only · no rerun, writes, or publication changes</small></div>}
     {run ? <>
       {isLegacy&&<section className={styles.legacyAudit} role="status"><div className={styles.legacyAuditHeader}><span className={styles.legacyBadge}>Legacy audit</span><strong>Retained history — invalid under the current profile contract</strong></div><p>This board is preserved as historical evidence only. It cannot establish Daily Drop eligibility. Run a fresh audit to evaluate the current identity, cluster, promise, and curation versions.</p>{run.auditContract?.legacyReasons?.length?<small>Contract changes: {run.auditContract.legacyReasons.map(reason=>reason.replaceAll('_',' ')).join(' · ')}</small>:null}</section>}
       <p className={styles.muted}>{run.scope} scope · started {date(run.startedAt)} · completed {date(run.completedAt)} · identity v{run.identityProfileVersion ?? '—'} · cluster v{run.aestheticClusterVersion ?? '—'} · promise v{run.promiseContractVersion ?? '—'} · curation v{run.curationVersion ?? run.curationReceipt?.curationVersion ?? run.curationReceipt?.version ?? '—'}</p>
