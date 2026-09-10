@@ -1066,7 +1066,7 @@ async function configureCompleteHeroReviewNetwork(
   return { saveRequests, verdictRequests };
 }
 
-test('an authenticated image-only review hides system cues until every occurrence is judged', { timeout: 60_000 }, async () => {
+test('an authenticated image-only review stays completed after read-only history switching', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();
   const page = await browser.newPage();
@@ -1132,6 +1132,40 @@ test('an authenticated image-only review hides system cues until every occurrenc
         { judgmentToken: 'visual-token-1', classification: 'core' },
         { judgmentToken: 'visual-token-2', classification: 'supporting' },
       ],
+    );
+
+    const runSelect = page.getByLabel('Audit run');
+    for (const runId of ['visual-review-retained', 'visual-review-legacy']) {
+      await runSelect.selectOption(runId);
+      await page.getByText(`Image-only calibration · audit ${runId}`, { exact: true }).waitFor();
+      const historicalReview = page.getByLabel('Blind rejected thumbnail review');
+      await historicalReview.getByRole('img', { name: 'Rejected thumbnail for blind visual judgment' }).waitFor();
+      for (const choice of ['Core', 'Supporting', 'Connective', 'Contradictory', 'Irrelevant']) {
+        assert.equal(
+          await historicalReview.getByRole('button', { name: choice, exact: true }).isDisabled(),
+          true,
+          `${runId} must remain read-only after the current review completes`,
+        );
+      }
+      assert.equal(
+        await page.getByText('Historical and Legacy runs are view-only. Open the current audit to record a judgment.', { exact: true }).isVisible(),
+        true,
+      );
+    }
+
+    await runSelect.selectOption('visual-review-current');
+    await page.getByRole('heading', { name: 'Audit evidence · visual-review-current', exact: true }).waitFor();
+    assert.equal(await page.getByLabel('Visual board comparison').isVisible(), true);
+    assert.equal(await page.getByLabel('Blind rejected thumbnail review').count(), 0);
+    assert.deepEqual(
+      auditRequests
+        .filter(request => request.action === 'record_visual_judgment')
+        .map(request => ({ judgmentToken: request.judgmentToken, classification: request.classification })),
+      [
+        { judgmentToken: 'visual-token-1', classification: 'core' },
+        { judgmentToken: 'visual-token-2', classification: 'supporting' },
+      ],
+      'completed-state history switching must not create additional judgment receipts',
     );
   } finally {
     await browser.close();
