@@ -1,0 +1,68 @@
+**Now they have it.** This is the strongest answer so far because it identifies concrete mechanisms connecting your two concerns rather than treating them as separate freshness issues.
+
+## The actual failure chain
+
+The repo apparently allows this sequence:
+
+1. Three shallow queries retrieve a nominally large but visually repetitive pool.
+2. Text metadata stands in for visual understanding.
+3. `coreSatisfied` acts as a major cliff because it controls 70% of promise scoring.
+4. Visually excellent but poorly described candidates lose promise credit.
+5. Small expressive batches lose to larger generic batches.
+6. Same-shoot images may be collapsed before family viability is assessed.
+7. Event mode requires a single detected family to retain all nine images after deduplication.
+8. Potentially excellent **dominant-family boards**—say six editorial images plus three compatible supporting cards—cannot exist as Event boards.
+9. The remaining safe images recur.
+
+That is a coherent technical explanation for why the boards could become repetitive **despite aggressive freshness and quality filtering**. The filters may be helping manufacture the scarcity they later struggle to recover from. Delightful little ouroboros.
+
+## The Event-mode finding is especially important
+
+The current model apparently recognizes only two extremes:
+
+- **Event:** one automatically detected family supplies all nine cards.
+- **Compiled:** independent evidence assembled across sources.
+
+But your intended aesthetic includes a missing middle:
+
+- **Dominant coherent family:** several distinct images from one event/editorial form the board’s spine, with compatible contextual images completing the set.
+
+That is not a compromise or failed Event board. It is a legitimate editorial structure.
+
+## One methodological requirement remains
+
+Question 4—
+
+> Which removed candidates visibly fulfilled the promise anyway?
+> 
+
+—cannot be answered through the same metadata logic being audited. They need to conduct an actual visual review of the rejected images, ideally blind to the original promise score and rejection reason, and distinguish:
+
+- core visual evidence;
+- supporting evidence;
+- connective/editorial evidence;
+- contradiction;
+- irrelevant or unusable.
+
+Otherwise the system will audit its metadata-based judgment using…its metadata-based judgment. The snake would merely acquire a clipboard.
+
+I would respond:
+
+> Yes. This now captures both suspected mechanisms and the missing editorial model.
+> 
+> 
+> Please proceed with the read-only audit. For the visual false-negative portion, do not reuse `coreSatisfied` or the existing metadata-derived promise score as the evaluator. Review a representative sample of rejected candidates visually, blind to their original score and rejection reason where practical, and classify them as core, supporting, connective, contradictory, or irrelevant evidence.
+> 
+> Please also report:
+> 
+> - unique visual yield by query and ladder rung;
+> - `coreSatisfied` pass/fail rates and score distribution;
+> - family sizes before and after exact/perceptual deduplication;
+> - the number of viable 4–8-image families;
+> - candidates lost at the top-three-batch boundary;
+> - and counterfactual boards that could have been formed using a dominant coherent family plus compatible supporting images.
+> 
+> I agree that nine images from one detected family should not be assumed to be the only valid definition of Event. Treat the dominant-family model as a hypothesis to evaluate during the audit, not yet as an authorized implementation change.
+> 
+
+At this point, they understand the concern accurately. Greenlight the audit; reserve the product-law decision until you see the failure distributions and actual rejected images.
