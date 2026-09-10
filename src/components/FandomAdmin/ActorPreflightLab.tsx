@@ -386,13 +386,13 @@ function RunEvidence({
   const proposedCardCount = completeProposalCardCount(run);
   const visualCandidates=visualJudgmentCandidates(run);
   const judgedOccurrences=new Set((run?.humanVisualJudgments??EMPTY_RECORDS).map((receipt:AnyRecord)=>receipt.judgmentToken??receipt.sourceOccurrenceId));
-  const visualJudgmentPending=isCurrent&&!isLegacy&&visualCandidates.some((item:AnyRecord)=>!judgedOccurrences.has(item.judgmentToken??item.occurrenceId));
+  const visualJudgmentPending=visualCandidates.some((item:AnyRecord)=>!judgedOccurrences.has(item.judgmentToken??item.occurrenceId));
   const sections: Array<[string, unknown]>=[['Query ladder',run?.queryRuns],['Bounded raw results',run?.rawResults],['Rejection ledger',run?.rejections],['Identity evidence',run?.identityEvidence],['Detected event families',run?.detectedEvents],['Strongest Event board',run?.strongestEvent],['Strongest Compiled board',run?.strongestCompiled],['Winner',run?.winner],['Alternate',run?.alternate],['Operator-derived curation signals',run?.curationReceipt?.calibrationSignals],['Calibration transfer proof',run?.calibrationProof],['Curation receipt',run?.curationReceipt],['Blind calibration receipt',run?.blindReview],['Scheduling verdict',run?.operatorVerdict]];
   const boards = review?.boards ?? [];
   const disagreed = revealed && review?.agreement !== true;
   if(visualJudgmentPending)return <article id="actor-audit-evidence" className={`${styles.card} ${styles.cardWide}`}>
     <h5>Image-only calibration · audit {run?.runId}</h5>
-    <BlindVisualJudgments run={run as Run} isCurrent busy={busy} onSave={onVisualJudgment}/>
+    <BlindVisualJudgments run={run as Run} isCurrent={isCurrent&&!isLegacy} busy={busy} onSave={onVisualJudgment}/>
     <p className={styles.blindIsolationNotice}>Audit queries, ranks, proxy labels, board results, and system outcomes stay unavailable until every rejected thumbnail has one human judgment.</p>
     {currentRun&&<label className={styles.label}>Audit run<select className={styles.select} value={run?.runId ?? ''} onChange={e=>{const selected=[currentRun,...priorRuns].find(item=>item.runId===e.target.value);if(selected)onSelect(selected)}}><option value={currentRun.runId}>Current · {currentRun.runId} · {date(currentRun.completedAt)}</option>{priorRuns.map(item=><option key={item.runId} value={item.runId}>Retained · {item.runId} · {date(item.completedAt)}</option>)}</select></label>}
   </article>;

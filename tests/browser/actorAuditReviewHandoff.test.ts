@@ -486,14 +486,21 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
           ? visualReviewRun(visualJudgments)
           : null;
       const isFreshBlocked = activeRunId === 'run-2' && calibrationConfirmed && revealed;
+      const response = responseBody(
+        isFreshBlocked ? run('run-2', true, true) : current,
+        isFreshBlocked ? 'calibration_reaudit_required' : calibrationConfirmed ? 'calibration_reaudit_required' : 'not_run',
+        activeRunId === 'run-1' ? savedBoard : undefined,
+        calibrationConfirmed ? rescueCalibrationDetails() : undefined,
+      );
+      if (visualReview) {
+        response.priorRuns = [
+          archivedVisualReviewRun('visual-review-retained'),
+          archivedVisualReviewRun('visual-review-legacy', true),
+        ];
+      }
       await route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify(responseBody(
-          isFreshBlocked ? run('run-2', true, true) : current,
-          isFreshBlocked ? 'calibration_reaudit_required' : calibrationConfirmed ? 'calibration_reaudit_required' : 'not_run',
-          activeRunId === 'run-1' ? savedBoard : undefined,
-          calibrationConfirmed ? rescueCalibrationDetails() : undefined,
-        )),
+        body: JSON.stringify(response),
       });
       return;
     }
@@ -711,6 +718,21 @@ function visualReviewRun(receipts: AnyRecord[]): AnyRecord {
   }));
   result.humanVisualJudgments = receipts;
   result.blindReview.systemWinner = 'LEAK SENTINEL SYSTEM OUTCOME';
+  return result;
+}
+
+function archivedVisualReviewRun(runId: string, legacy = false): AnyRecord {
+  const result = visualReviewRun([]);
+  result.runId = runId;
+  result.auditContract = legacy
+    ? {
+      ...contract(),
+      status: 'legacy',
+      isCurrent: false,
+      isLegacy: true,
+      legacyReasons: ['promise_contract_changed'],
+    }
+    : contract();
   return result;
 }
 
@@ -1135,6 +1157,69 @@ test('a failed image-only judgment stays blinded and ready to retry', { timeout:
         .filter(request => request.action === 'record_visual_judgment')
         .map(request => ({ judgmentToken: request.judgmentToken, classification: request.classification })),
       [{ judgmentToken: 'visual-token-1', classification: 'core' }],
+    );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('retained and Legacy image-only reviews stay read-only and blinded before returning to the active queue', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { auditRequests } = await configureNetwork(page, { visualReview: true });
+
+  const hiddenValues = [
+    'LEAK SENTINEL QUERY',
+    '47',
+    'LEAK SENTINEL PROXY CLASS',
+    'LEAK SENTINEL BOARD RESULT',
+    'LEAK SENTINEL SYSTEM OUTCOME',
+  ];
+  async function assertBlinded(runId: string, readOnly: boolean) {
+    const review = page.getByLabel('Blind rejected thumbnail review');
+    await page.getByText(`Image-only calibration · audit ${runId}`, { exact: true }).waitFor();
+    await review.getByRole('img', { name: 'Rejected thumbnail for blind visual judgment' }).waitFor();
+    for (const choice of ['Core', 'Supporting', 'Connective', 'Contradictory', 'Irrelevant']) {
+      assert.equal(
+        await review.getByRole('button', { name: choice, exact: true }).isDisabled(),
+        readOnly,
+        `${runId} must ${readOnly ? 'disable' : 'enable'} the ${choice} choice`,
+      );
+    }
+    for (const leakedValue of hiddenValues) {
+      assert.equal(await page.getByText(leakedValue, { exact: true }).count(), 0, `${runId} must hide ${leakedValue}`);
+    }
+    assert.equal(await page.locator('summary').filter({ hasText: 'Query ladder' }).count(), 0);
+    assert.equal(await page.getByLabel('Visual board comparison').count(), 0);
+    assert.equal(await page.getByText('System winner:', { exact: false }).count(), 0);
+  }
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+
+    await assertBlinded('visual-review-current', false);
+    const runSelect = page.getByLabel('Audit run');
+
+    await runSelect.selectOption('visual-review-retained');
+    await assertBlinded('visual-review-retained', true);
+    assert.equal(
+      await page.getByText('Historical and Legacy runs are view-only. Open the current audit to record a judgment.', { exact: true }).isVisible(),
+      true,
+    );
+
+    await runSelect.selectOption('visual-review-legacy');
+    await assertBlinded('visual-review-legacy', true);
+
+    await runSelect.selectOption('visual-review-current');
+    await assertBlinded('visual-review-current', false);
+    assert.equal(
+      auditRequests.filter(request => request.action === 'record_visual_judgment').length,
+      0,
+      'browsing archived queues must not create judgment receipts',
     );
   } finally {
     await browser.close();
