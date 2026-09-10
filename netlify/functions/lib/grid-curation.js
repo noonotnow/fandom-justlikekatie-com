@@ -1060,7 +1060,7 @@ function selectFromFrozenAnalysis(rawCandidates, frozenStates, {
       proposalCuration: null,
     };
     return diagnostics
-      ? { displayResults: [], curation: null, ...blockedProposal, diagnostics: diagnosticReceipt(rankedRawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, runnerUpDiagnostics, null, boardDiagnostics, partialClusters, promise, profileVersions, calibrationProfile) }
+      ? { displayResults: [], curation: null, ...blockedProposal, diagnostics: diagnosticReceipt(rankedRawCandidates, analyzedStates, candidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, runnerUpDiagnostics, null, [], boardDiagnostics, partialClusters, promise, profileVersions, calibrationProfile) }
       : { displayResults: [], curation: null, ...blockedProposal };
   }
   const useEvent = Boolean(eventCandidate)
@@ -1096,6 +1096,7 @@ function selectFromFrozenAnalysis(rawCandidates, frozenStates, {
       compiledAlternatives,
       runnerUpDiagnostics,
       useEvent ? "event" : "compiled",
+      winner.board,
       boardDiagnostics,
       partialClusters,
       promise,
@@ -1322,8 +1323,9 @@ function calibrationDiagnostics(profile, board = [], states = []) {
     messages,
   };
 }
-function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, runnerUpDiagnostics, winner, boardDiagnostics, partialClusters, promise, profileVersions, calibrationProfile) {
+function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, eventCandidate, compiledCandidate, eventAlternatives, compiledAlternatives, runnerUpDiagnostics, winner, winningBoardCandidates, boardDiagnostics, partialClusters, promise, profileVersions, calibrationProfile) {
   const summarize = candidate => ({
+    occurrenceId: `${candidate.batchRank}:${candidate.order}`,
     candidateId: candidateIdForResult({ ...candidate.result, digest: candidate.fingerprint?.digest }),
     provisionalCandidateId: candidateIdForResult({ ...candidate.result, digest: "" }),
     imageDigest: String(candidate.fingerprint?.digest || "").slice(0, 256) || null,
@@ -1415,6 +1417,87 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
     dropReason: state.dropReason || null,
     dropDetail: state.dropDetail || null,
   }));
+  const exactDuplicateCandidates = new Set(states
+    .filter(state => !state.dropReason && !selectedCandidates.includes(state.candidate))
+    .map(state => state.candidate));
+  const winningOccurrenceIds = new Set(winningBoardCandidates.map(candidate =>
+    `${candidate.batchRank}:${candidate.order}`));
+  const visualClass = candidate => {
+    const editorial = candidate.editorial || {};
+    if (
+      editorial.hardAntiMatches?.length
+      || editorial.softContradictionMatches?.length
+      || editorial.incompatibleCluster
+    ) return "contradictory";
+    if (editorial.coreSatisfied) return "core";
+    if (editorial.supportingMatches?.length || editorial.narrativeCategories?.length) {
+      return "supporting";
+    }
+    if (editorial.heroSatisfied || editorial.clusters?.some(cluster => cluster.compatible)) {
+      return "connective";
+    }
+    return "irrelevant";
+  };
+  const analyzedCandidates = states.map(state => ({
+      candidateId: candidateIdentity(state.candidate),
+      provisionalCandidateId: candidateIdForResult({ ...state.candidate.result, digest: "" }),
+      occurrenceId: `${state.candidate.batchRank}:${state.candidate.order}`,
+      query: String(state.candidate.result.batchKey || "").slice(0, 500),
+      title: String(state.candidate.result.title || "").slice(0, 240),
+      thumbnail: String(state.candidate.result.thumbnail || "").slice(0, 500),
+      analyzed: Boolean(state.candidate.fingerprint),
+      visualClass: state.candidate.editorial ? visualClass(state.candidate) : null,
+      classificationMethod: state.candidate.editorial
+        ? "promise_evidence_proxy"
+        : "pre_promise_gate_not_classified",
+      selected: winningOccurrenceIds.has(`${state.candidate.batchRank}:${state.candidate.order}`),
+      dropReason: state.dropReason || (exactDuplicateCandidates.has(state.candidate)
+        ? "exact_duplicate"
+        : null),
+      exactDuplicate: exactDuplicateCandidates.has(state.candidate),
+      transformedDuplicate: !state.dropReason && selectedCandidates.some(other =>
+        !exactDuplicateCandidates.has(state.candidate)
+        &&
+        other !== state.candidate
+        && candidateIdentity(other) !== candidateIdentity(state.candidate)
+        && perceptualDistance(other.fingerprint, state.candidate.fingerprint) <= COMPILED_SIMILARITY_DISTANCE),
+    }));
+  const familyDiagnostics = families.slice(0, 24).map((family, index) => {
+    const familyCandidateIds = new Set(family.candidates.map(candidateIdentity));
+    const exactCopyCount = states.filter(state =>
+      exactDuplicateCandidates.has(state.candidate)
+      && familyCandidateIds.has(candidateIdentity(state.candidate))).length;
+    const distinct = collapseCopies(
+      [...family.candidates].sort(candidateOrder),
+      EVENT_COPY_DISTANCE,
+    );
+    const counterfactualSize = Math.min(8, distinct.length);
+    const counterfactualBoard = counterfactualSize >= 4
+      ? arrangeBoard(distinct.slice(0, counterfactualSize), promise)
+      : [];
+    return {
+      id: `event-family-${index + 1}`,
+      beforeDeduplication: family.candidates.length + exactCopyCount,
+      afterExactDeduplication: family.candidates.length,
+      afterTransformedDeduplication: distinct.length,
+      afterDeduplication: distinct.length,
+      viableFourToEight: distinct.length >= 4 && distinct.length <= 8,
+      productionEligibleSize: distinct.length >= DEFAULT_CURATION_LIMIT,
+      counterfactualDominantFamilyBoard: counterfactualBoard.length ? {
+        candidateIds: counterfactualBoard.map(candidateIdentity),
+        cardCount: counterfactualBoard.length,
+        promise: boardPromiseMetrics(counterfactualBoard, promise),
+        score: Number(eventScore(counterfactualBoard, family.familyStrength, promise).toFixed(4)),
+        productionRulesChanged: false,
+      } : null,
+    };
+  });
+  const motifCounts = new Map();
+  for (const candidate of selectedCandidates) {
+    for (const cluster of candidate.editorial?.clusters || []) {
+      motifCounts.set(cluster.id, (motifCounts.get(cluster.id) || 0) + 1);
+    }
+  }
   return {
     version: CURATION_VERSION,
     sourceEvidenceCandidates,
@@ -1435,6 +1518,30 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
       id: `event-family-${index + 1}`, strength: Number(family.familyStrength.toFixed(4)),
       size: family.candidates.length, candidates: family.candidates.slice(0, 9).map(summarize),
     })),
+    calibrationAnalysis: {
+      classificationBasis: "blind_to_selection_and_publication_outcome_metadata_proxy",
+      classificationLimitations: [
+        "Classes are derived from retained promise and cluster evidence, not a human image-only judgment.",
+        "Use the thumbnails in this read-only receipt for the required blind visual review before recommending rule changes.",
+      ],
+      visualClasses: ["core", "supporting", "connective", "contradictory", "irrelevant"],
+      candidates: analyzedCandidates,
+      duplicateClasses: {
+        exact: analyzedCandidates.filter(candidate => candidate.exactDuplicate).map(candidate => candidate.candidateId),
+        transformed: analyzedCandidates.filter(candidate => candidate.transformedDuplicate).map(candidate => candidate.candidateId),
+      },
+      sameShootFamilies: familyDiagnostics,
+      recurringMotifs: [...motifCounts.entries()]
+        .filter(([, count]) => count >= 2)
+        .map(([motif, count]) => ({ motif, count })),
+      editorialRedundancy: {
+        measurement: "retained_for_counterfactual_review",
+        automaticallyCollapsed: false,
+        recurringMotifCandidateCount: [...motifCounts.values()]
+          .reduce((total, count) => total + Math.max(0, count - 1), 0),
+        overlappingMotifsMayShareCandidates: true,
+      },
+    },
     strongestEvent: board(eventCandidate, "event"),
     strongestCompiled: board(compiledCandidate, "compiled"),
     eventAlternatives: eventAlternatives.slice(1, 4).map(item => board(item, "event")),

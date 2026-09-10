@@ -788,6 +788,17 @@ test("diagnostics retain exact-copy and image-gate rejection reasons", async () 
   assert.equal(output.diagnostics.dropped.some(item => item.dropReason === "exact_duplicate"), true);
   assert.equal(output.diagnostics.dropped.some(item => item.dropReason === "unusable_image"), true);
   assert.equal(output.diagnostics.rawCandidates.length, items.length);
+  assert.equal(output.diagnostics.calibrationAnalysis.classificationBasis, "blind_to_selection_and_publication_outcome_metadata_proxy");
+  assert.equal(output.diagnostics.calibrationAnalysis.duplicateClasses.exact.length, 1);
+  assert.deepEqual(output.diagnostics.calibrationAnalysis.visualClasses, [
+    "core", "supporting", "connective", "contradictory", "irrelevant",
+  ]);
+  assert.equal(output.diagnostics.calibrationAnalysis.editorialRedundancy.automaticallyCollapsed, false);
+  assert.equal(output.diagnostics.calibrationAnalysis.candidates.length, items.length);
+  assert.equal(output.diagnostics.calibrationAnalysis.candidates.some(candidate =>
+    candidate.classificationMethod === "pre_promise_gate_not_classified"), true);
+  assert.equal(output.diagnostics.calibrationAnalysis.candidates.filter(candidate =>
+    candidate.selected).length, output.displayResults.length);
 });
 
 test("diagnostics explain when usable images collapse into too much visual duplication", async () => {

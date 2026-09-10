@@ -406,7 +406,7 @@ function RunEvidence({
         </form>}
         {disagreed && isCurrent && run.operatorVerdict && <p className={styles.historicalNotice}>The scheduling receipt is finalized, so its calibration reasons stay frozen. Image-level pins and exclusions below remain editable as separate review receipts.</p>}
       </section>}
-      {evidenceAvailable && <><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{proposedCardCount}</strong><span>complete proposal cards</span><strong>{run.displayCount ?? 0}</strong><span>automatically publication-ready cards</span><strong>{run.queryCount ?? run.queryRuns?.length ?? 0}</strong><span>queries audited</span><strong>{rawResults.length}</strong><span>retained results</span></div><CalibrationLearningSummary run={run}/><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration} initialReceiptId={initialReceiptId}/><div className={styles.evidence}>{sections.map(([label,value])=><details key={label}><summary>{label} <span className={styles.muted}>{Array.isArray(value)?`${value.length} records`:''}</span></summary>{label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} busy={busy} onFlag={onFlag}/> : <pre>{text(value)}</pre>}</details>)}</div></>}
+      {evidenceAvailable && <><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{proposedCardCount}</strong><span>complete proposal cards</span><strong>{run.displayCount ?? 0}</strong><span>automatically publication-ready cards</span><strong>{run.queryCount ?? run.queryRuns?.length ?? 0}</strong><span>queries audited</span><strong>{rawResults.length}</strong><span>retained results</span></div><CandidateFunnelSummary run={run}/><CalibrationLearningSummary run={run}/><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration} initialReceiptId={initialReceiptId}/><div className={styles.evidence}>{sections.map(([label,value])=><details key={label}><summary>{label} <span className={styles.muted}>{Array.isArray(value)?`${value.length} records`:''}</span></summary>{label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} busy={busy} onFlag={onFlag}/> : <pre>{text(value)}</pre>}</details>)}</div></>}
     </> : <p className={styles.empty}>Run an audit to open a blinded Event versus Compiled comparison.</p>}
     {currentRun&&<label className={styles.label}>Audit run<select className={styles.select} value={run?.runId ?? ''} onChange={e=>{const selected=[currentRun,...priorRuns].find(item=>item.runId===e.target.value);if(selected)onSelect(selected)}}><option value={currentRun.runId}>{currentRun.auditContract?.isLegacy?'Legacy history':'Current'} · {currentRun.runId} · {date(currentRun.completedAt)}</option>{priorRuns.map(item=><option key={item.runId} value={item.runId}>{item.auditContract?.isLegacy?'Legacy history':'Retained'} · {item.runId} · {date(item.completedAt)}</option>)}</select></label>}
   </article>;
@@ -618,6 +618,39 @@ function CalibrationLearningSummary({run}:{run:Run}) {
       <small>{proof.beyondExactSavedNineCount ?? 0} effect{proof.beyondExactSavedNineCount === 1 ? '' : 's'} beyond the exact saved nine · score delta {Number(proof.scoreDelta ?? 0).toFixed(3)}</small>
       {transferFailed && <small>Approval gates remain unchanged: a missing transfer proof does not make this board eligible, and calibration cannot bypass a failed image or anti-anchor gate.</small>}
     </div>}
+  </section>;
+}
+
+function CandidateFunnelSummary({run}:{run:Run}) {
+  const analysis = run.calibrationAnalysis;
+  const distribution = analysis?.failureDistribution;
+  const queryYield = analysis?.queryVisualYield ?? [];
+  const families = analysis?.sameShootFamilies ?? [];
+  if (!analysis || !distribution) return null;
+  const viableFamilies = families.filter((family:AnyRecord)=>family.viableFourToEight);
+  const rejectedCandidates = (analysis.candidates ?? []).filter((candidate:AnyRecord)=>
+    !candidate.selected && (candidate.dropReason || candidate.visualClass));
+  return <section className={styles.calibrationLearning} aria-label="Candidate loss funnel">
+    <div className={styles.calibrationLearningHeader}><div><h6>Where expressive images left the funnel</h6><p>Counts are diagnostic only. Recommendations stay deferred until this distribution has been reviewed.</p></div><span className={styles.calibrationPending}>Read-only evidence</span></div>
+    <div className={styles.evidenceSummary}>
+      <strong>{distribution.queryNotVisibleToCuration ?? 0}</strong><span>hidden below ranked query cutoff</span>
+      <strong>{distribution.filteredBeforeAnalysis ?? 0}</strong><span>failed image or safety gates</span>
+      <strong>{distribution.exactDuplicates ?? 0}</strong><span>exact copies collapsed</span>
+      <strong>{distribution.transformedDuplicates ?? 0}</strong><span>transformed copies measured</span>
+      <strong>{distribution.promiseRejected ?? 0}</strong><span>contradictory or irrelevant</span>
+      <strong>{distribution.selected ?? 0}</strong><span>selected by the winning board</span>
+      <strong>{distribution.published ?? 0}</strong><span>{distribution.publishedStatus?.replaceAll('_',' ') ?? 'publication unknown'}</span>
+    </div>
+    <details><summary>Query and ladder-rung yield <span className={styles.muted}>{queryYield.length} queries</span></summary><pre>{text(queryYield)}</pre></details>
+    <details><summary>Same-shoot family sizes <span className={styles.muted}>{viableFamilies.length} viable 4–8 image families</span></summary><pre>{text(families)}</pre></details>
+    <details><summary>Separate duplicate, motif, and redundancy measures</summary><pre>{text({duplicateClasses:analysis.duplicateClasses,recurringMotifs:analysis.recurringMotifs,editorialRedundancy:analysis.editorialRedundancy})}</pre></details>
+    <details><summary>Blind rejected-candidate classification <span className={styles.muted}>{rejectedCandidates.length} images</span></summary>
+      <p>{text(analysis.classificationLimitations)}</p>
+      <div className={styles.partialClusterImages}>{rejectedCandidates.map((candidate:AnyRecord)=><a href={candidate.thumbnail||'#'} target="_blank" rel="noreferrer" key={candidate.occurrenceId}>
+        {candidate.thumbnail?<img src={candidate.thumbnail} alt={candidate.title||'Rejected candidate'} loading="lazy"/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}
+        <small>{candidate.visualClass ?? 'unclassified'} · {candidate.dropReason ?? 'post-ranking omission'}</small>
+      </a>)}</div>
+    </details>
   </section>;
 }
 

@@ -60,6 +60,11 @@ test('calibration evidence export is a credentialed date-bounded read-only downl
   assert.match(source, /Date-bounded calibration evidence/);
   assert.match(source, /Download read-only audit export/);
   assert.match(source, /Stored evidence only · no searches, cache changes, scoring changes, or publication actions/);
+  assert.match(source, /Where expressive images left the funnel/);
+  assert.match(source, /Query and ladder-rung yield/);
+  assert.match(source, /Same-shoot family sizes/);
+  assert.match(source, /Separate duplicate, motif, and redundancy measures/);
+  assert.match(source, /Blind rejected-candidate classification/);
 });
 
 test('a success notice requires two complete pending boards and moves them into view', () => {
@@ -75,13 +80,13 @@ test('an unavailable comparison is not described as ready for a blind choice', (
   assert.match(startAudit, /did not produce two complete boards/);
   assert.match(startAudit, /Choose between the two boards below/);
   assert.match(source, /function PartialBoards/);
-  assert.match(partialBoards, /diagnostic\?\.available===true/);
+  assert.match(partialBoards, /confirmsCompleteProposal\(diagnostic\)/);
   assert.match(partialBoards, /complete proposal · automated gate not passed/);
-  assert.match(source, /Curator-drawn nine-card proposal/);
+  assert.match(source, /Complete nine-card proposal/);
   assert.match(source, /automated gate not passed/);
   assert.match(source, /older audit format did not retain its exact arrangement/);
   assert.match(source, /displayable retained images/);
-  assert.match(source, /curator proposal cards/);
+  assert.match(source, /complete proposal cards/);
   assert.match(source, /automatically publication-ready cards/);
   assert.doesNotMatch(source, /No candidate board reached nine images/);
   assert.match(source, /function BoardQualificationSummary/);

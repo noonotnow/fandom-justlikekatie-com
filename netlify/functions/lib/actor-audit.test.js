@@ -549,6 +549,10 @@ test("private calibration export projects retained receipts without searches or 
     deduplication: { before: 2, after: 1 },
     boardDiagnostics: { event: { reasonCode: "event_family_too_small" } },
     curationReceipt: { rawCount: 2, analyzedCount: 1 },
+    calibrationAnalysis: {
+      queryVisualYield: [{ query: "刘学义 editorial", ladderRung: 0, selectedCount: 1 }],
+      failureDistribution: { selected: 1, published: 0 },
+    },
     unrelatedPrivateState: "must-not-export",
   };
   store.records.set(auditRunKey(pairActor.id, 0, run.runId), structuredClone(run));
@@ -574,6 +578,7 @@ test("private calibration export projects retained receipts without searches or 
   assert.deepEqual(payload.run.rejections, run.rejections);
   assert.deepEqual(payload.run.eventFamilies, run.eventFamilies);
   assert.deepEqual(payload.run.deduplication, run.deduplication);
+  assert.deepEqual(payload.run.calibrationAnalysis, run.calibrationAnalysis);
   assert.ok(payload.exportMetadata.missingFields.includes("run.publication"));
   assert.equal("unrelatedPrivateState" in payload.run, false);
   assert.equal("report" in payload, false);

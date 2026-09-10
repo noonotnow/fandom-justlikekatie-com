@@ -2137,6 +2137,35 @@ export async function runPreflight(
     ranked.findIndex(item => item.query === candidate.query),
     calibrationProfile?.positiveQueries || [],
   ));
+  const calibrationCandidates = diagnostics.calibrationAnalysis?.candidates || [];
+  const queryVisualYield = queryRuns.map((query, ladderRung) => {
+    const candidatesForQuery = calibrationCandidates.filter(candidate => candidate.query === query.query);
+    const classCounts = Object.fromEntries(
+      ["core", "supporting", "connective", "contradictory", "irrelevant"].map(classification => [
+        classification,
+        candidatesForQuery.filter(candidate => candidate.visualClass === classification).length,
+      ]),
+    );
+    return {
+      query: query.query,
+      ladderRung,
+      retrievedCount: query.rawCount ?? 0,
+      cleanCount: query.cleanCount ?? 0,
+      rankedPosition: query.rank,
+      visibleToCuration: query.acceptedForCuration === true,
+      analyzedCount: candidatesForQuery.filter(candidate => candidate.analyzed).length,
+      usableCount: candidatesForQuery.filter(candidate => !candidate.dropReason).length,
+      selectedCount: candidatesForQuery.filter(candidate => candidate.selected).length,
+      visualClassCounts: classCounts,
+      dropReasonCounts: candidatesForQuery
+        .map(candidate => candidate.dropReason)
+        .filter(Boolean)
+        .reduce((counts, reason) => {
+          counts[reason] = (counts[reason] || 0) + 1;
+          return counts;
+        }, {}),
+    };
+  });
   const learnedQueries = [...new Set(calibrationProfile?.positiveQueries || [])];
   const learnedQueriesUsed = learnedQueries.filter(query =>
     queryRuns.some(item => item.query === query));
@@ -2221,6 +2250,27 @@ export async function runPreflight(
       misprintCorrections,
     ),
     rejections: buildRejectionLedger(queryRuns, diagnostics),
+    calibrationAnalysis: {
+      ...(diagnostics.calibrationAnalysis || {}),
+      queryVisualYield,
+      failureDistribution: {
+        queryNotVisibleToCuration: queryVisualYield.filter(query => !query.visibleToCuration)
+          .reduce((total, query) => total + query.cleanCount, 0),
+        filteredBeforeAnalysis: calibrationCandidates.filter(candidate =>
+          candidate.dropReason && candidate.dropReason !== "exact_duplicate").length,
+        exactDuplicates: diagnostics.calibrationAnalysis?.duplicateClasses?.exact?.length || 0,
+        transformedDuplicates: diagnostics.calibrationAnalysis?.duplicateClasses?.transformed?.length || 0,
+        promiseRejected: calibrationCandidates.filter(candidate =>
+          !candidate.dropReason
+          && !candidate.selected
+          && ["contradictory", "irrelevant"].includes(candidate.visualClass)).length,
+        selected: calibrationCandidates.filter(candidate =>
+          candidate.selected).length,
+        published: 0,
+        publishedStatus: "not_published_at_audit_time",
+      },
+      recommendationsDeferredUntilDistributionReview: true,
+    },
     identityEvidence,
     detectedEvents: diagnostics.eventFamilies || [],
     boardDiagnostics: diagnostics.boardDiagnostics || null,
@@ -3583,7 +3633,7 @@ function calibrationAuditExport(run, pair) {
     "compiledAlternatives", "winner", "alternate", "calibrationSignals",
     "calibrationProof", "blindReview", "publication",
     "publicationSource", "auditContract", "curationVersion", "identityProfileVersion",
-    "aestheticClusterVersion", "promiseContractVersion",
+    "aestheticClusterVersion", "promiseContractVersion", "calibrationAnalysis",
   ];
   const projectedRun = { runId: run.runId };
   for (const field of fields) {
