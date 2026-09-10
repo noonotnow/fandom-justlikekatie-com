@@ -93,7 +93,7 @@ test('veteran pageviews and events never expose the journal capability', { timeo
     ) as unknown[] | undefined;
     assert.deepEqual(config, [
       'config',
-      'G-CGWB67360Q',
+      'G-FHZJ1T74TG',
       { page_location: `${origin}/vibe-atlas/veteran-journal` },
     ]);
 

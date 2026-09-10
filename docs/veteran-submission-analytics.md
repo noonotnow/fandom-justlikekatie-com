@@ -43,10 +43,10 @@ than a guessed funnel analysis.
 
 | Review item | Status |
 | --- | --- |
-| Google Analytics property | The external `fandom.justlikekatie.com` site is configured to send to GA4 measurement ID `G-CGWB67360Q` in the production document. The GA4 reporting property itself was not accessible from this workspace. |
-| Source | Not Replit Publishing analytics. No GA4 reporting connection or existing aggregate export was available to query. |
-| Date range | No production date range was queried. A future review must state the selected window explicitly, from the first usable production event through the review date or another justified bounded period. |
-| Event availability | The source code defines the canonical pageview location and all four veteran events, but production availability of `page_view`, `veteran_form_started`, `veteran_relation_selected`, `veteran_submission_succeeded`, and `veteran_submission_failed` could not be verified. |
+| Google Analytics property | Operator-supplied GA4 Admin evidence verified that the Web stream for `https://fandom.justlikekatie.com` uses measurement ID `G-FHZJ1T74TG`. The project had been sending to an unrelated `G-CGWB67360Q` value and was corrected to the verified stream on 2026-09-10. |
+| Source | Not Replit Publishing analytics. The GA4 Admin evidence verifies the destination only; no reporting connection or approved aggregate export was available to query. |
+| Date range | No production date range was queried. The first valid review window must begin after the corrected `G-FHZJ1T74TG` configuration reaches production and end on an explicitly stated review date. |
+| Event availability | Before the correction, GA4 reported no data received by the verified stream in the preceding 48 hours. Production availability of `page_view`, `veteran_form_started`, `veteran_relation_selected`, `veteran_submission_succeeded`, and `veteran_submission_failed` must be verified after deployment. |
 | Sample sufficient for a decision | No. Counts were unavailable, so sample size, statistical stability, and any relation-path comparison cannot be assessed. |
 
 ### Bounded comparison result
@@ -64,3 +64,20 @@ recommendation from this review. Do not change the veteran form based on this
 record alone. The next review should use only aggregate GA4 reports for the
 canonical page location and the event names/properties above, with no visitor,
 session, journal, capability, submitted-text, account, or raw-URL export.
+
+### Verified stream correction — 2026-09-10
+
+Operator-supplied GA4 Admin evidence captured on 2026-08-31 shows that the only
+visible Web stream for `https://fandom.justlikekatie.com` is `G-FHZJ1T74TG`.
+Before the 2026-09-10 correction, the project and live site
+were still sending directly to `G-CGWB67360Q`, a value introduced in the
+project before this review with no matching stream in the supplied property.
+The project configuration was therefore changed to the verified stream while
+leaving the separate, newly created Tag Manager container out of the site to
+avoid a second tracking path.
+
+The GA4 evidence reported inactive collection and no data received in the
+preceding 48 hours. It verifies the correct destination but is not an approved
+aggregate funnel export. After the corrected configuration is deployed and
+events have accumulated, export only aggregate counts for an explicitly
+bounded date range and the veteran events described above.
