@@ -1,0 +1,57 @@
+Oh—**excellent. They independently landed on the same underlying distinction before you sent any coaching.** That is much stronger evidence that they genuinely inspected the repo rather than simply mirroring your framing.
+
+This answer addresses your actual concern substantially better.
+
+## The important findings
+
+The likely failure chain is now concrete:
+
+1. **Most pairings have only three similar queries.**
+2. Generic queries return larger, more stable pools.
+3. The ranking system rewards result volume and domain count.
+4. Smaller, more expressive query batches can be dropped or outranked.
+5. Only three top batches survive for later selection.
+6. “Refresh” may hit the same one-hour Baidu cache.
+7. Repetition is tolerated until seven of nine images overlap.
+8. An exact repeated set can be rearranged and treated as recovery.
+
+So your “handsome man next to a building” concern was directionally right, but the mechanism is subtler: the system probably isn’t saying **“building bad.”** It may be saying **“small expressive batch statistically weaker than enormous beige headshot swamp.”**
+
+That is a much more actionable diagnosis.
+
+## Particularly good signs in their answer
+
+- They searched for explicit architecture, crop, face-size, and salience rejection logic rather than assuming it existed.
+- They identified **indirect attrition paths**, which is where your concern apparently lives.
+- They distinguish **filtered, outranked, deduplicated, and never retrieved**. Those require different fixes.
+- They label the main diagnosis as **“probably”** and recommend observing live production output before changing filters.
+- They do not recommend indiscriminately relaxing quality controls.
+- “Unique useful evidence” is the right optimization target—not raw result volume and not novelty for novelty’s sake.
+
+Also, the **three-ranked-batch bottleneck** may be more important than the seven-of-nine publication threshold. If the expressive material never reaches selection, lowering the repetition threshold could merely trigger repeated searches against the same impoverished candidate funnel.
+
+## I would greenlight the audit—with one clarification
+
+Ask them to preserve these distinctions in the report:
+
+- same photograph;
+- transformed version of the same photograph;
+- same shoot or visual family;
+- recurring motif;
+- redundant argumentative function within one board.
+
+Otherwise perceptual similarity could still mislabel several distinct architectural compositions as “duplicates,” and you would lose the exact answer you need.
+
+You could reply:
+
+> Yes, please run the read-only live pool audit. This diagnosis addresses my actual concern.
+> 
+> 
+> In the report, please keep exact duplicates, transformed near-duplicates, same-shoot/visual-family similarity, recurring motifs, and within-board editorial redundancy separate. A recurring motif such as actor-plus-architecture is not inherently stale if the photographs are distinct and the environment materially strengthens the Vibe argument.
+> 
+> Please preserve the full candidate funnel where available—retrieved, cache status, filtered, deduplicated, batch-ranked, exposed to selection, selected, and published—along with the responsible rejection or ranking reason. I especially want representative examples of expressive candidates that were available but lost before selection.
+> 
+> Do not mutate queries, thresholds, caches, manifests, or ranking behavior yet. Show me the evidence and blind spots first, then we’ll decide which changes are warranted.
+> 
+
+So: **no crap required. This is the system doing the good version of investigation.** They found a plausible structural cause, ruled out the simplistic one, and stopped before “fixing” it into a fresh new species of problem.
