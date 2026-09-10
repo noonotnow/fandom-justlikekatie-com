@@ -298,7 +298,7 @@ function responseBody(
   };
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   exportRequests: AnyRecord[];
@@ -311,6 +311,7 @@ async function configureNetwork(page: Page, { missingRetirementRun = false } = {
   let calibrationConfirmed = false;
   let runNumber = 0;
   let revealed = false;
+  const visualJudgments: AnyRecord[] = [];
   const auditRequests: AnyRecord[] = [];
   const calibrationRequests: AnyRecord[] = [];
   const exportRequests: AnyRecord[] = [];
@@ -481,7 +482,9 @@ async function configureNetwork(page: Page, { missingRetirementRun = false } = {
       }
       const current = activeRunId
         ? run(activeRunId, revealed, activeRunId === 'run-2' && revealed)
-        : null;
+        : visualReview
+          ? visualReviewRun(visualJudgments)
+          : null;
       const isFreshBlocked = activeRunId === 'run-2' && calibrationConfirmed && revealed;
       await route.fulfill({
         contentType: 'application/json',
@@ -527,6 +530,23 @@ async function configureNetwork(page: Page, { missingRetirementRun = false } = {
           calibrationConfirmed ? 'calibration_reaudit_required' : 'comparison_unavailable',
           selectedRunId === 'run-1' ? savedBoard : undefined,
           calibrationConfirmed ? rescueCalibrationDetails() : undefined,
+        )),
+      });
+      return;
+    }
+    if (input.action === 'record_visual_judgment' && visualReview) {
+      visualJudgments.push({
+        receiptId: `visual-receipt-${visualJudgments.length + 1}`,
+        judgmentToken: input.judgmentToken,
+        sourceOccurrenceId: input.judgmentToken,
+        classification: input.classification,
+        judgedAt: '2026-09-10T12:00:00.000Z',
+      });
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(responseBody(
+          visualReviewRun(visualJudgments),
+          'needs_operator_verdict',
         )),
       });
       return;
@@ -652,6 +672,36 @@ async function configureNetwork(page: Page, { missingRetirementRun = false } = {
     getMediaUploads: () => mediaUploads,
     getCollectionSyncRequests: () => collectionSyncRequests,
   };
+}
+
+function visualReviewRun(receipts: AnyRecord[]): AnyRecord {
+  const result = run('visual-review-current', true);
+  result.queryRuns = [{
+    query: 'LEAK SENTINEL QUERY',
+    provider: 'browser-test',
+    rank: 47,
+  }];
+  result.rawResults = [{
+    ...candidate(0),
+    query: 'LEAK SENTINEL QUERY',
+    rank: 47,
+    proxyClass: 'LEAK SENTINEL PROXY CLASS',
+    boardResult: 'LEAK SENTINEL BOARD RESULT',
+    systemOutcome: 'LEAK SENTINEL SYSTEM OUTCOME',
+  }];
+  result.visualJudgmentQueue = [0, 1].map(index => ({
+    occurrenceId: `visual-occurrence-${index + 1}`,
+    judgmentToken: `visual-token-${index + 1}`,
+    thumbnail: candidate(index).thumbnail,
+    query: 'LEAK SENTINEL QUERY',
+    rank: 47 + index,
+    proxyClass: 'LEAK SENTINEL PROXY CLASS',
+    boardResult: 'LEAK SENTINEL BOARD RESULT',
+    systemOutcome: 'LEAK SENTINEL SYSTEM OUTCOME',
+  }));
+  result.humanVisualJudgments = receipts;
+  result.blindReview.systemWinner = 'LEAK SENTINEL SYSTEM OUTCOME';
+  return result;
 }
 
 function completeCompiledHeroReviewRun(runId = 'complete-hero-review'): AnyRecord {
@@ -968,6 +1018,71 @@ async function configureCompleteHeroReviewNetwork(
 
   return { saveRequests, verdictRequests };
 }
+
+test('an authenticated image-only review hides system cues until every occurrence is judged', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { auditRequests } = await configureNetwork(page, { visualReview: true });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+
+    const review = page.getByLabel('Blind rejected thumbnail review');
+    await review.getByRole('img', { name: 'Rejected thumbnail for blind visual judgment' }).waitFor();
+    for (const choice of ['Core', 'Supporting', 'Connective', 'Contradictory', 'Irrelevant']) {
+      assert.equal(
+        await review.getByRole('button', { name: choice, exact: true }).isVisible(),
+        true,
+        `the image-only queue must expose the ${choice} human choice`,
+      );
+    }
+    for (const leakedValue of [
+      'LEAK SENTINEL QUERY',
+      '47',
+      'LEAK SENTINEL PROXY CLASS',
+      'LEAK SENTINEL BOARD RESULT',
+      'LEAK SENTINEL SYSTEM OUTCOME',
+    ]) {
+      assert.equal(
+        await page.getByText(leakedValue, { exact: true }).count(),
+        0,
+        `${leakedValue} must remain absent while image judgments are outstanding`,
+      );
+    }
+    assert.equal(await page.locator('summary').filter({ hasText: 'Query ladder' }).count(), 0);
+    assert.equal(await page.getByLabel('Visual board comparison').count(), 0);
+    assert.equal(await page.getByText('System winner:', { exact: false }).count(), 0);
+
+    await review.getByRole('button', { name: 'Core', exact: true }).click();
+    await review.getByText('2/2 · 1 receipt', { exact: true }).waitFor();
+    assert.equal(await page.locator('summary').filter({ hasText: 'Query ladder' }).count(), 0);
+    assert.equal(await page.getByText('LEAK SENTINEL QUERY', { exact: true }).count(), 0);
+
+    await review.getByRole('button', { name: 'Supporting', exact: true }).click();
+    await page.getByRole('heading', { name: 'Audit evidence · visual-review-current', exact: true }).waitFor();
+    await page.getByLabel('Visual board comparison').waitFor();
+    const queryDiagnostics = page.locator('summary').filter({ hasText: 'Query ladder' });
+    assert.equal(await queryDiagnostics.count(), 1);
+    await queryDiagnostics.click();
+    assert.equal(await page.locator('pre').filter({ hasText: 'LEAK SENTINEL QUERY' }).isVisible(), true);
+    assert.equal(await page.getByText('System winner: LEAK SENTINEL SYSTEM OUTCOME', { exact: true }).isVisible(), true);
+    assert.deepEqual(
+      auditRequests
+        .filter(request => request.action === 'record_visual_judgment')
+        .map(request => ({ judgmentToken: request.judgmentToken, classification: request.classification })),
+      [
+        { judgmentToken: 'visual-token-1', classification: 'core' },
+        { judgmentToken: 'visual-token-2', classification: 'supporting' },
+      ],
+    );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
 
 test('a signed-in operator saves a rescue board to Collection without calibrating it', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
