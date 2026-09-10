@@ -245,7 +245,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     const title = archivePage
       ? 'Vibe Atlas Archive | Fandom Vibes'
       : view === 'daily'
-        ? 'Vibe Atlas | A Daily C-Drama Card Drop'
+        ? 'Vibe Atlas | Daily C-Drama Collectible Cards | Fandom Vibes'
       : view === 'membership'
         ? 'Vibe Atlas Founding Member | Fandom Vibes'
         : view === 'collection'
@@ -536,7 +536,12 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           </div>
           <p className="atlas-hero__thesis">One star. One vibe. Nine pieces of evidence.</p>
         </div>
-        <p className="atlas-hero__intro">Every day, Vibe Atlas pairs one C-drama star with one Vibe Pack, then searches their iconic characters, looks, and moments for nine cards worth keeping. Browse today’s drop, save your favorites, and build a 3×3 from the evidence.</p>
+         <p className="atlas-hero__hook"><em>Like Pokémon, but thirsty. You wanna catch all these.</em></p>
+         <p className="atlas-hero__intro">Every day, Vibe Atlas pairs one C-drama star with one very specific kind of heartthrob energy. Browse nine collectible pieces of evidence, save the ones that understand your type, and build your own 3×3.</p>
+         <div className="atlas-hero__actions" aria-label="Vibe Atlas actions">
+           <a href="#daily-evidence">Browse today’s drop</a>
+           <a href="/vibe-atlas?view=builder">Open the Grid Builder</a>
+         </div>
         <section className="daily-archive" aria-label="Vibe Atlas daily edition archive">
           <button
             type="button"
@@ -640,7 +645,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         )}
       </header>
 
-      <div className="daily-grid">
+       <div className="daily-grid" id="daily-evidence">
         <div className="daily-grid__header">
           <h2>Today’s evidence</h2>
           <p>Nine cards from today’s star × Vibe Pack.</p>

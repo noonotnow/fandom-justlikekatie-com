@@ -195,6 +195,51 @@
   line-height: 1.7;
 }
 
+.atlas-hero__hook {
+  max-width: 510px;
+  margin: 1.7rem 0 0 12%;
+  color: #b35f49;
+  font: 500 clamp(1rem, 1.8vw, 1.25rem)/1.25 "Fraunces", serif;
+}
+
+.atlas-hero__hook em { font-style: italic; }
+
+.atlas-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .65rem;
+  margin: 1.35rem 0 0 12%;
+}
+
+.atlas-hero__actions a {
+  display: inline-block;
+  padding: .7rem .85rem;
+  border: 1px solid rgba(36, 62, 64, .28);
+  color: #263e40;
+  font: 600 .66rem "DM Mono", monospace;
+  letter-spacing: .04em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.atlas-hero__actions a:first-child {
+  border-color: #b35f49;
+  background: #b35f49;
+  color: #fffaf2;
+}
+
+.atlas-hero__actions a:hover,
+.atlas-hero__actions a:focus-visible {
+  border-color: #b35f49;
+  color: #b35f49;
+}
+
+.atlas-hero__actions a:first-child:hover,
+.atlas-hero__actions a:first-child:focus-visible {
+  background: #263e40;
+  color: #fffaf2;
+}
+
 .atlas-edition {
   max-width: 700px;
   margin: 3.5rem 0 0 12%;
@@ -876,7 +921,27 @@
 .dark .fandom-atlas-admin-link--active { color: #f2e9dc; }
 .dark .atlas-hero h1 { color: #b9d4d1; }
 .dark .atlas-hero h1 span,
-.dark .atlas-hero__thesis em { color: #e18a70; }
+.dark .atlas-hero__thesis em,
+.dark .atlas-hero__hook { color: #e18a70; }
+.dark .atlas-hero__actions a {
+  border-color: rgba(236, 231, 221, .32);
+  color: #f2e9dc;
+}
+.dark .atlas-hero__actions a:hover,
+.dark .atlas-hero__actions a:focus-visible {
+  border-color: #e18a70;
+  color: #e18a70;
+}
+.dark .atlas-hero__actions a:first-child {
+  border-color: #e18a70;
+  background: #e18a70;
+  color: #19171d;
+}
+.dark .atlas-hero__actions a:first-child:hover,
+.dark .atlas-hero__actions a:first-child:focus-visible {
+  background: #f2e9dc;
+  color: #19171d;
+}
 .dark .atlas-hero__universe,
 .dark .atlas-hero__intro,
 .dark .atlas-hero__thesis,
@@ -904,6 +969,8 @@
   .fandom-universe-nav:has(.fandom-atlas-admin-link) .fandom-atlas-nav { padding-right: 4.5rem; }
   .atlas-hero__title-row { display: block; }
   .atlas-hero__thesis { margin-top: 1.4rem; text-align: left; }
+  .atlas-hero__hook,
+  .atlas-hero__actions { margin-left: 0; }
   .atlas-hero__intro,
   .atlas-edition,
   .daily-archive { margin-left: 0; }
