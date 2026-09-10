@@ -298,7 +298,7 @@ function responseBody(
   };
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, failVisualJudgment = false } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, failVisualJudgment = false, unfinishedBoardReview = false } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   exportRequests: AnyRecord[];
@@ -306,7 +306,7 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
   getMediaUploads: () => number;
   getCollectionSyncRequests: () => AnyRecord[];
 }> {
-  let activeRunId: string | null = null;
+  let activeRunId: string | null = unfinishedBoardReview ? 'board-review-current' : null;
   let savedBoard: AnyRecord | undefined;
   let calibrationConfirmed = false;
   let runNumber = 0;
@@ -486,6 +486,16 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
           body: JSON.stringify({
             run: archivedVisualReviewRun('visual-review-retained'),
             receiptId: 'visual-review-receipt-retained',
+          }),
+        });
+        return;
+      }
+      if (unfinishedBoardReview && url.searchParams.get('runId') === 'board-review-retained') {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            run: run('board-review-retained', false),
+            receiptId: 'board-review-receipt-retained',
           }),
         });
         return;
@@ -1335,6 +1345,47 @@ test('a direct unfinished retained-review handoff stays read-only and blinded be
     assert.equal(new URL(page.url()).searchParams.has('runId'), false);
     assert.equal(new URL(page.url()).searchParams.has('receiptId'), false);
     assert.equal(auditRequests.filter(request => request.action === 'record_visual_judgment').length, 0);
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('a direct unfinished retained board review stays frozen and blinded before returning to the current audit', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { auditRequests } = await configureNetwork(page, { unfinishedBoardReview: true });
+
+  try {
+    const params = new URLSearchParams({
+      admin: 'true',
+      actorId: ACTOR_ID,
+      vibeKey: VIBE_KEY,
+      runId: 'board-review-retained',
+      receiptId: 'board-review-receipt-retained',
+    });
+    await page.goto(`${origin}/vibe-atlas?${params}`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('heading', { name: 'Audit evidence · board-review-retained', exact: true }).waitFor();
+
+    assert.equal(await page.getByText('This historical run was never independently judged and remains blinded.', { exact: true }).isVisible(), true);
+    for (const choice of ['Choose Event', 'Choose Compiled', 'Choose Neither']) {
+      assert.equal(await page.getByRole('button', { name: choice, exact: true }).count(), 0);
+    }
+    assert.equal(await page.getByText('System winner:', { exact: false }).count(), 0);
+    assert.equal(await page.getByText(/^score \d/, { exact: false }).count(), 0);
+    assert.equal(await page.getByText('Automated promise recognition:', { exact: false }).count(), 0);
+    assert.equal(await page.locator('[class*="scoreBreakdown"]').count(), 0);
+
+    await page.getByLabel('Audit run').selectOption('board-review-current');
+    await page.getByRole('heading', { name: 'Audit evidence · board-review-current', exact: true }).waitFor();
+    for (const choice of ['Choose Event', 'Choose Compiled', 'Choose Neither']) {
+      assert.equal(await page.getByRole('button', { name: choice, exact: true }).isEnabled(), true);
+    }
+    assert.equal(new URL(page.url()).searchParams.has('runId'), false);
+    assert.equal(new URL(page.url()).searchParams.has('receiptId'), false);
+    assert.equal(auditRequests.filter(request => request.action === 'blind_choice').length, 0);
   } finally {
     await browser.close();
     await server.close();
