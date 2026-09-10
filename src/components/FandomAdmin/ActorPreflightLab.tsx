@@ -394,7 +394,7 @@ function RunEvidence({
     <h5>Image-only calibration · audit {run?.runId}</h5>
     <BlindVisualJudgments run={run as Run} isCurrent={isCurrent&&!isLegacy} busy={busy} onSave={onVisualJudgment}/>
     <p className={styles.blindIsolationNotice}>Audit queries, ranks, proxy labels, board results, and system outcomes stay unavailable until every rejected thumbnail has one human judgment.</p>
-    {currentRun&&<label className={styles.label}>Audit run<select className={styles.select} value={run?.runId ?? ''} onChange={e=>{const selected=[currentRun,...priorRuns].find(item=>item.runId===e.target.value);if(selected)onSelect(selected)}}><option value={currentRun.runId}>Current · {currentRun.runId} · {date(currentRun.completedAt)}</option>{priorRuns.map(item=><option key={item.runId} value={item.runId}>Retained · {item.runId} · {date(item.completedAt)}</option>)}</select></label>}
+    {currentRun&&<label className={styles.label}>Audit run<select className={styles.select} value={run?.runId ?? ''} onChange={e=>{const selected=[currentRun,...priorRuns].find(item=>item.runId===e.target.value);if(selected)onSelect(selected)}}><option value={currentRun.runId}>{currentRun.auditContract?.isLegacy?'Legacy history':'Current'} · {currentRun.runId} · {date(currentRun.completedAt)}</option>{priorRuns.map(item=><option key={item.runId} value={item.runId}>{item.auditContract?.isLegacy?'Legacy history':'Retained'} · {item.runId} · {date(item.completedAt)}</option>)}</select></label>}
   </article>;
   return <article id="actor-audit-evidence" className={`${styles.card} ${styles.cardWide} ${isLegacy?styles.legacyCard:''}`}>
     <h5>{isLegacy?'Legacy audit · retained history':'Audit evidence'} {run?.runId?`· ${run.runId}`:''}</h5>

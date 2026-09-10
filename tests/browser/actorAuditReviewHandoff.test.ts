@@ -1203,6 +1203,14 @@ test('retained and Legacy image-only reviews stay read-only and blinded before r
 
     await assertBlinded('visual-review-current', false);
     const runSelect = page.getByLabel('Audit run');
+    assert.match(
+      await runSelect.locator('option[value="visual-review-retained"]').textContent() ?? '',
+      /^Retained · visual-review-retained · /,
+    );
+    assert.match(
+      await runSelect.locator('option[value="visual-review-legacy"]').textContent() ?? '',
+      /^Legacy history · visual-review-legacy · /,
+    );
 
     await runSelect.selectOption('visual-review-retained');
     await assertBlinded('visual-review-retained', true);
