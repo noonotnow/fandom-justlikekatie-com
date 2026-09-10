@@ -1,0 +1,72 @@
+Yes—that sharpens it further. Your concern is not “architecture images were explicitly banned.” It is:
+
+1. **Promise-fulfillment may have been over-strict or poorly calibrated.**
+The curator may reject legitimate supporting evidence because it interprets the Vibe Pack promise too literally, too narrowly, or only at the individual-image level.
+2. **The query ladder may create an illusion of search depth.**
+Eight rungs do not provide meaningful exploration if most pairings repeatedly feed the ladder the same three query strings. The machinery can run eight times while circling the same tiny visual neighborhood.
+3. **Same-source coherence is sometimes the product, not duplication.**
+For an event, shoot, or editorial board, multiple images from the same visual family can create exactly the coherent collectible aesthetic you want. A blanket “one image per event/shoot” rule would mistake intentional sequencing for redundancy.
+
+The audit therefore needs to evaluate **contextual utility**, not treat diversity as universally good.
+
+## The important model correction
+
+There are at least two legitimate board modes:
+
+### Evidence-diverse board
+
+The board argues for a Vibe using images from different settings, sources, shoots, and visual mechanisms.
+
+Here, same-shoot concentration may genuinely weaken the board.
+
+### Cohesive event/editorial board
+
+The event, shoot, campaign, or editorial is itself the organizing visual artifact.
+
+Here, multiple images from the same family may be desirable—provided that each image contributes a distinct pose, expression, composition, detail, or narrative beat.
+
+In this mode, forcing source diversity can actively destroy aesthetic coherence.
+
+The system should not decide whether same-shoot repetition is good or bad without knowing **what kind of board it is constructing**.
+
+## Promise fulfillment also needs two levels
+
+An individual image should not necessarily have to express the entire Vibe Pack independently.
+
+- **Core evidence:** images that make the board’s central promise immediately legible.
+- **Supporting evidence:** images that reinforce one dimension—setting, wardrobe, gesture, texture, status, atmosphere, expression, or narrative continuity.
+- **Connective evidence:** images that may be weaker in isolation but make a sequence or editorial family feel coherent.
+- **Contradictory evidence:** images that materially undermine the promised Vibe.
+
+A board can fulfill its promise collectively even when every card is not a tiny self-contained thesis statement wearing excellent trousers.
+
+## Clarification to send Replit
+
+> One further correction to the audit contract: I did not mean that the code literally contained a “no handsome man next to a building” rule. I was using that as an example of a potentially valid image being rejected because our promise-fulfillment judgment may have been too aggressive or poorly calibrated.
+> 
+> 
+> Please audit promise fulfillment itself, including whether candidates were rejected for failing to express the complete Vibe Pack individually when they could have served as valid supporting or connective evidence within the complete nine-card board.
+> 
+> Distinguish:
+> 
+> - core evidence that makes the Vibe immediately legible;
+> - supporting evidence that strengthens one relevant dimension;
+> - connective evidence that contributes sequence or aesthetic coherence;
+> - genuinely contradictory or irrelevant evidence.
+> 
+> I am also specifically concerned that having only three query strings for most pairings prevents meaningful variety across the eight-rung search ladder. Please determine whether the rungs actually introduce new retrieval intent, providers, visual mechanisms, or candidates—or merely rerun small variations of the same three searches and repeatedly surface the same images.
+> 
+> Finally, do not treat same-event, same-shoot, or same-editorial concentration as inherently undesirable. For an event board or editorial-board mode, multiple images from one visual family can be the intended aesthetic and may produce a stronger collectible set. In that context, the test should be whether each photograph contributes a distinct pose, expression, composition, detail, or narrative beat—not whether it comes from a different event or source.
+> 
+> Please identify whether the current system:
+> 
+> - knows when it is constructing an event/editorial-cohesive board versus an evidence-diverse board;
+> - applies the same diversity limits to both;
+> - prevents multiple images from the same event or shoot from surviving;
+> - evaluates promise fulfillment per image, per board, or both;
+> - and has any calibrated examples or regression tests defining acceptable core, supporting, connective, and contradictory evidence.
+> 
+> Keep the audit read-only. I want to see whether the present rules are protecting quality or flattening valid aesthetic strategies before changing them.
+> 
+
+That captures the real concern: **not simply whether the system has enough images, but whether its definitions of “fresh,” “diverse,” and “promise-fulfilling” are flattening the boards into nine individually defensible but collectively generic photographs.**
