@@ -10,6 +10,7 @@ import {
 } from "./actor-identity-profiles.js";
 import {
   auditCalibrationPrefix,
+  auditVisualJudgmentPrefix,
   auditEligibilityDecisionPrefix,
   auditFeedbackPrefix,
   auditHeadKey,
@@ -591,6 +592,185 @@ test("private calibration export projects retained receipts without searches or 
   assert.equal("report" in payload, false);
   assert.equal(getSearchCall(), 0);
   assert.deepEqual([...store.records.entries()], before);
+});
+
+test("blind visual judgments append human receipts by source occurrence without changing the audit", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const runBody = await runResponse.json();
+  const run = structuredClone(store.records.get(auditRunKey(pairActor.id, 0, runBody.currentRun.runId)));
+  run.calibrationAnalysis = {
+    classificationBasis: "blind_to_selection_and_publication_outcome_metadata_proxy",
+    candidates: [{
+      candidateId: "candidate-rejected",
+      occurrenceId: "3:4",
+      query: "hidden query",
+      thumbnail: "https://images.example/rejected.jpg",
+      visualClass: "supporting",
+      classificationMethod: "promise_evidence_proxy",
+      selected: false,
+      dropReason: "promise_not_fulfilled",
+    }, {
+      candidateId: "candidate-unselected",
+      occurrenceId: "3:5",
+      query: "another hidden query",
+      thumbnail: "https://images.example/unselected.jpg",
+      visualClass: "irrelevant",
+      classificationMethod: "promise_evidence_proxy",
+      selected: false,
+      dropReason: null,
+    }],
+  };
+  run.strongestEvent = null;
+  store.records.set(auditRunKey(pairActor.id, 0, run.runId), structuredClone(run));
+  const immutableSource = structuredClone(run);
+  const pendingResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const pending = await pendingResponse.json();
+  assert.equal(pending.currentRun.blindReview.status, "visual_judgment_pending");
+  assert.equal("calibrationAnalysis" in pending.currentRun, false);
+  assert.equal("queryRuns" in pending.currentRun, false);
+  assert.equal("winner" in pending.currentRun, false);
+  const rejectedToken = pending.currentRun.visualJudgmentQueue
+    .find(item => item.thumbnail.endsWith("/rejected.jpg")).judgmentToken;
+  const unselectedToken = pending.currentRun.visualJudgmentQueue
+    .find(item => item.thumbnail.endsWith("/unselected.jpg")).judgmentToken;
+  assert.match(rejectedToken, /^[a-f0-9]{24}$/);
+  assert.doesNotMatch(rejectedToken, /:/);
+
+  const firstResponse = await handler(request("POST", {
+    action: "record_visual_judgment",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: run.runId,
+    judgmentToken: rejectedToken,
+    classification: "core",
+  }), {});
+  const firstBody = await firstResponse.json();
+  assert.equal(firstResponse.status, 200, JSON.stringify(firstBody));
+  assert.equal(firstBody.currentRun.humanVisualJudgments.at(-1).classification, "core");
+  assert.equal(firstBody.currentRun.humanVisualJudgments.at(-1).judgmentToken, rejectedToken);
+  assert.equal("sourceOccurrenceId" in firstBody.currentRun.humanVisualJudgments.at(-1), false);
+  assert.equal(firstBody.currentRun.humanVisualJudgments.at(-1).productionScoringChanged, false);
+
+  const contradictory = await handler(request("POST", {
+    action: "record_visual_judgment",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: run.runId,
+    judgmentToken: rejectedToken,
+    classification: "connective",
+  }), {});
+  assert.equal(contradictory.status, 409);
+
+  const originalList = store.list.bind(store);
+  store.list = async options => options?.prefix?.startsWith(
+    auditVisualJudgmentPrefix(pairActor.id, 0, run.runId),
+  ) ? { blobs: [] } : originalList(options);
+  const unselectedResponse = await handler(request("POST", {
+    action: "record_visual_judgment",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: run.runId,
+    judgmentToken: unselectedToken,
+    classification: "irrelevant",
+  }), {});
+  assert.equal(unselectedResponse.status, 200);
+  assert.equal((await unselectedResponse.json()).currentRun.humanVisualJudgments.length, 2);
+
+  const receipts = [...store.records.entries()]
+    .filter(([key]) => key.startsWith(auditVisualJudgmentPrefix(pairActor.id, 0, run.runId)))
+    .map(([, value]) => value);
+  assert.equal(receipts.length, 2);
+  assert.deepEqual(receipts.map(item => item.sourceOccurrenceId).sort(), ["3:4", "3:5"]);
+  assert.deepEqual(store.records.get(auditRunKey(pairActor.id, 0, run.runId)), immutableSource);
+
+  const invalid = await handler(request("POST", {
+    action: "record_visual_judgment",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: run.runId,
+    judgmentToken: "missing",
+    classification: "irrelevant",
+  }), {});
+  assert.equal(invalid.status, 400);
+
+  const exportResponse = await handler(request(
+    "GET",
+    undefined,
+    `?export=calibration&actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=${run.runId}`,
+  ), {});
+  const exported = await exportResponse.json();
+  assert.deepEqual(exported.classifications.proxy, run.calibrationAnalysis.candidates);
+  assert.deepEqual(exported.classifications.human.map(item => item.classification), ["core", "irrelevant"]);
+});
+
+test("a comparable board run exposes image-only judgments before allowing system reveal", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const runBody = await runResponse.json();
+  const runId = runBody.currentRun.runId;
+  const runKey = auditRunKey(pairActor.id, 0, runId);
+  const run = structuredClone(store.records.get(runKey));
+  run.calibrationAnalysis = {
+    candidates: [{
+      occurrenceId: "7:2",
+      thumbnail: "https://images.example/blind-only.jpg",
+      query: "must stay hidden",
+      visualClass: "contradictory",
+      selected: false,
+      dropReason: null,
+    }],
+  };
+  store.records.set(runKey, run);
+
+  const pendingResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const pending = await pendingResponse.json();
+  assert.equal(pending.currentRun.visualJudgmentQueue.length, 1);
+  assert.equal(pending.currentRun.visualJudgmentQueue[0].thumbnail, "https://images.example/blind-only.jpg");
+  assert.match(pending.currentRun.visualJudgmentQueue[0].judgmentToken, /^[a-f0-9]{24}$/);
+  assert.equal("occurrenceId" in pending.currentRun.visualJudgmentQueue[0], false);
+  assert.equal("calibrationAnalysis" in pending.currentRun, false);
+  assert.equal("winner" in pending.currentRun, false);
+  assert.equal("query" in pending.currentRun.visualJudgmentQueue[0], false);
+  assert.equal("visualClass" in pending.currentRun.visualJudgmentQueue[0], false);
+  const judgmentToken = pending.currentRun.visualJudgmentQueue[0].judgmentToken;
+
+  const earlyReveal = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId, choice: "compiled",
+  }), {});
+  assert.equal(earlyReveal.status, 409);
+
+  const judgment = await handler(request("POST", {
+    action: "record_visual_judgment",
+    actorId: pairActor.id,
+    vibeKey,
+    runId,
+    judgmentToken,
+    classification: "core",
+  }), {});
+  assert.equal(judgment.status, 200);
+
+  const reveal = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId, choice: "compiled",
+  }), {});
+  const revealed = await reveal.json();
+  assert.equal(reveal.status, 200, JSON.stringify(revealed));
+  assert.equal(revealed.currentRun.blindReview.choice, "compiled");
+  assert.ok(revealed.currentRun.blindReview.systemWinner);
 });
 
 test("private calibration export is admin-only, GET-only, and requires a retained run", async () => {

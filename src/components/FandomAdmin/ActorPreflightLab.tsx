@@ -13,7 +13,7 @@ type BoardDiagnostic = { available?: boolean; completeProposalAvailable?: boolea
 
 type RunnerUpDiagnostic = { available?: boolean; minimumCardDifference?: number; qualifiedProposalCount?: number; meaningfulAlternativeCount?: number; rejectedForCardOverlap?: number; rejectedForSameArgument?: number; summary?: string };
 type AuditContract = { status?: 'current'|'legacy'; isCurrent?: boolean; isLegacy?: boolean; legacyReasons?: string[]; currentVersions?: AnyRecord };
-type Run = AnyRecord & { runId?: string; scope?: string; curationVersion?: number; identityProfileVersion?: number; aestheticClusterVersion?: number; promiseContractVersion?: number; queryRuns?: AnyRecord[]; rawResults?: AnyRecord[]; rejections?: AnyRecord[]; identityEvidence?: AnyRecord; detectedEvents?: AnyRecord[]; boardDiagnostics?: { event?: BoardDiagnostic; compiled?: BoardDiagnostic }; runnerUpDiagnostics?: { event?: RunnerUpDiagnostic; compiled?: RunnerUpDiagnostic }; partialClusters?: AnyRecord[]; strongestEvent?: AnyRecord; strongestCompiled?: AnyRecord; winner?: AnyRecord; alternate?: AnyRecord; curationReceipt?: AnyRecord; blindReview?: BlindReview; auditContract?: AuditContract };
+type Run = AnyRecord & { runId?: string; scope?: string; curationVersion?: number; identityProfileVersion?: number; aestheticClusterVersion?: number; promiseContractVersion?: number; queryRuns?: AnyRecord[]; rawResults?: AnyRecord[]; rejections?: AnyRecord[]; identityEvidence?: AnyRecord; detectedEvents?: AnyRecord[]; boardDiagnostics?: { event?: BoardDiagnostic; compiled?: BoardDiagnostic }; runnerUpDiagnostics?: { event?: RunnerUpDiagnostic; compiled?: RunnerUpDiagnostic }; partialClusters?: AnyRecord[]; strongestEvent?: AnyRecord; strongestCompiled?: AnyRecord; winner?: AnyRecord; alternate?: AnyRecord; curationReceipt?: AnyRecord; blindReview?: BlindReview; auditContract?: AuditContract; humanVisualJudgments?: AnyRecord[]; visualJudgmentQueue?: AnyRecord[] };
 
 function confirmsCompleteProposal(diagnostic?: BoardDiagnostic) {
   return Boolean(
@@ -85,6 +85,11 @@ const date = (value: unknown) => value ? new Date(String(value)).toLocaleString(
 const proxiedImageUrl = (url: string) => url.startsWith('/.netlify/functions/image-proxy?')
   ? url
   : `/.netlify/functions/image-proxy?url=${encodeURIComponent(url)}`;
+
+const visualJudgmentCandidates = (run?: Run|null) => Array.isArray(run?.visualJudgmentQueue)
+  ? run.visualJudgmentQueue
+  : (run?.calibrationAnalysis?.candidates??EMPTY_RECORDS)
+    .filter((item:AnyRecord)=>(item?.selected===false||item?.dropReason)&&item?.thumbnail&&item?.occurrenceId);
 export const ActorPreflightLab: React.FC = () => {
   const handoff = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
@@ -161,6 +166,7 @@ export const ActorPreflightLab: React.FC = () => {
   async function saveVerdict(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!verdict)return; setBusy('verdict'); setNotice(''); try { const approved=verdict==='approved'; const operatorBoardRequired=currentRun.blindReview?.status==='unavailable'; const useRescueBoard=approved&&(operatorBoardRequired||rescuePreferred); const result=await api({action:'verdict',actorId,vibeKey,runId:currentRun.runId,verdict,notes,vibeConfirmed:approved&&vibeConfirmed,publishableConfirmed:approved&&publishableConfirmed,rescuePreferred:useRescueBoard,rescueReceiptId:useRescueBoard?preferredRescueReceiptId:undefined}); applyRefresh(result); const next=result.currentRun ?? currentRun; const preference=next?.operatorVerdict?.rescuePreference; const publicationSource=next?.operatorVerdict?.publicationSource; setRun(next); setCurrentRun(next); setVerdict(result.verdict ?? verdict); setNotes(result.notes ?? notes); setRescuePreferred(preference?.preferred === true); setPreferredRescueReceiptId(preference?.rescueReceiptId ?? ''); setNotice(approved?(publicationSource?.type==='operator_rescue'?'Exact nine-card retained-evidence board approved for publication with both human confirmations.':preference?.preferred?'Curator result approved as publishable. Your separate rescue preference was recorded.':'Curator result approved as publishable with both human confirmations.'):'Verdict saved to the curation ledger.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function publishBackfill(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!backfillDate)return; setBusy('backfill'); setNotice(''); try { const receiptId=run?.operatorVerdict?.publicationSource?.type==='operator_rescue'?run.operatorVerdict.publicationSource.rescueReceiptId:preferredRescueReceiptId; const result=await api({action:'publish_backfill',actorId,vibeKey,runId:currentRun.runId,rescueReceiptId:receiptId,date:backfillDate}); setNotice(result.backfill?.status==='already_published'?`The ${backfillDate} edition was already published with this exact board.`:`The approved board is now published as the ${backfillDate} Daily Drop edition.`); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function saveCandidateFlag(candidateId:string,flagged:boolean,intent='pin',reasons:string[]=[] ) { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy(`flag:${candidateId}`); setNotice(''); try { const result=await api({action:'flag_candidate',actorId,vibeKey,runId:currentRun.runId,candidateId,flagged,intent,reasons}); applyRefresh(result); const next=result.currentRun ?? currentRun; setRun(next); setCurrentRun(next); setPriorRuns(result.priorRuns ?? priorRuns); setNotice(flagged?'Image-level editorial intent saved. Safety gates still apply.':'Image annotation removed from the requested grid review.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
+  async function saveVisualJudgment(judgmentToken:string,classification:string) { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy(`visual-judgment:${judgmentToken}`); setNotice(''); try { const result=await api({action:'record_visual_judgment',actorId,vibeKey,runId:currentRun.runId,judgmentToken,classification}); applyRefresh(result); const next=result.currentRun ?? currentRun; setRun(next); setCurrentRun(next); setPriorRuns(result.priorRuns ?? priorRuns); setNotice('Blind image judgment saved as a separate immutable receipt. Production scoring is unchanged.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function saveRescueBoard(candidateIds:string[]) {
     if(!currentRun?.runId||run?.runId!==currentRun.runId)return;
     setBusy('rescue-board'); setNotice('');
@@ -323,6 +329,7 @@ export const ActorPreflightLab: React.FC = () => {
               onNoteChange={setEditorialNote}
               onSaveReasons={saveDisagreement}
               onFlag={saveCandidateFlag}
+               onVisualJudgment={saveVisualJudgment}
               onSaveRescue={saveRescueBoard}
               onExportRescue={exportRescueBoard}
               onMarkCalibration={markRescueCalibration}
@@ -362,11 +369,11 @@ function InfoCard({title,data,keys}:{title:string;data:AnyRecord;keys:string[]})
   return <section className={styles.calibrationProfile} aria-label="Calibration evidence profile"><div><h5>Calibration evidence profile</h5><p>{profile.evidenceCount??0} active · {profile.retiredEvidenceCount??0} retired · {profile.totalConfirmedEvidenceCount??profile.evidenceCount??0} confirmed total</p></div><div className={styles.calibrationLedger}><strong>All current-contract evidence</strong>{evidence.map((item:any)=><article key={item.sourceRescueReceiptId} data-retired={item.status==='retired'}><span>Receipt {String(item.sourceRescueReceiptId).slice(0,8)} · source audit {item.sourceRunId||'unknown'}</span><p>Confirmed {date(item.confirmedAt)} by {item.confirmedBy||'operator'} · {item.status==='retired'?'retired and excluded':'active in future aggregate profiles'}</p>{item.retirement?<small>{item.retirement.reason} · retired {date(item.retirement.retiredAt)} · immutable receipt {String(item.retirement.retirementId||'').slice(0,8)}</small>:<button type="button" className={styles.buttonDanger} disabled={Boolean(busy)} onClick={()=>{setRetiringReceiptId(item.sourceRescueReceiptId);setRetirementReason('')}}>Retire calibration evidence</button>}{retiringReceiptId===item.sourceRescueReceiptId&&!item.retirement&&<form className={styles.retirementForm} onSubmit={async event=>{event.preventDefault();if(!retirementReason.trim())return;const saved=await onRetireCalibration(item.sourceRescueReceiptId,retirementReason);if(saved){setRetiringReceiptId(null);setRetirementReason('')}}}><label className={styles.label}>Why should future audits ignore this evidence?<textarea className={`${styles.input} ${styles.textarea}`} value={retirementReason} maxLength={1000} required onChange={event=>setRetirementReason(event.target.value)} placeholder="Describe what made this calibration example misleading." /></label><p>The original calibration, rescue board, audit, verdict, and eligibility history remain unchanged.</p><div className={styles.rescueActions}><button type="submit" className={styles.buttonDanger} disabled={Boolean(busy)||!retirementReason.trim()}>{busy===`retirement:${item.sourceRescueReceiptId}`?'Retiring evidence…':'Create retirement receipt'}</button><button type="button" className={styles.buttonSecondary} disabled={Boolean(busy)} onClick={()=>{setRetiringReceiptId(null);setRetirementReason('')}}>Cancel</button></div></form>}</article>)}</div>{exclusions.length>0&&<div className={styles.calibrationExclusions}><strong>Excluded from future aggregate profiles</strong>{exclusions.map((item:any)=><article key={item.retirementId||item.sourceRescueReceiptId}><span>Receipt {String(item.sourceRescueReceiptId).slice(0,8)} · retired {date(item.retiredAt)} by {item.retiredBy||'operator'}</span><p>{item.reason}</p><small>Immutable retirement receipt {String(item.retirementId||'').slice(0,8)}</small></article>)}</div>}</section>;
 }
 function RunEvidence({
-  run,currentRun,priorRuns,busy,disagreementReasons,editorialNote,onChoice,onReasonChange,onNoteChange,onSaveReasons,onFlag,onSaveRescue,onExportRescue,onMarkCalibration,onRetireCalibration,onSelect,initialReceiptId,
+  run,currentRun,priorRuns,busy,disagreementReasons,editorialNote,onChoice,onReasonChange,onNoteChange,onSaveReasons,onFlag,onVisualJudgment,onSaveRescue,onExportRescue,onMarkCalibration,onRetireCalibration,onSelect,initialReceiptId,
 }:{
   run:Run|null;currentRun:Run|null;priorRuns:Run[];busy:string;disagreementReasons:string[];editorialNote:string;
   onChoice:(choice:'event'|'compiled'|'neither')=>void;onReasonChange:(reasons:string[])=>void;onNoteChange:(note:string)=>void;
-  onSaveReasons:(event:React.FormEvent)=>void;onFlag:(candidateId:string,flagged:boolean,intent?:string,reasons?:string[])=>void;onSaveRescue:(candidateIds:string[])=>void;onExportRescue:(receiptId:string)=>void;onMarkCalibration:(receiptId:string)=>void;onRetireCalibration:(receiptId:string,reason:string)=>Promise<boolean>;onSelect:(run:Run)=>void;initialReceiptId?:string;
+  onSaveReasons:(event:React.FormEvent)=>void;onFlag:(candidateId:string,flagged:boolean,intent?:string,reasons?:string[])=>void;onVisualJudgment:(occurrenceId:string,classification:string)=>void;onSaveRescue:(candidateIds:string[])=>void;onExportRescue:(receiptId:string)=>void;onMarkCalibration:(receiptId:string)=>void;onRetireCalibration:(receiptId:string,reason:string)=>Promise<boolean>;onSelect:(run:Run)=>void;initialReceiptId?:string;
 }) {
   const review = run?.blindReview;
   const isLegacy = Boolean(run?.auditContract?.isLegacy);
@@ -377,9 +384,18 @@ function RunEvidence({
   const unavailableIds = new Set((run?.rejections ?? []).filter((entry:AnyRecord)=>entry.kind==='image'&&entry.reason==='image_load_failed').map((entry:AnyRecord)=>entry.candidateId));
   const displayableCount = rawResults.filter((item:AnyRecord)=>item.thumbnail&&!unavailableIds.has(item.candidateId)).length;
   const proposedCardCount = completeProposalCardCount(run);
+  const visualCandidates=visualJudgmentCandidates(run);
+  const judgedOccurrences=new Set((run?.humanVisualJudgments??EMPTY_RECORDS).map((receipt:AnyRecord)=>receipt.judgmentToken??receipt.sourceOccurrenceId));
+  const visualJudgmentPending=isCurrent&&!isLegacy&&visualCandidates.some((item:AnyRecord)=>!judgedOccurrences.has(item.judgmentToken??item.occurrenceId));
   const sections: Array<[string, unknown]>=[['Query ladder',run?.queryRuns],['Bounded raw results',run?.rawResults],['Rejection ledger',run?.rejections],['Identity evidence',run?.identityEvidence],['Detected event families',run?.detectedEvents],['Strongest Event board',run?.strongestEvent],['Strongest Compiled board',run?.strongestCompiled],['Winner',run?.winner],['Alternate',run?.alternate],['Operator-derived curation signals',run?.curationReceipt?.calibrationSignals],['Calibration transfer proof',run?.calibrationProof],['Curation receipt',run?.curationReceipt],['Blind calibration receipt',run?.blindReview],['Scheduling verdict',run?.operatorVerdict]];
   const boards = review?.boards ?? [];
   const disagreed = revealed && review?.agreement !== true;
+  if(visualJudgmentPending)return <article id="actor-audit-evidence" className={`${styles.card} ${styles.cardWide}`}>
+    <h5>Image-only calibration · audit {run?.runId}</h5>
+    <BlindVisualJudgments run={run as Run} isCurrent busy={busy} onSave={onVisualJudgment}/>
+    <p className={styles.blindIsolationNotice}>Audit queries, ranks, proxy labels, board results, and system outcomes stay unavailable until every rejected thumbnail has one human judgment.</p>
+    {currentRun&&<label className={styles.label}>Audit run<select className={styles.select} value={run?.runId ?? ''} onChange={e=>{const selected=[currentRun,...priorRuns].find(item=>item.runId===e.target.value);if(selected)onSelect(selected)}}><option value={currentRun.runId}>Current · {currentRun.runId} · {date(currentRun.completedAt)}</option>{priorRuns.map(item=><option key={item.runId} value={item.runId}>Retained · {item.runId} · {date(item.completedAt)}</option>)}</select></label>}
+  </article>;
   return <article id="actor-audit-evidence" className={`${styles.card} ${styles.cardWide} ${isLegacy?styles.legacyCard:''}`}>
     <h5>{isLegacy?'Legacy audit · retained history':'Audit evidence'} {run?.runId?`· ${run.runId}`:''}</h5>
     {run ? <>
@@ -406,12 +422,19 @@ function RunEvidence({
         </form>}
         {disagreed && isCurrent && run.operatorVerdict && <p className={styles.historicalNotice}>The scheduling receipt is finalized, so its calibration reasons stay frozen. Image-level pins and exclusions below remain editable as separate review receipts.</p>}
       </section>}
-      {evidenceAvailable && <><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{proposedCardCount}</strong><span>complete proposal cards</span><strong>{run.displayCount ?? 0}</strong><span>automatically publication-ready cards</span><strong>{run.queryCount ?? run.queryRuns?.length ?? 0}</strong><span>queries audited</span><strong>{rawResults.length}</strong><span>retained results</span></div><CandidateFunnelSummary run={run}/><CalibrationLearningSummary run={run}/><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration} initialReceiptId={initialReceiptId}/><div className={styles.evidence}>{sections.map(([label,value])=><details key={label}><summary>{label} <span className={styles.muted}>{Array.isArray(value)?`${value.length} records`:''}</span></summary>{label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} busy={busy} onFlag={onFlag}/> : <pre>{text(value)}</pre>}</details>)}</div></>}
+      {evidenceAvailable && <><BlindVisualJudgments run={run} isCurrent={isCurrent&&!isLegacy} busy={busy} onSave={onVisualJudgment}/><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{proposedCardCount}</strong><span>complete proposal cards</span><strong>{run.displayCount ?? 0}</strong><span>automatically publication-ready cards</span><strong>{run.queryCount ?? run.queryRuns?.length ?? 0}</strong><span>queries audited</span><strong>{rawResults.length}</strong><span>retained results</span></div><CandidateFunnelSummary run={run}/><CalibrationLearningSummary run={run}/><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration} initialReceiptId={initialReceiptId}/><div className={styles.evidence}>{sections.map(([label,value])=><details key={label}><summary>{label} <span className={styles.muted}>{Array.isArray(value)?`${value.length} records`:''}</span></summary>{label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} busy={busy} onFlag={onFlag}/> : <pre>{text(value)}</pre>}</details>)}</div></>}
     </> : <p className={styles.empty}>Run an audit to open a blinded Event versus Compiled comparison.</p>}
     {currentRun&&<label className={styles.label}>Audit run<select className={styles.select} value={run?.runId ?? ''} onChange={e=>{const selected=[currentRun,...priorRuns].find(item=>item.runId===e.target.value);if(selected)onSelect(selected)}}><option value={currentRun.runId}>{currentRun.auditContract?.isLegacy?'Legacy history':'Current'} · {currentRun.runId} · {date(currentRun.completedAt)}</option>{priorRuns.map(item=><option key={item.runId} value={item.runId}>{item.auditContract?.isLegacy?'Legacy history':'Retained'} · {item.runId} · {date(item.completedAt)}</option>)}</select></label>}
   </article>;
 }
 
+const VISUAL_JUDGMENTS: Array<[string,string]> = [
+  ['core','Core'],
+  ['supporting','Supporting'],
+  ['connective','Connective'],
+  ['contradictory','Contradictory'],
+  ['irrelevant','Irrelevant'],
+];
 function RawResultGrid({run,isCurrent,busy,onFlag}:{run:Run;isCurrent:boolean;busy:string;onFlag:(candidateId:string,flagged:boolean,intent?:string,reasons?:string[])=>void}) {
   const rawResults = Array.isArray(run.rawResults) ? run.rawResults : [];
   const [challengeByCandidate,setChallengeByCandidate]=useState<Record<string,string>>({});
@@ -736,4 +759,30 @@ function collectionGridFromRescueExport(rescue: RescueExport): GridRecord {
       gridPosition,
     })),
   };
+}
+
+function BlindVisualJudgments({run,isCurrent,busy,onSave}:{run:Run;isCurrent:boolean;busy:string;onSave:(occurrenceId:string,classification:string)=>void}) {
+  const candidates=visualJudgmentCandidates(run);
+  const receipts=run.humanVisualJudgments??EMPTY_RECORDS;
+  const [activeIndex,setActiveIndex]=useState(0);
+  useEffect(()=>setActiveIndex(0),[run.runId]);
+  if(!candidates.length)return null;
+  const judgedOccurrences=new Set(receipts.map((receipt:AnyRecord)=>receipt.judgmentToken??receipt.sourceOccurrenceId));
+  const firstUnjudged=candidates.findIndex((item:AnyRecord)=>!judgedOccurrences.has(item.judgmentToken??item.occurrenceId));
+  if(firstUnjudged<0)return null;
+  const safeIndex=Math.min(activeIndex||firstUnjudged,candidates.length-1);
+  const candidate=candidates[safeIndex];
+  const occurrenceReceipts=receipts.filter((receipt:AnyRecord)=>(receipt.judgmentToken??receipt.sourceOccurrenceId)===(candidate.judgmentToken??candidate.occurrenceId));
+  const working=busy===`visual-judgment:${candidate.judgmentToken??candidate.occurrenceId}`;
+  return <section className={styles.visualJudgment} aria-label="Blind rejected thumbnail review">
+    <div className={styles.visualJudgmentHeader}><div><h6>Blind visual judgment</h6><p>Judge only the image. Query, rank, proxy class, and system outcome are hidden here. Each choice creates a separate immutable human receipt and does not change production scoring.</p></div><span>{safeIndex+1}/{candidates.length} · {receipts.length} receipt{receipts.length===1?'':'s'}</span></div>
+    <div className={styles.visualJudgmentStage}>
+      <button type="button" className={styles.visualJudgmentNav} disabled={safeIndex===0} onClick={()=>setActiveIndex(index=>Math.max(0,index-1))}>Previous</button>
+      <div className={styles.visualJudgmentImage}>{candidate.thumbnail?<img src={proxiedImageUrl(candidate.thumbnail)} alt="Rejected thumbnail for blind visual judgment"/>:<span className={styles.resultPlaceholder}>No image</span>}</div>
+      <button type="button" className={styles.visualJudgmentNav} disabled={safeIndex===candidates.length-1} onClick={()=>setActiveIndex(index=>Math.min(candidates.length-1,index+1))}>Next</button>
+    </div>
+    <div className={styles.visualJudgmentChoices}>{VISUAL_JUDGMENTS.map(([value,label])=><button type="button" className={styles.buttonSecondary} key={value} disabled={!isCurrent||working} onClick={()=>onSave(candidate.judgmentToken??candidate.occurrenceId,value)}>{label}</button>)}</div>
+    {occurrenceReceipts.length>0&&<div className={styles.visualJudgmentHistory}><strong>Saved human judgment</strong>{occurrenceReceipts.map((receipt:AnyRecord)=><span key={receipt.receiptId}>{receipt.classification} · {date(receipt.judgedAt)} · receipt {String(receipt.receiptId).slice(0,8)}</span>)}</div>}
+    {!isCurrent&&<small className={styles.historicalNotice}>Historical and Legacy runs are view-only. Open the current audit to record a judgment.</small>}
+  </section>;
 }

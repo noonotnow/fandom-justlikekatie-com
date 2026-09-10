@@ -24,6 +24,9 @@ export const auditCalibrationPrefix = (actorId, vibeIdx, runId) => `calibrations
 export const auditCalibrationKey = (actorId, vibeIdx, runId, receiptId = "canonical") => `${auditCalibrationPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
 export const auditCalibrationReasonsPrefix = (actorId, vibeIdx, runId) => `calibration-reasons/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
 export const auditCalibrationReasonsKey = (actorId, vibeIdx, runId, receiptId = "canonical") => `${auditCalibrationReasonsPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
+export const auditVisualJudgmentPrefix = (actorId, vibeIdx, runId) => `visual-judgments/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
+export const auditVisualJudgmentKey = (actorId, vibeIdx, runId, receiptId) => `${auditVisualJudgmentPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
+export const auditVisualJudgmentIndexKey = (actorId, vibeIdx, runId) => `visual-judgment-index/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}`;
 export const auditFeedbackPrefix = (actorId, vibeIdx, runId) => `feedback/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
 export const auditFeedbackKey = (actorId, vibeIdx, runId, receiptId) => `${auditFeedbackPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
 export const auditMisprintGlobalPrefix = () => "misprints/global/";

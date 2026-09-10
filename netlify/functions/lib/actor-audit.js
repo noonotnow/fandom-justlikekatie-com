@@ -18,6 +18,9 @@ import {
   auditCalibrationPrefix,
   auditCalibrationReasonsKey,
   auditCalibrationReasonsPrefix,
+  auditVisualJudgmentKey,
+  auditVisualJudgmentPrefix,
+  auditVisualJudgmentIndexKey,
   auditFeedbackKey,
   auditFeedbackPrefix,
   auditMisprintActorPrefix,
@@ -169,6 +172,13 @@ const VERDICTS = new Set([
   "do_not_schedule",
 ]);
 const BLIND_CHOICES = new Set(["event", "compiled", "neither"]);
+const VISUAL_JUDGMENT_CLASSES = new Set([
+  "core",
+  "supporting",
+  "connective",
+  "contradictory",
+  "irrelevant",
+]);
 const DISAGREEMENT_REASONS = new Set([
   "better_individual_cards",
   "stronger_overall_cohesion",
@@ -275,8 +285,9 @@ export function createActorAuditHandler({
           consistency: "strong",
         });
         if (!run) return json(404, { error: `Source audit run ${runId} is no longer retained.`, runId });
+        const humanVisualJudgments = await readVisualJudgments(store, pair, run.runId);
+        const payload = calibrationAuditExport(run, pair, humanVisualJudgments);
         const publicationInventory = await readPublicationManifests(getPublicationStore(context));
-        const payload = calibrationAuditExport(run, pair);
         payload.publicationJoinReceipt = publicationJoinReceipt(
           run,
           pair,
@@ -857,6 +868,9 @@ export function createActorAuditHandler({
         if (!comparableBoards(report.currentRun)) {
           return json(409, { error: "A blinded comparison requires two complete Event and Compiled boards." });
         }
+        if (!visualJudgmentsComplete(report.currentRun)) {
+          return json(409, { error: "Complete the image-only judgments before revealing the board comparison result." });
+        }
         if (!BLIND_CHOICES.has(input.choice)) {
           return json(400, { error: "Choose Event, Compiled, or Neither." });
         }
@@ -883,6 +897,69 @@ export function createActorAuditHandler({
         if (next.currentRun?.blindReview?.choice !== input.choice) {
           return json(409, { error: "Another operator recorded the independent choice first." });
         }
+        return json(200, {
+          actor: await actorSummary(store, actorPacks, pair.actor),
+          pairing: pairingSummary(pair, next),
+          ...detailResponse(pair, next),
+        });
+      }
+
+      if (input.action === "record_visual_judgment") {
+        const report = await readReport(store, pair);
+        if (!report?.currentRun || input.runId !== report.currentRun.runId) {
+          return json(409, { error: "This judgment is not for the current audit run. Refresh and try again." });
+        }
+        if (!currentRunMatchesCurrentContract(report.currentRun, pair)) {
+          return json(409, { error: "Legacy audits are retained history. Run a fresh audit before recording visual judgments." });
+        }
+        if (!VISUAL_JUDGMENT_CLASSES.has(input.classification)) {
+          return json(400, { error: "Choose core, supporting, connective, contradictory, or irrelevant." });
+        }
+        const judgmentToken = boundedText(input.judgmentToken, 160);
+        const source = report.currentRun.calibrationAnalysis?.candidates
+          ?.find(candidate =>
+            candidate?.occurrenceId
+            && visualJudgmentToken(report.currentRun.runId, candidate.occurrenceId) === judgmentToken);
+        if (!source || (source.selected !== false && !source.dropReason) || !source.thumbnail) {
+          return json(400, { error: "Choose a rejected thumbnail retained by this audit occurrence." });
+        }
+        const receiptId = `visual-${judgmentToken}`;
+        const key = auditVisualJudgmentKey(
+          pair.actor.id,
+          pair.vibeIdx,
+          report.currentRun.runId,
+          receiptId,
+        );
+        const proposedReceipt = {
+          schemaVersion: 1,
+          receiptId,
+          runId: report.currentRun.runId,
+          sourceOccurrenceId: source.occurrenceId,
+          classification: input.classification,
+          judgmentMethod: "blind_image_only",
+          judgedAt: now().toISOString(),
+          judgedBy: operator.user.accountId,
+          productionScoringChanged: false,
+        };
+        const write = await store.setJSON(key, proposedReceipt, { onlyIfNew: true });
+        const receipt = write?.modified === false
+          ? await store.get(key, { type: "json", consistency: "strong" })
+          : proposedReceipt;
+        if (write?.modified === false) {
+          if (!receipt || receipt.classification !== input.classification) {
+            return json(409, { error: "This image already has an immutable human judgment." });
+          }
+        }
+        const indexed = await appendVisualJudgmentIndex(
+          store,
+          pair,
+          report.currentRun.runId,
+          receipt,
+        );
+        if (!indexed) {
+          return json(503, { error: "The judgment was saved, but its receipt index is busy. Retry to create a complete receipt." });
+        }
+        const next = await readReport(store, pair);
         return json(200, {
           actor: await actorSummary(store, actorPacks, pair.actor),
           pairing: pairingSummary(pair, next),
@@ -3597,7 +3674,7 @@ async function readRun(store, pair, runId) {
 
 async function attachVerdict(store, pair, run) {
   const normalizedRun = normalizeLegacyRunEvidence(run);
-  const [operatorVerdict, calibration, reasons, editorialFeedback] = await Promise.all([
+  const [operatorVerdict, calibration, reasons, editorialFeedback, humanVisualJudgments] = await Promise.all([
     readCanonicalReceipt(
       store,
       auditVerdictKey(pair.actor.id, pair.vibeIdx, normalizedRun.runId),
@@ -3607,6 +3684,7 @@ async function attachVerdict(store, pair, run) {
     readFirstReceipt(store, auditCalibrationPrefix(pair.actor.id, pair.vibeIdx, normalizedRun.runId), "chosenAt"),
     readFirstReceipt(store, auditCalibrationReasonsPrefix(pair.actor.id, pair.vibeIdx, normalizedRun.runId), "annotatedAt"),
     readEditorialFeedback(store, pair, normalizedRun),
+    readVisualJudgments(store, pair, normalizedRun.runId),
   ]);
   const boardDiagnostics = normalizedRun.boardDiagnostics
     || boardDiagnosticsFromRetainedEvidence(normalizedRun);
@@ -3614,6 +3692,7 @@ async function attachVerdict(store, pair, run) {
     ...normalizedRun,
     boardDiagnostics,
     editorialFeedback,
+    humanVisualJudgments,
     operatorVerdict: operatorVerdict || null,
     blindReview: calibration
       ? { ...calibration, ...(reasons || {}) }
@@ -3635,7 +3714,7 @@ async function attachVerdict(store, pair, run) {
 // This is deliberately a projection rather than a serialization of the client
 // run.  Calibration exports are an evidence record: they must not acquire
 // operator-only UI state or accidentally become a second publication format.
-function calibrationAuditExport(run, pair) {
+function calibrationAuditExport(run, pair, humanVisualJudgments = []) {
   const fields = [
     "scope", "startedAt", "completedAt", "provider", "queryRuns", "rawResults",
     "ranking", "rankedResults", "identityEvidence", "promise", "promiseEvidence",
@@ -3671,6 +3750,10 @@ function calibrationAuditExport(run, pair) {
     export: exportMetadata,
     source: { actorId: pair.actor.id, vibeKey: pair.vibeKey, runId: run.runId },
     run: projectedRun,
+    classifications: {
+      proxy: run.calibrationAnalysis?.candidates || [],
+      human: humanVisualJudgments,
+    },
   };
 }
 
@@ -3757,14 +3840,15 @@ async function dateBoundedCalibrationAuditExport(
   let scannedRunCount = 0;
   let listingTruncated = false;
   let outputTruncated = false;
-  const appendRun = (run, pair) => {
+  const appendRun = async (run, pair) => {
     const runDate = retainedRunDate(run);
     if (!run || !runDate || runDate < range.from || runDate > range.to) return;
     if (exports.length >= MAX_EXPORT_OUTPUT_RUNS) {
       outputTruncated = true;
       return;
     }
-    const item = calibrationAuditExport(run, pair);
+    const humanVisualJudgments = await readVisualJudgments(store, pair, run.runId);
+    const item = calibrationAuditExport(run, pair, humanVisualJudgments);
     item.publicationJoinReceipt = publicationJoinReceipt(
       run,
       pair,
@@ -3796,7 +3880,7 @@ async function dateBoundedCalibrationAuditExport(
     currentRunKeys.set(pair.vibeKey, key);
     scannedRunCount += 1;
     const run = await store.get(key, { type: "json", consistency: "strong" });
-    appendRun(run, pair);
+    await appendRun(run, pair);
   }
 
   // Second pass: fill the remaining bounded capacity from eventually
@@ -3816,7 +3900,7 @@ async function dateBoundedCalibrationAuditExport(
         }
         scannedRunCount += 1;
         const run = await store.get(key, { type: "json", consistency: "strong" });
-        appendRun(run, pair);
+        await appendRun(run, pair);
         if (outputTruncated) break;
       }
     if (scannedRunCount >= MAX_EXPORT_SCANNED_RUNS || outputTruncated) break;
@@ -5839,7 +5923,8 @@ function clientRun(run, pair) {
     presentationOrder: presentationOrderFor(run.runId),
     boards: blindBoards(run, presentationOrderFor(run.runId)),
   };
-  if (auditContract.isLegacy || review.choice || review.status === "unavailable") {
+  const visualPending = auditContract.isCurrent && !visualJudgmentsComplete(run);
+  if (!visualPending && (auditContract.isLegacy || review.choice || review.status === "unavailable")) {
     return { ...run, auditContract };
   }
   return {
@@ -5855,13 +5940,33 @@ function clientRun(run, pair) {
     startedAt: run.startedAt,
     completedAt: run.completedAt,
     queryCount: run.queryCount,
-    blindReview: review,
+    humanVisualJudgments: (run.humanVisualJudgments || []).map(receipt => ({
+      receiptId: receipt.receiptId,
+      judgmentToken: visualJudgmentToken(run.runId, receipt.sourceOccurrenceId),
+      classification: receipt.classification,
+      judgedAt: receipt.judgedAt,
+      productionScoringChanged: false,
+    })),
+    visualJudgmentQueue: visualJudgmentQueue(run),
+    blindReview: visualPending ? { status: "visual_judgment_pending" } : review,
     actorId: pair.actor.id,
     vibeKey: pair.vibeKey,
     auditContract,
   };
 }
 
+function visualJudgmentQueue(run) {
+  return (run?.calibrationAnalysis?.candidates || [])
+    .filter(candidate =>
+      (candidate?.selected === false || candidate?.dropReason)
+      && candidate?.thumbnail
+      && candidate?.occurrenceId)
+    .map(candidate => ({
+      judgmentToken: visualJudgmentToken(run.runId, candidate.occurrenceId),
+      thumbnail: candidate.thumbnail,
+    }))
+    .sort((left, right) => left.judgmentToken.localeCompare(right.judgmentToken));
+}
 async function readFirstReceipt(store, prefix, timestampField) {
   const listing = await store.list({ prefix });
   const receipts = (await Promise.all((listing?.blobs || []).map(async blob => {
@@ -5873,6 +5978,56 @@ async function readFirstReceipt(store, prefix, timestampField) {
     String(left.value[timestampField] || "").localeCompare(String(right.value[timestampField] || ""))
     || left.key.localeCompare(right.key));
   return receipts[0]?.value || null;
+}
+
+async function readAllReceipts(store, prefix, timestampField) {
+  const listing = await store.list({ prefix });
+  const receipts = (await Promise.all((listing?.blobs || []).map(blob =>
+    store.get(blob.key, { type: "json", consistency: "strong" }))))
+    .filter(Boolean);
+  return receipts.sort((left, right) =>
+    String(left?.[timestampField] || "").localeCompare(String(right?.[timestampField] || ""))
+    || String(left?.receiptId || "").localeCompare(String(right?.receiptId || "")));
+}
+
+async function appendVisualJudgmentIndex(store, pair, runId, receipt) {
+  const key = auditVisualJudgmentIndexKey(pair.actor.id, pair.vibeIdx, runId);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const current = await store.getWithMetadata(key, { type: "json", consistency: "strong" });
+    const next = {
+      schemaVersion: 1,
+      runId,
+      receiptIds: [...new Set([...(current?.data?.receiptIds || []), receipt.receiptId])],
+      updatedAt: receipt.judgedAt,
+    };
+    const write = await store.setJSON(key, next, current
+      ? { onlyIfMatch: current.etag }
+      : { onlyIfNew: true });
+    if (write?.modified !== false) return true;
+  }
+  return false;
+}
+
+async function readVisualJudgments(store, pair, runId) {
+  const index = await store.get(
+    auditVisualJudgmentIndexKey(pair.actor.id, pair.vibeIdx, runId),
+    { type: "json", consistency: "strong" },
+  );
+  const indexed = await Promise.all((index?.receiptIds || []).map(receiptId =>
+    store.get(
+      auditVisualJudgmentKey(pair.actor.id, pair.vibeIdx, runId, receiptId),
+      { type: "json", consistency: "strong" },
+    )));
+  const listed = await readAllReceipts(
+    store,
+    auditVisualJudgmentPrefix(pair.actor.id, pair.vibeIdx, runId),
+    "judgedAt",
+  );
+  const receipts = [...indexed, ...listed].filter(Boolean);
+  return [...new Map(receipts.map(receipt => [receipt.receiptId, receipt])).values()]
+    .sort((left, right) =>
+      String(left?.judgedAt || "").localeCompare(String(right?.judgedAt || ""))
+      || String(left?.receiptId || "").localeCompare(String(right?.receiptId || "")));
 }
 
 async function readCanonicalReceipt(store, key, prefix, timestampField) {
@@ -6086,4 +6241,23 @@ function requireSameOrigin(req) {
 
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function visualJudgmentsComplete(run) {
+  const judged = new Set((run?.humanVisualJudgments || [])
+    .map(receipt => receipt?.sourceOccurrenceId)
+    .filter(Boolean));
+  return (run?.calibrationAnalysis?.candidates || [])
+    .filter(candidate =>
+      (candidate?.selected === false || candidate?.dropReason)
+      && candidate?.thumbnail
+      && candidate?.occurrenceId)
+    .every(candidate => judged.has(candidate.occurrenceId));
+}
+
+function visualJudgmentToken(runId, occurrenceId) {
+  return createHash("sha256")
+    .update(`visual-judgment:${runId}:${occurrenceId}`)
+    .digest("hex")
+    .slice(0, 24);
 }
