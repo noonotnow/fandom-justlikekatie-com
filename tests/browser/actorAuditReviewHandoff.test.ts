@@ -569,12 +569,17 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
         classification: input.classification,
         judgedAt: '2026-09-10T12:00:00.000Z',
       });
+      const response = responseBody(
+        visualReviewRun(visualJudgments),
+        'needs_operator_verdict',
+      );
+      response.priorRuns = [
+        archivedVisualReviewRun('visual-review-retained'),
+        archivedVisualReviewRun('visual-review-legacy', true),
+      ];
       await route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify(responseBody(
-          visualReviewRun(visualJudgments),
-          'needs_operator_verdict',
-        )),
+        body: JSON.stringify(response),
       });
       return;
     }
@@ -1072,8 +1077,15 @@ test('an authenticated image-only review hides system cues until every occurrenc
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
 
+    const assertHistoryLabels = async () => {
+      const runSelect = page.getByLabel('Audit run');
+      assert.match(await runSelect.locator('option[value="visual-review-current"]').textContent() ?? '', /^Current · visual-review-current · /);
+      assert.match(await runSelect.locator('option[value="visual-review-retained"]').textContent() ?? '', /^Retained · visual-review-retained · /);
+      assert.match(await runSelect.locator('option[value="visual-review-legacy"]').textContent() ?? '', /^Legacy history · visual-review-legacy · /);
+    };
     const review = page.getByLabel('Blind rejected thumbnail review');
     await review.getByRole('img', { name: 'Rejected thumbnail for blind visual judgment' }).waitFor();
+    await assertHistoryLabels();
     for (const choice of ['Core', 'Supporting', 'Connective', 'Contradictory', 'Irrelevant']) {
       assert.equal(
         await review.getByRole('button', { name: choice, exact: true }).isVisible(),
@@ -1106,6 +1118,7 @@ test('an authenticated image-only review hides system cues until every occurrenc
     await review.getByRole('button', { name: 'Supporting', exact: true }).click();
     await page.getByRole('heading', { name: 'Audit evidence · visual-review-current', exact: true }).waitFor();
     await page.getByLabel('Visual board comparison').waitFor();
+    await assertHistoryLabels();
     const queryDiagnostics = page.locator('summary').filter({ hasText: 'Query ladder' });
     assert.equal(await queryDiagnostics.count(), 1);
     await queryDiagnostics.click();
