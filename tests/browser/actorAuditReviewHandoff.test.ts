@@ -298,7 +298,7 @@ function responseBody(
   };
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, failVisualJudgment = false, unfinishedBoardReview = false } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, unfinishedBoardReview = false } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   exportRequests: AnyRecord[];
@@ -311,7 +311,15 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
   let calibrationConfirmed = false;
   let runNumber = 0;
   let revealed = false;
-  const visualJudgments: AnyRecord[] = [];
+  const visualJudgments: AnyRecord[] = completedVisualReview
+    ? [0, 1].map(index => ({
+      receiptId: `visual-receipt-${index + 1}`,
+      judgmentToken: `visual-token-${index + 1}`,
+      sourceOccurrenceId: `visual-token-${index + 1}`,
+      classification: index === 0 ? 'core' : 'supporting',
+      judgedAt: '2026-09-10T12:00:00.000Z',
+    }))
+    : [];
   const auditRequests: AnyRecord[] = [];
   const calibrationRequests: AnyRecord[] = [];
   const exportRequests: AnyRecord[] = [];
@@ -1345,6 +1353,62 @@ test('a direct unfinished retained-review handoff stays read-only and blinded be
     assert.equal(new URL(page.url()).searchParams.has('runId'), false);
     assert.equal(new URL(page.url()).searchParams.has('receiptId'), false);
     assert.equal(auditRequests.filter(request => request.action === 'record_visual_judgment').length, 0);
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('a direct retained-review handoff stays read-only when the current image-only review is completed', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { auditRequests } = await configureNetwork(page, { visualReview: true, completedVisualReview: true });
+
+  async function assertHistoricalReview() {
+    await page.getByText('Image-only calibration · audit visual-review-retained', { exact: true }).waitFor();
+    const review = page.getByLabel('Blind rejected thumbnail review');
+    await review.getByRole('img', { name: 'Rejected thumbnail for blind visual judgment' }).waitFor();
+    for (const choice of ['Core', 'Supporting', 'Connective', 'Contradictory', 'Irrelevant']) {
+      assert.equal(
+        await review.getByRole('button', { name: choice, exact: true }).isDisabled(),
+        true,
+        `the direct-linked retained review must disable the ${choice} choice`,
+      );
+    }
+    assert.equal(
+      await page.getByText('Historical and Legacy runs are view-only. Open the current audit to record a judgment.', { exact: true }).isVisible(),
+      true,
+    );
+  }
+
+  try {
+    const params = new URLSearchParams({
+      admin: 'true',
+      actorId: ACTOR_ID,
+      vibeKey: VIBE_KEY,
+      runId: 'visual-review-retained',
+      receiptId: 'visual-review-receipt-retained',
+    });
+    await page.goto(`${origin}/vibe-atlas?${params}`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await assertHistoricalReview();
+
+    const runSelect = page.getByLabel('Audit run');
+    await runSelect.selectOption('visual-review-current');
+    await page.getByRole('heading', { name: 'Audit evidence · visual-review-current', exact: true }).waitFor();
+    assert.equal(await page.getByLabel('Visual board comparison').isVisible(), true);
+    assert.equal(await page.getByLabel('Blind rejected thumbnail review').count(), 0);
+    assert.equal(new URL(page.url()).searchParams.has('runId'), false);
+    assert.equal(new URL(page.url()).searchParams.has('receiptId'), false);
+
+    await runSelect.selectOption('visual-review-retained');
+    await assertHistoricalReview();
+    assert.equal(
+      auditRequests.filter(request => request.action === 'record_visual_judgment').length,
+      0,
+      'completed direct-link history switching must not create additional judgment receipts',
+    );
   } finally {
     await browser.close();
     await server.close();
