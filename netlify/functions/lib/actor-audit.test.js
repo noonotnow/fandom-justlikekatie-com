@@ -1018,6 +1018,11 @@ test("date-bounded calibration export includes only retained runs in range and n
     dayCount: 31,
   });
   assert.equal(payload.exportMetadata.runCount, 1);
+  assert.equal(payload.editorialReview.runSummary.includedRunCount, 0);
+  assert.equal(payload.editorialReview.runSummary.excludedRunCount, 1);
+  assert.deepEqual(payload.editorialReview.runLedger[0].exclusionReasons, [
+    "below_minimum_sample",
+  ]);
   assert.equal(payload.runs[0].run.runId, inRange.runId);
   assert.match(payload.runs[0].links.pairing, /adminView=actor-preflight/);
   assert.deepEqual(payload.runs[0].links.editions, [{
@@ -1040,6 +1045,169 @@ test("date-bounded calibration export includes only retained runs in range and n
   ), {});
   assert.equal(impossibleDate.status, 400);
   assert.equal(vibeKey, "liu-xueyi:0");
+});
+
+test("date-bounded calibration packet aggregates only complete clean samples and reports repeated transitions", async () => {
+  const { handler, store } = harness();
+  const makeRun = (runId, completedAt, classifications, options = {}) => ({
+    runId,
+    scope: "full",
+    startedAt: "2026-08-10T12:00:00.000Z",
+    ...(completedAt ? { completedAt } : {}),
+    calibrationAnalysis: {
+      candidates: classifications.map((classification, index) => ({
+        occurrenceId: `${runId}:${index}`,
+        thumbnail: `https://images.example/${runId}-${index}.jpg`,
+        query: "portrait ladder",
+        ladderRung: 1,
+        visualClass: "supporting",
+        selected: false,
+        dropReason: "unusable_image",
+      })),
+      queryVisualYield: [{ query: "portrait ladder", ladderRung: 1 }],
+    },
+    options,
+  });
+  const runs = [
+    makeRun("repeat-a", "2026-08-10T12:01:00.000Z", ["core", "core", "supporting", "supporting", "supporting"]),
+    makeRun("repeat-b", "2026-08-11T12:01:00.000Z", ["core", "supporting", "supporting", "supporting", "supporting"]),
+    makeRun("missing", "2026-08-12T12:01:00.000Z", ["core", "supporting", "supporting", "supporting", "supporting", "supporting"]),
+    makeRun("incomplete", null, ["core", "supporting", "supporting", "supporting", "supporting"]),
+  ];
+  for (const run of runs) {
+    store.records.set(auditRunKey(pairActor.id, 0, run.runId), run);
+    const classes = run.runId === "missing"
+      ? ["core", "supporting", "supporting", "supporting", "supporting"]
+      : ["core", "supporting", "supporting", "supporting", "supporting"];
+    classes.forEach((classification, index) => {
+      const receiptId = `${run.runId}-judgment-${index}`;
+      store.records.set(auditVisualJudgmentKey(pairActor.id, 0, run.runId, receiptId), {
+        receiptId,
+        runId: run.runId,
+        sourceOccurrenceId: `${run.runId}:${index}`,
+        classification,
+        judgedAt: "2026-08-15T00:00:00.000Z",
+      });
+    });
+  }
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    "?export=calibration&from=2026-08-01&to=2026-08-31",
+  ), {});
+  const packet = (await response.json()).editorialReview;
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(packet.runSummary, {
+    retainedRunCount: 4,
+    includedRunCount: 2,
+    excludedRunCount: 2,
+  });
+  assert.equal(packet.totals.reviewedCount, 10);
+  assert.equal(packet.totals.disagreementCount, 2);
+  assert.equal(packet.totals.agreementRate, 0.8);
+  assert.deepEqual(packet.runLedger.find(item => item.runId === "missing").exclusionReasons, [
+    "missing_judgments",
+  ]);
+  assert.ok(packet.runLedger.find(item => item.runId === "missing").missingOccurrences.length === 1);
+  assert.ok(packet.runLedger.find(item => item.runId === "incomplete").exclusionReasons.includes("run_incomplete"));
+  assert.deepEqual(packet.repeatedDisagreements.map(item => ({
+    dimension: item.dimension,
+    key: item.key,
+    transition: item.transition,
+    runCount: item.runCount,
+    occurrenceCount: item.occurrenceCount,
+  })), [
+    {
+      dimension: "byProxyClass",
+      key: "supporting",
+      transition: "supporting → core",
+      runCount: 2,
+      occurrenceCount: 2,
+    },
+    {
+      dimension: "byQueryLadder",
+      key: "portrait ladder · rung 1",
+      transition: "supporting → core",
+      runCount: 2,
+      occurrenceCount: 2,
+    },
+    {
+      dimension: "byRejectionStage",
+      key: "pre_analysis_filter",
+      transition: "supporting → core",
+      runCount: 2,
+      occurrenceCount: 2,
+    },
+  ]);
+  assert.equal(packet.recommendation.productionScoringChanged, false);
+  assert.equal(packet.recommendation.requiresSeparateApproval, true);
+});
+
+test("cross-audit packet scopes repeated-run support by actor and Vibe when run IDs collide", async () => {
+  const actor = {
+    ...pairActor,
+    vibes: [
+      pairActor.vibes[0],
+      { ...pairActor.vibes[0], label_en: "Second Vibe" },
+    ],
+  };
+  const { handler, store } = harness({ actorPacks: [actor] });
+  const runId = "pair-scoped-run";
+  for (let vibeIdx = 0; vibeIdx < 2; vibeIdx += 1) {
+    const candidateCount = vibeIdx === 0 ? 5 : 6;
+    const run = {
+      runId,
+      scope: "full",
+      startedAt: "2026-08-20T12:00:00.000Z",
+      completedAt: "2026-08-20T12:01:00.000Z",
+      calibrationAnalysis: {
+        candidates: Array.from({ length: candidateCount }, (_, index) => ({
+          occurrenceId: `${vibeIdx}:${index}`,
+          thumbnail: `https://images.example/${vibeIdx}-${index}.jpg`,
+          query: "shared query",
+          ladderRung: 0,
+          visualClass: "supporting",
+          selected: false,
+          dropReason: "unusable_image",
+        })),
+      },
+    };
+    store.records.set(auditRunKey(actor.id, vibeIdx, runId), run);
+    for (let index = 0; index < 5; index += 1) {
+      const receiptId = `${vibeIdx}-${index}`;
+      store.records.set(auditVisualJudgmentKey(actor.id, vibeIdx, runId, receiptId), {
+        receiptId,
+        runId,
+        sourceOccurrenceId: `${vibeIdx}:${index}`,
+        classification: index === 0 ? "core" : "supporting",
+        judgedAt: "2026-08-20T13:00:00.000Z",
+      });
+    }
+  }
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    "?export=calibration&from=2026-08-01&to=2026-08-31",
+  ), {});
+  const packet = (await response.json()).editorialReview;
+
+  assert.deepEqual(packet.runSummary, {
+    retainedRunCount: 2,
+    includedRunCount: 1,
+    excludedRunCount: 1,
+  });
+  assert.equal(packet.totals.reviewedCount, 5);
+  assert.equal(packet.totals.disagreementCount, 1);
+  assert.equal(packet.repeatedDisagreements.length, 0);
+  assert.equal(packet.byProxyClass[0].runCount, 1);
+  assert.equal(packet.byProxyClass[0].runs[0].vibeKey, vibeKeyFor(actor.id, 0));
+  assert.deepEqual(packet.runLedger
+    .find(item => item.vibeKey === vibeKeyFor(actor.id, 1)).exclusionReasons, [
+    "missing_judgments",
+  ]);
 });
 
 test("date-bounded calibration export is capped, discloses listing limits, and strongly includes the current run", async () => {

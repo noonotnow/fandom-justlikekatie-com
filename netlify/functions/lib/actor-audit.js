@@ -3927,6 +3927,7 @@ async function dateBoundedCalibrationAuditExport(
     )
     || String(left.source.actorId).localeCompare(String(right.source.actorId))
     || String(left.source.vibeKey).localeCompare(String(right.source.vibeKey)));
+  const editorialReview = aggregateHumanProxyReview(exports, range, generatedAt);
   return {
     schemaVersion: 1,
     exportMetadata: {
@@ -3953,10 +3954,168 @@ async function dateBoundedCalibrationAuditExport(
         "Historically unretained funnel stages remain explicitly missing and are not reconstructed.",
         "Publication matches are a separate read-only join receipt; historical audit blobs are not changed.",
         "Missing and ambiguous publication identities are reported explicitly and are not inferred.",
+        "Human-versus-proxy rates include only completed runs with the minimum singly judged sample and no missing or multiply judged occurrences.",
+        "Repeated disagreement transitions require support from at least two included audit runs.",
         "No searches, cache refreshes, scoring, deduplication, selection, or publication actions were run.",
       ],
     },
+    editorialReview,
     runs: exports,
+  };
+}
+
+function aggregateHumanProxyReview(exports, range, generatedAt) {
+  const auditIdentity = source =>
+    JSON.stringify([source.actorId, source.vibeKey, source.runId]);
+  const auditRef = source => ({
+    actorId: source.actorId,
+    vibeKey: source.vibeKey,
+    runId: source.runId,
+  });
+  const runLedger = exports.map(item => {
+    const comparison = item.run?.humanProxyComparison || {};
+    const exclusionReasons = [];
+    if (!item.run?.completedAt) exclusionReasons.push("run_incomplete");
+    if ((comparison.reviewedCount || 0) < MIN_HUMAN_PROXY_REVIEWED_SAMPLE) {
+      exclusionReasons.push("below_minimum_sample");
+    }
+    if ((comparison.missingCount || 0) > 0) exclusionReasons.push("missing_judgments");
+    if ((comparison.multiplyJudgedCount || 0) > 0) exclusionReasons.push("multiply_judged_occurrences");
+    if (comparison.sampleSufficient !== true && exclusionReasons.length === 0) {
+      exclusionReasons.push("comparison_incomplete");
+    }
+    return {
+      actorId: item.source.actorId,
+      vibeKey: item.source.vibeKey,
+      runId: item.source.runId,
+      auditIdentity: auditIdentity(item.source),
+      startedAt: item.run?.startedAt || null,
+      completedAt: item.run?.completedAt || null,
+      status: exclusionReasons.length ? "excluded" : "included",
+      exclusionReasons,
+      occurrenceCount: comparison.occurrenceCount || 0,
+      reviewedCount: comparison.reviewedCount || 0,
+      missingCount: comparison.missingCount || 0,
+      multiplyJudgedCount: comparison.multiplyJudgedCount || 0,
+      missingOccurrences: comparison.missingOccurrences || [],
+      multiplyJudgedOccurrences: comparison.multiplyJudgedOccurrences || [],
+    };
+  });
+  const includedAuditIdentities = new Set(runLedger
+    .filter(item => item.status === "included")
+    .map(item => item.auditIdentity));
+  const included = exports.filter(item =>
+    includedAuditIdentities.has(auditIdentity(item.source)));
+  const dimension = field => {
+    const groups = new Map();
+    for (const item of included) {
+      for (const row of item.run.humanProxyComparison?.[field] || []) {
+        const aggregate = groups.get(row.key) || {
+          key: row.key,
+          audits: new Map(),
+          occurrenceCount: 0,
+          reviewedCount: 0,
+          agreementCount: 0,
+          disagreementCount: 0,
+          transitions: new Map(),
+        };
+        aggregate.audits.set(auditIdentity(item.source), auditRef(item.source));
+        aggregate.occurrenceCount += row.occurrenceCount || 0;
+        aggregate.reviewedCount += row.reviewedCount || 0;
+        aggregate.agreementCount += row.agreementCount || 0;
+        aggregate.disagreementCount += row.disagreementCount || 0;
+        for (const transition of row.disagreementTransitions || []) {
+          const transitionAggregate = aggregate.transitions.get(transition.transition)
+            || { transition: transition.transition, count: 0, audits: new Map() };
+          transitionAggregate.count += transition.count || 0;
+          transitionAggregate.audits.set(
+            auditIdentity(item.source),
+            auditRef(item.source),
+          );
+          aggregate.transitions.set(transition.transition, transitionAggregate);
+        }
+        groups.set(row.key, aggregate);
+      }
+    }
+    return [...groups.values()].map(group => ({
+      key: group.key,
+      runCount: group.audits.size,
+      runs: [...group.audits.values()],
+      occurrenceCount: group.occurrenceCount,
+      reviewedCount: group.reviewedCount,
+      agreementCount: group.agreementCount,
+      disagreementCount: group.disagreementCount,
+      agreementRate: group.reviewedCount ? group.agreementCount / group.reviewedCount : null,
+      disagreementTransitions: [...group.transitions.values()]
+        .map(transition => ({
+          transition: transition.transition,
+          count: transition.count,
+          runCount: transition.audits.size,
+          runs: [...transition.audits.values()],
+          repeatedAcrossRuns: transition.audits.size >= 2,
+        }))
+        .sort((left, right) =>
+          right.runCount - left.runCount
+          || right.count - left.count
+          || left.transition.localeCompare(right.transition)),
+    })).sort((left, right) => String(left.key).localeCompare(String(right.key)));
+  };
+  const dimensions = {
+    byProxyClass: dimension("byProxyClass"),
+    byQueryLadder: dimension("byQueryLadder"),
+    byRejectionStage: dimension("byRejectionStage"),
+  };
+  const repeatedDisagreements = Object.entries(dimensions).flatMap(([dimensionName, groups]) =>
+    groups.flatMap(group => group.disagreementTransitions
+      .filter(transition => transition.repeatedAcrossRuns)
+      .map(transition => ({
+        dimension: dimensionName,
+        key: group.key,
+        transition: transition.transition,
+        occurrenceCount: transition.count,
+        runCount: transition.runCount,
+        runs: transition.runs,
+      }))))
+    .sort((left, right) =>
+      right.runCount - left.runCount
+      || right.occurrenceCount - left.occurrenceCount
+      || left.dimension.localeCompare(right.dimension)
+      || String(left.key).localeCompare(String(right.key)));
+  const totals = included.reduce((result, item) => {
+    const comparison = item.run.humanProxyComparison;
+    result.occurrenceCount += comparison.occurrenceCount || 0;
+    result.reviewedCount += comparison.reviewedCount || 0;
+    result.agreementCount += comparison.agreementCount || 0;
+    result.disagreementCount += comparison.disagreementCount || 0;
+    return result;
+  }, { occurrenceCount: 0, reviewedCount: 0, agreementCount: 0, disagreementCount: 0 });
+  return {
+    schemaVersion: 1,
+    type: "human-proxy-cross-audit-editorial-review",
+    generatedAt,
+    dateRange: { from: range.from, to: range.to, dayCount: range.dayCount },
+    minimumReviewedSamplePerRun: MIN_HUMAN_PROXY_REVIEWED_SAMPLE,
+    inclusionRule: "Completed run with the minimum singly judged sample and no missing or multiply judged occurrences.",
+    runSummary: {
+      retainedRunCount: runLedger.length,
+      includedRunCount: included.length,
+      excludedRunCount: runLedger.length - included.length,
+    },
+    runLedger,
+    totals: {
+      ...totals,
+      agreementRate: totals.reviewedCount ? totals.agreementCount / totals.reviewedCount : null,
+    },
+    ...dimensions,
+    repeatedDisagreements,
+    recommendation: {
+      status: repeatedDisagreements.length ? "review_repeated_disagreement" : "no_repeated_disagreement",
+      summary: repeatedDisagreements.length
+        ? "Repeated human-versus-proxy transitions are ready for editorial review before any separate scoring proposal."
+        : "No disagreement transition repeats across two included audits in this bounded retained sample.",
+      productionScoringChanged: false,
+      requiresSeparateApproval: true,
+    },
   };
 }
 
