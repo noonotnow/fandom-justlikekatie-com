@@ -32,6 +32,7 @@ function functionBody(name: string): string {
 }
 
 const startAudit = functionBody('startAudit');
+const downloadCalibrationExport = functionBody('downloadCalibrationExport');
 const markRescueCalibration = functionBody('markRescueCalibration');
 const saveRescueBoard = functionBody('saveRescueBoard');
 const saveRescueReceiptToCollection = functionBody('saveRescueReceiptToCollection');
@@ -48,6 +49,17 @@ test('a completed actor audit reloads its authoritative saved review', () => {
   assert.ok(runRequest >= 0, 'the audit must first be started');
   assert.ok(detailRequest > runRequest, 'the saved detail must be fetched after the audit completes');
   assert.match(startAudit, /refreshed\.currentRun\?\.runId===startedRunId/);
+});
+
+test('calibration evidence export is a credentialed date-bounded read-only download', () => {
+  assert.match(downloadCalibrationExport, /export:'calibration'/);
+  assert.match(downloadCalibrationExport, /from:auditFrom,\s*to:auditTo/);
+  assert.match(downloadCalibrationExport, /method:'GET'/);
+  assert.match(downloadCalibrationExport, /credentials:'include'/);
+  assert.doesNotMatch(downloadCalibrationExport, /api\(\{action:/);
+  assert.match(source, /Date-bounded calibration evidence/);
+  assert.match(source, /Download read-only audit export/);
+  assert.match(source, /Stored evidence only · no searches, cache changes, scoring changes, or publication actions/);
 });
 
 test('a success notice requires two complete pending boards and moves them into view', () => {

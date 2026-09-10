@@ -85,6 +85,9 @@ const MAX_CALIBRATION_NOTE_LENGTH = 1000;
 
 const MAX_CALIBRATION_RETIREMENT_REASON_LENGTH = 1000;
 const MAX_RETAINED_RUNS = 12;
+const MAX_EXPORT_LISTED_RUNS_PER_PAIR = 24;
+const MAX_EXPORT_SCANNED_RUNS = 200;
+const MAX_EXPORT_OUTPUT_RUNS = 96;
 const MAX_RAW_RESULTS = 36;
 const MAX_IDENTITY_ITEMS = 36;
 const MAX_FEEDBACK_EVENTS = 72;
@@ -230,6 +233,48 @@ export function createActorAuditHandler({
       }
       const store = getStore(ELIGIBILITY_STORE, context);
       const url = new URL(req.url);
+      const requestedExport = url.searchParams.get("export");
+      if (requestedExport === "calibration" || requestedExport === "calibration-audit") {
+        if (req.method !== "GET") {
+          return json(405, { error: "Calibration audit export is read-only and GET-only." }, { Allow: "GET" });
+        }
+        const actorId = url.searchParams.get("actorId");
+        const vibeKey = url.searchParams.get("vibeKey");
+        const runId = url.searchParams.get("runId");
+        const from = url.searchParams.get("from");
+        const to = url.searchParams.get("to");
+        if (!runId) {
+          const range = calibrationExportDateRange(from, to);
+          if (range.error) return json(400, { error: range.error });
+          const payload = await dateBoundedCalibrationAuditExport(
+            store,
+            actorPacks,
+            range,
+            url.origin,
+            now().toISOString(),
+          );
+          return json(200, payload, {
+            "Content-Disposition": `attachment; filename="actor-calibration-${range.from}-${range.to}.json"`,
+          });
+        }
+        if (!actorId || !vibeKey) {
+          return json(400, { error: "actorId and vibeKey are required with a retained runId." });
+        }
+        if (!/^[A-Za-z0-9._:-]{1,160}$/.test(runId)) {
+          return json(400, { error: "Invalid audit run identifier." });
+        }
+        const pair = resolvePair(actorPacks, actorId, vibeKey);
+        if (!pair) return json(400, { error: "Unknown actor or Vibe Pack." });
+        const run = await store.get(auditRunKey(pair.actor.id, pair.vibeIdx, runId), {
+          type: "json",
+          consistency: "strong",
+        });
+        if (!run) return json(404, { error: `Source audit run ${runId} is no longer retained.`, runId });
+        const payload = calibrationAuditExport(run, pair);
+        return json(200, payload, {
+          "Content-Disposition": `attachment; filename="actor-calibration-${encodeURIComponent(actorId)}-${encodeURIComponent(runId)}.json"`,
+        });
+      }
       if (
         req.method === "POST"
         && MISPRINT_PUBLICATION_ACTIONS.has(input?.action)
@@ -3523,6 +3568,219 @@ async function attachVerdict(store, pair, run) {
   attachedRun.preflightOutcome = classifyPreflightOutcome(attachedRun);
   attachedRun.suggestedState = attachedRun.preflightOutcome.state;
   return attachedRun;
+}
+
+// This is deliberately a projection rather than a serialization of the client
+// run.  Calibration exports are an evidence record: they must not acquire
+// operator-only UI state or accidentally become a second publication format.
+function calibrationAuditExport(run, pair) {
+  const fields = [
+    "scope", "startedAt", "completedAt", "provider", "queryRuns", "rawResults",
+    "ranking", "rankedResults", "identityEvidence", "promise", "promiseEvidence",
+    "detectedEvents", "eventFamilies", "partialClusters", "rejections",
+    "deduplication", "dedup", "curationReceipt", "boardDiagnostics",
+    "runnerUpDiagnostics", "strongestEvent", "strongestCompiled", "eventAlternatives",
+    "compiledAlternatives", "winner", "alternate", "calibrationSignals",
+    "calibrationProof", "blindReview", "publication",
+    "publicationSource", "auditContract", "curationVersion", "identityProfileVersion",
+    "aestheticClusterVersion", "promiseContractVersion",
+  ];
+  const projectedRun = { runId: run.runId };
+  for (const field of fields) {
+    if (Object.prototype.hasOwnProperty.call(run, field)) projectedRun[field] = run[field];
+  }
+  const missingFields = fields
+    .filter(field => !Object.prototype.hasOwnProperty.call(run, field) || run[field] === null)
+    .map(field => `run.${field}`);
+  const exportMetadata = {
+    readOnly: true,
+    type: "curation-calibration-audit",
+    source: { actorId: pair.actor.id, vibeKey: pair.vibeKey, runId: run.runId },
+    missingFields,
+    limitations: [
+      "This export is a projection of the raw selected immutable run, not a rerun, recomputation, or normalized UI detail.",
+      "Fields not retained by the selected run are reported as missing and are not inferred.",
+      "Later verdict, calibration, feedback, rescue, and publication receipts are excluded unless they were embedded in the selected run.",
+    ],
+  };
+  return {
+    schemaVersion: 1,
+    exportMetadata,
+    export: exportMetadata,
+    source: { actorId: pair.actor.id, vibeKey: pair.vibeKey, runId: run.runId },
+    run: projectedRun,
+  };
+}
+
+function calibrationExportDateRange(from, to) {
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (!datePattern.test(from || "") || !datePattern.test(to || "")) {
+    return { error: "Valid from and to dates are required for a date-bounded calibration export." };
+  }
+  const fromTime = Date.parse(`${from}T00:00:00.000Z`);
+  const toTime = Date.parse(`${to}T00:00:00.000Z`);
+  if (
+    !Number.isFinite(fromTime)
+    || !Number.isFinite(toTime)
+    || new Date(fromTime).toISOString().slice(0, 10) !== from
+    || new Date(toTime).toISOString().slice(0, 10) !== to
+    || toTime < fromTime
+  ) {
+    return { error: "Calibration export date range is invalid." };
+  }
+  const dayCount = Math.floor((toTime - fromTime) / 86_400_000) + 1;
+  if (dayCount > 90) {
+    return { error: "Calibration export date range cannot exceed 90 days." };
+  }
+  return { from, to, fromTime, toTime, dayCount };
+}
+
+function retainedRunDate(run) {
+  for (const value of [run?.completedAt, run?.startedAt]) {
+    const match = String(value || "").match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+function retainedEditionDates(run) {
+  return [...new Set([
+    run?.publicationDate,
+    run?.publication?.publicationDate,
+    run?.publication?.date,
+    run?.curationReceipt?.publicationDate,
+  ].filter(value => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))))];
+}
+
+async function boundedHistoricalRunKeysForPair(store, pair, excludedKeys = new Set()) {
+  const keys = [];
+  const seen = new Set(excludedKeys);
+  let listingTruncated = false;
+  const listing = await store.list({
+    prefix: auditRunPrefix(pair.actor.id, pair.vibeIdx),
+    paginate: true,
+  });
+  const pages = listing?.[Symbol.asyncIterator]
+    ? listing
+    : [listing];
+  for await (const page of pages) {
+    for (const blob of page?.blobs || []) {
+      if (typeof blob?.key !== "string" || seen.has(blob.key)) continue;
+      if (keys.length >= MAX_EXPORT_LISTED_RUNS_PER_PAIR) {
+        listingTruncated = true;
+        break;
+      }
+      keys.push(blob.key);
+      seen.add(blob.key);
+    }
+    if (listingTruncated) break;
+  }
+  return { keys, listingTruncated };
+}
+
+async function dateBoundedCalibrationAuditExport(store, actorPacks, range, origin, generatedAt) {
+  const exports = [];
+  const pairs = actorPacks.flatMap(actor =>
+    actor.vibes.map((_, vibeIdx) =>
+      resolvePair(actorPacks, actor.id, vibeKeyFor(actor.id, vibeIdx)))
+      .filter(Boolean));
+  const currentRunKeys = new Map();
+  let scannedRunCount = 0;
+  let listingTruncated = false;
+  let outputTruncated = false;
+  const appendRun = (run, pair) => {
+    const runDate = retainedRunDate(run);
+    if (!run || !runDate || runDate < range.from || runDate > range.to) return;
+    if (exports.length >= MAX_EXPORT_OUTPUT_RUNS) {
+      outputTruncated = true;
+      return;
+    }
+    const item = calibrationAuditExport(run, pair);
+    const editions = retainedEditionDates(run);
+    item.links = {
+      pairing: `${origin}/?adminView=actor-preflight&actorId=${encodeURIComponent(pair.actor.id)}&vibeKey=${encodeURIComponent(pair.vibeKey)}&runId=${encodeURIComponent(run.runId)}`,
+      editions: editions.map(date => ({
+        date,
+        url: `${origin}/vibe-atlas?date=${encodeURIComponent(date)}`,
+      })),
+    };
+    if (!editions.length) {
+      item.exportMetadata.missingFields.push("links.editions");
+    }
+    exports.push(item);
+  };
+
+  // First pass: every configured pairing head is read strongly before any
+  // historical listing can consume the bounded scan/output budgets.
+  for (const pair of pairs) {
+    const head = await store.get(auditHeadKey(pair.actor.id, pair.vibeIdx), {
+      type: "json",
+      consistency: "strong",
+    });
+    if (!head?.currentRunId) continue;
+    const key = auditRunKey(pair.actor.id, pair.vibeIdx, head.currentRunId);
+    currentRunKeys.set(pair.vibeKey, key);
+    scannedRunCount += 1;
+    const run = await store.get(key, { type: "json", consistency: "strong" });
+    appendRun(run, pair);
+  }
+
+  // Second pass: fill the remaining bounded capacity from eventually
+  // consistent historical listings, excluding the already-read current keys.
+  for (const pair of pairs) {
+      const currentKey = currentRunKeys.get(pair.vibeKey);
+      const boundedKeys = await boundedHistoricalRunKeysForPair(
+        store,
+        pair,
+        new Set(currentKey ? [currentKey] : []),
+      );
+      listingTruncated ||= boundedKeys.listingTruncated;
+      for (const key of boundedKeys.keys) {
+        if (scannedRunCount >= MAX_EXPORT_SCANNED_RUNS) {
+          listingTruncated = true;
+          break;
+        }
+        scannedRunCount += 1;
+        const run = await store.get(key, { type: "json", consistency: "strong" });
+        appendRun(run, pair);
+        if (outputTruncated) break;
+      }
+    if (scannedRunCount >= MAX_EXPORT_SCANNED_RUNS || outputTruncated) break;
+  }
+  exports.sort((left, right) =>
+    String(right.run.completedAt || right.run.startedAt || "").localeCompare(
+      String(left.run.completedAt || left.run.startedAt || ""),
+    )
+    || String(left.source.actorId).localeCompare(String(right.source.actorId))
+    || String(left.source.vibeKey).localeCompare(String(right.source.vibeKey)));
+  return {
+    schemaVersion: 1,
+    exportMetadata: {
+      readOnly: true,
+      type: "date-bounded-curation-calibration-audit",
+      generatedAt,
+      dateRange: { from: range.from, to: range.to, dayCount: range.dayCount },
+      runCount: exports.length,
+      inventory: {
+        consistency: "eventual-listing-with-strong-current-head-and-run-reads",
+        scannedRunCount,
+        listedRunsPerPairLimit: MAX_EXPORT_LISTED_RUNS_PER_PAIR,
+        scannedRunLimit: MAX_EXPORT_SCANNED_RUNS,
+        outputRunLimit: MAX_EXPORT_OUTPUT_RUNS,
+        listingTruncated,
+        outputTruncated,
+        complete: false,
+      },
+      limitations: [
+        "Only retained immutable audit runs within the requested dates are included.",
+        "The run inventory is an eventually consistent bounded snapshot; a newly written non-current run or a run beyond the scan caps may be absent.",
+        "Each pairing's current run is read through its strongly consistent head so the latest known run does not depend on listing visibility.",
+        "Historically unretained funnel stages remain explicitly missing and are not reconstructed.",
+        "No searches, cache refreshes, scoring, deduplication, selection, or publication actions were run.",
+      ],
+    },
+    runs: exports,
+  };
 }
 
 function normalizeLegacyRunEvidence(run) {

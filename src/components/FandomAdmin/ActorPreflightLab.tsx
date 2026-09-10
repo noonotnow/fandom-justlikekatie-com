@@ -102,6 +102,8 @@ export const ActorPreflightLab: React.FC = () => {
   const [vibeConfirmed,setVibeConfirmed] = useState(false); const [publishableConfirmed,setPublishableConfirmed] = useState(false);
   const [rescuePreferred,setRescuePreferred] = useState(false); const [preferredRescueReceiptId,setPreferredRescueReceiptId] = useState('');
   const [backfillDate,setBackfillDate] = useState('');
+  const [auditTo,setAuditTo] = useState(()=>new Date().toISOString().slice(0,10));
+  const [auditFrom,setAuditFrom] = useState(()=>new Date(Date.now()-89*86_400_000).toISOString().slice(0,10));
   const [disagreementReasons,setDisagreementReasons] = useState<string[]>([]); const [editorialNote,setEditorialNote] = useState('');
   function clearHandoff() {
     const url = new URL(window.location.href);
@@ -257,6 +259,28 @@ export const ActorPreflightLab: React.FC = () => {
       setNotice(await saveRescueReceiptToCollection(currentRun.runId,receiptId));
     } catch(e:any){setNotice(`Collection save failed: ${e.message} Retry from this saved record.`)} finally{setBusy('')}
   }
+  async function downloadCalibrationExport() {
+    setBusy('calibration-export'); setNotice('');
+    try {
+      const query = new URLSearchParams({ export:'calibration', from:auditFrom, to:auditTo });
+      const response = await fetch(`/.netlify/functions/actor-audits?${query.toString()}`, {
+        method:'GET',
+        credentials:'include',
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error || 'Calibration export unavailable.');
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `actor-calibration-${auditFrom}-${auditTo}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setNotice('Read-only retained calibration evidence downloaded. No audit was rerun.');
+    } catch(e:any) { setNotice(e.message); } finally { setBusy(''); }
+  }
   const selectedIsCurrent = Boolean(run?.runId && currentRun?.runId === run.runId);
   const review = run?.blindReview;
   const disagreementNeedsReasons = Boolean(review?.choice && review.agreement !== true && !review.reasonCodes?.length);
@@ -279,6 +303,7 @@ export const ActorPreflightLab: React.FC = () => {
   return <section className={styles.lab} aria-labelledby="actor-preflight-title">
     <header className={styles.masthead}><div><p className={styles.eyebrow}>Fandom Vibes / private calibration</p><h3 id="actor-preflight-title">Actor preflight lab</h3><p>Calibrate actor × Vibe Pack pairings against bounded evidence before they enter the Daily Drop rotation.</p></div><div className={styles.runbook}><span>Operator boundary</span><strong>One pairing at a time</strong><span>Every decision leaves a receipt.</span></div></header>
     {notice&&<div className={styles.error} role="status">{notice}</div>}
+    <section className={styles.panel} aria-label="Read-only calibration export"><div className={styles.detailHead}><div><p className={styles.eyebrow}>Operator diagnostics</p><h4>Date-bounded calibration evidence</h4><p>Download retained candidate-funnel receipts for blind visual review. Historically unretained fields are marked missing.</p></div></div><div className={styles.controls}><label className={styles.label}>From<input className={styles.input} type="date" value={auditFrom} max={auditTo} onChange={event=>setAuditFrom(event.target.value)} /></label><label className={styles.label}>To<input className={styles.input} type="date" value={auditTo} min={auditFrom} onChange={event=>setAuditTo(event.target.value)} /></label><button type="button" className={styles.buttonSecondary} disabled={busy==='calibration-export'||!auditFrom||!auditTo} onClick={()=>void downloadCalibrationExport()}>{busy==='calibration-export'?'Preparing export…':'Download read-only audit export'}</button><small>Stored evidence only · no searches, cache changes, scoring changes, or publication actions</small></div></section>
     <div className={`${styles.workspace} ${railOpen ? '' : styles.workspaceCollapsed}`}>
       <aside className={styles.rail} aria-label="Actor selector"><button className={styles.railToggle} type="button" aria-expanded={railOpen} aria-label={railOpen ? 'Collapse actor register' : 'Expand actor register'} onClick={()=>setRailOpen(open=>!open)}>{railOpen ? '‹' : '›'}</button><div className={styles.railHead}><strong>Actor register</strong><span>{actors.length} profiles · profile versions retained</span></div><div className={styles.actorList}>{actors.map(item=><button className={styles.actorButton} data-selected={item.actorId===actorId} key={item.actorId} onClick={()=>{clearHandoff();setActorId(item.actorId);setVibeKey(item.pairings?.[0]?.vibeKey??'')}}><strong>{item.canonicalName}</strong><small>{item.romanizedName ?? item.actorId} · v{item.profileVersion ?? '—'}</small></button>)}</div></aside>
        <main className={styles.detail}>{!actor?<div className={styles.empty}>No actor profiles returned.</div>:<><section className={`${styles.panel} ${styles.detailPanel}`}><div className={styles.detailHead}><div><p className={styles.eyebrow}>Selected profile</p><h4>{actor.canonicalName}</h4><p>{actor.romanizedName} · aliases: {text(actor.aliases)}</p></div><span className={styles.muted}>Profile v{actor.profileVersion ?? '—'}</span></div><div className={styles.pairingStrip}>{(actor.pairings??[]).map(item=><button className={styles.pairing} data-selected={item.vibeKey===vibeKey} key={item.vibeKey} onClick={()=>{clearHandoff();setVibeKey(item.vibeKey)}}><strong>{text(item.labels) || item.vibeKey}</strong><span className={styles.state} data-state={item.auditState}>{item.auditState==='needs_reapproval' ? 'Needs reapproval' : item.auditState==='calibration_reaudit_required' ? 'Calibration reaudit required' : item.verdict ?? item.auditState ?? 'unreviewed'}</span><small>{item.queryCount ?? 0} queries · {date(item.lastRunAt)}</small></button>)}</div><div className={styles.controls}><button className={`${styles.buttonPrimary} ${currentRunIsLegacy?styles.freshAuditButton:''}`} disabled={!vibeKey||!!busy} onClick={()=>void startAudit(scope)}>{busy ? 'Running evidence pass…' : currentRunIsLegacy ? 'Run fresh audit' : 'Run audit'}</button><select className={styles.select} value={scope} onChange={e=>setScope(e.target.value)} aria-label="Audit scope"><option value="representative">Representative scope</option><option value="full">Full scope</option></select><span className={styles.status}>{pairing?.auditState==='blind_review_pending'?'Calibration pending':pairing?.auditState==='calibration_reaudit_required'?'Calibration reaudit required':pairing?.auditState==='needs_reapproval'?'Fresh audit required':pairing?.eligible===false?'Not eligible for scheduling':'Eligible for review'}</span></div></section>

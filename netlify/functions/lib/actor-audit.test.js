@@ -12,6 +12,7 @@ import {
   auditCalibrationPrefix,
   auditEligibilityDecisionPrefix,
   auditFeedbackPrefix,
+  auditHeadKey,
   auditMisprintActorPrefix,
   auditMisprintDecisionActorPrefix,
   auditRescueBoardKey,
@@ -518,11 +519,252 @@ function harness({
   return {
     handler,
     store,
+    getSearchCall() {
+      return searchCall;
+    },
     setAuthorized(value) {
       adminAuthorized = value;
     },
   };
 }
+
+test("private calibration export projects retained receipts without searches or writes", async () => {
+  const { handler, store, getSearchCall } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const run = {
+    runId: "run-export",
+    scope: "full",
+    startedAt: "2026-08-31T12:00:00.000Z",
+    completedAt: "2026-08-31T12:01:00.000Z",
+    queryRuns: [{ query: "刘学义 editorial", provider: "test", rank: 1 }],
+    rawResults: [{
+      candidateId: "candidate-1",
+      title: "刘学义 editorial frame",
+      thumbnail: "https://images.example/candidate-1.jpg",
+      query: "刘学义 editorial",
+    }],
+    rejections: [{ candidateId: "candidate-2", reasonCode: "promise_not_fulfilled" }],
+    promiseEvidence: [{ candidateId: "candidate-1", coreSatisfied: true }],
+    eventFamilies: [{ familyId: "event-family-1", candidateIds: ["candidate-1"] }],
+    deduplication: { before: 2, after: 1 },
+    boardDiagnostics: { event: { reasonCode: "event_family_too_small" } },
+    curationReceipt: { rawCount: 2, analyzedCount: 1 },
+    unrelatedPrivateState: "must-not-export",
+  };
+  store.records.set(auditRunKey(pairActor.id, 0, run.runId), structuredClone(run));
+  const before = structuredClone([...store.records.entries()]);
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    `?export=calibration&actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=${run.runId}`,
+  ), {});
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-disposition"), /attachment; filename="actor-calibration-/);
+  assert.equal(payload.exportMetadata.readOnly, true);
+  assert.deepEqual(payload.exportMetadata.source, {
+    actorId: pairActor.id,
+    vibeKey,
+    runId: run.runId,
+  });
+  assert.deepEqual(payload.run.queryRuns, run.queryRuns);
+  assert.deepEqual(payload.run.rawResults, run.rawResults);
+  assert.deepEqual(payload.run.rejections, run.rejections);
+  assert.deepEqual(payload.run.eventFamilies, run.eventFamilies);
+  assert.deepEqual(payload.run.deduplication, run.deduplication);
+  assert.ok(payload.exportMetadata.missingFields.includes("run.publication"));
+  assert.equal("unrelatedPrivateState" in payload.run, false);
+  assert.equal("report" in payload, false);
+  assert.equal(getSearchCall(), 0);
+  assert.deepEqual([...store.records.entries()], before);
+});
+
+test("private calibration export is admin-only, GET-only, and requires a retained run", async () => {
+  const denied = harness({ authorized: false });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const query = `?export=calibration&actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=missing`;
+  const deniedResponse = await denied.handler(request("GET", undefined, query), {});
+  assert.equal(deniedResponse.status, 403);
+
+  const allowed = harness();
+  const methodResponse = await allowed.handler(request("POST", {}, query), {});
+  assert.equal(methodResponse.status, 405);
+  assert.equal(methodResponse.headers.get("allow"), "GET");
+
+  const missingResponse = await allowed.handler(request("GET", undefined, query), {});
+  assert.equal(missingResponse.status, 404);
+  const malformedResponse = await allowed.handler(request(
+    "GET",
+    undefined,
+    `?export=calibration&actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=${encodeURIComponent("../not-a-run")}`,
+  ), {});
+  assert.equal(malformedResponse.status, 400);
+  assert.equal(allowed.getSearchCall(), 0);
+});
+
+test("private calibration export does not synthesize legacy evidence or mix in current pairing state", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const historicalRun = {
+    runId: "historical-run",
+    scope: "representative",
+    startedAt: "2026-07-31T12:00:00.000Z",
+    completedAt: "2026-07-31T12:01:00.000Z",
+    rawResults: [{ title: "retained legacy result", thumbnail: "https://images.example/legacy.jpg" }],
+  };
+  const currentRun = {
+    runId: "current-run",
+    scope: "full",
+    boardDiagnostics: { compiled: { reasonCode: "current-only" } },
+    operatorVerdict: { verdict: "approved" },
+    rescueDraft: { candidates: ["current-only"] },
+  };
+  store.records.set(auditRunKey(pairActor.id, 0, historicalRun.runId), structuredClone(historicalRun));
+  store.records.set(auditRunKey(pairActor.id, 0, currentRun.runId), structuredClone(currentRun));
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    `?export=calibration&actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=${historicalRun.runId}`,
+  ), {});
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.run.runId, historicalRun.runId);
+  assert.deepEqual(payload.run.rawResults, historicalRun.rawResults);
+  assert.equal("boardDiagnostics" in payload.run, false);
+  assert.equal("operatorVerdict" in payload.run, false);
+  assert.equal("rescueDraft" in payload.run, false);
+  assert.ok(payload.exportMetadata.missingFields.includes("run.boardDiagnostics"));
+  assert.match(payload.exportMetadata.limitations[0], /raw selected immutable run/);
+});
+
+test("date-bounded calibration export includes only retained runs in range and never searches or writes", async () => {
+  const { handler, store, getSearchCall } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const inRange = {
+    runId: "run-in-range",
+    scope: "full",
+    startedAt: "2026-08-10T12:00:00.000Z",
+    completedAt: "2026-08-10T12:01:00.000Z",
+    rawResults: [{ candidateId: "candidate-in-range" }],
+    curationReceipt: { publicationDate: "2026-08-11" },
+  };
+  const outOfRange = {
+    runId: "run-out-of-range",
+    scope: "full",
+    startedAt: "2026-06-10T12:00:00.000Z",
+    completedAt: "2026-06-10T12:01:00.000Z",
+    rawResults: [{ candidateId: "candidate-out-of-range" }],
+  };
+  store.records.set(auditRunKey(pairActor.id, 0, inRange.runId), structuredClone(inRange));
+  store.records.set(auditRunKey(pairActor.id, 0, outOfRange.runId), structuredClone(outOfRange));
+  const before = structuredClone([...store.records.entries()]);
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    "?export=calibration&from=2026-08-01&to=2026-08-31",
+  ), {});
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.exportMetadata.readOnly, true);
+  assert.deepEqual(payload.exportMetadata.dateRange, {
+    from: "2026-08-01",
+    to: "2026-08-31",
+    dayCount: 31,
+  });
+  assert.equal(payload.exportMetadata.runCount, 1);
+  assert.equal(payload.runs[0].run.runId, inRange.runId);
+  assert.match(payload.runs[0].links.pairing, /adminView=actor-preflight/);
+  assert.deepEqual(payload.runs[0].links.editions, [{
+    date: "2026-08-11",
+    url: `${ORIGIN}/vibe-atlas?date=2026-08-11`,
+  }]);
+  assert.equal(getSearchCall(), 0);
+  assert.deepEqual([...store.records.entries()], before);
+
+  const tooWide = await handler(request(
+    "GET",
+    undefined,
+    "?export=calibration&from=2026-01-01&to=2026-04-01",
+  ), {});
+  assert.equal(tooWide.status, 400);
+  const impossibleDate = await handler(request(
+    "GET",
+    undefined,
+    "?export=calibration&from=2026-02-31&to=2026-03-01",
+  ), {});
+  assert.equal(impossibleDate.status, 400);
+  assert.equal(vibeKey, "liu-xueyi:0");
+});
+
+test("date-bounded calibration export is capped, discloses listing limits, and strongly includes the current run", async () => {
+  const crowdedActor = {
+    ...pairActor,
+    vibes: Array.from({ length: 10 }, (_, vibeIdx) => ({
+      ...pairActor.vibes[0],
+      label_en: `Vibe ${vibeIdx}`,
+    })),
+  };
+  const { handler, store } = harness({ actorPacks: [crowdedActor] });
+  const listedKeys = [];
+  const currentRunIds = [];
+  for (let vibeIdx = 0; vibeIdx < crowdedActor.vibes.length; vibeIdx += 1) {
+    const currentRun = {
+      runId: `current-not-listed-${vibeIdx}`,
+      scope: "full",
+      startedAt: "2026-08-31T12:00:00.000Z",
+      completedAt: "2026-08-31T12:01:00.000Z",
+      rawResults: [{ candidateId: `current-candidate-${vibeIdx}` }],
+    };
+    currentRunIds.push(currentRun.runId);
+    store.records.set(auditRunKey(crowdedActor.id, vibeIdx, currentRun.runId), currentRun);
+    store.records.set(auditHeadKey(crowdedActor.id, vibeIdx), {
+      currentRunId: currentRun.runId,
+      startedAt: currentRun.startedAt,
+      updatedAt: currentRun.completedAt,
+    });
+    for (let index = 0; index < 30; index += 1) {
+      const run = {
+        runId: `listed-${vibeIdx}-${String(index).padStart(2, "0")}`,
+        scope: "full",
+        startedAt: `2026-08-${String((index % 28) + 1).padStart(2, "0")}T12:00:00.000Z`,
+        completedAt: `2026-08-${String((index % 28) + 1).padStart(2, "0")}T12:01:00.000Z`,
+      };
+      const key = auditRunKey(crowdedActor.id, vibeIdx, run.runId);
+      store.records.set(key, run);
+      listedKeys.push(key);
+    }
+  }
+  store.list = ({ prefix } = {}) => (async function* pages() {
+    const visible = listedKeys.filter(key => !prefix || key.startsWith(prefix));
+    yield { blobs: visible.slice(0, 15).map(key => ({ key })) };
+    yield { blobs: visible.slice(15).map(key => ({ key })) };
+  }());
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    "?export=calibration&from=2026-08-01&to=2026-08-31",
+  ), {});
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    currentRunIds.filter(runId => !payload.runs.some(item => item.run.runId === runId)),
+    [],
+  );
+  assert.equal(payload.exportMetadata.inventory.listingTruncated, true);
+  assert.equal(payload.exportMetadata.inventory.complete, false);
+  assert.equal(payload.exportMetadata.inventory.scannedRunCount, 97);
+  assert.equal(payload.exportMetadata.inventory.outputTruncated, true);
+  assert.equal(payload.exportMetadata.runCount, 96);
+  assert.match(payload.exportMetadata.limitations[1], /eventually consistent bounded snapshot/);
+});
 
 test("every configured actor has a complete private identity profile", () => {
   assert.equal(assertIdentityProfileCoverage(ACTOR_PACKS), true);

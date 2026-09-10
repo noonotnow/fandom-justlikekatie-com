@@ -27,6 +27,12 @@ description: Editorial rules for deciding between coherent Event boards and vari
 
 **How to apply:** Keep sub-nine clusters failed while showing operators why they are coherent, how many cards are missing, and searches anchored to the same character/work plus the under-covered evidence category.
 
+**Calibration-audit rule:** Treat retrieval scarcity and post-retrieval promise miscalibration as co-primary hypotheses. Keep never found, filtered, exact duplicate, transformed duplicate, same-shoot family, outranked, promise-rejected, selected, and published outcomes separate.
+
+**Why:** Three shallow queries can repeatedly retrieve the same territory, while metadata-derived promise gates can independently remove visually valid evidence. Combining these stages hides whether scarcity was retrieved or manufactured. Substantial exact-image recurrence is already established from public history; private evidence diagnoses why it happened, not whether it happened.
+
+**How to apply:** Review promise false negatives visually without showing the existing score or rejection reason where practical. Same-shoot continuity and recurring motifs are not duplication when distinct frames add evidence. Evaluate a dominant-family board—several coherent Event images plus compatible supporting cards—as a legitimate hypothesis rather than requiring all nine cards from one detected family.
+
 **Professionally Devastated rule:** A compatible named role plus result-visible narrative state can corroborate Liu Xueyi when a search result omits his name. Blood/injury, collapse, protection, romantic aftermath, exhaustion, grief, and explicit devastation qualify; query terms, palette, costume, generic beauty, and saved-card identity do not.
 
 **Why:** Strong role-grounded tragedy was already present in fresh search evidence, but requiring every result title to repeat the actor name produced a false 0/9 promise failure.
