@@ -1,0 +1,171 @@
+We stop auditing and move into a **controlled repair cycle**. Not a grand rewrite; four separable interventions, each tested against the audit baseline.
+
+## 1. Preserve the baseline and create regression fixtures
+
+Before touching behavior, have Replit freeze:
+
+- the 85 audited runs;
+- the 20-image blind promise sample and hidden outcome key;
+- the Cold Jade counterfactual;
+- examples of exact retrieval recurrence;
+- representative 4–8-image families;
+- examples of generic batches beating expressive ones.
+
+These become permanent regression fixtures. Otherwise the evidence that justified the repair quietly evaporates—the traditional software-development magic trick.
+
+## 2. Make two immediate, low-risk corrections
+
+These are defects rather than unresolved product-policy questions:
+
+### Make refresh genuinely fresh
+
+A repetition-triggered refresh must bypass the one-hour application cache and record:
+
+- whether bypass was requested;
+- whether it occurred;
+- whether the returned digest set changed.
+
+### Stop calling rearrangement freshness
+
+Reordering the same nine photographs may be a layout recovery, but it cannot count as fresh evidence. Preserve it only as an explicitly identified fallback.
+
+These changes should receive focused tests and can proceed without redesigning promise scoring.
+
+## 3. Improve the candidate supply before tightening repetition rules
+
+Do **not** lower the seven-of-nine threshold yet. A stricter threshold applied to the same depleted pool could simply create more failures and rescue boards.
+
+Instead:
+
+- expand shallow three-query pairings;
+- give queries distinct visual jobs;
+- measure unique visual yield by query and rung;
+- retain a novelty reserve outside the top three batches;
+- prevent raw batch size from automatically defeating smaller expressive batches;
+- preserve enough candidate receipts to inspect future losses.
+
+A query ladder should deliberately explore mechanisms such as:
+
+- face/expression;
+- posture and gesture;
+- wardrobe and styling;
+- architecture/environment;
+- event/editorial coverage;
+- scene or character context;
+- full-body silhouette;
+- motion or interaction.
+
+Not every Vibe Pack needs exactly those jobs, but each rung should explore a different visual route rather than repeatedly asking Google the same question in a slightly different hat.
+
+## 4. Replace the promise cliff with layered evidence
+
+Do not simply remove `coreSatisfied`. Change its authority.
+
+### Proposed behavior
+
+- Metadata-based promise logic remains a retrieval/ranking signal.
+- Failure does **not** automatically mean visual failure.
+- Metadata-poor candidates receive visual evaluation.
+- Candidates are classified as:
+    - core;
+    - supporting;
+    - connective;
+    - contradictory;
+    - irrelevant;
+    - unusable.
+- The complete board receives a separate promise assessment.
+- Only contradiction, irrelevance, unusability, or failed board-level coherence should exclude an otherwise valid image.
+
+The 20-image sample should be used as the first regression test: the nine known core false negatives must no longer disappear solely because their metadata is sparse.
+
+## 5. Add the missing board composition mode
+
+Keep three explicit strategies:
+
+1. **Compiled**
+Independent evidence assembled across contexts.
+2. **Event**
+A single coherent family can supply the complete board when genuinely rich enough.
+3. **Dominant family + support**
+A coherent family supplies roughly 4–8 distinct frames, completed by compatible supporting or connective images.
+
+Do not hard-code the final family minimum from intuition alone. Replay the 120 detected families and compare candidate thresholds. The Cold Jade six-plus-three board is a strong fixture, not necessarily the universal formula.
+
+Within coherent-family modes:
+
+- collapse exact photographs and true transformations;
+- allow distinct frames from the same shoot;
+- judge redundancy by contribution, pose, expression, composition, and narrative beat;
+- do not penalize shared wardrobe, lighting, setting, or editorial identity merely for being shared.
+
+## 6. Test each intervention separately
+
+Use shadow generation or offline replay before production.
+
+Compare:
+
+- current behavior;
+- cache-bypass only;
+- expanded queries;
+- expanded candidate reserve/ranking;
+- recalibrated promise logic;
+- dominant-family mode;
+- combined candidate system.
+
+Measure:
+
+- unique image yield;
+- historical overlap;
+- exact-board recurrence;
+- useful candidates surviving each funnel stage;
+- promise false negatives on the blind fixture;
+- rescue/fallback frequency;
+- source and provider concentration;
+- human preference between old and counterfactual boards.
+
+This separation tells you which change actually helps.
+
+## 7. Then set freshness policy
+
+After the pool improves, review real counterfactual boards and decide:
+
+- acceptable repeated-card count;
+- pairing rotation window;
+- when refresh becomes mandatory;
+- when a rescue board is acceptable;
+- whether same-shoot reuse is valid for the selected board mode;
+- what must be disclosed privately in the receipt.
+
+My provisional invariant would be:
+
+> An exact prior board cannot be classified as fresh merely because its cards were rearranged.
+> 
+
+Everything more granular should come from the replay results.
+
+## What to tell Replit now
+
+> Proceed with a controlled repair branch using the completed audit as the baseline.
+> 
+> 
+> First preserve the audit fixtures and add regression coverage. Then implement and test these interventions separately:
+> 
+> 1. repetition-triggered refresh must bypass the application cache and record whether the digest set changed;
+> 2. rearranging the same nine images must be identified as a fallback, not fresh evidence;
+> 3. expand shallow query ladders using distinct visual jobs and preserve a candidate reserve beyond the top three batches;
+> 4. treat metadata-derived `coreSatisfied` as evidence rather than a final visual verdict, with separate core, supporting, connective, contradictory, irrelevant, and unusable classifications plus board-level promise evaluation;
+> 5. add a dominant-family-plus-support composition strategy alongside Event and Compiled modes.
+> 
+> Use offline replay or shadow generation before changing production behavior. Keep each intervention independently measurable. Do not lower the publication-overlap threshold until the candidate-supply and promise-calibration changes have been evaluated.
+> 
+> Return with:
+> 
+> - the proposed code-level change plan;
+> - tests and regression fixtures;
+> - any product decisions still required from me;
+> - and before/after counterfactual results for each intervention.
+> 
+> Do not deploy the behavioral changes until I review those results.
+> 
+
+That is the next move: **authorize the repair branch and counterfactual testing, not a production rollout.** The audit has already answered whether there is a problem. Now we make the system prove each proposed cure before we let it touch tomorrow’s board.
