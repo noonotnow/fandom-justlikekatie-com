@@ -81,3 +81,23 @@ preceding 48 hours. It verifies the correct destination but is not an approved
 aggregate funnel export. After the corrected configuration is deployed and
 events have accumulated, export only aggregate counts for an explicitly
 bounded date range and the veteran events described above.
+
+### Production delivery verification — 2026-09-11
+
+The external Netlify site was checked at 2026-09-11 23:25 UTC. The correction
+commit was authored at 2026-09-10 21:20 UTC, so the observed deployment lag is
+bounded at no more than 26 hours 5 minutes. Netlify did not expose an exact
+deployment timestamp in the public response, so no narrower lag is claimed.
+
+| Review item | Production evidence |
+| --- | --- |
+| Live HTML destination | Both `https://fandom.justlikekatie.com/` and the canonical veteran journal route loaded `G-FHZJ1T74TG`. Neither response contained `G-CGWB67360Q` nor `GTM-W7DJ27L5`. |
+| Canonical delivery | A browser probe against the live veteran route observed exactly one `page_view`, one `veteran_form_started`, and one `veteran_relation_selected` request to the GA4 collection endpoint for `G-FHZJ1T74TG`. |
+| Duplicate-path check | Each exercised veteran event appeared once. The page retained its established `GTM-5T5P2C9S` container, but the probe found no second pageview or duplicate veteran event from it. |
+| Privacy check | The browser URL was replaced with the canonical route before collection. The outgoing requests used only the canonical page location and the documented coarse event properties; the probe capability and submitted-text sentinel were absent. No account, visitor, session, journal, capability, submitted-text, or raw-URL export was requested or produced. |
+| Submission outcomes | The success and failure emitters remain covered by the focused analytics test, including coarse relation and failure-category values. The production probe did not create a real veteran submission merely to generate analytics. |
+
+This check verifies live delivery to the GA4 collection endpoint. It does not
+substitute for a later aggregate funnel review in the GA4 reporting interface;
+no GA4 reporting connection or approved aggregate export was available during
+this verification.

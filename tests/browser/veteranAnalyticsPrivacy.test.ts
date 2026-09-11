@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { chromium, type Browser } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
@@ -34,6 +34,10 @@ async function launchBrowser(): Promise<Browser> {
 }
 
 test('veteran pageviews and events never expose the journal capability', { timeout: 30_000 }, async () => {
+  const entryHtml = readFileSync('index.html', 'utf8');
+  assert.equal(entryHtml.match(/gtag\('config', 'G-FHZJ1T74TG'/g)?.length, 1);
+  assert.doesNotMatch(entryHtml, /G-CGWB67360Q|GTM-W7DJ27L5/);
+
   const [{ server, origin }, browser] = await Promise.all([startApp(), launchBrowser()]);
   try {
     const page = await browser.newPage();
@@ -88,21 +92,23 @@ test('veteran pageviews and events never expose the journal capability', { timeo
     const serialized = JSON.stringify(dataLayer);
     assert.doesNotMatch(serialized, new RegExp(JOURNAL_CAPABILITY));
 
-    const config = dataLayer.find(
+    const configs = dataLayer.filter(
       value => Array.isArray(value) && value[0] === 'config',
-    ) as unknown[] | undefined;
-    assert.deepEqual(config, [
+    ) as unknown[][];
+    assert.equal(configs.length, 1);
+    assert.deepEqual(configs[0], [
       'config',
       'G-FHZJ1T74TG',
       { page_location: `${origin}/vibe-atlas/veteran-journal` },
     ]);
 
     for (const eventName of ['veteran_form_started', 'veteran_relation_selected']) {
-      const event = dataLayer.find(
+      const events = dataLayer.filter(
         value => Array.isArray(value) && value[0] === 'event' && value[1] === eventName,
-      ) as unknown[] | undefined;
+      ) as unknown[][];
+      assert.equal(events.length, 1);
       assert.equal(
-        (event?.[2] as { page_location?: string } | undefined)?.page_location,
+        (events[0]?.[2] as { page_location?: string } | undefined)?.page_location,
         `${origin}/vibe-atlas/veteran-journal`,
       );
     }
