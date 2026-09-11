@@ -488,12 +488,15 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
         });
         return;
       }
-      if (visualReview && url.searchParams.get('runId') === 'visual-review-retained') {
+      if (visualReview && ['visual-review-retained', 'visual-review-legacy'].includes(url.searchParams.get('runId') ?? '')) {
+        const requestedRunId = url.searchParams.get('runId') as string;
         await route.fulfill({
           contentType: 'application/json',
           body: JSON.stringify({
-            run: archivedVisualReviewRun('visual-review-retained'),
-            receiptId: 'visual-review-receipt-retained',
+            run: archivedVisualReviewRun(requestedRunId, requestedRunId === 'visual-review-legacy'),
+            receiptId: requestedRunId === 'visual-review-legacy'
+              ? 'visual-review-receipt-legacy'
+              : 'visual-review-receipt-retained',
           }),
         });
         return;
@@ -1408,6 +1411,67 @@ test('a direct retained-review handoff stays read-only when the current image-on
       auditRequests.filter(request => request.action === 'record_visual_judgment').length,
       0,
       'completed direct-link history switching must not create additional judgment receipts',
+    );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('a direct Legacy-review handoff stays read-only when the current image-only review is completed', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { auditRequests } = await configureNetwork(page, { visualReview: true, completedVisualReview: true });
+
+  async function assertLegacyReview() {
+    await page.getByText('Image-only calibration · audit visual-review-legacy', { exact: true }).waitFor();
+    const review = page.getByLabel('Blind rejected thumbnail review');
+    await review.getByRole('img', { name: 'Rejected thumbnail for blind visual judgment' }).waitFor();
+    for (const choice of ['Core', 'Supporting', 'Connective', 'Contradictory', 'Irrelevant']) {
+      assert.equal(
+        await review.getByRole('button', { name: choice, exact: true }).isDisabled(),
+        true,
+        `the direct-linked Legacy review must disable the ${choice} choice`,
+      );
+    }
+    assert.equal(
+      await page.getByText('Historical and Legacy runs are view-only. Open the current audit to record a judgment.', { exact: true }).isVisible(),
+      true,
+    );
+  }
+
+  try {
+    const params = new URLSearchParams({
+      admin: 'true',
+      actorId: ACTOR_ID,
+      vibeKey: VIBE_KEY,
+      runId: 'visual-review-legacy',
+      receiptId: 'visual-review-receipt-legacy',
+    });
+    await page.goto(`${origin}/vibe-atlas?${params}`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await assertLegacyReview();
+
+    const runSelect = page.getByLabel('Audit run');
+    assert.match(
+      await runSelect.locator('option[value="visual-review-legacy"]').textContent() ?? '',
+      /^Legacy history · visual-review-legacy · /,
+    );
+
+    await runSelect.selectOption('visual-review-current');
+    await page.getByRole('heading', { name: 'Audit evidence · visual-review-current', exact: true }).waitFor();
+    assert.equal(await page.getByLabel('Visual board comparison').isVisible(), true);
+    assert.equal(await page.getByLabel('Blind rejected thumbnail review').count(), 0);
+    assert.equal(new URL(page.url()).searchParams.has('runId'), false);
+    assert.equal(new URL(page.url()).searchParams.has('receiptId'), false);
+
+    await runSelect.selectOption('visual-review-legacy');
+    await assertLegacyReview();
+    assert.equal(
+      auditRequests.filter(request => request.action === 'record_visual_judgment').length,
+      0,
+      'completed direct-link Legacy history switching must not create additional judgment receipts',
     );
   } finally {
     await browser.close();
