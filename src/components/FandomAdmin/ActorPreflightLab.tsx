@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { dbSaveGrid, type GridRecord } from '../../utils/collectionDB';
+import {
+  createMisprint,
+  dbSaveCard,
+  dbSaveGrid,
+  type CardRecord,
+  type GridRecord,
+  type MisprintReason,
+} from '../../utils/collectionDB';
 import { persistGridImagesToMedia } from '../../utils/collectionMedia';
-import { getPublicSession, syncPublicGrid } from '../../utils/publicAccount';
+import { MISPRINT_REASONS } from '../../utils/misprintReasons';
+import { getPublicSession, schedulePublicCollectionSync, syncPublicGrid } from '../../utils/publicAccount';
 import styles from './ActorPreflightLab.module.css';
 
 type AnyRecord = Record<string, any>;
@@ -178,6 +186,47 @@ export const ActorPreflightLab: React.FC = () => {
   async function saveVerdict(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!verdict)return; setBusy('verdict'); setNotice(''); try { const approved=verdict==='approved'; const operatorBoardRequired=currentRun.blindReview?.status==='unavailable'; const useRescueBoard=approved&&(operatorBoardRequired||rescuePreferred); const result=await api({action:'verdict',actorId,vibeKey,runId:currentRun.runId,verdict,notes,vibeConfirmed:approved&&vibeConfirmed,publishableConfirmed:approved&&publishableConfirmed,rescuePreferred:useRescueBoard,rescueReceiptId:useRescueBoard?preferredRescueReceiptId:undefined}); applyRefresh(result); const next=result.currentRun ?? currentRun; const preference=next?.operatorVerdict?.rescuePreference; const publicationSource=next?.operatorVerdict?.publicationSource; setRun(next); setCurrentRun(next); setVerdict(result.verdict ?? verdict); setNotes(result.notes ?? notes); setRescuePreferred(preference?.preferred === true); setPreferredRescueReceiptId(preference?.rescueReceiptId ?? ''); setNotice(approved?(publicationSource?.type==='operator_rescue'?'Exact nine-card retained-evidence board approved for publication with both human confirmations.':preference?.preferred?'Curator result approved as publishable. Your separate rescue preference was recorded.':'Curator result approved as publishable with both human confirmations.'):'Verdict saved to the curation ledger.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function publishBackfill(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!backfillDate)return; setBusy('backfill'); setNotice(''); try { const receiptId=run?.operatorVerdict?.publicationSource?.type==='operator_rescue'?run.operatorVerdict.publicationSource.rescueReceiptId:preferredRescueReceiptId; const result=await api({action:'publish_backfill',actorId,vibeKey,runId:currentRun.runId,rescueReceiptId:receiptId,date:backfillDate}); setNotice(result.backfill?.status==='already_published'?`The ${backfillDate} edition was already published with this exact board.`:`The approved board is now published as the ${backfillDate} Daily Drop edition.`); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function saveCandidateFlag(candidateId:string,flagged:boolean,intent='pin',reasons:string[]=[] ) { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy(`flag:${candidateId}`); setNotice(''); try { const result=await api({action:'flag_candidate',actorId,vibeKey,runId:currentRun.runId,candidateId,flagged,intent,reasons}); applyRefresh(result); const next=result.currentRun ?? currentRun; setRun(next); setCurrentRun(next); setPriorRuns(result.priorRuns ?? priorRuns); setNotice(flagged?'Image-level editorial intent saved. Safety gates still apply.':'Image annotation removed from the requested grid review.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
+  async function saveCandidateMisprint(candidate:AnyRecord,reason:MisprintReason,actualIdentity:string,note:string) {
+    if(!currentRun?.runId||run?.runId!==currentRun.runId||!actor||!pairing)return;
+    setBusy(`misprint:${candidate.candidateId}`); setNotice('');
+    let correctionSaved=false;
+    try {
+      const result=await api({action:'mark_misprint',actorId,vibeKey,runId:currentRun.runId,candidateId:candidate.candidateId,reason,actualIdentity,note});
+      correctionSaved=true;
+      applyRefresh(result);
+      const next=result.currentRun ?? currentRun;
+      setRun(next);
+      setCurrentRun(next);
+      setPriorRuns(result.priorRuns ?? priorRuns);
+      const definition=MISPRINT_REASONS.find(item=>item.value===reason);
+      const receipt=result.misprint;
+      const imageUrl=String(candidate.thumbnail||'');
+      if(!imageUrl||!definition||!receipt?.receiptId)throw new Error('The correction was recorded, but the collectible snapshot was incomplete.');
+      const card:CardRecord={
+        imageUrl,
+        thumbnailUrl:imageUrl,
+        actor:actor.canonicalName,
+        actorEn:actor.romanizedName||actor.canonicalName,
+        vibe:pairing.labels?.[0]||pairing.vibeKey,
+        vibeEn:pairing.labels?.[1]||pairing.labels?.[0]||pairing.vibeKey,
+        vibeEmoji:pairing.emoji||'🖨️',
+        capturedDate:new Date().toISOString().slice(0,10),
+        savedAt:receipt.markedAt,
+        resultId:candidate.candidateId,
+        sourceUrl:candidate.link,
+        title:candidate.title,
+        publisher:candidate.source,
+        searchQuery:candidate.query,
+        sourceRoute:'/vibe-atlas?admin=true',
+        collectionScope:'vibe-atlas',
+      };
+      await dbSaveCard({...card,misprint:createMisprint(card,{reason,label:receipt.label||definition.label,learningScope:receipt.correctionScope||definition.scope,calibrationStatus:result.calibrationStatus||'applied',unexpectedImageIdentity:receipt.actualIdentity||undefined,note:receipt.note||undefined,imageDigest:candidate.imageDigest,sourceRunId:receipt.sourceRunId||currentRun.runId,correctionReceiptId:receipt.receiptId},new Date(receipt.markedAt))});
+      schedulePublicCollectionSync();
+      setNotice(`${receipt.label||definition.label} preserved in Misprints. The candidate is removed from active curation; Legendary remains a separate promotion.`);
+    } catch(e:any){
+      setNotice(correctionSaved?`Curator correction saved, but the collectible could not be added to Collection: ${e.message}`:e.message);
+    } finally{setBusy('')}
+  }
   async function saveVisualJudgment(judgmentToken:string,classification:string) {
     if(!currentRun?.runId||run?.runId!==currentRun.runId||visualJudgmentsInFlight.current.has(judgmentToken))return;
     visualJudgmentsInFlight.current.add(judgmentToken);
@@ -320,7 +369,8 @@ export const ActorPreflightLab: React.FC = () => {
     setBusy('retained-run'); setNotice('');
     try {
       const result=await api(undefined,{actorId,vibeKey,runId:selected.runId});
-      const detailed=result.run as Run;
+      const detailed=(result.run??result.currentRun) as Run|undefined;
+      if(!detailed?.runId)throw new Error('The selected audit run did not load. Retry the history selection.');
       setRun(detailed);
       setHandoffReadOnly(false);
       clearHandoff();
@@ -376,6 +426,7 @@ export const ActorPreflightLab: React.FC = () => {
               onNoteChange={setEditorialNote}
               onSaveReasons={saveDisagreement}
               onFlag={saveCandidateFlag}
+              onMisprint={saveCandidateMisprint}
                onVisualJudgment={saveVisualJudgment}
               onSaveRescue={saveRescueBoard}
               onExportRescue={exportRescueBoard}
@@ -416,11 +467,11 @@ function InfoCard({title,data,keys}:{title:string;data:AnyRecord;keys:string[]})
   return <section className={styles.calibrationProfile} aria-label="Calibration evidence profile"><div><h5>Calibration evidence profile</h5><p>{profile.evidenceCount??0} active · {profile.retiredEvidenceCount??0} retired · {profile.totalConfirmedEvidenceCount??profile.evidenceCount??0} confirmed total</p></div><div className={styles.calibrationLedger}><strong>All current-contract evidence</strong>{evidence.map((item:any)=><article key={item.sourceRescueReceiptId} data-retired={item.status==='retired'}><span>Receipt {String(item.sourceRescueReceiptId).slice(0,8)} · source audit {item.sourceRunId||'unknown'}</span><p>Confirmed {date(item.confirmedAt)} by {item.confirmedBy||'operator'} · {item.status==='retired'?'retired and excluded':'active in future aggregate profiles'}</p>{item.retirement?<small>{item.retirement.reason} · retired {date(item.retirement.retiredAt)} · immutable receipt {String(item.retirement.retirementId||'').slice(0,8)}</small>:<button type="button" className={styles.buttonDanger} disabled={Boolean(busy)} onClick={()=>{setRetiringReceiptId(item.sourceRescueReceiptId);setRetirementReason('')}}>Retire calibration evidence</button>}{retiringReceiptId===item.sourceRescueReceiptId&&!item.retirement&&<form className={styles.retirementForm} onSubmit={async event=>{event.preventDefault();if(!retirementReason.trim())return;const saved=await onRetireCalibration(item.sourceRescueReceiptId,retirementReason);if(saved){setRetiringReceiptId(null);setRetirementReason('')}}}><label className={styles.label}>Why should future audits ignore this evidence?<textarea className={`${styles.input} ${styles.textarea}`} value={retirementReason} maxLength={1000} required onChange={event=>setRetirementReason(event.target.value)} placeholder="Describe what made this calibration example misleading." /></label><p>The original calibration, rescue board, audit, verdict, and eligibility history remain unchanged.</p><div className={styles.rescueActions}><button type="submit" className={styles.buttonDanger} disabled={Boolean(busy)||!retirementReason.trim()}>{busy===`retirement:${item.sourceRescueReceiptId}`?'Retiring evidence…':'Create retirement receipt'}</button><button type="button" className={styles.buttonSecondary} disabled={Boolean(busy)} onClick={()=>{setRetiringReceiptId(null);setRetirementReason('')}}>Cancel</button></div></form>}</article>)}</div>{exclusions.length>0&&<div className={styles.calibrationExclusions}><strong>Excluded from future aggregate profiles</strong>{exclusions.map((item:any)=><article key={item.retirementId||item.sourceRescueReceiptId}><span>Receipt {String(item.sourceRescueReceiptId).slice(0,8)} · retired {date(item.retiredAt)} by {item.retiredBy||'operator'}</span><p>{item.reason}</p><small>Immutable retirement receipt {String(item.retirementId||'').slice(0,8)}</small></article>)}</div>}</section>;
 }
 function RunEvidence({
-  run,currentRun,priorRuns,selectedReadOnly,busy,disagreementReasons,editorialNote,onChoice,onReasonChange,onNoteChange,onSaveReasons,onFlag,onVisualJudgment,onSaveRescue,onExportRescue,onMarkCalibration,onRetireCalibration,onSelect,initialReceiptId,
+  run,currentRun,priorRuns,selectedReadOnly,busy,disagreementReasons,editorialNote,onChoice,onReasonChange,onNoteChange,onSaveReasons,onFlag,onMisprint,onVisualJudgment,onSaveRescue,onExportRescue,onMarkCalibration,onRetireCalibration,onSelect,initialReceiptId,
 }:{
   run:Run|null;currentRun:Run|null;priorRuns:Run[];selectedReadOnly:boolean;busy:string;disagreementReasons:string[];editorialNote:string;
   onChoice:(choice:'event'|'compiled'|'neither')=>void;onReasonChange:(reasons:string[])=>void;onNoteChange:(note:string)=>void;
-  onSaveReasons:(event:React.FormEvent)=>void;onFlag:(candidateId:string,flagged:boolean,intent?:string,reasons?:string[])=>void;onVisualJudgment:(occurrenceId:string,classification:string)=>void;onSaveRescue:(candidateIds:string[])=>void;onExportRescue:(receiptId:string)=>void;onMarkCalibration:(receiptId:string)=>void;onRetireCalibration:(receiptId:string,reason:string)=>Promise<boolean>;onSelect:(run:Run)=>void;initialReceiptId?:string;
+  onSaveReasons:(event:React.FormEvent)=>void;onFlag:(candidateId:string,flagged:boolean,intent?:string,reasons?:string[])=>void;onMisprint:(candidate:AnyRecord,reason:MisprintReason,actualIdentity:string,note:string)=>void;onVisualJudgment:(occurrenceId:string,classification:string)=>void;onSaveRescue:(candidateIds:string[])=>void;onExportRescue:(receiptId:string)=>void;onMarkCalibration:(receiptId:string)=>void;onRetireCalibration:(receiptId:string,reason:string)=>Promise<boolean>;onSelect:(run:Run)=>void;initialReceiptId?:string;
 }) {
   const review = run?.blindReview;
   const isLegacy = Boolean(run?.auditContract?.isLegacy);
@@ -471,7 +522,7 @@ function RunEvidence({
         </form>}
         {disagreed && isCurrent && run.operatorVerdict && <p className={styles.historicalNotice}>The scheduling receipt is finalized, so its calibration reasons stay frozen. Image-level pins and exclusions below remain editable as separate review receipts.</p>}
       </section>}
-      {evidenceAvailable && <><BlindVisualJudgments run={run} isCurrent={isCurrent&&!isLegacy} busy={busy} onSave={onVisualJudgment}/><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{proposedCardCount}</strong><span>complete proposal cards</span><strong>{run.displayCount ?? 0}</strong><span>automatically publication-ready cards</span><strong>{run.queryCount ?? run.queryRuns?.length ?? 0}</strong><span>queries audited</span><strong>{rawResults.length}</strong><span>retained results</span></div><CandidateFunnelSummary run={run}/><CalibrationLearningSummary run={run}/><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration} initialReceiptId={initialReceiptId}/><div className={styles.evidence}>{sections.map(([label,value])=><details key={label}><summary>{label} <span className={styles.muted}>{Array.isArray(value)?`${value.length} records`:''}</span></summary>{label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} busy={busy} onFlag={onFlag}/> : <pre>{text(value)}</pre>}</details>)}</div></>}
+      {evidenceAvailable && <><BlindVisualJudgments run={run} isCurrent={isCurrent&&!isLegacy} busy={busy} onSave={onVisualJudgment}/><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{proposedCardCount}</strong><span>complete proposal cards</span><strong>{run.displayCount ?? 0}</strong><span>automatically publication-ready cards</span><strong>{run.queryCount ?? run.queryRuns?.length ?? 0}</strong><span>queries audited</span><strong>{rawResults.length}</strong><span>retained results</span></div><CandidateFunnelSummary run={run}/><CalibrationLearningSummary run={run}/><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration} initialReceiptId={initialReceiptId}/><div className={styles.evidence}>{sections.map(([label,value])=><details key={label}><summary>{label} <span className={styles.muted}>{Array.isArray(value)?`${value.length} records`:''}</span></summary>{label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} busy={busy} onFlag={onFlag} onMisprint={onMisprint}/> : <pre>{text(value)}</pre>}</details>)}</div></>}
     </> : <p className={styles.empty}>Run an audit to open a blinded Event versus Compiled comparison.</p>}
     {auditRunPicker}
   </article>;
@@ -505,9 +556,10 @@ const VISUAL_JUDGMENTS: Array<[string,string]> = [
   ['contradictory','Contradictory'],
   ['irrelevant','Irrelevant'],
 ];
-function RawResultGrid({run,isCurrent,busy,onFlag}:{run:Run;isCurrent:boolean;busy:string;onFlag:(candidateId:string,flagged:boolean,intent?:string,reasons?:string[])=>void}) {
+function RawResultGrid({run,isCurrent,busy,onFlag,onMisprint}:{run:Run;isCurrent:boolean;busy:string;onFlag:(candidateId:string,flagged:boolean,intent?:string,reasons?:string[])=>void;onMisprint:(candidate:AnyRecord,reason:MisprintReason,actualIdentity:string,note:string)=>void}) {
   const rawResults = Array.isArray(run.rawResults) ? run.rawResults : [];
   const [challengeByCandidate,setChallengeByCandidate]=useState<Record<string,string>>({});
+  const [misprintByCandidate,setMisprintByCandidate]=useState<Record<string,{reason:MisprintReason;actualIdentity:string;note:string}>>({});
   const selectedIds = new Set([
     ...(run.strongestEvent?.candidates ?? []),
     ...(run.strongestCompiled?.candidates ?? []),
@@ -519,6 +571,8 @@ function RawResultGrid({run,isCurrent,busy,onFlag}:{run:Run;isCurrent:boolean;bu
     const rejection=(run.rejections??[]).find((entry:any)=>entry.kind==='image'&&(entry.candidateId===item.candidateId||(!entry.candidateId&&entry.thumbnail===item.thumbnail&&entry.title===item.title)));
     const legacyDuplicateGuess=rejection?.reason==='legacy_duplicate_unverified';
     const flag=flags.find((entry:any)=>entry.candidateId===item.candidateId);
+    const misprint=flag?.misprint??(run.editorialFeedback?.misprints??[]).find((entry:any)=>entry.candidateId===item.candidateId);
+    const draft=misprintByCandidate[item.candidateId]??{reason:'wrong_actor' as MisprintReason,actualIdentity:'',note:''};
     const state=rejection&&!legacyDuplicateGuess?'rejected':selectedIds.has(item.candidateId)?'selected':'not_selected';
     const stateLabel=legacyDuplicateGuess?'Retained · old duplicate guess discarded':state==='rejected'?`Rejected · ${String(rejection?.reason??'curation gate').replaceAll('_',' ')}`:state==='selected'?'Selected for a candidate board':'Retained · not selected';
     return <article className={styles.result} data-state={state} data-flagged={Boolean(flag)} key={item.candidateId||`${item.link||item.thumbnail||item.title||'result'}-${index}`}>
@@ -526,10 +580,11 @@ function RawResultGrid({run,isCurrent,busy,onFlag}:{run:Run;isCurrent:boolean;bu
       <a className={styles.resultSourceLink} href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.title||'Untitled result'} · {item.source||'Unknown source'} · Open source ↗</a>
       <span className={styles.resultState} data-state={state}>{stateLabel}</span>
       {rejection?.dropDetail&&<small className={styles.resultReason}>{rejection.dropDetail}</small>}
-      {flag&&<small className={flag.disposition==='blocked'?styles.flagBlocked:styles.flagHonored}>{flag.disposition==='excluded'?'Excluded from rescue board':flag.disposition==='blocked'?`${flag.intent==='challenge'?'Challenge saved':'Preference saved'} · blocked by ${String(flag.blockedReason).replaceAll('_',' ')}; find a usable equivalent`:`${String(flag.intent||'pin').replaceAll('_',' ')} saved · eligible for provisional review`}<br/>{flag.reasons?.length?`${flag.reasons.map((reason:string)=>reason.replaceAll('_',' ')).join(' · ')} · `:''}{date(flag.createdAt)} · {flag.createdBy}</small>}
+      {flag&&<small className={flag.disposition==='blocked'?styles.flagBlocked:styles.flagHonored}>{misprint?<><span>Preserved as a Misprint</span><br/>{misprint.label} · collectible evidence retained</>:flag.disposition==='excluded'?'Excluded from rescue board':flag.disposition==='blocked'?`${flag.intent==='challenge'?'Challenge saved':'Preference saved'} · blocked by ${String(flag.blockedReason).replaceAll('_',' ')}; find a usable equivalent`:`${String(flag.intent||'pin').replaceAll('_',' ')} saved · eligible for provisional review`}<br/>{flag.reasons?.length?`${flag.reasons.map((reason:string)=>reason.replaceAll('_',' ')).join(' · ')} · `:''}{date(flag.createdAt)} · {flag.createdBy}</small>}
       <div className={styles.intentButtons} aria-label="Image-level editorial flags">
-        {([['pin','Pin for board'],['hero','Hero candidate'],['supporting','Good supporting card'],['exclude','Exclude']] as Array<[string,string]>).map(([intent,label])=><button type="button" key={intent} className={flag?.intent===intent?styles.flagButtonActive:styles.flagButton} disabled={!isCurrent||busy===`flag:${item.candidateId}`||!item.candidateId} onClick={()=>onFlag(item.candidateId,flag?.intent!==intent,intent)}>{label}</button>)}
+        {([['pin','Pin for board'],['hero','Hero candidate'],['supporting','Good supporting card'],['exclude','Exclude']] as Array<[string,string]>).map(([intent,label])=><button type="button" key={intent} className={!misprint&&flag?.intent===intent?styles.flagButtonActive:styles.flagButton} disabled={!isCurrent||Boolean(misprint)||busy===`flag:${item.candidateId}`||busy===`misprint:${item.candidateId}`||!item.candidateId} onClick={()=>onFlag(item.candidateId,flag?.intent!==intent,intent)}>{label}</button>)}
       </div>
+      {!misprint&&<details className={styles.misprintControls}><summary>Mark Misprint</summary><p>Preserve the collectible and correct the curator. Legendary is a separate promotion.</p><label>Reason<select className={styles.challengeSelect} value={draft.reason} onChange={event=>setMisprintByCandidate(current=>({...current,[item.candidateId]:{...draft,reason:event.target.value as MisprintReason}}))}>{MISPRINT_REASONS.map(reason=><option key={reason.value} value={reason.value}>{reason.label}</option>)}</select></label><small>{MISPRINT_REASONS.find(reason=>reason.value===draft.reason)?.description}</small>{draft.reason==='wrong_actor'&&<label>Who showed up? <span>(optional)</span><input className={styles.input} maxLength={160} value={draft.actualIdentity} onChange={event=>setMisprintByCandidate(current=>({...current,[item.candidateId]:{...draft,actualIdentity:event.target.value}}))} placeholder="e.g. Zhang Linghe auditioning as Liu Xueyi" /></label>}<label>Operator note <span>(optional)</span><textarea className={`${styles.input} ${styles.textarea}`} maxLength={400} value={draft.note} onChange={event=>setMisprintByCandidate(current=>({...current,[item.candidateId]:{...draft,note:event.target.value}}))} placeholder="What made this a Misprint?" /></label><button type="button" className={styles.misprintButton} disabled={!isCurrent||busy===`misprint:${item.candidateId}`||!item.candidateId} onClick={()=>onMisprint(item,draft.reason,draft.actualIdentity,draft.note)}>{busy===`misprint:${item.candidateId}`?'Preserving…':'Preserve & correct'}</button></details>}
       {rejection&&!legacyDuplicateGuess&&<details className={styles.challengeControls}><summary>Optional: dispute the system’s rejection label</summary><select className={styles.challengeSelect} value={challengeByCandidate[item.candidateId]??flag?.reasons?.[0]??''} onChange={event=>setChallengeByCandidate(current=>({...current,[item.candidateId]:event.target.value}))} aria-label="Why is the rejection classification wrong?"><option value="">What did the rejection get wrong?</option>{CHALLENGE_REASONS.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select><button type="button" className={flag?.intent==='challenge'?styles.flagButtonActive:styles.flagButton} disabled={!isCurrent||busy===`flag:${item.candidateId}`||!item.candidateId||!(challengeByCandidate[item.candidateId]??flag?.reasons?.[0])} onClick={()=>{const reason=challengeByCandidate[item.candidateId]??flag?.reasons?.[0];onFlag(item.candidateId,flag?.intent!=='challenge','challenge',reason?[reason]:[])}}>{flag?.intent==='challenge'?'Remove classification dispute':'Save classification dispute'}</button></details>}
     </article>;
   })}</div>;
