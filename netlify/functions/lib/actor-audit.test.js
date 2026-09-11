@@ -42,8 +42,10 @@ import {
 } from "./actor-audit.js";
 import { candidateIdForResult, CURATION_VERSION } from "./grid-curation.js";
 import {
+  GRID_MANIFEST_VERSION,
   gridCorrectionPrefix,
   gridManifestKey,
+  publicationManifestCatalogKey,
   readPublicationCorrections,
 } from "./publication-manifest.js";
 
@@ -1114,6 +1116,114 @@ test("date-bounded calibration export includes only retained runs in range and n
   ), {});
   assert.equal(impossibleDate.status, 400);
   assert.equal(vibeKey, "liu-xueyi:0");
+});
+
+test("date-bounded calibration export generates explicit publication join outcomes from retained manifests", async () => {
+  const publicationStore = memoryStore();
+  const { handler, store, getSearchCall } = harness({ publicationStore });
+  const run = {
+    runId: "run-publication-join-outcomes",
+    scope: "full",
+    startedAt: "2026-08-10T12:00:00.000Z",
+    completedAt: "2026-08-10T12:01:00.000Z",
+    rawResults: [
+      {
+        provisionalCandidateId: "occurrence-matched",
+        candidateId: "candidate-matched",
+        thumbnail: "https://images.example/matched.jpg",
+      },
+      {
+        provisionalCandidateId: "occurrence-missing",
+        candidateId: "candidate-missing",
+        thumbnail: "https://images.example/missing.jpg",
+      },
+      {},
+      {
+        provisionalCandidateId: "occurrence-ambiguous",
+        candidateId: "candidate-ambiguous",
+      },
+    ],
+  };
+  store.records.set(auditRunKey(pairActor.id, 0, run.runId), structuredClone(run));
+
+  const firstManifest = publicationManifest("2026-08-11");
+  firstManifest.cards[0] = {
+    ...firstManifest.cards[0],
+    candidateId: "candidate-matched",
+    sourceUrl: "https://images.example/matched.jpg",
+  };
+  firstManifest.cards[1] = {
+    ...firstManifest.cards[1],
+    candidateId: "candidate-ambiguous",
+  };
+  firstManifest.provenance.sourceCandidateIds[0] = "candidate-matched";
+  firstManifest.provenance.sourceCandidateIds[1] = "candidate-ambiguous";
+  const secondManifest = publicationManifest("2026-08-12");
+  secondManifest.cards[0] = {
+    ...secondManifest.cards[0],
+    candidateId: "candidate-ambiguous",
+  };
+  secondManifest.provenance.sourceCandidateIds[0] = "candidate-ambiguous";
+  await publicationStore.setJSON(gridManifestKey(firstManifest.publicationDate), firstManifest);
+  await publicationStore.setJSON(gridManifestKey(secondManifest.publicationDate), secondManifest);
+  await publicationStore.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1,
+    catalogVersion: GRID_MANIFEST_VERSION,
+    kind: "vibe-atlas-publication-manifest-catalog",
+    dates: [firstManifest.publicationDate, secondManifest.publicationDate],
+    updatedAt: "2026-08-12T12:00:00.000Z",
+  });
+  const auditBefore = structuredClone([...store.records.entries()]);
+  const publicationBefore = structuredClone([...publicationStore.records.entries()]);
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    "?export=calibration&from=2026-08-01&to=2026-08-31",
+  ), {});
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.runs.length, 1);
+  const receipt = payload.runs[0].publicationJoinReceipt;
+  assert.equal(receipt.kind, "vibe-atlas-audit-publication-join");
+  assert.equal(receipt.readOnly, true);
+  assert.deepEqual(receipt.counts, {
+    matched: 1,
+    missing: 1,
+    ambiguous: 1,
+    identity_unavailable: 1,
+  });
+  assert.deepEqual(
+    receipt.occurrences.map(item => [item.auditOccurrenceId, item.status]),
+    [
+      ["occurrence-matched", "matched"],
+      ["occurrence-missing", "missing"],
+      ["rawResults:2", "identity_unavailable"],
+      ["occurrence-ambiguous", "ambiguous"],
+    ],
+  );
+  assert.deepEqual(receipt.occurrences[0].matches.map(match => ({
+    publicationDate: match.publicationDate,
+    manifestId: match.manifestId,
+    candidateId: match.candidateId,
+    sourceUrl: match.sourceUrl,
+  })), [{
+    publicationDate: "2026-08-11",
+    manifestId: "manifest-2026-08-11",
+    candidateId: "candidate-matched",
+    sourceUrl: "https://images.example/matched.jpg",
+  }]);
+  assert.deepEqual(
+    receipt.occurrences[3].matches.map(match => [match.publicationDate, match.manifestId]),
+    [
+      ["2026-08-11", "manifest-2026-08-11"],
+      ["2026-08-12", "manifest-2026-08-12"],
+    ],
+  );
+  assert.equal(getSearchCall(), 0);
+  assert.deepEqual([...store.records.entries()], auditBefore);
+  assert.deepEqual([...publicationStore.records.entries()], publicationBefore);
 });
 
 test("date-bounded calibration packet aggregates only complete clean samples and reports repeated transitions", async () => {

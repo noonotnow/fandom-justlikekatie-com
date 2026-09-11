@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { chromium, type Browser, type Page } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
@@ -301,6 +302,7 @@ function responseBody(
 async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
+  calibrationExportRequests: URL[];
   exportRequests: AnyRecord[];
   misprintRequests: AnyRecord[];
   getMediaUploads: () => number;
@@ -322,6 +324,7 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
     : [];
   const auditRequests: AnyRecord[] = [];
   const calibrationRequests: AnyRecord[] = [];
+  const calibrationExportRequests: URL[] = [];
   const exportRequests: AnyRecord[] = [];
   const misprintRequests: AnyRecord[] = [];
   const collectionSyncRequests: AnyRecord[] = [];
@@ -398,6 +401,54 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
     const request = route.request();
     const url = new URL(request.url());
     if (request.method() === 'GET') {
+      if (url.searchParams.get('export') === 'calibration') {
+        calibrationExportRequests.push(url);
+        const statuses = ['matched', 'missing', 'ambiguous', 'identity_unavailable'];
+        await route.fulfill({
+          contentType: 'application/json',
+          headers: {
+            'Content-Disposition': 'attachment; filename="actor-calibration-2026-09-01-2026-09-10.json"',
+          },
+          body: JSON.stringify({
+            schemaVersion: 1,
+            exportMetadata: {
+              readOnly: true,
+              type: 'date-bounded-curation-calibration-audit',
+              dateRange: { from: '2026-09-01', to: '2026-09-10', dayCount: 10 },
+              runCount: statuses.length,
+            },
+            runs: statuses.map((status, index) => ({
+              source: {
+                actorId: ACTOR_ID,
+                vibeKey: VIBE_KEY,
+                runId: `publication-join-${status}`,
+              },
+              publicationJoinReceipt: {
+                kind: 'vibe-atlas-audit-publication-join',
+                counts: {
+                  matched: status === 'matched' ? 1 : 0,
+                  missing: status === 'missing' ? 1 : 0,
+                  ambiguous: status === 'ambiguous' ? 1 : 0,
+                  identity_unavailable: status === 'identity_unavailable' ? 1 : 0,
+                },
+                occurrences: [{
+                  auditOccurrenceId: `occurrence-${index + 1}`,
+                  status,
+                  matches: status === 'matched'
+                    ? [{ publicationDate: '2026-09-03', manifestId: 'manifest-matched' }]
+                    : status === 'ambiguous'
+                      ? [
+                        { publicationDate: '2026-09-03', manifestId: 'manifest-ambiguous-1' },
+                        { publicationDate: '2026-09-04', manifestId: 'manifest-ambiguous-2' },
+                      ]
+                      : [],
+                }],
+              },
+            })),
+          }),
+        });
+        return;
+      }
       if (!url.searchParams.has('actorId')) {
         await route.fulfill({
           contentType: 'application/json',
@@ -723,12 +774,90 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
   return {
     auditRequests,
     calibrationRequests,
+    calibrationExportRequests,
     exportRequests,
     misprintRequests,
     getMediaUploads: () => mediaUploads,
     getCollectionSyncRequests: () => collectionSyncRequests,
   };
 }
+
+test('a date-bounded editorial packet download preserves publication join outcomes without mutations', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const {
+    auditRequests,
+    calibrationRequests,
+    calibrationExportRequests,
+    exportRequests,
+    misprintRequests,
+  } = await configureNetwork(page);
+  const mutationRequests: Array<{ method: string; url: string }> = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (
+      request.method() !== 'GET'
+      && (
+        url.pathname.includes('/.netlify/functions/actor-audits')
+        || url.pathname.includes('/.netlify/functions/star-of-day')
+      )
+    ) {
+      mutationRequests.push({ method: request.method(), url: request.url() });
+    }
+  });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    const exportPanel = page.getByLabel('Read-only calibration export');
+    await exportPanel.getByLabel('From').fill('2026-09-01');
+    await exportPanel.getByLabel('To').fill('2026-09-10');
+
+    const downloadPromise = page.waitForEvent('download');
+    await exportPanel.getByRole('button', { name: 'Download editorial review packet', exact: true }).click();
+    const download = await downloadPromise;
+    const downloadPath = await download.path();
+    assert.ok(downloadPath, 'the browser should retain the downloaded editorial packet');
+    const payload = JSON.parse(await readFile(downloadPath, 'utf8')) as AnyRecord;
+
+    assert.equal(download.suggestedFilename(), 'actor-calibration-2026-09-01-2026-09-10.json');
+    assert.equal(calibrationExportRequests.length, 1);
+    assert.deepEqual(
+      Object.fromEntries(calibrationExportRequests[0].searchParams),
+      { export: 'calibration', from: '2026-09-01', to: '2026-09-10' },
+      'the browser must request the operator-selected date bounds',
+    );
+    assert.equal(payload.exportMetadata.readOnly, true);
+    assert.deepEqual(
+      payload.runs.map((runItem: AnyRecord) => runItem.publicationJoinReceipt.occurrences[0].status),
+      ['matched', 'missing', 'ambiguous', 'identity_unavailable'],
+      'the downloaded contract must preserve every publication join outcome explicitly',
+    );
+    assert.ok(
+      payload.runs.every((runItem: AnyRecord) =>
+        runItem.publicationJoinReceipt.kind === 'vibe-atlas-audit-publication-join'),
+      'publication joins must remain separate receipts on each exported run',
+    );
+    assert.equal(payload.runs[0].publicationJoinReceipt.occurrences[0].matches.length, 1);
+    assert.equal(payload.runs[1].publicationJoinReceipt.occurrences[0].matches.length, 0);
+    assert.equal(payload.runs[2].publicationJoinReceipt.occurrences[0].matches.length, 2);
+    assert.equal(payload.runs[3].publicationJoinReceipt.occurrences[0].matches.length, 0);
+    await page.getByText(
+      'Read-only cross-audit editorial review, retained evidence, and publication receipts downloaded. No audit was rerun or changed.',
+      { exact: true },
+    ).waitFor();
+
+    assert.deepEqual(mutationRequests, [], 'downloading must not issue audit or publication mutations');
+    assert.deepEqual(auditRequests, [], 'downloading must not search, score, rerun, or mutate an audit');
+    assert.deepEqual(calibrationRequests, [], 'downloading must not change calibration');
+    assert.deepEqual(exportRequests, [], 'downloading must not export or persist a rescue board');
+    assert.deepEqual(misprintRequests, [], 'downloading must not alter publication correction records');
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
 
 function visualReviewRun(receipts: AnyRecord[]): AnyRecord {
   const result = run('visual-review-current', true);
