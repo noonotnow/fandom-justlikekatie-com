@@ -1,0 +1,95 @@
+This is a sensible status report, and the gating discipline is good: **do not authorize production changes from one qualifying audit**, even when that audit is screaming through a megaphone.
+
+## Immediate next move
+
+Run **Liu Xueyi — Cold Jade Immortal** next.
+
+It is preferable to Polished Danger because:
+
+- it is independent of the Liu Yuning pairing;
+- known promise failures exist;
+- the counterfactual board already demonstrates the intended aesthetic;
+- detected-family behavior can be evaluated alongside promise calibration;
+- the results can inform both #293 and the later dominant-family experiment.
+
+Complete every queued judgment exactly once, regenerate the cross-audit packet, and check specifically whether `promise_rejection: irrelevant → core/supporting/connective` recurs.
+
+## Two checks before authorizing #293
+
+### 1. Reconcile the disagreement counts
+
+The listed disagreements add up to:
+
+- promise rejection: 6;
+- post-ranking omission: 33;
+- pre-analysis filter: 8;
+
+That totals **47**, while the headline reports **48**. There may be another stage or residual category, but it should be explicitly identified before this becomes a regression baseline.
+
+### 2. Report unique images as well as occurrences
+
+The 54 occurrences may include the same candidate appearing across runs or queries. The packet should report:
+
+- total occurrences;
+- unique image identities;
+- exact/near-duplicate clusters;
+- disagreement counts at both occurrence and unique-image levels.
+
+Otherwise one repeatedly surfaced image could inflate the apparent evidence volume. It would not invalidate the finding, but it would change its strength.
+
+## If Cold Jade confirms the transition
+
+Authorize #293 only as an **offline calibration experiment**, narrowly scoped to:
+
+> Prevent metadata-derived promise rejection from classifying visually useful candidates as irrelevant without an independent visual or board-level assessment.
+> 
+
+The experiment should not simultaneously alter:
+
+- queries;
+- caching;
+- batch ranking;
+- deduplication;
+- Event-family thresholds;
+- publication recurrence rules.
+
+Required comparison:
+
+1. Current behavior.
+2. #293 behavior on identical retained candidate inputs.
+3. Blind human labels as the reference.
+4. Changes in:
+    - useful-candidate recall;
+    - contradictory/irrelevant leakage;
+    - core/supporting/connective role accuracy;
+    - final board promise integrity;
+    - candidate-pool size after promise evaluation.
+
+The goal is not “accept more images.” It is **recover useful evidence without admitting contradictory or unusable material**.
+
+## Do not leave the other tracks idle
+
+While Katie completes the second blind review, Replit can continue non-behavioral preparation:
+
+- convert the audit examples into executable fixtures;
+- add the missing residual-category reconciliation;
+- add cache-bypass receipt fields without changing cache behavior;
+- preserve rank 4–10 candidate identities prospectively;
+- build isolated replay scaffolding;
+- specify—but not activate—the dominant-family-plus-support experiment.
+
+That advances the roadmap without contaminating the promise-calibration evidence.
+
+## Reply to Replit
+
+> Proceed with Liu Xueyi — Cold Jade Immortal as the next independent qualifying audit. Do not authorize #293 yet.
+> 
+> 
+> Before evaluating the cross-audit trigger, reconcile the reported 48 disagreements against the listed stage totals, which currently account for 47. Also report occurrence-level and unique-image-level results separately so repeated candidate identities do not create pseudo-replication.
+> 
+> If Cold Jade independently repeats `promise_rejection: irrelevant → core/supporting/connective`, prepare #293 as a narrowly scoped offline experiment only. Hold queries, caching, ranking, deduplication, composition rules, and publication policy constant.
+> 
+> In parallel, complete regression-fixture packaging and prospective observability work that does not change selection behavior. Do not deploy any behavioral repair until I review the isolated counterfactual results.
+> 
+
+So the practical answer is: **one more independent audit, one arithmetic/provenance check, then a tightly isolated #293 experiment—not another month of diagnosis, and not a production leap.**
