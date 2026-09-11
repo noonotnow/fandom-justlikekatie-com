@@ -6130,12 +6130,18 @@ function clientRun(run, pair) {
   };
 }
 
+function isVisualJudgmentCandidate(candidate) {
+  return Boolean(
+    candidate
+    && candidate.selected !== true
+    && candidate.thumbnail
+    && candidate.occurrenceId
+  );
+}
+
 function visualJudgmentQueue(run) {
   return (run?.calibrationAnalysis?.candidates || [])
-    .filter(candidate =>
-      (candidate?.selected === false || candidate?.dropReason)
-      && candidate?.thumbnail
-      && candidate?.occurrenceId)
+    .filter(isVisualJudgmentCandidate)
     .map(candidate => ({
       judgmentToken: visualJudgmentToken(run.runId, candidate.occurrenceId),
       thumbnail: candidate.thumbnail,
@@ -6144,10 +6150,8 @@ function visualJudgmentQueue(run) {
 }
 
 function humanProxyComparison(run, receipts = []) {
-  const candidates = (run?.calibrationAnalysis?.candidates || []).filter(candidate =>
-    (candidate?.selected === false || candidate?.dropReason)
-    && candidate?.thumbnail
-    && candidate?.occurrenceId);
+  const candidates = (run?.calibrationAnalysis?.candidates || [])
+    .filter(isVisualJudgmentCandidate);
   const receiptsByOccurrence = new Map();
   for (const receipt of receipts) {
     if (!receipt?.sourceOccurrenceId) continue;

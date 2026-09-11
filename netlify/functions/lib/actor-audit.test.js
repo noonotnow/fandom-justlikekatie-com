@@ -921,6 +921,62 @@ test("a comparable board run exposes image-only judgments before allowing system
   assert.ok(revealed.currentRun.blindReview.systemWinner);
 });
 
+test("a failed-board run exposes implicitly unselected retained images for blind judgment", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const runBody = await runResponse.json();
+  const runId = runBody.currentRun.runId;
+  const runKey = auditRunKey(pairActor.id, 0, runId);
+  const run = structuredClone(store.records.get(runKey));
+  run.strongestEvent = null;
+  run.strongestCompiled = null;
+  run.winner = null;
+  run.alternate = null;
+  run.completeProposalCardCount = 0;
+  run.calibrationAnalysis = {
+    candidates: [{
+      occurrenceId: "failed-board:implicit",
+      thumbnail: "https://images.example/implicit-unselected.jpg",
+      query: "must stay hidden",
+      visualClass: "unclassified",
+    }, {
+      occurrenceId: "failed-board:explicit",
+      thumbnail: "https://images.example/explicit-unselected.jpg",
+      query: "must also stay hidden",
+      visualClass: "irrelevant",
+      selected: false,
+    }, {
+      occurrenceId: "failed-board:selected",
+      thumbnail: "https://images.example/selected.jpg",
+      query: "selected evidence",
+      visualClass: "core",
+      selected: true,
+    }],
+  };
+  store.records.set(runKey, run);
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.currentRun.visualJudgmentQueue.length, 2);
+  assert.deepEqual(
+    payload.currentRun.visualJudgmentQueue.map(item => item.thumbnail).sort(),
+    [
+      "https://images.example/explicit-unselected.jpg",
+      "https://images.example/implicit-unselected.jpg",
+    ],
+  );
+  assert.equal("humanProxyComparison" in payload.currentRun, false);
+});
+
 test("private calibration export is admin-only, GET-only, and requires a retained run", async () => {
   const denied = harness({ authorized: false });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
