@@ -973,12 +973,20 @@ function selectFromFrozenAnalysis(rawCandidates, frozenStates, {
   preferredCandidateIds,
   calibrationProfile,
   batchRanks = null,
+  includeQueries = null,
 }) {
+  const includedQueries = Array.isArray(includeQueries) ? new Set(includeQueries) : null;
+  const selectedRawCandidates = includedQueries
+    ? rawCandidates.filter(candidate => includedQueries.has(candidate.result?.batchKey))
+    : rawCandidates;
+  const selectedFrozenStates = includedQueries
+    ? frozenStates.filter(state => includedQueries.has(state.candidate?.result?.batchKey))
+    : frozenStates;
   const rankFor = candidate => {
     const query = candidate.result?.batchKey;
     return Number.isInteger(batchRanks?.[query]) ? batchRanks[query] : candidate.batchRank;
   };
-  const analyzedStates = frozenStates.map(state => {
+  const analyzedStates = selectedFrozenStates.map(state => {
     const candidate = {
       ...state.candidate,
       batchRank: rankFor(state.candidate),
@@ -986,7 +994,7 @@ function selectFromFrozenAnalysis(rawCandidates, frozenStates, {
     candidate.calibration = candidateCalibration(candidate, calibrationProfile);
     return { ...state, candidate };
   });
-  const rankedRawCandidates = rawCandidates.map(candidate => ({
+  const rankedRawCandidates = selectedRawCandidates.map(candidate => ({
     ...candidate,
     batchRank: rankFor(candidate),
   })).sort(rawCandidateOrder);
@@ -1142,6 +1150,21 @@ export async function curateDisplayResults(
 
   let analyzedStates = await mapWithConcurrency(rawCandidates, analysisConcurrency, async candidate => {
     try {
+      const policyDropReason = [
+        "content_policy",
+        "rights_prohibited",
+        "safety_prohibited",
+        "confirmed_wrong_identity",
+      ].includes(candidate.result?.dropReason)
+        ? candidate.result.dropReason
+        : null;
+      if (policyDropReason) {
+        return {
+          candidate,
+          dropReason: policyDropReason,
+          dropDetail: String(candidate.result?.dropDetail || "Upstream hard gate").slice(0, 160),
+        };
+      }
       const buffer = await loadBuffer(candidate.result.thumbnail, candidate.result);
       const imageFingerprint = await fingerprint(buffer, candidate.result);
       if (!usableFingerprint(imageFingerprint)) return { candidate, dropReason: "unusable_image" };
@@ -1200,6 +1223,7 @@ export async function curateDisplayResults(
       preferredCandidateIds: calibrationControl.preferredCandidateIds || [],
       calibrationProfile: null,
       batchRanks: calibrationControl.batchRanks || null,
+      includeQueries: calibrationControl.includeQueries || null,
     });
     result.controlDiagnostics = control.diagnostics;
   }

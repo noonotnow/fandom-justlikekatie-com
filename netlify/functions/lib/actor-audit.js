@@ -45,6 +45,11 @@ import {
   auditRescueCalibrationSignalRetirementPrefix,
   auditRescueCalibrationOutcomeKey,
   auditRescueCalibrationOutcomePrefix,
+  auditRescueCalibrationApprovalKey,
+  auditRescueCalibrationApprovalPrefix,
+  auditRescueCalibrationApprovalRevocationKey,
+  auditRescueCalibrationApprovalRevocationPrefix,
+  auditRescueCalibrationAuthorityKey,
   auditVerdictKey,
   auditVerdictPrefix,
   auditVibeKey,
@@ -101,6 +106,8 @@ const MISPRINT_RECEIPT_CATALOG_KEY = "vibeAtlas:misprint-receipt-catalog:v1";
 const RESCUE_CALIBRATION_VERSION = 1;
 const MIN_REUSABLE_SIGNAL_DELTA = 0.15;
 const MIN_REUSABLE_SIGNAL_SUPPORT = 2;
+
+const MIN_CALIBRATION_APPROVAL_EVIDENCE = 2;
 const MIN_HUMAN_PROXY_REVIEWED_SAMPLE = 5;
 const CALIBRATION_SIGNAL_FAMILIES = new Map([
   ["query", "queries"],
@@ -506,12 +513,13 @@ export function createActorAuditHandler({
         if (!scope) return json(400, { error: "Audit scope must be representative or full." });
         const previous = await readReport(store, pair);
         const calibrationProfile = await readRescueCalibrationProfile(store, pair);
+        const productionCalibrationProfile = approvedCalibrationProfile(calibrationProfile);
         const misprintCorrections = await readApplicableMisprints(store, pair);
         const reviewPreferenceCandidateIds = nextReviewPreferenceIds(previous.currentRun);
         const preferredCandidateIds = [
           ...new Set([
             ...reviewPreferenceCandidateIds,
-            ...(calibrationProfile?.positiveCandidateIds || []),
+            ...(productionCalibrationProfile?.positiveCandidateIds || []),
           ]),
         ];
         const run = await runPreflight(pair, searchOneQuery, {
@@ -521,17 +529,17 @@ export function createActorAuditHandler({
           curate,
           preferredCandidateIds,
           reviewPreferenceCandidateIds,
-          calibrationProfile,
+          calibrationProfile: productionCalibrationProfile,
           misprintCorrections,
         });
         const { report, advanced } = await appendRun(store, pair, run);
         if (advanced) {
-          if (calibrationProfile) {
+          if (productionCalibrationProfile) {
             await persistRescueCalibrationOutcome(
               store,
               pair,
               run,
-              calibrationProfile,
+              productionCalibrationProfile,
               now,
             );
           }
@@ -815,6 +823,7 @@ export function createActorAuditHandler({
         })) {
           return json(409, { error: "Another operator finalized this audit run first." });
         }
+        const productionCalibrationProfile = approvedCalibrationProfile(next.calibrationProfile);
         await writeEligibility(store, pair, {
           schemaVersion: 1,
           profileVersion: IDENTITY_PROFILE_VERSION,
@@ -832,19 +841,25 @@ export function createActorAuditHandler({
           publishableConfirmed,
           calibrationVersion: 1,
           calibrationHash: recordHash(operatorVerdict.calibration),
-          rescueCalibrationVersion: next.calibrationProfile?.calibrationVersion || null,
-          rescueCalibrationEvidenceCount: next.calibrationProfile?.evidenceCount || 0,
+          rescueCalibrationVersion: productionCalibrationProfile?.calibrationVersion || null,
+          rescueCalibrationEvidenceCount: productionCalibrationProfile?.evidenceCount || 0,
           rescueCalibrationRetiredEvidenceCount:
             next.calibrationProfile?.retiredEvidenceCount || 0,
           rescueCalibrationRetirementHash:
             next.calibrationProfile?.retirementHash || null,
-          rescueCalibrationHash: next.calibrationProfile
+          rescueCalibrationHash: productionCalibrationProfile
             ? recordHash({
-              sourceReceiptIds: [...next.calibrationProfile.sourceReceiptIds].sort(),
+              sourceReceiptIds: [...productionCalibrationProfile.sourceReceiptIds].sort(),
+              approvalId: productionCalibrationProfile.approvalReceipt.approvalId,
+              aggregateEvidenceHash: productionCalibrationProfile.approvalReceipt.aggregateEvidenceHash,
               proofStatus: report.currentRun.calibrationProof?.status || null,
             })
             : null,
-          calibrationProfile: dailyCalibrationProfile(next.calibrationProfile),
+          rescueCalibrationApprovalId:
+            productionCalibrationProfile?.approvalReceipt?.approvalId || null,
+          rescueCalibrationApprovalEvidenceHash:
+            productionCalibrationProfile?.approvalReceipt?.aggregateEvidenceHash || null,
+          calibrationProfile: dailyCalibrationProfile(productionCalibrationProfile),
           materialSufficient: report.currentRun.materialSufficient,
           publicationSource: operatorVerdict.publicationSource,
           eligible: APPROVED_VERDICTS.has(input.verdict),
@@ -1867,6 +1882,164 @@ export function createActorAuditHandler({
         });
       }
 
+      if (input.action === "approve_rescue_calibration") {
+        const profile = await readRescueCalibrationProfile(store, pair);
+        if (!profile || profile.reviewedRunCount < MIN_CALIBRATION_APPROVAL_EVIDENCE) {
+          return json(409, {
+            error: `Calibration approval requires evidence from at least ${MIN_CALIBRATION_APPROVAL_EVIDENCE} distinct reviewed audits.`,
+          });
+        }
+        if (!CALIBRATION_ADJUSTMENT_TYPES.has(input.adjustmentType)) {
+          return json(400, { error: "Choose a class or query-ladder adjustment." });
+        }
+        const signalFamily = input.adjustmentType === "query_ladder"
+          ? "queries"
+          : normalizeCalibrationSignalFamily(input.signalFamily);
+        if (!signalFamily || (input.adjustmentType === "class" && signalFamily === "queries")) {
+          return json(400, { error: "A class adjustment must select source, cluster, or composition." });
+        }
+        const direction = input.direction === "negative" ? "negative" : input.direction === "positive" ? "positive" : null;
+        const signalValues = [...new Set((Array.isArray(input.signalValues) ? input.signalValues : [])
+          .map(normalizeCalibrationSignalValue)
+          .filter(Boolean))].slice(0, 12);
+        if (!direction || !signalValues.length) {
+          return json(400, { error: "Choose a positive or negative aggregate adjustment and at least one signal." });
+        }
+        const deltas = profile.reusableSignalDeltas?.[signalFamily] || [];
+        const eligible = new Set(deltas.filter(signal =>
+          (direction === "positive"
+            ? signal.delta >= MIN_REUSABLE_SIGNAL_DELTA && signal.selectedEvidenceCount >= MIN_CALIBRATION_APPROVAL_EVIDENCE
+            : signal.delta <= -MIN_REUSABLE_SIGNAL_DELTA && signal.omittedEvidenceCount >= MIN_CALIBRATION_APPROVAL_EVIDENCE))
+          .map(signal => signal.value));
+        if (signalValues.some(value => !eligible.has(value))) {
+          return json(409, { error: "Every approved signal must recur with the selected direction across at least two distinct reviewed audits." });
+        }
+        const evidenceReceiptIds = [...profile.sourceReceiptIds].sort();
+        const aggregateEvidenceHash = calibrationApprovalEvidenceHash(profile, {
+          signalFamily,
+          direction,
+          signalValues,
+        });
+        const approvalId = recordHash({
+          actorId: pair.actor.id,
+          vibeKey: pair.vibeKey,
+          aggregateEvidenceHash,
+          adjustmentType: input.adjustmentType,
+        }).slice(0, 24);
+        const receipt = {
+          schemaVersion: 1,
+          status: "approved",
+          approvalId,
+          actorId: pair.actor.id,
+          vibeKey: pair.vibeKey,
+          calibrationVersion: profile.calibrationVersion,
+          adjustment: {
+            type: input.adjustmentType,
+            signalFamily,
+            direction,
+            signalValues,
+          },
+          evidenceReceiptIds,
+          evidenceCount: evidenceReceiptIds.length,
+          aggregateEvidenceHash,
+          approvedAt: now().toISOString(),
+          approvedBy: operator.user.accountId,
+        };
+        await store.setJSON(
+          auditRescueCalibrationApprovalKey(pair.actor.id, pair.vibeIdx, approvalId),
+          receipt,
+          { onlyIfNew: true },
+        );
+        const authoritative = await store.get(
+          auditRescueCalibrationApprovalKey(pair.actor.id, pair.vibeIdx, approvalId),
+          { type: "json", consistency: "strong" },
+        );
+        if (!authoritative
+          || recordHash(calibrationApprovalIdentity(authoritative))
+            !== recordHash(calibrationApprovalIdentity(receipt))) {
+          return json(409, { error: "The immutable calibration approval receipt could not be verified." });
+        }
+        const priorRevocation = await store.get(
+          auditRescueCalibrationApprovalRevocationKey(pair.actor.id, pair.vibeIdx, approvalId),
+          { type: "json", consistency: "strong" },
+        );
+        if (priorRevocation?.status === "revoked") {
+          return json(409, { error: "That immutable calibration approval was already revoked. Review fresh evidence before approving again." });
+        }
+        if (!await writeCalibrationAuthority(store, pair, {
+          status: "approved",
+          approvalId,
+          aggregateEvidenceHash,
+          changedAt: authoritative.approvedAt,
+          changedBy: authoritative.approvedBy,
+        })) {
+          return json(409, { error: "Calibration authority changed concurrently. Refresh and review it again." });
+        }
+        const next = await readReport(store, pair);
+        return json(200, {
+          actor: await actorSummary(store, actorPacks, pair.actor),
+          pairing: pairingSummary(pair, next),
+          ...detailResponse(pair, next),
+        });
+      }
+
+      if (input.action === "revoke_rescue_calibration_approval") {
+        if (typeof input.approvalId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(input.approvalId)) {
+          return json(400, { error: "Choose an approved calibration receipt to revoke." });
+        }
+        const approval = await store.get(
+          auditRescueCalibrationApprovalKey(pair.actor.id, pair.vibeIdx, input.approvalId),
+          { type: "json", consistency: "strong" },
+        );
+        if (!approval || approval.actorId !== pair.actor.id || approval.vibeKey !== pair.vibeKey) {
+          return json(404, { error: "That calibration approval was not found for this pairing." });
+        }
+        const reason = boundedText(input.reason, MAX_CALIBRATION_RETIREMENT_REASON_LENGTH);
+        if (!reason) return json(400, { error: "Explain why this production calibration is being revoked." });
+        const revocation = {
+          schemaVersion: 1,
+          status: "revoked",
+          approvalId: approval.approvalId,
+          aggregateEvidenceHash: approval.aggregateEvidenceHash,
+          reason,
+          revokedAt: now().toISOString(),
+          revokedBy: operator.user.accountId,
+        };
+        await store.setJSON(
+          auditRescueCalibrationApprovalRevocationKey(pair.actor.id, pair.vibeIdx, approval.approvalId),
+          revocation,
+          { onlyIfNew: true },
+        );
+        const authoritative = await store.get(
+          auditRescueCalibrationApprovalRevocationKey(
+            pair.actor.id,
+            pair.vibeIdx,
+            approval.approvalId,
+          ),
+          { type: "json", consistency: "strong" },
+        );
+        if (!authoritative
+          || recordHash(calibrationApprovalRevocationIdentity(authoritative))
+            !== recordHash(calibrationApprovalRevocationIdentity(revocation))) {
+          return json(409, { error: "The immutable calibration revocation receipt could not be verified." });
+        }
+        if (!await writeCalibrationAuthority(store, pair, {
+          status: "revoked",
+          approvalId: approval.approvalId,
+          aggregateEvidenceHash: approval.aggregateEvidenceHash,
+          changedAt: authoritative.revokedAt,
+          changedBy: authoritative.revokedBy,
+        })) {
+          return json(409, { error: "Calibration authority changed concurrently. Refresh and review it again." });
+        }
+        const next = await readReport(store, pair);
+        return json(200, {
+          actor: await actorSummary(store, actorPacks, pair.actor),
+          pairing: pairingSummary(pair, next),
+          ...detailResponse(pair, next),
+        });
+      }
+
       if (input.action === "retire_rescue_signal") {
         if (typeof input.receiptId !== "string"
           || !/^[A-Za-z0-9_-]{1,128}$/.test(input.receiptId)) {
@@ -2170,6 +2343,12 @@ export async function runPreflight(
   } = {},
 ) {
   const startedAt = now().toISOString();
+  const baseQueries = searchQueriesFor(
+    pair.actor,
+    pair.vibeIdx,
+    null,
+    { baseLimit: scope === "representative" ? 3 : null },
+  );
   const queries = searchQueriesFor(
     pair.actor,
     pair.vibeIdx,
@@ -2192,8 +2371,10 @@ export async function runPreflight(
   });
   const appliedMisprintReceiptIds = matchedMisprintReceiptIds(candidates, misprintCorrections);
   const correctedCandidates = applyMisprintCorrectionsToCandidates(candidates, misprintCorrections);
-  const baselineRanked = rankCandidates(correctedCandidates);
-  const ranked = baselineRanked;
+  const baseQuerySet = new Set(baseQueries);
+  const baselineRanked = rankCandidates(correctedCandidates.filter(candidate =>
+    baseQuerySet.has(candidate.query)));
+  const ranked = rankCandidates(correctedCandidates);
   const baselineTop = baselineRanked.slice(0, RANKED_BATCH_LIMIT);
   const calibratedTop = ranked.slice(0, RANKED_BATCH_LIMIT);
   const comparisonQueries = new Set([
@@ -2227,6 +2408,7 @@ export async function runPreflight(
         preferredCandidateIds: reviewPreferenceCandidateIds,
         batchRanks: Object.fromEntries(baselineForCuration.map((batch, index) =>
           [batch.query, index])),
+          includeQueries: baseQueries,
       } : null,
     })
     : { displayResults: [], curation: null, diagnostics: null };
@@ -2294,6 +2476,8 @@ export async function runPreflight(
     {
       baselineInputFingerprint: analysisFingerprintFromDiagnostics(curated.controlDiagnostics),
       calibratedInputFingerprint: analysisFingerprintFromDiagnostics(diagnostics),
+      baselineQueries: baseQueries,
+      calibratedQueries: queries,
     },
   );
   const calibrationSignals = diagnostics.calibrationSignals
@@ -2337,6 +2521,8 @@ export async function runPreflight(
       baselineTopQueries: baselineTop.map(candidate => candidate.query),
       calibratedTopQueries: calibratedTop.map(candidate => candidate.query),
       comparisonUniverseQueries: [...comparisonQueries],
+      baseQueries,
+      addedQueries: queries.filter(query => !baseQuerySet.has(query)),
     } : null,
     inheritedPreferenceCandidateIds: preferredCandidateIds,
     inheritedCalibration: calibrationProfile ? {
@@ -2344,6 +2530,9 @@ export async function runPreflight(
       calibrationVersion: calibrationProfile.calibrationVersion,
       evidenceCount: calibrationProfile.evidenceCount,
       sourceReceiptIds: calibrationProfile.sourceReceiptIds,
+      approvalId: calibrationProfile.approvalReceipt?.approvalId || null,
+      aggregateEvidenceHash: calibrationProfile.approvalReceipt?.aggregateEvidenceHash || null,
+      adjustment: calibrationProfile.activeAdjustment || null,
     } : null,
     calibrationProof,
     rawResults: boundedRawResultsWithMisprints(
@@ -4715,6 +4904,10 @@ function reusableSignalPreferences(records, key, isRetired = () => false) {
       omittedCount: 0,
       selectedRateTotal: 0,
       omittedRateTotal: 0,
+      selectedEvidenceCount: 0,
+      omittedEvidenceCount: 0,
+      selectedSourceRunIds: new Set(),
+      omittedSourceRunIds: new Set(),
     };
     current[field] += amount;
     values.set(value, current);
@@ -4743,6 +4936,14 @@ function reusableSignalPreferences(records, key, isRetired = () => false) {
       add(value, "omittedCount", omittedCount);
       add(value, "selectedRateTotal", selectedCount / Math.max(1, selected.length));
       add(value, "omittedRateTotal", omittedCount / Math.max(1, omitted.length));
+      if (selectedCount) add(value, "selectedEvidenceCount");
+      if (omittedCount) add(value, "omittedEvidenceCount");
+      if (selectedCount && record.sourceRunId) {
+        values.get(value).selectedSourceRunIds.add(record.sourceRunId);
+      }
+      if (omittedCount && record.sourceRunId) {
+        values.get(value).omittedSourceRunIds.add(record.sourceRunId);
+      }
     }
   }
   const deltas = [...values.values()].map(value => {
@@ -4752,6 +4953,8 @@ function reusableSignalPreferences(records, key, isRetired = () => false) {
       value: value.value,
       selectedCount: value.selectedCount,
       omittedCount: value.omittedCount,
+      selectedEvidenceCount: value.selectedSourceRunIds.size,
+      omittedEvidenceCount: value.omittedSourceRunIds.size,
       selectedRate: Number(selectedRate.toFixed(4)),
       omittedRate: Number(omittedRate.toFixed(4)),
       delta: Number((selectedRate - omittedRate).toFixed(4)),
@@ -5112,7 +5315,7 @@ function rescueCalibrationMatchesCurrentContract(record, pair) {
 }
 
 async function readRescueCalibrationProfile(store, pair) {
-  const [confirmedReceipts, retirementReceipts, signalRetirementReceipts, outcomeReceipts] = await Promise.all([
+  const [confirmedReceipts, retirementReceipts, signalRetirementReceipts, outcomeReceipts, approvalReceipts, approvalRevocations, canonicalAuthority] = await Promise.all([
     readReceipts(
       store,
       auditRescueCalibrationPrefix(pair.actor.id, pair.vibeIdx),
@@ -5133,7 +5336,41 @@ async function readRescueCalibrationProfile(store, pair) {
       auditRescueCalibrationOutcomePrefix(pair.actor.id, pair.vibeIdx),
       "attemptedAt",
     ),
+    readReceipts(store, auditRescueCalibrationApprovalPrefix(pair.actor.id, pair.vibeIdx), "approvedAt"),
+    readReceipts(store, auditRescueCalibrationApprovalRevocationPrefix(pair.actor.id, pair.vibeIdx), "revokedAt"),
+    store.get(
+      auditRescueCalibrationAuthorityKey(pair.actor.id, pair.vibeIdx),
+      { type: "json", consistency: "strong" },
+    ),
   ]);
+  if (canonicalAuthority?.approvalId) {
+    const [canonicalApproval, canonicalRevocation] = await Promise.all([
+      store.get(
+        auditRescueCalibrationApprovalKey(
+          pair.actor.id,
+          pair.vibeIdx,
+          canonicalAuthority.approvalId,
+        ),
+        { type: "json", consistency: "strong" },
+      ),
+      store.get(
+        auditRescueCalibrationApprovalRevocationKey(
+          pair.actor.id,
+          pair.vibeIdx,
+          canonicalAuthority.approvalId,
+        ),
+        { type: "json", consistency: "strong" },
+      ),
+    ]);
+    if (canonicalApproval
+      && !approvalReceipts.some(receipt => receipt.approvalId === canonicalApproval.approvalId)) {
+      approvalReceipts.push(canonicalApproval);
+    }
+    if (canonicalRevocation
+      && !approvalRevocations.some(receipt => receipt.approvalId === canonicalRevocation.approvalId)) {
+      approvalRevocations.push(canonicalRevocation);
+    }
+  }
   const currentRecords = confirmedReceipts.filter(record =>
     record.status === "confirmed"
     && record.calibrationVersion === RESCUE_CALIBRATION_VERSION
@@ -5233,6 +5470,30 @@ async function readRescueCalibrationProfile(store, pair) {
       }
     }
   }
+  const revokedApprovalIds = new Set(approvalRevocations
+    .filter(receipt => receipt?.status === "revoked")
+    .map(receipt => receipt.approvalId));
+  const evidenceReceiptIds = records.map(record => record.sourceRescueReceiptId).sort();
+  const reviewedRunCount = new Set(records.map(record => record.sourceRunId).filter(Boolean)).size;
+  const activeApproval = approvalReceipts
+    .filter(receipt =>
+      receipt?.status === "approved"
+      && receipt.actorId === pair.actor.id
+      && receipt.vibeKey === pair.vibeKey
+      && receipt.calibrationVersion === RESCUE_CALIBRATION_VERSION
+      && (!canonicalAuthority || (
+        canonicalAuthority.status === "approved"
+        && canonicalAuthority.approvalId === receipt.approvalId
+        && canonicalAuthority.aggregateEvidenceHash === receipt.aggregateEvidenceHash
+      ))
+      && !revokedApprovalIds.has(receipt.approvalId)
+      && JSON.stringify([...(receipt.evidenceReceiptIds || [])].sort()) === JSON.stringify(evidenceReceiptIds)
+      && receipt.aggregateEvidenceHash === calibrationApprovalEvidenceHash({
+        calibrationVersion: RESCUE_CALIBRATION_VERSION,
+        sourceReceiptIds: evidenceReceiptIds,
+        retirementHash,
+      }, receipt.adjustment))
+    .sort((left, right) => String(right.approvedAt).localeCompare(String(left.approvedAt)))[0] || null;
   return {
     schemaVersion: 1,
     calibrationVersion: RESCUE_CALIBRATION_VERSION,
@@ -5240,11 +5501,20 @@ async function readRescueCalibrationProfile(store, pair) {
     actorId: pair.actor.id,
     vibeKey: pair.vibeKey,
     evidenceCount: records.length,
+    reviewedRunCount,
     totalConfirmedEvidenceCount: currentRecords.length,
     retiredEvidenceCount: retirements.length,
     retiredSignalCount: signalRetirements.length,
     requiresFreshAudit: retirements.length > 0 || signalRetirements.length > 0,
     sourceReceiptIds: records.map(record => record.sourceRescueReceiptId).sort(),
+    minimumApprovalEvidenceCount: MIN_CALIBRATION_APPROVAL_EVIDENCE,
+    approvalReady: reviewedRunCount >= MIN_CALIBRATION_APPROVAL_EVIDENCE,
+    activeApproval,
+    approvalHistory: approvalReceipts.map(receipt => ({
+      ...receipt,
+      effectiveStatus: revokedApprovalIds.has(receipt.approvalId) ? "revoked" : "approved",
+      revocation: approvalRevocations.find(item => item.approvalId === receipt.approvalId) || null,
+    })),
     retiredReceiptIds,
     retirementReceiptIds: retirements.map(retirement => retirement.retirementId).filter(Boolean).sort(),
     signalRetirements,
@@ -5337,6 +5607,16 @@ async function readRescueCalibrationProfile(store, pair) {
   };
 }
 
+function calibrationApprovalEvidenceHash(profile, adjustment) {
+  return recordHash({
+    calibrationVersion: profile.calibrationVersion,
+    evidenceReceiptIds: [...(profile.sourceReceiptIds || [])].sort(),
+    retirementHash: profile.retirementHash || null,
+    signalFamily: adjustment?.signalFamily || null,
+    direction: adjustment?.direction || null,
+    signalValues: [...(adjustment?.signalValues || [])],
+  });
+}
 function dailyCalibrationProfile(profile) {
   if (!profile?.evidenceCount) return null;
   return {
@@ -5500,12 +5780,33 @@ export function compareCalibrationOutcomes(profile, baseline, calibrated, input 
     input.baselineInputFingerprint
     && input.baselineInputFingerprint === input.calibratedInputFingerprint,
   );
+  const baselineQueries = [...new Set(input.baselineQueries || [])];
+  const calibratedQueries = [...new Set(input.calibratedQueries || [])];
+  const addedQueries = calibratedQueries.filter(query => !baselineQueries.includes(query));
+  const retrievalEffects = (calibrated.rawCandidates || [])
+    .filter(candidate => addedQueries.includes(candidate.query))
+    .map(candidate => ({
+      candidateId: candidate.candidateId,
+      query: candidate.query,
+      dropReason: candidate.dropReason || null,
+      selected: calibratedBoard.some(item => item.candidateId === candidate.candidateId),
+    }));
   return {
     schemaVersion: 1,
-    method: "same_evidence_uncalibrated_control",
+    method: addedQueries.length
+      ? "base_query_subset_of_frozen_union"
+      : "same_evidence_uncalibrated_control",
     baselineInputFingerprint: input.baselineInputFingerprint || null,
     calibratedInputFingerprint: input.calibratedInputFingerprint || null,
     sameInput,
+    sharedFrozenAnalysis: true,
+    queryLadderComparable: addedQueries.length > 0
+      && baselineQueries.length > 0
+      && calibratedQueries.length > baselineQueries.length,
+    baselineQueries,
+    calibratedQueries,
+    addedQueries,
+    retrievalEffects,
     baselineWinner: baseline.winner || null,
     calibratedWinner: calibrated.winner || null,
     baselineCandidateIds: baselineBoard.map(candidate => candidate.candidateId),
@@ -5513,8 +5814,11 @@ export function compareCalibrationOutcomes(profile, baseline, calibrated, input 
     effects: boundedEffects,
     beyondExactSavedNineEffectCount: effects.length,
     sourceEvidenceCandidateCount: sourceEvidenceIds.size,
-    improved: sameInput && effects.length > 0,
-    summary: !sameInput
+    improved: (sameInput || (addedQueries.length > 0 && baselineQueries.length > 0))
+      && (effects.length > 0 || retrievalEffects.some(item => item.selected)),
+    summary: addedQueries.length
+      ? `${addedQueries.length} approved learned quer${addedQueries.length === 1 ? "y was" : "ies were"} compared against the base ladder; ${retrievalEffects.length} retrieved candidate${retrievalEffects.length === 1 ? "" : "s"} were recorded.`
+      : !sameInput
       ? "The control and calibrated inputs differed, so no calibration proof was accepted."
       : effects.length
       ? `${effects.length} transferable ranking effect${effects.length === 1 ? "" : "s"} appeared on evidence absent from the source audit.`
@@ -6594,4 +6898,91 @@ function visualJudgmentToken(runId, occurrenceId) {
     .update(`visual-judgment:${runId}:${occurrenceId}`)
     .digest("hex")
     .slice(0, 24);
+}
+
+const CALIBRATION_ADJUSTMENT_TYPES = new Set(["class", "query_ladder"]);
+
+function calibrationApprovalIdentity(receipt) {
+  return {
+    status: receipt?.status,
+    approvalId: receipt?.approvalId,
+    actorId: receipt?.actorId,
+    vibeKey: receipt?.vibeKey,
+    calibrationVersion: receipt?.calibrationVersion,
+    adjustment: receipt?.adjustment,
+    evidenceReceiptIds: receipt?.evidenceReceiptIds,
+    evidenceCount: receipt?.evidenceCount,
+    aggregateEvidenceHash: receipt?.aggregateEvidenceHash,
+    approvedBy: receipt?.approvedBy,
+  };
+}
+
+function calibrationApprovalRevocationIdentity(receipt) {
+  return {
+    status: receipt?.status,
+    approvalId: receipt?.approvalId,
+    aggregateEvidenceHash: receipt?.aggregateEvidenceHash,
+    reason: receipt?.reason,
+    revokedBy: receipt?.revokedBy,
+  };
+}
+
+async function writeCalibrationAuthority(store, pair, next) {
+  const key = auditRescueCalibrationAuthorityKey(pair.actor.id, pair.vibeIdx);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const current = await store.getWithMetadata(key, {
+      type: "json",
+      consistency: "strong",
+    });
+    const value = {
+      schemaVersion: 1,
+      actorId: pair.actor.id,
+      vibeKey: pair.vibeKey,
+      ...next,
+    };
+    const write = await store.setJSON(
+      key,
+      value,
+      current?.etag ? { onlyIfMatch: current.etag } : { onlyIfNew: true },
+    );
+    if (write?.modified === false) continue;
+    const authoritative = await store.get(key, { type: "json", consistency: "strong" });
+    if (authoritative && recordHash(authoritative) === recordHash(value)) return authoritative;
+  }
+  return null;
+}
+
+function approvedCalibrationProfile(profile) {
+  const approval = profile?.activeApproval;
+  if (!approval) return null;
+  const { signalFamily, direction, signalValues } = approval.adjustment || {};
+  const field = `${direction === "negative" ? "negative" : "positive"}${{
+    queries: "Queries",
+    sources: "Sources",
+    clusters: "Clusters",
+    composition: "Compositions",
+  }[signalFamily] || ""}`;
+  if (!field || !Array.isArray(signalValues) || !signalValues.length) return null;
+  return {
+    calibrationVersion: profile.calibrationVersion,
+    queryCompatibilityVersion: profile.queryCompatibilityVersion,
+    evidenceCount: profile.evidenceCount,
+    sourceReceiptIds: profile.sourceReceiptIds,
+    approvalReceipt: approval,
+    activeAdjustment: approval.adjustment,
+    [field]: signalValues,
+    positiveCandidateIds: [],
+    negativeCandidateIds: [],
+    heroCandidateIds: [],
+    rankingWins: {},
+    rankingLosses: {},
+    preferredPositions: {},
+    sourceEvidenceCandidateIds: profile.sourceEvidenceCandidateIds,
+    signalInventory: profile.signalInventory,
+    transferSummary: profile.transferSummary,
+    retiredSignalCount: profile.retiredSignalCount || 0,
+    signalRetirements: profile.signalRetirements || [],
+    retirementHash: profile.retirementHash || null,
+    backupBoards: [],
+  };
 }

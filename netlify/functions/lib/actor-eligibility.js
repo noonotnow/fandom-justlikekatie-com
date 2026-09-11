@@ -88,6 +88,16 @@ export const auditRescueCalibrationOutcomePrefix = (actorId, vibeIdx) =>
   `rescue-calibration-outcomes/${actorId}/${vibeIdx}/`;
 export const auditRescueCalibrationOutcomeKey = (actorId, vibeIdx, runId) =>
   `${auditRescueCalibrationOutcomePrefix(actorId, vibeIdx)}${encodeURIComponent(runId)}`;
+export const auditRescueCalibrationApprovalPrefix = (actorId, vibeIdx) =>
+  `rescue-calibration-approvals/${actorId}/${vibeIdx}/`;
+export const auditRescueCalibrationApprovalKey = (actorId, vibeIdx, approvalId) =>
+  `${auditRescueCalibrationApprovalPrefix(actorId, vibeIdx)}${encodeURIComponent(approvalId)}`;
+export const auditRescueCalibrationApprovalRevocationPrefix = (actorId, vibeIdx) =>
+  `rescue-calibration-approval-revocations/${actorId}/${vibeIdx}/`;
+export const auditRescueCalibrationApprovalRevocationKey = (actorId, vibeIdx, approvalId) =>
+  `${auditRescueCalibrationApprovalRevocationPrefix(actorId, vibeIdx)}${encodeURIComponent(approvalId)}`;
+export const auditRescueCalibrationAuthorityKey = (actorId, vibeIdx) =>
+  `rescue-calibration-authority/${actorId}/${vibeIdx}`;
 export const productionReceiptPrefix = (actorId, vibeIdx, runId) =>
   `production-receipts/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
 export const productionReceiptKey = (actorId, vibeIdx, runId, receiptId) =>
@@ -153,8 +163,20 @@ export async function getEligibility(store, actor, vibeIdx) {
     vibeIdx,
   );
   if ((snapshot.rescueCalibrationRetirementHash || null) !== liveRetirementHash) return null;
+  const liveCalibrationApproval = await currentRescueCalibrationApproval(
+    store,
+    actor,
+    vibeIdx,
+    liveRetirementHash,
+  );
+  if (
+    (snapshot.rescueCalibrationApprovalId || null) !== (liveCalibrationApproval?.approvalId || null)
+    || (snapshot.rescueCalibrationApprovalEvidenceHash || null)
+      !== (liveCalibrationApproval?.aggregateEvidenceHash || null)
+    || Boolean(snapshot.calibrationProfile) !== Boolean(liveCalibrationApproval)
+  ) return null;
 
-  const [run, verdict, calibration, reasons, publicationReceipt] = await Promise.all([
+  const [run, verdict, calibration, reasons, publicationReceipt, calibrationApproval, calibrationApprovalRevocation] = await Promise.all([
     store.get(auditRunKey(actorId, vibeIdx, head.currentRunId), { type: "json", consistency: "strong" }),
     readCanonicalReceipt(
       store,
@@ -172,6 +194,18 @@ export async function getEligibility(store, actor, vibeIdx) {
           head.currentRunId,
           snapshot.publicationSource.rescueReceiptId,
         ),
+        { type: "json", consistency: "strong" },
+      )
+      : null,
+    snapshot.rescueCalibrationApprovalId
+      ? store.get(
+        auditRescueCalibrationApprovalKey(actorId, vibeIdx, snapshot.rescueCalibrationApprovalId),
+        { type: "json", consistency: "strong" },
+      )
+      : null,
+    snapshot.rescueCalibrationApprovalId
+      ? store.get(
+        auditRescueCalibrationApprovalRevocationKey(actorId, vibeIdx, snapshot.rescueCalibrationApprovalId),
         { type: "json", consistency: "strong" },
       )
       : null,
@@ -231,6 +265,15 @@ export async function getEligibility(store, actor, vibeIdx) {
     || snapshot.verdict !== verdict.verdict
     || snapshot.vibeConfirmed !== verdict.vibeConfirmed
     || snapshot.publishableConfirmed !== verdict.publishableConfirmed
+    || (snapshot.rescueCalibrationApprovalId && (
+      !calibrationApproval
+      || calibrationApproval.status !== "approved"
+      || calibrationApproval.approvalId !== snapshot.rescueCalibrationApprovalId
+      || calibrationApproval.aggregateEvidenceHash !== snapshot.rescueCalibrationApprovalEvidenceHash
+      || calibrationApproval.actorId !== actorId
+      || calibrationApproval.vibeKey !== auditVibeKey(actorId, vibeIdx)
+      || calibrationApprovalRevocation?.status === "revoked"
+    ))
     || (snapshot.verdict === "approved"
       && (snapshot.vibeConfirmed !== true || snapshot.publishableConfirmed !== true))
   ) return null;
@@ -485,6 +528,92 @@ async function currentRescueCalibrationRetirementHash(store, actorId, vibeIdx) {
   return currentRetirements.length || currentSignalRetirements.length
     ? rescueCalibrationRetirementHash(currentRetirements, currentSignalRetirements)
     : null;
+}
+
+async function currentRescueCalibrationApproval(store, actor, vibeIdx, retirementHash) {
+  const actorId = actor.id;
+  const vibeKey = auditVibeKey(actorId, vibeIdx);
+  const [calibrations, retirements, approvals, revocations, authority] = await Promise.all([
+    readReceipts(store, auditRescueCalibrationPrefix(actorId, vibeIdx), "confirmedAt"),
+    readReceipts(store, auditRescueCalibrationRetirementPrefix(actorId, vibeIdx), "retiredAt"),
+    readReceipts(store, auditRescueCalibrationApprovalPrefix(actorId, vibeIdx), "approvedAt"),
+    readReceipts(
+      store,
+      auditRescueCalibrationApprovalRevocationPrefix(actorId, vibeIdx),
+      "revokedAt",
+    ),
+    store.get(
+      auditRescueCalibrationAuthorityKey(actorId, vibeIdx),
+      { type: "json", consistency: "strong" },
+    ),
+  ]);
+  const expectedFingerprint = pairingFingerprintFor(actor, vibeIdx);
+  const current = calibrations.filter(calibration =>
+    calibration.status === "confirmed"
+    && calibration.calibrationVersion === 1
+    && calibration.actor?.id === actorId
+    && calibration.vibePack?.key === vibeKey
+    && calibration.contract?.curationVersion === CURATION_VERSION
+    && calibration.contract?.identityProfileVersion === IDENTITY_PROFILE_VERSION
+    && calibration.contract?.aestheticClusterVersion === AESTHETIC_CLUSTER_VERSION
+    && calibration.contract?.promiseContractVersion === VIBE_PROMISE_CONTRACT_VERSION
+    && calibration.contract?.pairingFingerprint === expectedFingerprint);
+  const currentIds = new Set(current.map(calibration => calibration.sourceRescueReceiptId));
+  const retiredIds = new Set(retirements
+    .filter(retirement =>
+      retirement.status === "retired"
+      && retirement.actorId === actorId
+      && retirement.vibeKey === vibeKey
+      && currentIds.has(retirement.sourceRescueReceiptId))
+    .map(retirement => retirement.sourceRescueReceiptId));
+  const evidenceReceiptIds = current
+    .map(calibration => calibration.sourceRescueReceiptId)
+    .filter(receiptId => !retiredIds.has(receiptId))
+    .sort();
+  if (!evidenceReceiptIds.length) return null;
+  const revokedIds = new Set(revocations
+    .filter(revocation => revocation.status === "revoked")
+    .map(revocation => revocation.approvalId));
+  if (authority?.approvalId) {
+    const [canonicalApproval, canonicalRevocation] = await Promise.all([
+      store.get(
+        auditRescueCalibrationApprovalKey(actorId, vibeIdx, authority.approvalId),
+        { type: "json", consistency: "strong" },
+      ),
+      store.get(
+        auditRescueCalibrationApprovalRevocationKey(actorId, vibeIdx, authority.approvalId),
+        { type: "json", consistency: "strong" },
+      ),
+    ]);
+    if (canonicalApproval
+      && !approvals.some(approval => approval.approvalId === canonicalApproval.approvalId)) {
+      approvals.push(canonicalApproval);
+    }
+    if (canonicalRevocation?.status === "revoked") revokedIds.add(canonicalRevocation.approvalId);
+  }
+  return approvals
+    .filter(approval =>
+      approval.status === "approved"
+      && approval.actorId === actorId
+      && approval.vibeKey === vibeKey
+      && (!authority || (
+        authority.status === "approved"
+        && authority.approvalId === approval.approvalId
+        && authority.aggregateEvidenceHash === approval.aggregateEvidenceHash
+      ))
+      && !revokedIds.has(approval.approvalId)
+      && sameRecord([...(approval.evidenceReceiptIds || [])].sort(), evidenceReceiptIds)
+      && approval.aggregateEvidenceHash === recordHash({
+        calibrationVersion: 1,
+        evidenceReceiptIds,
+        retirementHash: retirementHash || null,
+        signalFamily: approval.adjustment?.signalFamily || null,
+        direction: approval.adjustment?.direction || null,
+        signalValues: [...(approval.adjustment?.signalValues || [])],
+      }))
+    .sort((left, right) =>
+      String(right.approvedAt || "").localeCompare(String(left.approvedAt || ""))
+      || String(right.approvalId).localeCompare(String(left.approvalId)))[0] || null;
 }
 
 export function isApproved(snapshot) {

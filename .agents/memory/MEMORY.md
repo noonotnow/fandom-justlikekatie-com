@@ -37,3 +37,4 @@
 - [Adobe Firefly entitlement](adobe-firefly-entitlement.md) — connector discovery does not guarantee Firefly Services API access; check the Adobe project/license entitlement first.
 - [Netlify Blob canonical reads](netlify-blob-canonical-reads.md) — fetch known immutable run and verdict keys directly; prefix listings can lag behind successful writes.
 - [Publication MEDIA boundary](publication-media-boundary.md) — MEDIA owns immutable image bytes; the date manifest owns the approved nine-card composition and provenance.
+- [Calibration authority boundary](calibration-authority-boundary.md) — repeated diagnostic image evidence is inert until a bounded approval; live eligibility must match current evidence and authority.
