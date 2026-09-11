@@ -1,0 +1,49 @@
+Blind comparison unavailable
+This run did not form a complete nine-card proposal. Use the retained evidence to choose a rejection, query-work verdict, or save an exact nine-card board for publication.
+
+Event proposal missing
+Event formed a complete proposal, but only 0 of 9 cards fulfilled the Vibe Pack's required anchors; at least 7 plus an on-promise hero are required.
+Compiled proposal missing
+Compiled formed a complete proposal, but only 3 of 9 cards fulfilled the Vibe Pack's required anchors; at least 7 plus an on-promise hero are required.
+No complete nine-card proposal formed.
+
+Event
+No meaningful Event runner-up exists because no board qualified.
+Compiled
+No meaningful Compiled runner-up exists because no board qualified.
+36
+displayable retained images
+0
+complete proposal cards
+0
+automatically publication-ready cards
+10
+queries audited
+36
+retained results
+Rescue learning used in this fresh audit
+Learned search preferences are evidence about ranking, not a replacement for identity, image-safety, or Vibe promise gates.
+
+Transfer not reproduced
+Learned rescue queries used
+刘学义 慕容璟和 帅气 剧照 · not returned
+Failed transfer remains visible
+This run did not yet prove a positive operator signal on evidence beyond the exact saved nine.
+0 effects beyond the exact saved nine · score delta 0.000
+Approval gates remain unchanged: a missing transfer proof does not make this board eligible, and calibration cannot bypass a failed image or anti-anchor gate.
+Operator rescue board
+This is your override. Choose any nine retained, displayable images and arrange them yourself. Composite, duplicate, anti-anchor, and Vibe labels remain visible as algorithm evidence, but they do not veto the rescue. Only unavailable images and your exclusions stay out. The original audit and Daily Drop eligibility never change.
+
+9/9 chosen · 36 available · 0 unavailable · 0 excluded
+Saved rescue records
+Each record is immutable and saves to Collection automatically. Calibration remains a separate choice that affects only future audits; the historical audit and receipt never change.
+
+
+Latest saved board
+9/2/2026, 7:07:02 AM · 9 cards · 06afb8ed
+usr_Csz5r25bXVm2i16pYCCCdrhfaUR1-top · hero position 5 · current feedback
+Retry Collection save
+Use as calibration evidence
+Viewing saved arrangement
+9/2/2026, 7:07:02 AM · read-only record
+This board is not the editable draft. Use it as a starting point to create a new append-only receipt. Calibration, when explicitly confirmed, affects only future audits.
