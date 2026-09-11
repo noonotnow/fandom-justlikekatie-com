@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { dbSaveGrid, type GridRecord } from '../../utils/collectionDB';
 import { persistGridImagesToMedia } from '../../utils/collectionMedia';
 import { getPublicSession, syncPublicGrid } from '../../utils/publicAccount';
@@ -112,6 +112,7 @@ export const ActorPreflightLab: React.FC = () => {
   }, []);
   const [actors,setActors] = useState<Actor[]>([]); const [actorId,setActorId] = useState(''); const [vibeKey,setVibeKey] = useState('');
   const [run,setRun] = useState<Run|null>(null); const [currentRun,setCurrentRun] = useState<Run|null>(null); const [loading,setLoading] = useState(true); const [busy,setBusy] = useState(''); const [notice,setNotice] = useState(''); const [railOpen,setRailOpen] = useState(true);
+  const visualJudgmentsInFlight=useRef(new Set<string>());
   const [handoffReadOnly,setHandoffReadOnly] = useState(false);
   const [scope,setScope] = useState('full'); const [verdict,setVerdict] = useState(''); const [notes,setNotes] = useState(''); const [priorRuns,setPriorRuns] = useState<Run[]>([]);
   const [calibrationProfile,setCalibrationProfile] = useState<AnyRecord|null>(null);
@@ -177,7 +178,23 @@ export const ActorPreflightLab: React.FC = () => {
   async function saveVerdict(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!verdict)return; setBusy('verdict'); setNotice(''); try { const approved=verdict==='approved'; const operatorBoardRequired=currentRun.blindReview?.status==='unavailable'; const useRescueBoard=approved&&(operatorBoardRequired||rescuePreferred); const result=await api({action:'verdict',actorId,vibeKey,runId:currentRun.runId,verdict,notes,vibeConfirmed:approved&&vibeConfirmed,publishableConfirmed:approved&&publishableConfirmed,rescuePreferred:useRescueBoard,rescueReceiptId:useRescueBoard?preferredRescueReceiptId:undefined}); applyRefresh(result); const next=result.currentRun ?? currentRun; const preference=next?.operatorVerdict?.rescuePreference; const publicationSource=next?.operatorVerdict?.publicationSource; setRun(next); setCurrentRun(next); setVerdict(result.verdict ?? verdict); setNotes(result.notes ?? notes); setRescuePreferred(preference?.preferred === true); setPreferredRescueReceiptId(preference?.rescueReceiptId ?? ''); setNotice(approved?(publicationSource?.type==='operator_rescue'?'Exact nine-card retained-evidence board approved for publication with both human confirmations.':preference?.preferred?'Curator result approved as publishable. Your separate rescue preference was recorded.':'Curator result approved as publishable with both human confirmations.'):'Verdict saved to the curation ledger.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function publishBackfill(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!backfillDate)return; setBusy('backfill'); setNotice(''); try { const receiptId=run?.operatorVerdict?.publicationSource?.type==='operator_rescue'?run.operatorVerdict.publicationSource.rescueReceiptId:preferredRescueReceiptId; const result=await api({action:'publish_backfill',actorId,vibeKey,runId:currentRun.runId,rescueReceiptId:receiptId,date:backfillDate}); setNotice(result.backfill?.status==='already_published'?`The ${backfillDate} edition was already published with this exact board.`:`The approved board is now published as the ${backfillDate} Daily Drop edition.`); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function saveCandidateFlag(candidateId:string,flagged:boolean,intent='pin',reasons:string[]=[] ) { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy(`flag:${candidateId}`); setNotice(''); try { const result=await api({action:'flag_candidate',actorId,vibeKey,runId:currentRun.runId,candidateId,flagged,intent,reasons}); applyRefresh(result); const next=result.currentRun ?? currentRun; setRun(next); setCurrentRun(next); setPriorRuns(result.priorRuns ?? priorRuns); setNotice(flagged?'Image-level editorial intent saved. Safety gates still apply.':'Image annotation removed from the requested grid review.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
-  async function saveVisualJudgment(judgmentToken:string,classification:string) { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy(`visual-judgment:${judgmentToken}`); setNotice(''); try { const result=await api({action:'record_visual_judgment',actorId,vibeKey,runId:currentRun.runId,judgmentToken,classification}); applyRefresh(result); const next=result.currentRun ?? currentRun; setRun(next); setCurrentRun(next); setPriorRuns(result.priorRuns ?? priorRuns); setNotice('Blind image judgment saved as a separate immutable receipt. Production scoring is unchanged.'); } catch { setNotice('The image judgment was not saved. The same image remains ready—retry your choice.'); } finally{setBusy('')} }
+  async function saveVisualJudgment(judgmentToken:string,classification:string) {
+    if(!currentRun?.runId||run?.runId!==currentRun.runId||visualJudgmentsInFlight.current.has(judgmentToken))return;
+    visualJudgmentsInFlight.current.add(judgmentToken);
+    setBusy(`visual-judgment:${judgmentToken}`); setNotice('');
+    try {
+      const result=await api({action:'record_visual_judgment',actorId,vibeKey,runId:currentRun.runId,judgmentToken,classification});
+      applyRefresh(result);
+      const next=result.currentRun ?? currentRun;
+      setRun(next); setCurrentRun(next); setPriorRuns(result.priorRuns ?? priorRuns);
+      setNotice('Blind image judgment saved as a separate immutable receipt. Production scoring is unchanged.');
+    } catch {
+      setNotice('The image judgment was not saved. The same image remains ready—retry your choice.');
+    } finally {
+      visualJudgmentsInFlight.current.delete(judgmentToken);
+      setBusy('');
+    }
+  }
   async function saveRescueBoard(candidateIds:string[]) {
     if(!currentRun?.runId||run?.runId!==currentRun.runId)return;
     setBusy('rescue-board'); setNotice('');

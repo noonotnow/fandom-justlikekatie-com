@@ -298,7 +298,7 @@ function responseBody(
   };
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, unfinishedBoardReview = false } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   exportRequests: AnyRecord[];
@@ -582,6 +582,9 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
           }),
         });
         return;
+      }
+      if (slowVisualJudgment) {
+        await new Promise(resolve => setTimeout(resolve, 250));
       }
       visualJudgments.push({
         receiptId: `visual-receipt-${visualJudgments.length + 1}`,
@@ -1222,6 +1225,39 @@ test('a failed image-only judgment stays blinded and ready to retry', { timeout:
         .filter(request => request.action === 'record_visual_judgment')
         .map(request => ({ judgmentToken: request.judgmentToken, classification: request.classification })),
       [{ judgmentToken: 'visual-token-1', classification: 'core' }],
+    );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('a slow image-only judgment ignores a rapid repeated click', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { auditRequests } = await configureNetwork(page, { visualReview: true, slowVisualJudgment: true });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+
+    const review = page.getByLabel('Blind rejected thumbnail review');
+    const core = review.getByRole('button', { name: 'Core', exact: true });
+    await core.waitFor();
+    await core.evaluate(button => {
+      button.click();
+      button.click();
+    });
+    await review.getByText('2/2 · 1 receipt', { exact: true }).waitFor();
+
+    assert.deepEqual(
+      auditRequests
+        .filter(request => request.action === 'record_visual_judgment')
+        .map(request => ({ judgmentToken: request.judgmentToken, classification: request.classification })),
+      [{ judgmentToken: 'visual-token-1', classification: 'core' }],
+      'the same judgment token must have no more than one save in flight',
     );
   } finally {
     await browser.close();

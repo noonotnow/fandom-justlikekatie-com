@@ -662,6 +662,19 @@ test("blind visual judgments append human receipts by source occurrence without 
   assert.equal("sourceOccurrenceId" in firstBody.currentRun.humanVisualJudgments.at(-1), false);
   assert.equal(firstBody.currentRun.humanVisualJudgments.at(-1).productionScoringChanged, false);
 
+  const duplicate = await handler(request("POST", {
+    action: "record_visual_judgment",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: run.runId,
+    judgmentToken: rejectedToken,
+    classification: "core",
+  }), {});
+  const duplicateBody = await duplicate.json();
+  assert.equal(duplicate.status, 200, JSON.stringify(duplicateBody));
+  assert.equal(duplicateBody.currentRun.humanVisualJudgments.length, 1);
+  assert.equal(duplicateBody.currentRun.humanVisualJudgments[0].receiptId, `visual-${rejectedToken}`);
+
   const contradictory = await handler(request("POST", {
     action: "record_visual_judgment",
     actorId: pairActor.id,
