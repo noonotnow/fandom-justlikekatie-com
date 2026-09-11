@@ -358,7 +358,20 @@ export function createActorAuditHandler({
               });
             }
           }
-          return json(200, { run: clientRun(run, pair), receiptId: receiptId || null });
+          const publicationInventory = await readPublicationManifests(
+            getPublicationStore(context),
+          );
+          const projectedRun = clientRun(run, pair);
+          projectedRun.publicationJoinReceipt = publicationJoinReceipt(
+            run,
+            pair,
+            publicationInventory.manifests,
+          );
+          return json(200, {
+            run: projectedRun,
+            receiptId: receiptId || null,
+            publicationInventory: publicationInventory.inventory,
+          });
         }
         const misprintReviewQueue = (await readScopedMisprints(store, pair))
           .filter(receipt =>

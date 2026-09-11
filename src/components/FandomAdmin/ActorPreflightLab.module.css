@@ -329,6 +329,24 @@
 .empty { padding:28px 16px; color:#8d928f; font-size:13px; }
 .error { padding:12px 16px; border:1px solid #9b5b4b; border-radius:8px; color:#e5b09a; font-size:12px; }
 .historicalNotice { margin:0; padding:12px 16px; border-top:1px solid var(--admin-border); color:#c9a96e; font-size:12px; }
+.publicationJoin { display:grid; gap:10px; margin:12px 0; padding:12px; border:1px solid var(--admin-border); border-radius:8px; background:color-mix(in srgb,var(--admin-panel) 82%,#101820); }
+.publicationJoin p { margin:3px 0 0; color:#8d928f; font-size:10px; }
+.publicationJoinHeader { display:flex; align-items:start; justify-content:space-between; gap:12px; }
+.publicationCounts { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
+.publicationCounts span { display:grid; min-width:64px; padding:6px 8px; border:1px solid var(--admin-border); border-radius:6px; color:#8d928f; font-size:9px; text-transform:capitalize; }
+.publicationCounts b { color:var(--admin-text); font-size:14px; }
+.publicationCounts span[data-status="matched"] { border-color:#4f8a6c; }
+.publicationCounts span[data-status="ambiguous"] { border-color:#c9a96e; }
+.publicationCounts span[data-status="identity_unavailable"] { border-color:#875f91; }
+.publicationOccurrences { display:grid; gap:5px; }
+.publicationOccurrences article { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:7px 9px; border-left:3px solid #6b7070; background:color-mix(in srgb,var(--admin-panel) 92%,transparent); font-size:11px; }
+.publicationOccurrences article[data-status="matched"] { border-left-color:#4f8a6c; }
+.publicationOccurrences article[data-status="ambiguous"] { border-left-color:#c9a96e; }
+.publicationOccurrences article[data-status="identity_unavailable"] { border-left-color:#875f91; }
+.publicationOccurrences article > span:first-child { display:grid; }
+.publicationOccurrences small { color:#8d928f; text-transform:capitalize; }
+.publicationOccurrences a { color:#c9a96e; }
+.publicationLinks { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:4px 10px; }
 .legacyAudit { display:grid; gap:7px; margin:0 0 14px; padding:13px 14px; border:2px solid #c98264; border-radius:8px; background:color-mix(in srgb,#c98264 12%,transparent); }
 .legacyAuditHeader { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .legacyAuditHeader strong { color:#f0c0aa; font-size:13px; }

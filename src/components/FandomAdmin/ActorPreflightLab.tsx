@@ -13,7 +13,17 @@ type BoardDiagnostic = { available?: boolean; completeProposalAvailable?: boolea
 
 type RunnerUpDiagnostic = { available?: boolean; minimumCardDifference?: number; qualifiedProposalCount?: number; meaningfulAlternativeCount?: number; rejectedForCardOverlap?: number; rejectedForSameArgument?: number; summary?: string };
 type AuditContract = { status?: 'current'|'legacy'; isCurrent?: boolean; isLegacy?: boolean; legacyReasons?: string[]; currentVersions?: AnyRecord };
-type Run = AnyRecord & { runId?: string; scope?: string; curationVersion?: number; identityProfileVersion?: number; aestheticClusterVersion?: number; promiseContractVersion?: number; queryRuns?: AnyRecord[]; rawResults?: AnyRecord[]; rejections?: AnyRecord[]; identityEvidence?: AnyRecord; detectedEvents?: AnyRecord[]; boardDiagnostics?: { event?: BoardDiagnostic; compiled?: BoardDiagnostic }; runnerUpDiagnostics?: { event?: RunnerUpDiagnostic; compiled?: RunnerUpDiagnostic }; partialClusters?: AnyRecord[]; strongestEvent?: AnyRecord; strongestCompiled?: AnyRecord; winner?: AnyRecord; alternate?: AnyRecord; curationReceipt?: AnyRecord; blindReview?: BlindReview; auditContract?: AuditContract; humanVisualJudgments?: AnyRecord[]; visualJudgmentQueue?: AnyRecord[]; humanProxyComparison?: AnyRecord };
+type PublicationJoinReceipt = {
+  readOnly?: boolean;
+  counts?: Record<'matched'|'missing'|'ambiguous'|'identity_unavailable',number>;
+  occurrences?: Array<AnyRecord & {
+    auditOccurrenceId?: string;
+    auditIndex?: number;
+    status?: 'matched'|'missing'|'ambiguous'|'identity_unavailable';
+    matches?: Array<AnyRecord & { publicationDate?: string; position?: number }>;
+  }>;
+};
+type Run = AnyRecord & { runId?: string; scope?: string; curationVersion?: number; identityProfileVersion?: number; aestheticClusterVersion?: number; promiseContractVersion?: number; queryRuns?: AnyRecord[]; rawResults?: AnyRecord[]; rejections?: AnyRecord[]; identityEvidence?: AnyRecord; detectedEvents?: AnyRecord[]; boardDiagnostics?: { event?: BoardDiagnostic; compiled?: BoardDiagnostic }; runnerUpDiagnostics?: { event?: RunnerUpDiagnostic; compiled?: RunnerUpDiagnostic }; partialClusters?: AnyRecord[]; strongestEvent?: AnyRecord; strongestCompiled?: AnyRecord; winner?: AnyRecord; alternate?: AnyRecord; curationReceipt?: AnyRecord; blindReview?: BlindReview; auditContract?: AuditContract; humanVisualJudgments?: AnyRecord[]; visualJudgmentQueue?: AnyRecord[]; humanProxyComparison?: AnyRecord; publicationJoinReceipt?: PublicationJoinReceipt };
 
 function confirmsCompleteProposal(diagnostic?: BoardDiagnostic) {
   return Boolean(
@@ -118,7 +128,7 @@ export const ActorPreflightLab: React.FC = () => {
   }
   useEffect(() => { let live=true; api().then(result => { if(live) { const next = result.actors ?? []; setActors(next); const requestedActor=next.find((item:Actor)=>item.actorId===handoff.actorId); const selectedActor=requestedActor??next[0]; if(selectedActor) { setActorId(selectedActor.actorId); setVibeKey(selectedActor.pairings?.some((item:AnyRecord)=>item.vibeKey===handoff.vibeKey)?handoff.vibeKey:selectedActor.pairings?.[0]?.vibeKey??''); } if(handoff.actorId&&!requestedActor)setNotice(`Actor ${handoff.actorId} from the retirement warning is no longer available.`); } }).catch(e=>live&&setNotice(e.message)).finally(()=>live&&setLoading(false)); return()=>{live=false}; },[handoff.actorId,handoff.vibeKey]);
   const actor = useMemo(()=>actors.find(item=>item.actorId===actorId),[actors,actorId]); const pairing = actor?.pairings?.find(item=>item.vibeKey===vibeKey);
-  useEffect(() => { setRun(null); setCurrentRun(null); setPriorRuns([]); setCalibrationProfile(null); setVerdict(''); setNotes(''); setVibeConfirmed(false); setPublishableConfirmed(false); setRescuePreferred(false); setPreferredRescueReceiptId(''); setBackfillDate(''); setDisagreementReasons([]); setEditorialNote(''); setHandoffReadOnly(false); if(!actorId||!vibeKey)return; let live=true; Promise.all([api(undefined,{actorId,vibeKey}),handoff.runId&&actorId===handoff.actorId&&vibeKey===handoff.vibeKey?api(undefined,{actorId,vibeKey,runId:handoff.runId,receiptId:handoff.receiptId}):Promise.resolve(null)]).then(([result,historical])=>{if(live){const preference=result.currentRun?.operatorVerdict?.rescuePreference;const selectedRun=historical?.run??result.currentRun??null;setRun(selectedRun); setCurrentRun(result.currentRun ?? null); setHandoffReadOnly(Boolean(historical?.run)); setPriorRuns(historical?.run&&historical.run.runId!==result.currentRun?.runId?[historical.run,...(result.priorRuns??[]).filter((item:Run)=>item.runId!==historical.run.runId)]:result.priorRuns??[]); setCalibrationProfile(result.calibrationProfile ?? null); setVerdict(result.verdict ?? ''); setNotes(result.notes ?? ''); setVibeConfirmed(result.currentRun?.operatorVerdict?.vibeConfirmed === true); setPublishableConfirmed(result.currentRun?.operatorVerdict?.publishableConfirmed === true); setRescuePreferred(preference?.preferred === true); setPreferredRescueReceiptId(preference?.rescueReceiptId ?? ''); setDisagreementReasons(selectedRun?.blindReview?.reasonCodes ?? []); setEditorialNote(selectedRun?.blindReview?.note ?? ''); if(historical?.run)setNotice(`Opened source receipt ${handoff.receiptId} from audit ${handoff.runId}.`);}}).catch(e=>live&&setNotice(e.message)); return()=>{live=false}; },[actorId,vibeKey,handoff.actorId,handoff.vibeKey,handoff.runId,handoff.receiptId]);
+  useEffect(() => { setRun(null); setCurrentRun(null); setPriorRuns([]); setCalibrationProfile(null); setVerdict(''); setNotes(''); setVibeConfirmed(false); setPublishableConfirmed(false); setRescuePreferred(false); setPreferredRescueReceiptId(''); setBackfillDate(''); setDisagreementReasons([]); setEditorialNote(''); setHandoffReadOnly(false); if(!actorId||!vibeKey)return; let live=true; api(undefined,{actorId,vibeKey}).then(async result=>{const requestedRunId=handoff.runId&&actorId===handoff.actorId&&vibeKey===handoff.vibeKey?handoff.runId:result.currentRun?.runId;const selectedDetail=requestedRunId?await api(undefined,{actorId,vibeKey,runId:requestedRunId,receiptId:requestedRunId===handoff.runId?handoff.receiptId:''}):null;if(live){const preference=result.currentRun?.operatorVerdict?.rescuePreference;const selectedRun=selectedDetail?.run??result.currentRun??null;const current=selectedRun?.runId===result.currentRun?.runId?selectedRun:result.currentRun??null;setRun(selectedRun); setCurrentRun(current); setHandoffReadOnly(Boolean(handoff.runId&&selectedDetail?.run)); setPriorRuns(selectedDetail?.run&&selectedDetail.run.runId!==result.currentRun?.runId?[selectedDetail.run,...(result.priorRuns??[]).filter((item:Run)=>item.runId!==selectedDetail.run.runId)]:result.priorRuns??[]); setCalibrationProfile(result.calibrationProfile ?? null); setVerdict(result.verdict ?? ''); setNotes(result.notes ?? ''); setVibeConfirmed(result.currentRun?.operatorVerdict?.vibeConfirmed === true); setPublishableConfirmed(result.currentRun?.operatorVerdict?.publishableConfirmed === true); setRescuePreferred(preference?.preferred === true); setPreferredRescueReceiptId(preference?.rescueReceiptId ?? ''); setDisagreementReasons(selectedRun?.blindReview?.reasonCodes ?? []); setEditorialNote(selectedRun?.blindReview?.note ?? ''); if(handoff.runId&&selectedDetail?.run)setNotice(`Opened source receipt ${handoff.receiptId} from audit ${handoff.runId}.`);}}).catch(e=>live&&setNotice(e.message)); return()=>{live=false}; },[actorId,vibeKey,handoff.actorId,handoff.vibeKey,handoff.runId,handoff.receiptId]);
   function applyRefresh(result:AnyRecord) { if ('calibrationProfile' in result) setCalibrationProfile(result.calibrationProfile ?? null); if (result.actors) setActors(result.actors); else if (result.actor) setActors(current => current.map(item => item.actorId === result.actor.actorId ? result.actor : item)); }
   async function startAudit(nextScope:string) {
     setBusy(nextScope);
@@ -288,6 +298,24 @@ export const ActorPreflightLab: React.FC = () => {
       setNotice('Read-only cross-audit editorial review, retained evidence, and publication receipts downloaded. No audit was rerun or changed.');
     } catch(e:any) { setNotice(e.message); } finally { setBusy(''); }
   }
+  async function selectRetainedRun(selected:Run) {
+    if(!selected.runId)return;
+    setBusy('retained-run'); setNotice('');
+    try {
+      const result=await api(undefined,{actorId,vibeKey,runId:selected.runId});
+      const detailed=result.run as Run;
+      setRun(detailed);
+      setHandoffReadOnly(false);
+      clearHandoff();
+      if(detailed.runId===currentRun?.runId){
+        setCurrentRun(detailed);
+        setDisagreementReasons(detailed.blindReview?.reasonCodes??[]);
+        setEditorialNote(detailed.blindReview?.note??'');
+      } else {
+        setPriorRuns(items=>items.map(item=>item.runId===detailed.runId?detailed:item));
+      }
+    } catch(e:any) { setNotice(e.message); } finally { setBusy(''); }
+  }
   const selectedIsCurrent = Boolean(!handoffReadOnly && run?.runId && currentRun?.runId === run.runId);
   const review = run?.blindReview;
   const disagreementNeedsReasons = Boolean(review?.choice && review.agreement !== true && !review.reasonCodes?.length);
@@ -337,7 +365,7 @@ export const ActorPreflightLab: React.FC = () => {
               onMarkCalibration={markRescueCalibration}
               onRetireCalibration={retireRescueCalibration}
                initialReceiptId={run?.runId===handoff.runId?handoff.receiptId:''}
-              onSelect={selected=>{setRun(selected);setHandoffReadOnly(false);clearHandoff();if(selected.runId===currentRun?.runId){setDisagreementReasons(selected.blindReview?.reasonCodes??[]);setEditorialNote(selected.blindReview?.note??'')}}}
+               onSelect={selected=>void selectRetainedRun(selected)}
             />
           </div>
           {verdictAvailable ? <form id="actor-audit-approval" className={styles.verdict} onSubmit={saveVerdict}>
@@ -404,6 +432,7 @@ function RunEvidence({
     {run ? <>
       {isLegacy&&<section className={styles.legacyAudit} role="status"><div className={styles.legacyAuditHeader}><span className={styles.legacyBadge}>Legacy audit</span><strong>Retained history — invalid under the current profile contract</strong></div><p>This board is preserved as historical evidence only. It cannot establish Daily Drop eligibility. Run a fresh audit to evaluate the current identity, cluster, promise, and curation versions.</p>{run.auditContract?.legacyReasons?.length?<small>Contract changes: {run.auditContract.legacyReasons.map(reason=>reason.replaceAll('_',' ')).join(' · ')}</small>:null}</section>}
       <p className={styles.muted}>{run.scope} scope · started {date(run.startedAt)} · completed {date(run.completedAt)} · identity v{run.identityProfileVersion ?? '—'} · cluster v{run.aestheticClusterVersion ?? '—'} · promise v{run.promiseContractVersion ?? '—'} · curation v{run.curationVersion ?? run.curationReceipt?.curationVersion ?? run.curationReceipt?.version ?? '—'}</p>
+      <PublicationJoinSummary receipt={run.publicationJoinReceipt} />
        {review?.status === 'unavailable' ? <section className={styles.boardUnavailable}><strong>Blind comparison unavailable</strong><p>{[run?.strongestEvent,run?.strongestCompiled].filter((board:any)=>Array.isArray(board?.candidates)&&board.candidates.length>=9).length===1?'This run produced one automatically qualified nine-card board. It can be approved for publication after both human confirmations; a second board is preferred for range, not required.':Object.values(run?.boardDiagnostics??{}).some((diagnostic:any)=>confirmsCompleteProposal(diagnostic))?'This run formed a complete nine-card proposal, but an automated publication gate did not pass. Review any retained proposal below, then replace its hero or reorder retained evidence in the operator board.':'This run did not form a complete nine-card proposal. Use the retained evidence to choose a rejection, query-work verdict, or save an exact nine-card board for publication.'}</p><BoardQualificationSummary run={run} /><PromisingPartialClusters run={run} /><PartialBoards run={run} /><RunnerUpDiagnostics run={run} /></section> : <section className={`${styles.boardReview} ${isLegacy?styles.legacyBoardReview:''}`} aria-label={isLegacy?'Historical visual board comparison':'Visual board comparison'}>
         <div className={styles.boardReviewHeader}>
           <div><h6>{revealed ? 'Independent choice recorded' : 'Blind board review'}</h6><p>{revealed ? `You chose ${review?.choice === 'neither' ? 'Neither' : review?.choice}. This result is frozen for this audit run.` : 'Both boards are equal-sized. Their left/right order is fixed for this run.'}</p></div>
@@ -429,6 +458,21 @@ function RunEvidence({
     </> : <p className={styles.empty}>Run an audit to open a blinded Event versus Compiled comparison.</p>}
     {auditRunPicker}
   </article>;
+}
+
+function PublicationJoinSummary({receipt}:{receipt?:PublicationJoinReceipt}) {
+  if(!receipt)return <section className={styles.publicationJoin} aria-label="Publication matches"><div><strong>Publication matches</strong><p>Select this retained run to load its read-only publication join.</p></div></section>;
+  const counts=receipt.counts??{matched:0,missing:0,ambiguous:0,identity_unavailable:0};
+  const occurrences=receipt.occurrences??[];
+  return <section className={styles.publicationJoin} aria-labelledby="publication-join-title">
+    <div className={styles.publicationJoinHeader}><div><strong id="publication-join-title">Publication matches</strong><p>Read-only join to immutable Daily Drop editions. Historical audits and manifests are unchanged.</p></div><div className={styles.publicationCounts}>
+      {(['matched','missing','ambiguous','identity_unavailable'] as const).map(status=><span key={status} data-status={status}><b>{counts[status]??0}</b>{status==='identity_unavailable'?'Identity unavailable':status}</span>)}
+    </div></div>
+    {occurrences.length>0&&<div className={styles.publicationOccurrences}>{occurrences.map((occurrence,index)=><article key={`${occurrence.auditOccurrenceId??index}:${occurrence.auditIndex??index}`} data-status={occurrence.status}>
+      <span><strong>Result {(occurrence.auditIndex??index)+1}</strong><small>{occurrence.status==='identity_unavailable'?'Identity unavailable':occurrence.status}</small></span>
+      {occurrence.status==='matched'&&occurrence.matches?.[0]?.publicationDate?<a href={`/vibe-atlas?date=${encodeURIComponent(occurrence.matches[0].publicationDate)}`}>{occurrence.matches[0].publicationDate} · card {Number(occurrence.matches[0].position)+1}</a>:occurrence.status==='ambiguous'?<div className={styles.publicationLinks}>{(occurrence.matches??[]).map((match,index)=><a key={`${match.publicationDate}:${match.position}:${index}`} href={`/vibe-atlas?date=${encodeURIComponent(match.publicationDate??'')}`}>{match.publicationDate??'Unknown edition'} · card {Number(match.position)+1}</a>)}</div>:<span className={styles.muted}>{occurrence.status==='missing'?'No immutable edition match':'No stable image identity was retained'}</span>}
+    </article>)}</div>}
+  </section>;
 }
 
 function AuditRunPicker({run,currentRun,priorRuns,onSelect}:{run:Run|null;currentRun:Run;priorRuns:Run[];onSelect:(run:Run)=>void}) {
