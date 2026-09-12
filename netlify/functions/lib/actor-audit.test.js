@@ -5238,6 +5238,94 @@ test("aggregate calibration rejects a negative class bundle whose members recur 
   assert.equal(curateOptions.filter(options => options.calibrationProfile).length, 0);
 });
 
+test("aggregate calibration approves a signal bundle that recurs together in distinct reviewed audits", async () => {
+  const curateOptions = [];
+  const { handler } = harness({
+    freshEvidenceOnRerun: true,
+    onCurateOptions: options => curateOptions.push(options),
+    searchResultCount: 5,
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  let querySignals = [];
+
+  for (const runId of ["run-1", "run-2"]) {
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const choiceResponse = await handler(request("POST", {
+      action: "blind_choice", actorId: pairActor.id, vibeKey, runId, choice: "compiled",
+    }), {});
+    const chosen = await choiceResponse.json();
+    const queryGroups = Object.entries(chosen.currentRun.rawResults.reduce((groups, candidate) => {
+      groups[candidate.query] = [...(groups[candidate.query] || []), candidate];
+      return groups;
+    }, {}));
+    if (!querySignals.length) {
+      querySignals = queryGroups.slice(0, 2).map(([query]) => query.toLowerCase());
+      assert.equal(querySignals.length, 2);
+    }
+    const selectedCandidates = [
+      ...queryGroups.find(([query]) => query.toLowerCase() === querySignals[0])[1],
+      ...queryGroups.find(([query]) => query.toLowerCase() === querySignals[1])[1].slice(0, 4),
+    ];
+
+    const saveResponse = await handler(request("POST", {
+      action: "save_rescue_board",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      candidateIds: selectedCandidates.map(candidate => candidate.candidateId),
+    }), {});
+    const saved = await saveResponse.json();
+    assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+    const receipt = saved.currentRun.editorialFeedback.operatorRescueBoard;
+    const markResponse = await handler(request("POST", {
+      action: "mark_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      receiptId: receipt.receiptId,
+    }), {});
+    const marked = await markResponse.json();
+    assert.equal(markResponse.status, 200, JSON.stringify(marked));
+    assert.deepEqual(
+      marked.currentRun.editorialFeedback.operatorRescueBoard
+        .calibrationBasis.signals.reusable.queries.positive,
+      querySignals,
+    );
+  }
+
+  const approvalResponse = await handler(request("POST", {
+    action: "approve_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    adjustmentType: "query_ladder",
+    direction: "positive",
+    signalValues: querySignals,
+  }), {});
+  const approval = await approvalResponse.json();
+  assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+  assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
+    type: "query_ladder",
+    signalFamily: "queries",
+    direction: "positive",
+    signalValues: querySignals,
+  });
+  assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const productionProfile = curateOptions.find(options => options.calibrationProfile)
+    .calibrationProfile;
+  assert.deepEqual(productionProfile.positiveQueries, querySignals);
+  assert.deepEqual(productionProfile.negativeQueries ?? [], []);
+  assert.deepEqual(productionProfile.positiveSources ?? [], []);
+  assert.deepEqual(productionProfile.negativeSources ?? [], []);
+  assert.deepEqual(productionProfile.positiveCandidateIds, []);
+  assert.deepEqual(productionProfile.negativeCandidateIds, []);
+});
+
 test("diagnostic evidence beyond the source audit display cap cannot prove transfer", async () => {
   const curateOptions = [];
   const { handler } = harness({
