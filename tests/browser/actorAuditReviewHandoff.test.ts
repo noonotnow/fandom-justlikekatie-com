@@ -617,6 +617,13 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
         });
         return;
       }
+      if (url.searchParams.get('runId') === 'run-1' && activeRunId === 'run-2') {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ run: run('run-1', true) }),
+        });
+        return;
+      }
       if (visualReview && ['visual-review-retained', 'visual-review-legacy'].includes(url.searchParams.get('runId') ?? '')) {
         const requestedRunId = url.searchParams.get('runId') as string;
         await route.fulfill({
@@ -690,14 +697,18 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
       if (selectedRunId === 'run-1' && savedBoard) {
         revealedRun.editorialFeedback = feedback(savedBoard, calibrationConfirmed ? rescueCalibrationDetails() : undefined);
       }
+      const response = responseBody(
+        revealedRun,
+        calibrationConfirmed ? 'calibration_reaudit_required' : 'comparison_unavailable',
+        selectedRunId === 'run-1' ? savedBoard : undefined,
+        calibrationConfirmed ? rescueCalibrationDetails() : undefined,
+      );
+      if (selectedRunId === 'run-2') {
+        response.priorRuns = [run('run-1', true)];
+      }
       await route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify(responseBody(
-          revealedRun,
-          calibrationConfirmed ? 'calibration_reaudit_required' : 'comparison_unavailable',
-          selectedRunId === 'run-1' ? savedBoard : undefined,
-          calibrationConfirmed ? rescueCalibrationDetails() : undefined,
-        )),
+        body: JSON.stringify(response),
       });
       return;
     }
@@ -1864,7 +1875,42 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
     const rawResults = page.locator('details').filter({ hasText: 'Bounded raw results' });
     await rawResults.locator(':scope > summary').click();
     const firstResult = rawResults.locator('article').first();
-    await firstResult.getByText('Mark Misprint', { exact: true }).click();
+    const runSelect = page.getByLabel('Audit run');
+    await runSelect.selectOption('run-1');
+    await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor();
+    const historicalRawResults = page.locator('details').filter({ hasText: 'Bounded raw results' });
+    await historicalRawResults.evaluate((element: HTMLDetailsElement) => {
+      element.open = true;
+    });
+    const historicalFirstResult = historicalRawResults.locator('article').first();
+    await historicalFirstResult.locator('details').filter({ hasText: 'Mark Misprint' }).evaluate((element: HTMLDetailsElement) => {
+      element.open = true;
+    });
+    const historicalCorrection = historicalFirstResult.getByRole('button', { name: 'Preserve & correct', exact: true });
+    assert.equal(
+      await historicalCorrection.isDisabled(),
+      true,
+      'a revealed retained result must not accept a new Misprint correction',
+    );
+    assert.equal(
+      misprintRequests.length,
+      0,
+      'selecting historical evidence must not record a mark_misprint request',
+    );
+
+    await runSelect.selectOption('run-2');
+    await page.getByRole('heading', { name: 'Audit evidence · run-2', exact: true }).waitFor();
+    await rawResults.evaluate((element: HTMLDetailsElement) => {
+      element.open = true;
+    });
+    await firstResult.locator('details').filter({ hasText: 'Mark Misprint' }).evaluate((element: HTMLDetailsElement) => {
+      element.open = true;
+    });
+    assert.equal(
+      await firstResult.getByRole('button', { name: 'Preserve & correct', exact: true }).isEnabled(),
+      true,
+      'returning to the current writable audit must restore the correction action',
+    );
     await firstResult.getByLabel('Who showed up? (optional)').fill('Zhang Linghe auditioning as Liu Xueyi');
     await firstResult.getByLabel('Operator note (optional)').fill('Image metadata committed perjury.');
     await firstResult.getByRole('button', { name: 'Preserve & correct', exact: true }).click();
