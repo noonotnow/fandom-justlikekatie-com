@@ -19,11 +19,15 @@ const initialStateFixture = await readFile(
   "utf8",
 );
 
-function mockResponse(body, { status = 200, contentType = "text/html; charset=utf-8" } = {}) {
+function mockResponse(body, {
+  status = 200,
+  contentType = "text/html; charset=utf-8",
+  headers = {},
+} = {}) {
   return {
     ok: status >= 200 && status < 300,
     status,
-    headers: new Headers({ "content-type": contentType }),
+    headers: new Headers({ "content-type": contentType, ...headers }),
     async text() {
       return body;
     },
@@ -323,7 +327,120 @@ test("returns a qualifying Baidu batch without invoking Brave or SerpAPI", async
     assert.equal(response.serpApiAttempted, false);
     assert.equal(calls.length, 1);
     assert.ok(response.results.every((result) => result.provider === "baidu"));
+    assert.equal(response.cacheProvenance.version, "provider-fetch-v1");
+    assert.match(response.cacheProvenance.key, /^[a-f0-9]{64}$/);
+    assert.equal(response.cacheProvenance.outcome, "unknown");
+    assert.equal(response.cacheProvenance.bypassRequested, false);
+    assert.equal(response.cacheProvenance.bypassApplied, false);
+    assert.equal(response.cacheProvenance.bypassHonored, null);
+    assert.equal(response.cacheProvenance.bypassStatus, "not_requested");
+    assert.match(response.cacheProvenance.resultFingerprint, /^[a-f0-9]{64}$/);
   } finally {
+    process.env.BRAVE_SEARCH_API_KEY = previousBraveKey;
+    process.env.SERPAPI_KEY = previousSerpKey;
+  }
+});
+
+test("cache refresh records the bypass request and applies no-store headers to provider fetches", async () => {
+  const previousBraveKey = process.env.BRAVE_SEARCH_API_KEY;
+  const previousSerpKey = process.env.SERPAPI_KEY;
+  delete process.env.BRAVE_SEARCH_API_KEY;
+  delete process.env.SERPAPI_KEY;
+  let observedInit;
+  try {
+    const response = await searchOneQuery("刘学义 念无双 垣仲 白衣", {
+      debug: true,
+      cacheMode: "refresh",
+      baiduOptions: { cache: false, retries: 0 },
+      fetchImpl: async (_url, init) => {
+        observedInit = init;
+        return mockResponse(baiduPayload(), {
+          contentType: "application/json",
+          headers: { age: "12", "cf-cache-status": "HIT" },
+        });
+      },
+    });
+
+    assert.equal(observedInit.cache, "no-store");
+    assert.equal(observedInit.headers["Cache-Control"], "no-cache");
+    assert.equal(observedInit.headers.Pragma, "no-cache");
+    assert.equal(response.cacheProvenance.outcome, "hit");
+    assert.equal(response.cacheProvenance.ageMs, 12_000);
+    assert.equal(response.cacheProvenance.bypassRequested, true);
+    assert.equal(response.cacheProvenance.bypassHonored, false);
+    assert.equal(response.cacheProvenance.bypassStatus, "contradicted_by_cache_hit");
+    assert.equal(response.cacheProvenance.providerFetches[0].bypassApplied, true);
+  } finally {
+    process.env.BRAVE_SEARCH_API_KEY = previousBraveKey;
+    process.env.SERPAPI_KEY = previousSerpKey;
+  }
+});
+
+test("cache refresh stays unconfirmed when the provider returns no cache telemetry", async () => {
+  const previousBraveKey = process.env.BRAVE_SEARCH_API_KEY;
+  const previousSerpKey = process.env.SERPAPI_KEY;
+  delete process.env.BRAVE_SEARCH_API_KEY;
+  delete process.env.SERPAPI_KEY;
+  try {
+    const response = await searchOneQuery("刘学义 念无双 垣仲 白衣", {
+      debug: true,
+      cacheMode: "refresh",
+      baiduOptions: { cache: false, retries: 0 },
+      fetchImpl: async () => mockResponse(baiduPayload(), {
+        contentType: "application/json",
+      }),
+    });
+
+    assert.equal(response.cacheProvenance.outcome, "unknown");
+    assert.equal(response.cacheProvenance.bypassApplied, true);
+    assert.equal(response.cacheProvenance.bypassHonored, null);
+    assert.equal(response.cacheProvenance.bypassStatus, "applied_unconfirmed");
+  } finally {
+    process.env.BRAVE_SEARCH_API_KEY = previousBraveKey;
+    process.env.SERPAPI_KEY = previousSerpKey;
+  }
+});
+
+test("refresh bypasses a populated Baidu result cache while normal searches report its hit and age", async () => {
+  const previousBraveKey = process.env.BRAVE_SEARCH_API_KEY;
+  const previousSerpKey = process.env.SERPAPI_KEY;
+  delete process.env.BRAVE_SEARCH_API_KEY;
+  delete process.env.SERPAPI_KEY;
+  clearBaiduImageCache();
+  let calls = 0;
+  let clock = 1_000;
+  const fetchImpl = async () => {
+    calls += 1;
+    return mockResponse(baiduPayload(), { contentType: "application/json" });
+  };
+  const options = {
+    debug: true,
+    fetchImpl,
+    baiduOptions: { retries: 0, now: () => clock },
+  };
+  try {
+    await searchOneQuery("刘学义 念无双 垣仲 白衣", options);
+    clock = 6_000;
+    const cached = await searchOneQuery("刘学义 念无双 垣仲 白衣", options);
+    const refreshed = await searchOneQuery("刘学义 念无双 垣仲 白衣", {
+      ...options,
+      cacheMode: "refresh",
+    });
+
+    assert.equal(calls, 2);
+    assert.equal(cached.cacheProvenance.outcome, "hit");
+    assert.equal(cached.cacheProvenance.ageMs, 5_000);
+    assert.deepEqual(cached.cacheProvenance.localCache, {
+      provider: "baidu",
+      outcome: "hit",
+      ageMs: 5_000,
+    });
+    assert.equal(refreshed.baiduAttemptLog.telemetry.cacheHit, false);
+    assert.equal(refreshed.cacheProvenance.bypassRequested, true);
+    assert.equal(refreshed.cacheProvenance.bypassApplied, true);
+    assert.equal(refreshed.cacheProvenance.localCache.outcome, "miss");
+  } finally {
+    clearBaiduImageCache();
     process.env.BRAVE_SEARCH_API_KEY = previousBraveKey;
     process.env.SERPAPI_KEY = previousSerpKey;
   }

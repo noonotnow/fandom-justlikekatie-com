@@ -308,7 +308,10 @@ function cachedResult(query, now) {
     resultCache.delete(query);
     return null;
   }
-  return entry.value;
+  return {
+    value: entry.value,
+    ageMs: Math.max(0, now - entry.createdAt),
+  };
 }
 
 function storeResult(query, value, now) {
@@ -419,8 +422,12 @@ export async function searchBaiduImages(
   const cached = cache ? cachedResult(normalizedQuery, currentTime) : null;
   if (cached) {
     return {
-      results: cached.results.map((result) => ({ ...result })),
-      telemetry: { ...cached.telemetry, cacheHit: true },
+      results: cached.value.results.map((result) => ({ ...result })),
+      telemetry: {
+        ...cached.value.telemetry,
+        cacheHit: true,
+        cacheAgeMs: cached.ageMs,
+      },
     };
   }
 
@@ -510,6 +517,7 @@ export async function searchBaiduImages(
       rawCandidateCount: parsed.rawCandidateCount,
       parserRootCount: parsed.rootCount,
       cacheHit: false,
+      cacheAgeMs: null,
     },
   };
   if (cache) storeResult(normalizedQuery, value, currentTime);

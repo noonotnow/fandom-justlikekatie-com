@@ -496,7 +496,7 @@ function harness({
     getStore: () => store,
     getPublicationStore: () => publicationStore || store,
     actorPacks,
-    searchOneQuery: async query => {
+    searchOneQuery: async (query, options = {}) => {
       const pass = Math.floor(searchCall++ / actorPacks[0].vibes[0].queries.length);
       const results = (searchResultsForQuery
         ? searchResultsForQuery(query, searchCall - 1)
@@ -510,6 +510,22 @@ function harness({
       results,
       rawCount: 10,
       fallbackReason: query.includes("two") ? "subject_guard_failed" : null,
+      providerSelectionOrder: ["test", "fallback"],
+      providerFetchOrder: ["test"],
+      cacheProvenance: {
+        version: "provider-fetch-v1",
+        key: `cache:${query}`,
+        outcome: options.cacheMode === "refresh" ? "miss" : "hit",
+        ageMs: options.cacheMode === "refresh" ? 0 : 5000,
+        fetchTimeMs: 12,
+        fetchedAt: "2026-08-31T12:00:00.000Z",
+        bypassRequested: options.cacheMode === "refresh",
+        bypassApplied: options.cacheMode === "refresh",
+        bypassHonored: options.cacheMode === "refresh" ? true : null,
+        bypassStatus: options.cacheMode === "refresh" ? "provider_confirmed" : "not_requested",
+        providerFetches: [],
+        resultFingerprint: `fingerprint:${query}:${pass}`,
+      },
     };
     },
     now: (() => {
@@ -2091,6 +2107,22 @@ test("run, verdict, rerun, and retained-run inspection keep eligibility current"
   assert.equal(chosen.currentRun.retrievalRepetition.uniqueImageIdentityCount, 27);
   assert.equal(chosen.currentRun.retrievalRepetition.rungs[1].incrementalImageIdentityCount, 9);
   assert.equal(chosen.currentRun.retrievalRepetition.rungs[1].overlapsWithEarlierRungs[0].exactImageIdentityOverlapCount, 0);
+  assert.deepEqual(chosen.currentRun.queryRuns[0].cacheProvenance, {
+    version: "provider-fetch-v1",
+    key: "cache:刘学义 query one",
+    outcome: "hit",
+    ageMs: 5000,
+    fetchTimeMs: 12,
+    fetchedAt: "2026-08-31T12:00:00.000Z",
+    bypassRequested: false,
+    bypassApplied: false,
+    bypassHonored: null,
+    bypassStatus: "not_requested",
+    providerFetches: [],
+    resultFingerprint: "fingerprint:刘学义 query one:0",
+  });
+  assert.deepEqual(chosen.currentRun.queryRuns[0].providerFetchOrder, ["test"]);
+  assert.equal(chosen.currentRun.queryRuns[0].resultFingerprint, "fingerprint:刘学义 query one:0");
   assert.equal(chosen.currentRun.rawResults.length, 27);
   assert.equal(chosen.currentRun.rejections.some(item => item.reason === "subject_guard_failed"), true);
   assert.equal(chosen.currentRun.detectedEvents.length, 1);
@@ -2303,6 +2335,33 @@ test("retrieval diagnostics keep occurrences, exact rung overlap, and incrementa
     correctedRun.rawResults.some(item => item.dropReason === "curator_misprint"),
     true,
   );
+});
+
+test("cache diagnostic compares normal and bypassed fetches for one frozen query set without saving a run", async () => {
+  const { handler, store, getSearchCall } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const response = await handler(request("POST", {
+    action: "cache_diagnostic",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+  }), {});
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.diagnostic.diagnosticOnly, true);
+  assert.equal(payload.diagnostic.actorId, pairActor.id);
+  assert.equal(payload.diagnostic.vibeKey, vibeKey);
+  assert.equal(payload.diagnostic.scope, "representative");
+  assert.deepEqual(payload.diagnostic.frozenQueries, pairActor.vibes[0].queries.slice(0, 3));
+  assert.equal(payload.diagnostic.comparisons.length, 3);
+  assert.equal(getSearchCall(), 6);
+  assert.equal(payload.diagnostic.comparisons[0].normal.cacheProvenance.bypassRequested, false);
+  assert.equal(payload.diagnostic.comparisons[0].bypassed.cacheProvenance.bypassRequested, true);
+  assert.equal(payload.diagnostic.comparisons[0].bypassed.cacheProvenance.bypassHonored, true);
+  assert.deepEqual(payload.diagnostic.comparisons[0].normal.providerFetchOrder, ["test"]);
+  assert.equal(payload.diagnostic.comparisons[0].sameResultFingerprint, true);
+  assert.equal(store.records.size, 0);
 });
 
 test("a publishable curator board can be approved while a rescue board is preferred separately", async () => {

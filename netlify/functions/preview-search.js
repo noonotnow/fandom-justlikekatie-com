@@ -1,5 +1,44 @@
+import { createHash } from "node:crypto";
 import { ACTOR_PACKS } from "./lib/actor-packs.js";
 import { searchBaiduImages } from "./lib/baidu-images.js";
+
+export const SEARCH_CACHE_PROVENANCE_VERSION = "provider-fetch-v1";
+
+function resultFingerprint(results = []) {
+  const canonical = results.map(result => [
+    result.link || "",
+    result.thumbnail || "",
+    result.title || "",
+    result.source || "",
+  ]);
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
+function cacheObservation(response) {
+  const statuses = [
+    response.headers?.get?.("cf-cache-status"),
+    response.headers?.get?.("x-cache"),
+    response.headers?.get?.("x-cache-status"),
+  ].filter(Boolean);
+  const value = statuses.join(" ").toLowerCase();
+  const ageHeader = response.headers?.get?.("age");
+  const ageSeconds = ageHeader !== null && ageHeader !== undefined && ageHeader !== ""
+    ? Number(ageHeader)
+    : null;
+  const hit = /\b(hit|cached)\b/.test(value) || (Number.isFinite(ageSeconds) && ageSeconds > 0);
+  const miss = /\b(miss|bypass|uncached)\b/.test(value);
+  return {
+    outcome: hit ? "hit" : miss ? "miss" : "unknown",
+    ageMs: Number.isFinite(ageSeconds) ? Math.max(0, ageSeconds * 1000) : null,
+    cacheStatus: value || null,
+  };
+}
+
+function cacheKeyFor(q, providerPolicy) {
+  return createHash("sha256")
+    .update(JSON.stringify({ q, providerPolicy, version: SEARCH_CACHE_PROVENANCE_VERSION }))
+    .digest("hex");
+}
 
 // Non-subject content: things that regularly slip past ad/commerce/placeholder
 // filters (real photos, not logos, not known commerce domains) but are reliably
@@ -433,8 +472,12 @@ export async function searchOneQuery(
   if (!q) {
     throw new Error("Missing query parameter");
   }
-  const providerFetch = cacheMode === "refresh"
-    ? (url, init = {}) => fetchImpl(url, {
+  const bypassRequested = cacheMode === "refresh";
+  const fetches = [];
+  const providerFetch = async (url, init = {}) => {
+    const fetchedAt = new Date().toISOString();
+    const started = performance.now();
+    const requestInit = bypassRequested ? {
       ...init,
       cache: "no-store",
       headers: {
@@ -442,8 +485,69 @@ export async function searchOneQuery(
         "Cache-Control": "no-cache",
         Pragma: "no-cache",
       },
-    })
-    : fetchImpl;
+    } : init;
+    const response = await fetchImpl(url, requestInit);
+    fetches.push({
+      fetchedAt,
+      fetchTimeMs: Math.max(0, Math.round((performance.now() - started) * 1000) / 1000),
+      status: response.status ?? null,
+      ...cacheObservation(response),
+      bypassApplied: bypassRequested
+        && requestInit.cache === "no-store"
+        && requestInit.headers?.["Cache-Control"] === "no-cache",
+    });
+    return response;
+  };
+  const attachProvenance = response => {
+    const baiduCache = response?.baiduAttemptLog?.telemetry;
+    const localCacheHit = baiduCache?.cacheHit === true;
+    const hit = localCacheHit || fetches.some(fetch => fetch.outcome === "hit");
+    const allMisses = fetches.length > 0 && fetches.every(fetch => fetch.outcome === "miss");
+    const ages = [
+      ...fetches.map(fetch => fetch.ageMs),
+      ...(localCacheHit ? [baiduCache.cacheAgeMs] : []),
+    ].filter(Number.isFinite);
+    const bypassApplied = bypassRequested
+      && fetches.length > 0
+      && fetches.every(fetch => fetch.bypassApplied);
+    const bypassHonored = !bypassRequested
+      ? null
+      : hit
+      ? false
+      : bypassApplied && allMisses
+      ? true
+      : null;
+    response.cacheProvenance = {
+      version: SEARCH_CACHE_PROVENANCE_VERSION,
+      key: cacheKeyFor(q, providerPolicy),
+      outcome: hit ? "hit" : allMisses ? "miss" : "unknown",
+      ageMs: ages.length ? Math.max(...ages) : null,
+      fetchTimeMs: fetches.reduce((total, fetch) => total + fetch.fetchTimeMs, 0),
+      fetchedAt: fetches[0]?.fetchedAt || null,
+      bypassRequested,
+      bypassApplied,
+      bypassHonored,
+      bypassStatus: !bypassRequested
+        ? "not_requested"
+        : !bypassApplied
+        ? "not_applied"
+        : hit
+        ? "contradicted_by_cache_hit"
+        : allMisses
+        ? "provider_confirmed"
+        : "applied_unconfirmed",
+      localCache: baiduCache ? {
+        provider: "baidu",
+        outcome: localCacheHit ? "hit" : "miss",
+        ageMs: localCacheHit && Number.isFinite(baiduCache.cacheAgeMs)
+          ? baiduCache.cacheAgeMs
+          : null,
+      } : null,
+      providerFetches: fetches,
+      resultFingerprint: resultFingerprint(response.results),
+    };
+    return response;
+  };
 
   const googleFirst = providerPolicy === "middle-earth";
   const middleEarthFallback = providerPolicy === "middle-earth-fallback";
@@ -451,10 +555,15 @@ export async function searchOneQuery(
   const baiduAttemptLog = createBaiduAttemptLog(baiduEligible);
   if (baiduEligible) {
     try {
-      const baidu = await searchBaiduProvider(q, { fetchImpl: providerFetch, baiduOptions });
+      const baidu = await searchBaiduProvider(q, {
+        fetchImpl: providerFetch,
+        baiduOptions: bypassRequested
+          ? { ...baiduOptions, cache: false }
+          : baiduOptions,
+      });
       recordBaiduSuccess(baiduAttemptLog, baidu);
       if (baidu.qualified) {
-        return baiduResponse(q, baidu, baiduAttemptLog, debug);
+        return attachProvenance(baiduResponse(q, baidu, baiduAttemptLog, debug));
       }
     } catch (baiduError) {
       baiduAttemptLog.error = baiduError.message || "Baidu fetch error";
@@ -695,6 +804,7 @@ export async function searchOneQuery(
         fetchImpl,
         baiduOptions,
         providerPolicy: "middle-earth-fallback",
+        cacheMode,
       });
     }
 
@@ -758,7 +868,7 @@ export async function searchOneQuery(
       response.firstResultSample = braveRaw[0] ?? null;
     }
 
-    return response;
+    return attachProvenance(response);
   }
 }
 

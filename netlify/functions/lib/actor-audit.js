@@ -512,6 +512,46 @@ export function createActorAuditHandler({
         });
       }
 
+      if (input.action === "cache_diagnostic") {
+        const scope = parseScope(input.scope);
+        if (!scope) return json(400, { error: "Diagnostic scope must be representative or full." });
+        const calibrationProfile = approvedCalibrationProfile(
+          await readRescueCalibrationProfile(store, pair),
+        );
+        const frozenQueries = searchQueriesFor(
+          pair.actor,
+          pair.vibeIdx,
+          calibrationProfile,
+          { baseLimit: scope === "representative" ? 3 : null },
+        );
+        const comparisons = [];
+        for (const query of frozenQueries) {
+          const normal = await searchOneQuery(query, { debug: true, cacheMode: "default" });
+          const bypassed = await searchOneQuery(query, { debug: true, cacheMode: "refresh" });
+          comparisons.push({
+            query,
+            normal: searchCacheDiagnosticReceipt(normal),
+            bypassed: searchCacheDiagnosticReceipt(bypassed),
+            sameResultFingerprint: normal.cacheProvenance?.resultFingerprint
+              === bypassed.cacheProvenance?.resultFingerprint,
+            sameProviderFetchOrder: JSON.stringify(normal.providerFetchOrder || [])
+              === JSON.stringify(bypassed.providerFetchOrder || []),
+          });
+        }
+        return json(200, {
+          diagnostic: {
+            schemaVersion: 1,
+            diagnosticOnly: true,
+            actorId: pair.actor.id,
+            vibeKey: pair.vibeKey,
+            scope,
+            frozenQueries,
+            comparedAt: now().toISOString(),
+            comparisons,
+          },
+        });
+      }
+
       if (input.action === "run") {
         const scope = parseScope(input.scope);
         if (!scope) return json(400, { error: "Audit scope must be representative or full." });
@@ -535,6 +575,7 @@ export function createActorAuditHandler({
           reviewPreferenceCandidateIds,
           calibrationProfile: productionCalibrationProfile,
           misprintCorrections,
+          cacheMode: input.bypassCache === true ? "refresh" : "default",
         });
         const { report, advanced } = await appendRun(store, pair, run);
         if (advanced) {
@@ -2332,6 +2373,19 @@ export function createActorAuditHandler({
   };
 }
 
+function searchCacheDiagnosticReceipt(response) {
+  return {
+    provider: response?.provider || null,
+    resultCount: response?.results?.length || 0,
+    cacheProvenance: response?.cacheProvenance || null,
+    resultFingerprint: response?.cacheProvenance?.resultFingerprint || null,
+    providerSelectionOrder: response?.providerSelectionOrder || [],
+    providerFetchOrder: response?.providerFetchOrder || [],
+    fallbackReason: response?.fallbackReason
+      || response?.baiduAttemptLog?.fallbackReason
+      || null,
+  };
+}
 export async function runPreflight(
   pair,
   searchOneQuery,
@@ -2344,6 +2398,7 @@ export async function runPreflight(
     reviewPreferenceCandidateIds = [],
     calibrationProfile = null,
     misprintCorrections = [],
+    cacheMode = "default",
   } = {},
 ) {
   const startedAt = now().toISOString();
@@ -2362,7 +2417,7 @@ export async function runPreflight(
   const searchReceipts = new Map();
   const candidates = await evaluateCandidates(queries, async query => {
     try {
-      const response = await searchOneQuery(query, { debug: true });
+      const response = await searchOneQuery(query, { debug: true, cacheMode });
       searchReceipts.set(query, { response, error: null });
       return response;
     } catch (error) {
@@ -2986,6 +3041,10 @@ function queryRun(candidate, receipt, rankIndex, learnedQueries = []) {
     query: String(candidate.query || "").slice(0, 500),
     learnedRescueQuery: learnedQueries.includes(candidate.query),
     provider: candidate.provider || null,
+    cacheProvenance: receipt?.response?.cacheProvenance || null,
+    resultFingerprint: receipt?.response?.cacheProvenance?.resultFingerprint || null,
+    providerSelectionOrder: receipt?.response?.providerSelectionOrder || [],
+    providerFetchOrder: receipt?.response?.providerFetchOrder || [],
     rawCount,
     cleanCount: candidate.count,
     distinctSources: candidate.distinctSources,
