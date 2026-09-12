@@ -454,6 +454,7 @@ function harness({
   publicationStore = null,
   actorPacks = [pairActor],
   searchResultCount = 9,
+  searchResultsForQuery = null,
 } = {}) {
   const store = memoryStore();
   let runNumber = 0;
@@ -496,7 +497,9 @@ function harness({
     actorPacks,
     searchOneQuery: async query => {
       const pass = Math.floor(searchCall++ / actorPacks[0].vibes[0].queries.length);
-      const results = searchResults(query, searchResultCount).map(result => freshEvidenceOnRerun && pass > 0 ? {
+      const results = (searchResultsForQuery
+        ? searchResultsForQuery(query, searchCall - 1)
+        : searchResults(query, searchResultCount)).map(result => freshEvidenceOnRerun && pass > 0 ? {
         ...result,
         link: `${result.link}?fresh=${pass}`,
         thumbnail: `${result.thumbnail}?fresh=${pass}`,
@@ -1980,6 +1983,10 @@ test("run, verdict, rerun, and retained-run inspection keep eligibility current"
   const chosen = await choiceResponse.json();
   assert.equal(choiceResponse.status, 200);
   assert.equal(chosen.currentRun.queryRuns.length, 3);
+  assert.equal(chosen.currentRun.retrievalRepetition.occurrenceCount, 27);
+  assert.equal(chosen.currentRun.retrievalRepetition.uniqueImageIdentityCount, 27);
+  assert.equal(chosen.currentRun.retrievalRepetition.rungs[1].incrementalImageIdentityCount, 9);
+  assert.equal(chosen.currentRun.retrievalRepetition.rungs[1].overlapsWithEarlierRungs[0].exactImageIdentityOverlapCount, 0);
   assert.equal(chosen.currentRun.rawResults.length, 27);
   assert.equal(chosen.currentRun.rejections.some(item => item.reason === "subject_guard_failed"), true);
   assert.equal(chosen.currentRun.detectedEvents.length, 1);
@@ -2098,6 +2105,100 @@ test("run, verdict, rerun, and retained-run inspection keep eligibility current"
   ), {});
   assert.equal(priorResponse.status, 200);
   assert.equal((await priorResponse.json()).run.operatorVerdict.verdict, "approved");
+});
+
+test("retrieval diagnostics keep occurrences, exact rung overlap, and incremental unique yield separate from curation", async () => {
+  const shared = {
+    title: "Shared frame",
+    description: "刘学义 editorial frame",
+    source: "official.example",
+    link: "https://source.example/shared",
+    thumbnail: "https://images.example/shared.jpg?token=temporary",
+  };
+  const { handler } = harness({
+    searchResultsForQuery: query => {
+      const queryIndex = pairActor.vibes[0].queries.indexOf(query);
+      return [
+      shared,
+      {
+        ...shared,
+        title: `Unique ${queryIndex}`,
+        link: `https://source.example/unique-${queryIndex}`,
+        thumbnail: `https://images.example/unique-${queryIndex}.jpg`,
+      },
+      ];
+    },
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "representative",
+  }), {});
+  const detail = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const run = (await detail.json()).currentRun;
+  const retrieval = run.retrievalRepetition;
+
+  assert.equal(retrieval.diagnosticOnly, true);
+  assert.equal(retrieval.occurrenceCount, 6);
+  assert.equal(retrieval.uniqueCandidateIdentityCount, 4);
+  assert.equal(retrieval.uniqueImageIdentityCount, 4);
+  assert.equal(retrieval.repeatedImageOccurrenceCount, 2);
+  assert.equal(retrieval.rungs[0].incrementalImageIdentityCount, 2);
+  assert.equal(retrieval.rungs[1].incrementalImageIdentityCount, 1);
+  assert.equal(retrieval.rungs[2].incrementalImageIdentityCount, 1);
+  assert.deepEqual(
+    retrieval.rungs[2].overlapsWithEarlierRungs.map(item => item.exactImageIdentityOverlapCount),
+    [1, 1],
+  );
+  assert.equal(run.queryRuns[0].cleanCount, 2);
+  assert.equal(run.calibrationAnalysis.failureDistribution.exactDuplicates, 0);
+
+  for (const [reason, query, thumbnail] of [
+    ["query_mismatch", pairActor.vibes[0].queries[0], shared.thumbnail],
+    ["bad_asset", pairActor.vibes[0].queries[1], shared.thumbnail],
+  ]) {
+    const correction = await handler(request("POST", {
+      action: "mark_collection_misprint",
+      collectionItemId: `retrieval-${reason}`,
+      actorId: pairActor.id,
+      vibeKey,
+      reason,
+      candidate: {
+        candidateId: `retrieval-${reason}`,
+        query,
+        thumbnail,
+      },
+    }), {});
+    assert.equal(correction.status, 200, `${reason}: ${await correction.text()}`);
+  }
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "representative",
+  }), {});
+  const correctedDetail = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const correctedRun = (await correctedDetail.json()).currentRun;
+
+  assert.deepEqual(
+    correctedRun.retrievalRepetition,
+    retrieval,
+    "post-retrieval query and image exclusions must not rewrite retrieval evidence",
+  );
+  assert.equal(
+    correctedRun.queryRuns.reduce((total, queryRun) => total + queryRun.cleanCount, 0)
+      < run.queryRuns.reduce((total, queryRun) => total + queryRun.cleanCount, 0),
+    true,
+  );
+  assert.equal(
+    correctedRun.rawResults.some(item => item.dropReason === "curator_misprint"),
+    true,
+  );
 });
 
 test("a publishable curator board can be approved while a rescue board is preferred separately", async () => {

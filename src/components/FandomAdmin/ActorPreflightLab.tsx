@@ -797,6 +797,7 @@ function CandidateFunnelSummary({run}:{run:Run}) {
   const analysis = run.calibrationAnalysis;
   const distribution = analysis?.failureDistribution;
   const queryYield = analysis?.queryVisualYield ?? [];
+  const retrieval = run.retrievalRepetition;
   const families = analysis?.sameShootFamilies ?? [];
   if (!analysis || !distribution) return null;
   const viableFamilies = families.filter((family:AnyRecord)=>family.viableFourToEight);
@@ -804,6 +805,21 @@ function CandidateFunnelSummary({run}:{run:Run}) {
     !candidate.selected && (candidate.dropReason || candidate.visualClass));
   return <section className={styles.calibrationLearning} aria-label="Candidate loss funnel">
     <div className={styles.calibrationLearningHeader}><div><h6>Where expressive images left the funnel</h6><p>Counts are diagnostic only. Recommendations stay deferred until this distribution has been reviewed.</p></div><span className={styles.calibrationPending}>Read-only evidence</span></div>
+    {retrieval&&<section className={styles.retrievalRepetition} aria-label="Retrieval repetition">
+      <div><h6>Retrieval repetition</h6><p>Exact result and image identity repetition is measured before promise, ranking, deduplication, or composition decisions. It does not change queries or selection.</p></div>
+      <div className={styles.evidenceSummary}>
+        <strong>{retrieval.occurrenceCount??0}</strong><span>result occurrences</span>
+        <strong>{retrieval.uniqueCandidateIdentityCount??0}</strong><span>unique candidate identities</span>
+        <strong>{retrieval.uniqueImageIdentityCount??0}</strong><span>unique image identities</span>
+        <strong>{retrieval.repeatedImageOccurrenceCount??0}</strong><span>repeated image occurrences</span>
+      </div>
+      <div className={styles.retrievalRungs}>{(retrieval.rungs??[]).map((rung:AnyRecord)=><article key={`${rung.ladderRung}:${rung.query}`}>
+        <strong>Rung {Number(rung.ladderRung)+1} · {rung.query}</strong>
+        <span>{rung.occurrenceCount??0} occurrences · {rung.uniqueImageIdentityCount??0} unique images · +{rung.incrementalImageIdentityCount??0} new images</span>
+        <small>{(rung.overlapsWithEarlierRungs??[]).length?rung.overlapsWithEarlierRungs.map((overlap:AnyRecord)=>`rung ${Number(overlap.ladderRung)+1}: ${overlap.exactImageIdentityOverlapCount} exact`).join(' · '):'First rung · no earlier overlap'}</small>
+      </article>)}</div>
+      <details><summary>Exact overlap receipt</summary><pre>{text(retrieval)}</pre></details>
+    </section>}
     <div className={styles.evidenceSummary}>
       <strong>{distribution.queryNotVisibleToCuration ?? 0}</strong><span>hidden below ranked query cutoff</span>
       <strong>{distribution.filteredBeforeAnalysis ?? 0}</strong><span>failed image or safety gates</span>

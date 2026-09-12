@@ -2422,6 +2422,7 @@ export async function runPreflight(
     ranked.findIndex(item => item.query === candidate.query),
     calibrationProfile?.positiveQueries || [],
   ));
+  const retrievalRepetition = retrievalRepetitionDiagnostics(candidates);
   const calibrationCandidates = diagnostics.calibrationAnalysis?.candidates || [];
   const queryVisualYield = queryRuns.map((query, ladderRung) => {
     const candidatesForQuery = calibrationCandidates.filter(candidate => candidate.query === query.query);
@@ -2511,6 +2512,7 @@ export async function runPreflight(
     completedAt,
     queryCount: queries.length,
     queryRuns,
+    retrievalRepetition,
     calibrationQueryRanking: calibrationProfile ? {
       compatibilityVersion: CALIBRATION_QUERY_COMPATIBILITY_VERSION,
       learnedQueries: calibrationProfile.positiveQueries || [],
@@ -2986,6 +2988,73 @@ function queryRun(candidate, receipt, rankIndex, learnedQueries = []) {
     rank: rankIndex >= 0 ? rankIndex + 1 : null,
     acceptedForCuration: rankIndex >= 0 && rankIndex < RANKED_BATCH_LIMIT,
     rejectionReasons: [...new Set(reasons)],
+  };
+}
+
+function exactRetrievalIdentity(result, kind) {
+  const digest = String(result?.imageDigest || "").trim();
+  if (kind === "image" && digest) return `digest:${digest}`;
+  const image = canonicalImageIdentity(result?.thumbnail || result?.imageUrl || "");
+  if (kind === "image" && image) return `image:${image}`;
+  const link = canonicalImageIdentity(result?.link || "");
+  if (link) return `link:${link}`;
+  if (image) return `image:${image}`;
+  return `metadata:${recordHash({
+    title: String(result?.title || "").trim(),
+    source: String(result?.source || "").trim(),
+    thumbnail: String(result?.thumbnail || result?.imageUrl || "").trim(),
+  })}`;
+}
+
+function retrievalRepetitionDiagnostics(candidates) {
+  const seenCandidateIdentities = new Set();
+  const seenImageIdentities = new Set();
+  const rungs = candidates.map((candidate, ladderRung) => {
+    const results = candidate.results || [];
+    const candidateIdentities = new Set(results.map(result =>
+      exactRetrievalIdentity(result, "candidate")));
+    const imageIdentities = new Set(results.map(result =>
+      exactRetrievalIdentity(result, "image")));
+    const overlapsWithEarlierRungs = candidates.slice(0, ladderRung).map((earlier, earlierRung) => {
+      const earlierIdentities = new Set((earlier.results || []).map(result =>
+        exactRetrievalIdentity(result, "image")));
+      const sharedImageIdentities = [...imageIdentities]
+        .filter(identity => earlierIdentities.has(identity))
+        .sort();
+      return {
+        ladderRung: earlierRung,
+        query: String(earlier.query || "").slice(0, 500),
+        exactImageIdentityOverlapCount: sharedImageIdentities.length,
+        exactImageIdentities: sharedImageIdentities,
+      };
+    });
+    const incrementalCandidateIdentityCount = [...candidateIdentities]
+      .filter(identity => !seenCandidateIdentities.has(identity)).length;
+    const incrementalImageIdentityCount = [...imageIdentities]
+      .filter(identity => !seenImageIdentities.has(identity)).length;
+    for (const identity of candidateIdentities) seenCandidateIdentities.add(identity);
+    for (const identity of imageIdentities) seenImageIdentities.add(identity);
+    return {
+      query: String(candidate.query || "").slice(0, 500),
+      ladderRung,
+      occurrenceCount: results.length,
+      uniqueCandidateIdentityCount: candidateIdentities.size,
+      uniqueImageIdentityCount: imageIdentities.size,
+      incrementalCandidateIdentityCount,
+      incrementalImageIdentityCount,
+      repeatedImageOccurrenceCount: results.length - incrementalImageIdentityCount,
+      overlapsWithEarlierRungs,
+    };
+  });
+  return {
+    diagnosticOnly: true,
+    identityRule: "Exact canonical result URL and strongest exact image digest or canonical image URL; no perceptual similarity.",
+    occurrenceCount: rungs.reduce((total, rung) => total + rung.occurrenceCount, 0),
+    uniqueCandidateIdentityCount: seenCandidateIdentities.size,
+    uniqueImageIdentityCount: seenImageIdentities.size,
+    repeatedImageOccurrenceCount: rungs.reduce((total, rung) =>
+      total + rung.repeatedImageOccurrenceCount, 0),
+    rungs,
   };
 }
 
