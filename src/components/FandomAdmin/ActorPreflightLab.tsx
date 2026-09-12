@@ -369,7 +369,7 @@ export const ActorPreflightLab: React.FC = () => {
       });
       if (!response.ok) {
         const result = await response.json().catch(() => null);
-        throw new Error(result?.error || 'Calibration export unavailable.');
+        throw new Error(result?.error || 'Editorial packet download failed. Check your connection and retry.');
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -379,7 +379,11 @@ export const ActorPreflightLab: React.FC = () => {
       link.click();
       URL.revokeObjectURL(url);
       setNotice('Read-only cross-audit editorial review, retained evidence, and publication receipts downloaded. No audit was rerun or changed.');
-    } catch(e:any) { setNotice(e.message); } finally { setBusy(''); }
+    } catch(e:any) {
+      setNotice(e instanceof Error && e.message && e.message !== 'Failed to fetch'
+        ? e.message
+        : 'Editorial packet download failed. Check your connection and retry.');
+    } finally { setBusy(''); }
   }
   async function selectRetainedRun(selected:Run) {
     if(!selected.runId)return;

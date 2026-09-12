@@ -355,7 +355,7 @@ function publicationReviewRun(runId: string, historical = false): AnyRecord {
   return result;
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, failCalibrationExportOnce = false } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, failCalibrationExportOnce = false, dropCalibrationExportOnce = false } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   calibrationExportRequests: URL[];
@@ -386,6 +386,7 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
   const collectionSyncRequests: AnyRecord[] = [];
   let mediaUploads = 0;
   let calibrationExportFailures = 0;
+  let calibrationExportDrops = 0;
 
   await page.route('**/api/auth/session', route => route.fulfill({
     contentType: 'application/json',
@@ -467,6 +468,11 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
             contentType: 'application/json',
             body: JSON.stringify({ error: 'Editorial packet service is temporarily unavailable. Retry the download.' }),
           });
+          return;
+        }
+        if (dropCalibrationExportOnce && calibrationExportDrops === 0) {
+          calibrationExportDrops += 1;
+          await route.abort('connectionreset');
           return;
         }
         const statuses = ['matched', 'missing', 'ambiguous', 'identity_unavailable'];
@@ -1017,7 +1023,7 @@ test('retained-run publication summaries keep outcomes and immutable edition lin
   }
 });
 
-test('a failed editorial packet download shows the server error and remains retryable without mutations', { timeout: 60_000 }, async () => {
+test('failed editorial packet downloads stay useful and retryable without mutations', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();
   const page = await browser.newPage();
@@ -1027,7 +1033,7 @@ test('a failed editorial packet download shows the server error and remains retr
     calibrationExportRequests,
     exportRequests,
     misprintRequests,
-  } = await configureNetwork(page, { failCalibrationExportOnce: true });
+  } = await configureNetwork(page, { failCalibrationExportOnce: true, dropCalibrationExportOnce: true });
   const mutationRequests: Array<{ method: string; url: string }> = [];
   page.on('request', request => {
     const url = new URL(request.url());
@@ -1055,15 +1061,22 @@ test('a failed editorial packet download shows the server error and remains retr
       'Editorial packet service is temporarily unavailable. Retry the download.',
       { exact: true },
     ).waitFor();
+    assert.equal(await downloadButton.isEnabled(), true, 'the server failure should restore the download action');
+
+    await downloadButton.click();
+    await page.getByText(
+      'Editorial packet download failed. Check your connection and retry.',
+      { exact: true },
+    ).waitFor();
     await downloadButton.waitFor({ state: 'visible' });
     assert.equal(await downloadButton.isEnabled(), true, 'the failed download action should be restored for retry');
-    assert.equal(calibrationExportRequests.length, 1);
+    assert.equal(calibrationExportRequests.length, 2);
 
     const downloadPromise = page.waitForEvent('download');
     await downloadButton.click();
     const download = await downloadPromise;
     assert.equal(download.suggestedFilename(), 'actor-calibration-2026-09-01-2026-09-10.json');
-    assert.equal(calibrationExportRequests.length, 2, 'retry should repeat only the same read-only packet request');
+    assert.equal(calibrationExportRequests.length, 3, 'each retry should repeat only the same read-only packet request');
 
     assert.deepEqual(mutationRequests, [], 'failure and retry must not issue audit or publication mutations');
     assert.deepEqual(auditRequests, [], 'failure and retry must not search, score, rerun, or mutate an audit');
