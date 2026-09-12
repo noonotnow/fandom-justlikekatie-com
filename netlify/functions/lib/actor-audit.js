@@ -1959,6 +1959,16 @@ export function createActorAuditHandler({
         if (signalValues.some(value => !eligible.has(value))) {
           return json(409, { error: "Every approved signal must recur with the selected direction across at least two distinct reviewed audits." });
         }
+        const jointlySupportingRunCount = new Set((profile.signalInventory || [])
+          .filter(item => signalValues.every(value =>
+            item.directionalSignals?.[signalFamily]?.[direction]?.includes(value)))
+          .map(item => item.sourceRunId)
+          .filter(Boolean)).size;
+        if (jointlySupportingRunCount < MIN_CALIBRATION_APPROVAL_EVIDENCE) {
+          return json(409, {
+            error: `The complete approved signal set must recur together with the selected direction across at least ${MIN_CALIBRATION_APPROVAL_EVIDENCE} distinct reviewed audits.`,
+          });
+        }
         const evidenceReceiptIds = [...profile.sourceReceiptIds].sort();
         const aggregateEvidenceHash = calibrationApprovalEvidenceHash(profile, {
           signalFamily,
@@ -5553,6 +5563,19 @@ async function readRescueCalibrationProfile(store, pair) {
         family,
         calibrationSignalValues(record, family)
           .filter(value => !isRetiredSignal(record, family, value)),
+      ]),
+    ),
+    directionalSignals: Object.fromEntries(
+      ["candidateIds", "queries", "sources", "clusters", "composition"].map(family => [
+        family,
+        Object.fromEntries(["positive", "negative"].map(direction => [
+          direction,
+          [...new Set(((family === "candidateIds"
+            ? record.signals?.[direction]?.candidateIds
+            : record.signals?.reusable?.[family]?.[direction]) || [])
+            .map(normalizeCalibrationSignalValue)
+            .filter(value => value && !isRetiredSignal(record, family, value)))],
+        ])),
       ]),
     ),
   }));

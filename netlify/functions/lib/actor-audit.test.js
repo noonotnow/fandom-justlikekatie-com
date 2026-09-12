@@ -5055,7 +5055,7 @@ test("diagnostic calibration cannot become production without aggregate approval
   assert.match(approval.error, /at least 2 distinct reviewed audits/);
 });
 
-test("aggregate calibration rejects two reviewed audits with non-overlapping reusable signals", async () => {
+test("aggregate calibration rejects a signal bundle whose members recur only in separate reviewed audits", async () => {
   const curateOptions = [];
   const { handler, store } = harness({
     freshEvidenceOnRerun: true,
@@ -5063,10 +5063,10 @@ test("aggregate calibration rejects two reviewed audits with non-overlapping reu
   });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   const evidenceReceiptIds = [];
-  const sourceSignals = [];
-  let previousSource = "";
+  const querySignals = [];
+  let selectedQueries = [];
 
-  for (const runId of ["run-1", "run-2"]) {
+  for (const [index, runId] of ["run-1", "run-2", "run-3", "run-4"].entries()) {
     await handler(request("POST", {
       action: "run", actorId: pairActor.id, vibeKey, scope: "full",
     }), {});
@@ -5074,12 +5074,16 @@ test("aggregate calibration rejects two reviewed audits with non-overlapping reu
       action: "blind_choice", actorId: pairActor.id, vibeKey, runId, choice: "compiled",
     }), {});
     const chosen = await choiceResponse.json();
-    const sourceGroups = Object.entries(chosen.currentRun.rawResults.reduce((groups, candidate) => {
-      groups[candidate.source] = [...(groups[candidate.source] || []), candidate];
+    const queryGroups = Object.entries(chosen.currentRun.rawResults.reduce((groups, candidate) => {
+      groups[candidate.query] = [...(groups[candidate.query] || []), candidate];
       return groups;
     }, {})).filter(([, candidates]) => candidates.length >= 9);
-    const [source, candidates] = sourceGroups.find(([value]) => value !== previousSource);
-    previousSource = source;
+    if (!selectedQueries.length) {
+      selectedQueries = queryGroups.slice(1, 3).map(([query]) => query);
+      assert.equal(selectedQueries.length, 2);
+    }
+    const targetQuery = selectedQueries[Math.floor(index / 2)];
+    const [query, candidates] = queryGroups.find(([value]) => value === targetQuery);
 
     const saveResponse = await handler(request("POST", {
       action: "save_rescue_board",
@@ -5102,32 +5106,34 @@ test("aggregate calibration rejects two reviewed audits with non-overlapping reu
     }), {});
     const marked = await markResponse.json();
     assert.equal(markResponse.status, 200, JSON.stringify(marked));
-    const sourceSignal = marked.currentRun.editorialFeedback.operatorRescueBoard
-      .calibrationBasis.signals.reusable.sources.positive[0];
-    assert.ok(sourceSignal);
-    sourceSignals.push(sourceSignal);
+    const querySignal = query.toLowerCase()
+      .replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, " ")
+      .trim();
+    assert.ok(marked.currentRun.editorialFeedback.operatorRescueBoard
+      .calibrationBasis.signals.reusable.queries.positive.includes(querySignal));
+    querySignals.push(querySignal);
   }
 
-  assert.equal(new Set(sourceSignals).size, 2);
-  for (const sourceSignal of sourceSignals) {
-    const approvalResponse = await handler(request("POST", {
-      action: "approve_rescue_calibration",
-      actorId: pairActor.id,
-      vibeKey,
-      adjustmentType: "class",
-      signalFamily: "sources",
-      direction: "positive",
-      signalValues: [sourceSignal],
-    }), {});
-    const approval = await approvalResponse.json();
-    assert.equal(approvalResponse.status, 409, JSON.stringify(approval));
-    assert.match(approval.error, /at least (?:2|two) distinct reviewed audits/i);
-  }
+  assert.equal(new Set(querySignals).size, 2);
+  assert.deepEqual(querySignals.slice(0, 2), [querySignals[0], querySignals[0]]);
+  assert.deepEqual(querySignals.slice(2), [querySignals[2], querySignals[2]]);
+
+  const approvalResponse = await handler(request("POST", {
+    action: "approve_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    adjustmentType: "query_ladder",
+    direction: "positive",
+    signalValues: [querySignals[0], querySignals[2]],
+  }), {});
+  const approval = await approvalResponse.json();
+  assert.equal(approvalResponse.status, 409, JSON.stringify(approval));
+  assert.match(approval.error, /complete approved signal set must recur together/i);
 
   const diagnosticReceipts = [...store.records.entries()]
     .filter(([key]) => key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0)))
     .map(([, value]) => value);
-  assert.equal(diagnosticReceipts.length, 2);
+  assert.equal(diagnosticReceipts.length, 4);
   assert.deepEqual(
     new Set(diagnosticReceipts.map(receipt => receipt.sourceRescueReceiptId)),
     new Set(evidenceReceiptIds),
