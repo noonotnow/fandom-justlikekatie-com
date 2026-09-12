@@ -110,6 +110,9 @@ const MIN_REUSABLE_SIGNAL_SUPPORT = 2;
 const MIN_CALIBRATION_APPROVAL_EVIDENCE = 2;
 const MIN_HUMAN_PROXY_REVIEWED_SAMPLE = 5;
 const CALIBRATION_SIGNAL_FAMILIES = new Map([
+  ["candidate", "candidateIds"],
+  ["candidateid", "candidateIds"],
+  ["candidateids", "candidateIds"],
   ["query", "queries"],
   ["queries", "queries"],
   ["source", "sources"],
@@ -120,6 +123,7 @@ const CALIBRATION_SIGNAL_FAMILIES = new Map([
   ["compositions", "composition"],
 ]);
 const CALIBRATION_SIGNAL_LABELS = {
+  candidateIds: "candidate",
   queries: "query",
   sources: "source",
   clusters: "cluster",
@@ -1896,7 +1900,7 @@ export function createActorAuditHandler({
           ? "queries"
           : normalizeCalibrationSignalFamily(input.signalFamily);
         if (!signalFamily || (input.adjustmentType === "class" && signalFamily === "queries")) {
-          return json(400, { error: "A class adjustment must select source, cluster, or composition." });
+          return json(400, { error: "A class adjustment must select candidate, source, cluster, or composition." });
         }
         const direction = input.direction === "negative" ? "negative" : input.direction === "positive" ? "positive" : null;
         const signalValues = [...new Set((Array.isArray(input.signalValues) ? input.signalValues : [])
@@ -4915,6 +4919,7 @@ function signalValues(candidates) {
 }
 
 function signalValuesForCandidate(candidate, key) {
+  if (key === "candidateIds") return [candidate.candidateId].filter(Boolean);
   if (key === "queries") return [signalText(candidate.query)].filter(Boolean);
   if (key === "sources") return [signalText(candidate.source)].filter(Boolean);
   if (key === "clusters") {
@@ -5220,7 +5225,7 @@ export function rescueCalibrationBasis(run, board) {
     .map(calibrationCandidateSnapshot);
   const hero = selectedNine[4] || null;
   const reusableSignals = Object.fromEntries(
-    ["queries", "sources", "clusters", "antiAnchors", "definitions", "composition"].map(key => [
+    ["candidateIds", "queries", "sources", "clusters", "antiAnchors", "definitions", "composition"].map(key => [
       key,
       reusableSignalPreferences([{ selectedNine, omittedAlternatives }], key),
     ]),
@@ -5485,7 +5490,7 @@ async function readRescueCalibrationProfile(store, pair) {
     sourceRescueReceiptId: record.sourceRescueReceiptId,
     sourceRunId: record.sourceRunId || null,
     signals: Object.fromEntries(
-      ["queries", "sources", "clusters", "composition"].map(family => [
+      ["candidateIds", "queries", "sources", "clusters", "composition"].map(family => [
         family,
         calibrationSignalValues(record, family)
           .filter(value => !isRetiredSignal(record, family, value)),
@@ -5496,9 +5501,15 @@ async function readRescueCalibrationProfile(store, pair) {
   const retirementHash = retirements.length || signalRetirements.length
     ? rescueCalibrationRetirementHash(retirements, signalRetirements)
     : null;
-  const positive = key => records.flatMap(record => record.signals?.positive?.[key] || []);
-  const negative = key => records.flatMap(record => record.signals?.negative?.[key] || []);
+  const positive = key => records.flatMap(record =>
+    (record.signals?.positive?.[key] || [])
+      .filter(value => !isRetiredSignal(record, key, value)));
+  const negative = key => records.flatMap(record =>
+    (record.signals?.negative?.[key] || [])
+      .filter(value => !isRetiredSignal(record, key, value)));
   const candidateIds = preferredSignals(positive("candidateIds"), negative("candidateIds"));
+  const candidateIdPreferences = reusableSignalPreferences(records, "candidateIds",
+    (value, record) => isRetiredSignal(record, "candidateIds", value));
   const queries = reusableSignalPreferences(records, "queries",
     (value, record) => isRetiredSignal(record, "queries", value));
   const sources = reusableSignalPreferences(records, "sources",
@@ -5654,6 +5665,7 @@ async function readRescueCalibrationProfile(store, pair) {
     positiveCompositions: compositions.positive,
     negativeCompositions: compositions.negative,
     reusableSignalDeltas: {
+      candidateIds: candidateIdPreferences.deltas,
       queries: queries.deltas,
       sources: sources.deltas,
       clusters: clusters.deltas,
@@ -7025,6 +7037,7 @@ function approvedCalibrationProfile(profile) {
   if (!approval) return null;
   const { signalFamily, direction, signalValues } = approval.adjustment || {};
   const field = `${direction === "negative" ? "negative" : "positive"}${{
+    candidateIds: "CandidateIds",
     queries: "Queries",
     sources: "Sources",
     clusters: "Clusters",
@@ -7038,7 +7051,6 @@ function approvedCalibrationProfile(profile) {
     sourceReceiptIds: profile.sourceReceiptIds,
     approvalReceipt: approval,
     activeAdjustment: approval.adjustment,
-    [field]: signalValues,
     positiveCandidateIds: [],
     negativeCandidateIds: [],
     heroCandidateIds: [],
@@ -7052,5 +7064,6 @@ function approvedCalibrationProfile(profile) {
     signalRetirements: profile.signalRetirements || [],
     retirementHash: profile.retirementHash || null,
     backupBoards: [],
+    [field]: signalValues,
   };
 }
