@@ -299,7 +299,63 @@ function responseBody(
   };
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false } = {}): Promise<{
+function publicationReviewRun(runId: string, historical = false): AnyRecord {
+  const result = run(runId, true);
+  result.publicationJoinReceipt = {
+    kind: 'vibe-atlas-audit-publication-join',
+    readOnly: true,
+    counts: historical
+      ? { matched: 2, missing: 1, ambiguous: 0, identity_unavailable: 1 }
+      : { matched: 1, missing: 1, ambiguous: 1, identity_unavailable: 1 },
+    occurrences: historical
+      ? [
+        {
+          auditOccurrenceId: 'historical-matched',
+          auditIndex: 0,
+          status: 'matched',
+          matches: [{ publicationDate: '2026-08-28', position: 2, manifestId: 'manifest-2026-08-28' }],
+        },
+        {
+          auditOccurrenceId: 'historical-identity-unavailable',
+          auditIndex: 1,
+          status: 'identity_unavailable',
+          matches: [],
+        },
+      ]
+      : [
+        {
+          auditOccurrenceId: 'current-matched',
+          auditIndex: 0,
+          status: 'matched',
+          matches: [{ publicationDate: '2026-09-03', position: 4, manifestId: 'manifest-2026-09-03' }],
+        },
+        {
+          auditOccurrenceId: 'current-missing',
+          auditIndex: 1,
+          status: 'missing',
+          matches: [],
+        },
+        {
+          auditOccurrenceId: 'current-ambiguous',
+          auditIndex: 2,
+          status: 'ambiguous',
+          matches: [
+            { publicationDate: '2026-09-04', position: 0, manifestId: 'manifest-2026-09-04' },
+            { publicationDate: '2026-09-05', position: 7, manifestId: 'manifest-2026-09-05' },
+          ],
+        },
+        {
+          auditOccurrenceId: 'current-identity-unavailable',
+          auditIndex: 3,
+          status: 'identity_unavailable',
+          matches: [],
+        },
+      ],
+  };
+  return result;
+}
+
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   calibrationExportRequests: URL[];
@@ -500,6 +556,28 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
               }],
             },
           }),
+        });
+        return;
+      }
+      if (publicationReview) {
+        const current = publicationReviewRun('publication-current');
+        const historical = publicationReviewRun('publication-historical', true);
+        const requestedRunId = url.searchParams.get('runId');
+        if (requestedRunId) {
+          await route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+              run: requestedRunId === historical.runId ? historical : current,
+              receiptId: null,
+            }),
+          });
+          return;
+        }
+        const response = responseBody(current, 'needs_operator_verdict');
+        response.priorRuns = [historical];
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify(response),
         });
         return;
       }
@@ -853,6 +931,65 @@ test('a date-bounded editorial packet download preserves publication join outcom
     assert.deepEqual(calibrationRequests, [], 'downloading must not change calibration');
     assert.deepEqual(exportRequests, [], 'downloading must not export or persist a rescue board');
     assert.deepEqual(misprintRequests, [], 'downloading must not alter publication correction records');
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('retained-run publication summaries keep outcomes and immutable edition links visible without mutations', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { auditRequests } = await configureNetwork(page, { publicationReview: true });
+  const actorAuditRequests: Array<{ method: string; url: URL }> = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname.includes('/.netlify/functions/actor-audits')) {
+      actorAuditRequests.push({ method: request.method(), url });
+    }
+  });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+
+    const runSelect = page.getByLabel('Audit run');
+    await runSelect.selectOption('publication-current');
+    const summary = page.getByRole('region', { name: 'Publication matches' });
+    await summary.getByText('Read-only join to immutable Daily Drop editions. Historical audits and manifests are unchanged.', { exact: true }).waitFor();
+
+    for (const [status, count, label] of [
+      ['matched', '1', 'matched'],
+      ['missing', '1', 'missing'],
+      ['ambiguous', '1', 'ambiguous'],
+      ['identity_unavailable', '1', 'Identity unavailable'],
+    ] as const) {
+      const badge = summary.locator(`[data-status="${status}"]`).first();
+      assert.equal(await badge.locator('b').textContent(), count);
+      assert.equal((await badge.textContent())?.trim(), `${count}${label}`);
+    }
+    await summary.getByText('No immutable edition match', { exact: true }).waitFor();
+    await summary.getByText('No stable image identity was retained', { exact: true }).waitFor();
+    await summary.getByRole('link', { name: '2026-09-03 · card 5', exact: true }).waitFor();
+    await summary.getByRole('link', { name: '2026-09-04 · card 1', exact: true }).waitFor();
+    await summary.getByRole('link', { name: '2026-09-05 · card 8', exact: true }).waitFor();
+    assert.equal(await summary.getByRole('link', { name: '2026-09-03 · card 5' }).getAttribute('href'), '/vibe-atlas?date=2026-09-03');
+    assert.equal(await summary.getByRole('link', { name: '2026-09-04 · card 1' }).getAttribute('href'), '/vibe-atlas?date=2026-09-04');
+    assert.equal(await summary.getByRole('link', { name: '2026-09-05 · card 8' }).getAttribute('href'), '/vibe-atlas?date=2026-09-05');
+
+    await runSelect.selectOption('publication-historical');
+    await summary.getByRole('link', { name: '2026-08-28 · card 3', exact: true }).waitFor();
+    assert.equal(await summary.getByRole('link', { name: '2026-08-28 · card 3' }).getAttribute('href'), '/vibe-atlas?date=2026-08-28');
+    assert.equal(await summary.locator('[data-status="matched"]').first().locator('b').textContent(), '2');
+
+    await runSelect.selectOption('publication-current');
+    await summary.getByRole('link', { name: '2026-09-03 · card 5', exact: true }).waitFor();
+
+    assert.equal(await summary.locator('button, input, select, textarea, form').count(), 0, 'the publication join must expose no mutation control');
+    assert.ok(actorAuditRequests.length >= 4, 'initial loading and both retained-run selections should read audit details');
+    assert.ok(actorAuditRequests.every(request => request.method === 'GET'), 'selecting publication summaries must perform only read requests');
+    assert.deepEqual(auditRequests, [], 'retained-run switching must not issue an audit action');
   } finally {
     await browser.close();
     await server.close();
