@@ -3739,6 +3739,69 @@ test("diagnostic rescue evidence stays out of production until explicitly approv
   );
 });
 
+async function approveRepeatedCalibrationEvidence({
+  handler,
+  vibeKey,
+  adjustmentType,
+  signalFamily,
+  selectCandidates,
+  beforeApproval,
+}) {
+  const evidenceReceiptIds = [];
+  let signalValue = "";
+  let selectionValue = "";
+
+  for (const runId of ["run-1", "run-2"]) {
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const choiceResponse = await handler(request("POST", {
+      action: "blind_choice", actorId: pairActor.id, vibeKey, runId, choice: "compiled",
+    }), {});
+    const chosen = await choiceResponse.json();
+    const selection = selectCandidates(chosen.currentRun.rawResults, selectionValue);
+    selectionValue = selection.selectionValue;
+    const savedResponse = await handler(request("POST", {
+      action: "save_rescue_board",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      candidateIds: selection.candidates.slice(0, 9)
+        .map(candidate => candidate.candidateId),
+    }), {});
+    const saved = await savedResponse.json();
+    const receipt = saved.currentRun.editorialFeedback.operatorRescueBoard;
+    evidenceReceiptIds.push(receipt.receiptId);
+    const markedResponse = await handler(request("POST", {
+      action: "mark_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      receiptId: receipt.receiptId,
+    }), {});
+    const marked = await markedResponse.json();
+    assert.equal(markedResponse.status, 200, JSON.stringify(marked));
+    signalValue ||= marked.currentRun.editorialFeedback.operatorRescueBoard
+      .calibrationBasis.signals.reusable[signalFamily].positive[0];
+    assert.ok(signalValue);
+  }
+
+  await beforeApproval?.();
+  const approvalResponse = await handler(request("POST", {
+    action: "approve_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    adjustmentType,
+    ...(adjustmentType === "class" ? { signalFamily } : {}),
+    direction: "positive",
+    signalValues: [signalValue],
+  }), {});
+  const approval = await approvalResponse.json();
+  assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+
+  return { approval, evidenceReceiptIds, selectionValue, signalValue };
+}
+
 test("production calibration requires repeated aggregate evidence, applies one approved class, and is reversible", async () => {
   const curateOptions = [];
   const { handler, store } = harness({
@@ -3746,8 +3809,6 @@ test("production calibration requires repeated aggregate evidence, applies one a
     onCurateOptions: options => curateOptions.push(options),
   });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
-  let sourceSignal = "";
-  const evidenceReceiptIds = [];
   const listed = store.list.bind(store);
   let lagAuthorityListings = false;
   store.list = async options => {
@@ -3758,59 +3819,35 @@ test("production calibration requires repeated aggregate evidence, applies one a
     return listed(options);
   };
 
-  for (const runId of ["run-1", "run-2"]) {
-    await handler(request("POST", {
-      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
-    }), {});
-    const choiceResponse = await handler(request("POST", {
-      action: "blind_choice", actorId: pairActor.id, vibeKey, runId, choice: "compiled",
-    }), {});
-    const chosen = await choiceResponse.json();
-    const bySource = chosen.currentRun.rawResults.reduce((groups, candidate) => {
-      groups[candidate.source] = [...(groups[candidate.source] || []), candidate];
-      return groups;
-    }, {});
-    const [source, candidates] = Object.entries(bySource)
-      .find(([, items]) => items.length >= 9);
-    sourceSignal = source.toLowerCase().replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, " ").trim();
-    const savedResponse = await handler(request("POST", {
-      action: "save_rescue_board",
-      actorId: pairActor.id,
-      vibeKey,
-      runId,
-      candidateIds: candidates.slice(0, 9).map(candidate => candidate.candidateId),
-    }), {});
-    const saved = await savedResponse.json();
-    const receiptId = saved.currentRun.editorialFeedback.operatorRescueBoard.receiptId;
-    evidenceReceiptIds.push(receiptId);
-    const markedResponse = await handler(request("POST", {
-      action: "mark_rescue_calibration",
-      actorId: pairActor.id,
-      vibeKey,
-      runId,
-      receiptId,
-    }), {});
-    assert.equal(markedResponse.status, 200, JSON.stringify(await markedResponse.clone().json()));
-  }
-
-  assert.equal(
-    curateOptions.filter(options => options.calibrationProfile).length,
-    0,
-    "diagnostic evidence must not affect production before explicit aggregate approval",
-  );
-  lagAuthorityListings = true;
-
-  const approvalResponse = await handler(request("POST", {
-    action: "approve_rescue_calibration",
-    actorId: pairActor.id,
+  const repeatedEvidence = await approveRepeatedCalibrationEvidence({
+    handler,
     vibeKey,
     adjustmentType: "class",
     signalFamily: "sources",
-    direction: "positive",
-    signalValues: [sourceSignal],
-  }), {});
-  const approval = await approvalResponse.json();
-  assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+    beforeApproval: () => {
+      assert.equal(
+        curateOptions.filter(options => options.calibrationProfile).length,
+        0,
+        "diagnostic evidence must not affect production before explicit aggregate approval",
+      );
+      lagAuthorityListings = true;
+    },
+    selectCandidates: rawResults => {
+      const bySource = rawResults.reduce((groups, candidate) => {
+        groups[candidate.source] = [...(groups[candidate.source] || []), candidate];
+        return groups;
+      }, {});
+      const [source, candidates] = Object.entries(bySource)
+        .find(([, items]) => items.length >= 9);
+      return { candidates, selectionValue: source };
+    },
+  });
+  const {
+    approval,
+    evidenceReceiptIds,
+    signalValue: sourceSignal,
+  } = repeatedEvidence;
+
   assert.equal(approval.calibrationProfile.activeApproval.status, "approved");
   assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
   assert.deepEqual(
@@ -4076,76 +4113,22 @@ test("retiring diagnostic calibration evidence appends a reason receipt and excl
 test("diagnostic transfer outcomes are retained per signal and retirement filters future calibration", async () => {
   const { handler, store } = harness({ freshEvidenceOnRerun: true });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
-  await handler(request("POST", {
-    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
-  }), {});
-  const choice = await handler(request("POST", {
-    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
-  }), {});
-  const chosen = await choice.json();
-  const selectedSource = chosen.currentRun.rawResults.at(-1).source;
-  const selectedIds = chosen.currentRun.rawResults
-    .filter(candidate => candidate.source === selectedSource)
-    .slice(0, 9)
-    .map(candidate => candidate.candidateId);
-  const saved = await handler(request("POST", {
-    action: "save_rescue_board",
-    actorId: pairActor.id,
-    vibeKey,
-    runId: "run-1",
-    candidateIds: selectedIds,
-  }), {});
-  const rescueReceipt = (await saved.json())
-    .currentRun.editorialFeedback.operatorRescueBoard;
-  const marked = await handler(request("POST", {
-    action: "mark_rescue_calibration",
-    actorId: pairActor.id,
-    vibeKey,
-    runId: "run-1",
-    receiptId: rescueReceipt.receiptId,
-  }), {});
-  const markedBody = await marked.json();
-  const sourceSignal = markedBody.currentRun.editorialFeedback.operatorRescueBoard
-    .calibrationBasis.signals.reusable.sources.positive[0];
-  assert.ok(sourceSignal);
-
-  await handler(request("POST", {
-    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
-  }), {});
-  const transferSecondChoice = await handler(request("POST", {
-    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-2", choice: "compiled",
-  }), {});
-  const transferSecond = await transferSecondChoice.json();
-  const secondIds = transferSecond.currentRun.rawResults
-    .filter(candidate => candidate.source === selectedSource)
-    .slice(0, 9)
-    .map(candidate => candidate.candidateId);
-  const secondSaved = await handler(request("POST", {
-    action: "save_rescue_board",
-    actorId: pairActor.id,
-    vibeKey,
-    runId: "run-2",
-    candidateIds: secondIds,
-  }), {});
-  const secondReceipt = (await secondSaved.json())
-    .currentRun.editorialFeedback.operatorRescueBoard;
-  await handler(request("POST", {
-    action: "mark_rescue_calibration",
-    actorId: pairActor.id,
-    vibeKey,
-    runId: "run-2",
-    receiptId: secondReceipt.receiptId,
-  }), {});
-  const approvalResponse = await handler(request("POST", {
-    action: "approve_rescue_calibration",
-    actorId: pairActor.id,
+  const {
+    evidenceReceiptIds: [rescueReceiptId],
+    signalValue: sourceSignal,
+  } = await approveRepeatedCalibrationEvidence({
+    handler,
     vibeKey,
     adjustmentType: "class",
     signalFamily: "sources",
-    direction: "positive",
-    signalValues: [sourceSignal],
-  }), {});
-  assert.equal(approvalResponse.status, 200, JSON.stringify(await approvalResponse.clone().json()));
+    selectCandidates: (rawResults, selectedSource) => {
+      const source = selectedSource || rawResults.at(-1).source;
+      return {
+        candidates: rawResults.filter(candidate => candidate.source === source),
+        selectionValue: source,
+      };
+    },
+  });
 
   await handler(request("POST", {
     action: "run", actorId: pairActor.id, vibeKey, scope: "full",
@@ -4158,7 +4141,7 @@ test("diagnostic transfer outcomes are retained per signal and retirement filter
   const summary = rerunBody.calibrationProfile.transferSummary;
   assert.ok(summary.attemptCount >= 1);
   const sourceOutcome = summary.signalFamilies.find(item =>
-    item.sourceRescueReceiptId === rescueReceipt.receiptId
+    item.sourceRescueReceiptId === rescueReceiptId
     && item.signalFamily === "source"
     && item.signalValue === sourceSignal);
   assert.ok(sourceOutcome);
@@ -4174,7 +4157,7 @@ test("diagnostic transfer outcomes are retained per signal and retirement filter
     action: "retire_rescue_signal",
     actorId: pairActor.id,
     vibeKey,
-    receiptId: rescueReceipt.receiptId,
+    receiptId: rescueReceiptId,
     signalFamily: "source",
     signalValue: sourceSignal,
     reason: "Repeated source results no longer transfer with confirmed identity.",
@@ -4204,10 +4187,10 @@ test("diagnostic transfer outcomes are retained per signal and retirement filter
     vibeLabelNative: pairActor.vibes[0].label,
     availability: "unavailable",
     reasonCode: "retired_calibration_signal",
-    summary: `Unavailable because retired source signal affects confirmed rescue receipt ${rescueReceipt.receiptId}.`,
+    summary: `Unavailable because retired source signal affects confirmed rescue receipt ${rescueReceiptId}.`,
     retiredSignals: [{
       signalFamily: "source",
-      sourceRescueReceiptId: rescueReceipt.receiptId,
+      sourceRescueReceiptId: rescueReceiptId,
       sourceRunId: "run-1",
       retirementId: retired.calibrationProfile.signalRetirements[0].retirementId,
       reason: "Repeated source results no longer transfer with confirmed identity.",
@@ -4218,7 +4201,7 @@ test("diagnostic transfer outcomes are retained per signal and retirement filter
   const historicalSignalReceipt = retired.priorRuns
     .find(run => run.runId === "run-1")
     .editorialFeedback.operatorRescueBoards
-    .find(receipt => receipt.receiptId === rescueReceipt.receiptId)
+    .find(receipt => receipt.receiptId === rescueReceiptId)
     .calibrationEvidence;
   assert.equal(historicalSignalReceipt.status, "confirmed");
   assert.equal(historicalSignalReceipt.signalRetirements[0].signalValue, sourceSignal);
@@ -4230,7 +4213,7 @@ test("diagnostic transfer outcomes are retained per signal and retirement filter
     action: "retire_rescue_signal",
     actorId: pairActor.id,
     vibeKey,
-    receiptId: rescueReceipt.receiptId,
+    receiptId: rescueReceiptId,
     signalFamily: "source",
     signalValue: sourceSignal,
     reason: "A different reason cannot replace the first retirement.",
@@ -4421,81 +4404,18 @@ test("diagnostic evidence beyond the source audit display cap cannot prove trans
     onCurateOptions: options => curateOptions.push(options),
   });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
-  await handler(request("POST", {
-    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
-  }), {});
-  const firstChoice = await handler(request("POST", {
-    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
-  }), {});
-  const first = await firstChoice.json();
-  const selectedQuery = first.currentRun.rawResults.at(-1).query;
-  const selectedIds = first.currentRun.rawResults
-    .filter(candidate => candidate.query === selectedQuery)
-    .slice(0, 9)
-    .map(candidate => candidate.candidateId);
-  assert.equal(selectedIds.length, 9);
-  const saveResponse = await handler(request("POST", {
-    action: "save_rescue_board",
-    actorId: pairActor.id,
-    vibeKey,
-    runId: "run-1",
-    candidateIds: selectedIds,
-  }), {});
-  const receiptId = (await saveResponse.json())
-    .currentRun.editorialFeedback.operatorRescueBoard.receiptId;
-  await handler(request("POST", {
-    action: "mark_rescue_calibration",
-    actorId: pairActor.id,
-    vibeKey,
-    runId: "run-1",
-    receiptId,
-  }), {});
-  const detail = await handler(request(
-    "GET",
-    undefined,
-    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
-  ), {});
-  const marked = await detail.json();
-  const querySignal = marked.currentRun.editorialFeedback.operatorRescueBoard
-    .calibrationBasis.signals.reusable.queries.positive[0];
-  assert.ok(querySignal);
-  await handler(request("POST", {
-    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
-  }), {});
-  const displayEvidenceChoice = await handler(request("POST", {
-    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-2", choice: "compiled",
-  }), {});
-  const displayEvidence = await displayEvidenceChoice.json();
-  const displaySecondIds = displayEvidence.currentRun.rawResults
-    .filter(candidate => candidate.query === selectedQuery)
-    .slice(0, 9)
-    .map(candidate => candidate.candidateId);
-  const secondSave = await handler(request("POST", {
-    action: "save_rescue_board",
-    actorId: pairActor.id,
-    vibeKey,
-    runId: "run-2",
-    candidateIds: displaySecondIds,
-  }), {});
-  const secondReceiptId = (await secondSave.json())
-    .currentRun.editorialFeedback.operatorRescueBoard.receiptId;
-  await handler(request("POST", {
-    action: "mark_rescue_calibration",
-    actorId: pairActor.id,
-    vibeKey,
-    runId: "run-2",
-    receiptId: secondReceiptId,
-  }), {});
-  const approvalResponse = await handler(request("POST", {
-    action: "approve_rescue_calibration",
-    actorId: pairActor.id,
+  await approveRepeatedCalibrationEvidence({
+    handler,
     vibeKey,
     adjustmentType: "query_ladder",
-    direction: "positive",
-    signalValues: [querySignal],
-  }), {});
-  assert.equal(approvalResponse.status, 200,
-    JSON.stringify(await approvalResponse.clone().json()));
+    signalFamily: "queries",
+    selectCandidates: (rawResults, selectedQuery) => {
+      const query = selectedQuery || rawResults.at(-1).query;
+      const candidates = rawResults.filter(candidate => candidate.query === query);
+      assert.ok(candidates.length >= 9);
+      return { candidates, selectionValue: query };
+    },
+  });
   await handler(request("POST", {
     action: "run", actorId: pairActor.id, vibeKey, scope: "full",
   }), {});
