@@ -14,6 +14,8 @@ import starOfDay, {
 import {
   auditHeadKey,
   auditCalibrationKey,
+  auditRescueCalibrationApprovalKey,
+  auditRescueCalibrationAuthorityKey,
   auditRescueCalibrationKey,
   auditRescueCalibrationSignalRetirementKey,
   auditRescueBoardKey,
@@ -202,6 +204,64 @@ function approvedEligibility(actor, vibeIdx, verdict = "approved") {
     },
     [auditCalibrationKey(actorId, vibeIdx, runId)]: calibration,
   };
+}
+
+function attachApprovedCalibration(entries, actor, vibeIdx, calibrationProfile) {
+  const actorId = actor.id;
+  const vibeKey = `${actorId}:${vibeIdx}`;
+  const evidenceReceiptId = `${actorId}-${vibeIdx}-calibration-evidence`;
+  const approvalId = `${actorId}-${vibeIdx}-calibration-approval`;
+  const adjustment = {
+    type: "query_ladder",
+    signalFamily: "queries",
+    direction: "positive",
+    signalValues: ["fixture calibration signal"],
+  };
+  const aggregateEvidenceHash = recordHash({
+    calibrationVersion: 1,
+    evidenceReceiptIds: [evidenceReceiptId],
+    retirementHash: null,
+    signalFamily: adjustment.signalFamily,
+    direction: adjustment.direction,
+    signalValues: adjustment.signalValues,
+  });
+  entries[auditRescueCalibrationKey(actorId, vibeIdx, evidenceReceiptId)] = {
+    status: "confirmed",
+    calibrationVersion: 1,
+    sourceRescueReceiptId: evidenceReceiptId,
+    sourceRunId: `${actorId}-${vibeIdx}-evidence-run`,
+    actor: { id: actorId },
+    vibePack: { key: vibeKey },
+    contract: {
+      curationVersion: CURATION_VERSION,
+      identityProfileVersion: IDENTITY_PROFILE_VERSION,
+      aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+      promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+      pairingFingerprint: pairingFingerprintFor(actor, vibeIdx),
+    },
+  };
+  entries[auditRescueCalibrationApprovalKey(actorId, vibeIdx, approvalId)] = {
+    status: "approved",
+    approvalId,
+    actorId,
+    vibeKey,
+    calibrationVersion: 1,
+    adjustment,
+    evidenceReceiptIds: [evidenceReceiptId],
+    aggregateEvidenceHash,
+    approvedAt: "2026-08-31T11:00:00.000Z",
+  };
+  entries[auditRescueCalibrationAuthorityKey(actorId, vibeIdx)] = {
+    status: "approved",
+    approvalId,
+    aggregateEvidenceHash,
+  };
+  Object.assign(entries[eligibilityKey(actorId, vibeIdx)], {
+    calibrationProfile,
+    rescueCalibrationApprovalId: approvalId,
+    rescueCalibrationApprovalEvidenceHash: aggregateEvidenceHash,
+  });
+  return entries;
 }
 
 function operatorBoardEligibility(actor, vibeIdx) {
@@ -612,8 +672,8 @@ test("the builder prefers fresh curation over an approved retained-evidence boar
     positiveQueries: ["learned query"],
     positiveDefinitions: ["modern building"],
   };
-  actorAEntries[eligibilityKey(packs[0].id, 0)].calibrationProfile = calibrationProfile;
-  actorBEntries[eligibilityKey(packs[1].id, 0)].calibrationProfile = calibrationProfile;
+  attachApprovedCalibration(actorAEntries, packs[0], 0, calibrationProfile);
+  attachApprovedCalibration(actorBEntries, packs[1], 0, calibrationProfile);
   const eligibilityStore = makeStore({ ...actorAEntries, ...actorBEntries });
   let searches = 0;
   let searchedQueries = null;
@@ -806,7 +866,7 @@ test("a calibration-only rescue board is never used as a Daily Drop fallback", a
   )];
   eligibility.publicationSource = null;
   eligibility.publicationBoard = null;
-  eligibility.calibrationProfile = {
+  attachApprovedCalibration(entries, actor, 0, {
     calibrationVersion: 1,
     evidenceCount: 1,
     backupBoards: [{
@@ -815,7 +875,7 @@ test("a calibration-only rescue board is never used as a Daily Drop fallback", a
       candidates: rescue.board.candidates,
       publishable: false,
     }],
-  };
+  });
 
   const payload = await buildPayloadForDate("2026-09-01", makeStore(entries), {
     packs: [actor],
@@ -831,14 +891,13 @@ test("the builder uses an unused rescue calibration board only after fresh searc
     vibes: [{ label: "A0", label_en: "A0", queries: ["fresh-search"] }],
   };
   const entries = operatorBoardEligibility(actor, 0);
-  const eligibility = entries[eligibilityKey(actor.id, 0)];
   const rescue = entries[auditRescueBoardKey(
     actor.id,
     0,
     `${actor.id}-0-run`,
     `${actor.id}-0-rescue`,
   )];
-  eligibility.calibrationProfile = {
+  attachApprovedCalibration(entries, actor, 0, {
     calibrationVersion: 1,
     evidenceCount: 1,
     backupBoards: [{
@@ -847,7 +906,7 @@ test("the builder uses an unused rescue calibration board only after fresh searc
       candidates: rescue.board.candidates,
       publishable: true,
     }],
-  };
+  });
 
   const payload = await buildPayloadForDate("2026-09-01", makeStore(entries), {
     packs: [actor],
@@ -992,14 +1051,13 @@ test("a rescue board already published as Star of the Day is not reused as backu
     vibes: [{ label: "A0", label_en: "A0", queries: ["fresh-search"] }],
   };
   const entries = operatorBoardEligibility(actor, 0);
-  const eligibility = entries[eligibilityKey(actor.id, 0)];
   const rescue = entries[auditRescueBoardKey(
     actor.id,
     0,
     `${actor.id}-0-run`,
     `${actor.id}-0-rescue`,
   )];
-  eligibility.calibrationProfile = {
+  attachApprovedCalibration(entries, actor, 0, {
     calibrationVersion: 1,
     evidenceCount: 1,
     backupBoards: [{
@@ -1008,7 +1066,7 @@ test("a rescue board already published as Star of the Day is not reused as backu
       candidates: rescue.board.candidates,
       publishable: true,
     }],
-  };
+  });
   const publishedBoard = {
     mode: "operator_rescue_backup",
     candidates: rescue.board.candidates,
@@ -1172,6 +1230,53 @@ test("an in-flight build is discarded when its pairing is revoked during curatio
         ...records[eligibilityKey(actor.id, 0)],
         eligible: false,
       });
+      return { displayResults, curation: { mode: "compiled" } };
+    },
+  });
+
+  assert.equal(payload, null);
+});
+
+test("an in-flight build cannot publish calibration selected from a superseded eligibility snapshot", async () => {
+  const actor = {
+    id: "actor-a",
+    name: "Actor A",
+    vibes: [{ label: "Vibe", queries: ["query"] }],
+  };
+  const selectedEntries = approvedEligibility(actor, 0);
+  const store = makeStore(selectedEntries);
+  const displayResults = Array.from({ length: 9 }, (_, index) => ({
+    title: `Frame ${index}`,
+    thumbnail: `https://images.test/${index}.jpg`,
+  }));
+  const replacementEntries = approvedEligibility(actor, 0);
+  const replacementRunId = "actor-a-0-replacement-run";
+  const originalRunId = "actor-a-0-run";
+  const remappedEntries = Object.fromEntries(Object.entries(replacementEntries).map(
+    ([key, value]) => [
+      key.replaceAll(originalRunId, replacementRunId),
+      JSON.parse(JSON.stringify(value).replaceAll(originalRunId, replacementRunId)),
+    ],
+  ));
+  const replacementEligibility = remappedEntries[eligibilityKey(actor.id, 0)];
+  const replacementVerdict = remappedEntries[
+    auditVerdictKey(actor.id, 0, replacementRunId)
+  ];
+  replacementEligibility.calibrationHash = recordHash(replacementVerdict.calibration);
+
+  const payload = await buildPayloadForDate("2026-08-31", store, {
+    packs: [actor],
+    evaluate: async () => [{ query: "query", results: displayResults }],
+    rank: candidates => candidates,
+    curate: async () => {
+      for (const [key, value] of Object.entries(remappedEntries)) {
+        await store.setJSON(key, value);
+      }
+      assert.equal(
+        await cachedPairIsEligible({ actorId: actor.id, vibeIdx: 0 }, store, [actor]),
+        true,
+        "the replacement remains release-ready, so a boolean-only recheck would accept stale work",
+      );
       return { displayResults, curation: { mode: "compiled" } };
     },
   });

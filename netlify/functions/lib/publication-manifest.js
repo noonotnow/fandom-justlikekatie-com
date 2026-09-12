@@ -814,6 +814,7 @@ async function materializePublicationManifestUnlocked({
   fetchImpl = fetch,
   resolveHost = lookup,
   now = () => new Date().toISOString(),
+  validateBeforeCommit = null,
 }) {
   validatePublicationInput(date, actor, vibe, board);
   await ensurePublicationManifestCatalogDate(store, date, now);
@@ -947,6 +948,9 @@ async function materializePublicationManifestUnlocked({
     },
     cards,
   };
+  if (typeof validateBeforeCommit === "function") {
+    await validateBeforeCommit();
+  }
   await store.setJSON(manifestKey, manifest, { onlyIfNew: true });
   const authoritative = await store.get(manifestKey, { type: "json", consistency: "strong" });
   if (!isGridManifest(authoritative) || authoritative.boardHash !== boardHashValue) {

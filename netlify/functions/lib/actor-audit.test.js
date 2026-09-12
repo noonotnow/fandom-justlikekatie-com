@@ -24,6 +24,7 @@ import {
   auditRescueCalibrationPrefix,
   auditRescueCalibrationApprovalPrefix,
   auditRescueCalibrationApprovalRevocationPrefix,
+  auditRescueCalibrationAuthorityKey,
   auditRescueCalibrationOutcomePrefix,
   auditRescueCalibrationRetirementPrefix,
   auditRescueCalibrationSignalRetirementPrefix,
@@ -41,6 +42,7 @@ import {
   createActorAuditHandler,
   rescueCalibrationBasis,
   vibeKeyFor,
+  writeCalibrationAuthority,
 } from "./actor-audit.js";
 import { candidateIdForResult, CURATION_VERSION } from "./grid-curation.js";
 import {
@@ -3891,6 +3893,22 @@ test("production calibration requires repeated aggregate evidence, applies one a
   assert.equal(eligibility.rescueCalibrationApprovalId,
     approval.calibrationProfile.activeApproval.approvalId);
 
+  const existingCalibrationKey = [...store.records.keys()].find(key =>
+    key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0)));
+  const freshEvidence = structuredClone(store.records.get(existingCalibrationKey));
+  freshEvidence.sourceRescueReceiptId = "concurrent-fresh-evidence";
+  freshEvidence.sourceRunId = "run-concurrent";
+  freshEvidence.confirmedAt = "2026-09-11T12:00:00.000Z";
+  await store.setJSON(
+    `${auditRescueCalibrationPrefix(pairActor.id, 0)}concurrent-fresh-evidence`,
+    freshEvidence,
+  );
+  assert.equal(
+    await getEligibility(store, pairActor, 0),
+    null,
+    "evidence arriving after approval must invalidate eligibility embedded with the old evidence hash",
+  );
+
   const signalRetirementResponse = await handler(request("POST", {
     action: "retire_rescue_signal",
     actorId: pairActor.id,
@@ -3920,6 +3938,87 @@ test("production calibration requires repeated aggregate evidence, applies one a
   assert.equal(revokeResponse.status, 200, JSON.stringify(revoked));
   assert.equal(revoked.calibrationProfile.activeApproval, null);
   assert.equal(revoked.calibrationProfile.approvalHistory[0].effectiveStatus, "revoked");
+});
+
+test("simultaneous calibration authority changes leave one winner and reject the competing write", async () => {
+  const store = memoryStore();
+  const pair = {
+    actor: pairActor,
+    vibeIdx: 0,
+    vibeKey: vibeKeyFor(pairActor.id, 0),
+  };
+  const originalGetWithMetadata = store.getWithMetadata.bind(store);
+  let waiting = 0;
+  let releaseReads;
+  const readsReleased = new Promise(resolve => {
+    releaseReads = resolve;
+  });
+  store.getWithMetadata = async key => {
+    const snapshot = await originalGetWithMetadata(key);
+    waiting += 1;
+    if (waiting === 2) releaseReads();
+    await readsReleased;
+    return snapshot;
+  };
+
+  const simultaneousApprovals = await Promise.all([
+    writeCalibrationAuthority(store, pair, {
+      status: "approved",
+      approvalId: "approval-a",
+      aggregateEvidenceHash: "evidence-a",
+      changedAt: "2026-09-11T12:00:00.000Z",
+      changedBy: "operator-a",
+    }),
+    writeCalibrationAuthority(store, pair, {
+      status: "approved",
+      approvalId: "approval-b",
+      aggregateEvidenceHash: "evidence-b",
+      changedAt: "2026-09-11T12:00:00.000Z",
+      changedBy: "operator-b",
+    }),
+  ]);
+  assert.equal(simultaneousApprovals.filter(Boolean).length, 1);
+  const approvalAuthority = store.records.get(
+    auditRescueCalibrationAuthorityKey(pairActor.id, 0),
+  );
+  assert.equal(
+    simultaneousApprovals.filter(Boolean)[0].approvalId,
+    approvalAuthority.approvalId,
+  );
+
+  waiting = 0;
+  let releaseRaceReads;
+  const raceReadsReleased = new Promise(resolve => {
+    releaseRaceReads = resolve;
+  });
+  store.getWithMetadata = async key => {
+    const snapshot = await originalGetWithMetadata(key);
+    waiting += 1;
+    if (waiting === 2) releaseRaceReads();
+    await raceReadsReleased;
+    return snapshot;
+  };
+  const approvalAndRevocation = await Promise.all([
+    writeCalibrationAuthority(store, pair, {
+      status: "approved",
+      approvalId: "replacement-approval",
+      aggregateEvidenceHash: "replacement-evidence",
+      changedAt: "2026-09-11T12:01:00.000Z",
+      changedBy: "operator-a",
+    }),
+    writeCalibrationAuthority(store, pair, {
+      status: "revoked",
+      approvalId: approvalAuthority.approvalId,
+      aggregateEvidenceHash: approvalAuthority.aggregateEvidenceHash,
+      changedAt: "2026-09-11T12:01:00.000Z",
+      changedBy: "operator-b",
+    }),
+  ]);
+  assert.equal(approvalAndRevocation.filter(Boolean).length, 1);
+  assert.deepEqual(
+    approvalAndRevocation.filter(Boolean)[0],
+    store.records.get(auditRescueCalibrationAuthorityKey(pairActor.id, 0)),
+  );
 });
 
 test.skip("retiring calibration evidence appends a reason receipt, excludes it from profiles, and invalidates old proof", async () => {

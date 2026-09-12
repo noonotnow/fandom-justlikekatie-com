@@ -356,6 +356,32 @@ test("publication revalidates eligibility inside the shared correction lock", as
   assert.deepEqual(media.stats(), { sourceCalls: 0, mediaCalls: 0 });
 });
 
+test("publication revalidates eligibility after MEDIA work and before committing the manifest", async () => {
+  const store = memoryStore();
+  const media = mediaHarness();
+  let validations = 0;
+  await assert.rejects(
+    materializePublicationManifest({
+      store,
+      ...publicationInput(),
+      env: ENV,
+      fetchImpl: media.fetchImpl,
+      validateBeforeCommit: async () => {
+        validations += 1;
+        if (validations === 2) {
+          const error = new Error("Approval changed during MEDIA materialization.");
+          error.status = 409;
+          throw error;
+        }
+      },
+    }),
+    error => error?.status === 409 && /during MEDIA materialization/i.test(error.message),
+  );
+  assert.equal(validations, 2);
+  assert.deepEqual(media.stats(), { sourceCalls: 9, mediaCalls: 9 });
+  assert.equal(store.records.has(gridManifestKey("2026-09-03")), false);
+});
+
 test("publication corrections are append-only notices over immutable manifests", async () => {
   const store = memoryStore();
   const manifest = storedPublicationManifest("2026-09-03", "liu-xueyi");

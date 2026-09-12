@@ -206,7 +206,7 @@ export async function buildPayloadForDate(
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
     }
-    if (!await pairIsReleaseReady(actor, seed.vIdx, eligibilityStore)) {
+    if (!await selectedEligibilityIsCurrent(actor, seed.vIdx, eligibilityStore, approval)) {
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
     }
@@ -246,7 +246,12 @@ export async function buildPayloadForDate(
           },
           board: publicationBoard,
           validateBeforeCommit: async () => {
-            if (!await pairIsReleaseReady(actor, seed.vIdx, eligibilityStore)) {
+            if (!await selectedEligibilityIsCurrent(
+              actor,
+              seed.vIdx,
+              eligibilityStore,
+              approval,
+            )) {
               const error = new Error("This actor pack changed after Daily Drop selection.");
               error.status = 409;
               throw error;
@@ -270,6 +275,10 @@ export async function buildPayloadForDate(
       }
     }
 
+    if (!await selectedEligibilityIsCurrent(actor, seed.vIdx, eligibilityStore, approval)) {
+      excluded.add(`${actor.id}:${seed.vIdx}`);
+      continue;
+    }
     return {
       version: VERSION,
       date: dateString,
@@ -309,7 +318,9 @@ async function buildEditorialBackup({
   fetchImpl,
   generatedAt,
 }) {
-  if (!await pairIsReleaseReady(actor, seed.vIdx, eligibilityStore)) return null;
+  if (!await selectedEligibilityIsCurrent(actor, seed.vIdx, eligibilityStore, approval)) {
+    return null;
+  }
   const candidates = [
     ...(approval.calibrationProfile?.backupBoards || [])
       .filter(board => board.publishable === true),
@@ -375,7 +386,12 @@ async function buildEditorialBackup({
           },
           board,
           validateBeforeCommit: async () => {
-            if (!await pairIsReleaseReady(actor, seed.vIdx, eligibilityStore)) {
+            if (!await selectedEligibilityIsCurrent(
+              actor,
+              seed.vIdx,
+              eligibilityStore,
+              approval,
+            )) {
               const error = new Error("This actor pack changed after backup selection.");
               error.status = 409;
               throw error;
@@ -390,6 +406,9 @@ async function buildEditorialBackup({
       } catch {
         continue;
       }
+    }
+    if (!await selectedEligibilityIsCurrent(actor, seed.vIdx, eligibilityStore, approval)) {
+      return null;
     }
     return dailyPayload({
       dateString,
@@ -913,6 +932,18 @@ export async function cachedPairIsEligible(
 
 async function pairIsReleaseReady(actor, vibeIdx, eligibilityStore) {
   return isReleaseReady(await getEligibility(eligibilityStore, actor, vibeIdx));
+}
+
+async function selectedEligibilityIsCurrent(actor, vibeIdx, eligibilityStore, selected) {
+  const current = await getEligibility(eligibilityStore, actor, vibeIdx);
+  return isReleaseReady(current)
+    && current.runId === selected?.runId
+    && (current.rescueCalibrationApprovalId || null)
+      === (selected?.rescueCalibrationApprovalId || null)
+    && (current.rescueCalibrationApprovalEvidenceHash || null)
+      === (selected?.rescueCalibrationApprovalEvidenceHash || null)
+    && (current.rescueCalibrationRetirementHash || null)
+      === (selected?.rescueCalibrationRetirementHash || null);
 }
 
 export async function hasReleaseReadyCohort(

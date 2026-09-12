@@ -6927,29 +6927,28 @@ function calibrationApprovalRevocationIdentity(receipt) {
   };
 }
 
-async function writeCalibrationAuthority(store, pair, next) {
+export async function writeCalibrationAuthority(store, pair, next) {
   const key = auditRescueCalibrationAuthorityKey(pair.actor.id, pair.vibeIdx);
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const current = await store.getWithMetadata(key, {
-      type: "json",
-      consistency: "strong",
-    });
-    const value = {
-      schemaVersion: 1,
-      actorId: pair.actor.id,
-      vibeKey: pair.vibeKey,
-      ...next,
-    };
-    const write = await store.setJSON(
-      key,
-      value,
-      current?.etag ? { onlyIfMatch: current.etag } : { onlyIfNew: true },
-    );
-    if (write?.modified === false) continue;
-    const authoritative = await store.get(key, { type: "json", consistency: "strong" });
-    if (authoritative && recordHash(authoritative) === recordHash(value)) return authoritative;
-  }
-  return null;
+  const current = await store.getWithMetadata(key, {
+    type: "json",
+    consistency: "strong",
+  });
+  const value = {
+    schemaVersion: 1,
+    actorId: pair.actor.id,
+    vibeKey: pair.vibeKey,
+    ...next,
+  };
+  const write = await store.setJSON(
+    key,
+    value,
+    current?.etag ? { onlyIfMatch: current.etag } : { onlyIfNew: true },
+  );
+  if (write?.modified === false) return null;
+  const authoritative = await store.get(key, { type: "json", consistency: "strong" });
+  return authoritative && recordHash(authoritative) === recordHash(value)
+    ? authoritative
+    : null;
 }
 
 function approvedCalibrationProfile(profile) {
