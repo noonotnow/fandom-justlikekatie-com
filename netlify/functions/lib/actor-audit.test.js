@@ -10,6 +10,7 @@ import {
 } from "./actor-identity-profiles.js";
 import {
   auditCalibrationPrefix,
+  auditVisualJudgmentIndexKey,
   auditVisualJudgmentKey,
   auditVisualJudgmentPrefix,
   auditEligibilityDecisionPrefix,
@@ -847,6 +848,109 @@ test("concurrent visual judgments create one immutable receipt per judgment toke
   const conflictingReceipts = receiptsFor(conflictingToken);
   assert.equal(conflictingReceipts.length, 1);
   assert.equal(conflictingReceipts[0].classification, successfulClassification);
+});
+
+test("concurrent visual judgments for different tokens preserve both receipts through index contention", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const runBody = await runResponse.json();
+  const runKey = auditRunKey(pairActor.id, 0, runBody.currentRun.runId);
+  const run = structuredClone(store.records.get(runKey));
+  run.calibrationAnalysis = {
+    classificationBasis: "blind_to_selection_and_publication_outcome_metadata_proxy",
+    candidates: [{
+      candidateId: "candidate-first-index-race",
+      occurrenceId: "3:4",
+      query: "hidden first query",
+      thumbnail: "https://images.example/first-index-race.jpg",
+      visualClass: "supporting",
+      classificationMethod: "promise_evidence_proxy",
+      selected: false,
+      dropReason: "promise_not_fulfilled",
+    }, {
+      candidateId: "candidate-second-index-race",
+      occurrenceId: "3:5",
+      query: "hidden second query",
+      thumbnail: "https://images.example/second-index-race.jpg",
+      visualClass: "irrelevant",
+      classificationMethod: "promise_evidence_proxy",
+      selected: false,
+      dropReason: null,
+    }],
+  };
+  run.strongestEvent = null;
+  store.records.set(runKey, structuredClone(run));
+
+  const pendingResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const pending = await pendingResponse.json();
+  const firstToken = pending.currentRun.visualJudgmentQueue
+    .find(item => item.thumbnail.endsWith("/first-index-race.jpg")).judgmentToken;
+  const secondToken = pending.currentRun.visualJudgmentQueue
+    .find(item => item.thumbnail.endsWith("/second-index-race.jpg")).judgmentToken;
+  const indexKey = auditVisualJudgmentIndexKey(pairActor.id, 0, run.runId);
+
+  const originalGetWithMetadata = store.getWithMetadata.bind(store);
+  let initialIndexReads = 0;
+  let releaseInitialReads;
+  const bothInitialReadsComplete = new Promise(resolve => {
+    releaseInitialReads = resolve;
+  });
+  store.getWithMetadata = async (key, options) => {
+    const current = await originalGetWithMetadata(key, options);
+    if (key === indexKey && initialIndexReads < 2) {
+      initialIndexReads += 1;
+      if (initialIndexReads === 2) releaseInitialReads();
+      await bothInitialReadsComplete;
+    }
+    return current;
+  };
+
+  const submit = (judgmentToken, classification) => handler(request("POST", {
+    action: "record_visual_judgment",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: run.runId,
+    judgmentToken,
+    classification,
+  }), {});
+  const responses = await Promise.all([
+    submit(firstToken, "core"),
+    submit(secondToken, "irrelevant"),
+  ]);
+  assert.deepEqual(responses.map(response => response.status), [200, 200]);
+  assert.equal(initialIndexReads, 2);
+
+  const receiptIds = [`visual-${firstToken}`, `visual-${secondToken}`].sort();
+  const immutableReceipts = receiptIds.map(receiptId => store.records.get(
+    auditVisualJudgmentKey(pairActor.id, 0, run.runId, receiptId),
+  ));
+  assert.deepEqual(
+    immutableReceipts.map(receipt => receipt?.receiptId).sort(),
+    receiptIds,
+  );
+  assert.deepEqual(
+    [...store.records.get(indexKey).receiptIds].sort(),
+    receiptIds,
+  );
+
+  const reportResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const report = await reportResponse.json();
+  assert.equal(reportResponse.status, 200, JSON.stringify(report));
+  assert.deepEqual(
+    report.currentRun.humanVisualJudgments.map(receipt => receipt.receiptId).sort(),
+    receiptIds,
+  );
 });
 
 test("human versus proxy comparison exposes stage and class transitions without masking sampled subgroup disagreement", async () => {
