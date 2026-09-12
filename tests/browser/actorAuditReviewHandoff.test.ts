@@ -259,6 +259,18 @@ function run(runId: string, revealed: boolean, proof = false): AnyRecord {
   return result;
 }
 
+function legacyRun(runId: string): AnyRecord {
+  const result = run(runId, true);
+  result.auditContract = {
+    ...contract(),
+    status: 'legacy',
+    isCurrent: false,
+    isLegacy: true,
+    legacyReasons: ['promise_contract_changed'],
+  };
+  return result;
+}
+
 function rescueCalibrationDetails(): AnyRecord {
   return {
     schemaVersion: 1,
@@ -640,6 +652,13 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
         });
         return;
       }
+      if (url.searchParams.get('runId') === 'run-legacy') {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ run: legacyRun('run-legacy') }),
+        });
+        return;
+      }
       if (visualReview && ['visual-review-retained', 'visual-review-legacy'].includes(url.searchParams.get('runId') ?? '')) {
         const requestedRunId = url.searchParams.get('runId') as string;
         await route.fulfill({
@@ -720,7 +739,7 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
         calibrationConfirmed ? rescueCalibrationDetails() : undefined,
       );
       if (selectedRunId === 'run-2') {
-        response.priorRuns = [run('run-1', true)];
+        response.priorRuns = [run('run-1', true), legacyRun('run-legacy')];
       }
       await route.fulfill({
         contentType: 'application/json',
@@ -1980,6 +1999,27 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
       misprintRequests.length,
       0,
       'selecting historical evidence must not record a mark_misprint request',
+    );
+
+    await runSelect.selectOption('run-legacy');
+    await page.getByRole('heading', { name: 'Legacy audit · retained history · run-legacy', exact: true }).waitFor();
+    const legacyRawResults = page.locator('details').filter({ hasText: 'Bounded raw results' });
+    await legacyRawResults.evaluate((element: HTMLDetailsElement) => {
+      element.open = true;
+    });
+    const legacyFirstResult = legacyRawResults.locator('article').first();
+    await legacyFirstResult.locator('details').filter({ hasText: 'Mark Misprint' }).evaluate((element: HTMLDetailsElement) => {
+      element.open = true;
+    });
+    assert.equal(
+      await legacyFirstResult.getByRole('button', { name: 'Preserve & correct', exact: true }).isDisabled(),
+      true,
+      'a revealed Legacy result must not accept a new Misprint correction',
+    );
+    assert.equal(
+      misprintRequests.length,
+      0,
+      'opening Legacy raw evidence must not record a mark_misprint request',
     );
 
     await runSelect.selectOption('run-2');
