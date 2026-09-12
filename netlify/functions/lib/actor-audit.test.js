@@ -760,6 +760,92 @@ test("blind visual judgments append human receipts by source occurrence without 
   assert.equal(exported.run.humanProxyComparison.recommendation.requiresSeparateApproval, true);
 });
 
+test("concurrent visual judgments create one immutable receipt per judgment token", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const runBody = await runResponse.json();
+  const runKey = auditRunKey(pairActor.id, 0, runBody.currentRun.runId);
+  const run = structuredClone(store.records.get(runKey));
+  run.calibrationAnalysis = {
+    classificationBasis: "blind_to_selection_and_publication_outcome_metadata_proxy",
+    candidates: [{
+      candidateId: "candidate-matching-race",
+      occurrenceId: "3:4",
+      query: "hidden matching query",
+      thumbnail: "https://images.example/matching-race.jpg",
+      visualClass: "supporting",
+      classificationMethod: "promise_evidence_proxy",
+      selected: false,
+      dropReason: "promise_not_fulfilled",
+    }, {
+      candidateId: "candidate-conflicting-race",
+      occurrenceId: "3:5",
+      query: "hidden conflicting query",
+      thumbnail: "https://images.example/conflicting-race.jpg",
+      visualClass: "irrelevant",
+      classificationMethod: "promise_evidence_proxy",
+      selected: false,
+      dropReason: null,
+    }],
+  };
+  run.strongestEvent = null;
+  store.records.set(runKey, structuredClone(run));
+
+  const pendingResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const pending = await pendingResponse.json();
+  const matchingToken = pending.currentRun.visualJudgmentQueue
+    .find(item => item.thumbnail.endsWith("/matching-race.jpg")).judgmentToken;
+  const conflictingToken = pending.currentRun.visualJudgmentQueue
+    .find(item => item.thumbnail.endsWith("/conflicting-race.jpg")).judgmentToken;
+  const submit = (judgmentToken, classification) => handler(request("POST", {
+    action: "record_visual_judgment",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: run.runId,
+    judgmentToken,
+    classification,
+  }), {});
+  const receiptsFor = judgmentToken => [...store.records.entries()]
+    .filter(([key]) => key === auditVisualJudgmentKey(
+      pairActor.id,
+      0,
+      run.runId,
+      `visual-${judgmentToken}`,
+    ))
+    .map(([, value]) => value);
+
+  const matchingResponses = await Promise.all([
+    submit(matchingToken, "core"),
+    submit(matchingToken, "core"),
+  ]);
+  assert.deepEqual(matchingResponses.map(response => response.status), [200, 200]);
+  const matchingReceipts = receiptsFor(matchingToken);
+  assert.equal(matchingReceipts.length, 1);
+  assert.equal(matchingReceipts[0].classification, "core");
+
+  const classifications = ["connective", "contradictory"];
+  const conflictingResponses = await Promise.all(
+    classifications.map(classification => submit(conflictingToken, classification)),
+  );
+  assert.deepEqual(
+    conflictingResponses.map(response => response.status).sort(),
+    [200, 409],
+  );
+  const successfulClassification = classifications[
+    conflictingResponses.findIndex(response => response.status === 200)
+  ];
+  const conflictingReceipts = receiptsFor(conflictingToken);
+  assert.equal(conflictingReceipts.length, 1);
+  assert.equal(conflictingReceipts[0].classification, successfulClassification);
+});
+
 test("human versus proxy comparison exposes stage and class transitions without masking sampled subgroup disagreement", async () => {
   const { handler, store } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
