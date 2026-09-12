@@ -1,22 +1,10 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import { test } from 'node:test';
-import {
-  chromium,
-  firefox,
-  webkit,
-  type Browser,
-  type BrowserType,
-  type Page,
-} from '@playwright/test';
+import { type Page } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
+import { BROWSER_ENGINES, launchBrowser } from './browserEngines.ts';
 
 const ARCHIVED_DATE = '2026-08-31';
-const BROWSER_ENGINES = [
-  { name: 'Chromium', type: chromium },
-  { name: 'Firefox', type: firefox },
-  { name: 'WebKit', type: webkit },
-] as const;
 
 async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
   const server = await createServer({
@@ -30,20 +18,6 @@ async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
     throw new Error('The browser test server did not expose a TCP port.');
   }
   return { server, origin: `http://127.0.0.1:${address.port}` };
-}
-
-async function launchBrowser(browserType: BrowserType): Promise<Browser> {
-  try {
-    return await browserType.launch();
-  } catch (defaultLaunchError) {
-    if (browserType !== chromium) throw defaultLaunchError;
-    const executablePath = process.env.PATH
-      ?.split(':')
-      .map(directory => `${directory}/chromium`)
-      .find(existsSync);
-    if (!executablePath) throw defaultLaunchError;
-    return chromium.launch({ executablePath, args: ['--no-sandbox'] });
-  }
 }
 
 async function installClipboardHarness(page: Page): Promise<void> {

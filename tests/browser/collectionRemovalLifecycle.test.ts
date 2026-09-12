@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { test } from 'node:test';
 import { createServer, type ViteDevServer } from 'vite';
 import { chromium, type Browser, type Page } from '@playwright/test';
+import { BROWSER_ENGINES, launchBrowser as launchEngine } from './browserEngines.ts';
 
 const ACCOUNT_ID = 'collection-cleanup-account';
 const GRID_ID = 'pending-unmount-grid';
@@ -387,58 +388,60 @@ test('Collection result Misprints teach the curator before preserving the collec
   }
 });
 
-test('Collection commits a pending removal after the browser page reloads', { timeout: 60_000 }, async () => {
-  const { server, origin } = await startApp();
-  const browser = await launchBrowser();
-  const page = await browser.newPage();
-  const exportCleanupRequests: string[] = [];
+for (const engine of BROWSER_ENGINES) {
+  test(`Collection commits a pending removal after the browser page reloads in ${engine.name}`, { timeout: 60_000 }, async () => {
+    const browser = await launchEngine(engine.type);
+    const { server, origin } = await startApp();
+    const page = await browser.newPage();
+    const exportCleanupRequests: string[] = [];
 
-  try {
-    await page.route('**/api/auth/session', route => route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        user: { accountId: ACCOUNT_ID, email: 'cleanup@example.test', isAdmin: false },
-      }),
-    }));
-    await page.route(
-      url => new URL(url).pathname === '/.netlify/functions/grid-exports',
-      async route => {
-        if (route.request().method() === 'DELETE') exportCleanupRequests.push(route.request().url());
-        await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'retry later' }) });
-      },
-    );
-
-    await page.goto(origin);
-    await seedCollection(page);
-    await page.goto(`${origin}/vibe-atlas?view=collection`);
-    await page.getByRole('button', { name: 'Remove' }).first().click();
-    assert.equal(
-      await page.evaluate(() => localStorage.getItem('fandom-pending-collection-removal') !== null),
-      true,
-      'the pending removal must be durable before the page is reloaded',
-    );
-
-    await page.reload();
-    await expectEventually(async () => {
-      const contents = await collectionContents(page);
-      assert.equal(contents.grid, undefined, 'the pending grid removal must persist after page reload');
-      assert.ok(exportCleanupRequests.length >= 1, 'reload recovery must start grid export cleanup');
-      assert.deepEqual(
-        contents.cleanupQueue,
-        [{ gridId: GRID_ID, accountId: ACCOUNT_ID }],
-        'reload recovery must preserve the owning account for export cleanup',
+    try {
+      await page.route('**/api/auth/session', route => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          user: { accountId: ACCOUNT_ID, email: 'cleanup@example.test', isAdmin: false },
+        }),
+      }));
+      await page.route(
+        url => new URL(url).pathname === '/.netlify/functions/grid-exports',
+        async route => {
+          if (route.request().method() === 'DELETE') exportCleanupRequests.push(route.request().url());
+          await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'retry later' }) });
+        },
       );
+
+      await page.goto(origin);
+      await seedCollection(page);
+      await page.goto(`${origin}/vibe-atlas?view=collection`);
+      await page.getByRole('button', { name: 'Remove' }).first().click();
       assert.equal(
-        await page.evaluate(() => localStorage.getItem('fandom-pending-collection-removal')),
-        null,
-        'the durable removal intent must clear after recovery commits',
+        await page.evaluate(() => localStorage.getItem('fandom-pending-collection-removal') !== null),
+        true,
+        'the pending removal must be durable before the page is reloaded',
       );
-    });
-  } finally {
-    await browser.close();
-    await server.close();
-  }
-});
+
+      await page.reload();
+      await expectEventually(async () => {
+        const contents = await collectionContents(page);
+        assert.equal(contents.grid, undefined, 'the pending grid removal must persist after page reload');
+        assert.ok(exportCleanupRequests.length >= 1, 'reload recovery must start grid export cleanup');
+        assert.deepEqual(
+          contents.cleanupQueue,
+          [{ gridId: GRID_ID, accountId: ACCOUNT_ID }],
+          'reload recovery must preserve the owning account for export cleanup',
+        );
+        assert.equal(
+          await page.evaluate(() => localStorage.getItem('fandom-pending-collection-removal')),
+          null,
+          'the durable removal intent must clear after recovery commits',
+        );
+      });
+    } finally {
+      await browser.close();
+      await server.close();
+    }
+  });
+}
 
 test('Collection replays a saved-result removal left durable by a closed page', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();

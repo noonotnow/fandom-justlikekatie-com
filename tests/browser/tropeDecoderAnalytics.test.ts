@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import { test } from 'node:test';
-import { chromium, type Browser, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
+import { BROWSER_ENGINES, launchBrowser } from './browserEngines.ts';
 
 type AnalyticsCommand = [string, string, Record<string, unknown>];
 
@@ -18,19 +18,6 @@ async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
     throw new Error('The browser test server did not expose a TCP port.');
   }
   return { server, origin: `http://127.0.0.1:${address.port}` };
-}
-
-async function launchBrowser(): Promise<Browser> {
-  try {
-    return await chromium.launch();
-  } catch (defaultLaunchError) {
-    const executablePath = process.env.PATH
-      ?.split(':')
-      .map(directory => `${directory}/chromium`)
-      .find(existsSync);
-    if (!executablePath) throw defaultLaunchError;
-    return chromium.launch({ executablePath, args: ['--no-sandbox'] });
-  }
 }
 
 async function analyticsCommands(page: Page): Promise<AnalyticsCommand[]> {
@@ -54,47 +41,48 @@ async function analyticsCommands(page: Page): Promise<AnalyticsCommand[]> {
   });
 }
 
-test('trope decoder sends bounded GA4 filter and privacy-safe share success events', { timeout: 30_000 }, async () => {
-  const [{ server, origin }, browser] = await Promise.all([startApp(), launchBrowser()]);
-  try {
-    const nativePage = await browser.newPage();
-    await nativePage.route('https://www.googletagmanager.com/**', route => route.abort());
-    await nativePage.goto(`${origin}/c-drama-fandom/trope-decoder/index.html`, {
-      waitUntil: 'domcontentloaded',
-    });
-    await nativePage.evaluate(`
+for (const engine of BROWSER_ENGINES) {
+  test(`trope decoder sends bounded GA4 filter and privacy-safe share success events in ${engine.name}`, { timeout: 45_000 }, async () => {
+    const [{ server, origin }, browser] = await Promise.all([startApp(), launchBrowser(engine.type)]);
+    try {
+      const nativePage = await browser.newPage();
+      await nativePage.route('https://www.googletagmanager.com/**', route => route.abort());
+      await nativePage.goto(`${origin}/c-drama-fandom/trope-decoder/index.html`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await nativePage.evaluate(`
       Object.defineProperty(navigator, "share", {
         configurable: true,
         value: async function () {}
       });
-    `);
+      `);
 
-    await nativePage.getByRole('button', { name: 'Love & misunderstandings' }).click();
-    await nativePage.getByLabel('Search the decoder').fill('memory');
-    await nativePage.getByRole('button', { name: 'Share this decoder' }).click();
+      await nativePage.getByRole('button', { name: 'Love & misunderstandings' }).click();
+      await nativePage.getByLabel('Search the decoder').fill('memory');
+      await nativePage.getByRole('button', { name: 'Share this decoder' }).click();
 
-    const nativeCommands = await analyticsCommands(nativePage);
-    const filterEvent = nativeCommands.findLast(command => command[1] === 'trope_filter_used');
-    assert.deepEqual(filterEvent, [
-      'event',
-      'trope_filter_used',
-      { category: 'love', query_present: true, result_count: 1 },
-    ]);
-    assert.doesNotMatch(JSON.stringify(filterEvent), /memory|query_text|search_text|url|account|name/i);
-    const nativeShareEvent = nativeCommands.find(command => command[1] === 'decoder_share_succeeded');
-    assert.deepEqual(nativeShareEvent, [
-      'event',
-      'decoder_share_succeeded',
-      { method: 'native' },
-    ]);
-    assert.doesNotMatch(JSON.stringify(nativeShareEvent), /url|account|name|text/i);
+      const nativeCommands = await analyticsCommands(nativePage);
+      const filterEvent = nativeCommands.findLast(command => command[1] === 'trope_filter_used');
+      assert.deepEqual(filterEvent, [
+        'event',
+        'trope_filter_used',
+        { category: 'love', query_present: true, result_count: 1 },
+      ]);
+      assert.doesNotMatch(JSON.stringify(filterEvent), /memory|query_text|search_text|url|account|name/i);
+      const nativeShareEvent = nativeCommands.find(command => command[1] === 'decoder_share_succeeded');
+      assert.deepEqual(nativeShareEvent, [
+        'event',
+        'decoder_share_succeeded',
+        { method: 'native' },
+      ]);
+      assert.doesNotMatch(JSON.stringify(nativeShareEvent), /url|account|name|text/i);
 
-    const copyPage = await browser.newPage();
-    await copyPage.route('https://www.googletagmanager.com/**', route => route.abort());
-    await copyPage.goto(`${origin}/c-drama-fandom/trope-decoder/index.html`, {
-      waitUntil: 'domcontentloaded',
-    });
-    await copyPage.evaluate(`
+      const copyPage = await browser.newPage();
+      await copyPage.route('https://www.googletagmanager.com/**', route => route.abort());
+      await copyPage.goto(`${origin}/c-drama-fandom/trope-decoder/index.html`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await copyPage.evaluate(`
       Object.defineProperty(navigator, "share", {
         configurable: true,
         value: undefined
@@ -103,19 +91,20 @@ test('trope decoder sends bounded GA4 filter and privacy-safe share success even
         configurable: true,
         value: { writeText: async function () {} }
       });
-    `);
-    await copyPage.getByRole('button', { name: 'Share this decoder' }).click();
+      `);
+      await copyPage.getByRole('button', { name: 'Share this decoder' }).click();
 
-    const copyCommands = await analyticsCommands(copyPage);
-    const copyShareEvent = copyCommands.find(command => command[1] === 'decoder_share_succeeded');
-    assert.deepEqual(copyShareEvent, [
-      'event',
-      'decoder_share_succeeded',
-      { method: 'copy' },
-    ]);
-    assert.doesNotMatch(JSON.stringify(copyShareEvent), /url|account|name|text/i);
-  } finally {
-    await browser.close();
-    await server.close();
-  }
-});
+      const copyCommands = await analyticsCommands(copyPage);
+      const copyShareEvent = copyCommands.find(command => command[1] === 'decoder_share_succeeded');
+      assert.deepEqual(copyShareEvent, [
+        'event',
+        'decoder_share_succeeded',
+        { method: 'copy' },
+      ]);
+      assert.doesNotMatch(JSON.stringify(copyShareEvent), /url|account|name|text/i);
+    } finally {
+      await browser.close();
+      await server.close();
+    }
+  });
+}
