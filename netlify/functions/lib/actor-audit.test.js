@@ -4569,6 +4569,89 @@ test("diagnostic calibration cannot become production without aggregate approval
   assert.match(approval.error, /at least 2 distinct reviewed audits/);
 });
 
+test("aggregate calibration rejects two reviewed audits with non-overlapping reusable signals", async () => {
+  const curateOptions = [];
+  const { handler, store } = harness({
+    freshEvidenceOnRerun: true,
+    onCurateOptions: options => curateOptions.push(options),
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const evidenceReceiptIds = [];
+  const sourceSignals = [];
+  let previousSource = "";
+
+  for (const runId of ["run-1", "run-2"]) {
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const choiceResponse = await handler(request("POST", {
+      action: "blind_choice", actorId: pairActor.id, vibeKey, runId, choice: "compiled",
+    }), {});
+    const chosen = await choiceResponse.json();
+    const sourceGroups = Object.entries(chosen.currentRun.rawResults.reduce((groups, candidate) => {
+      groups[candidate.source] = [...(groups[candidate.source] || []), candidate];
+      return groups;
+    }, {})).filter(([, candidates]) => candidates.length >= 9);
+    const [source, candidates] = sourceGroups.find(([value]) => value !== previousSource);
+    previousSource = source;
+
+    const saveResponse = await handler(request("POST", {
+      action: "save_rescue_board",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      candidateIds: candidates.slice(0, 9).map(candidate => candidate.candidateId),
+    }), {});
+    const saved = await saveResponse.json();
+    assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+    const receipt = saved.currentRun.editorialFeedback.operatorRescueBoard;
+    evidenceReceiptIds.push(receipt.receiptId);
+
+    const markResponse = await handler(request("POST", {
+      action: "mark_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      receiptId: receipt.receiptId,
+    }), {});
+    const marked = await markResponse.json();
+    assert.equal(markResponse.status, 200, JSON.stringify(marked));
+    const sourceSignal = marked.currentRun.editorialFeedback.operatorRescueBoard
+      .calibrationBasis.signals.reusable.sources.positive[0];
+    assert.ok(sourceSignal);
+    sourceSignals.push(sourceSignal);
+  }
+
+  assert.equal(new Set(sourceSignals).size, 2);
+  for (const sourceSignal of sourceSignals) {
+    const approvalResponse = await handler(request("POST", {
+      action: "approve_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      adjustmentType: "class",
+      signalFamily: "sources",
+      direction: "positive",
+      signalValues: [sourceSignal],
+    }), {});
+    const approval = await approvalResponse.json();
+    assert.equal(approvalResponse.status, 409, JSON.stringify(approval));
+    assert.match(approval.error, /at least (?:2|two) distinct reviewed audits/i);
+  }
+
+  const diagnosticReceipts = [...store.records.entries()]
+    .filter(([key]) => key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0)))
+    .map(([, value]) => value);
+  assert.equal(diagnosticReceipts.length, 2);
+  assert.deepEqual(
+    new Set(diagnosticReceipts.map(receipt => receipt.sourceRescueReceiptId)),
+    new Set(evidenceReceiptIds),
+  );
+  assert.ok(diagnosticReceipts.every(receipt => receipt.status === "confirmed"));
+  assert.equal([...store.records.keys()].filter(key =>
+    key.startsWith(auditRescueCalibrationApprovalPrefix(pairActor.id, 0))).length, 0);
+  assert.equal(curateOptions.filter(options => options.calibrationProfile).length, 0);
+});
+
 test("diagnostic evidence beyond the source audit display cap cannot prove transfer", async () => {
   const curateOptions = [];
   const { handler } = harness({
