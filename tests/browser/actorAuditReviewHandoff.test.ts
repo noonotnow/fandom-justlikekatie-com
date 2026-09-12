@@ -1965,14 +1965,16 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
       element.open = true;
     });
     const historicalFirstResult = historicalRawResults.locator('article').first();
-    await historicalFirstResult.locator('details').filter({ hasText: 'Mark Misprint' }).evaluate((element: HTMLDetailsElement) => {
-      element.open = true;
-    });
-    const historicalCorrection = historicalFirstResult.getByRole('button', { name: 'Preserve & correct', exact: true });
+    await historicalFirstResult.getByText('Frozen audit evidence', { exact: true }).waitFor();
     assert.equal(
-      await historicalCorrection.isDisabled(),
+      await historicalFirstResult.getByText('This evidence is frozen. Image actions are available only on the current audit.', { exact: true }).isVisible(),
       true,
-      'a revealed retained result must not accept a new Misprint correction',
+      'a revealed retained result must clearly identify its evidence as frozen',
+    );
+    assert.equal(
+      await historicalFirstResult.locator('button, input, select, textarea, form, details').count(),
+      0,
+      'a revealed retained result must hide all image mutation controls',
     );
     assert.equal(
       misprintRequests.length,
