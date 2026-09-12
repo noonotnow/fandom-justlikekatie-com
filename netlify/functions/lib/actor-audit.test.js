@@ -4017,6 +4017,96 @@ test("repeated negative calibration applies only the approved signal and revokes
   }
 });
 
+test("retiring an approved negative signal preserves unrelated reusable calibration evidence", async () => {
+  const curateOptions = [];
+  const { handler, store } = harness({
+    freshEvidenceOnRerun: true,
+    onCurateOptions: options => curateOptions.push(options),
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const {
+    approval,
+    evidenceReceiptIds,
+    signalValue: sourceSignal,
+  } = await approveRepeatedCalibrationEvidence({
+    handler,
+    vibeKey,
+    adjustmentType: "class",
+    signalFamily: "sources",
+    direction: "negative",
+    selectCandidates: (rawResults, omittedSource) => {
+      const source = omittedSource || rawResults[0].source;
+      return {
+        candidates: rawResults.filter(candidate => candidate.source !== source),
+        selectionValue: source,
+      };
+    },
+  });
+  assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
+    type: "class",
+    signalFamily: "sources",
+    direction: "negative",
+    signalValues: [sourceSignal],
+  });
+
+  const evidenceBeforeRetirement = new Map(
+    [...store.records.entries()]
+      .filter(([key, value]) =>
+        key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0))
+        && evidenceReceiptIds.includes(value?.sourceRescueReceiptId))
+      .map(([key, value]) => [key, structuredClone(value)]),
+  );
+  assert.equal(evidenceBeforeRetirement.size, 2);
+  const unrelatedSignalsBeforeRetirement = {
+    positiveCandidateIds: structuredClone(approval.calibrationProfile.positiveCandidateIds),
+    positiveQueries: structuredClone(approval.calibrationProfile.positiveQueries),
+    positiveSources: structuredClone(approval.calibrationProfile.positiveSources),
+    negativeCandidateIds: structuredClone(approval.calibrationProfile.negativeCandidateIds),
+    negativeQueries: structuredClone(approval.calibrationProfile.negativeQueries),
+  };
+  assert.ok(Object.values(unrelatedSignalsBeforeRetirement).some(signals => signals.length));
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  assert.deepEqual(
+    curateOptions.find(options => options.calibrationProfile)
+      .calibrationProfile.negativeSources,
+    [sourceSignal],
+  );
+
+  const retirementResponse = await handler(request("POST", {
+    action: "retire_rescue_signal",
+    actorId: pairActor.id,
+    vibeKey,
+    receiptId: evidenceReceiptIds[0],
+    signalFamily: "source",
+    signalValue: sourceSignal,
+    reason: "This negative source signal no longer represents reusable exclusion evidence.",
+  }), {});
+  const retired = await retirementResponse.json();
+  assert.equal(retirementResponse.status, 200, JSON.stringify(retired));
+  assert.equal(retired.calibrationProfile.activeApproval, null);
+  assert.equal(retired.calibrationProfile.retiredSignalCount, 1);
+  assert.ok(retired.calibrationProfile.negativeSources.includes(sourceSignal));
+  for (const [signalFamily, signals] of Object.entries(unrelatedSignalsBeforeRetirement)) {
+    assert.deepEqual(retired.calibrationProfile[signalFamily], signals, signalFamily);
+  }
+  for (const [key, evidence] of evidenceBeforeRetirement) {
+    assert.deepEqual(store.records.get(key), evidence);
+  }
+
+  curateOptions.length = 0;
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  assert.equal(
+    curateOptions.filter(options => options.calibrationProfile).length,
+    0,
+    "retiring the approved negative signal must remove its production effect",
+  );
+});
+
 test("simultaneous calibration authority changes leave one winner and reject the competing write", async () => {
   const store = memoryStore();
   const pair = {
