@@ -557,7 +557,7 @@ function RunEvidence({
 }
 
 function PublicationJoinSummary({receipt}:{receipt?:PublicationJoinReceipt}) {
-  if(!receipt)return <section className={styles.publicationJoin} aria-label="Publication matches"><div><strong>Publication matches</strong><p>Select this retained run to load its read-only publication join.</p></div></section>;
+  if(!receipt)return <section className={styles.publicationJoin} aria-label="Publication matches"><div><strong>Publication matches</strong><p>No publication join is loaded for this retained run. Older audit history may predate publication matching.</p></div></section>;
   const counts=receipt.counts??{matched:0,missing:0,ambiguous:0,identity_unavailable:0};
   const occurrences=receipt.occurrences??[];
   return <section className={styles.publicationJoin} aria-labelledby="publication-join-title">

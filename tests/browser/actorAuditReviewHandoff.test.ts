@@ -311,8 +311,9 @@ function responseBody(
   };
 }
 
-function publicationReviewRun(runId: string, historical = false): AnyRecord {
+function publicationReviewRun(runId: string, historical = false, includePublicationJoin = true): AnyRecord {
   const result = run(runId, true);
+  if (!includePublicationJoin) return result;
   result.publicationJoinReceipt = {
     kind: 'vibe-atlas-audit-publication-join',
     readOnly: true,
@@ -590,19 +591,24 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
       if (publicationReview) {
         const current = publicationReviewRun('publication-current');
         const historical = publicationReviewRun('publication-historical', true);
+        const prePublicationJoin = publicationReviewRun('publication-pre-join', true, false);
         const requestedRunId = url.searchParams.get('runId');
         if (requestedRunId) {
           await route.fulfill({
             contentType: 'application/json',
             body: JSON.stringify({
-              run: requestedRunId === historical.runId ? historical : current,
+              run: requestedRunId === historical.runId
+                ? historical
+                : requestedRunId === prePublicationJoin.runId
+                  ? prePublicationJoin
+                  : current,
               receiptId: null,
             }),
           });
           return;
         }
         const response = responseBody(current, 'needs_operator_verdict');
-        response.priorRuns = [historical];
+        response.priorRuns = [historical, prePublicationJoin];
         await route.fulfill({
           contentType: 'application/json',
           body: JSON.stringify(response),
@@ -1029,11 +1035,21 @@ test('retained-run publication summaries keep outcomes and immutable edition lin
     assert.equal(await summary.getByRole('link', { name: '2026-08-28 · card 3' }).getAttribute('href'), '/vibe-atlas?date=2026-08-28');
     assert.equal(await summary.locator('[data-status="matched"]').first().locator('b').textContent(), '2');
 
+    await runSelect.selectOption('publication-pre-join');
+    await summary.getByText(
+      'No publication join is loaded for this retained run. Older audit history may predate publication matching.',
+      { exact: true },
+    ).waitFor();
+    assert.equal(await summary.locator('[data-status]').count(), 0, 'a missing historical join must not invent publication counts');
+    assert.equal(await summary.getByRole('link').count(), 0, 'a missing historical join must not invent edition links');
+
     await runSelect.selectOption('publication-current');
     await summary.getByRole('link', { name: '2026-09-03 · card 5', exact: true }).waitFor();
+    assert.equal(await summary.getByRole('link', { name: '2026-09-03 · card 5' }).getAttribute('href'), '/vibe-atlas?date=2026-09-03');
+    assert.equal(await summary.locator('[data-status="matched"]').first().locator('b').textContent(), '1');
 
     assert.equal(await summary.locator('button, input, select, textarea, form').count(), 0, 'the publication join must expose no mutation control');
-    assert.ok(actorAuditRequests.length >= 4, 'initial loading and both retained-run selections should read audit details');
+    assert.ok(actorAuditRequests.length >= 5, 'initial loading and retained-run selections should read audit details');
     assert.ok(actorAuditRequests.every(request => request.method === 'GET'), 'selecting publication summaries must perform only read requests');
     assert.deepEqual(auditRequests, [], 'retained-run switching must not issue an audit action');
   } finally {
