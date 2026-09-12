@@ -3744,6 +3744,7 @@ async function approveRepeatedCalibrationEvidence({
   vibeKey,
   adjustmentType,
   signalFamily,
+  direction = "positive",
   selectCandidates,
   beforeApproval,
 }) {
@@ -3782,7 +3783,7 @@ async function approveRepeatedCalibrationEvidence({
     const marked = await markedResponse.json();
     assert.equal(markedResponse.status, 200, JSON.stringify(marked));
     signalValue ||= marked.currentRun.editorialFeedback.operatorRescueBoard
-      .calibrationBasis.signals.reusable[signalFamily].positive[0];
+      .calibrationBasis.signals.reusable[signalFamily][direction][0];
     assert.ok(signalValue);
   }
 
@@ -3793,7 +3794,7 @@ async function approveRepeatedCalibrationEvidence({
     vibeKey,
     adjustmentType,
     ...(adjustmentType === "class" ? { signalFamily } : {}),
-    direction: "positive",
+    direction,
     signalValues: [signalValue],
   }), {});
   const approval = await approvalResponse.json();
@@ -3933,6 +3934,87 @@ test("production calibration requires repeated aggregate evidence, applies one a
   assert.equal(revokeResponse.status, 200, JSON.stringify(revoked));
   assert.equal(revoked.calibrationProfile.activeApproval, null);
   assert.equal(revoked.calibrationProfile.approvalHistory[0].effectiveStatus, "revoked");
+});
+
+test("repeated negative calibration applies only the approved signal and revokes without rewriting evidence", async () => {
+  const curateOptions = [];
+  const { handler, store } = harness({
+    freshEvidenceOnRerun: true,
+    onCurateOptions: options => curateOptions.push(options),
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const repeatedEvidence = await approveRepeatedCalibrationEvidence({
+    handler,
+    vibeKey,
+    adjustmentType: "class",
+    signalFamily: "sources",
+    direction: "negative",
+    selectCandidates: (rawResults, omittedSource) => {
+      const source = omittedSource || rawResults[0].source;
+      const candidates = rawResults.filter(candidate => candidate.source !== source);
+      assert.ok(candidates.length >= 9);
+      return { candidates, selectionValue: source };
+    },
+  });
+  const {
+    approval,
+    evidenceReceiptIds,
+    signalValue: sourceSignal,
+  } = repeatedEvidence;
+
+  assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
+    type: "class",
+    signalFamily: "sources",
+    direction: "negative",
+    signalValues: [sourceSignal],
+  });
+  assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
+  assert.equal(evidenceReceiptIds.length, 2);
+
+  const evidenceBeforeRevocation = new Map(
+    [...store.records.entries()]
+      .filter(([key, value]) =>
+        key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0))
+        && evidenceReceiptIds.includes(value?.sourceRescueReceiptId))
+      .map(([key, value]) => [key, structuredClone(value)]),
+  );
+  assert.equal(evidenceBeforeRevocation.size, 2);
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const applied = curateOptions.find(options => options.calibrationProfile)
+    .calibrationProfile;
+  assert.deepEqual(applied.negativeSources, [sourceSignal]);
+  assert.deepEqual(applied.positiveSources ?? [], []);
+  assert.deepEqual(applied.positiveQueries ?? [], []);
+  assert.deepEqual(applied.negativeQueries ?? [], []);
+  assert.deepEqual(applied.positiveCandidateIds, []);
+  assert.deepEqual(applied.negativeCandidateIds, []);
+
+  const revokeResponse = await handler(request("POST", {
+    action: "revoke_rescue_calibration_approval",
+    actorId: pairActor.id,
+    vibeKey,
+    approvalId: approval.calibrationProfile.activeApproval.approvalId,
+    reason: "Repeated negative source evidence no longer supports production adjustment.",
+  }), {});
+  const revoked = await revokeResponse.json();
+  assert.equal(revokeResponse.status, 200, JSON.stringify(revoked));
+  assert.equal(revoked.calibrationProfile.activeApproval, null);
+
+  curateOptions.length = 0;
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  assert.equal(
+    curateOptions.filter(options => options.calibrationProfile).length,
+    0,
+    "revocation must remove the negative production adjustment",
+  );
+  for (const [key, evidence] of evidenceBeforeRevocation) {
+    assert.deepEqual(store.records.get(key), evidence);
+  }
 });
 
 test("simultaneous calibration authority changes leave one winner and reject the competing write", async () => {
