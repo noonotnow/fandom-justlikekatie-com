@@ -355,7 +355,7 @@ function publicationReviewRun(runId: string, historical = false): AnyRecord {
   return result;
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, failCalibrationExportOnce = false } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   calibrationExportRequests: URL[];
@@ -385,6 +385,7 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
   const misprintRequests: AnyRecord[] = [];
   const collectionSyncRequests: AnyRecord[] = [];
   let mediaUploads = 0;
+  let calibrationExportFailures = 0;
 
   await page.route('**/api/auth/session', route => route.fulfill({
     contentType: 'application/json',
@@ -459,6 +460,15 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
     if (request.method() === 'GET') {
       if (url.searchParams.get('export') === 'calibration') {
         calibrationExportRequests.push(url);
+        if (failCalibrationExportOnce && calibrationExportFailures === 0) {
+          calibrationExportFailures += 1;
+          await route.fulfill({
+            status: 503,
+            contentType: 'application/json',
+            body: JSON.stringify({ error: 'Editorial packet service is temporarily unavailable. Retry the download.' }),
+          });
+          return;
+        }
         const statuses = ['matched', 'missing', 'ambiguous', 'identity_unavailable'];
         await route.fulfill({
           contentType: 'application/json',
@@ -1001,6 +1011,65 @@ test('retained-run publication summaries keep outcomes and immutable edition lin
     assert.ok(actorAuditRequests.length >= 4, 'initial loading and both retained-run selections should read audit details');
     assert.ok(actorAuditRequests.every(request => request.method === 'GET'), 'selecting publication summaries must perform only read requests');
     assert.deepEqual(auditRequests, [], 'retained-run switching must not issue an audit action');
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('a failed editorial packet download shows the server error and remains retryable without mutations', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const {
+    auditRequests,
+    calibrationRequests,
+    calibrationExportRequests,
+    exportRequests,
+    misprintRequests,
+  } = await configureNetwork(page, { failCalibrationExportOnce: true });
+  const mutationRequests: Array<{ method: string; url: string }> = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (
+      request.method() !== 'GET'
+      && (
+        url.pathname.includes('/.netlify/functions/actor-audits')
+        || url.pathname.includes('/.netlify/functions/star-of-day')
+      )
+    ) {
+      mutationRequests.push({ method: request.method(), url: request.url() });
+    }
+  });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    const exportPanel = page.getByLabel('Read-only calibration export');
+    await exportPanel.getByLabel('From').fill('2026-09-01');
+    await exportPanel.getByLabel('To').fill('2026-09-10');
+    const downloadButton = exportPanel.getByRole('button', { name: 'Download editorial review packet', exact: true });
+
+    await downloadButton.click();
+    await page.getByText(
+      'Editorial packet service is temporarily unavailable. Retry the download.',
+      { exact: true },
+    ).waitFor();
+    await downloadButton.waitFor({ state: 'visible' });
+    assert.equal(await downloadButton.isEnabled(), true, 'the failed download action should be restored for retry');
+    assert.equal(calibrationExportRequests.length, 1);
+
+    const downloadPromise = page.waitForEvent('download');
+    await downloadButton.click();
+    const download = await downloadPromise;
+    assert.equal(download.suggestedFilename(), 'actor-calibration-2026-09-01-2026-09-10.json');
+    assert.equal(calibrationExportRequests.length, 2, 'retry should repeat only the same read-only packet request');
+
+    assert.deepEqual(mutationRequests, [], 'failure and retry must not issue audit or publication mutations');
+    assert.deepEqual(auditRequests, [], 'failure and retry must not search, score, rerun, or mutate an audit');
+    assert.deepEqual(calibrationRequests, [], 'failure and retry must not change calibration');
+    assert.deepEqual(exportRequests, [], 'failure and retry must not export or persist a rescue board');
+    assert.deepEqual(misprintRequests, [], 'failure and retry must not alter publication correction records');
   } finally {
     await browser.close();
     await server.close();
