@@ -40,6 +40,13 @@ function cacheKeyFor(q, providerPolicy) {
     .digest("hex");
 }
 
+export function providerCacheBypassApplied(url, bypassRequested) {
+  if (!bypassRequested) return false;
+  const requestUrl = String(url);
+  return requestUrl.includes("serpapi.com/")
+    && new URL(requestUrl).searchParams.get("no_cache") === "true";
+}
+
 // Non-subject content: things that regularly slip past ad/commerce/placeholder
 // filters (real photos, not logos, not known commerce domains) but are reliably
 // NOT actor/drama content for a person-name query — maps/geography, historical
@@ -477,9 +484,7 @@ export async function searchOneQuery(
   const providerFetch = async (url, init = {}) => {
     const fetchedAt = new Date().toISOString();
     const started = performance.now();
-    const providerBypassApplied = bypassRequested
-      && url.includes("serpapi.com/")
-      && new URL(url).searchParams.get("no_cache") === "true";
+    const providerBypassApplied = providerCacheBypassApplied(url, bypassRequested);
     const requestInit = bypassRequested ? {
       ...init,
       cache: "no-store",

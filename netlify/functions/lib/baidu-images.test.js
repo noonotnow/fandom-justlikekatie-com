@@ -7,7 +7,11 @@ import {
   parseBaiduImages,
   searchBaiduImages,
 } from "./baidu-images.js";
-import { searchBaiduProvider, searchOneQuery } from "../preview-search.js";
+import {
+  providerCacheBypassApplied,
+  searchBaiduProvider,
+  searchOneQuery,
+} from "../preview-search.js";
 import { handler as baiduImageHandler } from "../baidu-image-search.js";
 
 const imgDataFixture = await readFile(
@@ -374,6 +378,17 @@ test("cache refresh records the bypass request and applies no-store headers to p
     process.env.BRAVE_SEARCH_API_KEY = previousBraveKey;
     process.env.SERPAPI_KEY = previousSerpKey;
   }
+});
+
+test("provider bypass detection accepts string and URL request targets", () => {
+  const target = "https://serpapi.com/search.json?engine=google_images&no_cache=true";
+  assert.equal(providerCacheBypassApplied(target, true), true);
+  assert.equal(providerCacheBypassApplied(new URL(target), true), true);
+  assert.equal(providerCacheBypassApplied(new URL(target), false), false);
+  assert.equal(
+    providerCacheBypassApplied("https://serpapi.com/search.json?engine=google_images", true),
+    false,
+  );
 });
 
 test("cache refresh stays unconfirmed when the provider returns no cache telemetry", async () => {
