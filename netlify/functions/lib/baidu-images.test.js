@@ -562,6 +562,7 @@ test("continues to Google when Baidu is unavailable", async () => {
     assert.match(calls[0], /image\.baidu\.com/);
     assert.match(calls[1], /api\.search\.brave\.com/);
     assert.match(calls[2], /serpapi\.com/);
+    assert.doesNotMatch(calls[2], /[?&]no_cache=/);
     assert.equal(warnings.length, 1);
   } finally {
     console.warn = originalWarn;
@@ -600,6 +601,51 @@ test("continues to SerpAPI when Baidu is unavailable and Brave is not configured
     assert.equal(calls.some(url => url.includes("api.search.brave.com")), false);
     assert.equal(response.serpApiEngineLog[0].usedAsFinal, true);
     assert.equal(warnings.length, 1);
+  } finally {
+    console.warn = originalWarn;
+    if (previousBraveKey === undefined) delete process.env.BRAVE_SEARCH_API_KEY;
+    else process.env.BRAVE_SEARCH_API_KEY = previousBraveKey;
+    if (previousSerpKey === undefined) delete process.env.SERPAPI_KEY;
+    else process.env.SERPAPI_KEY = previousSerpKey;
+  }
+});
+
+test("cache refresh forces a fresh SerpAPI search without exposing its API key", async () => {
+  const previousBraveKey = process.env.BRAVE_SEARCH_API_KEY;
+  const previousSerpKey = process.env.SERPAPI_KEY;
+  delete process.env.BRAVE_SEARCH_API_KEY;
+  process.env.SERPAPI_KEY = "serp-test";
+  const calls = [];
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const response = await searchOneQuery("刘学义 古装 写真", {
+      debug: true,
+      cacheMode: "refresh",
+      baiduOptions: { cache: false, retries: 0 },
+      fetchImpl: async (url) => {
+        calls.push(url);
+        if (url.includes("image.baidu.com")) return mockResponse("busy", { status: 503 });
+        if (url.includes("serpapi.com")) {
+          return mockResponse(JSON.stringify(serpPayload()), {
+            contentType: "application/json",
+            headers: { "x-cache": "MISS" },
+          });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    });
+
+    const serpCall = calls.find(url => url.includes("serpapi.com"));
+    assert.ok(serpCall);
+    assert.match(serpCall, /[?&]no_cache=true(?:&|$)/);
+    assert.match(response.serpApiUrlNoKey, /[?&]no_cache=true(?:&|$)/);
+    assert.doesNotMatch(response.serpApiUrlNoKey, /serp-test/);
+    assert.match(response.serpApiUrlNoKey, /api_key=\[REDACTED\]/);
+    assert.equal(response.cacheProvenance.bypassRequested, true);
+    assert.equal(response.cacheProvenance.providerBypassApplied, true);
+    assert.equal(response.cacheProvenance.bypassHonored, true);
+    assert.equal(response.cacheProvenance.bypassStatus, "provider_forced");
   } finally {
     console.warn = originalWarn;
     if (previousBraveKey === undefined) delete process.env.BRAVE_SEARCH_API_KEY;

@@ -477,6 +477,9 @@ export async function searchOneQuery(
   const providerFetch = async (url, init = {}) => {
     const fetchedAt = new Date().toISOString();
     const started = performance.now();
+    const providerBypassApplied = bypassRequested
+      && url.includes("serpapi.com/")
+      && new URL(url).searchParams.get("no_cache") === "true";
     const requestInit = bypassRequested ? {
       ...init,
       cache: "no-store",
@@ -495,6 +498,7 @@ export async function searchOneQuery(
       bypassApplied: bypassRequested
         && requestInit.cache === "no-store"
         && requestInit.headers?.["Cache-Control"] === "no-cache",
+      providerBypassApplied,
     });
     return response;
   };
@@ -510,11 +514,13 @@ export async function searchOneQuery(
     const bypassApplied = bypassRequested
       && fetches.length > 0
       && fetches.every(fetch => fetch.bypassApplied);
+    const providerBypassApplied = bypassRequested
+      && fetches.some(fetch => fetch.providerBypassApplied);
     const bypassHonored = !bypassRequested
       ? null
       : hit
       ? false
-      : bypassApplied && allMisses
+      : providerBypassApplied || (bypassApplied && allMisses)
       ? true
       : null;
     response.cacheProvenance = {
@@ -526,6 +532,7 @@ export async function searchOneQuery(
       fetchedAt: fetches[0]?.fetchedAt || null,
       bypassRequested,
       bypassApplied,
+      providerBypassApplied,
       bypassHonored,
       bypassStatus: !bypassRequested
         ? "not_requested"
@@ -533,6 +540,8 @@ export async function searchOneQuery(
         ? "not_applied"
         : hit
         ? "contradicted_by_cache_hit"
+        : providerBypassApplied
+        ? "provider_forced"
         : allMisses
         ? "provider_confirmed"
         : "applied_unconfirmed",
@@ -699,7 +708,8 @@ export async function searchOneQuery(
               "https://serpapi.com/search.json" +
               `?engine=${engine}` +
               `&q=${encodeURIComponent(q)}` +
-              `&api_key=${serpKey}`;
+              `&api_key=${serpKey}` +
+              (bypassRequested ? "&no_cache=true" : "");
 
             serpApiUrlNoKey = serpUrl.replace(serpKey, "[REDACTED]");
 
