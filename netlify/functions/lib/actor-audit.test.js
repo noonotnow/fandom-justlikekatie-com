@@ -456,6 +456,7 @@ function harness({
   actorPacks = [pairActor],
   searchResultCount = 9,
   searchResultsForQuery = null,
+  searchDelayMs = 0,
 } = {}) {
   const store = memoryStore();
   let runNumber = 0;
@@ -480,6 +481,8 @@ function harness({
   };
   let curateCall = 0;
   let searchCall = 0;
+  let activeSearches = 0;
+  let maxConcurrentSearches = 0;
   const curateFixture = curation({
     sufficient,
     curationFailure,
@@ -497,6 +500,9 @@ function harness({
     getPublicationStore: () => publicationStore || store,
     actorPacks,
     searchOneQuery: async (query, options = {}) => {
+      activeSearches += 1;
+      maxConcurrentSearches = Math.max(maxConcurrentSearches, activeSearches);
+      if (searchDelayMs) await new Promise(resolve => setTimeout(resolve, searchDelayMs));
       const pass = Math.floor(searchCall++ / actorPacks[0].vibes[0].queries.length);
       const results = (searchResultsForQuery
         ? searchResultsForQuery(query, searchCall - 1)
@@ -505,7 +511,7 @@ function harness({
         link: `${result.link}?fresh=${pass}`,
         thumbnail: `${result.thumbnail}?fresh=${pass}`,
       } : result);
-      return {
+      const response = {
       provider: "test",
       results,
       rawCount: 10,
@@ -527,6 +533,8 @@ function harness({
         resultFingerprint: `fingerprint:${query}:${pass}`,
       },
     };
+      activeSearches -= 1;
+      return response;
     },
     now: (() => {
       let tick = 0;
@@ -549,6 +557,9 @@ function harness({
     store,
     getSearchCall() {
       return searchCall;
+    },
+    getMaxConcurrentSearches() {
+      return maxConcurrentSearches;
     },
     setAuthorized(value) {
       adminAuthorized = value;
@@ -2338,7 +2349,9 @@ test("retrieval diagnostics keep occurrences, exact rung overlap, and incrementa
 });
 
 test("cache diagnostic compares normal and bypassed fetches for one frozen query set without saving a run", async () => {
-  const { handler, store, getSearchCall } = harness();
+  const { handler, store, getSearchCall, getMaxConcurrentSearches } = harness({
+    searchDelayMs: 5,
+  });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   const response = await handler(request("POST", {
     action: "cache_diagnostic",
@@ -2361,6 +2374,7 @@ test("cache diagnostic compares normal and bypassed fetches for one frozen query
   assert.equal(payload.diagnostic.comparisons[0].bypassed.cacheProvenance.bypassHonored, true);
   assert.deepEqual(payload.diagnostic.comparisons[0].normal.providerFetchOrder, ["test"]);
   assert.equal(payload.diagnostic.comparisons[0].sameResultFingerprint, true);
+  assert.equal(getMaxConcurrentSearches(), 3);
   assert.equal(store.records.size, 0);
 });
 

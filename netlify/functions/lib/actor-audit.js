@@ -524,11 +524,10 @@ export function createActorAuditHandler({
           calibrationProfile,
           { baseLimit: scope === "representative" ? 3 : null },
         );
-        const comparisons = [];
-        for (const query of frozenQueries) {
+        const comparisons = await Promise.all(frozenQueries.map(async query => {
           const normal = await searchOneQuery(query, { debug: true, cacheMode: "default" });
           const bypassed = await searchOneQuery(query, { debug: true, cacheMode: "refresh" });
-          comparisons.push({
+          return {
             query,
             normal: searchCacheDiagnosticReceipt(normal),
             bypassed: searchCacheDiagnosticReceipt(bypassed),
@@ -536,8 +535,8 @@ export function createActorAuditHandler({
               === bypassed.cacheProvenance?.resultFingerprint,
             sameProviderFetchOrder: JSON.stringify(normal.providerFetchOrder || [])
               === JSON.stringify(bypassed.providerFetchOrder || []),
-          });
-        }
+          };
+        }));
         return json(200, {
           diagnostic: {
             schemaVersion: 1,
