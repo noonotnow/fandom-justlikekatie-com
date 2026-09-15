@@ -2380,6 +2380,13 @@ test("cache diagnostic compares normal and bypassed fetches for one frozen query
   assert.equal(payload.diagnostic.comparisons[0].bypassed.cacheProvenance.bypassHonored, true);
   assert.deepEqual(payload.diagnostic.comparisons[0].normal.providerFetchOrder, ["test"]);
   assert.equal(payload.diagnostic.comparisons[0].sameResultFingerprint, true);
+  assert.equal(payload.diagnostic.schemaVersion, 2);
+  assert.equal(payload.diagnostic.comparisons[0].normal.resultIdentities.length, 9);
+  assert.equal(payload.diagnostic.comparisons[0].resultIdentityComparison.sharedCount, 9);
+  assert.equal(payload.diagnostic.comparisons[0].resultIdentityComparison.bypassOnlyCount, 0);
+  assert.equal(payload.diagnostic.retrievalComparison.normal.occurrenceCount, 27);
+  assert.equal(payload.diagnostic.retrievalComparison.bypassed.occurrenceCount, 27);
+  assert.equal(payload.diagnostic.retrievalComparison.uniqueYieldDelta, 0);
   assert.equal(getMaxConcurrentSearches(), 3);
   assert.equal(store.records.size, 0);
 });
@@ -2407,9 +2414,45 @@ test("cache diagnostic retains successful query sides and labels the exact faile
   assert.equal(failed.normalError, null);
   assert.equal(failed.bypassedError, "Search gateway failed for refresh.");
   assert.equal(failed.sameResultFingerprint, null);
+  assert.equal(payload.diagnostic.retrievalComparison.coverage.complete, false);
+  assert.equal(payload.diagnostic.retrievalComparison.coverage.pairedCompleteCount, 2);
+  assert.equal(payload.diagnostic.retrievalComparison.uniqueYieldDelta, null);
+  assert.equal(payload.diagnostic.retrievalComparison.bypassOnlyUniqueCount, null);
   assert.ok(payload.diagnostic.comparisons[0].normal);
   assert.ok(payload.diagnostic.comparisons[0].bypassed);
   assert.equal(getSearchCall(), 6);
+  assert.equal(store.records.size, 0);
+});
+
+test("cache diagnostic measures exact fresh additions and aggregate unique yield without saving evidence", async () => {
+  const queryCount = pairActor.vibes[0].queries.slice(0, 3).length;
+  const { handler, store } = harness({
+    searchResultsForQuery: (query, callIndex) => searchResults(query).map(result =>
+      callIndex >= queryCount ? {
+        ...result,
+        link: result.link.replace("source.example/", "source.example/fresh/"),
+        thumbnail: result.thumbnail.replace("images.example/", "images.example/fresh/"),
+      } : result),
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const response = await handler(request("POST", {
+    action: "cache_diagnostic",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+  }), {});
+  const diagnostic = (await response.json()).diagnostic;
+
+  assert.equal(response.status, 200);
+  assert.equal(diagnostic.comparisons[0].resultIdentityComparison.sharedCount, 0);
+  assert.equal(diagnostic.comparisons[0].resultIdentityComparison.bypassOnlyCount, 9);
+  assert.equal(diagnostic.comparisons[0].resultIdentityComparison.normalOnlyCount, 9);
+  assert.equal(diagnostic.retrievalComparison.normal.uniqueImageIdentityCount, 27);
+  assert.equal(diagnostic.retrievalComparison.bypassed.uniqueImageIdentityCount, 27);
+  assert.equal(diagnostic.retrievalComparison.bypassOnlyUniqueCount, 27);
+  assert.equal(diagnostic.retrievalComparison.normalOnlyUniqueCount, 27);
+  assert.equal(diagnostic.retrievalComparison.sharedUniqueCount, 0);
+  assert.equal(diagnostic.retrievalComparison.uniqueYieldDelta, 0);
   assert.equal(store.records.size, 0);
 });
 
@@ -2452,10 +2495,56 @@ test("cache diagnostic can be assembled from one-search serverless requests", as
   assert.equal(normal.query, manifest.frozenQueries[0]);
   assert.equal(normal.cacheMode, "default");
   assert.equal(normal.search.cacheProvenance.bypassRequested, false);
+  assert.equal(normal.search.resultIdentities.length, 9);
+  assert.match(normal.search.resultIdentities[0].identity, /^sha256:[a-f0-9]{64}$/);
+  assert.ok("thumbnail" in normal.search.resultIdentities[0]);
+  assert.equal("link" in normal.search.resultIdentities[0], false);
+  assert.deepEqual(normal.search.resultIdentityCapture, {
+    limit: 24,
+    totalUniqueCount: 9,
+    capturedCount: 9,
+    truncated: false,
+  });
   assert.equal(bypassed.query, manifest.frozenQueries[0]);
   assert.equal(bypassed.cacheMode, "refresh");
   assert.equal(bypassed.search.cacheProvenance.bypassRequested, true);
   assert.equal(getSearchCall(), 2);
+  assert.equal(store.records.size, 0);
+});
+
+test("cache diagnostic redacts signed display URLs and withholds metrics when identity capture is truncated", async () => {
+  const oversized = Array.from({ length: 25 }, (_, index) => ({
+    title: `Result ${index}`,
+    source: "signed.example",
+    link: `https://source.example/${index}`,
+    thumbnail: `https://user:password@images.example/${index}.jpg?X-Amz-Credential=secret&X-Goog-Signature=secret#token`,
+  }));
+  const { handler, store } = harness({
+    searchResultsForQuery: () => oversized,
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const response = await handler(request("POST", {
+    action: "cache_diagnostic",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+  }), {});
+  const diagnostic = (await response.json()).diagnostic;
+  const first = diagnostic.comparisons[0].normal;
+
+  assert.equal(response.status, 200);
+  assert.equal(first.resultIdentityCapture.truncated, true);
+  assert.equal(first.resultIdentityCapture.totalUniqueCount, 25);
+  assert.equal(first.resultIdentities.length, 24);
+  assert.equal(first.resultIdentities[0].thumbnail, "https://images.example/0.jpg");
+  assert.equal(JSON.stringify(first).includes("secret"), false);
+  assert.equal(diagnostic.comparisons[0].resultIdentityComparison, null);
+  assert.equal(diagnostic.retrievalComparison.coverage.identityCaptureComplete, false);
+  assert.equal(diagnostic.retrievalComparison.coverage.normalIdentityCaptureComplete, false);
+  assert.equal(diagnostic.retrievalComparison.coverage.bypassedIdentityCaptureComplete, false);
+  assert.equal(diagnostic.retrievalComparison.normal, null);
+  assert.equal(diagnostic.retrievalComparison.bypassed, null);
+  assert.equal(diagnostic.retrievalComparison.uniqueYieldDelta, null);
   assert.equal(store.records.size, 0);
 });
 

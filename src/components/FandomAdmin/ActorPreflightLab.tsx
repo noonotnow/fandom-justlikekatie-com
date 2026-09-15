@@ -100,6 +100,47 @@ const text = (value: unknown) => Array.isArray(value)
   : typeof value === 'object' && value ? JSON.stringify(value, null, 2) : String(value ?? '—');
 const date = (value: unknown) => value ? new Date(String(value)).toLocaleString() : 'Not run';
 
+function finalizeCacheDiagnosticComparisons(comparisons:AnyRecord[]) {
+  const sideSets:{normal:Set<string>[];bypassed:Set<string>[]}={normal:[],bypassed:[]};
+  const finalized=comparisons.map(comparison=>{
+    const normalIds=new Set<string>((comparison.normal?.resultIdentities??[]).map((item:AnyRecord)=>item.identity));
+    const bypassedIds=new Set<string>((comparison.bypassed?.resultIdentities??[]).map((item:AnyRecord)=>item.identity));
+    sideSets.normal.push(normalIds); sideSets.bypassed.push(bypassedIds);
+    const bypassOnly=[...new Map<string,AnyRecord>((comparison.bypassed?.resultIdentities??[]).filter((item:AnyRecord)=>!normalIds.has(item.identity)).map((item:AnyRecord)=>[item.identity,item])).values()];
+    const normalOnly=[...new Map<string,AnyRecord>((comparison.normal?.resultIdentities??[]).filter((item:AnyRecord)=>!bypassedIds.has(item.identity)).map((item:AnyRecord)=>[item.identity,item])).values()];
+    const identityCaptureComplete=Boolean(comparison.normal&&comparison.bypassed&&!comparison.normal?.resultIdentityCapture?.truncated&&!comparison.bypassed?.resultIdentityCapture?.truncated);
+    return {...comparison,resultIdentityComparison:identityCaptureComplete?{
+      normalUniqueCount:normalIds.size,bypassedUniqueCount:bypassedIds.size,
+      sharedCount:[...normalIds].filter(identity=>bypassedIds.has(identity)).length,
+      bypassOnlyCount:bypassOnly.length,normalOnlyCount:normalOnly.length,bypassOnly,normalOnly,
+    }:null};
+  });
+  const sideCaptureComplete={normal:comparisons.every(item=>!item.normal||!item.normal.resultIdentityCapture?.truncated),bypassed:comparisons.every(item=>!item.bypassed||!item.bypassed.resultIdentityCapture?.truncated)};
+  const summarizeSide=(side:'normal'|'bypassed')=>{
+    if(!sideCaptureComplete[side])return null;
+    const sets=sideSets[side]; const union=new Set(sets.flatMap(set=>[...set]));
+    const occurrenceCount=sets.reduce((total,set)=>total+set.size,0);
+    const crossQueryOverlaps=sets.flatMap((current,queryIndex)=>sets.slice(0,queryIndex).map((earlier,earlierQueryIndex)=>({
+      queryIndex,earlierQueryIndex,exactImageIdentityOverlapCount:[...current].filter(identity=>earlier.has(identity)).length,
+    })).filter(item=>item.exactImageIdentityOverlapCount>0));
+    return {occurrenceCount,uniqueImageIdentityCount:union.size,repeatedAcrossQueryCount:occurrenceCount-union.size,crossQueryOverlaps};
+  };
+  const normal=summarizeSide('normal'); const bypassed=summarizeSide('bypassed');
+  const normalUnion=new Set(sideSets.normal.flatMap(set=>[...set]));
+  const bypassedUnion=new Set(sideSets.bypassed.flatMap(set=>[...set]));
+  const coverage={queryCount:comparisons.length,normalCompleteCount:comparisons.filter(item=>item.normal).length,bypassedCompleteCount:comparisons.filter(item=>item.bypassed).length,pairedCompleteCount:comparisons.filter(item=>item.normal&&item.bypassed).length,normalIdentityCaptureComplete:sideCaptureComplete.normal,bypassedIdentityCaptureComplete:sideCaptureComplete.bypassed,identityCaptureComplete:sideCaptureComplete.normal&&sideCaptureComplete.bypassed,complete:false};
+  coverage.complete=coverage.pairedCompleteCount===coverage.queryCount&&coverage.identityCaptureComplete;
+  return {comparisons:finalized,retrievalComparison:{
+    diagnosticOnly:true,
+    identityRule:'Exact strongest image digest or canonical image URL, falling back to canonical result URL; no perceptual similarity.',
+    coverage,normal,bypassed,
+    bypassOnlyUniqueCount:coverage.complete?[...bypassedUnion].filter(identity=>!normalUnion.has(identity)).length:null,
+    normalOnlyUniqueCount:coverage.complete?[...normalUnion].filter(identity=>!bypassedUnion.has(identity)).length:null,
+    sharedUniqueCount:coverage.complete?[...normalUnion].filter(identity=>bypassedUnion.has(identity)).length:null,
+    uniqueYieldDelta:coverage.complete?bypassed!.uniqueImageIdentityCount-normal!.uniqueImageIdentityCount:null,
+  }};
+}
+
 const proxiedImageUrl = (url: string) => url.startsWith('/.netlify/functions/image-proxy?')
   ? url
   : `/.netlify/functions/image-proxy?url=${encodeURIComponent(url)}`;
@@ -215,7 +256,8 @@ export const ActorPreflightLab: React.FC = () => {
           sameProviderFetchOrder:normal&&bypassed?JSON.stringify(normal?.providerFetchOrder??[])===JSON.stringify(bypassed?.providerFetchOrder??[]):null,
         };
       }));
-      const diagnostic={...manifest,comparedAt:new Date().toISOString(),comparisons};
+      const finalized=finalizeCacheDiagnosticComparisons(comparisons);
+      const diagnostic={...manifest,schemaVersion:2,comparedAt:new Date().toISOString(),...finalized};
       setCacheDiagnostic(diagnostic?.actorId===actorId&&diagnostic?.vibeKey===vibeKey&&diagnostic?.scope===scope?diagnostic:null);
       const failedSides=comparisons.reduce((count:number,item:AnyRecord)=>count+Number(Boolean(item.normalError))+Number(Boolean(item.bypassedError)),0);
       setNotice(failedSides

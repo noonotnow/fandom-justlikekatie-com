@@ -557,16 +557,18 @@ export function createActorAuditHandler({
               : null,
           };
         }));
+        const finalized = finalizeCacheDiagnosticComparisons(comparisons);
         return json(200, {
           diagnostic: {
-            schemaVersion: 1,
+            schemaVersion: 2,
             diagnosticOnly: true,
             actorId: pair.actor.id,
             vibeKey: pair.vibeKey,
             scope,
             frozenQueries,
             comparedAt: now().toISOString(),
-            comparisons,
+            comparisons: finalized.comparisons,
+            retrievalComparison: finalized.retrievalComparison,
           },
         });
       }
@@ -585,7 +587,7 @@ export function createActorAuditHandler({
         );
         return json(200, {
           diagnostic: {
-            schemaVersion: 1,
+            schemaVersion: 2,
             diagnosticOnly: true,
             actorId: pair.actor.id,
             vibeKey: pair.vibeKey,
@@ -2464,6 +2466,35 @@ export function createActorAuditHandler({
 }
 
 function searchCacheDiagnosticReceipt(response) {
+  const identityLimit = 24;
+  const captured = [];
+  const seen = new Set();
+  for (const result of response?.results || []) {
+    const exactIdentity = exactRetrievalIdentity(result, "image");
+    const identity = `sha256:${recordHash({ exactIdentity })}`;
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    if (captured.length >= identityLimit) continue;
+    let displayThumbnail = null;
+    try {
+      const thumbnailUrl = new URL(String(result?.thumbnail || result?.imageUrl || ""));
+      if (["http:", "https:"].includes(thumbnailUrl.protocol)) {
+        thumbnailUrl.username = "";
+        thumbnailUrl.password = "";
+        thumbnailUrl.search = "";
+        thumbnailUrl.hash = "";
+        displayThumbnail = thumbnailUrl.toString().slice(0, 2_000);
+      }
+    } catch {
+      displayThumbnail = null;
+    }
+    captured.push({
+      identity,
+      title: String(result?.title || "").slice(0, 500),
+      source: String(result?.source || "").slice(0, 300),
+      thumbnail: displayThumbnail,
+    });
+  }
   return {
     provider: response?.provider || null,
     resultCount: response?.results?.length || 0,
@@ -2474,6 +2505,106 @@ function searchCacheDiagnosticReceipt(response) {
     fallbackReason: response?.fallbackReason
       || response?.baiduAttemptLog?.fallbackReason
       || null,
+    resultIdentityCapture: {
+      limit: identityLimit,
+      totalUniqueCount: seen.size,
+      capturedCount: captured.length,
+      truncated: seen.size > captured.length,
+    },
+    resultIdentities: captured,
+  };
+}
+
+function finalizeCacheDiagnosticComparisons(comparisons) {
+  const sideSets = { normal: [], bypassed: [] };
+  const finalized = comparisons.map(comparison => {
+    const normalIds = new Set((comparison.normal?.resultIdentities || []).map(item => item.identity));
+    const bypassedIds = new Set((comparison.bypassed?.resultIdentities || []).map(item => item.identity));
+    sideSets.normal.push(normalIds);
+    sideSets.bypassed.push(bypassedIds);
+    const bypassOnly = [...new Map((comparison.bypassed?.resultIdentities || [])
+      .filter(item => !normalIds.has(item.identity))
+      .map(item => [item.identity, item])).values()];
+    const normalOnly = [...new Map((comparison.normal?.resultIdentities || [])
+      .filter(item => !bypassedIds.has(item.identity))
+      .map(item => [item.identity, item])).values()];
+    const identityCaptureComplete = Boolean(
+      comparison.normal
+      && comparison.bypassed
+      && !comparison.normal?.resultIdentityCapture?.truncated
+      && !comparison.bypassed?.resultIdentityCapture?.truncated
+    );
+    return {
+      ...comparison,
+      resultIdentityComparison: identityCaptureComplete ? {
+        normalUniqueCount: normalIds.size,
+        bypassedUniqueCount: bypassedIds.size,
+        sharedCount: [...normalIds].filter(identity => bypassedIds.has(identity)).length,
+        bypassOnlyCount: bypassOnly.length,
+        normalOnlyCount: normalOnly.length,
+        bypassOnly,
+        normalOnly,
+      } : null,
+    };
+  });
+  const sideCaptureComplete = {
+    normal: comparisons.every(item => !item.normal || !item.normal.resultIdentityCapture?.truncated),
+    bypassed: comparisons.every(item => !item.bypassed || !item.bypassed.resultIdentityCapture?.truncated),
+  };
+  const summarizeSide = side => {
+    if (!sideCaptureComplete[side]) return null;
+    const sets = sideSets[side];
+    const union = new Set(sets.flatMap(set => [...set]));
+    const occurrenceCount = sets.reduce((total, set) => total + set.size, 0);
+    const crossQueryOverlaps = sets.flatMap((current, queryIndex) =>
+      sets.slice(0, queryIndex).map((earlier, earlierIndex) => ({
+        queryIndex,
+        earlierQueryIndex: earlierIndex,
+        exactImageIdentityOverlapCount: [...current].filter(identity => earlier.has(identity)).length,
+      })).filter(item => item.exactImageIdentityOverlapCount > 0));
+    return {
+      occurrenceCount,
+      uniqueImageIdentityCount: union.size,
+      repeatedAcrossQueryCount: occurrenceCount - union.size,
+      crossQueryOverlaps,
+    };
+  };
+  const normal = summarizeSide("normal");
+  const bypassed = summarizeSide("bypassed");
+  const normalUnion = new Set(sideSets.normal.flatMap(set => [...set]));
+  const bypassedUnion = new Set(sideSets.bypassed.flatMap(set => [...set]));
+  const coverage = {
+    queryCount: comparisons.length,
+    normalCompleteCount: comparisons.filter(item => item.normal).length,
+    bypassedCompleteCount: comparisons.filter(item => item.bypassed).length,
+    pairedCompleteCount: comparisons.filter(item => item.normal && item.bypassed).length,
+    normalIdentityCaptureComplete: sideCaptureComplete.normal,
+    bypassedIdentityCaptureComplete: sideCaptureComplete.bypassed,
+    identityCaptureComplete: sideCaptureComplete.normal && sideCaptureComplete.bypassed,
+  };
+  coverage.complete = coverage.pairedCompleteCount === coverage.queryCount
+    && coverage.identityCaptureComplete;
+  return {
+    comparisons: finalized,
+    retrievalComparison: {
+      diagnosticOnly: true,
+      identityRule: "Exact strongest image digest or canonical image URL, falling back to canonical result URL; no perceptual similarity.",
+      coverage,
+      normal,
+      bypassed,
+      bypassOnlyUniqueCount: coverage.complete
+        ? [...bypassedUnion].filter(identity => !normalUnion.has(identity)).length
+        : null,
+      normalOnlyUniqueCount: coverage.complete
+        ? [...normalUnion].filter(identity => !bypassedUnion.has(identity)).length
+        : null,
+      sharedUniqueCount: coverage.complete
+        ? [...normalUnion].filter(identity => bypassedUnion.has(identity)).length
+        : null,
+      uniqueYieldDelta: coverage.complete
+        ? bypassed.uniqueImageIdentityCount - normal.uniqueImageIdentityCount
+        : null,
+    },
   };
 }
 export async function runPreflight(
