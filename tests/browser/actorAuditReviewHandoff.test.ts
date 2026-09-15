@@ -151,6 +151,63 @@ function calibrationProfile(): AnyRecord {
   };
 }
 
+function mixedCalibrationApprovalProfile(activeApproval = false): AnyRecord {
+  const profile: AnyRecord = {
+    ...calibrationProfile(),
+    evidenceCount: 4,
+    reviewedRunCount: 3,
+    minimumApprovalEvidenceCount: 2,
+    approvalReady: true,
+    reusableSignalDeltas: {
+      queries: [
+        { value: 'signal-a', delta: 0.3, selectedEvidenceCount: 3, omittedEvidenceCount: 0 },
+        { value: 'signal-b', delta: 0.25, selectedEvidenceCount: 2, omittedEvidenceCount: 0 },
+      ],
+    },
+    signalInventory: [
+      {
+        sourceRescueReceiptId: 'rescue-support-1',
+        evidenceType: 'rescue',
+        sourceRunId: 'joint-run',
+        directionalSignals: { queries: { positive: ['signal-a', 'signal-b'] } },
+      },
+      {
+        sourceRescueReceiptId: 'blind-support-1',
+        evidenceType: 'blind_review_disagreement',
+        sourceRunId: 'joint-run',
+        directionalSignals: { queries: { positive: ['signal-a', 'signal-b'] } },
+      },
+      {
+        sourceRescueReceiptId: 'rescue-partial-a',
+        evidenceType: 'rescue',
+        sourceRunId: 'partial-run-a',
+        directionalSignals: { queries: { positive: ['signal-a'] } },
+      },
+      {
+        sourceRescueReceiptId: 'blind-partial-b',
+        evidenceType: 'blind_review_disagreement',
+        sourceRunId: 'partial-run-b',
+        directionalSignals: { queries: { positive: ['signal-b'] } },
+      },
+    ],
+  };
+  if (activeApproval) {
+    profile.activeApproval = {
+      approvalId: 'approval-mixed-evidence',
+      adjustment: {
+        type: 'query_ladder',
+        signalFamily: 'queries',
+        direction: 'positive',
+        signalValues: ['signal-a', 'signal-b'],
+      },
+      evidenceCount: 4,
+      aggregateEvidenceHash: 'mixed-evidence-aggregate-hash',
+      approvedAt: '2026-09-14T12:00:00.000Z',
+    };
+  }
+  return profile;
+}
+
 function run(runId: string, revealed: boolean, proof = false): AnyRecord {
   const retained = candidates();
   const event = board('event', retained);
@@ -368,7 +425,7 @@ function publicationReviewRun(runId: string, historical = false, includePublicat
   return result;
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, failCalibrationExportOnce = false, dropCalibrationExportOnce = false } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   calibrationExportRequests: URL[];
@@ -700,6 +757,9 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
         activeRunId === 'run-1' ? savedBoard : undefined,
         calibrationConfirmed ? rescueCalibrationDetails() : undefined,
       );
+      if (mixedCalibrationApproval || activeMixedCalibrationApproval) {
+        response.calibrationProfile = mixedCalibrationApprovalProfile(activeMixedCalibrationApproval);
+      }
       if (visualReview) {
         response.priorRuns = [
           archivedVisualReviewRun('visual-review-retained'),
@@ -2081,6 +2141,53 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
       await firstResult.getByText('Mark Misprint', { exact: true }).count(),
       0,
       'an immutable Misprint should not offer a second correction action',
+    );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('mixed calibration evidence does not overstate joint bundle support', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+
+  try {
+    const selectionPage = await browser.newPage();
+    await configureNetwork(selectionPage, { mixedCalibrationApproval: true });
+    await selectionPage.goto(`${origin}/vibe-atlas?admin=true`);
+    await selectionPage.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await selectionPage.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+
+    const approvalCard = selectionPage.getByRole('region', { name: 'Production calibration approval' });
+    await approvalCard.getByLabel('signal-a · +0.3').check();
+    await approvalCard.getByLabel('signal-b · +0.25').check();
+    await approvalCard.getByText('Affected reviewed audits: joint-run', { exact: true }).waitFor();
+    assert.equal(
+      await approvalCard.getByText('partial-run-a', { exact: false }).count(),
+      0,
+      'a run supporting only one selected signal must not count for the exact bundle',
+    );
+    assert.equal(
+      await approvalCard.getByRole('button', { name: 'Approve bounded production calibration', exact: true }).isDisabled(),
+      true,
+      'four mixed receipts from three runs must not enable approval when only one distinct run supports the whole bundle',
+    );
+
+    const activePage = await browser.newPage();
+    await configureNetwork(activePage, { activeMixedCalibrationApproval: true });
+    await activePage.goto(`${origin}/vibe-atlas?admin=true`);
+    await activePage.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await activePage.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+    const activeCard = activePage.getByRole('region', { name: 'Production calibration approval' });
+    await activeCard.getByText(
+      '1 jointly supporting reviewed audits: joint-run · 4 total evidence receipts',
+      { exact: false },
+    ).waitFor();
+    assert.equal(
+      await activeCard.getByText('partial-run-a', { exact: false }).count(),
+      0,
+      'the active approval summary must list only distinct runs supporting every approved signal',
     );
   } finally {
     await browser.close();
