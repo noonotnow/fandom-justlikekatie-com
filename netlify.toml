@@ -56,6 +56,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/fandom-renditions"
+  to = "/.netlify/functions/fandom-renditions"
+  status = 200
+
+[[redirects]]
   from = "/api/auth/magic-link"
   to = "/.netlify/functions/auth-magic-link"
   status = 200
