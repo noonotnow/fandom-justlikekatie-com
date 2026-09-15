@@ -1,0 +1,965 @@
+Comparison receipt · 7 frozen queries
+{
+  "schemaVersion": 1,
+  "diagnosticOnly": true,
+  "actorId": "liu-xueyi",
+  "vibeKey": "liu-xueyi:0",
+  "scope": "full",
+  "frozenQueries": [
+    "刘学义 念无双 源仲 白衣",
+    "源仲 念无双 白袍 剧照",
+    "刘学义 源仲 银白 造型",
+    "刘学义 源仲 清冷 剧照",
+    "源仲 念无双 月光 雪景",
+    "刘学义 源仲 冰蓝 长袍",
+    "源仲 念无双 仙门 全身 剧照"
+  ],
+  "comparedAt": "2026-09-15T00:19:33.695Z",
+  "comparisons": [
+    {
+      "query": "刘学义 念无双 源仲 白衣",
+      "normal": {
+        "provider": "google_images",
+        "resultCount": 18,
+        "cacheProvenance": {
+          "version": "provider-fetch-v1",
+          "key": "e4787630dcb628f5b3ca2e37c57dbab77ae83722c1cd2f67ade1c77564fc9a47",
+          "outcome": "unknown",
+          "ageMs": null,
+          "fetchTimeMs": 2658.1879999999996,
+          "fetchedAt": "2026-09-15T00:19:04.641Z",
+          "bypassRequested": false,
+          "bypassApplied": false,
+          "providerBypassApplied": false,
+          "bypassHonored": null,
+          "bypassStatus": "not_requested",
+          "localCache": null,
+          "providerFetches": [
+            {
+              "fetchedAt": "2026-09-15T00:19:04.641Z",
+              "fetchTimeMs": 2241.64,
+              "status": 200,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:06.889Z",
+              "fetchTimeMs": 189.604,
+              "status": 422,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:07.079Z",
+              "fetchTimeMs": 226.944,
+              "status": 200,
+              "outcome": "miss",
+              "ageMs": null,
+              "cacheStatus": "miss",
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            }
+          ],
+          "resultFingerprint": "e72e69d66fe0aa10dad5564c8c0e2af4dd2de763dab593c1a6ab8790c87ce023"
+        },
+        "resultFingerprint": "e72e69d66fe0aa10dad5564c8c0e2af4dd2de763dab593c1a6ab8790c87ce023",
+        "providerSelectionOrder": [
+          "baidu",
+          "google_images",
+          "bing_images",
+          "yandex_images",
+          "brave"
+        ],
+        "providerFetchOrder": [
+          "baidu",
+          "brave_baseline",
+          "google_images"
+        ],
+        "fallbackReason": "provider_exception"
+      },
+      "bypassed": {
+        "provider": "google_images",
+        "resultCount": 18,
+        "cacheProvenance": {
+          "version": "provider-fetch-v1",
+          "key": "e4787630dcb628f5b3ca2e37c57dbab77ae83722c1cd2f67ade1c77564fc9a47",
+          "outcome": "unknown",
+          "ageMs": null,
+          "fetchTimeMs": 20450.01,
+          "fetchedAt": "2026-09-15T00:19:10.306Z",
+          "bypassRequested": true,
+          "bypassApplied": true,
+          "providerBypassApplied": true,
+          "bypassHonored": true,
+          "bypassStatus": "provider_forced",
+          "localCache": null,
+          "providerFetches": [
+            {
+              "fetchedAt": "2026-09-15T00:19:10.306Z",
+              "fetchTimeMs": 2582.966,
+              "status": 200,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": true,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:12.893Z",
+              "fetchTimeMs": 184.687,
+              "status": 422,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": true,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:13.078Z",
+              "fetchTimeMs": 17682.357,
+              "status": 200,
+              "outcome": "miss",
+              "ageMs": null,
+              "cacheStatus": "bypass",
+              "bypassApplied": true,
+              "providerBypassApplied": true
+            }
+          ],
+          "resultFingerprint": "e72e69d66fe0aa10dad5564c8c0e2af4dd2de763dab593c1a6ab8790c87ce023"
+        },
+        "resultFingerprint": "e72e69d66fe0aa10dad5564c8c0e2af4dd2de763dab593c1a6ab8790c87ce023",
+        "providerSelectionOrder": [
+          "baidu",
+          "google_images",
+          "bing_images",
+          "yandex_images",
+          "brave"
+        ],
+        "providerFetchOrder": [
+          "baidu",
+          "brave_baseline",
+          "google_images"
+        ],
+        "fallbackReason": "provider_exception"
+      },
+      "sameResultFingerprint": true,
+      "sameProviderFetchOrder": true
+    },
+    {
+      "query": "源仲 念无双 白袍 剧照",
+      "normal": {
+        "provider": "google_images",
+        "resultCount": 18,
+        "cacheProvenance": {
+          "version": "provider-fetch-v1",
+          "key": "37c938e6578ac8d49a472bb625b78d247d0b8b372892a5011bbce984375fa98a",
+          "outcome": "unknown",
+          "ageMs": null,
+          "fetchTimeMs": 2641.7419999999997,
+          "fetchedAt": "2026-09-15T00:19:09.073Z",
+          "bypassRequested": false,
+          "bypassApplied": false,
+          "providerBypassApplied": false,
+          "bypassHonored": null,
+          "bypassStatus": "not_requested",
+          "localCache": null,
+          "providerFetches": [
+            {
+              "fetchedAt": "2026-09-15T00:19:09.073Z",
+              "fetchTimeMs": 2260.051,
+              "status": 200,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:11.339Z",
+              "fetchTimeMs": 167.182,
+              "status": 422,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:11.507Z",
+              "fetchTimeMs": 214.509,
+              "status": 200,
+              "outcome": "miss",
+              "ageMs": null,
+              "cacheStatus": "miss",
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            }
+          ],
+          "resultFingerprint": "8cb02fe41c29bb49dbfaa287497e520136cc2468785752290f243b6aa9fe0840"
+        },
+        "resultFingerprint": "8cb02fe41c29bb49dbfaa287497e520136cc2468785752290f243b6aa9fe0840",
+        "providerSelectionOrder": [
+          "baidu",
+          "google_images",
+          "bing_images",
+          "yandex_images",
+          "brave"
+        ],
+        "providerFetchOrder": [
+          "baidu",
+          "brave_baseline",
+          "google_images"
+        ],
+        "fallbackReason": "provider_exception"
+      },
+      "bypassed": {
+        "provider": "google_images",
+        "resultCount": 18,
+        "cacheProvenance": {
+          "version": "provider-fetch-v1",
+          "key": "37c938e6578ac8d49a472bb625b78d247d0b8b372892a5011bbce984375fa98a",
+          "outcome": "unknown",
+          "ageMs": null,
+          "fetchTimeMs": 1979.549,
+          "fetchedAt": "2026-09-15T00:19:13.781Z",
+          "bypassRequested": true,
+          "bypassApplied": true,
+          "providerBypassApplied": true,
+          "bypassHonored": true,
+          "bypassStatus": "provider_forced",
+          "localCache": null,
+          "providerFetches": [
+            {
+              "fetchedAt": "2026-09-15T00:19:13.781Z",
+              "fetchTimeMs": 660.156,
+              "status": 200,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": true,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:14.443Z",
+              "fetchTimeMs": 63.597,
+              "status": 422,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": true,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:14.506Z",
+              "fetchTimeMs": 1255.796,
+              "status": 200,
+              "outcome": "miss",
+              "ageMs": null,
+              "cacheStatus": "bypass",
+              "bypassApplied": true,
+              "providerBypassApplied": true
+            }
+          ],
+          "resultFingerprint": "2f4f69f8d6f9481c26310ff4ce70176673859d0062e116df34405ba2004d103d"
+        },
+        "resultFingerprint": "2f4f69f8d6f9481c26310ff4ce70176673859d0062e116df34405ba2004d103d",
+        "providerSelectionOrder": [
+          "baidu",
+          "google_images",
+          "bing_images",
+          "yandex_images",
+          "brave"
+        ],
+        "providerFetchOrder": [
+          "baidu",
+          "brave_baseline",
+          "google_images"
+        ],
+        "fallbackReason": "provider_exception"
+      },
+      "sameResultFingerprint": false,
+      "sameProviderFetchOrder": true
+    },
+    {
+      "query": "刘学义 源仲 银白 造型",
+      "normal": {
+        "provider": "google_images",
+        "resultCount": 18,
+        "cacheProvenance": {
+          "version": "provider-fetch-v1",
+          "key": "65479f151ba390552021f4fd80bd255818992fd7c64a6fb419c88cba897c9ede",
+          "outcome": "unknown",
+          "ageMs": null,
+          "fetchTimeMs": 2390.784,
+          "fetchedAt": "2026-09-15T00:19:09.064Z",
+          "bypassRequested": false,
+          "bypassApplied": false,
+          "providerBypassApplied": false,
+          "bypassHonored": null,
+          "bypassStatus": "not_requested",
+          "localCache": null,
+          "providerFetches": [
+            {
+              "fetchedAt": "2026-09-15T00:19:09.064Z",
+              "fetchTimeMs": 2085.911,
+              "status": 200,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:11.318Z",
+              "fetchTimeMs": 182.29,
+              "status": 422,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:11.501Z",
+              "fetchTimeMs": 122.583,
+              "status": 200,
+              "outcome": "miss",
+              "ageMs": null,
+              "cacheStatus": "miss",
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            }
+          ],
+          "resultFingerprint": "5d23ec128dfa356108eb4840994f0a704b40a48f2619aff37be3da16c31dcf99"
+        },
+        "resultFingerprint": "5d23ec128dfa356108eb4840994f0a704b40a48f2619aff37be3da16c31dcf99",
+        "providerSelectionOrder": [
+          "baidu",
+          "google_images",
+          "bing_images",
+          "yandex_images",
+          "brave"
+        ],
+        "providerFetchOrder": [
+          "baidu",
+          "brave_baseline",
+          "google_images"
+        ],
+        "fallbackReason": "provider_exception"
+      },
+      "bypassed": {
+        "provider": "google_images",
+        "resultCount": 18,
+        "cacheProvenance": {
+          "version": "provider-fetch-v1",
+          "key": "65479f151ba390552021f4fd80bd255818992fd7c64a6fb419c88cba897c9ede",
+          "outcome": "unknown",
+          "ageMs": null,
+          "fetchTimeMs": 9753.383,
+          "fetchedAt": "2026-09-15T00:19:14.177Z",
+          "bypassRequested": true,
+          "bypassApplied": true,
+          "providerBypassApplied": true,
+          "bypassHonored": true,
+          "bypassStatus": "provider_forced",
+          "localCache": null,
+          "providerFetches": [
+            {
+              "fetchedAt": "2026-09-15T00:19:14.177Z",
+              "fetchTimeMs": 558.446,
+              "status": 200,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": true,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:14.901Z",
+              "fetchTimeMs": 64.343,
+              "status": 422,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": true,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:14.965Z",
+              "fetchTimeMs": 9130.594,
+              "status": 200,
+              "outcome": "miss",
+              "ageMs": null,
+              "cacheStatus": "bypass",
+              "bypassApplied": true,
+              "providerBypassApplied": true
+            }
+          ],
+          "resultFingerprint": "5d23ec128dfa356108eb4840994f0a704b40a48f2619aff37be3da16c31dcf99"
+        },
+        "resultFingerprint": "5d23ec128dfa356108eb4840994f0a704b40a48f2619aff37be3da16c31dcf99",
+        "providerSelectionOrder": [
+          "baidu",
+          "google_images",
+          "bing_images",
+          "yandex_images",
+          "brave"
+        ],
+        "providerFetchOrder": [
+          "baidu",
+          "brave_baseline",
+          "google_images"
+        ],
+        "fallbackReason": "provider_exception"
+      },
+      "sameResultFingerprint": true,
+      "sameProviderFetchOrder": true
+    },
+    {
+      "query": "刘学义 源仲 清冷 剧照",
+      "normal": {
+        "provider": "google_images",
+        "resultCount": 18,
+        "cacheProvenance": {
+          "version": "provider-fetch-v1",
+          "key": "4e87d6c9b17b390264763261d40b1b6df22b485ea7455952104b2843bb919977",
+          "outcome": "unknown",
+          "ageMs": null,
+          "fetchTimeMs": 2354.498,
+          "fetchedAt": "2026-09-15T00:19:09.107Z",
+          "bypassRequested": false,
+          "bypassApplied": false,
+          "providerBypassApplied": false,
+          "bypassHonored": null,
+          "bypassStatus": "not_requested",
+          "localCache": null,
+          "providerFetches": [
+            {
+              "fetchedAt": "2026-09-15T00:19:09.107Z",
+              "fetchTimeMs": 2055.439,
+              "status": 200,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:11.169Z",
+              "fetchTimeMs": 175.241,
+              "status": 422,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:11.344Z",
+              "fetchTimeMs": 123.818,
+              "status": 200,
+              "outcome": "miss",
+              "ageMs": null,
+              "cacheStatus": "miss",
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            }
+          ],
+          "resultFingerprint": "0a57123b37d69c555935b3e9a3aedb00794ca13070238e7213c2950240f8764c"
+        },
+        "resultFingerprint": "0a57123b37d69c555935b3e9a3aedb00794ca13070238e7213c2950240f8764c",
+        "providerSelectionOrder": [
+          "baidu",
+          "google_images",
+          "bing_images",
+          "yandex_images",
+          "brave"
+        ],
+        "providerFetchOrder": [
+          "baidu",
+          "brave_baseline",
+          "google_images"
+        ],
+        "fallbackReason": "provider_exception"
+      },
+      "bypassed": {
+        "provider": "google_images",
+        "resultCount": 18,
+        "cacheProvenance": {
+          "version": "provider-fetch-v1",
+          "key": "4e87d6c9b17b390264763261d40b1b6df22b485ea7455952104b2843bb919977",
+          "outcome": "unknown",
+          "ageMs": null,
+          "fetchTimeMs": 12493.477,
+          "fetchedAt": "2026-09-15T00:19:14.073Z",
+          "bypassRequested": true,
+          "bypassApplied": true,
+          "providerBypassApplied": true,
+          "bypassHonored": true,
+          "bypassStatus": "provider_forced",
+          "localCache": null,
+          "providerFetches": [
+            {
+              "fetchedAt": "2026-09-15T00:19:14.073Z",
+              "fetchTimeMs": 673.251,
+              "status": 200,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": true,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:14.747Z",
+              "fetchTimeMs": 59.261,
+              "status": 422,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": true,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:14.807Z",
+              "fetchTimeMs": 11760.965,
+              "status": 200,
+              "outcome": "miss",
+              "ageMs": null,
+              "cacheStatus": "bypass",
+              "bypassApplied": true,
+              "providerBypassApplied": true
+            }
+          ],
+          "resultFingerprint": "ac2433e271708608e11427a2d5c1eed7be4db170d3a35f64d1d6bf2f3b187331"
+        },
+        "resultFingerprint": "ac2433e271708608e11427a2d5c1eed7be4db170d3a35f64d1d6bf2f3b187331",
+        "providerSelectionOrder": [
+          "baidu",
+          "google_images",
+          "bing_images",
+          "yandex_images",
+          "brave"
+        ],
+        "providerFetchOrder": [
+          "baidu",
+          "brave_baseline",
+          "google_images"
+        ],
+        "fallbackReason": "provider_exception"
+      },
+      "sameResultFingerprint": false,
+      "sameProviderFetchOrder": true
+    },
+    {
+      "query": "源仲 念无双 月光 雪景",
+      "normal": {
+        "provider": "google_images",
+        "resultCount": 18,
+        "cacheProvenance": {
+          "version": "provider-fetch-v1",
+          "key": "4f236e907f61bdaa63c1c0267c5c20ed393a47280fadc2ee9282c2eb0e48640e",
+          "outcome": "unknown",
+          "ageMs": null,
+          "fetchTimeMs": 851.8030000000001,
+          "fetchedAt": "2026-09-15T00:19:07.648Z",
+          "bypassRequested": false,
+          "bypassApplied": false,
+          "providerBypassApplied": false,
+          "bypassHonored": null,
+          "bypassStatus": "not_requested",
+          "localCache": null,
+          "providerFetches": [
+            {
+              "fetchedAt": "2026-09-15T00:19:07.648Z",
+              "fetchTimeMs": 676.767,
+              "status": 200,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:08.326Z",
+              "fetchTimeMs": 64.985,
+              "status": 422,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:08.391Z",
+              "fetchTimeMs": 110.051,
+              "status": 200,
+              "outcome": "miss",
+              "ageMs": null,
+              "cacheStatus": "miss",
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            }
+          ],
+          "resultFingerprint": "ff9fd999b7753851b740f9ec9da36e2a180cd20f09cc869c578e4ddb2353e2d1"
+        },
+        "resultFingerprint": "ff9fd999b7753851b740f9ec9da36e2a180cd20f09cc869c578e4ddb2353e2d1",
+        "providerSelectionOrder": [
+          "baidu",
+          "google_images",
+          "bing_images",
+          "yandex_images",
+          "brave"
+        ],
+        "providerFetchOrder": [
+          "baidu",
+          "brave_baseline",
+          "google_images"
+        ],
+        "fallbackReason": "provider_exception"
+      },
+      "bypassed": {
+        "provider": "google_images",
+        "resultCount": 18,
+        "cacheProvenance": {
+          "version": "provider-fetch-v1",
+          "key": "4f236e907f61bdaa63c1c0267c5c20ed393a47280fadc2ee9282c2eb0e48640e",
+          "outcome": "unknown",
+          "ageMs": null,
+          "fetchTimeMs": 1482.0300000000002,
+          "fetchedAt": "2026-09-15T00:19:08.841Z",
+          "bypassRequested": true,
+          "bypassApplied": true,
+          "providerBypassApplied": true,
+          "bypassHonored": true,
+          "bypassStatus": "provider_forced",
+          "localCache": null,
+          "providerFetches": [
+            {
+              "fetchedAt": "2026-09-15T00:19:08.841Z",
+              "fetchTimeMs": 674.037,
+              "status": 200,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": true,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:09.516Z",
+              "fetchTimeMs": 64.149,
+              "status": 422,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": true,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:09.581Z",
+              "fetchTimeMs": 743.844,
+              "status": 200,
+              "outcome": "miss",
+              "ageMs": null,
+              "cacheStatus": "bypass",
+              "bypassApplied": true,
+              "providerBypassApplied": true
+            }
+          ],
+          "resultFingerprint": "b9536b37baed9eb6da307b7633fbd0b73b3eff3e6728bd3de4bb21eb62760885"
+        },
+        "resultFingerprint": "b9536b37baed9eb6da307b7633fbd0b73b3eff3e6728bd3de4bb21eb62760885",
+        "providerSelectionOrder": [
+          "baidu",
+          "google_images",
+          "bing_images",
+          "yandex_images",
+          "brave"
+        ],
+        "providerFetchOrder": [
+          "baidu",
+          "brave_baseline",
+          "google_images"
+        ],
+        "fallbackReason": "provider_exception"
+      },
+      "sameResultFingerprint": false,
+      "sameProviderFetchOrder": true
+    },
+    {
+      "query": "刘学义 源仲 冰蓝 长袍",
+      "normal": {
+        "provider": "google_images",
+        "resultCount": 18,
+        "cacheProvenance": {
+          "version": "provider-fetch-v1",
+          "key": "270ae2f997cc7d12ad517e8e90ba2252a1c0b0dd35418c3fdc2dbea5addbc8f5",
+          "outcome": "unknown",
+          "ageMs": null,
+          "fetchTimeMs": 2486.9590000000003,
+          "fetchedAt": "2026-09-15T00:19:09.224Z",
+          "bypassRequested": false,
+          "bypassApplied": false,
+          "providerBypassApplied": false,
+          "bypassHonored": null,
+          "bypassStatus": "not_requested",
+          "localCache": null,
+          "providerFetches": [
+            {
+              "fetchedAt": "2026-09-15T00:19:09.224Z",
+              "fetchTimeMs": 2187.376,
+              "status": 200,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:11.416Z",
+              "fetchTimeMs": 178.332,
+              "status": 422,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:11.595Z",
+              "fetchTimeMs": 121.251,
+              "status": 200,
+              "outcome": "miss",
+              "ageMs": null,
+              "cacheStatus": "miss",
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            }
+          ],
+          "resultFingerprint": "ff0915245d40f469b82fe01869d5016918b45a9c9395b2a68401996b30fb54f2"
+        },
+        "resultFingerprint": "ff0915245d40f469b82fe01869d5016918b45a9c9395b2a68401996b30fb54f2",
+        "providerSelectionOrder": [
+          "baidu",
+          "google_images",
+          "bing_images",
+          "yandex_images",
+          "brave"
+        ],
+        "providerFetchOrder": [
+          "baidu",
+          "brave_baseline",
+          "google_images"
+        ],
+        "fallbackReason": "provider_exception"
+      },
+      "bypassed": {
+        "provider": "google_images",
+        "resultCount": 18,
+        "cacheProvenance": {
+          "version": "provider-fetch-v1",
+          "key": "270ae2f997cc7d12ad517e8e90ba2252a1c0b0dd35418c3fdc2dbea5addbc8f5",
+          "outcome": "unknown",
+          "ageMs": null,
+          "fetchTimeMs": 19615.226,
+          "fetchedAt": "2026-09-15T00:19:14.198Z",
+          "bypassRequested": true,
+          "bypassApplied": true,
+          "providerBypassApplied": true,
+          "bypassHonored": true,
+          "bypassStatus": "provider_forced",
+          "localCache": null,
+          "providerFetches": [
+            {
+              "fetchedAt": "2026-09-15T00:19:14.198Z",
+              "fetchTimeMs": 663.873,
+              "status": 200,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": true,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:14.863Z",
+              "fetchTimeMs": 63.478,
+              "status": 422,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": true,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:14.927Z",
+              "fetchTimeMs": 18887.875,
+              "status": 200,
+              "outcome": "miss",
+              "ageMs": null,
+              "cacheStatus": "bypass",
+              "bypassApplied": true,
+              "providerBypassApplied": true
+            }
+          ],
+          "resultFingerprint": "8c07f2b4f10816b2aeed0c5df09805c8578593b3dc2ea1e5bbe1d54389119b3c"
+        },
+        "resultFingerprint": "8c07f2b4f10816b2aeed0c5df09805c8578593b3dc2ea1e5bbe1d54389119b3c",
+        "providerSelectionOrder": [
+          "baidu",
+          "google_images",
+          "bing_images",
+          "yandex_images",
+          "brave"
+        ],
+        "providerFetchOrder": [
+          "baidu",
+          "brave_baseline",
+          "google_images"
+        ],
+        "fallbackReason": "provider_exception"
+      },
+      "sameResultFingerprint": false,
+      "sameProviderFetchOrder": true
+    },
+    {
+      "query": "源仲 念无双 仙门 全身 剧照",
+      "normal": {
+        "provider": "google_images",
+        "resultCount": 18,
+        "cacheProvenance": {
+          "version": "provider-fetch-v1",
+          "key": "42eeed6650261f63ff9de21d35b937501337b2158fb63dff8fba41df6b6a9590",
+          "outcome": "unknown",
+          "ageMs": null,
+          "fetchTimeMs": 2163.472,
+          "fetchedAt": "2026-09-15T00:19:07.731Z",
+          "bypassRequested": false,
+          "bypassApplied": false,
+          "providerBypassApplied": false,
+          "bypassHonored": null,
+          "bypassStatus": "not_requested",
+          "localCache": null,
+          "providerFetches": [
+            {
+              "fetchedAt": "2026-09-15T00:19:07.731Z",
+              "fetchTimeMs": 1860.114,
+              "status": 200,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:09.766Z",
+              "fetchTimeMs": 183.481,
+              "status": 422,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:09.950Z",
+              "fetchTimeMs": 119.877,
+              "status": 200,
+              "outcome": "miss",
+              "ageMs": null,
+              "cacheStatus": "miss",
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            }
+          ],
+          "resultFingerprint": "f7df8e870c450b0bf2f9b1847a7991b04ebfe573e2260ff6fc5ddd7efeebc12f"
+        },
+        "resultFingerprint": "f7df8e870c450b0bf2f9b1847a7991b04ebfe573e2260ff6fc5ddd7efeebc12f",
+        "providerSelectionOrder": [
+          "baidu",
+          "google_images",
+          "bing_images",
+          "yandex_images",
+          "brave"
+        ],
+        "providerFetchOrder": [
+          "baidu",
+          "brave_baseline",
+          "google_images"
+        ],
+        "fallbackReason": "provider_exception"
+      },
+      "bypassed": {
+        "provider": "google_images",
+        "resultCount": 18,
+        "cacheProvenance": {
+          "version": "provider-fetch-v1",
+          "key": "42eeed6650261f63ff9de21d35b937501337b2158fb63dff8fba41df6b6a9590",
+          "outcome": "unknown",
+          "ageMs": null,
+          "fetchTimeMs": 2867.986,
+          "fetchedAt": "2026-09-15T00:19:10.625Z",
+          "bypassRequested": true,
+          "bypassApplied": true,
+          "providerBypassApplied": true,
+          "bypassHonored": true,
+          "bypassStatus": "provider_forced",
+          "localCache": null,
+          "providerFetches": [
+            {
+              "fetchedAt": "2026-09-15T00:19:10.625Z",
+              "fetchTimeMs": 659.391,
+              "status": 200,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": true,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:11.285Z",
+              "fetchTimeMs": 64.24,
+              "status": 422,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": true,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T00:19:11.350Z",
+              "fetchTimeMs": 2144.355,
+              "status": 200,
+              "outcome": "miss",
+              "ageMs": null,
+              "cacheStatus": "bypass",
+              "bypassApplied": true,
+              "providerBypassApplied": true
+            }
+          ],
+          "resultFingerprint": "f7df8e870c450b0bf2f9b1847a7991b04ebfe573e2260ff6fc5ddd7efeebc12f"
+        },
+        "resultFingerprint": "f7df8e870c450b0bf2f9b1847a7991b04ebfe573e2260ff6fc5ddd7efeebc12f",
+        "providerSelectionOrder": [
+          "baidu",
+          "google_images",
+          "bing_images",
+          "yandex_images",
+          "brave"
+        ],
+        "providerFetchOrder": [
+          "baidu",
+          "brave_baseline",
+          "google_images"
+        ],
+        "fallbackReason": "provider_exception"
+      },
+      "sameResultFingerprint": true,
+      "sameProviderFetchOrder": true
+    }
+  ]
+}
