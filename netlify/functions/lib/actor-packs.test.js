@@ -15,7 +15,7 @@ test("Cold Jade Immortal searches stay grounded in Yuan Zhong's pale celestial c
     "刘学义 源仲 清冷 剧照",
     "源仲 念无双 月光 雪景",
     "刘学义 源仲 冰蓝 长袍",
-    "源仲 念无双 仙门 全身 剧照",
+    "源仲 念无双 战斗 剧照",
   ]);
   assert.ok(vibe.queries.every(query => query.includes("源仲")));
   assert.ok(vibe.queries.every(query => !query.endsWith("写真")));
