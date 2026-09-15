@@ -10,6 +10,7 @@ import {
 import { persistGridImagesToMedia } from '../../utils/collectionMedia';
 import { MISPRINT_REASONS } from '../../utils/misprintReasons';
 import { getPublicSession, schedulePublicCollectionSync, syncPublicGrid } from '../../utils/publicAccount';
+import { assembleQueryRepairDiagnostic } from '../../utils/queryRepairDiagnostic';
 import styles from './ActorPreflightLab.module.css';
 
 type AnyRecord = Record<string, any>;
@@ -166,6 +167,7 @@ export const ActorPreflightLab: React.FC = () => {
   const [scope,setScope] = useState('full'); const [verdict,setVerdict] = useState(''); const [notes,setNotes] = useState(''); const [priorRuns,setPriorRuns] = useState<Run[]>([]);
   const [calibrationProfile,setCalibrationProfile] = useState<AnyRecord|null>(null);
   const [cacheDiagnostic,setCacheDiagnostic] = useState<AnyRecord|null>(null);
+  const [queryRepairDiagnostic,setQueryRepairDiagnostic] = useState<AnyRecord|null>(null);
   const [vibeConfirmed,setVibeConfirmed] = useState(false); const [publishableConfirmed,setPublishableConfirmed] = useState(false);
   const [rescuePreferred,setRescuePreferred] = useState(false); const [preferredRescueReceiptId,setPreferredRescueReceiptId] = useState('');
   const [backfillDate,setBackfillDate] = useState('');
@@ -180,7 +182,8 @@ export const ActorPreflightLab: React.FC = () => {
   useEffect(() => { let live=true; api().then(result => { if(live) { const next = result.actors ?? []; setActors(next); const requestedActor=next.find((item:Actor)=>item.actorId===handoff.actorId); const selectedActor=requestedActor??next[0]; if(selectedActor) { setActorId(selectedActor.actorId); setVibeKey(selectedActor.pairings?.some((item:AnyRecord)=>item.vibeKey===handoff.vibeKey)?handoff.vibeKey:selectedActor.pairings?.[0]?.vibeKey??''); } if(handoff.actorId&&!requestedActor)setNotice(`Actor ${handoff.actorId} from the retirement warning is no longer available.`); } }).catch(e=>live&&setNotice(e.message)).finally(()=>live&&setLoading(false)); return()=>{live=false}; },[handoff.actorId,handoff.vibeKey]);
   const actor = useMemo(()=>actors.find(item=>item.actorId===actorId),[actors,actorId]); const pairing = actor?.pairings?.find(item=>item.vibeKey===vibeKey);
   const visibleCacheDiagnostic=cacheDiagnostic?.actorId===actorId&&cacheDiagnostic?.vibeKey===vibeKey&&cacheDiagnostic?.scope===scope?cacheDiagnostic:null;
-  useEffect(()=>setCacheDiagnostic(null),[scope]);
+  const visibleQueryRepairDiagnostic=queryRepairDiagnostic?.actorId===actorId&&queryRepairDiagnostic?.vibeKey===vibeKey?queryRepairDiagnostic:null;
+  useEffect(()=>{setCacheDiagnostic(null);setQueryRepairDiagnostic(null)},[scope]);
   useEffect(() => { setRun(null); setCurrentRun(null); setPriorRuns([]); setCalibrationProfile(null); setVerdict(''); setNotes(''); setVibeConfirmed(false); setPublishableConfirmed(false); setRescuePreferred(false); setPreferredRescueReceiptId(''); setBackfillDate(''); setDisagreementReasons([]); setEditorialNote(''); setHandoffReadOnly(false); if(!actorId||!vibeKey)return; let live=true; api(undefined,{actorId,vibeKey}).then(async result=>{const requestedRunId=handoff.runId&&actorId===handoff.actorId&&vibeKey===handoff.vibeKey?handoff.runId:result.currentRun?.runId;const selectedDetail=requestedRunId?await api(undefined,{actorId,vibeKey,runId:requestedRunId,receiptId:requestedRunId===handoff.runId?handoff.receiptId:''}):null;if(live){const preference=result.currentRun?.operatorVerdict?.rescuePreference;const selectedRun=selectedDetail?.run??result.currentRun??null;const current=selectedRun?.runId===result.currentRun?.runId?selectedRun:result.currentRun??null;setRun(selectedRun); setCurrentRun(current); setHandoffReadOnly(Boolean(handoff.runId&&selectedDetail?.run)); setPriorRuns(selectedDetail?.run&&selectedDetail.run.runId!==result.currentRun?.runId?[selectedDetail.run,...(result.priorRuns??[]).filter((item:Run)=>item.runId!==selectedDetail.run.runId)]:result.priorRuns??[]); setCalibrationProfile(result.calibrationProfile ?? null); setVerdict(result.verdict ?? ''); setNotes(result.notes ?? ''); setVibeConfirmed(result.currentRun?.operatorVerdict?.vibeConfirmed === true); setPublishableConfirmed(result.currentRun?.operatorVerdict?.publishableConfirmed === true); setRescuePreferred(preference?.preferred === true); setPreferredRescueReceiptId(preference?.rescueReceiptId ?? ''); setDisagreementReasons(selectedRun?.blindReview?.reasonCodes ?? []); setEditorialNote(selectedRun?.blindReview?.note ?? ''); if(handoff.runId&&selectedDetail?.run)setNotice(`Opened source receipt ${handoff.receiptId} from audit ${handoff.runId}.`);}}).catch(e=>live&&setNotice(e.message)); return()=>{live=false}; },[actorId,vibeKey,handoff.actorId,handoff.vibeKey,handoff.runId,handoff.receiptId]);
   function applyRefresh(result:AnyRecord) { if ('calibrationProfile' in result) setCalibrationProfile(result.calibrationProfile ?? null); if (result.actors) setActors(result.actors); else if (result.actor) setActors(current => current.map(item => item.actorId === result.actor.actorId ? result.actor : item)); }
   async function startAudit(nextScope:string) {
@@ -263,6 +266,23 @@ export const ActorPreflightLab: React.FC = () => {
       setNotice(failedSides
         ? `${failedSides} search ${failedSides===1?'request needs':'requests need'} retry. Completed comparisons were retained; no audit or eligibility record was changed.`
         : 'Normal and cache-bypassed searches compared on one frozen query set. No audit or eligibility record was changed.');
+    } catch(e:any){setNotice(e.message)} finally{setBusy('')}
+  }
+  async function runQueryRepairDiagnostic() {
+    setBusy('query-repair-diagnostic'); setNotice('');
+    try {
+      const manifest=(await api({action:'query_repair_manifest',actorId,vibeKey})).diagnostic;
+      const fetchCount=(manifest?.baselineQueries?.length??0)+(manifest?.alternatives?.length??0);
+      const fetched=await Promise.all(Array.from({length:fetchCount},async(_,fetchIndex)=>{
+        try{return await api({action:'query_repair_fetch',actorId,vibeKey,experimentId:manifest.experimentId,fetchIndex})}
+        catch(error:any){return {fetchIndex,error:error?.message||'Search request failed.'}}
+      }));
+      const diagnostic=assembleQueryRepairDiagnostic(manifest,fetched);
+      setQueryRepairDiagnostic(diagnostic);
+      const failures=fetched.filter((item:AnyRecord)=>item.error).length;
+      setNotice(failures
+        ? `${failures} query-repair search ${failures===1?'failed':'searches failed'}. No production query was changed.`
+        : 'Two bounded query replacements were measured against one frozen baseline. No production query was changed.');
     } catch(e:any){setNotice(e.message)} finally{setBusy('')}
   }
   async function saveBlindChoice(choice:'event'|'compiled'|'neither') { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy('blind-choice'); setNotice(''); try { const result=await api({action:'blind_choice',actorId,vibeKey,runId:currentRun.runId,choice}); applyRefresh(result); setRun(result.currentRun ?? null); setCurrentRun(result.currentRun ?? null); setPriorRuns(result.priorRuns ?? []); setDisagreementReasons(result.currentRun?.blindReview?.reasonCodes ?? []); setEditorialNote(result.currentRun?.blindReview?.note ?? ''); setNotice('Independent choice recorded. The system result is now revealed.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
@@ -525,6 +545,17 @@ export const ActorPreflightLab: React.FC = () => {
               </div>)}
               <pre>{text(visibleCacheDiagnostic)}</pre>
             </details>}
+            {actorId==='liu-xueyi'&&vibeKey==='liu-xueyi:0'&&<>
+              <div className={styles.controls}><button type="button" className={styles.buttonSecondary} disabled={!!busy} onClick={()=>void runQueryRepairDiagnostic()}>{busy==='query-repair-diagnostic'?'Testing query replacements…':'Test two query replacements'}</button><span className={styles.muted}>Full frozen baseline · normal cache path only</span></div>
+              {visibleQueryRepairDiagnostic&&<details open><summary>Query-repair receipt · {visibleQueryRepairDiagnostic.experiments?.filter((item:AnyRecord)=>item.qualifies===true).length??0} of {visibleQueryRepairDiagnostic.experiments?.length??0} replacements qualified</summary>
+                {(visibleQueryRepairDiagnostic.experiments??[]).map((item:AnyRecord,index:number)=><div key={`${index}:${item.query}`}>
+                  <strong>{item.replaces} → {item.query}</strong>
+                  <p className={styles.muted}>Incremental unique: {item.baselineIncrementalUniqueCount??'—'} → {item.replacementIncrementalUniqueCount??'—'} · total unique: {item.baselineUniqueImageIdentityCount??'—'} → {item.replacementUniqueImageIdentityCount??'—'} · {item.qualifies===true?'qualified':item.qualifies===false?'did not qualify':'incomplete'}</p>
+                  {item.error&&<p className={styles.error} role="status">{item.error}</p>}
+                </div>)}
+                <pre>{text(visibleQueryRepairDiagnostic)}</pre>
+              </details>}
+            </>}
           </section>
           <section className={styles.panel}>
             {calibrationProfile&&<><CalibrationApproval profile={calibrationProfile} busy={busy} onApprove={approveCalibration} onRevoke={revokeCalibrationApproval}/><CalibrationProfileSummary profile={calibrationProfile} busy={busy} onRetireCalibration={retireRescueCalibration}/><CalibrationTransferSummary profile={calibrationProfile} busy={busy} onRetireSignal={retireRescueSignal}/></>}

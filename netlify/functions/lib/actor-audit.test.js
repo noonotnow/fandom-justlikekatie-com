@@ -2548,6 +2548,63 @@ test("cache diagnostic redacts signed display URLs and withholds metrics when id
   assert.equal(store.records.size, 0);
 });
 
+test("bounded query-repair experiment exposes only server-derived baseline and approved alternatives", async () => {
+  const coldJadeActor = ACTOR_PACKS.find(actor => actor.id === "liu-xueyi");
+  const { handler, store, getSearchCall } = harness({ actorPacks: [coldJadeActor] });
+  const vibeKey = vibeKeyFor(coldJadeActor.id, 0);
+  const manifestResponse = await handler(request("POST", {
+    action: "query_repair_manifest",
+    actorId: coldJadeActor.id,
+    vibeKey,
+  }), {});
+  const manifest = (await manifestResponse.json()).diagnostic;
+
+  assert.equal(manifestResponse.status, 200);
+  assert.equal(manifest.diagnosticOnly, true);
+  assert.match(manifest.experimentId, /^[a-f0-9]{64}$/);
+  assert.deepEqual(manifest.baselineQueries, coldJadeActor.vibes[0].queries);
+  assert.deepEqual(manifest.alternatives.map(item => item.rungIndex), [2, 6]);
+  assert.equal(getSearchCall(), 0);
+
+  const fetchResponse = await handler(request("POST", {
+    action: "query_repair_fetch",
+    actorId: coldJadeActor.id,
+    vibeKey,
+    experimentId: manifest.experimentId,
+    fetchIndex: 7,
+    query: "arbitrary client query",
+  }), {});
+  const fetched = await fetchResponse.json();
+  assert.equal(fetchResponse.status, 200);
+  assert.equal(fetched.kind, "alternative");
+  assert.equal(fetched.rungIndex, 2);
+  assert.equal(fetched.query, "刘学义 念无双 源仲 定妆照");
+  assert.equal(fetched.search.resultIdentities.length, 9);
+  assert.equal(getSearchCall(), 1);
+  assert.equal(store.records.size, 0);
+
+  const invalidResponse = await handler(request("POST", {
+    action: "query_repair_fetch",
+    actorId: coldJadeActor.id,
+    vibeKey,
+    experimentId: manifest.experimentId,
+    fetchIndex: 99,
+  }), {});
+  assert.equal(invalidResponse.status, 400);
+  assert.equal(getSearchCall(), 1);
+  assert.equal(store.records.size, 0);
+
+  const staleResponse = await handler(request("POST", {
+    action: "query_repair_fetch",
+    actorId: coldJadeActor.id,
+    vibeKey,
+    experimentId: "stale",
+    fetchIndex: 0,
+  }), {});
+  assert.equal(staleResponse.status, 409);
+  assert.equal(getSearchCall(), 1);
+});
+
 test("a publishable curator board can be approved while a rescue board is preferred separately", async () => {
   const { handler, store } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);

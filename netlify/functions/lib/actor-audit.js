@@ -634,6 +634,71 @@ export function createActorAuditHandler({
         });
       }
 
+      if (input.action === "query_repair_manifest") {
+        const calibrationProfile = approvedCalibrationProfile(
+          await readRescueCalibrationProfile(store, pair),
+        );
+        const baselineQueries = searchQueriesFor(pair.actor, pair.vibeIdx, calibrationProfile);
+        const experiment = queryRepairExperimentFor(pair, baselineQueries);
+        if (!experiment) {
+          return json(409, { error: "No bounded query-repair experiment is configured for this actor and Vibe." });
+        }
+        return json(200, {
+          diagnostic: {
+            schemaVersion: 1,
+            diagnosticOnly: true,
+            actorId: pair.actor.id,
+            vibeKey: pair.vibeKey,
+            scope: "full",
+            experimentId: experiment.experimentId,
+            baselineQueries: experiment.baselineQueries,
+            alternatives: experiment.alternatives,
+          },
+        });
+      }
+
+      if (input.action === "query_repair_fetch") {
+        const calibrationProfile = approvedCalibrationProfile(
+          await readRescueCalibrationProfile(store, pair),
+        );
+        const baselineQueries = searchQueriesFor(pair.actor, pair.vibeIdx, calibrationProfile);
+        const experiment = queryRepairExperimentFor(pair, baselineQueries);
+        if (!experiment) {
+          return json(409, { error: "No bounded query-repair experiment is configured for this actor and Vibe." });
+        }
+        if (input.experimentId !== experiment.experimentId) {
+          return json(409, { error: "The frozen query-repair baseline changed. Start a new comparison." });
+        }
+        const fetchIndex = Number(input.fetchIndex);
+        const queries = [
+          ...experiment.baselineQueries.map((query, rungIndex) => ({
+            kind: "baseline",
+            rungIndex,
+            query,
+          })),
+          ...experiment.alternatives.map((alternative, alternativeIndex) => ({
+            kind: "alternative",
+            alternativeIndex,
+            rungIndex: alternative.rungIndex,
+            query: alternative.query,
+          })),
+        ];
+        const target = queries[fetchIndex];
+        if (!Number.isInteger(fetchIndex) || !target) {
+          return json(400, { error: "Query-repair fetch index is invalid." });
+        }
+        const search = await searchOneQuery(target.query, { debug: true, cacheMode: "default" });
+        return json(200, {
+          diagnosticOnly: true,
+          actorId: pair.actor.id,
+          vibeKey: pair.vibeKey,
+          scope: "full",
+          fetchIndex,
+          ...target,
+          search: searchCacheDiagnosticReceipt(search),
+        });
+      }
+
       if (input.action === "run") {
         const scope = parseScope(input.scope);
         if (!scope) return json(400, { error: "Audit scope must be representative or full." });
@@ -2512,6 +2577,36 @@ function searchCacheDiagnosticReceipt(response) {
       truncated: seen.size > captured.length,
     },
     resultIdentities: captured,
+  };
+}
+
+function queryRepairExperimentFor(pair, baselineQueries) {
+  if (pair.actor.id !== "liu-xueyi" || pair.vibeKey !== "liu-xueyi:0") return null;
+  if (baselineQueries.length !== 7) return null;
+  const experiment = {
+    baselineQueries,
+    alternatives: [
+      {
+        rungIndex: 2,
+        replaces: baselineQueries[2],
+        query: "刘学义 念无双 源仲 定妆照",
+        rationale: "Replace the silver-white styling rung that heavily overlaps the first white-clothed actor query with a lighter character-and-production anchor.",
+      },
+      {
+        rungIndex: 6,
+        replaces: baselineQueries[6],
+        query: "源仲 念无双 战斗 剧照",
+        rationale: "Replace the full-body sect rung that heavily overlaps the white-robed stills query with an action/staging anchor likely to add distinct silhouettes.",
+      },
+    ],
+  };
+  return {
+    ...experiment,
+    experimentId: recordHash({
+      actorId: pair.actor.id,
+      vibeKey: pair.vibeKey,
+      ...experiment,
+    }),
   };
 }
 
