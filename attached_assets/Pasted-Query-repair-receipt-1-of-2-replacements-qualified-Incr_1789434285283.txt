@@ -1,0 +1,1809 @@
+Query-repair receipt · 1 of 2 replacements qualified
+刘学义 源仲 银白 造型 → 刘学义 念无双 源仲 定妆照
+Incremental unique: 10 → 13 · total unique: 94 → 94 · did not qualify
+
+源仲 念无双 仙门 全身 剧照 → 源仲 念无双 战斗 剧照
+Incremental unique: 7 → 8 · total unique: 94 → 95 · qualified
+
+{
+  "schemaVersion": 1,
+  "diagnosticOnly": true,
+  "actorId": "liu-xueyi",
+  "vibeKey": "liu-xueyi:0",
+  "scope": "full",
+  "experimentId": "5493ddfb52e44149753888b365d3d2266af61f17d9fc3797c01caad674de8f03",
+  "baselineQueries": [
+    "刘学义 念无双 源仲 白衣",
+    "源仲 念无双 白袍 剧照",
+    "刘学义 源仲 银白 造型",
+    "刘学义 源仲 清冷 剧照",
+    "源仲 念无双 月光 雪景",
+    "刘学义 源仲 冰蓝 长袍",
+    "源仲 念无双 仙门 全身 剧照"
+  ],
+  "alternatives": [
+    {
+      "rungIndex": 2,
+      "replaces": "刘学义 源仲 银白 造型",
+      "query": "刘学义 念无双 源仲 定妆照",
+      "rationale": "Replace the silver-white styling rung that heavily overlaps the first white-clothed actor query with a lighter character-and-production anchor."
+    },
+    {
+      "rungIndex": 6,
+      "replaces": "源仲 念无双 仙门 全身 剧照",
+      "query": "源仲 念无双 战斗 剧照",
+      "rationale": "Replace the full-body sect rung that heavily overlaps the white-robed stills query with an action/staging anchor likely to add distinct silhouettes."
+    }
+  ],
+  "testedAt": "2026-09-15T01:02:20.676Z",
+  "baseline": {
+    "rungs": [
+      {
+        "diagnosticOnly": true,
+        "actorId": "liu-xueyi",
+        "vibeKey": "liu-xueyi:0",
+        "scope": "full",
+        "fetchIndex": 0,
+        "kind": "baseline",
+        "rungIndex": 0,
+        "query": "刘学义 念无双 源仲 白衣",
+        "search": {
+          "provider": "google_images",
+          "resultCount": 18,
+          "cacheProvenance": {
+            "version": "provider-fetch-v1",
+            "key": "e4787630dcb628f5b3ca2e37c57dbab77ae83722c1cd2f67ade1c77564fc9a47",
+            "outcome": "unknown",
+            "ageMs": null,
+            "fetchTimeMs": 2420.3540000000003,
+            "fetchedAt": "2026-09-15T01:01:54.693Z",
+            "bypassRequested": false,
+            "bypassApplied": false,
+            "providerBypassApplied": false,
+            "bypassHonored": null,
+            "bypassStatus": "not_requested",
+            "localCache": null,
+            "providerFetches": [
+              {
+                "fetchedAt": "2026-09-15T01:01:54.693Z",
+                "fetchTimeMs": 2027.449,
+                "status": 200,
+                "outcome": "unknown",
+                "ageMs": null,
+                "cacheStatus": null,
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              },
+              {
+                "fetchedAt": "2026-09-15T01:01:56.729Z",
+                "fetchTimeMs": 182.355,
+                "status": 422,
+                "outcome": "unknown",
+                "ageMs": null,
+                "cacheStatus": null,
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              },
+              {
+                "fetchedAt": "2026-09-15T01:01:56.912Z",
+                "fetchTimeMs": 210.55,
+                "status": 200,
+                "outcome": "miss",
+                "ageMs": null,
+                "cacheStatus": "miss",
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              }
+            ],
+            "resultFingerprint": "38e91a50282523928a61e0fa271591938a62438a987f2d7c7b639e4fc31fdbbe"
+          },
+          "resultFingerprint": "38e91a50282523928a61e0fa271591938a62438a987f2d7c7b639e4fc31fdbbe",
+          "providerSelectionOrder": [
+            "baidu",
+            "google_images",
+            "bing_images",
+            "yandex_images",
+            "brave"
+          ],
+          "providerFetchOrder": [
+            "baidu",
+            "brave_baseline",
+            "google_images"
+          ],
+          "fallbackReason": "provider_exception",
+          "resultIdentityCapture": {
+            "limit": 24,
+            "totalUniqueCount": 18,
+            "capturedCount": 18,
+            "truncated": false
+          },
+          "resultIdentities": [
+            {
+              "identity": "sha256:6ef490db91f0e6bfc1d336f8e49cc91c68ff403261224da1375fb4589f4943b8",
+              "title": "念无双电视剧剧情｜抢先看大结局精彩内容唐嫣刘学义缘尽无法长相厮守？ 即睇追剧日历及演员阵容",
+              "source": "stheadline.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:789125e5332906533fa859d935c8911044b342ba9fda26a20097093cbbe91f2d",
+              "title": "刘学义（源仲）-念无双",
+              "source": "pinterest.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:8b819866ea127fd23a29f42d2d8d18be8c9d571dba93ad64249cba0260f40753",
+              "title": "念无双》8位古装美男，刘学义但凡拉垮点，都压不住帅气男配",
+              "source": "news.qq.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:981a5aac7dc2ce0547371652f3addb46a4eafe7b24654d674138f8a2481759b9",
+              "title": "佳偶天成路透#劉學義#源仲因為念無雙和佳偶天成作者是同一位角色互通， 所以老劉來客串狐族祭司一角， 白髮白衣仙氣逼人～",
+              "source": "facebook.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:c8ec787525e81ed64dd32c73d5915270a1679105720bccb93e9915f49836c24e",
+              "title": "念无双》8位古装美男，刘学义但凡拉垮点，都压不住帅气男配",
+              "source": "news.qq.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:d0bacd73d6c1b5f8389504cbcb7fed2840cd4aec92f2d07f339b53fcbb8f04d9",
+              "title": "唐嫣新剧《念无双》定档，神女狐族虐恋能否复刻“紫萱”神话- 360娱乐",
+              "source": "yule.360.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:7715da8bffbe3a951d1e9f83b60716f7f09ac2d42f74be56853fe0e7c8062b04",
+              "title": "念无双》全员周正帅哥，刘学义颜值但凡拉胯点都压不住5位男配",
+              "source": "view.inews.qq.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:efd3a9aabb8b96e65f0c3ea9ff69923682104d4e35f9e63ef23e8e98f7dbd0b1",
+              "title": "刘学义（源仲）-念无双",
+              "source": "pinterest.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:569abe43919aa675956ff87c3a2c5419be89f2ee5d5496b2a25cc98dbc5e3093",
+              "title": "刘学义（源仲）-念无双| Hanfu, Túi, Nhà",
+              "source": "pinterest.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:29feb0c5cc72c13976a3bac037e5bb05da701775707d3f4c449862dcf2ae0a76",
+              "title": "念无双》源仲造型_新浪新闻",
+              "source": "sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:6be8d50ad4c14ba427914e2dfc31f3fb9f349ab9d32c5dd15f9bf9c851421102",
+              "title": "仙俠陸劇《念無雙》12看點！唐嫣搭檔劉學義演神女狐族虐戀，《三千鴉殺》傅九雲驚喜參演",
+              "source": "elle.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:42997b460b40543bef33c3709fa36404ebccc7113b2359e7a3dc4a10226999ce",
+              "title": "佳偶天成路透#劉學義#源仲因為念無雙和佳偶天成作者是同一位角色互通， 所以老劉來客串狐族祭司一角， 白髮白衣仙氣逼人～",
+              "source": "facebook.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:3e1dfb977033cfc7347c1e15ab6244e1d29c647d14a533c501d3d21ac8d53683",
+              "title": "看懂源仲的那滴泪，才知道刘学义是多么宝藏的演员_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:e3cc658296eb2a8337628b384a5a70b93469d77207ecb3038c7df9765170aa8d",
+              "title": "念无双》8位古装美男，刘学义不“拉垮”稳稳压制帅气男配- 360娱乐",
+              "source": "m.yule.360.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:fa29283c098de2228a34e032bb321cc9e7e71cbd98698ffb0b085f3e057692fe",
+              "title": "念无双》8位古装美男，刘学义但凡拉垮点，都压不住帅气男配",
+              "source": "news.qq.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:1f16de0a94d72abbb1ebe7a04fe2ac9e182a965bbebc898cb8896b6b10bb04c7",
+              "title": "念无双》源仲造型_新浪新闻",
+              "source": "sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:ce166eda045c69d94652aa80bcc5c387d70e56dfc57eb90cf9dfd992097934d6",
+              "title": "陸劇《念無雙》愛奇藝熱播！被稱中年古偶的唐嫣與劉學義共譜神女與狐族祭司的絕世愛戀！ | 讀點ReadMore",
+              "source": "moredetailnews.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:900e9ac285bb478d680c68b977408c5b3f71814fad3aa00d4db651eac59afcf0",
+              "title": "刘学义（源仲）-念无双",
+              "source": "kr.pinterest.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            }
+          ]
+        },
+        "metrics": {
+          "uniqueCount": 18,
+          "incrementalUniqueCount": 18,
+          "overlapWithEarlierCount": 0
+        }
+      },
+      {
+        "diagnosticOnly": true,
+        "actorId": "liu-xueyi",
+        "vibeKey": "liu-xueyi:0",
+        "scope": "full",
+        "fetchIndex": 1,
+        "kind": "baseline",
+        "rungIndex": 1,
+        "query": "源仲 念无双 白袍 剧照",
+        "search": {
+          "provider": "google_images",
+          "resultCount": 18,
+          "cacheProvenance": {
+            "version": "provider-fetch-v1",
+            "key": "37c938e6578ac8d49a472bb625b78d247d0b8b372892a5011bbce984375fa98a",
+            "outcome": "unknown",
+            "ageMs": null,
+            "fetchTimeMs": 799.972,
+            "fetchedAt": "2026-09-15T01:01:57.478Z",
+            "bypassRequested": false,
+            "bypassApplied": false,
+            "providerBypassApplied": false,
+            "bypassHonored": null,
+            "bypassStatus": "not_requested",
+            "localCache": null,
+            "providerFetches": [
+              {
+                "fetchedAt": "2026-09-15T01:01:57.478Z",
+                "fetchTimeMs": 654.033,
+                "status": 200,
+                "outcome": "unknown",
+                "ageMs": null,
+                "cacheStatus": null,
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              },
+              {
+                "fetchedAt": "2026-09-15T01:01:58.133Z",
+                "fetchTimeMs": 59.584,
+                "status": 422,
+                "outcome": "unknown",
+                "ageMs": null,
+                "cacheStatus": null,
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              },
+              {
+                "fetchedAt": "2026-09-15T01:01:58.193Z",
+                "fetchTimeMs": 86.355,
+                "status": 200,
+                "outcome": "miss",
+                "ageMs": null,
+                "cacheStatus": "miss",
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              }
+            ],
+            "resultFingerprint": "8cb02fe41c29bb49dbfaa287497e520136cc2468785752290f243b6aa9fe0840"
+          },
+          "resultFingerprint": "8cb02fe41c29bb49dbfaa287497e520136cc2468785752290f243b6aa9fe0840",
+          "providerSelectionOrder": [
+            "baidu",
+            "google_images",
+            "bing_images",
+            "yandex_images",
+            "brave"
+          ],
+          "providerFetchOrder": [
+            "baidu",
+            "brave_baseline",
+            "google_images"
+          ],
+          "fallbackReason": "provider_exception",
+          "resultIdentityCapture": {
+            "limit": 24,
+            "totalUniqueCount": 18,
+            "capturedCount": 18,
+            "truncated": false
+          },
+          "resultIdentities": [
+            {
+              "identity": "sha256:efd3a9aabb8b96e65f0c3ea9ff69923682104d4e35f9e63ef23e8e98f7dbd0b1",
+              "title": "刘学义（源仲）-念无双",
+              "source": "pinterest.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:569abe43919aa675956ff87c3a2c5419be89f2ee5d5496b2a25cc98dbc5e3093",
+              "title": "刘学义（源仲）-念无双| Hanfu, Túi, Nhà",
+              "source": "pinterest.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:a8214df51ccb734f7f84c2c20a02cafc931ce9add56061ca2ac0c2e3e2653614",
+              "title": "念无双》源仲造型_新浪新闻",
+              "source": "sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:6d02c2388e2b41d0dbf4d83c9cff02e43ae7406cc689019ba60a83bfca1b5dd4",
+              "title": "念无双：源仲解开封印拥有源生之力，他却想用这股力量毁灭世间_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:61fa54fae892ed78c9a1d60d42fe5540df995bb75939cc65beb5160fb5e285f5",
+              "title": "念无双》结局：源仲到死才知道的真相，姬谭音竟然瞒了他这么久_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:6be8d50ad4c14ba427914e2dfc31f3fb9f349ab9d32c5dd15f9bf9c851421102",
+              "title": "仙俠陸劇《念無雙》12看點！唐嫣搭檔劉學義演神女狐族虐戀，《三千鴉殺》傅九雲驚喜參演",
+              "source": "elle.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:348a2eb6544cbb8b9a2c5a07daa93082a2953f467a19c5df712d7a3cdcaa6158",
+              "title": "念无双：源仲遭设计被迫堕魔，大婚当天断左手死在姬谭音怀里_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:ccc5b99b25fe9bdf0ddec005066d701cffce6ee3ba48c49412a32c5654f73d42",
+              "title": "念无双》黑化人物结局，韩女消亡，最惨的是他！_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:1f16de0a94d72abbb1ebe7a04fe2ac9e182a965bbebc898cb8896b6b10bb04c7",
+              "title": "念无双》源仲造型_新浪新闻",
+              "source": "sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:f49faaf618a34e72b43963d6eae1679858a5d5f3e2c64ab2fb6219a5c44efe04",
+              "title": "念无双》：源仲主动放弃灭世场面封神，姬谭音让他爱上了世界_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:3afcceca4f840c4272b16c266a44e76a375f83ea7ae8ea327dadc308789292fe",
+              "title": "念無雙劇照第二波～ 宿命羈絆牽動山海， 風雲四起誰主沉浮？ 今晚19點愛奇藝優酷看無雙神女姬譚音：唐嫣、 大寂司源仲：劉學義、知黛：郭曉婷、  棠華：王弘毅、眉山君：白澍",
+              "source": "facebook.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:2d10d09e04d0e085c33d473ef9b2a9cb1802a9fb737591e3b9c51a0e3f2d6148",
+              "title": "源仲是谁演的,源仲扮演者,念无双源仲_电视猫",
+              "source": "tvmao.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:8e31dc374edbd68507fd4b9ff5651091266e445a5deda4d311e4937cd18d6169",
+              "title": "念無雙》分集劇情+心得分享(第1-36集大結局劇情)唐嫣、劉學義、郭曉婷、王弘毅、周柯宇主演，劇情角色演員介紹，改編自十四郎高人氣小說《天下無雙》，重情 無雙神女X隱忍狐族祭司，攜手踏上闖蕩江湖的奇妙旅程，唐嫣時隔多年再拍仙俠劇，也是劉學義第一部仙俠男主劇，還有 ...",
+              "source": "mercury0314.pixnet.net",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:604825a7cb9ff17da95197c89ce393076d55f5b06d56beacad463a71652dcf8f",
+              "title": "念无双第27集分集剧情_电视剧_电视猫",
+              "source": "m.tvmao.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:19eef36a83cd7b29675cc0d822b7da7f3cc129723d2e8f07701e232299b83340",
+              "title": "念无双》源仲什么时候知道无双是神女_电视猫",
+              "source": "tvmao.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:ea938560ea95ff7fd388f27d4ab8a31db1bf2563109ae92336007d71c2d6fe20",
+              "title": "看完念无双36集大结局想给编剧寄刀片，剧情太悲伤- 360娱乐",
+              "source": "m.yule.360.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:f7aaa0d01fdeebc13a9bb5ef5e0e99a9c2cbc9b6b7dadbf2c7f941c142efd067",
+              "title": "念无双》源仲什么时候解开封印_电视猫",
+              "source": "tvmao.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:a472da5e8e6f07c9069cc48b9c5b7d5169ba16a0e7a474990189ad3bbe38f491",
+              "title": "念无双这剧里， 源仲、棠华、千麟都怪好看的以及有狐族丁戌长老",
+              "source": "facebook.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            }
+          ]
+        },
+        "metrics": {
+          "uniqueCount": 18,
+          "incrementalUniqueCount": 14,
+          "overlapWithEarlierCount": 4
+        }
+      },
+      {
+        "diagnosticOnly": true,
+        "actorId": "liu-xueyi",
+        "vibeKey": "liu-xueyi:0",
+        "scope": "full",
+        "fetchIndex": 2,
+        "kind": "baseline",
+        "rungIndex": 2,
+        "query": "刘学义 源仲 银白 造型",
+        "search": {
+          "provider": "google_images",
+          "resultCount": 18,
+          "cacheProvenance": {
+            "version": "provider-fetch-v1",
+            "key": "65479f151ba390552021f4fd80bd255818992fd7c64a6fb419c88cba897c9ede",
+            "outcome": "unknown",
+            "ageMs": null,
+            "fetchTimeMs": 2364.599,
+            "fetchedAt": "2026-09-15T01:01:58.870Z",
+            "bypassRequested": false,
+            "bypassApplied": false,
+            "providerBypassApplied": false,
+            "bypassHonored": null,
+            "bypassStatus": "not_requested",
+            "localCache": null,
+            "providerFetches": [
+              {
+                "fetchedAt": "2026-09-15T01:01:58.870Z",
+                "fetchTimeMs": 2085.465,
+                "status": 200,
+                "outcome": "unknown",
+                "ageMs": null,
+                "cacheStatus": null,
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              },
+              {
+                "fetchedAt": "2026-09-15T01:02:00.962Z",
+                "fetchTimeMs": 168.823,
+                "status": 422,
+                "outcome": "unknown",
+                "ageMs": null,
+                "cacheStatus": null,
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              },
+              {
+                "fetchedAt": "2026-09-15T01:02:01.131Z",
+                "fetchTimeMs": 110.311,
+                "status": 200,
+                "outcome": "miss",
+                "ageMs": null,
+                "cacheStatus": "miss",
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              }
+            ],
+            "resultFingerprint": "efdcd7698f4f7d8cd70b9dca67a278ed8ed8ac5209a435bd6ad255c1198eaa4f"
+          },
+          "resultFingerprint": "efdcd7698f4f7d8cd70b9dca67a278ed8ed8ac5209a435bd6ad255c1198eaa4f",
+          "providerSelectionOrder": [
+            "baidu",
+            "google_images",
+            "bing_images",
+            "yandex_images",
+            "brave"
+          ],
+          "providerFetchOrder": [
+            "baidu",
+            "brave_baseline",
+            "google_images"
+          ],
+          "fallbackReason": "provider_exception",
+          "resultIdentityCapture": {
+            "limit": 24,
+            "totalUniqueCount": 18,
+            "capturedCount": 18,
+            "truncated": false
+          },
+          "resultIdentities": [
+            {
+              "identity": "sha256:d65f9c4187b577bd88e64fdda6f1112932fe0f3d187274fb9a87ea4a6d5f9a5a",
+              "title": "刘学义源仲银发造型_新浪新闻",
+              "source": "sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:29feb0c5cc72c13976a3bac037e5bb05da701775707d3f4c449862dcf2ae0a76",
+              "title": "念无双》源仲造型_新浪新闻",
+              "source": "sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:1f16de0a94d72abbb1ebe7a04fe2ac9e182a965bbebc898cb8896b6b10bb04c7",
+              "title": "念无双》源仲造型_新浪新闻",
+              "source": "sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:4f964f81fe4856487a1afd948e72dee1f8c0cb876273793167863fbeb55280ea",
+              "title": "刘学义2 - 堆糖",
+              "source": "m-2.duitang.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:789125e5332906533fa859d935c8911044b342ba9fda26a20097093cbbe91f2d",
+              "title": "刘学义（源仲）-念无双",
+              "source": "pinterest.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:a72980481a5acc83ff5f5f7bd6286882fb12e5a80d3f9502bd00303c95ac29f4",
+              "title": "刘学义携多部待播新剧来袭，造型一部比一部吸睛，颜值党的福音！_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:569abe43919aa675956ff87c3a2c5419be89f2ee5d5496b2a25cc98dbc5e3093",
+              "title": "刘学义（源仲）-念无双| Hanfu, Túi, Nhà",
+              "source": "pinterest.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:981a5aac7dc2ce0547371652f3addb46a4eafe7b24654d674138f8a2481759b9",
+              "title": "佳偶天成路透#劉學義#源仲因為念無雙和佳偶天成作者是同一位角色互通， 所以老劉來客串狐族祭司一角， 白髮白衣仙氣逼人～",
+              "source": "facebook.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:826701fa57528914c42f8b1e2c74358104363f8e9e9cd67143ee8fae9a3b787f",
+              "title": "刘学义又一新剧来袭，光头造型帅极了，全员高颜值令人期待_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:efd3a9aabb8b96e65f0c3ea9ff69923682104d4e35f9e63ef23e8e98f7dbd0b1",
+              "title": "刘学义（源仲）-念无双",
+              "source": "pinterest.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:1900e3f3ff9a9ec426636dca3f153e163f22e508ea1f99734292921e8418aeb9",
+              "title": "念无双》8位古装美男，刘学义但凡拉垮点，都压不住帅气男配",
+              "source": "news.qq.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:42997b460b40543bef33c3709fa36404ebccc7113b2359e7a3dc4a10226999ce",
+              "title": "佳偶天成路透#劉學義#源仲因為念無雙和佳偶天成作者是同一位角色互通， 所以老劉來客串狐族祭司一角， 白髮白衣仙氣逼人～",
+              "source": "facebook.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:ceb6a3439cd072dbf4a55ef829458e9d6021817eda529143996207e72e9c6af1",
+              "title": "刘学义2 - 堆糖",
+              "source": "m-2.duitang.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:2026cc93a1ad6c1606da43f469977bcb00f776a8ee9b39ee2b4e97ce54a75f5e",
+              "title": "念无双》妆造差？白瞎了唐嫣颜值，两大“童年男神”也没逃过",
+              "source": "news.qq.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:c8ec787525e81ed64dd32c73d5915270a1679105720bccb93e9915f49836c24e",
+              "title": "念无双》8位古装美男，刘学义但凡拉垮点，都压不住帅气男配",
+              "source": "news.qq.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:fe01681992a7752c89146361b2bb7f8c66be0f34af4536484df599607d79d27b",
+              "title": "感謝指正！收到，《佳偶天成》和《念無雙》裡源仲都是劉學義演的，已更新資訊。 古裝造型確實容易混淆，以後會更小心辨認。",
+              "source": "threads.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:ae2393d45afc28ecca0da2047d780c9c2cc12c9266865eba7a454d20377cb74b",
+              "title": "念无双》结局潦草？别急《佳偶天成》要来了，刘学义郑业成客串",
+              "source": "news.qq.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:081bccf2e95b458035b3a87039a366523f4dcc9db4599123cd2d2e50b7ebd676",
+              "title": "刘学义2 - 堆糖",
+              "source": "m-2.duitang.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            }
+          ]
+        },
+        "metrics": {
+          "uniqueCount": 18,
+          "incrementalUniqueCount": 10,
+          "overlapWithEarlierCount": 8
+        }
+      },
+      {
+        "diagnosticOnly": true,
+        "actorId": "liu-xueyi",
+        "vibeKey": "liu-xueyi:0",
+        "scope": "full",
+        "fetchIndex": 3,
+        "kind": "baseline",
+        "rungIndex": 3,
+        "query": "刘学义 源仲 清冷 剧照",
+        "search": {
+          "provider": "google_images",
+          "resultCount": 18,
+          "cacheProvenance": {
+            "version": "provider-fetch-v1",
+            "key": "4e87d6c9b17b390264763261d40b1b6df22b485ea7455952104b2843bb919977",
+            "outcome": "unknown",
+            "ageMs": null,
+            "fetchTimeMs": 3051.031,
+            "fetchedAt": "2026-09-15T01:01:58.898Z",
+            "bypassRequested": false,
+            "bypassApplied": false,
+            "providerBypassApplied": false,
+            "bypassHonored": null,
+            "bypassStatus": "not_requested",
+            "localCache": null,
+            "providerFetches": [
+              {
+                "fetchedAt": "2026-09-15T01:01:58.898Z",
+                "fetchTimeMs": 2772.363,
+                "status": 200,
+                "outcome": "unknown",
+                "ageMs": null,
+                "cacheStatus": null,
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              },
+              {
+                "fetchedAt": "2026-09-15T01:02:01.677Z",
+                "fetchTimeMs": 170.105,
+                "status": 422,
+                "outcome": "unknown",
+                "ageMs": null,
+                "cacheStatus": null,
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              },
+              {
+                "fetchedAt": "2026-09-15T01:02:01.847Z",
+                "fetchTimeMs": 108.563,
+                "status": 200,
+                "outcome": "miss",
+                "ageMs": null,
+                "cacheStatus": "miss",
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              }
+            ],
+            "resultFingerprint": "15150fc2f14edb13973bd0557f940ffa4b2e98dcd04840382cd154c053f19eb4"
+          },
+          "resultFingerprint": "15150fc2f14edb13973bd0557f940ffa4b2e98dcd04840382cd154c053f19eb4",
+          "providerSelectionOrder": [
+            "baidu",
+            "google_images",
+            "bing_images",
+            "yandex_images",
+            "brave"
+          ],
+          "providerFetchOrder": [
+            "baidu",
+            "brave_baseline",
+            "google_images"
+          ],
+          "fallbackReason": "provider_exception",
+          "resultIdentityCapture": {
+            "limit": 24,
+            "totalUniqueCount": 18,
+            "capturedCount": 18,
+            "truncated": false
+          },
+          "resultIdentities": [
+            {
+              "identity": "sha256:47f76edcc34f3e5ffe4e35e3ab1936415250210a1954bf715ad68873386fea0e",
+              "title": "念无双源仲刘学义- 高清图片，堆糖，美图壁纸兴趣社区",
+              "source": "m-2.duitang.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:680967f0800e1abfb5e6a0556053cd4fb405c7172bbca0f3d4cb364ffb079e01",
+              "title": "刘学义源仲剧照对比_新浪新闻",
+              "source": "sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:efd3a9aabb8b96e65f0c3ea9ff69923682104d4e35f9e63ef23e8e98f7dbd0b1",
+              "title": "刘学义（源仲）-念无双",
+              "source": "pinterest.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:38944d4c351b3dbc507ad06b1e3b657a81e58d5642cc7ef4eb2456da09c9c0c1",
+              "title": "刘学义源仲剧照对比_新浪新闻",
+              "source": "sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:a43f98c81dbff7504f801fad3d57744368d1f064ea8cdd91a44fc9eceae12e5d",
+              "title": "唐嫣再演仙侠剧，《念无双》搭档刘学义",
+              "source": "news.qq.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:ceb6a3439cd072dbf4a55ef829458e9d6021817eda529143996207e72e9c6af1",
+              "title": "刘学义2 - 堆糖",
+              "source": "m-2.duitang.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:b0d3b3215a34519b630148ae0a320e6734cae96bf22a707227e80001ae34b740",
+              "title": "刘学义2 - 堆糖",
+              "source": "m-2.duitang.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:840cc53ae2e036146f9533ce03848363d875d63f44cc87ccac24efdf9abb277d",
+              "title": "刘学义源仲剧照对比_新浪新闻",
+              "source": "sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:1a969ff514d12eb26a2eb6b2745f35a902de60a9584d5e165c6be8dfc1571a0b",
+              "title": "刘学义2 - 堆糖",
+              "source": "m-2.duitang.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:738c0afd9f256f1df3bb49e7c2fe28c0700e2781ca4854f2ad8879d9c4adb778",
+              "title": "念无双》结局潦草？别急《佳偶天成》要来了，刘学义郑业成客串",
+              "source": "news.qq.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:11cf208853c3ebd06247bc08bd927dab97b4c40d2866ebea01e53fbaf537193f",
+              "title": "刘学义2 - 堆糖",
+              "source": "m-2.duitang.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:8ee8f777c91e27c45ba0135ed3e0c36e486922a5c5d6a73312f82936f0c2a890",
+              "title": "刘学义2 - 堆糖",
+              "source": "m-2.duitang.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:3118c241de4b1dd98740b6f14e83dec6bddb8ce4e6ce348f323c468688bd7f64",
+              "title": "刘学义演技隐忍角色的“半永久”式表演_中华网",
+              "source": "3g.china.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:df674d7cc9aab31a129333fa54ba98ceb218d76bdab74285069a5010e6467767",
+              "title": "娱乐吃瓜】刘学义靠“嘴毒心软”引话题新晋古装男神还有这三位| 联合早报",
+              "source": "zaobao.com.sg",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:6ca766a6571871e9708d33bec30978992d0d8b46ac6457511d6b6fdb46abd550",
+              "title": "刘学义2 - 堆糖",
+              "source": "m-2.duitang.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:8bf4727380646d90d8451f42627d4522e4df3b57f38ff5a174171818b73ad771",
+              "title": "念无双》官宣了演员阵容，唐嫣、刘学义领衔，会成为爆款剧吗？_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:3ced3fc438df42e783acb55ea48b205742436a43cb5a968368c333a4037cdd64",
+              "title": "念无双#刘学义#源仲第34集，魔君真的带感，附身后第一件事就是斩杀有狐族，间接替源仲报仇了。突然意识到我要是能修仙的话，好像有可能成为魔修或者邪修",
+              "source": "facebook.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:c98a9d3512316681f81ff2aab65ad76910da6eab7bc9aee81e32ba4efa611164",
+              "title": "念无双》源仲造型_新浪新闻",
+              "source": "sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            }
+          ]
+        },
+        "metrics": {
+          "uniqueCount": 18,
+          "incrementalUniqueCount": 16,
+          "overlapWithEarlierCount": 2
+        }
+      },
+      {
+        "diagnosticOnly": true,
+        "actorId": "liu-xueyi",
+        "vibeKey": "liu-xueyi:0",
+        "scope": "full",
+        "fetchIndex": 4,
+        "kind": "baseline",
+        "rungIndex": 4,
+        "query": "源仲 念无双 月光 雪景",
+        "search": {
+          "provider": "google_images",
+          "resultCount": 18,
+          "cacheProvenance": {
+            "version": "provider-fetch-v1",
+            "key": "4f236e907f61bdaa63c1c0267c5c20ed393a47280fadc2ee9282c2eb0e48640e",
+            "outcome": "unknown",
+            "ageMs": null,
+            "fetchTimeMs": 2515.036,
+            "fetchedAt": "2026-09-15T01:01:58.877Z",
+            "bypassRequested": false,
+            "bypassApplied": false,
+            "providerBypassApplied": false,
+            "bypassHonored": null,
+            "bypassStatus": "not_requested",
+            "localCache": null,
+            "providerFetches": [
+              {
+                "fetchedAt": "2026-09-15T01:01:58.877Z",
+                "fetchTimeMs": 2227.219,
+                "status": 200,
+                "outcome": "unknown",
+                "ageMs": null,
+                "cacheStatus": null,
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              },
+              {
+                "fetchedAt": "2026-09-15T01:02:01.277Z",
+                "fetchTimeMs": 166.389,
+                "status": 422,
+                "outcome": "unknown",
+                "ageMs": null,
+                "cacheStatus": null,
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              },
+              {
+                "fetchedAt": "2026-09-15T01:02:01.456Z",
+                "fetchTimeMs": 121.428,
+                "status": 200,
+                "outcome": "miss",
+                "ageMs": null,
+                "cacheStatus": "miss",
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              }
+            ],
+            "resultFingerprint": "e9cf602d09a9a75694c6396f5cfe98b9c77b1be91f3df1f61df87ceb0ab8bf9f"
+          },
+          "resultFingerprint": "e9cf602d09a9a75694c6396f5cfe98b9c77b1be91f3df1f61df87ceb0ab8bf9f",
+          "providerSelectionOrder": [
+            "baidu",
+            "google_images",
+            "bing_images",
+            "yandex_images",
+            "brave"
+          ],
+          "providerFetchOrder": [
+            "baidu",
+            "brave_baseline",
+            "google_images"
+          ],
+          "fallbackReason": "provider_exception",
+          "resultIdentityCapture": {
+            "limit": 24,
+            "totalUniqueCount": 18,
+            "capturedCount": 18,
+            "truncated": false
+          },
+          "resultIdentities": [
+            {
+              "identity": "sha256:b0832f6390042fc7d42c39879512ec77d663ad3477cbe01383b0bf56fe05ed00",
+              "title": "神女无双，唐嫣的镜像互文",
+              "source": "news.qq.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:f49faaf618a34e72b43963d6eae1679858a5d5f3e2c64ab2fb6219a5c44efe04",
+              "title": "念无双》：源仲主动放弃灭世场面封神，姬谭音让他爱上了世界_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:083c2887c3a9fffe7907438d42b6d6b4182a4ef5c9be9ebe3cbb0f355f8731c9",
+              "title": "念无双》姬谭音和源仲结局如何？两人最后在一起了吗- 快资讯",
+              "source": "360kuai.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:61fa54fae892ed78c9a1d60d42fe5540df995bb75939cc65beb5160fb5e285f5",
+              "title": "念无双》结局：源仲到死才知道的真相，姬谭音竟然瞒了他这么久_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:7e572e0f38d58b67030ca662686f6851ed60ef1ba1af8f45e37d938795eb8d07",
+              "title": "念无双》姬谭音和源仲结局如何？两人最后在一起了吗- 360娱乐",
+              "source": "m.yule.360.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:3bad8477feb9ae859f727890b3f6ecf9d1fe6879d68144a1879655749cd4c4e7",
+              "title": "念无双》幻境解题，姬谭音与恩师、源仲之对话，堪称问道经典",
+              "source": "news.qq.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:50008c28143cee25c033c7ba031caf0cb38ecdf18f736e1d221b7ebed85b2404",
+              "title": "#念无双 无双神女姬谭音@唐嫣 和大寂司源仲@刘学义 兖都冒险开启！别样的“赛狗”引人注目～每晚 19 点，@爱奇艺 @优酷 精彩不断～, #念无双  , #amomentbutforever , #AMomentButForever",
+              "source": "instagram.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:c0f840f1f65a3c34498f3fbf173fea4d1ce00a73c68eb5996496d022f2c6026a",
+              "title": "念無雙愛一個人的最高境界是心疼與自覺虧欠， 當意識覺醒，自我攻略進度條已悄悄上升💕承認吧源仲：劉學義， 也開始為無雙神女姬譚音：唐嫣",
+              "source": "facebook.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:ea938560ea95ff7fd388f27d4ab8a31db1bf2563109ae92336007d71c2d6fe20",
+              "title": "看完念无双36集大结局想给编剧寄刀片，剧情太悲伤- 360娱乐",
+              "source": "m.yule.360.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:d0bacd73d6c1b5f8389504cbcb7fed2840cd4aec92f2d07f339b53fcbb8f04d9",
+              "title": "唐嫣新剧《念无双》定档，神女狐族虐恋能否复刻“紫萱”神话- 360娱乐",
+              "source": "yule.360.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:740b451f0b83ef98d9f00af4ef17950c0304c1163e014e3a60a6ef5aed117e75",
+              "title": "念無雙愛一個人的最高境界是心疼與自覺虧欠， 當意識覺醒，自我攻略進度條已悄悄上升💕承認吧源仲：劉學義， 也開始為無雙神女姬譚音：唐嫣",
+              "source": "facebook.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:b3209ea534336e43ba82d80e157242d15d13e15a16e3eb35afe2bbe9568ab76e",
+              "title": "唐嫣新剧《念无双》定档，神女狐族虐恋能否复刻“紫萱”神话- 360娱乐",
+              "source": "yule.360.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:b3cbe3aa82672341df25c078164554a94cf909b9b96a45a818c002c32f8a1ea9",
+              "title": "唐嫣新剧《念无双》定档，神女狐族虐恋能否复刻“紫萱”神话- 360娱乐",
+              "source": "yule.360.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:c777d22fab9b3cd4f2303e44ab5f04a13f149d229a0e437f774d802cf107bf9d",
+              "title": "源仲（小说《天下无双》及其衍生作品《念无双》中的人物）_百度百科",
+              "source": "baike.baidu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:283635c4b81dac1de7ecfaded3baad054a3e1cb0f2e895093314d1966be475d7",
+              "title": "念无双》：源仲主动放弃灭世场面封神，姬谭音让他爱上了世界_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:0f842342c93da6c6c1d842394d7379abddeaa11613d9fe949ab55c80efa4d7c7",
+              "title": "念无双》姬谭音和源仲结局如何？两人最后在一起了吗- 快资讯",
+              "source": "360kuai.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:33c193dc5dc6f20eb1beba2b53b8ebb2ef0010381b0ef5eba750277fd8cf8f32",
+              "title": "源仲（电视剧《念无双》中的男主角）_百度百科",
+              "source": "baike.baidu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:f33a8446c8a94f6a45f82611e6cd644309d2ac86b0d4293691fcab336ba975a0",
+              "title": "念無雙電視劇劇情｜搶先看大結局精彩內容唐嫣劉學義緣盡無法長相廝守？ 即睇追劇日曆及演員陣容",
+              "source": "stheadline.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            }
+          ]
+        },
+        "metrics": {
+          "uniqueCount": 18,
+          "incrementalUniqueCount": 14,
+          "overlapWithEarlierCount": 4
+        }
+      },
+      {
+        "diagnosticOnly": true,
+        "actorId": "liu-xueyi",
+        "vibeKey": "liu-xueyi:0",
+        "scope": "full",
+        "fetchIndex": 5,
+        "kind": "baseline",
+        "rungIndex": 5,
+        "query": "刘学义 源仲 冰蓝 长袍",
+        "search": {
+          "provider": "google_images",
+          "resultCount": 18,
+          "cacheProvenance": {
+            "version": "provider-fetch-v1",
+            "key": "270ae2f997cc7d12ad517e8e90ba2252a1c0b0dd35418c3fdc2dbea5addbc8f5",
+            "outcome": "unknown",
+            "ageMs": null,
+            "fetchTimeMs": 3157.975,
+            "fetchedAt": "2026-09-15T01:01:58.854Z",
+            "bypassRequested": false,
+            "bypassApplied": false,
+            "providerBypassApplied": false,
+            "bypassHonored": null,
+            "bypassStatus": "not_requested",
+            "localCache": null,
+            "providerFetches": [
+              {
+                "fetchedAt": "2026-09-15T01:01:58.854Z",
+                "fetchTimeMs": 2761.96,
+                "status": 200,
+                "outcome": "unknown",
+                "ageMs": null,
+                "cacheStatus": null,
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              },
+              {
+                "fetchedAt": "2026-09-15T01:02:01.622Z",
+                "fetchTimeMs": 182.182,
+                "status": 422,
+                "outcome": "unknown",
+                "ageMs": null,
+                "cacheStatus": null,
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              },
+              {
+                "fetchedAt": "2026-09-15T01:02:01.805Z",
+                "fetchTimeMs": 213.833,
+                "status": 200,
+                "outcome": "miss",
+                "ageMs": null,
+                "cacheStatus": "miss",
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              }
+            ],
+            "resultFingerprint": "725abc1036c62c952cb7860eaf2a2affc9339c96c08e08fd9bb7a6e0512b6076"
+          },
+          "resultFingerprint": "725abc1036c62c952cb7860eaf2a2affc9339c96c08e08fd9bb7a6e0512b6076",
+          "providerSelectionOrder": [
+            "baidu",
+            "google_images",
+            "bing_images",
+            "yandex_images",
+            "brave"
+          ],
+          "providerFetchOrder": [
+            "baidu",
+            "brave_baseline",
+            "google_images"
+          ],
+          "fallbackReason": "provider_exception",
+          "resultIdentityCapture": {
+            "limit": 24,
+            "totalUniqueCount": 18,
+            "capturedCount": 18,
+            "truncated": false
+          },
+          "resultIdentities": [
+            {
+              "identity": "sha256:da8d8246e60e0fe3d691e5ec020e37d0c6f284f5070f0f2fa6789814037d8c0f",
+              "title": "一年4部古偶，刘学义表现抢眼，离爆火男主还有多远_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:830c7daa6d26abbd893d37b938295773d67710a9420cf1f867b9e3feecca29cd",
+              "title": "念无双刘学义源仲带娃花絮好好玩念无双3月27日👖 🥝联播#刘学义#源仲#沈在野#简明#花絮,念无双带娃花絮- 抖音",
+              "source": "douyin.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:efd3a9aabb8b96e65f0c3ea9ff69923682104d4e35f9e63ef23e8e98f7dbd0b1",
+              "title": "刘学义（源仲）-念无双",
+              "source": "pinterest.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:9ea6fb7a18d57dd6313dda91e96592d17d83b91d9b3cd55ff3bdc09bc8bfc9ed",
+              "title": "刘学义古装剧震撼登场！绝美颜值+疯狂演技引爆，全看过3部就是真爱！_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:a31638d3fb5a71d9b38d9655e43380f51e1db6103189897cd6c33dc69b57d128",
+              "title": "佳偶天成》：十四郎宇宙中重要一环，流水的作品，铁打的老熟人|源仲|傅九云|念无双|眉山君|电视剧剧情讨论_新浪新闻",
+              "source": "k.sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:89595895b17ea42acf4226e8ea27abdfcbfdf143389023857a2a70d7cf9a32f1",
+              "title": "娱乐吃瓜】刘学义靠“嘴毒心软”引话题新晋古装男神还有这三位| 联合早报",
+              "source": "zaobao.com.sg",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:9c534edf9d2659f969ab049ca8b2dc8a543e18cb27823e2b458087845a844388",
+              "title": "刘学义：把角色和本人融为一体|华西都市报",
+              "source": "wccdaily.com.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:c7b2de60b363372ad87cb79fd5bcf371c780d28043bef7c50e70cd42f38574dd",
+              "title": "同样演魔君，刘学义与罗云熙对比，方知啥是“实力派” - 360娱乐",
+              "source": "m.yule.360.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:6c06b9e61be69247b74e0a189ce305e2ef7d529da871daf4b316533fae77a54d",
+              "title": "念无双口碑# 爱奇艺神剧来了采访动图截图Part2#刘学义源仲# [爱你]#刘学义念无双# ​​​ http://t.cn/A6dhlJgd  ​_新浪新闻",
+              "source": "sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:900c512f7816cde21b25bef600c34035e3fd6128f61f5657c5656f884f7c2a7d",
+              "title": "刘学义：我始终想做演员，而非明星-南都数字报",
+              "source": "ipaper.oeeee.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:9160c30d3c76a57c78b92c2557fdaae84f45fed3c0fca2db0bb21d9e97e3a264",
+              "title": "刘学义，国产仙侠可以“封神”的男二？ - 知乎",
+              "source": "zhuanlan.zhihu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:bab3857967bc115d07318d485f2c21398ce91e9a782f391f6a7f87e8718ff4c3",
+              "title": "粉丝赞美源仲_新浪新闻",
+              "source": "sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:aa7bbed28bdd9500a33a74f5104d738c2bc9549ca5f7e7f9db0b37f6cd72f85b",
+              "title": "刘学义2 - 堆糖",
+              "source": "m-2.duitang.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:ffb40e5cacfc1216d0cb7ca8b111554f507a4cd2c0e874777a8a0fcf51159d03",
+              "title": "无一对圆满！唐嫣刘学义《念无双》大结局，是今年看过最悲伤结局",
+              "source": "news.qq.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:a7e245ba8e5b8ba71317e339e5c38d3e5bfa536d6f47d4fd655b6e0c57b8b57a",
+              "title": "唐嫣刘学义《念无双》首播6集，观众评价出炉，差评理由出奇一致",
+              "source": "news.qq.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:3a558798f606abd0f4c492880397ac0e8ace1f832d3c4760905119e8e7cb1069",
+              "title": "刘学义从高冷到爆火，内娱十年蛰伏如何炼成“熟男天花板”？|粉丝表白|王劲松|金石探文明|在野|扶苏_手机新浪网",
+              "source": "ent.sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:569abe43919aa675956ff87c3a2c5419be89f2ee5d5496b2a25cc98dbc5e3093",
+              "title": "刘学义（源仲）-念无双| Hanfu, Túi, Nhà",
+              "source": "pinterest.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:df674d7cc9aab31a129333fa54ba98ceb218d76bdab74285069a5010e6467767",
+              "title": "娱乐吃瓜】刘学义靠“嘴毒心软”引话题新晋古装男神还有这三位| 联合早报",
+              "source": "zaobao.com.sg",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            }
+          ]
+        },
+        "metrics": {
+          "uniqueCount": 18,
+          "incrementalUniqueCount": 15,
+          "overlapWithEarlierCount": 3
+        }
+      },
+      {
+        "diagnosticOnly": true,
+        "actorId": "liu-xueyi",
+        "vibeKey": "liu-xueyi:0",
+        "scope": "full",
+        "fetchIndex": 6,
+        "kind": "baseline",
+        "rungIndex": 6,
+        "query": "源仲 念无双 仙门 全身 剧照",
+        "search": {
+          "provider": "google_images",
+          "resultCount": 18,
+          "cacheProvenance": {
+            "version": "provider-fetch-v1",
+            "key": "42eeed6650261f63ff9de21d35b937501337b2158fb63dff8fba41df6b6a9590",
+            "outcome": "unknown",
+            "ageMs": null,
+            "fetchTimeMs": 2947.129,
+            "fetchedAt": "2026-09-15T01:01:58.837Z",
+            "bypassRequested": false,
+            "bypassApplied": false,
+            "providerBypassApplied": false,
+            "bypassHonored": null,
+            "bypassStatus": "not_requested",
+            "localCache": null,
+            "providerFetches": [
+              {
+                "fetchedAt": "2026-09-15T01:01:58.837Z",
+                "fetchTimeMs": 2645.33,
+                "status": 200,
+                "outcome": "unknown",
+                "ageMs": null,
+                "cacheStatus": null,
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              },
+              {
+                "fetchedAt": "2026-09-15T01:02:01.489Z",
+                "fetchTimeMs": 185.064,
+                "status": 422,
+                "outcome": "unknown",
+                "ageMs": null,
+                "cacheStatus": null,
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              },
+              {
+                "fetchedAt": "2026-09-15T01:02:01.674Z",
+                "fetchTimeMs": 116.735,
+                "status": 200,
+                "outcome": "miss",
+                "ageMs": null,
+                "cacheStatus": "miss",
+                "bypassApplied": false,
+                "providerBypassApplied": false
+              }
+            ],
+            "resultFingerprint": "f7df8e870c450b0bf2f9b1847a7991b04ebfe573e2260ff6fc5ddd7efeebc12f"
+          },
+          "resultFingerprint": "f7df8e870c450b0bf2f9b1847a7991b04ebfe573e2260ff6fc5ddd7efeebc12f",
+          "providerSelectionOrder": [
+            "baidu",
+            "google_images",
+            "bing_images",
+            "yandex_images",
+            "brave"
+          ],
+          "providerFetchOrder": [
+            "baidu",
+            "brave_baseline",
+            "google_images"
+          ],
+          "fallbackReason": "provider_exception",
+          "resultIdentityCapture": {
+            "limit": 24,
+            "totalUniqueCount": 18,
+            "capturedCount": 18,
+            "truncated": false
+          },
+          "resultIdentities": [
+            {
+              "identity": "sha256:569abe43919aa675956ff87c3a2c5419be89f2ee5d5496b2a25cc98dbc5e3093",
+              "title": "刘学义（源仲）-念无双| Hanfu, Túi, Nhà",
+              "source": "pinterest.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:2d10d09e04d0e085c33d473ef9b2a9cb1802a9fb737591e3b9c51a0e3f2d6148",
+              "title": "源仲是谁演的,源仲扮演者,念无双源仲_电视猫",
+              "source": "tvmao.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:87e802b97ca15e0cee9d80fc0edbd9f4b595e742282de2f513106ba5c29b6624",
+              "title": "念无双女主才是颜值担当，172身高身材好，模特出身演过紫霞- 360娱乐",
+              "source": "m.yule.360.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:d916fef0797049ce093ff68748247daecc47454a3277cc019b2d7db15132e140",
+              "title": "念无双》大结局，他们都得到自己想要的了吗？_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:a8214df51ccb734f7f84c2c20a02cafc931ce9add56061ca2ac0c2e3e2653614",
+              "title": "念无双》源仲造型_新浪新闻",
+              "source": "sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:1f16de0a94d72abbb1ebe7a04fe2ac9e182a965bbebc898cb8896b6b10bb04c7",
+              "title": "念无双》源仲造型_新浪新闻",
+              "source": "sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:8e31dc374edbd68507fd4b9ff5651091266e445a5deda4d311e4937cd18d6169",
+              "title": "念無雙》分集劇情+心得分享(第1-36集大結局劇情)唐嫣、劉學義、郭曉婷、王弘毅、周柯宇主演，劇情角色演員介紹，改編自十四郎高人氣小說《天下無雙》，重情 無雙神女X隱忍狐族祭司，攜手踏上闖蕩江湖的奇妙旅程，唐嫣時隔多年再拍仙俠劇，也是劉學義第一部仙俠男主劇，還有 ...",
+              "source": "mercury0314.pixnet.net",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:f49faaf618a34e72b43963d6eae1679858a5d5f3e2c64ab2fb6219a5c44efe04",
+              "title": "念无双》：源仲主动放弃灭世场面封神，姬谭音让他爱上了世界_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:c98a9d3512316681f81ff2aab65ad76910da6eab7bc9aee81e32ba4efa611164",
+              "title": "念无双》源仲造型_新浪新闻",
+              "source": "sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:efd3a9aabb8b96e65f0c3ea9ff69923682104d4e35f9e63ef23e8e98f7dbd0b1",
+              "title": "刘学义（源仲）-念无双",
+              "source": "pinterest.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:112444fbe4d7a292ce85976d24f8c8afd242566c7990fd43f62c474740b9dce0",
+              "title": "念无双》评价出炉，剧情老套人设浮夸，观众点评近乎一边倒",
+              "source": "news.qq.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:da5668679f3cde82e0c49dae48d57059ac457b84579d1dadd64140c70cad8cb2",
+              "title": "念無雙》分集劇情+心得分享(第1-36集大結局劇情)唐嫣、劉學義、郭曉婷、王弘毅、周柯宇主演，劇情角色演員介紹，改編自十四郎高人氣小說《天下無雙》，重情 無雙神女X隱忍狐族祭司，攜手踏上闖蕩江湖的奇妙旅程，唐嫣時隔多年再拍仙俠劇，也是劉學義第一部仙俠男主劇，還有 ...",
+              "source": "mercury0314.pixnet.net",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:44dfb120d8a976c5c1058c9948c523c982e6159fa74f0d8f1035aef4ca204f64",
+              "title": "念无双》姬谭音为了救源仲先后死了四次‌，为何源仲就是迟迟不愿意信任和接纳她？",
+              "source": "news.qq.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:6d02c2388e2b41d0dbf4d83c9cff02e43ae7406cc689019ba60a83bfca1b5dd4",
+              "title": "念无双：源仲解开封印拥有源生之力，他却想用这股力量毁灭世间_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:ccc5b99b25fe9bdf0ddec005066d701cffce6ee3ba48c49412a32c5654f73d42",
+              "title": "念无双》黑化人物结局，韩女消亡，最惨的是他！_搜狐网",
+              "source": "sohu.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:4a5444af2005dbc71a8b5d975849f089b6ede681959e12bad7189c19098f3c5d",
+              "title": "念无双》集齐7位美女，唐嫣但凡拉垮点，都压不住漂亮女配",
+              "source": "news.qq.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:ea938560ea95ff7fd388f27d4ab8a31db1bf2563109ae92336007d71c2d6fe20",
+              "title": "看完念无双36集大结局想给编剧寄刀片，剧情太悲伤- 360娱乐",
+              "source": "m.yule.360.com",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            },
+            {
+              "identity": "sha256:935225a48351deb8e0798fdc60aaefb872dd3a92a6ad0a18030004aa4a504259",
+              "title": "念无双》源仲造型_新浪新闻",
+              "source": "sina.cn",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+            }
+          ]
+        },
+        "metrics": {
+          "uniqueCount": 18,
+          "incrementalUniqueCount": 7,
+          "overlapWithEarlierCount": 11
+        }
+      }
+    ],
+    "uniqueImageIdentityCount": 94,
+    "complete": true
+  },
+  "experiments": [
+    {
+      "rungIndex": 2,
+      "replaces": "刘学义 源仲 银白 造型",
+      "query": "刘学义 念无双 源仲 定妆照",
+      "rationale": "Replace the silver-white styling rung that heavily overlaps the first white-clothed actor query with a lighter character-and-production anchor.",
+      "search": {
+        "provider": "google_images",
+        "resultCount": 18,
+        "cacheProvenance": {
+          "version": "provider-fetch-v1",
+          "key": "cc65393632a4252ffacb852cbf84e25b35aecff08ec061439dba8e883fb9d51c",
+          "outcome": "unknown",
+          "ageMs": null,
+          "fetchTimeMs": 21862.951999999997,
+          "fetchedAt": "2026-09-15T01:01:58.855Z",
+          "bypassRequested": false,
+          "bypassApplied": false,
+          "providerBypassApplied": false,
+          "bypassHonored": null,
+          "bypassStatus": "not_requested",
+          "localCache": null,
+          "providerFetches": [
+            {
+              "fetchedAt": "2026-09-15T01:01:58.855Z",
+              "fetchTimeMs": 2857.976,
+              "status": 200,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T01:02:01.721Z",
+              "fetchTimeMs": 159.323,
+              "status": 422,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T01:02:01.880Z",
+              "fetchTimeMs": 18845.653,
+              "status": 200,
+              "outcome": "miss",
+              "ageMs": null,
+              "cacheStatus": "miss",
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            }
+          ],
+          "resultFingerprint": "47041360736062f1c88c3c3014720790b197248b76d64f7b8df907636d53c676"
+        },
+        "resultFingerprint": "47041360736062f1c88c3c3014720790b197248b76d64f7b8df907636d53c676",
+        "providerSelectionOrder": [
+          "baidu",
+          "google_images",
+          "bing_images",
+          "yandex_images",
+          "brave"
+        ],
+        "providerFetchOrder": [
+          "baidu",
+          "brave_baseline",
+          "google_images"
+        ],
+        "fallbackReason": "provider_exception",
+        "resultIdentityCapture": {
+          "limit": 24,
+          "totalUniqueCount": 18,
+          "capturedCount": 18,
+          "truncated": false
+        },
+        "resultIdentities": [
+          {
+            "identity": "sha256:d3b534b41c93cb88025af2494b8278115a31950f01613ad28ad78bef5d3e9ff6",
+            "title": "念无双第一波剧照来袭！宿命纠缠，无双神女姬谭音@tangyan1206 大寂司源仲@Mr_刘学义楼舟之旅即将结束，又会迎来什么新的奇遇？ @iqiyi  @youkuofficial 热播中，今晚19点继续书写传奇故事！[冲刺] ​​​",
+            "source": "instagram.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:fc17e541f4588c60ca58dc5e4aa2fb95d3b73438e2ec5aba9f569738c1a429ae",
+            "title": "唐嫣再演仙侠剧，《念无双》搭档刘学义",
+            "source": "m.bjnews.com.cn",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:1576de9f138923f7be278c77d8e2bac84cae40d4496e745fa57943a652319ed6",
+            "title": "念无双第一波剧照来袭！宿命纠缠，无双神女姬谭音@tangyan1206 大寂司源仲@Mr_刘学义楼舟之旅即将结束，又会迎来什么新的奇遇？ @iqiyi  @youkuofficial 热播中，今晚19点继续书写传奇故事！[冲刺] ​​​",
+            "source": "instagram.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:b7a45bf22f66405f1a3c1f19617a6fe5ead09b2e94a9b0bc80ba4ab4d115607c",
+            "title": "念无双源仲刘学义- 高清图片，堆糖，美图壁纸兴趣社区",
+            "source": "m-2.duitang.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:2026cc93a1ad6c1606da43f469977bcb00f776a8ee9b39ee2b4e97ce54a75f5e",
+            "title": "念无双》妆造差？白瞎了唐嫣颜值，两大“童年男神”也没逃过",
+            "source": "news.qq.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:a8214df51ccb734f7f84c2c20a02cafc931ce9add56061ca2ac0c2e3e2653614",
+            "title": "念无双》源仲造型_新浪新闻",
+            "source": "sina.cn",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:efd3a9aabb8b96e65f0c3ea9ff69923682104d4e35f9e63ef23e8e98f7dbd0b1",
+            "title": "刘学义（源仲）-念无双",
+            "source": "pinterest.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:1f16de0a94d72abbb1ebe7a04fe2ac9e182a965bbebc898cb8896b6b10bb04c7",
+            "title": "念无双》源仲造型_新浪新闻",
+            "source": "sina.cn",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:47f76edcc34f3e5ffe4e35e3ab1936415250210a1954bf715ad68873386fea0e",
+            "title": "念无双源仲刘学义- 高清图片，堆糖，美图壁纸兴趣社区",
+            "source": "m-2.duitang.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:c5211829e243e20df2277d2e6141ef401adf3ebe27318c19565e0f0c9c2157b9",
+            "title": "唐嫣、刘学义、郭晓婷、王弘毅《念无双》杀青，你期待谁呢？_搜狐网",
+            "source": "sohu.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:ab286281ecd1d93716b0352da3d01ca556949444d662995fb3dd5fea6b0ace38",
+            "title": "念无双》源仲造型_新浪新闻",
+            "source": "sina.cn",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:fb99bb065d38386edba5f422a934e98ef34ac32e32d36ac19ad0cd7eaff59d82",
+            "title": "念无双》妆造差？白瞎了唐嫣颜值，两大“童年男神”也没逃过",
+            "source": "news.qq.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:789125e5332906533fa859d935c8911044b342ba9fda26a20097093cbbe91f2d",
+            "title": "刘学义（源仲）-念无双",
+            "source": "pinterest.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:935225a48351deb8e0798fdc60aaefb872dd3a92a6ad0a18030004aa4a504259",
+            "title": "念无双》源仲造型_新浪新闻",
+            "source": "sina.cn",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:8e4c83b77e6e76e1cd455c21a960380357e1d6e889bb45e2b2d4668cc6af9e38",
+            "title": "念无双》被嘲“中年古偶”",
+            "source": "ssw.gxrb.com.cn",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:df674d7cc9aab31a129333fa54ba98ceb218d76bdab74285069a5010e6467767",
+            "title": "娱乐吃瓜】刘学义靠“嘴毒心软”引话题新晋古装男神还有这三位| 联合早报",
+            "source": "zaobao.com.sg",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:569abe43919aa675956ff87c3a2c5419be89f2ee5d5496b2a25cc98dbc5e3093",
+            "title": "刘学义（源仲）-念无双| Hanfu, Túi, Nhà",
+            "source": "pinterest.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:8bf4727380646d90d8451f42627d4522e4df3b57f38ff5a174171818b73ad771",
+            "title": "念无双》官宣了演员阵容，唐嫣、刘学义领衔，会成为爆款剧吗？_搜狐网",
+            "source": "sohu.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          }
+        ]
+      },
+      "error": null,
+      "baselineIncrementalUniqueCount": 10,
+      "replacementIncrementalUniqueCount": 13,
+      "baselineUniqueImageIdentityCount": 94,
+      "replacementUniqueImageIdentityCount": 94,
+      "uniqueYieldDelta": 0,
+      "improvesIncrementalYield": true,
+      "qualifies": false
+    },
+    {
+      "rungIndex": 6,
+      "replaces": "源仲 念无双 仙门 全身 剧照",
+      "query": "源仲 念无双 战斗 剧照",
+      "rationale": "Replace the full-body sect rung that heavily overlaps the white-robed stills query with an action/staging anchor likely to add distinct silhouettes.",
+      "search": {
+        "provider": "google_images",
+        "resultCount": 18,
+        "cacheProvenance": {
+          "version": "provider-fetch-v1",
+          "key": "f30c25358a66f86743f165461e73fe9ca4fe1c80a4aae087e12c2300bb2d73ae",
+          "outcome": "unknown",
+          "ageMs": null,
+          "fetchTimeMs": 12069.403,
+          "fetchedAt": "2026-09-15T01:01:58.918Z",
+          "bypassRequested": false,
+          "bypassApplied": false,
+          "providerBypassApplied": false,
+          "bypassHonored": null,
+          "bypassStatus": "not_requested",
+          "localCache": null,
+          "providerFetches": [
+            {
+              "fetchedAt": "2026-09-15T01:01:58.918Z",
+              "fetchTimeMs": 2152.844,
+              "status": 200,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T01:02:01.252Z",
+              "fetchTimeMs": 194.748,
+              "status": 422,
+              "outcome": "unknown",
+              "ageMs": null,
+              "cacheStatus": null,
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            },
+            {
+              "fetchedAt": "2026-09-15T01:02:01.447Z",
+              "fetchTimeMs": 9721.811,
+              "status": 200,
+              "outcome": "miss",
+              "ageMs": null,
+              "cacheStatus": "miss",
+              "bypassApplied": false,
+              "providerBypassApplied": false
+            }
+          ],
+          "resultFingerprint": "f5df10a49c8c43cfc05d4b43d5d5b2056b4e15af63f760c04786b8532e613f7c"
+        },
+        "resultFingerprint": "f5df10a49c8c43cfc05d4b43d5d5b2056b4e15af63f760c04786b8532e613f7c",
+        "providerSelectionOrder": [
+          "baidu",
+          "google_images",
+          "bing_images",
+          "yandex_images",
+          "brave"
+        ],
+        "providerFetchOrder": [
+          "baidu",
+          "brave_baseline",
+          "google_images"
+        ],
+        "fallbackReason": "provider_exception",
+        "resultIdentityCapture": {
+          "limit": 24,
+          "totalUniqueCount": 18,
+          "capturedCount": 18,
+          "truncated": false
+        },
+        "resultIdentities": [
+          {
+            "identity": "sha256:efd3a9aabb8b96e65f0c3ea9ff69923682104d4e35f9e63ef23e8e98f7dbd0b1",
+            "title": "刘学义（源仲）-念无双",
+            "source": "pinterest.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:8e31dc374edbd68507fd4b9ff5651091266e445a5deda4d311e4937cd18d6169",
+            "title": "念無雙》分集劇情+心得分享(第1-36集大結局劇情)唐嫣、劉學義、郭曉婷、王弘毅、周柯宇主演，劇情角色演員介紹，改編自十四郎高人氣小說《天下無雙》，重情 無雙神女X隱忍狐族祭司，攜手踏上闖蕩江湖的奇妙旅程，唐嫣時隔多年再拍仙俠劇，也是劉學義第一部仙俠男主劇，還有 ...",
+            "source": "mercury0314.pixnet.net",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:f49faaf618a34e72b43963d6eae1679858a5d5f3e2c64ab2fb6219a5c44efe04",
+            "title": "念无双》：源仲主动放弃灭世场面封神，姬谭音让他爱上了世界_搜狐网",
+            "source": "sohu.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:6d02c2388e2b41d0dbf4d83c9cff02e43ae7406cc689019ba60a83bfca1b5dd4",
+            "title": "念无双：源仲解开封印拥有源生之力，他却想用这股力量毁灭世间_搜狐网",
+            "source": "sohu.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:61fa54fae892ed78c9a1d60d42fe5540df995bb75939cc65beb5160fb5e285f5",
+            "title": "念无双》结局：源仲到死才知道的真相，姬谭音竟然瞒了他这么久_搜狐网",
+            "source": "sohu.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:2d10d09e04d0e085c33d473ef9b2a9cb1802a9fb737591e3b9c51a0e3f2d6148",
+            "title": "源仲是谁演的,源仲扮演者,念无双源仲_电视猫",
+            "source": "tvmao.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:3ced3fc438df42e783acb55ea48b205742436a43cb5a968368c333a4037cdd64",
+            "title": "念无双#刘学义#源仲第34集，魔君真的带感，附身后第一件事就是斩杀有狐族，间接替源仲报仇了。突然意识到我要是能修仙的话，好像有可能成为魔修或者邪修",
+            "source": "facebook.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:a472da5e8e6f07c9069cc48b9c5b7d5169ba16a0e7a474990189ad3bbe38f491",
+            "title": "念无双这剧里， 源仲、棠华、千麟都怪好看的以及有狐族丁戌长老",
+            "source": "facebook.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:b18fe8abdc670f196fa122815fe0ce62c77252608232f7840c1a54d4d6493081",
+            "title": "看完《念无双》36集大结局，我想给编剧寄刀片，太悲伤了",
+            "source": "news.qq.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:935225a48351deb8e0798fdc60aaefb872dd3a92a6ad0a18030004aa4a504259",
+            "title": "念无双》源仲造型_新浪新闻",
+            "source": "sina.cn",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:94beab3b76e7299d620436a5567b0e67d424da8961fd041677f9a42d4ec90bf5",
+            "title": "念無雙＃源仲你天蠍座的吧源仲為了讓譚音放不下自己，眼睛好了隱瞞不說，甚至不惜用法力偷偷加重已經快要痊癒的傷勢，還各種嘴甜討好！  等到譚音真的開口說要離開一陣子，他瞬間變臉，整個心態都崩了，不但異想天開地說，不能像以前那樣，假死一段時間再醒過來嗎？還質問 ...",
+            "source": "facebook.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:44dfb120d8a976c5c1058c9948c523c982e6159fa74f0d8f1035aef4ca204f64",
+            "title": "念无双》姬谭音为了救源仲先后死了四次‌，为何源仲就是迟迟不愿意信任和接纳她？",
+            "source": "news.qq.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:283635c4b81dac1de7ecfaded3baad054a3e1cb0f2e895093314d1966be475d7",
+            "title": "念无双》：源仲主动放弃灭世场面封神，姬谭音让他爱上了世界_搜狐网",
+            "source": "sohu.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:a8214df51ccb734f7f84c2c20a02cafc931ce9add56061ca2ac0c2e3e2653614",
+            "title": "念无双》源仲造型_新浪新闻",
+            "source": "sina.cn",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:95ec372d099020b7dae148cc03ca24956ee5c4ae6f17ce87946a4f837a86c593",
+            "title": "念無雙》劇情五大看點＆角色介紹：唐嫣首部仙俠大女主劇，救贖狐族祭司劉學義！",
+            "source": "beauty321.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:112444fbe4d7a292ce85976d24f8c8afd242566c7990fd43f62c474740b9dce0",
+            "title": "念无双》评价出炉，剧情老套人设浮夸，观众点评近乎一边倒",
+            "source": "news.qq.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:7538379daa98fc1a046a76f3cdcacedf2a2ad6c4c5ca2e92637152d779dbd510",
+            "title": "念无双》大结局，他们都得到自己想要的了吗？_搜狐网",
+            "source": "sohu.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          },
+          {
+            "identity": "sha256:ae11c1b0caab562ce3a693c7a1dacfa62e78d1386c301e8c0bc87c14dd69d612",
+            "title": "屠魔弑神燃爆！《念无双》大结局反转源仲竟是殉道者- 360娱乐",
+            "source": "m.yule.360.com",
+            "thumbnail": "https://encrypted-tbn0.gstatic.com/images"
+          }
+        ]
+      },
+      "error": null,
+      "baselineIncrementalUniqueCount": 7,
+      "replacementIncrementalUniqueCount": 8,
+      "baselineUniqueImageIdentityCount": 94,
+      "replacementUniqueImageIdentityCount": 95,
+      "uniqueYieldDelta": 1,
+      "improvesIncrementalYield": true,
+      "qualifies": true
+    }
+  ]
+}
