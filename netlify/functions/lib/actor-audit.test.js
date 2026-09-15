@@ -457,6 +457,7 @@ function harness({
   searchResultCount = 9,
   searchResultsForQuery = null,
   searchDelayMs = 0,
+  searchFailure = null,
 } = {}) {
   const store = memoryStore();
   let runNumber = 0;
@@ -503,6 +504,11 @@ function harness({
       activeSearches += 1;
       maxConcurrentSearches = Math.max(maxConcurrentSearches, activeSearches);
       if (searchDelayMs) await new Promise(resolve => setTimeout(resolve, searchDelayMs));
+      if (searchFailure?.(query, options)) {
+        searchCall += 1;
+        activeSearches -= 1;
+        throw new Error(`Search gateway failed for ${options.cacheMode}.`);
+      }
       const pass = Math.floor(searchCall++ / actorPacks[0].vibes[0].queries.length);
       const results = (searchResultsForQuery
         ? searchResultsForQuery(query, searchCall - 1)
@@ -2375,6 +2381,35 @@ test("cache diagnostic compares normal and bypassed fetches for one frozen query
   assert.deepEqual(payload.diagnostic.comparisons[0].normal.providerFetchOrder, ["test"]);
   assert.equal(payload.diagnostic.comparisons[0].sameResultFingerprint, true);
   assert.equal(getMaxConcurrentSearches(), 3);
+  assert.equal(store.records.size, 0);
+});
+
+test("cache diagnostic retains successful query sides and labels the exact failed cache mode", async () => {
+  const failedQuery = pairActor.vibes[0].queries[1];
+  const { handler, store, getSearchCall } = harness({
+    searchFailure: (query, options) => query === failedQuery && options.cacheMode === "refresh",
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const response = await handler(request("POST", {
+    action: "cache_diagnostic",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+  }), {});
+  const payload = await response.json();
+  const failed = payload.diagnostic.comparisons[1];
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.diagnostic.comparisons.length, 3);
+  assert.equal(failed.query, failedQuery);
+  assert.ok(failed.normal);
+  assert.equal(failed.bypassed, null);
+  assert.equal(failed.normalError, null);
+  assert.equal(failed.bypassedError, "Search gateway failed for refresh.");
+  assert.equal(failed.sameResultFingerprint, null);
+  assert.ok(payload.diagnostic.comparisons[0].normal);
+  assert.ok(payload.diagnostic.comparisons[0].bypassed);
+  assert.equal(getSearchCall(), 6);
   assert.equal(store.records.size, 0);
 });
 

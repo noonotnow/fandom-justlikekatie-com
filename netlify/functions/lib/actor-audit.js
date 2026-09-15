@@ -525,16 +525,36 @@ export function createActorAuditHandler({
           { baseLimit: scope === "representative" ? 3 : null },
         );
         const comparisons = await Promise.all(frozenQueries.map(async query => {
-          const normal = await searchOneQuery(query, { debug: true, cacheMode: "default" });
-          const bypassed = await searchOneQuery(query, { debug: true, cacheMode: "refresh" });
+          const settleSearch = async cacheMode => {
+            try {
+              return {
+                status: "fulfilled",
+                value: await searchOneQuery(query, { debug: true, cacheMode }),
+              };
+            } catch (reason) {
+              return { status: "rejected", reason };
+            }
+          };
+          const normalResult = await settleSearch("default");
+          const bypassedResult = await settleSearch("refresh");
+          const normal = normalResult.status === "fulfilled" ? normalResult.value : null;
+          const bypassed = bypassedResult.status === "fulfilled" ? bypassedResult.value : null;
           return {
             query,
-            normal: searchCacheDiagnosticReceipt(normal),
-            bypassed: searchCacheDiagnosticReceipt(bypassed),
-            sameResultFingerprint: normal.cacheProvenance?.resultFingerprint
-              === bypassed.cacheProvenance?.resultFingerprint,
-            sameProviderFetchOrder: JSON.stringify(normal.providerFetchOrder || [])
-              === JSON.stringify(bypassed.providerFetchOrder || []),
+            normal: normal ? searchCacheDiagnosticReceipt(normal) : null,
+            bypassed: bypassed ? searchCacheDiagnosticReceipt(bypassed) : null,
+            normalError: normalResult.status === "rejected"
+              ? String(normalResult.reason?.message || normalResult.reason || "Normal search failed.")
+              : null,
+            bypassedError: bypassedResult.status === "rejected"
+              ? String(bypassedResult.reason?.message || bypassedResult.reason || "Bypass search failed.")
+              : null,
+            sameResultFingerprint: normal && bypassed
+              ? normal.cacheProvenance?.resultFingerprint === bypassed.cacheProvenance?.resultFingerprint
+              : null,
+            sameProviderFetchOrder: normal && bypassed
+              ? JSON.stringify(normal.providerFetchOrder || []) === JSON.stringify(bypassed.providerFetchOrder || [])
+              : null,
           };
         }));
         return json(200, {

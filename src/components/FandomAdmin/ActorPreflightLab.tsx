@@ -185,27 +185,42 @@ export const ActorPreflightLab: React.FC = () => {
     }
   }
   async function runCacheDiagnostic() {
-    setBusy('cache-diagnostic'); setNotice(''); setCacheDiagnostic(null);
+    setBusy('cache-diagnostic'); setNotice('');
     try {
-      const manifestResult=await api({action:'cache_diagnostic_manifest',actorId,vibeKey,scope});
-      const manifest=manifestResult.diagnostic;
+      const retained=visibleCacheDiagnostic;
+      const manifest=retained??(await api({action:'cache_diagnostic_manifest',actorId,vibeKey,scope})).diagnostic;
       const frozenQueries=Array.isArray(manifest?.frozenQueries)?manifest.frozenQueries:[];
+      const previous=Array.isArray(retained?.comparisons)?retained.comparisons:[];
       const comparisons=await Promise.all(frozenQueries.map(async (query:string,queryIndex:number)=>{
-        const normalResult=await api({action:'cache_diagnostic_fetch',actorId,vibeKey,scope,queryIndex,cacheMode:'default'});
-        const bypassedResult=await api({action:'cache_diagnostic_fetch',actorId,vibeKey,scope,queryIndex,cacheMode:'refresh'});
+        const prior=previous[queryIndex]?.query===query?previous[queryIndex]:{query};
+        const fetchSide=async(cacheMode:'default'|'refresh')=>{
+          try {
+            const result=await api({action:'cache_diagnostic_fetch',actorId,vibeKey,scope,queryIndex,cacheMode});
+            return {search:result.search,error:null};
+          } catch(error:any) {
+            return {search:null,error:error?.message||'Search request failed.'};
+          }
+        };
+        const normalResult=prior.normal&&!prior.normalError?{search:prior.normal,error:null}:await fetchSide('default');
+        const bypassedResult=prior.bypassed&&!prior.bypassedError?{search:prior.bypassed,error:null}:await fetchSide('refresh');
         const normal=normalResult.search;
         const bypassed=bypassedResult.search;
         return {
           query,
           normal,
           bypassed,
-          sameResultFingerprint:normal?.resultFingerprint===bypassed?.resultFingerprint,
-          sameProviderFetchOrder:JSON.stringify(normal?.providerFetchOrder??[])===JSON.stringify(bypassed?.providerFetchOrder??[]),
+          normalError:normalResult.error,
+          bypassedError:bypassedResult.error,
+          sameResultFingerprint:normal&&bypassed?normal?.resultFingerprint===bypassed?.resultFingerprint:null,
+          sameProviderFetchOrder:normal&&bypassed?JSON.stringify(normal?.providerFetchOrder??[])===JSON.stringify(bypassed?.providerFetchOrder??[]):null,
         };
       }));
       const diagnostic={...manifest,comparedAt:new Date().toISOString(),comparisons};
       setCacheDiagnostic(diagnostic?.actorId===actorId&&diagnostic?.vibeKey===vibeKey&&diagnostic?.scope===scope?diagnostic:null);
-      setNotice('Normal and cache-bypassed searches compared on one frozen query set. No audit or eligibility record was changed.');
+      const failedSides=comparisons.reduce((count:number,item:AnyRecord)=>count+Number(Boolean(item.normalError))+Number(Boolean(item.bypassedError)),0);
+      setNotice(failedSides
+        ? `${failedSides} search ${failedSides===1?'request needs':'requests need'} retry. Completed comparisons were retained; no audit or eligibility record was changed.`
+        : 'Normal and cache-bypassed searches compared on one frozen query set. No audit or eligibility record was changed.');
     } catch(e:any){setNotice(e.message)} finally{setBusy('')}
   }
   async function saveBlindChoice(choice:'event'|'compiled'|'neither') { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy('blind-choice'); setNotice(''); try { const result=await api({action:'blind_choice',actorId,vibeKey,runId:currentRun.runId,choice}); applyRefresh(result); setRun(result.currentRun ?? null); setCurrentRun(result.currentRun ?? null); setPriorRuns(result.priorRuns ?? []); setDisagreementReasons(result.currentRun?.blindReview?.reasonCodes ?? []); setEditorialNote(result.currentRun?.blindReview?.note ?? ''); setNotice('Independent choice recorded. The system result is now revealed.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
@@ -459,8 +474,15 @@ export const ActorPreflightLab: React.FC = () => {
        <main className={styles.detail}>{!actor?<div className={styles.empty}>No actor profiles returned.</div>:<><section className={`${styles.panel} ${styles.detailPanel}`}><div className={styles.detailHead}><div><p className={styles.eyebrow}>Selected profile</p><h4>{actor.canonicalName}</h4><p>{actor.romanizedName} · aliases: {text(actor.aliases)}</p></div><span className={styles.muted}>Profile v{actor.profileVersion ?? '—'}</span></div><div className={styles.pairingStrip}>{(actor.pairings??[]).map(item=><button className={styles.pairing} data-selected={item.vibeKey===vibeKey} key={item.vibeKey} onClick={()=>{clearHandoff();setVibeKey(item.vibeKey)}}><strong>{text(item.labels) || item.vibeKey}</strong><span className={styles.state} data-state={item.auditState}>{item.auditState==='needs_reapproval' ? 'Needs reapproval' : item.auditState==='calibration_reaudit_required' ? 'Calibration reaudit required' : item.verdict ?? item.auditState ?? 'unreviewed'}</span><small>{item.queryCount ?? 0} queries · {date(item.lastRunAt)}</small></button>)}</div><div className={styles.controls}><button className={`${styles.buttonPrimary} ${currentRunIsLegacy?styles.freshAuditButton:''}`} disabled={!vibeKey||!!busy} onClick={()=>void startAudit(scope)}>{busy ? 'Running evidence pass…' : currentRunIsLegacy ? 'Run fresh audit' : 'Run audit'}</button><select className={styles.select} value={scope} onChange={e=>setScope(e.target.value)} aria-label="Audit scope"><option value="representative">Representative scope</option><option value="full">Full scope</option></select><span className={styles.status}>{pairing?.auditState==='blind_review_pending'?'Calibration pending':pairing?.auditState==='calibration_reaudit_required'?'Calibration reaudit required':pairing?.auditState==='needs_reapproval'?'Fresh audit required':pairing?.eligible===false?'Not eligible for scheduling':'Eligible for review'}</span></div></section>
           <section className={styles.panel} aria-label="Search cache diagnostic">
             <div className={styles.detailHead}><div><p className={styles.eyebrow}>Read-only search proof</p><h4>Normal vs bypass cache comparison</h4><p>Runs the selected frozen query set once normally and once with cache bypass requested. It does not save an audit or change ranking, scoring, eligibility, curation, or publication.</p></div></div>
-            <div className={styles.controls}><button type="button" className={styles.buttonSecondary} disabled={!vibeKey||!!busy} onClick={()=>void runCacheDiagnostic()}>{busy==='cache-diagnostic'?'Comparing cache paths…':'Compare normal vs bypass'}</button><span className={styles.muted}>{scope} scope</span></div>
-            {visibleCacheDiagnostic&&<details open><summary>Comparison receipt · {visibleCacheDiagnostic.comparisons?.length ?? 0} frozen queries</summary><pre>{text(visibleCacheDiagnostic)}</pre></details>}
+            <div className={styles.controls}><button type="button" className={styles.buttonSecondary} disabled={!vibeKey||!!busy} onClick={()=>void runCacheDiagnostic()}>{busy==='cache-diagnostic'?'Comparing cache paths…':visibleCacheDiagnostic?.comparisons?.some((item:AnyRecord)=>item.normalError||item.bypassedError)?'Retry failed searches':'Compare normal vs bypass'}</button><span className={styles.muted}>{scope} scope</span></div>
+            {visibleCacheDiagnostic&&<details open><summary>Comparison receipt · {visibleCacheDiagnostic.comparisons?.filter((item:AnyRecord)=>item.normal&&item.bypassed).length ?? 0} of {visibleCacheDiagnostic.comparisons?.length ?? 0} complete</summary>
+              {(visibleCacheDiagnostic.comparisons??[]).map((item:AnyRecord,index:number)=><div key={`${index}:${item.query}`}>
+                <strong>{index+1}. {item.query}</strong>
+                {item.normalError&&<p className={styles.error} role="status">Normal request failed: {item.normalError}</p>}
+                {item.bypassedError&&<p className={styles.error} role="status">Bypass request failed: {item.bypassedError}</p>}
+              </div>)}
+              <pre>{text(visibleCacheDiagnostic)}</pre>
+            </details>}
           </section>
           <section className={styles.panel}>
             {calibrationProfile&&<><CalibrationApproval profile={calibrationProfile} busy={busy} onApprove={approveCalibration} onRevoke={revokeCalibrationApproval}/><CalibrationProfileSummary profile={calibrationProfile} busy={busy} onRetireCalibration={retireRescueCalibration}/><CalibrationTransferSummary profile={calibrationProfile} busy={busy} onRetireSignal={retireRescueSignal}/></>}
