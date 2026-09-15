@@ -175,7 +175,7 @@ button { font: inherit; }
   max-width: var(--max);
   padding: 0 24px 100px;
 }
-.article { max-width: 780px; }
+.article { max-width: 780px; min-width: 0; }
 .article > section { border-top: 1px solid var(--line); padding: 52px 0; }
 .article h2 {
   font: 500 clamp(34px, 5vw, 56px)/1.05 Georgia, "Times New Roman", serif;
@@ -296,6 +296,41 @@ button { font: inherit; }
 }
 .topic-card h3 { font-size: 23px; margin-top: 0; }
 .topic-card p { font-size: 15px; margin-bottom: 0; }
+.authority-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 32px 0;
+}
+.authority-card {
+  background: rgba(16, 37, 55, 0.58);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-height: 280px;
+  padding: clamp(22px, 4vw, 30px);
+}
+.authority-card--wide { grid-column: 1 / -1; min-height: 0; }
+.authority-card > span {
+  color: var(--gold);
+  font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.authority-card h3 { font-size: clamp(24px, 3vw, 32px); margin: 22px 0 12px; }
+.authority-card p { font-size: 15px; margin: 0 0 24px; }
+.authority-card .authority-card__link {
+  border-top: 1px solid var(--line);
+  color: var(--paper);
+  font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+  margin-top: auto;
+  padding-top: 16px;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+.authority-card .authority-card__link:hover,
+.authority-card .authority-card__link:focus-visible { color: var(--gold); }
 .glossary {
   display: grid;
   gap: 1px;
@@ -382,6 +417,12 @@ button { font: inherit; }
   border-collapse: collapse;
   font-size: 14px;
   margin: 30px 0;
+  max-width: 100%;
+  width: 100%;
+}
+.comparison-table table {
+  border-collapse: collapse;
+  min-width: 680px;
   width: 100%;
 }
 .comparison-table th, .comparison-table td {
@@ -724,7 +765,8 @@ button { font: inherit; }
   body { font-size: 16px; }
   .hero { padding-top: 54px; }
   .hero h1 { font-size: clamp(46px, 16vw, 72px); }
-  .topic-grid, .path-grid, .glossary { grid-template-columns: 1fr; }
+  .topic-grid, .path-grid, .glossary, .authority-grid { grid-template-columns: 1fr; }
+  .authority-card--wide { grid-column: auto; }
   .lens-grid { grid-template-columns: 1fr; }
   .signal-grid { grid-template-columns: 1fr; }
   .studio-specimens { grid-template-columns: 1fr; }

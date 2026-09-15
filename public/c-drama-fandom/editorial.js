@@ -34,6 +34,7 @@
     "boundary-check",
     "interactive-tool",
     "watch-application",
+    "drama-examples",
     "atlas-continuation",
     "archetype-signals",
     "fandom-usage",
