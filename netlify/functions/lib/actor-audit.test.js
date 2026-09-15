@@ -9,6 +9,7 @@ import {
   vibePromiseFor,
 } from "./actor-identity-profiles.js";
 import {
+  auditBlindCalibrationExclusionKey,
   auditCalibrationPrefix,
   auditVisualJudgmentIndexKey,
   auditVisualJudgmentKey,
@@ -4669,6 +4670,113 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
   assert.deepEqual(applied?.positiveQueries, [querySignal]);
   for (const [key, value] of immutableRuns) assert.deepEqual(store.records.get(key), value);
   for (const [key, value] of immutableJudgments) assert.deepEqual(store.records.get(key), value);
+});
+
+test("one blind-review example can be excluded without rewriting its audit or judgment", async () => {
+  const { handler, store } = harness({ freshEvidenceOnRerun: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const originals = new Map();
+  for (const runId of ["run-1", "run-2"]) {
+    await handler(request("POST", { action: "run", actorId: pairActor.id, vibeKey, scope: "full" }), {});
+    const runKey = auditRunKey(pairActor.id, 0, runId);
+    const run = store.records.get(runKey);
+    run.calibrationAnalysis = {
+      ...(run.calibrationAnalysis || {}),
+      candidates: run.rawResults.slice(0, 5).map((candidate, index) => ({
+        ...candidate, occurrenceId: `${runId}:exclude:${index}`, query: "exclude repeated query",
+        visualClass: "supporting", selected: false, dropReason: "unusable_image",
+      })),
+    };
+    store.records.set(runKey, run);
+    for (const [index, candidate] of run.calibrationAnalysis.candidates.entries()) {
+      const receiptId = `${runId}-exclude-${index}`;
+      const receipt = { receiptId, runId, sourceOccurrenceId: candidate.occurrenceId,
+        classification: index === 0 ? "core" : "supporting", judgedAt: "2026-09-15T12:00:00.000Z" };
+      const key = auditVisualJudgmentKey(pairActor.id, 0, runId, receiptId);
+      store.records.set(key, receipt);
+      originals.set(key, structuredClone(receipt));
+    }
+    originals.set(runKey, structuredClone(run));
+  }
+  const before = await (await handler(request("GET", undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`), {})).json();
+  const evidence = before.calibrationProfile.evidenceLedger.find(item => item.sourceRunId === "run-1");
+  const item = evidence.blindReviewEvidence.disagreements[0];
+  const approved = await handler(request("POST", {
+    action: "approve_rescue_calibration", actorId: pairActor.id, vibeKey,
+    adjustmentType: "query_ladder", direction: "positive", signalValues: ["exclude repeated query"],
+  }), {});
+  assert.equal(approved.status, 200);
+  const excludedResponse = await handler(request("POST", {
+    action: "exclude_blind_calibration_item", actorId: pairActor.id, vibeKey,
+    receiptId: evidence.sourceRescueReceiptId, judgmentReceiptId: item.judgmentReceiptId,
+    reason: "Later source review showed this thumbnail was mislabeled.",
+  }), {});
+  const excluded = await excludedResponse.json();
+  assert.equal(excludedResponse.status, 200, JSON.stringify(excluded));
+  assert.equal(excluded.calibrationProfile.reviewedRunCount, 1);
+  assert.equal(excluded.calibrationProfile.approvalReady, false);
+  assert.equal(excluded.calibrationProfile.activeApproval, null);
+  assert.equal(excluded.calibrationProfile.excludedBlindEvidenceCount, 1);
+  assert.notEqual(excluded.calibrationProfile.retirementHash, before.calibrationProfile.retirementHash);
+  const retry = await handler(request("POST", {
+    action: "exclude_blind_calibration_item", actorId: pairActor.id, vibeKey,
+    receiptId: evidence.sourceRescueReceiptId, runId: evidence.sourceRunId,
+    judgmentReceiptId: item.judgmentReceiptId,
+    reason: "Later source review showed this thumbnail was mislabeled.",
+  }), {});
+  assert.equal(retry.status, 200);
+  const changedSyntheticReceipt = `blind-${"f".repeat(24)}`;
+  const exclusionKey = auditBlindCalibrationExclusionKey(
+    pairActor.id, 0, evidence.sourceRunId, item.judgmentReceiptId,
+  );
+  const exclusionReceipt = store.records.get(exclusionKey);
+  assert.equal(exclusionReceipt.sourceRunId, evidence.sourceRunId);
+  assert.notEqual(exclusionReceipt.sourceRescueReceiptId, changedSyntheticReceipt);
+  for (const [key, value] of originals) assert.deepEqual(store.records.get(key), value);
+
+  const runKey = auditRunKey(pairActor.id, 0, evidence.sourceRunId);
+  const appendedRun = store.records.get(runKey);
+  const appendedCandidate = {
+    ...appendedRun.calibrationAnalysis.candidates[1],
+    candidateId: item.candidateId,
+    occurrenceId: `${evidence.sourceRunId}:exclude:appended`,
+    visualClass: "supporting",
+  };
+  appendedRun.calibrationAnalysis.candidates.push(appendedCandidate);
+  appendedRun.rawResults.push(appendedCandidate);
+  store.records.set(runKey, appendedRun);
+  const appendedJudgment = {
+    receiptId: `${evidence.sourceRunId}-exclude-appended`,
+    runId: evidence.sourceRunId,
+    sourceOccurrenceId: appendedCandidate.occurrenceId,
+    classification: "core",
+    judgedAt: "2026-09-15T12:30:00.000Z",
+  };
+  store.records.set(
+    auditVisualJudgmentKey(
+      pairActor.id,
+      0,
+      evidence.sourceRunId,
+      appendedJudgment.receiptId,
+    ),
+    appendedJudgment,
+  );
+  const afterAppend = await (await handler(request("GET", undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`), {})).json();
+  assert.equal(afterAppend.calibrationProfile.excludedBlindEvidenceCount, 1);
+  assert.ok(afterAppend.calibrationProfile.diagnostics.blindEvidenceExclusions.some(receipt =>
+    receipt.judgmentReceiptId === item.judgmentReceiptId));
+  assert.ok(afterAppend.calibrationProfile.evidenceLedger.some(entry =>
+    entry.sourceRunId === evidence.sourceRunId
+    && entry.blindReviewEvidence.disagreements.some(disagreement =>
+      disagreement.judgmentReceiptId === appendedJudgment.receiptId
+      && disagreement.status !== "excluded")));
+  const appendedEvidence = afterAppend.calibrationProfile.evidenceLedger.find(entry =>
+    entry.sourceRunId === evidence.sourceRunId);
+  assert.ok(appendedEvidence.blindReviewEvidence.disagreements.some(disagreement =>
+    disagreement.judgmentReceiptId === item.judgmentReceiptId
+    && disagreement.status === "excluded"));
 });
 
 test("repeated negative calibration applies only the approved signal and revokes without rewriting evidence", async () => {

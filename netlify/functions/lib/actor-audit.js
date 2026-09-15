@@ -43,6 +43,8 @@ import {
   auditRescueCalibrationRetirementPrefix,
   auditRescueCalibrationSignalRetirementKey,
   auditRescueCalibrationSignalRetirementPrefix,
+  auditBlindCalibrationExclusionKey,
+  auditBlindCalibrationExclusionPrefix,
   auditRescueCalibrationOutcomeKey,
   auditRescueCalibrationOutcomePrefix,
   auditRescueCalibrationApprovalKey,
@@ -2318,6 +2320,79 @@ export function createActorAuditHandler({
         const write = await store.setJSON(retirementKey, retirement, { onlyIfNew: true });
         if (write?.modified === false) {
           return json(409, { error: "Another operator retired this signal first." });
+        }
+        const next = await readReport(store, pair);
+        return json(200, {
+          actor: await actorSummary(store, actorPacks, pair.actor),
+          pairing: pairingSummary(pair, next),
+          ...detailResponse(pair, next),
+        });
+      }
+
+      if (input.action === "exclude_blind_calibration_item") {
+        if (typeof input.receiptId !== "string"
+          || !/^[A-Za-z0-9_-]{1,128}$/.test(input.receiptId)
+          || typeof input.judgmentReceiptId !== "string"
+          || !/^[A-Za-z0-9_-]{1,128}$/.test(input.judgmentReceiptId)) {
+          return json(400, { error: "Choose one blind-review evidence item to exclude." });
+        }
+        const reason = boundedText(input.reason, MAX_CALIBRATION_RETIREMENT_REASON_LENGTH);
+        if (!reason) {
+          return json(400, { error: "Explain why this blind-review example is misleading." });
+        }
+        const report = await readReport(store, pair);
+        const evidence = report.calibrationProfile?.evidenceLedger?.find(item =>
+          item.evidenceType === "blind_review_disagreement"
+          && item.sourceRescueReceiptId === input.receiptId);
+        const sourceRunId = evidence?.sourceRunId || boundedText(input.runId, 128);
+        const exclusionKey = sourceRunId
+          ? auditBlindCalibrationExclusionKey(
+            pair.actor.id,
+            pair.vibeIdx,
+            sourceRunId,
+            input.judgmentReceiptId,
+          )
+          : null;
+        const existing = exclusionKey
+          ? await store.get(exclusionKey, { type: "json", consistency: "strong" })
+          : null;
+        if (existing) {
+          if (existing.reason !== reason) {
+            return json(409, { error: "That blind-review exclusion receipt is immutable." });
+          }
+          const next = await readReport(store, pair);
+          return json(200, {
+            actor: await actorSummary(store, actorPacks, pair.actor),
+            pairing: pairingSummary(pair, next),
+            ...detailResponse(pair, next),
+          });
+        }
+        const disagreement = evidence?.blindReviewEvidence?.disagreements?.find(item =>
+          item.judgmentReceiptId === input.judgmentReceiptId
+          && item.status !== "excluded");
+        if (!disagreement || !sourceRunId || !exclusionKey) {
+          return json(404, { error: "That active blind-review evidence item was not found." });
+        }
+        {
+          const exclusion = {
+            schemaVersion: 1,
+            exclusionVersion: 1,
+            exclusionId: createFeedbackId(),
+            status: "excluded",
+            sourceRescueReceiptId: input.receiptId,
+            sourceRunId,
+            judgmentReceiptId: input.judgmentReceiptId,
+            sourceOccurrenceId: disagreement.occurrenceId,
+            actorId: pair.actor.id,
+            vibeKey: pair.vibeKey,
+            reason,
+            excludedAt: now().toISOString(),
+            excludedBy: operator.user.accountId,
+          };
+          const write = await store.setJSON(exclusionKey, exclusion, { onlyIfNew: true });
+          if (write?.modified === false) {
+            return json(409, { error: "Another operator excluded this example first." });
+          }
         }
         const next = await readReport(store, pair);
         return json(200, {
@@ -5787,7 +5862,11 @@ function blindReviewCalibrationRecord(run, pair) {
     const humanWeight = classWeight.get(judgment.classification);
     if (proxyWeight === undefined || humanWeight === undefined || proxyWeight === humanWeight) continue;
     const direction = humanWeight > proxyWeight ? "positive" : "negative";
-    const snapshot = calibrationCandidateSnapshot(candidate);
+    const snapshot = {
+      ...calibrationCandidateSnapshot(candidate),
+      occurrenceId,
+      judgmentReceiptId: judgment.receiptId,
+    };
     (direction === "positive" ? positive : negative).push(snapshot);
     disagreements.push({
       occurrenceId,
@@ -5856,7 +5935,7 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
       return run ? attachVerdict(store, pair, run) : null;
     }))).filter(Boolean);
   }
-  const [confirmedReceipts, retirementReceipts, signalRetirementReceipts, outcomeReceipts, approvalReceipts, approvalRevocations, canonicalAuthority] = await Promise.all([
+  const [confirmedReceipts, retirementReceipts, signalRetirementReceipts, blindExclusionReceipts, outcomeReceipts, approvalReceipts, approvalRevocations, canonicalAuthority] = await Promise.all([
     readReceipts(
       store,
       auditRescueCalibrationPrefix(pair.actor.id, pair.vibeIdx),
@@ -5871,6 +5950,11 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
       store,
       auditRescueCalibrationSignalRetirementPrefix(pair.actor.id, pair.vibeIdx),
       "retiredAt",
+    ),
+    readReceipts(
+      store,
+      auditBlindCalibrationExclusionPrefix(pair.actor.id, pair.vibeIdx),
+      "excludedAt",
     ),
     readReceipts(
       store,
@@ -5919,7 +6003,57 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
     && record.vibePack?.key === pair.vibeKey
     && rescueCalibrationMatchesCurrentContract(record, pair)
   );
-  const blindRecords = reviewedRuns.map(run => blindReviewCalibrationRecord(run, pair)).filter(Boolean);
+  const blindExclusions = blindExclusionReceipts.filter(exclusion =>
+    exclusion.status === "excluded"
+    && exclusion.actorId === pair.actor.id
+    && exclusion.vibeKey === pair.vibeKey);
+  const exclusionByJudgment = new Map(blindExclusions.map(exclusion => [
+    `${exclusion.sourceRunId}:${exclusion.judgmentReceiptId}`,
+    exclusion,
+  ]));
+  const blindRecords = reviewedRuns.map(run => blindReviewCalibrationRecord(run, pair))
+    .filter(Boolean)
+    .map(record => {
+      const activeDisagreements = record.blindReviewEvidence.disagreements.filter(item =>
+        !exclusionByJudgment.has(`${record.sourceRunId}:${item.judgmentReceiptId}`));
+      if (!activeDisagreements.length) return null;
+      const activeOccurrenceIds = new Set(activeDisagreements.map(item => item.occurrenceId));
+      const selectedNine = record.selectedNine.filter(item =>
+        activeOccurrenceIds.has(item.occurrenceId));
+      const omittedAlternatives = record.omittedAlternatives.filter(item =>
+        activeOccurrenceIds.has(item.occurrenceId));
+      const reusableFamilies = ["candidateIds", "queries", "sources", "clusters", "composition"];
+      return {
+        ...record,
+        selectedNine,
+        omittedAlternatives,
+        sourceEvidenceCandidateIds: [...new Set(activeDisagreements
+          .map(item => item.candidateId).filter(Boolean))],
+        signals: {
+          positive: signalValues(selectedNine),
+          negative: signalValues(omittedAlternatives),
+          reusable: Object.fromEntries(reusableFamilies.map(family => [
+            family,
+            preferredSignals(
+              signalValues(selectedNine)[family],
+              signalValues(omittedAlternatives)[family],
+            ),
+          ])),
+        },
+        blindReviewEvidence: {
+          ...record.blindReviewEvidence,
+          disagreements: record.blindReviewEvidence.disagreements.map(item => {
+            const exclusion = exclusionByJudgment.get(
+              `${record.sourceRunId}:${item.judgmentReceiptId}`,
+            );
+            return exclusion ? { ...item, status: "excluded", exclusion } : item;
+          }),
+          activeDisagreementCount: activeDisagreements.length,
+          excludedDisagreementCount:
+            record.blindReviewEvidence.disagreements.length - activeDisagreements.length,
+        },
+      };
+    }).filter(Boolean);
   const currentRecords = [...rescueRecords, ...blindRecords];
   if (!currentRecords.length) return null;
   const currentReceiptIds = new Set(currentRecords.map(record =>
@@ -5980,8 +6114,8 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
     ),
   }));
   const retiredReceiptIds = [...retirementByReceipt.keys()].sort();
-  const retirementHash = retirements.length || signalRetirements.length
-    ? rescueCalibrationRetirementHash(retirements, signalRetirements)
+  const retirementHash = retirements.length || signalRetirements.length || blindExclusions.length
+    ? rescueCalibrationRetirementHash(retirements, signalRetirements, blindExclusions)
     : null;
   const positive = key => records.flatMap(record =>
     (record.signals?.positive?.[key] || [])
@@ -6067,7 +6201,8 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
     totalConfirmedEvidenceCount: currentRecords.length,
     retiredEvidenceCount: retirements.length,
     retiredSignalCount: signalRetirements.length,
-    requiresFreshAudit: retirements.length > 0 || signalRetirements.length > 0,
+    excludedBlindEvidenceCount: blindExclusions.length,
+    requiresFreshAudit: retirements.length > 0 || signalRetirements.length > 0 || blindExclusions.length > 0,
     sourceReceiptIds: records.map(record => record.sourceRescueReceiptId).sort(),
     minimumApprovalEvidenceCount: MIN_CALIBRATION_APPROVAL_EVIDENCE,
     approvalReady: reviewedRunCount >= MIN_CALIBRATION_APPROVAL_EVIDENCE,
@@ -6124,8 +6259,9 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
         retiredAt: retirement.retiredAt,
         retiredBy: retirement.retiredBy,
       })),
-      summary: retirements.length || signalRetirements.length
-        ? `${retirements.length} confirmed calibration receipt${retirements.length === 1 ? " was" : "s were"} and ${signalRetirements.length} signal${signalRetirements.length === 1 ? " was" : "s were"} excluded after operator retirement receipts.`
+      blindEvidenceExclusions: blindExclusions,
+      summary: retirements.length || signalRetirements.length || blindExclusions.length
+        ? `${retirements.length} confirmed calibration receipt${retirements.length === 1 ? " was" : "s were"}, ${signalRetirements.length} signal${signalRetirements.length === 1 ? " was" : "s were"}, and ${blindExclusions.length} blind-review example${blindExclusions.length === 1 ? " was" : "s were"} excluded by immutable receipts.`
         : "No confirmed calibration evidence or signals are retired.",
     },
     positiveCandidateIds: candidateIds.positive,

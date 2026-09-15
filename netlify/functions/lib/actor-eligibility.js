@@ -84,6 +84,17 @@ export const auditRescueCalibrationSignalRetirementKey = (
   signalFamily,
   signalValue || "*",
 ].map(value => encodeURIComponent(value)).join("/")}`;
+export const auditBlindCalibrationExclusionPrefix = (actorId, vibeIdx) =>
+  `blind-calibration-exclusions/${actorId}/${vibeIdx}/`;
+export const auditBlindCalibrationExclusionKey = (
+  actorId,
+  vibeIdx,
+  sourceRunId,
+  judgmentReceiptId,
+) => `${auditBlindCalibrationExclusionPrefix(actorId, vibeIdx)}${[
+  sourceRunId,
+  judgmentReceiptId,
+].map(value => encodeURIComponent(value)).join("/")}`;
 export const auditRescueCalibrationOutcomePrefix = (actorId, vibeIdx) =>
   `rescue-calibration-outcomes/${actorId}/${vibeIdx}/`;
 export const auditRescueCalibrationOutcomeKey = (actorId, vibeIdx, runId) =>
@@ -105,7 +116,11 @@ export const productionReceiptKey = (actorId, vibeIdx, runId, receiptId) =>
 export const productionStateKey = (actorId, vibeIdx, runId) =>
   `production-state/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}`;
 
-export function rescueCalibrationRetirementHash(retirements = [], signalRetirements = []) {
+export function rescueCalibrationRetirementHash(
+  retirements = [],
+  signalRetirements = [],
+  blindExclusions = [],
+) {
   const receiptRetirements = retirements
     .filter(retirement => retirement?.status === "retired"
       && typeof retirement?.sourceRescueReceiptId === "string")
@@ -126,10 +141,21 @@ export function rescueCalibrationRetirementHash(retirements = [], signalRetireme
       signalValue: retirement.signalValue,
       retiredAt: retirement.retiredAt || null,
     }));
+  const exclusionEntries = blindExclusions
+    .filter(exclusion => exclusion?.status === "excluded"
+      && typeof exclusion?.sourceRescueReceiptId === "string"
+      && typeof exclusion?.judgmentReceiptId === "string")
+    .map(exclusion => ({
+      exclusionId: exclusion.exclusionId || null,
+      sourceRescueReceiptId: exclusion.sourceRunId,
+      judgmentReceiptId: exclusion.judgmentReceiptId,
+      excludedAt: exclusion.excludedAt || null,
+    }));
   return createHash("sha256").update(JSON.stringify(
-    [...receiptRetirements, ...signalEntries]
+    [...receiptRetirements, ...signalEntries, ...exclusionEntries]
       .sort((left, right) =>
         left.sourceRescueReceiptId.localeCompare(right.sourceRescueReceiptId)
+        || String(left.judgmentReceiptId || "").localeCompare(String(right.judgmentReceiptId || ""))
         || String(left.signalFamily || "").localeCompare(String(right.signalFamily || ""))
         || String(left.signalValue || "").localeCompare(String(right.signalValue || ""))
         || String(left.retirementId).localeCompare(String(right.retirementId))),
@@ -501,10 +527,11 @@ async function readReceipts(store, prefix, timestampField) {
 }
 
 async function currentRescueCalibrationRetirementHash(store, actorId, vibeIdx) {
-  const [calibrations, retirements, signalRetirements] = await Promise.all([
+  const [calibrations, retirements, signalRetirements, blindExclusions] = await Promise.all([
     readReceipts(store, auditRescueCalibrationPrefix(actorId, vibeIdx), "confirmedAt"),
     readReceipts(store, auditRescueCalibrationRetirementPrefix(actorId, vibeIdx), "retiredAt"),
     readReceipts(store, auditRescueCalibrationSignalRetirementPrefix(actorId, vibeIdx), "retiredAt"),
+    readReceipts(store, auditBlindCalibrationExclusionPrefix(actorId, vibeIdx), "excludedAt"),
   ]);
   const currentReceiptIds = new Set(calibrations
     .filter(calibration =>
@@ -525,8 +552,16 @@ async function currentRescueCalibrationRetirementHash(store, actorId, vibeIdx) {
     && currentReceiptIds.has(retirement.sourceRescueReceiptId)
     && typeof retirement.signalFamily === "string"
     && typeof retirement.signalValue === "string");
-  return currentRetirements.length || currentSignalRetirements.length
-    ? rescueCalibrationRetirementHash(currentRetirements, currentSignalRetirements)
+  const currentBlindExclusions = blindExclusions.filter(exclusion =>
+    exclusion.status === "excluded"
+    && exclusion.actorId === actorId
+    && exclusion.vibeKey === auditVibeKey(actorId, vibeIdx));
+  return currentRetirements.length || currentSignalRetirements.length || currentBlindExclusions.length
+    ? rescueCalibrationRetirementHash(
+      currentRetirements,
+      currentSignalRetirements,
+      currentBlindExclusions,
+    )
     : null;
 }
 
