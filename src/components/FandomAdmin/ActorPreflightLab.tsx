@@ -187,8 +187,23 @@ export const ActorPreflightLab: React.FC = () => {
   async function runCacheDiagnostic() {
     setBusy('cache-diagnostic'); setNotice(''); setCacheDiagnostic(null);
     try {
-      const result=await api({action:'cache_diagnostic',actorId,vibeKey,scope});
-      const diagnostic=result.diagnostic;
+      const manifestResult=await api({action:'cache_diagnostic_manifest',actorId,vibeKey,scope});
+      const manifest=manifestResult.diagnostic;
+      const frozenQueries=Array.isArray(manifest?.frozenQueries)?manifest.frozenQueries:[];
+      const comparisons=await Promise.all(frozenQueries.map(async (query:string,queryIndex:number)=>{
+        const normalResult=await api({action:'cache_diagnostic_fetch',actorId,vibeKey,scope,queryIndex,cacheMode:'default'});
+        const bypassedResult=await api({action:'cache_diagnostic_fetch',actorId,vibeKey,scope,queryIndex,cacheMode:'refresh'});
+        const normal=normalResult.search;
+        const bypassed=bypassedResult.search;
+        return {
+          query,
+          normal,
+          bypassed,
+          sameResultFingerprint:normal?.resultFingerprint===bypassed?.resultFingerprint,
+          sameProviderFetchOrder:JSON.stringify(normal?.providerFetchOrder??[])===JSON.stringify(bypassed?.providerFetchOrder??[]),
+        };
+      }));
+      const diagnostic={...manifest,comparedAt:new Date().toISOString(),comparisons};
       setCacheDiagnostic(diagnostic?.actorId===actorId&&diagnostic?.vibeKey===vibeKey&&diagnostic?.scope===scope?diagnostic:null);
       setNotice('Normal and cache-bypassed searches compared on one frozen query set. No audit or eligibility record was changed.');
     } catch(e:any){setNotice(e.message)} finally{setBusy('')}

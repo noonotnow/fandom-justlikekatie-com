@@ -551,6 +551,67 @@ export function createActorAuditHandler({
         });
       }
 
+      if (input.action === "cache_diagnostic_manifest") {
+        const scope = parseScope(input.scope);
+        if (!scope) return json(400, { error: "Diagnostic scope must be representative or full." });
+        const calibrationProfile = approvedCalibrationProfile(
+          await readRescueCalibrationProfile(store, pair),
+        );
+        const frozenQueries = searchQueriesFor(
+          pair.actor,
+          pair.vibeIdx,
+          calibrationProfile,
+          { baseLimit: scope === "representative" ? 3 : null },
+        );
+        return json(200, {
+          diagnostic: {
+            schemaVersion: 1,
+            diagnosticOnly: true,
+            actorId: pair.actor.id,
+            vibeKey: pair.vibeKey,
+            scope,
+            frozenQueries,
+          },
+        });
+      }
+
+      if (input.action === "cache_diagnostic_fetch") {
+        const scope = parseScope(input.scope);
+        if (!scope) return json(400, { error: "Diagnostic scope must be representative or full." });
+        const queryIndex = Number(input.queryIndex);
+        if (!Number.isInteger(queryIndex) || queryIndex < 0) {
+          return json(400, { error: "Diagnostic query index is invalid." });
+        }
+        const cacheMode = input.cacheMode === "refresh"
+          ? "refresh"
+          : input.cacheMode === "default"
+          ? "default"
+          : null;
+        if (!cacheMode) return json(400, { error: "Diagnostic cache mode is invalid." });
+        const calibrationProfile = approvedCalibrationProfile(
+          await readRescueCalibrationProfile(store, pair),
+        );
+        const frozenQueries = searchQueriesFor(
+          pair.actor,
+          pair.vibeIdx,
+          calibrationProfile,
+          { baseLimit: scope === "representative" ? 3 : null },
+        );
+        const query = frozenQueries[queryIndex];
+        if (!query) return json(400, { error: "Diagnostic query index is out of range." });
+        const search = await searchOneQuery(query, { debug: true, cacheMode });
+        return json(200, {
+          diagnosticOnly: true,
+          actorId: pair.actor.id,
+          vibeKey: pair.vibeKey,
+          scope,
+          queryIndex,
+          query,
+          cacheMode,
+          search: searchCacheDiagnosticReceipt(search),
+        });
+      }
+
       if (input.action === "run") {
         const scope = parseScope(input.scope);
         if (!scope) return json(400, { error: "Audit scope must be representative or full." });

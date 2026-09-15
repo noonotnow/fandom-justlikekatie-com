@@ -9,8 +9,8 @@ SerpAPI result-cache bypasses must use the provider-supported `no_cache=true` re
 
 **How to apply:** Add the provider parameter only for explicit, private refresh diagnostics. Keep ordinary searches cacheable, preserve quota controls, and report the provider-controlled bypass separately from generic HTTP cache headers.
 
-Run independent frozen-query comparisons concurrently while preserving normal-then-bypass order within each query.
+Run independent frozen-query comparisons as separate serverless requests while preserving normal-then-bypass order within each query.
 
-**Why:** Fresh provider searches are substantially slower than cached searches. Serial full-scope comparisons can exceed the serverless request window and surface only a gateway response.
+**Why:** Fresh provider searches are substantially slower than cached searches. Both serial and concurrent full-scope work inside one invocation can exceed the serverless request window and surface only a gateway response.
 
-**How to apply:** Parallelize across the bounded frozen query set, not within a query pair. Keep result ordering deterministic and retain one comparison receipt per query.
+**How to apply:** Fetch a server-derived frozen-query manifest, run one provider search per request, and assemble the diagnostic receipt in the private client. Never accept arbitrary query text from the client.

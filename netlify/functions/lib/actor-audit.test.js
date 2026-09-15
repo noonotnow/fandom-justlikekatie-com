@@ -2378,6 +2378,52 @@ test("cache diagnostic compares normal and bypassed fetches for one frozen query
   assert.equal(store.records.size, 0);
 });
 
+test("cache diagnostic can be assembled from one-search serverless requests", async () => {
+  const { handler, store, getSearchCall } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const manifestResponse = await handler(request("POST", {
+    action: "cache_diagnostic_manifest",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+  }), {});
+  const manifest = (await manifestResponse.json()).diagnostic;
+
+  assert.equal(manifestResponse.status, 200);
+  assert.deepEqual(manifest.frozenQueries, pairActor.vibes[0].queries.slice(0, 3));
+  assert.equal(getSearchCall(), 0);
+
+  const normalResponse = await handler(request("POST", {
+    action: "cache_diagnostic_fetch",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+    queryIndex: 0,
+    cacheMode: "default",
+  }), {});
+  const bypassedResponse = await handler(request("POST", {
+    action: "cache_diagnostic_fetch",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+    queryIndex: 0,
+    cacheMode: "refresh",
+  }), {});
+  const normal = await normalResponse.json();
+  const bypassed = await bypassedResponse.json();
+
+  assert.equal(normalResponse.status, 200);
+  assert.equal(bypassedResponse.status, 200);
+  assert.equal(normal.query, manifest.frozenQueries[0]);
+  assert.equal(normal.cacheMode, "default");
+  assert.equal(normal.search.cacheProvenance.bypassRequested, false);
+  assert.equal(bypassed.query, manifest.frozenQueries[0]);
+  assert.equal(bypassed.cacheMode, "refresh");
+  assert.equal(bypassed.search.cacheProvenance.bypassRequested, true);
+  assert.equal(getSearchCall(), 2);
+  assert.equal(store.records.size, 0);
+});
+
 test("a publishable curator board can be approved while a rescue board is preferred separately", async () => {
   const { handler, store } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
