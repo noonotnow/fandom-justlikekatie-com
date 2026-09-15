@@ -2075,7 +2075,7 @@ export function createActorAuditHandler({
       }
 
       if (input.action === "approve_rescue_calibration") {
-        const profile = await readRescueCalibrationProfile(store, pair);
+        const profile = (await readReport(store, pair)).calibrationProfile;
         if (!profile || profile.reviewedRunCount < MIN_CALIBRATION_APPROVAL_EVIDENCE) {
           return json(409, {
             error: `Calibration approval requires evidence from at least ${MIN_CALIBRATION_APPROVAL_EVIDENCE} distinct reviewed audits.`,
@@ -4299,7 +4299,7 @@ async function readReport(store, pair) {
     ? [currentRun, ...listedRuns.filter(run => run.runId !== currentRun.runId)]
     : listedRuns;
   const currentVerdict = currentRun?.operatorVerdict || null;
-  const calibrationProfile = await readRescueCalibrationProfile(store, pair);
+  const calibrationProfile = await readRescueCalibrationProfile(store, pair, runs);
   return {
     schemaVersion: 1,
     actorId: pair.actor.id,
@@ -5763,7 +5763,99 @@ function rescueCalibrationMatchesCurrentContract(record, pair) {
     && contract?.pairingFingerprint === pairingFingerprintFor(pair.actor, pair.vibeIdx);
 }
 
-async function readRescueCalibrationProfile(store, pair) {
+function blindReviewCalibrationRecord(run, pair) {
+  const comparison = run?.humanProxyComparison;
+  if (!comparison?.sampleSufficient || !currentRunMatchesCurrentContract(run, pair)) return null;
+  const candidatesByOccurrence = new Map((run.calibrationAnalysis?.candidates || [])
+    .map(candidate => [candidate.occurrenceId, candidate]));
+  const judgmentsByOccurrence = new Map((run.humanVisualJudgments || [])
+    .map(receipt => [receipt.sourceOccurrenceId, receipt]));
+  const classWeight = new Map([
+    ["contradictory", -1],
+    ["irrelevant", 0],
+    ["connective", 1],
+    ["supporting", 2],
+    ["core", 3],
+  ]);
+  const positive = [];
+  const negative = [];
+  const disagreements = [];
+  for (const [occurrenceId, judgment] of judgmentsByOccurrence) {
+    const candidate = candidatesByOccurrence.get(occurrenceId);
+    if (!candidate || judgment.classification === candidate.visualClass) continue;
+    const proxyWeight = classWeight.get(candidate.visualClass);
+    const humanWeight = classWeight.get(judgment.classification);
+    if (proxyWeight === undefined || humanWeight === undefined || proxyWeight === humanWeight) continue;
+    const direction = humanWeight > proxyWeight ? "positive" : "negative";
+    const snapshot = calibrationCandidateSnapshot(candidate);
+    (direction === "positive" ? positive : negative).push(snapshot);
+    disagreements.push({
+      occurrenceId,
+      judgmentReceiptId: judgment.receiptId,
+      transition: `${candidate.visualClass} → ${judgment.classification}`,
+      direction,
+      candidateId: snapshot.candidateId,
+    });
+  }
+  if (!disagreements.length) return null;
+  const receiptIds = [...new Set(disagreements.map(item => item.judgmentReceiptId).filter(Boolean))].sort();
+  const sourceReceiptId = `blind-${recordHash({
+    runId: run.runId,
+    receiptIds,
+  }).slice(0, 24)}`;
+  const reusableFamilies = ["candidateIds", "queries", "sources", "clusters", "composition"];
+  return {
+    schemaVersion: 1,
+    calibrationVersion: RESCUE_CALIBRATION_VERSION,
+    status: "confirmed",
+    evidenceType: "blind_review_disagreement",
+    sourceRescueReceiptId: sourceReceiptId,
+    sourceRunId: run.runId,
+    selectedNine: positive,
+    omittedAlternatives: negative,
+    sourceEvidenceCandidateIds: [...new Set([...positive, ...negative]
+      .map(candidate => candidate.candidateId).filter(Boolean))],
+    signals: {
+      positive: signalValues(positive),
+      negative: signalValues(negative),
+      reusable: Object.fromEntries(reusableFamilies.map(family => [
+        family,
+        preferredSignals(
+          signalValues(positive)[family],
+          signalValues(negative)[family],
+        ),
+      ])),
+    },
+    contract: {
+      calibrationVersion: RESCUE_CALIBRATION_VERSION,
+      queryCompatibilityVersion: CALIBRATION_QUERY_COMPATIBILITY_VERSION,
+      curationVersion: run.curationReceipt?.curationVersion || run.curationVersion || null,
+      identityProfileVersion: run.identityProfileVersion || run.profileVersion || null,
+      aestheticClusterVersion: run.aestheticClusterVersion || null,
+      promiseContractVersion: run.promiseContractVersion || null,
+      pairingFingerprint: run.pairingFingerprint || null,
+    },
+    confirmedAt: run.completedAt || null,
+    confirmedBy: "blind-review",
+    blindReviewEvidence: {
+      sampleSufficient: true,
+      reviewedCount: comparison.reviewedCount,
+      occurrenceCount: comparison.occurrenceCount,
+      receiptIds,
+      disagreements,
+    },
+  };
+}
+
+async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
+  if (!reviewedRuns.length) {
+    const listing = await store.list({ prefix: auditRunPrefix(pair.actor.id, pair.vibeIdx) });
+    reviewedRuns = (await Promise.all((listing?.blobs || []).map(async blob => {
+      if (typeof blob?.key !== "string") return null;
+      const run = await store.get(blob.key, { type: "json", consistency: "strong" });
+      return run ? attachVerdict(store, pair, run) : null;
+    }))).filter(Boolean);
+  }
   const [confirmedReceipts, retirementReceipts, signalRetirementReceipts, outcomeReceipts, approvalReceipts, approvalRevocations, canonicalAuthority] = await Promise.all([
     readReceipts(
       store,
@@ -5820,13 +5912,15 @@ async function readRescueCalibrationProfile(store, pair) {
       approvalRevocations.push(canonicalRevocation);
     }
   }
-  const currentRecords = confirmedReceipts.filter(record =>
+  const rescueRecords = confirmedReceipts.filter(record =>
     record.status === "confirmed"
     && record.calibrationVersion === RESCUE_CALIBRATION_VERSION
     && record.actor?.id === pair.actor.id
     && record.vibePack?.key === pair.vibeKey
     && rescueCalibrationMatchesCurrentContract(record, pair)
   );
+  const blindRecords = reviewedRuns.map(run => blindReviewCalibrationRecord(run, pair)).filter(Boolean);
+  const currentRecords = [...rescueRecords, ...blindRecords];
   if (!currentRecords.length) return null;
   const currentReceiptIds = new Set(currentRecords.map(record =>
     record.sourceRescueReceiptId));
@@ -5999,6 +6093,10 @@ async function readRescueCalibrationProfile(store, pair) {
           confirmedAt: record.confirmedAt || null,
           confirmedBy: record.confirmedBy || null,
           retirement,
+          ...(record.evidenceType ? { evidenceType: record.evidenceType } : {}),
+          ...(record.blindReviewEvidence
+            ? { blindReviewEvidence: record.blindReviewEvidence }
+            : {}),
         };
       })
       .sort((left, right) =>

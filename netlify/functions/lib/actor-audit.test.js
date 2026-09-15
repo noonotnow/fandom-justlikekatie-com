@@ -4531,6 +4531,146 @@ test("production calibration requires repeated aggregate evidence, applies one a
   assert.equal(revoked.calibrationProfile.approvalHistory[0].effectiveStatus, "revoked");
 });
 
+test("repeated complete blind-review mistakes map to an exact approvable signal without rewriting evidence", async () => {
+  const curateOptions = [];
+  const { handler, store } = harness({
+    freshEvidenceOnRerun: true,
+    onCurateOptions: options => curateOptions.push(options),
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const immutableRuns = new Map();
+  const immutableJudgments = new Map();
+  let repeatedQuery = null;
+
+  for (const runId of ["run-1", "run-2"]) {
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const runKey = auditRunKey(pairActor.id, 0, runId);
+    const run = store.records.get(runKey);
+    run.calibrationAnalysis = {
+      ...(run.calibrationAnalysis || {}),
+      candidates: run.rawResults.slice(0, 5).map((candidate, index) => ({
+        ...candidate,
+        occurrenceId: `${runId}:blind:${index}`,
+        query: "blind repeated query",
+        visualClass: "supporting",
+        selected: false,
+        dropReason: "unusable_image",
+      })),
+      queryVisualYield: [{ query: "blind repeated query", ladderRung: 1 }],
+    };
+    store.records.set(runKey, run);
+    const candidates = run.calibrationAnalysis.candidates
+      .filter(candidate => candidate.selected !== true && candidate.thumbnail && candidate.occurrenceId);
+    assert.ok(candidates.length >= 5);
+    const byQuery = candidates.reduce((groups, candidate) => {
+      groups.set(candidate.query, [...(groups.get(candidate.query) || []), candidate]);
+      return groups;
+    }, new Map());
+    if (!repeatedQuery) {
+      repeatedQuery = [...byQuery.entries()]
+        .find(([, items]) => items.some(candidate => candidate.visualClass !== "core"))?.[0];
+    }
+    const disagreementCandidate = (byQuery.get(repeatedQuery) || [])
+      .find(candidate => candidate.visualClass !== "core");
+    assert.ok(disagreementCandidate, `expected ${repeatedQuery} to contain a repeatable proxy mistake`);
+    if (runId === "run-2") disagreementCandidate.visualClass = "contradictory";
+
+    candidates.forEach((candidate, index) => {
+      const receiptId = `${runId}-blind-${index}`;
+      const receipt = {
+        receiptId,
+        runId,
+        sourceOccurrenceId: candidate.occurrenceId,
+        classification: candidate === disagreementCandidate ? "core" : candidate.visualClass,
+        judgedAt: `2026-09-1${index % 10}T12:00:00.000Z`,
+      };
+      const key = auditVisualJudgmentKey(pairActor.id, 0, runId, receiptId);
+      store.records.set(key, receipt);
+      immutableJudgments.set(key, structuredClone(receipt));
+    });
+    immutableRuns.set(runKey, structuredClone(run));
+
+    const detailResponse = await handler(request(
+      "GET",
+      undefined,
+      `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+    ), {});
+    const detail = await detailResponse.json();
+    assert.equal(detailResponse.status, 200, JSON.stringify(detail));
+    if (runId === "run-1") {
+      assert.equal(detail.calibrationProfile.approvalReady, false);
+      const premature = await handler(request("POST", {
+        action: "approve_rescue_calibration",
+        actorId: pairActor.id,
+        vibeKey,
+        adjustmentType: "query_ladder",
+        direction: "positive",
+        signalValues: [repeatedQuery.toLowerCase()],
+      }), {});
+      assert.equal(premature.status, 409);
+    }
+  }
+
+  const detailResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const detail = await detailResponse.json();
+  const profile = detail.calibrationProfile;
+  const querySignal = repeatedQuery.toLowerCase()
+    .replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, " ")
+    .trim();
+  const blindEvidence = profile.evidenceLedger
+    .filter(item => item.evidenceType === "blind_review_disagreement");
+  assert.equal(profile.reviewedRunCount, 2);
+  assert.equal(profile.approvalReady, true);
+  assert.equal(blindEvidence.length, 2);
+  assert.deepEqual(
+    blindEvidence.map(item => item.sourceRunId).sort(),
+    ["run-1", "run-2"],
+  );
+  assert.ok(blindEvidence.every(item =>
+    item.blindReviewEvidence.disagreements.some(disagreement =>
+      disagreement.direction === "positive"
+      && disagreement.transition.endsWith("→ core"))));
+  assert.ok(blindEvidence.some(item =>
+    item.blindReviewEvidence.disagreements.some(disagreement =>
+      disagreement.transition === "contradictory → core")));
+  assert.ok(profile.reusableSignalDeltas.queries.some(signal =>
+    signal.value === querySignal
+    && signal.selectedEvidenceCount === 2
+    && signal.delta >= 0.15));
+
+  const approvalResponse = await handler(request("POST", {
+    action: "approve_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    adjustmentType: "query_ladder",
+    direction: "positive",
+    signalValues: [querySignal],
+  }), {});
+  const approval = await approvalResponse.json();
+  assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+  assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
+    type: "query_ladder",
+    signalFamily: "queries",
+    direction: "positive",
+    signalValues: [querySignal],
+  });
+
+  curateOptions.length = 0;
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const applied = curateOptions.find(options => options.calibrationProfile)?.calibrationProfile;
+  assert.deepEqual(applied?.positiveQueries, [querySignal]);
+  for (const [key, value] of immutableRuns) assert.deepEqual(store.records.get(key), value);
+  for (const [key, value] of immutableJudgments) assert.deepEqual(store.records.get(key), value);
+});
+
 test("repeated negative calibration applies only the approved signal and revokes without rewriting evidence", async () => {
   const curateOptions = [];
   const { handler, store } = harness({
