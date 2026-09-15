@@ -8,3 +8,9 @@ Build actor search ladders from broad identity anchors first, followed by lighte
 **Why:** A popular actor produced no usable audit boards because each query overconstrained the provider. Broad actor-led queries returned abundant, strongly on-subject material; curation can judge vibe and board quality after retrieval.
 
 **How to apply:** For new or repaired Vibe Packs, include high-volume actor + medium queries such as portraits, stills, styling, costume, or interviews, then add a few actor + character or actor + style queries. Generic recall terms such as 帅气 may be appended to character-grounded queries as low-priority discovery, but must remain excluded from promise evidence. Let identity filters and board curation reject weak evidence rather than starving the candidate pool.
+
+Bind every request in a multi-request query experiment to one server-issued fingerprint of the frozen baseline and approved alternatives.
+
+**Why:** Calibration can change while separate serverless searches are running; index-only matching can silently mix two same-length query sets and produce a false improvement.
+
+**How to apply:** Reject stale fingerprints before searching, verify returned query and rung identities during assembly, and qualify a replacement only from complete, non-truncated evidence for its exact frozen baseline.
