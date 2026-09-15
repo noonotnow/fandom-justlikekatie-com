@@ -14,3 +14,9 @@ Run independent frozen-query comparisons as separate serverless requests while p
 **Why:** Fresh provider searches are substantially slower than cached searches. Both serial and concurrent full-scope work inside one invocation can exceed the serverless request window and surface only a gateway response.
 
 **How to apply:** Fetch a server-derived frozen-query manifest, run one provider search per request, and assemble the diagnostic receipt in the private client. Never accept arbitrary query text from the client.
+
+Treat exact-identity yield and cross-query overlap as valid only when every compared search completed and identity capture was not truncated.
+
+**Why:** Prefix-only or one-sided aggregates can look like real yield differences even though missing results could reverse the conclusion; provider result URLs can also contain signed credentials.
+
+**How to apply:** Withhold affected metrics on partial or truncated evidence, expose only opaque identity hashes, and strip URL userinfo, query parameters, and fragments from any diagnostic display URL.
