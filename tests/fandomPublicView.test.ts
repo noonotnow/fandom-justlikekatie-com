@@ -245,7 +245,8 @@ test('comparison glossary guides provide accessible distinctions, examples, FAQs
     assert.match(html, /data-section-id="drama-examples"/);
     assert.match(html, /"dateModified": "2026-09-15"/);
     assert.match(html, new RegExp(`<link rel="canonical" href="https://fandom\\.justlikekatie\\.com/c-drama-fandom/glossary/${routes[index]}/">`));
-    assert.match(html, /data-atlas-continuation/);
+    assert.match(html, /googletagmanager\.com\/gtag\/js\?id=G-FHZJ1T74TG/);
+    assert.match(html, /href="\/vibe-atlas" data-atlas-continuation/);
   });
 
   assert.match(comparisonGlossaryHtml[0], /Mysterious Lotus Casebook/);

@@ -415,9 +415,11 @@ button { font: inherit; }
 .term dd { color: #bdcad2; font-size: 15px; margin: 10px 0 0; }
 .comparison-table {
   border-collapse: collapse;
+  display: block;
   font-size: 14px;
   margin: 30px 0;
   max-width: 100%;
+  overflow-x: auto;
   width: 100%;
 }
 .comparison-table table {
@@ -772,7 +774,6 @@ button { font: inherit; }
   .studio-specimens { grid-template-columns: 1fr; }
   .studio-specimen--legendary-grid { grid-template-columns: 1fr; }
   .studio-specimen--misprint-anatomy { grid-template-columns: 1fr; }
-  .comparison-table { display: block; overflow-x: auto; }
   .decoder-tools, .trope-grid { grid-template-columns: 1fr; }
   .decoder-tools { align-items: stretch; display: grid; gap: 8px; }
   .decoder-count { margin: 8px 0 0; }
