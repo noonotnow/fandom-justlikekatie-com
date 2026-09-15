@@ -2024,13 +2024,10 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
       element.open = true;
     });
     const legacyFirstResult = legacyRawResults.locator('article').first();
-    await legacyFirstResult.locator('details').filter({ hasText: 'Mark Misprint' }).evaluate((element: HTMLDetailsElement) => {
-      element.open = true;
-    });
     assert.equal(
-      await legacyFirstResult.getByRole('button', { name: 'Preserve & correct', exact: true }).isDisabled(),
-      true,
-      'a revealed Legacy result must not accept a new Misprint correction',
+      await legacyFirstResult.getByText('Mark Misprint', { exact: true }).count(),
+      0,
+      'a revealed Legacy result must hide Misprint correction controls',
     );
     assert.equal(
       misprintRequests.length,
