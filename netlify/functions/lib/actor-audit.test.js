@@ -4541,6 +4541,15 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   const immutableRuns = new Map();
   const immutableJudgments = new Map();
+  const listed = store.list.bind(store);
+  let lagVisualJudgmentListings = false;
+  store.list = async options => {
+    if (lagVisualJudgmentListings
+      && options?.prefix?.startsWith(`visual-judgments/${pairActor.id}/0/`)) {
+      return { blobs: [] };
+    }
+    return listed(options);
+  };
   let repeatedQuery = null;
 
   for (const runId of ["run-1", "run-2"]) {
@@ -4578,8 +4587,10 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
     assert.ok(disagreementCandidate, `expected ${repeatedQuery} to contain a repeatable proxy mistake`);
     if (runId === "run-2") disagreementCandidate.visualClass = "contradictory";
 
+    const judgmentReceiptIds = [];
     candidates.forEach((candidate, index) => {
       const receiptId = `${runId}-blind-${index}`;
+      judgmentReceiptIds.push(receiptId);
       const receipt = {
         receiptId,
         runId,
@@ -4590,6 +4601,12 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
       const key = auditVisualJudgmentKey(pairActor.id, 0, runId, receiptId);
       store.records.set(key, receipt);
       immutableJudgments.set(key, structuredClone(receipt));
+    });
+    store.records.set(auditVisualJudgmentIndexKey(pairActor.id, 0, runId), {
+      schemaVersion: 1,
+      runId,
+      receiptIds: judgmentReceiptIds,
+      updatedAt: "2026-09-15T12:00:00.000Z",
     });
     immutableRuns.set(runKey, structuredClone(run));
 
@@ -4668,6 +4685,47 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
   }), {});
   const applied = curateOptions.find(options => options.calibrationProfile)?.calibrationProfile;
   assert.deepEqual(applied?.positiveQueries, [querySignal]);
+  await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-3", choice: "compiled",
+  }), {});
+  const verdictResponse = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-3",
+    verdict: "approved",
+    vibeConfirmed: true,
+    publishableConfirmed: true,
+  }), {});
+  assert.equal(verdictResponse.status, 200, JSON.stringify(await verdictResponse.clone().json()));
+  const savedEligibility = store.records.get(eligibilityKey(pairActor.id, 0));
+  assert.equal(
+    savedEligibility.rescueCalibrationApprovalEvidenceHash,
+    approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
+  );
+  lagVisualJudgmentListings = true;
+  for (let reread = 0; reread < 2; reread += 1) {
+    const currentEligibility = await getEligibility(store, pairActor, 0);
+    assert.equal(currentEligibility.runId, savedEligibility.runId);
+    assert.equal(
+      currentEligibility.rescueCalibrationApprovalId,
+      savedEligibility.rescueCalibrationApprovalId,
+    );
+    assert.equal(
+      currentEligibility.rescueCalibrationApprovalEvidenceHash,
+      savedEligibility.rescueCalibrationApprovalEvidenceHash,
+    );
+  }
+
+  const revokeResponse = await handler(request("POST", {
+    action: "revoke_rescue_calibration_approval",
+    actorId: pairActor.id,
+    vibeKey,
+    approvalId: approval.calibrationProfile.activeApproval.approvalId,
+    reason: "The blind-review calibration authority is no longer approved.",
+  }), {});
+  assert.equal(revokeResponse.status, 200, JSON.stringify(await revokeResponse.clone().json()));
+  assert.equal(await getEligibility(store, pairActor, 0), null);
   for (const [key, value] of immutableRuns) assert.deepEqual(store.records.get(key), value);
   for (const [key, value] of immutableJudgments) assert.deepEqual(store.records.get(key), value);
 });
@@ -4707,6 +4765,15 @@ test("one blind-review example can be excluded without rewriting its audit or ju
     adjustmentType: "query_ladder", direction: "positive", signalValues: ["exclude repeated query"],
   }), {});
   assert.equal(approved.status, 200);
+  await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-2", choice: "compiled",
+  }), {});
+  const verdict = await handler(request("POST", {
+    action: "verdict", actorId: pairActor.id, vibeKey, runId: "run-2",
+    verdict: "approved", vibeConfirmed: true, publishableConfirmed: true,
+  }), {});
+  assert.equal(verdict.status, 200, JSON.stringify(await verdict.clone().json()));
+  assert.ok(await getEligibility(store, pairActor, 0));
   const excludedResponse = await handler(request("POST", {
     action: "exclude_blind_calibration_item", actorId: pairActor.id, vibeKey,
     receiptId: evidence.sourceRescueReceiptId, judgmentReceiptId: item.judgmentReceiptId,
@@ -4719,6 +4786,7 @@ test("one blind-review example can be excluded without rewriting its audit or ju
   assert.equal(excluded.calibrationProfile.activeApproval, null);
   assert.equal(excluded.calibrationProfile.excludedBlindEvidenceCount, 1);
   assert.notEqual(excluded.calibrationProfile.retirementHash, before.calibrationProfile.retirementHash);
+  assert.equal(await getEligibility(store, pairActor, 0), null);
   const retry = await handler(request("POST", {
     action: "exclude_blind_calibration_item", actorId: pairActor.id, vibeKey,
     receiptId: evidence.sourceRescueReceiptId, runId: evidence.sourceRunId,

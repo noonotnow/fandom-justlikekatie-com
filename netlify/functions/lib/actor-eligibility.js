@@ -143,7 +143,7 @@ export function rescueCalibrationRetirementHash(
     }));
   const exclusionEntries = blindExclusions
     .filter(exclusion => exclusion?.status === "excluded"
-      && typeof exclusion?.sourceRescueReceiptId === "string"
+      && typeof exclusion?.sourceRunId === "string"
       && typeof exclusion?.judgmentReceiptId === "string")
     .map(exclusion => ({
       exclusionId: exclusion.exclusionId || null,
@@ -568,9 +568,11 @@ async function currentRescueCalibrationRetirementHash(store, actorId, vibeIdx) {
 async function currentRescueCalibrationApproval(store, actor, vibeIdx, retirementHash) {
   const actorId = actor.id;
   const vibeKey = auditVibeKey(actorId, vibeIdx);
-  const [calibrations, retirements, approvals, revocations, authority] = await Promise.all([
+  const [calibrations, retirements, blindExclusions, blindEvidenceIds, approvals, revocations, authority] = await Promise.all([
     readReceipts(store, auditRescueCalibrationPrefix(actorId, vibeIdx), "confirmedAt"),
     readReceipts(store, auditRescueCalibrationRetirementPrefix(actorId, vibeIdx), "retiredAt"),
+    readReceipts(store, auditBlindCalibrationExclusionPrefix(actorId, vibeIdx), "excludedAt"),
+    currentBlindCalibrationEvidenceIds(store, actor, vibeIdx),
     readReceipts(store, auditRescueCalibrationApprovalPrefix(actorId, vibeIdx), "approvedAt"),
     readReceipts(
       store,
@@ -601,10 +603,20 @@ async function currentRescueCalibrationApproval(store, actor, vibeIdx, retiremen
       && retirement.vibeKey === vibeKey
       && currentIds.has(retirement.sourceRescueReceiptId))
     .map(retirement => retirement.sourceRescueReceiptId));
-  const evidenceReceiptIds = current
+  const excludedBlindJudgments = new Set(blindExclusions
+    .filter(exclusion =>
+      exclusion.status === "excluded"
+      && exclusion.actorId === actorId
+      && exclusion.vibeKey === vibeKey)
+    .map(exclusion => `${exclusion.sourceRunId}:${exclusion.judgmentReceiptId}`));
+  const evidenceReceiptIds = [
+    ...current
     .map(calibration => calibration.sourceRescueReceiptId)
-    .filter(receiptId => !retiredIds.has(receiptId))
-    .sort();
+    .filter(receiptId => !retiredIds.has(receiptId)),
+    ...blindEvidenceIds
+      .filter(evidence => evidence.disagreementKeys.some(key => !excludedBlindJudgments.has(key)))
+      .map(evidence => evidence.sourceRescueReceiptId),
+  ].sort();
   if (!evidenceReceiptIds.length) return null;
   const revokedIds = new Set(revocations
     .filter(revocation => revocation.status === "revoked")
@@ -649,6 +661,94 @@ async function currentRescueCalibrationApproval(store, actor, vibeIdx, retiremen
     .sort((left, right) =>
       String(right.approvedAt || "").localeCompare(String(left.approvedAt || ""))
       || String(right.approvalId).localeCompare(String(left.approvalId)))[0] || null;
+}
+
+async function currentBlindCalibrationEvidenceIds(store, actor, vibeIdx) {
+  const actorId = actor.id;
+  const vibeKey = auditVibeKey(actorId, vibeIdx);
+  const runs = await readReceipts(store, auditRunPrefix(actorId, vibeIdx), "completedAt");
+  return (await Promise.all(runs.map(async run => {
+    const curationVersion = run?.curationVersion
+      ?? run?.curationReceipt?.curationVersion
+      ?? run?.curationReceipt?.version
+      ?? null;
+    if (
+      run?.profileVersion !== IDENTITY_PROFILE_VERSION
+      || run?.identityProfileVersion !== IDENTITY_PROFILE_VERSION
+      || run?.aestheticClusterVersion !== AESTHETIC_CLUSTER_VERSION
+      || run?.promiseContractVersion !== VIBE_PROMISE_CONTRACT_VERSION
+      || curationVersion !== CURATION_VERSION
+      || run?.pairingFingerprint !== pairingFingerprintFor(actor, vibeIdx)
+    ) return null;
+    const candidates = (run.calibrationAnalysis?.candidates || [])
+      .filter(candidate =>
+        (candidate?.selected === false || candidate?.dropReason)
+        && candidate?.thumbnail
+        && candidate?.occurrenceId);
+    const judgments = await readVisualJudgments(store, actorId, vibeIdx, run.runId);
+    const judgmentsByOccurrence = new Map();
+    for (const judgment of judgments) {
+      if (!judgment?.sourceOccurrenceId) continue;
+      const receipts = judgmentsByOccurrence.get(judgment.sourceOccurrenceId) || [];
+      receipts.push(judgment);
+      judgmentsByOccurrence.set(judgment.sourceOccurrenceId, receipts);
+    }
+    if (
+      candidates.length < 5
+      || candidates.some(candidate =>
+        (judgmentsByOccurrence.get(candidate.occurrenceId) || []).length !== 1)
+    ) return null;
+    const classWeight = new Map([
+      ["contradictory", -1],
+      ["irrelevant", 0],
+      ["connective", 1],
+      ["supporting", 2],
+      ["core", 3],
+    ]);
+    const disagreements = candidates.flatMap(candidate => {
+      const judgment = judgmentsByOccurrence.get(candidate.occurrenceId)[0];
+      const proxyWeight = classWeight.get(candidate.visualClass);
+      const humanWeight = classWeight.get(judgment.classification);
+      return proxyWeight === undefined || humanWeight === undefined || proxyWeight === humanWeight
+        ? []
+        : [{ judgmentReceiptId: judgment.receiptId }];
+    });
+    if (!disagreements.length) return null;
+    const receiptIds = [...new Set(disagreements
+      .map(item => item.judgmentReceiptId)
+      .filter(Boolean))].sort();
+    return {
+      sourceRescueReceiptId: `blind-${recordHash({
+        runId: run.runId,
+        receiptIds,
+      }).slice(0, 24)}`,
+      disagreementKeys: receiptIds.map(receiptId => `${run.runId}:${receiptId}`),
+      vibeKey,
+    };
+  }))).filter(Boolean);
+}
+
+async function readVisualJudgments(store, actorId, vibeIdx, runId) {
+  const index = await store.get(
+    auditVisualJudgmentIndexKey(actorId, vibeIdx, runId),
+    { type: "json", consistency: "strong" },
+  );
+  const indexed = await Promise.all((index?.receiptIds || []).map(receiptId =>
+    store.get(
+      auditVisualJudgmentKey(actorId, vibeIdx, runId, receiptId),
+      { type: "json", consistency: "strong" },
+    )));
+  const listed = await readReceipts(
+    store,
+    auditVisualJudgmentPrefix(actorId, vibeIdx, runId),
+    "judgedAt",
+  );
+  return [...new Map([...indexed, ...listed]
+    .filter(Boolean)
+    .map(receipt => [receipt.receiptId, receipt])).values()]
+    .sort((left, right) =>
+      String(left?.judgedAt || "").localeCompare(String(right?.judgedAt || ""))
+      || String(left?.receiptId || "").localeCompare(String(right?.receiptId || "")));
 }
 
 export function isApproved(snapshot) {
