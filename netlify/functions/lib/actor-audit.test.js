@@ -5818,9 +5818,9 @@ test("aggregate calibration rejects a negative class bundle whose members recur 
   assert.equal(curateOptions.filter(options => options.calibrationProfile).length, 0);
 });
 
-test("aggregate calibration approves a signal bundle that recurs together in distinct reviewed audits", async () => {
+test("aggregate calibration approves a repeated signal bundle regardless of order and produces a deterministic profile", async () => {
   const curateOptions = [];
-  const { handler } = harness({
+  const { handler, store } = harness({
     freshEvidenceOnRerun: true,
     onCurateOptions: options => curateOptions.push(options),
     searchResultCount: 5,
@@ -5845,9 +5845,12 @@ test("aggregate calibration approves a signal bundle that recurs together in dis
       assert.equal(querySignals.length, 2);
     }
     const selectedCandidates = [
-      ...queryGroups.find(([query]) => query.toLowerCase() === querySignals[0])[1],
-      ...queryGroups.find(([query]) => query.toLowerCase() === querySignals[1])[1].slice(0, 4),
-    ];
+      queryGroups.find(([query]) => query.toLowerCase() === querySignals[0])[1],
+      queryGroups.find(([query]) => query.toLowerCase() === querySignals[1])[1].slice(0, 4),
+    ].flat();
+    const receiptSignalValues = runId === "run-2"
+      ? [...querySignals].reverse()
+      : querySignals;
 
     const saveResponse = await handler(request("POST", {
       action: "save_rescue_board",
@@ -5859,6 +5862,12 @@ test("aggregate calibration approves a signal bundle that recurs together in dis
     const saved = await saveResponse.json();
     assert.equal(saveResponse.status, 200, JSON.stringify(saved));
     const receipt = saved.currentRun.editorialFeedback.operatorRescueBoard;
+    if (runId === "run-2") {
+      const storedReceipt = store.records.get(
+        auditRescueBoardKey(pairActor.id, 0, runId, receipt.receiptId),
+      );
+      storedReceipt.calibrationBasis.signals.reusable.queries.positive.reverse();
+    }
     const markResponse = await handler(request("POST", {
       action: "mark_rescue_calibration",
       actorId: pairActor.id,
@@ -5871,17 +5880,19 @@ test("aggregate calibration approves a signal bundle that recurs together in dis
     assert.deepEqual(
       marked.currentRun.editorialFeedback.operatorRescueBoard
         .calibrationBasis.signals.reusable.queries.positive,
-      querySignals,
+      receiptSignalValues,
     );
   }
 
+  const requestedSignalValues = [...querySignals].reverse();
+  const deterministicSignalValues = [...querySignals].sort();
   const approvalResponse = await handler(request("POST", {
     action: "approve_rescue_calibration",
     actorId: pairActor.id,
     vibeKey,
     adjustmentType: "query_ladder",
     direction: "positive",
-    signalValues: querySignals,
+    signalValues: requestedSignalValues,
   }), {});
   const approval = await approvalResponse.json();
   assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
@@ -5889,7 +5900,7 @@ test("aggregate calibration approves a signal bundle that recurs together in dis
     type: "query_ladder",
     signalFamily: "queries",
     direction: "positive",
-    signalValues: querySignals,
+    signalValues: deterministicSignalValues,
   });
   assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
 
@@ -5898,7 +5909,7 @@ test("aggregate calibration approves a signal bundle that recurs together in dis
   }), {});
   const productionProfile = curateOptions.find(options => options.calibrationProfile)
     .calibrationProfile;
-  assert.deepEqual(productionProfile.positiveQueries, querySignals);
+  assert.deepEqual(productionProfile.positiveQueries, deterministicSignalValues);
   assert.deepEqual(productionProfile.negativeQueries ?? [], []);
   assert.deepEqual(productionProfile.positiveSources ?? [], []);
   assert.deepEqual(productionProfile.negativeSources ?? [], []);

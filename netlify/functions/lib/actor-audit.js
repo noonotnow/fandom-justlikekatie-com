@@ -2099,7 +2099,9 @@ export function createActorAuditHandler({
         const direction = input.direction === "negative" ? "negative" : input.direction === "positive" ? "positive" : null;
         const signalValues = [...new Set((Array.isArray(input.signalValues) ? input.signalValues : [])
           .map(normalizeCalibrationSignalValue)
-          .filter(Boolean))].slice(0, 12);
+          .filter(Boolean))]
+          .sort()
+          .slice(0, 12);
         if (!direction || !signalValues.length) {
           return json(400, { error: "Choose a positive or negative aggregate adjustment and at least one signal." });
         }
@@ -6334,7 +6336,7 @@ function calibrationApprovalEvidenceHash(profile, adjustment) {
     retirementHash: profile.retirementHash || null,
     signalFamily: adjustment?.signalFamily || null,
     direction: adjustment?.direction || null,
-    signalValues: [...(adjustment?.signalValues || [])],
+    signalValues: [...(adjustment?.signalValues || [])].sort(),
   });
 }
 function dailyCalibrationProfile(profile) {
@@ -7704,6 +7706,6 @@ function approvedCalibrationProfile(profile) {
     signalRetirements: profile.signalRetirements || [],
     retirementHash: profile.retirementHash || null,
     backupBoards: [],
-    [field]: signalValues,
+    [field]: [...signalValues].sort(),
   };
 }
