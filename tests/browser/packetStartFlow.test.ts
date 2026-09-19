@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { type Page } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
 import { launchBrowser } from './browserEngines.ts';
+import { BROWSER_ENGINES, launchBrowser } from './browserEngines.ts';
 
 const ACCOUNT_ID = 'packet-start-account';
 const GRID_ID = 'packet-start-grid';
@@ -246,9 +247,9 @@ async function mockCollectionMedia(page: Page): Promise<() => number> {
 }
 
 test('Operator Console keeps unverified saved grids disabled', { timeout: 60_000 }, async () => {
-  const { server, origin } = await startApp();
-  const browser = await launchBrowser();
-  const page = await browser.newPage();
+    const { server, origin } = await startApp();
+    const browser = await launchBrowser();
+    const page = await browser.newPage();
 
   try {
     await page.route('**/api/auth/session', route => route.fulfill({
@@ -273,72 +274,74 @@ test('Operator Console keeps unverified saved grids disabled', { timeout: 60_000
   }
 });
 
-test('Operator Console sends one direct grid source and opens the Workstation draft', { timeout: 60_000 }, async () => {
-  const { server, origin } = await startApp();
-  const browser = await launchBrowser();
-  const page = await browser.newPage();
-  let createRequests = 0;
+for (const browserEngine of BROWSER_ENGINES) {
+  test(`Operator Console sends one direct grid source and opens the Workstation draft in ${browserEngine.name}`, { timeout: 60_000 }, async () => {
+    const { server, origin } = await startApp();
+    const browser = await launchBrowser();
+    const page = await browser.newPage();
+    let createRequests = 0;
 
-  try {
-    await page.route('**/api/auth/session', route => route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        user: { accountId: ACCOUNT_ID, email: 'packet@example.test', isAdmin: true },
-      }),
-    }));
-    await mockReleaseDesk(page);
-    const getMediaUploads = await mockCollectionMedia(page);
-    const getSyncRequests = await mockSelectedGridSync(page);
-    await page.route('**/api/workstation-handoff', async route => {
-      assert.equal(getMediaUploads(), 0, 'exact fixture media should already be durable');
-      assert.equal(getSyncRequests(), 1, 'the selected grid must sync before its handoff is created');
-      createRequests += 1;
-      const request = route.request().postDataJSON() as {
-        source: { sourceId: string; sourceVersion: string; platforms: string[] };
-      };
-      assert.deepEqual(request.source.platforms, ['rednote', 'weibo', 'instagram']);
-      await route.fulfill({
+    try {
+      await page.route('**/api/auth/session', route => route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
-          source: request.source,
-          receipt: {
-            disposition: 'created',
-            deliverableId: 'fandom:grid:packet-start-grid-server:live-grid',
-            deepLink: 'https://workstation.justlikekatie.com/compose?postId=creator-draft-1',
-            postId: 'creator-draft-1',
-            postUrl: 'https://workstation.justlikekatie.com/drafts/creator-draft-1',
-            sourceVersion: 431,
-            status: 'Draft',
-            workflow: 'direct',
-            mediaSyncState: 'synced',
-            warnings: [],
-          },
+          user: { accountId: ACCOUNT_ID, email: 'packet@example.test', isAdmin: true },
         }),
+      }));
+      await mockReleaseDesk(page);
+      const getMediaUploads = await mockCollectionMedia(page);
+      const getSyncRequests = await mockSelectedGridSync(page);
+      await page.route('**/api/workstation-handoff', async route => {
+        assert.equal(getMediaUploads(), 0, 'exact fixture media should already be durable');
+        assert.equal(getSyncRequests(), 1, 'the selected grid must sync before its handoff is created');
+        createRequests += 1;
+        const request = route.request().postDataJSON() as {
+          source: { sourceId: string; sourceVersion: string; platforms: string[] };
+        };
+        assert.deepEqual(request.source.platforms, ['rednote', 'weibo', 'instagram']);
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            source: request.source,
+            receipt: {
+              disposition: 'created',
+              deliverableId: 'fandom:grid:packet-start-grid-server:live-grid',
+              deepLink: 'https://workstation.justlikekatie.com/compose?postId=creator-draft-1',
+              postId: 'creator-draft-1',
+              postUrl: 'https://workstation.justlikekatie.com/drafts/creator-draft-1',
+              sourceVersion: 431,
+              status: 'Draft',
+              workflow: 'direct',
+              mediaSyncState: 'synced',
+              warnings: [],
+            },
+          }),
+        });
       });
-    });
-    await page.route('https://workstation.justlikekatie.com/compose**', route => route.fulfill({
-      contentType: 'text/html',
-      body: '<title>Workstation draft</title>',
-    }));
+      await page.route('https://workstation.justlikekatie.com/compose**', route => route.fulfill({
+        contentType: 'text/html',
+        body: '<title>Workstation draft</title>',
+      }));
 
-    await openOperatorConsole(page, origin);
-    await page.getByRole('checkbox', { name: /Weibo/ }).check();
-    await page.getByRole('checkbox', { name: /Instagram/ }).check();
-    await page.getByText('Selected for this draft: Rednote + Weibo + Instagram').waitFor();
-    const startButton = page.getByRole('button', { name: 'Make a post in Workstation' });
-    await startButton.click();
-    await startButton.click({ force: true }).catch(() => undefined);
+      await openOperatorConsole(page, origin);
+      await page.getByRole('checkbox', { name: /Weibo/ }).check();
+      await page.getByRole('checkbox', { name: /Instagram/ }).check();
+      await page.getByText('Selected for this draft: Rednote + Weibo + Instagram').waitFor();
+      const startButton = page.getByRole('button', { name: 'Make a post in Workstation' });
+      await startButton.click();
+      await startButton.click({ force: true }).catch(() => undefined);
 
-    await page.waitForURL('https://workstation.justlikekatie.com/compose?postId=creator-draft-1');
-    await page.waitForTimeout(600);
-    assert.equal(createRequests, 1);
-    assert.equal(getMediaUploads(), 0);
-    assert.equal(getSyncRequests(), 1);
-  } finally {
-    await browser.close();
-    await server.close();
-  }
-});
+      await page.waitForURL('https://workstation.justlikekatie.com/compose?postId=creator-draft-1');
+      await page.waitForTimeout(600);
+      assert.equal(createRequests, 1);
+      assert.equal(getMediaUploads(), 0);
+      assert.equal(getSyncRequests(), 1);
+    } finally {
+      await browser.close();
+      await server.close();
+    }
+  });
+}
 
 for (const failure of [
   {
