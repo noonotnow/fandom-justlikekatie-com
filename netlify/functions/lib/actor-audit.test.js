@@ -7028,6 +7028,71 @@ test("an approval from a legacy profile contract is visibly marked for reapprova
   assert.equal(staleVerdict.status, 409);
 });
 
+test("Legacy audit evidence rejects Misprint corrections without storing feedback", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const chosen = await (await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    choice: "compiled",
+  }), {})).json();
+  const candidate = chosen.currentRun.rawResults[0];
+  const runKey = auditRunKey(pairActor.id, 0, "run-1");
+  const staleRun = store.records.get(runKey);
+  delete staleRun.promiseContractVersion;
+  store.records.set(runKey, staleRun);
+  const frozenLegacyRun = structuredClone(staleRun);
+
+  const rejectedResponse = await handler(request("POST", {
+    action: "mark_misprint",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: candidate.candidateId,
+    reason: "wrong_actor",
+  }), {});
+  const rejected = await rejectedResponse.json();
+  assert.equal(rejectedResponse.status, 409);
+  assert.match(rejected.error, /Legacy audits are retained history/i);
+  assert.deepEqual(store.records.get(runKey), frozenLegacyRun);
+  assert.equal(
+    [...store.records.values()].filter(value => value?.action === "mark_misprint").length,
+    0,
+  );
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const current = await (await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-2",
+    choice: "compiled",
+  }), {})).json();
+  const currentCandidate = current.currentRun.rawResults[0];
+  const acceptedResponse = await handler(request("POST", {
+    action: "mark_misprint",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-2",
+    candidateId: currentCandidate.candidateId,
+    reason: "wrong_actor",
+  }), {});
+  const accepted = await acceptedResponse.json();
+  assert.equal(acceptedResponse.status, 200, JSON.stringify(accepted));
+  assert.equal(accepted.misprint.sourceRunId, "run-2");
+  assert.equal(
+    [...store.records.values()].filter(value => value?.action === "mark_misprint").length,
+    1,
+  );
+});
+
 test("a blinded legacy run reveals retained evidence and still accepts a rescue board", async () => {
   const { handler, store } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);

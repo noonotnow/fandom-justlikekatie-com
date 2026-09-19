@@ -1585,6 +1585,9 @@ export function createActorAuditHandler({
         if (report.currentRun?.runId !== run.runId) {
           return json(409, { error: "Only the current audit run can receive new Misprint corrections." });
         }
+        if (auditContractFor(run, pair).isLegacy) {
+          return json(409, { error: "Legacy audits are retained history. Run a fresh audit before recording Misprint corrections." });
+        }
         if (currentRunMatchesCurrentContract(run, pair)
           && !run.blindReview?.choice
           && run.blindReview?.status !== "unavailable") {
