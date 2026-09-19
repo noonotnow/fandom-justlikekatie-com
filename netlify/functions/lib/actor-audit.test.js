@@ -4376,14 +4376,17 @@ async function approveRepeatedCalibrationEvidence({
     }), {});
     const marked = await markedResponse.json();
     assert.equal(markedResponse.status, 200, JSON.stringify(marked));
-    signalValue ||= marked.currentRun.editorialFeedback.operatorRescueBoard
-      .calibrationBasis.signals.reusable[signalFamily][direction][0];
+    const calibrationSignals = marked.currentRun.editorialFeedback.operatorRescueBoard
+      .calibrationBasis.signals;
+    signalValue ||= signalFamily === "candidateIds"
+      ? calibrationSignals[direction].candidateIds[0]
+      : calibrationSignals.reusable[signalFamily][direction][0];
     if (!signalValueFromSelection) assert.ok(signalValue);
   }
 
   if (signalValueFromSelection) signalValue = selectionValue;
   assert.ok(signalValue);
-  await beforeApproval?.();
+  await beforeApproval?.({ evidenceReceiptIds, selectionValue, signalValue });
   const approvalResponse = await handler(request("POST", {
     action: "approve_rescue_calibration",
     actorId: pairActor.id,
@@ -5041,12 +5044,14 @@ test("retiring an approved negative signal preserves unrelated reusable calibrat
   );
 });
 
-async function assertNegativeSignalRetirementPreservesUnrelatedEvidence({
+async function assertSignalRetirementPreservesUnrelatedEvidence({
   adjustmentType,
   signalFamily,
   retirementFamily,
   productionField,
+  direction,
   selectCandidates,
+  prepareEvidenceForApproval,
   signalValueFromSelection = false,
   searchResultCount = 9,
 }) {
@@ -5066,14 +5071,15 @@ async function assertNegativeSignalRetirementPreservesUnrelatedEvidence({
     vibeKey,
     adjustmentType,
     signalFamily,
-    direction: "negative",
+    direction,
     selectCandidates,
+    beforeApproval: context => prepareEvidenceForApproval?.({ store, ...context }),
     signalValueFromSelection,
   });
   assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
     type: adjustmentType,
     signalFamily,
-    direction: "negative",
+    direction,
     signalValues: [signalValue],
   });
 
@@ -5115,7 +5121,7 @@ async function assertNegativeSignalRetirementPreservesUnrelatedEvidence({
     receiptId: evidenceReceiptIds[0],
     signalFamily: retirementFamily,
     signalValue,
-    reason: `This negative ${retirementFamily} signal no longer represents reusable exclusion evidence.`,
+    reason: `This ${direction} ${retirementFamily} signal no longer represents reusable calibration evidence.`,
   }), {});
   const retired = await retirementResponse.json();
   assert.equal(retirementResponse.status, 200, JSON.stringify(retired));
@@ -5135,16 +5141,17 @@ async function assertNegativeSignalRetirementPreservesUnrelatedEvidence({
   assert.equal(
     curateOptions.filter(options => options.calibrationProfile).length,
     0,
-    `retiring the approved negative ${retirementFamily} signal must remove its production effect`,
+    `retiring the approved ${direction} ${retirementFamily} signal must remove its production effect`,
   );
 }
 
 test("retiring an approved negative query preserves unrelated reusable calibration evidence", async () => {
-  await assertNegativeSignalRetirementPreservesUnrelatedEvidence({
+  await assertSignalRetirementPreservesUnrelatedEvidence({
     adjustmentType: "query_ladder",
     signalFamily: "queries",
     retirementFamily: "query",
     productionField: "negativeQueries",
+    direction: "negative",
     selectCandidates: (rawResults, omittedQuery) => {
       const query = omittedQuery || rawResults[0].query;
       return {
@@ -5156,11 +5163,12 @@ test("retiring an approved negative query preserves unrelated reusable calibrati
 });
 
 test("retiring an approved negative candidate image preserves unrelated reusable calibration evidence", async () => {
-  await assertNegativeSignalRetirementPreservesUnrelatedEvidence({
+  await assertSignalRetirementPreservesUnrelatedEvidence({
     adjustmentType: "class",
     signalFamily: "candidateIds",
     retirementFamily: "candidate",
     productionField: "negativeCandidateIds",
+    direction: "negative",
     signalValueFromSelection: true,
     searchResultCount: 4,
     selectCandidates: (rawResults, omittedCandidateId) => {
@@ -5169,6 +5177,41 @@ test("retiring an approved negative candidate image preserves unrelated reusable
         candidates: rawResults.filter(candidate => candidate.candidateId !== candidateId),
         selectionValue: candidateId,
       };
+    },
+  });
+});
+
+test("retiring an approved positive candidate image preserves unrelated reusable calibration evidence", async () => {
+  await assertSignalRetirementPreservesUnrelatedEvidence({
+    adjustmentType: "class",
+    signalFamily: "candidateIds",
+    retirementFamily: "candidate",
+    productionField: "positiveCandidateIds",
+    direction: "positive",
+    signalValueFromSelection: true,
+    selectCandidates: (rawResults, selectedCandidateId) => {
+      const candidateId = selectedCandidateId || rawResults[0].candidateId;
+      const selectedCandidate = rawResults.find(candidate =>
+        candidate.candidateId === candidateId);
+      assert.ok(selectedCandidate);
+      return {
+        candidates: [
+          selectedCandidate,
+          ...rawResults.filter(candidate => candidate.candidateId !== candidateId),
+        ],
+        selectionValue: candidateId,
+      };
+    },
+    prepareEvidenceForApproval: ({ store, evidenceReceiptIds }) => {
+      for (const [key, evidence] of store.records) {
+        if (key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0))
+          && evidenceReceiptIds.includes(evidence?.sourceRescueReceiptId)) {
+          store.records.set(key, {
+            ...evidence,
+            selectedNine: evidence.selectedNine.slice(0, 5),
+          });
+        }
+      }
     },
   });
 });
