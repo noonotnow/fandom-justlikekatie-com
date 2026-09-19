@@ -666,7 +666,30 @@ async function currentRescueCalibrationApproval(store, actor, vibeIdx, retiremen
 async function currentBlindCalibrationEvidenceIds(store, actor, vibeIdx) {
   const actorId = actor.id;
   const vibeKey = auditVibeKey(actorId, vibeIdx);
-  const runs = await readReceipts(store, auditRunPrefix(actorId, vibeIdx), "completedAt");
+  const [listedRuns, authority] = await Promise.all([
+    readReceipts(store, auditRunPrefix(actorId, vibeIdx), "completedAt"),
+    store.get(
+      auditRescueCalibrationAuthorityKey(actorId, vibeIdx),
+      { type: "json", consistency: "strong" },
+    ),
+  ]);
+  const canonicalApproval = authority?.approvalId
+    ? await store.get(
+      auditRescueCalibrationApprovalKey(actorId, vibeIdx, authority.approvalId),
+      { type: "json", consistency: "strong" },
+    )
+    : null;
+  const knownRunIds = new Set(listedRuns.map(run => run?.runId).filter(Boolean));
+  const recoveredRuns = canonicalApproval?.status === "approved"
+    && canonicalApproval.aggregateEvidenceHash === authority?.aggregateEvidenceHash
+    ? (await Promise.all((canonicalApproval.sourceRunIds || [])
+      .filter(runId => typeof runId === "string" && !knownRunIds.has(runId))
+      .map(runId => store.get(
+        auditRunKey(actorId, vibeIdx, runId),
+        { type: "json", consistency: "strong" },
+      )))).filter(Boolean)
+    : [];
+  const runs = [...listedRuns, ...recoveredRuns];
   return (await Promise.all(runs.map(async run => {
     const curationVersion = run?.curationVersion
       ?? run?.curationReceipt?.curationVersion

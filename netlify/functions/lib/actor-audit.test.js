@@ -4543,9 +4543,14 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
   const immutableJudgments = new Map();
   const listed = store.list.bind(store);
   let lagVisualJudgmentListings = false;
+  let lagRetainedRunListings = false;
   store.list = async options => {
     if (lagVisualJudgmentListings
       && options?.prefix?.startsWith(`visual-judgments/${pairActor.id}/0/`)) {
+      return { blobs: [] };
+    }
+    if (lagRetainedRunListings
+      && options?.prefix === auditRunPrefix(pairActor.id, 0)) {
       return { blobs: [] };
     }
     return listed(options);
@@ -4678,6 +4683,23 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
     direction: "positive",
     signalValues: [querySignal],
   });
+  assert.deepEqual(
+    approval.calibrationProfile.activeApproval.sourceRunIds,
+    ["run-1", "run-2"],
+  );
+  lagRetainedRunListings = true;
+  const laggedProfileResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const laggedProfile = await laggedProfileResponse.json();
+  assert.equal(laggedProfileResponse.status, 200, JSON.stringify(laggedProfile));
+  assert.equal(laggedProfile.calibrationProfile.reviewedRunCount, 2);
+  assert.equal(
+    laggedProfile.calibrationProfile.activeApproval.approvalId,
+    approval.calibrationProfile.activeApproval.approvalId,
+  );
 
   curateOptions.length = 0;
   await handler(request("POST", {
@@ -4704,6 +4726,7 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
     approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
   );
   lagVisualJudgmentListings = true;
+  lagRetainedRunListings = true;
   for (let reread = 0; reread < 2; reread += 1) {
     const currentEligibility = await getEligibility(store, pairActor, 0);
     assert.equal(currentEligibility.runId, savedEligibility.runId);

@@ -2119,6 +2119,9 @@ export function createActorAuditHandler({
           });
         }
         const evidenceReceiptIds = [...profile.sourceReceiptIds].sort();
+        const sourceRunIds = [...new Set((profile.evidenceLedger || [])
+          .map(item => item.sourceRunId)
+          .filter(Boolean))].sort();
         const aggregateEvidenceHash = calibrationApprovalEvidenceHash(profile, {
           signalFamily,
           direction,
@@ -2144,6 +2147,7 @@ export function createActorAuditHandler({
             signalValues,
           },
           evidenceReceiptIds,
+          sourceRunIds,
           evidenceCount: evidenceReceiptIds.length,
           aggregateEvidenceHash,
           approvedAt: now().toISOString(),
@@ -5996,6 +6000,26 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
       approvalRevocations.push(canonicalRevocation);
     }
   }
+  const approvedSourceRunIds = [...new Set(approvalReceipts
+    .filter(receipt =>
+      receipt?.status === "approved"
+      && receipt.approvalId === canonicalAuthority?.approvalId
+      && receipt.aggregateEvidenceHash === canonicalAuthority?.aggregateEvidenceHash)
+    .flatMap(receipt => receipt.sourceRunIds || [])
+    .filter(Boolean))];
+  if (approvedSourceRunIds.length) {
+    const knownRunIds = new Set(reviewedRuns.map(run => run?.runId).filter(Boolean));
+    const recoveredRuns = (await Promise.all(approvedSourceRunIds
+      .filter(runId => !knownRunIds.has(runId))
+      .map(async runId => {
+        const run = await store.get(
+          auditRunKey(pair.actor.id, pair.vibeIdx, runId),
+          { type: "json", consistency: "strong" },
+        );
+        return run ? attachVerdict(store, pair, run) : null;
+      }))).filter(Boolean);
+    reviewedRuns = [...reviewedRuns, ...recoveredRuns];
+  }
   const rescueRecords = confirmedReceipts.filter(record =>
     record.status === "confirmed"
     && record.calibrationVersion === RESCUE_CALIBRATION_VERSION
@@ -7614,6 +7638,7 @@ function calibrationApprovalIdentity(receipt) {
     calibrationVersion: receipt?.calibrationVersion,
     adjustment: receipt?.adjustment,
     evidenceReceiptIds: receipt?.evidenceReceiptIds,
+    sourceRunIds: receipt?.sourceRunIds,
     evidenceCount: receipt?.evidenceCount,
     aggregateEvidenceHash: receipt?.aggregateEvidenceHash,
     approvedBy: receipt?.approvedBy,
