@@ -485,6 +485,15 @@ export const ActorPreflightLab: React.FC = () => {
         const result = await response.json().catch(() => null);
         throw new Error(result?.error || 'Editorial packet download failed. Check your connection and retry.');
       }
+      const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+      if (!contentType.includes('application/json') && !contentType.includes('+json')) {
+        throw new Error('Editorial packet response was not valid JSON. Retry the download.');
+      }
+      try {
+        await response.clone().json();
+      } catch {
+        throw new Error('Editorial packet response was not valid JSON. Retry the download.');
+      }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');

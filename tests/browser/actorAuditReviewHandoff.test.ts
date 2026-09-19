@@ -423,7 +423,7 @@ function publicationReviewRun(runId: string, historical = false, includePublicat
   return result;
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationGatewayOnce = false, failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   calibrationExportRequests: URL[];
@@ -453,6 +453,7 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
   const misprintRequests: AnyRecord[] = [];
   const collectionSyncRequests: AnyRecord[] = [];
   let mediaUploads = 0;
+  let calibrationExportGateways = 0;
   let calibrationExportFailures = 0;
   let calibrationExportDrops = 0;
 
@@ -529,6 +530,15 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
     if (request.method() === 'GET') {
       if (url.searchParams.get('export') === 'calibration') {
         calibrationExportRequests.push(url);
+        if (returnCalibrationGatewayOnce && calibrationExportGateways === 0) {
+          calibrationExportGateways += 1;
+          await route.fulfill({
+            status: 200,
+            contentType: 'text/html',
+            body: '<!doctype html><title>Gateway</title><h1>Temporary gateway response</h1>',
+          });
+          return;
+        }
         if (failCalibrationExportOnce && calibrationExportFailures === 0) {
           calibrationExportFailures += 1;
           await route.fulfill({
@@ -1126,8 +1136,16 @@ test('failed editorial packet downloads stay useful and retryable without mutati
     calibrationExportRequests,
     exportRequests,
     misprintRequests,
-  } = await configureNetwork(page, { failCalibrationExportOnce: true, dropCalibrationExportOnce: true });
+  } = await configureNetwork(page, {
+    returnCalibrationGatewayOnce: true,
+    failCalibrationExportOnce: true,
+    dropCalibrationExportOnce: true,
+  });
   const mutationRequests: Array<{ method: string; url: string }> = [];
+  let downloads = 0;
+  page.on('download', () => {
+    downloads += 1;
+  });
   page.on('request', request => {
     const url = new URL(request.url());
     if (
@@ -1151,6 +1169,14 @@ test('failed editorial packet downloads stay useful and retryable without mutati
 
     await downloadButton.click();
     await page.getByText(
+      'Editorial packet response was not valid JSON. Retry the download.',
+      { exact: true },
+    ).waitFor();
+    assert.equal(downloads, 0, 'a successful gateway page must not be downloaded as an editorial packet');
+    assert.equal(await downloadButton.isEnabled(), true, 'the gateway response should restore the download action');
+
+    await downloadButton.click();
+    await page.getByText(
       'Editorial packet service is temporarily unavailable. Retry the download.',
       { exact: true },
     ).waitFor();
@@ -1163,13 +1189,14 @@ test('failed editorial packet downloads stay useful and retryable without mutati
     ).waitFor();
     await downloadButton.waitFor({ state: 'visible' });
     assert.equal(await downloadButton.isEnabled(), true, 'the failed download action should be restored for retry');
-    assert.equal(calibrationExportRequests.length, 2);
+    assert.equal(calibrationExportRequests.length, 3);
 
     const downloadPromise = page.waitForEvent('download');
     await downloadButton.click();
     const download = await downloadPromise;
     assert.equal(download.suggestedFilename(), 'actor-calibration-2026-09-01-2026-09-10.json');
-    assert.equal(calibrationExportRequests.length, 3, 'each retry should repeat only the same read-only packet request');
+    assert.equal(downloads, 1, 'only the validated JSON response should trigger a download');
+    assert.equal(calibrationExportRequests.length, 4, 'each retry should repeat only the same read-only packet request');
 
     assert.deepEqual(mutationRequests, [], 'failure and retry must not issue audit or publication mutations');
     assert.deepEqual(auditRequests, [], 'failure and retry must not search, score, rerun, or mutate an audit');
