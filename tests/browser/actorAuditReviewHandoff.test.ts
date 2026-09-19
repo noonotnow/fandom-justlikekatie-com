@@ -141,7 +141,7 @@ function calibrationProfile(): AnyRecord {
 function mixedCalibrationApprovalProfile(activeApproval = false): AnyRecord {
   const profile: AnyRecord = {
     ...calibrationProfile(),
-    evidenceCount: 4,
+    evidenceCount: 6,
     reviewedRunCount: 3,
     minimumApprovalEvidenceCount: 2,
     approvalReady: true,
@@ -176,6 +176,17 @@ function mixedCalibrationApprovalProfile(activeApproval = false): AnyRecord {
         sourceRunId: 'partial-run-b',
         directionalSignals: { queries: { positive: ['signal-b'] } },
       },
+      {
+        sourceRescueReceiptId: 'rescue-missing-run',
+        evidenceType: 'rescue',
+        directionalSignals: { queries: { positive: ['signal-a', 'signal-b'] } },
+      },
+      {
+        sourceRescueReceiptId: 'blind-empty-run',
+        evidenceType: 'blind_review_disagreement',
+        sourceRunId: '',
+        directionalSignals: { queries: { positive: ['signal-a', 'signal-b'] } },
+      },
     ],
   };
   if (activeApproval) {
@@ -187,7 +198,7 @@ function mixedCalibrationApprovalProfile(activeApproval = false): AnyRecord {
         direction: 'positive',
         signalValues: ['signal-a', 'signal-b'],
       },
-      evidenceCount: 4,
+      evidenceCount: 6,
       aggregateEvidenceHash: 'mixed-evidence-aggregate-hash',
       approvedAt: '2026-09-14T12:00:00.000Z',
     };
@@ -2151,6 +2162,11 @@ test('mixed calibration evidence does not overstate joint bundle support', { tim
     await approvalCard.getByLabel('signal-b · +0.25').check();
     await approvalCard.getByText('Affected reviewed audits: joint-run', { exact: true }).waitFor();
     assert.equal(
+      await approvalCard.getByText('Affected reviewed audits: joint-run,', { exact: false }).count(),
+      0,
+      'matching evidence without a source run ID must not add a blank jointly supporting audit',
+    );
+    assert.equal(
       await approvalCard.getByText('partial-run-a', { exact: false }).count(),
       0,
       'a run supporting only one selected signal must not count for the exact bundle',
@@ -2158,7 +2174,7 @@ test('mixed calibration evidence does not overstate joint bundle support', { tim
     assert.equal(
       await approvalCard.getByRole('button', { name: 'Approve bounded production calibration', exact: true }).isDisabled(),
       true,
-      'four mixed receipts from three runs must not enable approval when only one distinct run supports the whole bundle',
+      'matching incomplete receipts must not enable approval when only one valid distinct run supports the whole bundle',
     );
 
     const activePage = await browser.newPage();
@@ -2168,7 +2184,7 @@ test('mixed calibration evidence does not overstate joint bundle support', { tim
     await activePage.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
     const activeCard = activePage.getByRole('region', { name: 'Production calibration approval' });
     await activeCard.getByText(
-      '1 jointly supporting reviewed audits: joint-run · 4 total evidence receipts',
+      '1 jointly supporting reviewed audits: joint-run · 6 total evidence receipts',
       { exact: false },
     ).waitFor();
     assert.equal(
