@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import { test } from 'node:test';
-import { chromium, type Browser, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
+import { launchBrowser } from './browserEngines.ts';
 
 const ACCOUNT_ID = 'packet-start-account';
 const GRID_ID = 'packet-start-grid';
@@ -19,19 +19,6 @@ async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
     throw new Error('The browser test server did not expose a TCP port.');
   }
   return { server, origin: `http://127.0.0.1:${address.port}` };
-}
-
-async function launchBrowser(): Promise<Browser> {
-  try {
-    return await chromium.launch();
-  } catch (defaultLaunchError) {
-    const executablePath = process.env.PATH
-      ?.split(':')
-      .map(directory => `${directory}/chromium`)
-      .find(existsSync);
-    if (!executablePath) throw defaultLaunchError;
-    return chromium.launch({ executablePath, args: ['--no-sandbox'] });
-  }
 }
 
 async function seedSavedGrid(

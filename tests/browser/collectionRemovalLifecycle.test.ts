@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import { test } from 'node:test';
 import { createServer, type ViteDevServer } from 'vite';
-import { chromium, type Browser, type Page } from '@playwright/test';
-import { BROWSER_ENGINES, launchBrowser as launchEngine } from './browserEngines.ts';
+import { type Page } from '@playwright/test';
+import { BROWSER_ENGINES, launchBrowser } from './browserEngines.ts';
 
 const ACCOUNT_ID = 'collection-cleanup-account';
 const GRID_ID = 'pending-unmount-grid';
@@ -21,19 +20,6 @@ async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
     throw new Error('The browser test server did not expose a TCP port.');
   }
   return { server, origin: `http://127.0.0.1:${address.port}` };
-}
-
-async function launchBrowser(): Promise<Browser> {
-  try {
-    return await chromium.launch();
-  } catch (defaultLaunchError) {
-    const executablePath = process.env.PATH
-      ?.split(':')
-      .map(directory => `${directory}/chromium`)
-      .find(existsSync);
-    if (!executablePath) throw defaultLaunchError;
-    return chromium.launch({ executablePath, args: ['--no-sandbox'] });
-  }
 }
 
 async function seedCollection(page: Page): Promise<void> {
@@ -390,7 +376,7 @@ test('Collection result Misprints teach the curator before preserving the collec
 
 for (const engine of BROWSER_ENGINES) {
   test(`Collection commits a pending removal after the browser page reloads in ${engine.name}`, { timeout: 60_000 }, async () => {
-    const browser = await launchEngine(engine.type);
+    const browser = await launchBrowser(engine.type);
     const { server, origin } = await startApp();
     const page = await browser.newPage();
     const exportCleanupRequests: string[] = [];
