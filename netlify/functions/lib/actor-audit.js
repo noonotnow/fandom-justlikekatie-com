@@ -90,6 +90,7 @@ import {
   releaseCorrectionPublicationLock,
 } from "./publication-manifest.js";
 import { approvedBoardAuthorityKey } from "./approved-board-provenance.js";
+import { blindCalibrationEvidence } from "./blind-calibration-evidence.js";
 
 const MAX_BODY_BYTES = 48 * 1024;
 const MAX_NOTE_LENGTH = 2000;
@@ -5846,29 +5847,24 @@ function rescueCalibrationMatchesCurrentContract(record, pair) {
 }
 
 function blindReviewCalibrationRecord(run, pair) {
-  const comparison = run?.humanProxyComparison;
-  if (!comparison?.sampleSufficient || !currentRunMatchesCurrentContract(run, pair)) return null;
-  const candidatesByOccurrence = new Map((run.calibrationAnalysis?.candidates || [])
-    .map(candidate => [candidate.occurrenceId, candidate]));
-  const judgmentsByOccurrence = new Map((run.humanVisualJudgments || [])
-    .map(receipt => [receipt.sourceOccurrenceId, receipt]));
-  const classWeight = new Map([
-    ["contradictory", -1],
-    ["irrelevant", 0],
-    ["connective", 1],
-    ["supporting", 2],
-    ["core", 3],
-  ]);
+  const evidence = blindCalibrationEvidence(
+    run,
+    run?.humanVisualJudgments,
+    {
+      profileVersion: IDENTITY_PROFILE_VERSION,
+      identityProfileVersion: IDENTITY_PROFILE_VERSION,
+      aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+      promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+      curationVersion: CURATION_VERSION,
+      pairingFingerprint: pairingFingerprintFor(pair.actor, pair.vibeIdx),
+    },
+  );
+  if (!evidence) return null;
   const positive = [];
   const negative = [];
   const disagreements = [];
-  for (const [occurrenceId, judgment] of judgmentsByOccurrence) {
-    const candidate = candidatesByOccurrence.get(occurrenceId);
-    if (!candidate || judgment.classification === candidate.visualClass) continue;
-    const proxyWeight = classWeight.get(candidate.visualClass);
-    const humanWeight = classWeight.get(judgment.classification);
-    if (proxyWeight === undefined || humanWeight === undefined || proxyWeight === humanWeight) continue;
-    const direction = humanWeight > proxyWeight ? "positive" : "negative";
+  for (const disagreement of evidence.disagreements) {
+    const { candidate, judgment, occurrenceId, direction } = disagreement;
     const snapshot = {
       ...calibrationCandidateSnapshot(candidate),
       occurrenceId,
@@ -5878,24 +5874,18 @@ function blindReviewCalibrationRecord(run, pair) {
     disagreements.push({
       occurrenceId,
       judgmentReceiptId: judgment.receiptId,
-      transition: `${candidate.visualClass} → ${judgment.classification}`,
+      transition: disagreement.transition,
       direction,
       candidateId: snapshot.candidateId,
     });
   }
-  if (!disagreements.length) return null;
-  const receiptIds = [...new Set(disagreements.map(item => item.judgmentReceiptId).filter(Boolean))].sort();
-  const sourceReceiptId = `blind-${recordHash({
-    runId: run.runId,
-    receiptIds,
-  }).slice(0, 24)}`;
   const reusableFamilies = ["candidateIds", "queries", "sources", "clusters", "composition"];
   return {
     schemaVersion: 1,
     calibrationVersion: RESCUE_CALIBRATION_VERSION,
     status: "confirmed",
     evidenceType: "blind_review_disagreement",
-    sourceRescueReceiptId: sourceReceiptId,
+    sourceRescueReceiptId: evidence.sourceRescueReceiptId,
     sourceRunId: run.runId,
     selectedNine: positive,
     omittedAlternatives: negative,
@@ -5925,10 +5915,10 @@ function blindReviewCalibrationRecord(run, pair) {
     confirmedBy: "blind-review",
     blindReviewEvidence: {
       sampleSufficient: true,
-      reviewedCount: comparison.reviewedCount,
-      occurrenceCount: comparison.occurrenceCount,
-      receiptIds,
+      receiptIds: evidence.receiptIds,
       disagreements,
+      reviewedCount: evidence.reviewedCount,
+      occurrenceCount: evidence.occurrenceCount,
     },
   };
 }

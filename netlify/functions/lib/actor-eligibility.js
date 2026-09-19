@@ -7,6 +7,7 @@ import {
   vibePromiseFor,
 } from "./actor-identity-profiles.js";
 import { CURATION_VERSION } from "./grid-curation.js";
+import { blindCalibrationEvidence } from "./blind-calibration-evidence.js";
 
 export const ELIGIBILITY_STORE = "actor-audit";
 export const APPROVED_VERDICTS = new Set(["approved", "approved_override"]);
@@ -691,61 +692,20 @@ async function currentBlindCalibrationEvidenceIds(store, actor, vibeIdx) {
     : [];
   const runs = [...listedRuns, ...recoveredRuns];
   return (await Promise.all(runs.map(async run => {
-    const curationVersion = run?.curationVersion
-      ?? run?.curationReceipt?.curationVersion
-      ?? run?.curationReceipt?.version
-      ?? null;
-    if (
-      run?.profileVersion !== IDENTITY_PROFILE_VERSION
-      || run?.identityProfileVersion !== IDENTITY_PROFILE_VERSION
-      || run?.aestheticClusterVersion !== AESTHETIC_CLUSTER_VERSION
-      || run?.promiseContractVersion !== VIBE_PROMISE_CONTRACT_VERSION
-      || curationVersion !== CURATION_VERSION
-      || run?.pairingFingerprint !== pairingFingerprintFor(actor, vibeIdx)
-    ) return null;
-    const candidates = (run.calibrationAnalysis?.candidates || [])
-      .filter(candidate =>
-        (candidate?.selected === false || candidate?.dropReason)
-        && candidate?.thumbnail
-        && candidate?.occurrenceId);
     const judgments = await readVisualJudgments(store, actorId, vibeIdx, run.runId);
-    const judgmentsByOccurrence = new Map();
-    for (const judgment of judgments) {
-      if (!judgment?.sourceOccurrenceId) continue;
-      const receipts = judgmentsByOccurrence.get(judgment.sourceOccurrenceId) || [];
-      receipts.push(judgment);
-      judgmentsByOccurrence.set(judgment.sourceOccurrenceId, receipts);
-    }
-    if (
-      candidates.length < 5
-      || candidates.some(candidate =>
-        (judgmentsByOccurrence.get(candidate.occurrenceId) || []).length !== 1)
-    ) return null;
-    const classWeight = new Map([
-      ["contradictory", -1],
-      ["irrelevant", 0],
-      ["connective", 1],
-      ["supporting", 2],
-      ["core", 3],
-    ]);
-    const disagreements = candidates.flatMap(candidate => {
-      const judgment = judgmentsByOccurrence.get(candidate.occurrenceId)[0];
-      const proxyWeight = classWeight.get(candidate.visualClass);
-      const humanWeight = classWeight.get(judgment.classification);
-      return proxyWeight === undefined || humanWeight === undefined || proxyWeight === humanWeight
-        ? []
-        : [{ judgmentReceiptId: judgment.receiptId }];
+    const evidence = blindCalibrationEvidence(run, judgments, {
+      profileVersion: IDENTITY_PROFILE_VERSION,
+      identityProfileVersion: IDENTITY_PROFILE_VERSION,
+      aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+      promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+      curationVersion: CURATION_VERSION,
+      pairingFingerprint: pairingFingerprintFor(actor, vibeIdx),
     });
-    if (!disagreements.length) return null;
-    const receiptIds = [...new Set(disagreements
-      .map(item => item.judgmentReceiptId)
-      .filter(Boolean))].sort();
+    if (!evidence) return null;
     return {
-      sourceRescueReceiptId: `blind-${recordHash({
-        runId: run.runId,
-        receiptIds,
-      }).slice(0, 24)}`,
-      disagreementKeys: receiptIds.map(receiptId => `${run.runId}:${receiptId}`),
+      sourceRescueReceiptId: evidence.sourceRescueReceiptId,
+      disagreementKeys: evidence.receiptIds.map(receiptId =>
+        `${evidence.sourceRunId}:${receiptId}`),
       vibeKey,
     };
   }))).filter(Boolean);
