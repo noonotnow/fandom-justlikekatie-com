@@ -1002,6 +1002,173 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
   };
 }
 
+async function configureCacheDiagnosticNetwork(page: Page): Promise<{
+  providerSearchRequests: AnyRecord[];
+  receiptSaveRequests: AnyRecord[];
+}> {
+  const providerSearchRequests: AnyRecord[] = [];
+  const receiptSaveRequests: AnyRecord[] = [];
+  let savedDiagnostic: AnyRecord | null = null;
+
+  await page.route('**/api/auth/session', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      user: {
+        accountId: 'browser-operator',
+        email: 'operator@example.test',
+        isAdmin: true,
+      },
+    }),
+  }));
+  await page.route('**/.netlify/functions/star-of-day**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      actorName: 'Browser Test Actor',
+      actorShortNameEn: 'Browser Test Actor',
+      vibeEmoji: '🧪',
+      vibeLabel: 'Browser Calibration Vibe',
+      vibeLabelEn: 'Browser Calibration Vibe',
+      rankedBatches: [],
+      date: '2026-09-20',
+    }),
+  }));
+  await page.route('**/api/membership/status', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ state: 'inactive', isMember: false }),
+  }));
+  await page.route('**/.netlify/functions/actor-audits**', async route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() === 'GET') {
+      if (!url.searchParams.has('actorId')) {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ actors: [actor('not_run')] }),
+        });
+        return;
+      }
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          actor: actor('not_run'),
+          pairing: actor('not_run').pairings.find(item => item.vibeKey === url.searchParams.get('vibeKey')),
+          currentRun: null,
+          priorRuns: [],
+          cacheDiagnostics: savedDiagnostic ? { full: savedDiagnostic } : {},
+        }),
+      });
+      return;
+    }
+
+    const input = request.postDataJSON() as AnyRecord;
+    if (input.action === 'cache_diagnostic_manifest') {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          diagnostic: {
+            schemaVersion: 2,
+            diagnosticId: 'cache-proof-browser',
+            actorId: input.actorId,
+            vibeKey: input.vibeKey,
+            scope: input.scope,
+            frozenQueries: ['browser cache proof query'],
+          },
+        }),
+      });
+      return;
+    }
+    if (input.action === 'cache_diagnostic_fetch') {
+      providerSearchRequests.push(input);
+      const identity = input.cacheMode === 'refresh' ? 'refresh-image' : 'default-image';
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          search: {
+            resultFingerprint: `${identity}-fingerprint`,
+            providerFetchOrder: [identity],
+            resultIdentities: [{ identity, title: identity }],
+            resultIdentityCapture: { truncated: false },
+          },
+        }),
+      });
+      return;
+    }
+    if (input.action === 'cache_diagnostic_receipt') {
+      receiptSaveRequests.push(input);
+      savedDiagnostic = {
+        schemaVersion: 2,
+        diagnosticId: 'cache-proof-browser',
+        actorId: input.actorId,
+        vibeKey: input.vibeKey,
+        scope: input.scope,
+        frozenQueries: input.frozenQueries,
+        comparedAt: input.comparedAt,
+        savedAt: '2026-09-20T12:00:00.000Z',
+        comparisons: input.comparisons,
+      };
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ diagnostic: savedDiagnostic }),
+      });
+      return;
+    }
+    throw new Error(`Unexpected cache diagnostic action: ${String(input.action)}`);
+  });
+
+  return { providerSearchRequests, receiptSaveRequests };
+}
+
+test('saved cache proof reopens after refresh without provider searches and stays scoped to its pairing', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { providerSearchRequests, receiptSaveRequests } = await configureCacheDiagnosticNetwork(page);
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    const diagnostic = page.getByRole('region', { name: 'Search cache diagnostic' });
+    await diagnostic.getByRole('button', { name: 'Compare normal vs bypass', exact: true }).click();
+    await diagnostic.getByText('Comparison receipt · 1 of 1 complete', { exact: true }).waitFor();
+
+    assert.equal(providerSearchRequests.length, 2, 'creating the proof should run one normal and one bypassed provider search');
+    assert.deepEqual(providerSearchRequests.map(request => request.cacheMode).sort(), ['default', 'refresh']);
+    assert.equal(receiptSaveRequests.length, 1, 'the completed comparison should be persisted once');
+
+    const searchesBeforeRefresh = providerSearchRequests.length;
+    await page.reload();
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    const refreshedDiagnostic = page.getByRole('region', { name: 'Search cache diagnostic' });
+    await refreshedDiagnostic.getByText('Comparison receipt · 1 of 1 complete', { exact: true }).waitFor();
+    await refreshedDiagnostic.getByText('1. browser cache proof query', { exact: true }).waitFor();
+    assert.equal(
+      providerSearchRequests.length,
+      searchesBeforeRefresh,
+      'reopening the saved receipt after refresh must not invoke diagnostic provider searches',
+    );
+
+    await page.getByLabel('Audit scope').selectOption('representative');
+    assert.equal(
+      await refreshedDiagnostic.getByText('Comparison receipt · 1 of 1 complete', { exact: true }).count(),
+      0,
+      'a full-scope receipt must not appear under representative scope',
+    );
+
+    await page.getByLabel('Audit scope').selectOption('full');
+    await refreshedDiagnostic.getByText('Comparison receipt · 1 of 1 complete', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Retired Signal Vibe', exact: false }).click();
+    assert.equal(
+      await refreshedDiagnostic.getByText('Comparison receipt · 1 of 1 complete', { exact: true }).count(),
+      0,
+      'a receipt from another pairing must not be displayed',
+    );
+    assert.equal(providerSearchRequests.length, searchesBeforeRefresh, 'switching pairing or scope must not invoke provider searches');
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
 test('a date-bounded editorial packet download preserves publication join outcomes without mutations', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();
