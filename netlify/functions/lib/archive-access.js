@@ -7,6 +7,13 @@ export const ARCHIVE_ACCESS_WINDOW_KEY =
 export const ARCHIVE_CATALOG_VERSION = 1;
 export const ARCHIVE_CATALOG_KEY =
   `vibeAtlas:archive-catalog:v${ARCHIVE_CATALOG_VERSION}:latest`;
+export const ARCHIVE_CATALOG_EDITION_VERSION = 2;
+export const ARCHIVE_CATALOG_EDITION_PREFIX =
+  `vibeAtlas:archive-catalog:v${ARCHIVE_CATALOG_EDITION_VERSION}:edition:`;
+export const ARCHIVE_CATALOG_INDEX_KEY =
+  `vibeAtlas:archive-catalog:v${ARCHIVE_CATALOG_EDITION_VERSION}:index`;
+export const ARCHIVE_CATALOG_YEAR_PREFIX =
+  `vibeAtlas:archive-catalog:v${ARCHIVE_CATALOG_EDITION_VERSION}:year:`;
 
 export function archiveGateEnabled(env = process.env) {
   return env.FANDOM_ARCHIVE_GATE_ENABLED !== "false";
@@ -125,64 +132,185 @@ function isArchiveCatalog(value) {
       && (index === 0 || editions[index - 1].date.localeCompare(edition.date) > 0));
 }
 
-export async function updateArchiveCatalog(
-  store,
-  edition,
-  now = () => new Date().toISOString(),
-) {
-  if (!isArchiveCatalog({
+function isArchiveCatalogEdition(edition) {
+  return isArchiveCatalog({
     schemaVersion: 1,
     catalogVersion: ARCHIVE_CATALOG_VERSION,
     kind: "vibe-atlas-archive-catalog",
     editions: [edition],
-  })) {
+  });
+}
+
+export function archiveCatalogEditionKey(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "")) {
+    throw new Error("The archive catalogue date is invalid.");
+  }
+  return `${ARCHIVE_CATALOG_EDITION_PREFIX}${date}`;
+}
+
+function isArchiveCatalogIndex(value) {
+  return value?.schemaVersion === 1
+    && value?.catalogVersion === ARCHIVE_CATALOG_EDITION_VERSION
+    && value?.kind === "vibe-atlas-archive-catalog-index"
+    && Array.isArray(value?.years)
+    && value.years.every((year, index, years) =>
+      /^\d{4}$/.test(year)
+      && (index === 0 || years[index - 1].localeCompare(year) > 0));
+}
+
+function isArchiveCatalogYear(value, year) {
+  return value?.schemaVersion === 1
+    && value?.catalogVersion === ARCHIVE_CATALOG_EDITION_VERSION
+    && value?.kind === "vibe-atlas-archive-catalog-year"
+    && value?.year === year
+    && Array.isArray(value?.dates)
+    && value.dates.every((date, index, dates) =>
+      date.startsWith(`${year}-`)
+      && /^\d{4}-\d{2}-\d{2}$/.test(date)
+      && (index === 0 || dates[index - 1].localeCompare(date) > 0));
+}
+
+async function ensureArchiveCatalogList(store, key, currentIsValid, createNext) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const withMetadata = typeof store.getWithMetadata === "function"
+      ? await store.getWithMetadata(key, { type: "json", consistency: "strong" })
+      : null;
+    const current = withMetadata?.data ?? await store.get(
+      key,
+      { type: "json", consistency: "strong" },
+    );
+    if (current && !currentIsValid(current)) {
+      throw new Error("The archive catalogue index is invalid.");
+    }
+    const next = createNext(current);
+    if (current && JSON.stringify(current) === JSON.stringify(next)) return current;
+    if (current && !withMetadata?.etag) {
+      throw new Error(
+        "The archive catalogue index could not be updated safely because storage did not provide a revision tag.",
+      );
+    }
+    const write = await store.setJSON(
+      key,
+      next,
+      withMetadata?.etag ? { onlyIfMatch: withMetadata.etag } : { onlyIfNew: true },
+    );
+    if (write?.modified === false) continue;
+    const authoritative = await store.get(key, { type: "json", consistency: "strong" });
+    if (currentIsValid(authoritative)
+      && JSON.stringify(authoritative) === JSON.stringify(next)) return authoritative;
+  }
+  throw new Error("The archive catalogue index could not be updated safely.");
+}
+
+async function ensureArchiveCatalogDate(store, date) {
+  const year = date.slice(0, 4);
+  await ensureArchiveCatalogList(
+    store,
+    `${ARCHIVE_CATALOG_YEAR_PREFIX}${year}`,
+    value => isArchiveCatalogYear(value, year),
+    current => ({
+      schemaVersion: 1,
+      catalogVersion: ARCHIVE_CATALOG_EDITION_VERSION,
+      kind: "vibe-atlas-archive-catalog-year",
+      year,
+      dates: [...new Set([date, ...(current?.dates || [])])].sort().reverse(),
+    }),
+  );
+  await ensureArchiveCatalogList(
+    store,
+    ARCHIVE_CATALOG_INDEX_KEY,
+    isArchiveCatalogIndex,
+    current => ({
+      schemaVersion: 1,
+      catalogVersion: ARCHIVE_CATALOG_EDITION_VERSION,
+      kind: "vibe-atlas-archive-catalog-index",
+      years: [...new Set([year, ...(current?.years || [])])].sort().reverse(),
+    }),
+  );
+}
+
+export async function listArchiveCatalogEditions(store) {
+  const index = await store.get(
+    ARCHIVE_CATALOG_INDEX_KEY,
+    { type: "json", consistency: "strong" },
+  );
+  if (!index) return [];
+  if (!isArchiveCatalogIndex(index)) throw new Error("The archive catalogue index is invalid.");
+  const buckets = await Promise.all(index.years.map(async year => {
+    const bucket = await store.get(
+      `${ARCHIVE_CATALOG_YEAR_PREFIX}${year}`,
+      { type: "json", consistency: "strong" },
+    );
+    if (!isArchiveCatalogYear(bucket, year)) {
+      throw new Error("The archive catalogue year is invalid.");
+    }
+    return bucket.dates;
+  }));
+  const dates = buckets.flat().sort().reverse();
+  const editions = await Promise.all(dates.map(async date => {
+    const edition = await store.get(archiveCatalogEditionKey(date), {
+      type: "json",
+      consistency: "strong",
+    });
+    if (!isArchiveCatalogEdition(edition) || edition.date !== date) {
+      throw new Error("The archive catalogue edition is invalid.");
+    }
+    return structuredClone(edition);
+  }));
+  return editions;
+}
+
+export async function updateArchiveCatalog(
+  store,
+  edition,
+  _now = () => new Date().toISOString(),
+) {
+  if (!isArchiveCatalogEdition(edition)) {
     throw new Error("The archive catalogue edition is invalid.");
   }
+  const key = archiveCatalogEditionKey(edition.date);
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const currentWithMetadata = typeof store.getWithMetadata === "function"
-      ? await store.getWithMetadata(ARCHIVE_CATALOG_KEY, {
+      ? await store.getWithMetadata(key, {
         type: "json",
         consistency: "strong",
       })
       : null;
     const current = currentWithMetadata?.data ?? await store.get(
-      ARCHIVE_CATALOG_KEY,
+      key,
       { type: "json", consistency: "strong" },
     );
-    const currentEditions = current ? archiveCatalogEditions(current) : [];
-    if (current && !currentEditions) {
-      throw new Error("The archive catalogue is invalid.");
+    if (current && !isArchiveCatalogEdition(current)) {
+      throw new Error("The archive catalogue edition is invalid.");
     }
-    const editions = [
-      edition,
-      ...currentEditions.filter(item => item.date !== edition.date),
-    ].sort((left, right) => right.date.localeCompare(left.date));
-    const timestamp = now();
-    const next = {
-      schemaVersion: 1,
-      catalogVersion: ARCHIVE_CATALOG_VERSION,
-      kind: "vibe-atlas-archive-catalog",
-      editions,
-      updatedAt: typeof timestamp === "string" ? timestamp : timestamp.toISOString(),
-    };
+    if (current && JSON.stringify(current) === JSON.stringify(edition)) {
+      await ensureArchiveCatalogDate(store, edition.date);
+      return current;
+    }
+    if (current && !currentWithMetadata?.etag) {
+      throw new Error(
+        "The archive catalogue edition could not be updated safely because storage did not provide a revision tag.",
+      );
+    }
     const write = await store.setJSON(
-      ARCHIVE_CATALOG_KEY,
-      next,
+      key,
+      edition,
       currentWithMetadata?.etag
         ? { onlyIfMatch: currentWithMetadata.etag }
-        : current ? {} : { onlyIfNew: true },
+        : { onlyIfNew: true },
     );
     if (write?.modified === false) continue;
-    const authoritative = await store.get(ARCHIVE_CATALOG_KEY, {
+    const authoritative = await store.get(key, {
       type: "json",
       consistency: "strong",
     });
-    const authoritativeEditions = archiveCatalogEditions(authoritative);
-    if (authoritativeEditions?.some(item => item.date === edition.date)) {
+    if (isArchiveCatalogEdition(authoritative)
+      && JSON.stringify(authoritative) === JSON.stringify(edition)) {
+      await ensureArchiveCatalogDate(store, edition.date);
       return authoritative;
     }
   }
-  throw new Error("The archive catalogue could not be updated safely.");
+  throw new Error("The archive catalogue edition could not be updated safely.");
 }
 
 export function archiveEditionMetadata(payload) {

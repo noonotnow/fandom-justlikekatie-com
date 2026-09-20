@@ -35,6 +35,7 @@ import {
   archiveEditionMetadata,
   archiveGateEnabled,
   ensureArchiveAccessWindow,
+  listArchiveCatalogEditions,
   publicArchiveEdition,
   updateArchiveCatalog,
 } from "./lib/archive-access.js";
@@ -965,13 +966,16 @@ async function listArchivedEditions(
     type: "json",
     consistency: "strong",
   });
-  let editions = existing ? archiveCatalogEditions(existing) : null;
-  if (existing && !editions) {
+  const legacyEditions = existing ? archiveCatalogEditions(existing) : null;
+  if (existing && !legacyEditions) {
     throw new Error("The archive catalogue is invalid.");
   }
-  if (!editions) {
-    editions = await migrateArchiveCatalog(store, todayStr);
+  if (legacyEditions) {
+    await Promise.all(legacyEditions.map(edition => updateArchiveCatalog(store, edition)));
+    if (typeof store.delete === "function") await store.delete(ARCHIVE_CATALOG_KEY);
   }
+  let editions = await listArchiveCatalogEditions(store);
+  if (!editions.length && !legacyEditions) editions = await migrateArchiveCatalog(store, todayStr);
   const visible = editions.filter(edition => edition.date <= todayStr);
   const accessWindow = await ensureArchiveAccessWindow(
     store,
@@ -1034,14 +1038,8 @@ async function migrateArchiveCatalog(store, todayStr) {
   if (editions.some(edition => !edition)) {
     throw new Error("The archive catalogue migration found an invalid edition.");
   }
-  const sorted = editions.sort((a, b) => b.date.localeCompare(a.date));
-  for (const edition of [...sorted].reverse()) {
-    await updateArchiveCatalog(store, edition);
-  }
-  return archiveCatalogEditions(await store.get(ARCHIVE_CATALOG_KEY, {
-    type: "json",
-    consistency: "strong",
-  })) || [];
+  await Promise.all(editions.map(edition => updateArchiveCatalog(store, edition)));
+  return listArchiveCatalogEditions(store);
 }
 
 async function backfillArchiveAccessWindow(store, todayStr) {

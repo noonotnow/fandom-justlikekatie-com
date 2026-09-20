@@ -37,6 +37,9 @@ import {
 import {
   ARCHIVE_ACCESS_WINDOW_KEY,
   ARCHIVE_CATALOG_KEY,
+  ARCHIVE_CATALOG_EDITION_PREFIX,
+  ARCHIVE_CATALOG_INDEX_KEY,
+  ARCHIVE_CATALOG_YEAR_PREFIX,
 } from "./archive-access.js";
 
 function makeStore(entries = {}) {
@@ -87,6 +90,36 @@ function makeStore(entries = {}) {
     async delete(key) {
       values.delete(key);
     },
+  };
+}
+
+function archiveCatalogEntries(editions) {
+  const years = [...new Set(editions.map(edition => edition.date.slice(0, 4)))].sort().reverse();
+  return {
+    [ARCHIVE_CATALOG_INDEX_KEY]: {
+      schemaVersion: 1,
+      catalogVersion: 2,
+      kind: "vibe-atlas-archive-catalog-index",
+      years,
+    },
+    ...Object.fromEntries(years.map(year => [
+      `${ARCHIVE_CATALOG_YEAR_PREFIX}${year}`,
+      {
+        schemaVersion: 1,
+        catalogVersion: 2,
+        kind: "vibe-atlas-archive-catalog-year",
+        year,
+        dates: editions
+          .map(edition => edition.date)
+          .filter(date => date.startsWith(`${year}-`))
+          .sort()
+          .reverse(),
+      },
+    ])),
+    ...Object.fromEntries(editions.map(edition => [
+      `${ARCHIVE_CATALOG_EDITION_PREFIX}${edition.date}`,
+      edition,
+    ])),
   };
 }
 
@@ -503,13 +536,7 @@ test("archive reads use precomputed metadata without listing or loading historic
     access: "member",
   };
   const store = makeStore({
-    [ARCHIVE_CATALOG_KEY]: {
-      schemaVersion: 1,
-      catalogVersion: 1,
-      kind: "vibe-atlas-archive-catalog",
-      editions: [metadata],
-      updatedAt: "2026-09-20T00:00:00.000Z",
-    },
+    ...archiveCatalogEntries([metadata]),
     [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(date),
     [`starOfDay:v6:${date}`]: archivePayload(date),
   });
@@ -522,6 +549,39 @@ test("archive reads use precomputed metadata without listing or loading historic
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).editions, [{ ...metadata, access: "free" }]);
   assert.deepEqual(store.stats(), { listCalls: 0, setCalls: 0 });
+});
+
+test("archive reads migrate the legacy catalogue once without losing metadata", async () => {
+  const metadata = {
+    date: "2026-08-30",
+    actorName: "Legacy Actor",
+    vibeLabel: "Legacy Vibe",
+    previewThumbnails: ["https://images.test/legacy.jpg"],
+    access: "member",
+  };
+  const store = makeStore({
+    [ARCHIVE_CATALOG_KEY]: {
+      schemaVersion: 1,
+      catalogVersion: 1,
+      kind: "vibe-atlas-archive-catalog",
+      editions: [metadata],
+      updatedAt: "2026-08-30T00:00:00.000Z",
+    },
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(metadata.date),
+  });
+
+  const response = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1" },
+    contextFor(store),
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).editions, [{ ...metadata, access: "free" }]);
+  assert.equal(await store.get(ARCHIVE_CATALOG_KEY, { type: "json" }), null);
+  assert.deepEqual(
+    await store.get(`${ARCHIVE_CATALOG_EDITION_PREFIX}${metadata.date}`, { type: "json" }),
+    metadata,
+  );
 });
 
 test("archive pages stay newest-first and keep global free badges across boundaries", async () => {
@@ -539,13 +599,7 @@ test("archive pages stay newest-first and keep global free badges across boundar
     access: "member",
   }));
   const store = makeStore({
-    [ARCHIVE_CATALOG_KEY]: {
-      schemaVersion: 1,
-      catalogVersion: 1,
-      kind: "vibe-atlas-archive-catalog",
-      editions,
-      updatedAt: "2026-09-20T00:00:00.000Z",
-    },
+    ...archiveCatalogEntries(editions),
     [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(...dates),
   });
 
@@ -591,13 +645,7 @@ test("archive cursors do not shift when a newer edition publishes", async () => 
   });
   const initial = ["2026-09-19", "2026-09-18", "2026-09-17", "2026-09-16"].map(metadata);
   const store = makeStore({
-    [ARCHIVE_CATALOG_KEY]: {
-      schemaVersion: 1,
-      catalogVersion: 1,
-      kind: "vibe-atlas-archive-catalog",
-      editions: initial,
-      updatedAt: "2026-09-19T00:00:00.000Z",
-    },
+    ...archiveCatalogEntries(initial),
     [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(...initial.map(item => item.date)),
   });
   const first = await starOfDay(
@@ -606,12 +654,16 @@ test("archive cursors do not shift when a newer edition publishes", async () => 
   );
   const cursor = (await first.json()).page.nextCursor;
 
-  await store.setJSON(ARCHIVE_CATALOG_KEY, {
+  await store.setJSON(
+    `${ARCHIVE_CATALOG_EDITION_PREFIX}2026-09-20`,
+    metadata("2026-09-20"),
+  );
+  await store.setJSON(`${ARCHIVE_CATALOG_YEAR_PREFIX}2026`, {
     schemaVersion: 1,
-    catalogVersion: 1,
-    kind: "vibe-atlas-archive-catalog",
-    editions: [metadata("2026-09-20"), ...initial],
-    updatedAt: "2026-09-20T00:00:00.000Z",
+    catalogVersion: 2,
+    kind: "vibe-atlas-archive-catalog-year",
+    year: "2026",
+    dates: ["2026-09-20", ...initial.map(item => item.date)],
   });
   const second = await starOfDay(
     {

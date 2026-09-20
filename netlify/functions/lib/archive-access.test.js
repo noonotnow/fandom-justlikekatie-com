@@ -3,12 +3,13 @@ import assert from "node:assert/strict";
 import {
   ARCHIVE_ACCESS_WINDOW_KEY,
   ARCHIVE_CATALOG_KEY,
+  ARCHIVE_CATALOG_EDITION_PREFIX,
   ARCHIVE_FREE_EDITION_COUNT,
   archiveAccessDecision,
-  archiveCatalogEditions,
   archiveAccessWindowDates,
   ensureArchiveAccessWindow,
   freeArchiveDates,
+  listArchiveCatalogEditions,
   publicArchiveEdition,
   updateArchiveCatalog,
 } from "./archive-access.js";
@@ -169,7 +170,7 @@ test("exhausted access-window conflicts fail without replacing the authoritative
   );
 });
 
-test("publication safely merges archive metadata in newest-first order", async () => {
+test("publication writes only the current edition and lists metadata newest-first", async () => {
   const store = memoryStore({});
   const edition = date => ({
     date,
@@ -186,18 +187,24 @@ test("publication safely merges archive metadata in newest-first order", async (
     actorName: "Corrected Actor",
   }, () => "2026-09-20T05:00:00.000Z");
 
-  const catalog = await store.get(ARCHIVE_CATALOG_KEY, { type: "json" });
   assert.deepEqual(
-    archiveCatalogEditions(catalog).map(item => [item.date, item.actorName]),
+    (await listArchiveCatalogEditions(store)).map(item => [item.date, item.actorName]),
     [
       ["2026-09-20", "Actor 2026-09-20"],
       ["2026-09-18", "Corrected Actor"],
     ],
   );
+  assert.deepEqual(store.stats().writtenKeys.filter(key =>
+    key.startsWith(ARCHIVE_CATALOG_EDITION_PREFIX)), [
+    `${ARCHIVE_CATALOG_EDITION_PREFIX}2026-09-18`,
+    `${ARCHIVE_CATALOG_EDITION_PREFIX}2026-09-20`,
+    `${ARCHIVE_CATALOG_EDITION_PREFIX}2026-09-18`,
+  ]);
+  assert.equal(await store.get(ARCHIVE_CATALOG_KEY, { type: "json" }), null);
 });
 
-test("simultaneous publications retry a catalogue conflict and preserve both editions", async () => {
-  const store = conditionalCatalogStore({ synchronizeInitialReads: 2 });
+test("simultaneous publications use independent keys and preserve both editions", async () => {
+  const store = memoryStore({});
   const edition = date => ({
     date,
     actorName: `Actor ${date}`,
@@ -211,70 +218,59 @@ test("simultaneous publications retry a catalogue conflict and preserve both edi
     updateArchiveCatalog(store, edition("2026-09-21"), () => "2026-09-21T04:00:00.000Z"),
   ]);
 
-  const catalog = await store.get(ARCHIVE_CATALOG_KEY, { type: "json" });
   assert.deepEqual(
-    archiveCatalogEditions(catalog).map(item => item.date),
+    (await listArchiveCatalogEditions(store)).map(item => item.date),
     ["2026-09-21", "2026-09-20"],
   );
-  assert.equal(store.stats().conflicts, 1);
 });
 
-test("exhausted catalogue conflicts fail without replacing the authoritative catalogue", async () => {
+test("exhausted same-edition conflicts preserve the authoritative metadata", async () => {
   const authoritative = {
-    schemaVersion: 1,
-    catalogVersion: 1,
-    kind: "vibe-atlas-archive-catalog",
-    editions: [{
-      date: "2026-09-20",
-      actorName: "Authoritative Actor",
-      vibeLabel: "氛围",
-      previewThumbnails: [],
-      access: "member",
-    }],
-    updatedAt: "2026-09-20T04:00:00.000Z",
+    date: "2026-09-20",
+    actorName: "Authoritative Actor",
+    vibeLabel: "氛围",
+    previewThumbnails: [],
+    access: "member",
   };
   const store = conditionalCatalogStore({
+    date: authoritative.date,
     initial: authoritative,
     rejectAllWrites: true,
   });
 
   await assert.rejects(
     updateArchiveCatalog(store, {
-      date: "2026-09-21",
+      date: "2026-09-20",
       actorName: "Losing Actor",
       vibeLabel: "氛围",
       previewThumbnails: [],
       access: "member",
     }),
-    /archive catalogue could not be updated safely/,
+    /archive catalogue edition could not be updated safely/,
   );
 
   assert.equal(store.stats().conflicts, 8);
   assert.deepEqual(
-    await store.get(ARCHIVE_CATALOG_KEY, { type: "json" }),
+    await store.get(`${ARCHIVE_CATALOG_EDITION_PREFIX}${authoritative.date}`, { type: "json" }),
     authoritative,
   );
 });
 
-test("publication refuses to merge into invalid archive metadata", async () => {
+test("publication refuses to replace invalid per-edition metadata", async () => {
   const store = memoryStore({
-    [ARCHIVE_CATALOG_KEY]: {
-      schemaVersion: 1,
-      catalogVersion: 1,
-      kind: "vibe-atlas-archive-catalog",
-      editions: [{ date: "2026-09-20", actorName: "Incomplete" }],
-    },
+    [`${ARCHIVE_CATALOG_EDITION_PREFIX}2026-09-20`]:
+      { date: "2026-09-20", actorName: "Incomplete" },
   });
 
   await assert.rejects(
     updateArchiveCatalog(store, {
-      date: "2026-09-21",
+      date: "2026-09-20",
       actorName: "Actor",
       vibeLabel: "氛围",
       previewThumbnails: [],
       access: "member",
     }),
-    /archive catalogue is invalid/,
+    /archive catalogue edition is invalid/,
   );
 });
 
@@ -413,9 +409,11 @@ function archivePayload(date) {
 
 function memoryStore(entries) {
   const values = new Map(Object.entries(entries));
+  const revisions = new Map([...values.keys()].map(key => [key, 1]));
   let listCalls = 0;
+  const writtenKeys = [];
   return {
-    stats: () => ({ listCalls }),
+    stats: () => ({ listCalls, writtenKeys }),
     async get(key, options) {
       const value = values.get(key);
       return options?.type === "json" && value ? structuredClone(value) : value || null;
@@ -428,7 +426,24 @@ function memoryStore(entries) {
           .map(key => ({ key })),
       };
     },
-    async setJSON(key, value) { values.set(key, structuredClone(value)); },
+    async getWithMetadata(key, options) {
+      const value = values.get(key);
+      return {
+        data: options?.type === "json" && value ? structuredClone(value) : value || null,
+        ...(value ? { etag: `revision-${revisions.get(key)}` } : {}),
+      };
+    },
+    async setJSON(key, value, options = {}) {
+      const revision = revisions.get(key) || 0;
+      if (options.onlyIfNew && values.has(key)) return { modified: false };
+      if (options.onlyIfMatch && options.onlyIfMatch !== `revision-${revision}`) {
+        return { modified: false };
+      }
+      values.set(key, structuredClone(value));
+      revisions.set(key, revision + 1);
+      writtenKeys.push(key);
+      return { modified: true, etag: `revision-${revision + 1}` };
+    },
     async delete(key) { values.delete(key); },
   };
 }
@@ -448,11 +463,12 @@ function conditionalAccessWindowStore(options = {}) {
 }
 
 function conditionalCatalogStore({
+  date,
   initial = null,
   synchronizeInitialReads = 0,
   rejectAllWrites = false,
 } = {}) {
-  return conditionalRevisionStore(ARCHIVE_CATALOG_KEY, {
+  return conditionalRevisionStore(`${ARCHIVE_CATALOG_EDITION_PREFIX}${date}`, {
     initial,
     synchronizeInitialReads,
     rejectAllWrites,
