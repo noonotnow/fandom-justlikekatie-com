@@ -4,6 +4,8 @@ import {
   ARCHIVE_ACCESS_RETENTION_DAYS,
   archiveAccessHealth,
   createArchiveAccessOperationsHandler,
+  createArchiveAccessRetentionHandler,
+  pruneExpiredArchiveAccessChecks,
   recordArchiveAccessCheck,
 } from "./archive-access-operations.js";
 
@@ -172,4 +174,54 @@ test("cleanup failures do not fail or distort the rolling report", async () => {
 
   assert.equal(health.totals.billing_delay, 1);
   assert.equal(health.recentHour.authenticated_checks, 1);
+});
+
+test("concurrent report and scheduled retention cleanups are idempotent", async () => {
+  const data = paginatedStore(2);
+  const now = new Date("2026-09-20T12:30:00.000Z");
+  const expired = new Date(now.getTime() - (ARCHIVE_ACCESS_RETENTION_DAYS + 1) * 24 * 60 * 60 * 1000);
+  await recordArchiveAccessCheck(data, { outcome: "allowed", authenticated: true }, expired);
+  await recordArchiveAccessCheck(data, { outcome: "allowed", authenticated: true }, expired);
+  await recordArchiveAccessCheck(data, { outcome: "allowed", authenticated: true }, now);
+  const originalDelete = data.delete;
+  data.delete = async key => {
+    await new Promise(resolve => setTimeout(resolve, 1));
+    await originalDelete(key);
+  };
+
+  const [health] = await Promise.all([
+    archiveAccessHealth(data, now),
+    pruneExpiredArchiveAccessChecks(data, now),
+  ]);
+
+  assert.equal(health.totals.allowed, 1);
+  assert.equal(data.values.size, 1);
+  assert.equal([...data.values.values()][0].timestamp, now.toISOString());
+});
+
+test("scheduled retention can run repeatedly and isolates cleanup failures", async () => {
+  const data = paginatedStore(1);
+  const now = new Date("2026-09-20T12:30:00.000Z");
+  const expired = new Date(now.getTime() - (ARCHIVE_ACCESS_RETENTION_DAYS + 1) * 24 * 60 * 60 * 1000);
+  await recordArchiveAccessCheck(data, { outcome: "allowed", authenticated: true }, expired);
+  const messages = [];
+  const handler = createArchiveAccessRetentionHandler({
+    getStore: () => data,
+    now: () => now,
+    logger: {
+      log: message => messages.push(message),
+      error: (...args) => messages.push(args),
+    },
+  });
+
+  await handler(new Request("https://example.test/scheduled"), {});
+  await handler(new Request("https://example.test/scheduled"), {});
+  assert.equal(data.values.size, 0);
+  assert.match(messages[0], /deleted 1/);
+  assert.match(messages[1], /deleted 0/);
+
+  data.list = async () => { throw new Error("temporary listing failure"); };
+  await assert.doesNotReject(handler(new Request("https://example.test/scheduled"), {}));
+  assert.equal(Array.isArray(messages[2]), true);
+  assert.match(messages[2][0], /cleanup failed/);
 });

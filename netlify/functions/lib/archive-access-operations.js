@@ -100,6 +100,12 @@ export async function archiveAccessHealth(store, date = new Date(), hours = 24) 
   return report;
 }
 
+export async function pruneExpiredArchiveAccessChecks(store, date = new Date()) {
+  const retentionCutoff = date.getTime() - RETENTION_MS;
+  const { expiredKeys } = await classifyBlobKeys(store, Number.POSITIVE_INFINITY, retentionCutoff);
+  return deleteExpiredBlobs(store, expiredKeys);
+}
+
 function trailingHoursWith(buckets, outcome) {
   let count = 0;
   let previousHour = null;
@@ -140,10 +146,30 @@ function archiveAccessKeyTimestamp(key) {
 }
 
 async function deleteExpiredBlobs(store, keys) {
-  if (typeof store?.delete !== "function") return;
+  if (typeof store?.delete !== "function") return 0;
+  let deleted = 0;
   for (let index = 0; index < keys.length; index += DELETE_BATCH_SIZE) {
-    await Promise.allSettled(keys.slice(index, index + DELETE_BATCH_SIZE).map(key => store.delete(key)));
+    const results = await Promise.allSettled(
+      keys.slice(index, index + DELETE_BATCH_SIZE).map(key => store.delete(key)),
+    );
+    deleted += results.filter(result => result.status === "fulfilled").length;
   }
+  return deleted;
+}
+
+export function createArchiveAccessRetentionHandler({
+  getStore,
+  now = () => new Date(),
+  logger = console,
+} = {}) {
+  return async (_req, context) => {
+    try {
+      const deleted = await pruneExpiredArchiveAccessChecks(getStore(context), now());
+      logger.log(`[archive-access-retention] deleted ${deleted} expired archive access checks`);
+    } catch (error) {
+      logger.error("[archive-access-retention] cleanup failed", error);
+    }
+  };
 }
 
 export function createArchiveAccessOperationsHandler({
