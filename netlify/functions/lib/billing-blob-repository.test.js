@@ -292,9 +292,38 @@ test("concurrent equal-second deliveries converge through conditional writes", a
 });
 
 test("customer and account mismatches never grant membership", async () => {
-  const { repository } = createRepository();
+  const { repository, store } = createRepository();
   await repository.linkCustomer("account_owner", "cus_shared");
-  await applyBlobBillingEvent({
+  const rawPayload = JSON.stringify({ email: "collector@example.com", customer: "cus_shared" });
+  const result = await applyBlobBillingEvent({
+    repository,
+    event: {
+      id: "evt_mismatch",
+      created: 90,
+      type: "customer.subscription.updated",
+      data: { object: {
+        id: "sub_shared",
+        customer: "cus_shared",
+        status: "active",
+        metadata: { fandom_account_id: "account_attacker", email: "collector@example.com" },
+        rawPayload,
+      } },
+    },
+  });
+  assert.equal(result.rejected, true);
+  assert.equal(result.reason, "stripe_identity_conflict");
+  assert.equal((await repository.membershipForAccount("account_attacker")).status, "inactive");
+  assert.equal((await repository.membershipForAccount("account_owner")).status, "inactive");
+  const operation = await store.get("operations/stripe-identity-conflict");
+  assert.deepEqual(
+    Object.keys(operation).sort(),
+    ["count", "eventCategory", "firstOccurredAt", "lastOccurredAt", "reason", "schemaVersion", "type"].sort(),
+  );
+  assert.equal(operation.eventCategory, "subscription");
+  assert.equal(operation.count, 1);
+  const operatorOutput = JSON.stringify(operation);
+  assert.doesNotMatch(operatorOutput, /cus_shared|collector@example\.com|account_attacker|rawPayload/);
+  assert.deepEqual(await applyBlobBillingEvent({
     repository,
     event: {
       id: "evt_mismatch",
@@ -307,7 +336,26 @@ test("customer and account mismatches never grant membership", async () => {
         metadata: { fandom_account_id: "account_attacker" },
       } },
     },
+  }), { duplicate: true });
+  assert.equal((await store.get("operations/stripe-identity-conflict")).count, 1);
+});
+
+test("checkout identity conflicts use a distinct bounded operational record", async () => {
+  const { repository, store } = createRepository();
+  await repository.linkCustomer("account_owner", "cus_shared");
+  const result = await applyBlobBillingEvent({
+    repository,
+    event: {
+      id: "evt_checkout_conflict",
+      type: "checkout.session.completed",
+      data: { object: {
+        customer: { id: "cus_shared", email: "private@example.com" },
+        metadata: { fandom_account_id: "account_other" },
+      } },
+    },
   });
-  assert.equal((await repository.membershipForAccount("account_attacker")).status, "inactive");
-  assert.equal((await repository.membershipForAccount("account_owner")).status, "inactive");
+  assert.equal(result.reason, "stripe_identity_conflict");
+  const operation = await store.get("operations/stripe-identity-conflict");
+  assert.equal(operation.eventCategory, "checkout");
+  assert.doesNotMatch(JSON.stringify(operation), /cus_shared|private@example\.com|account_other/);
 });

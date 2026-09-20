@@ -1,4 +1,5 @@
 const STORE_NAME = "fandom-billing";
+const IDENTITY_CONFLICT_KEY = "operations/stripe-identity-conflict";
 
 const keyPart = value => encodeURIComponent(String(value));
 
@@ -84,6 +85,33 @@ export function createBlobBillingRepository({ getStore, context }) {
       });
     },
 
+    async recordIdentityConflict({ eventCategory }) {
+      const category = eventCategory === "checkout" ? "checkout" : "subscription";
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const existing = await store().getWithMetadata(IDENTITY_CONFLICT_KEY, {
+          type: "json",
+          consistency: "strong",
+        });
+        const occurredAt = new Date().toISOString();
+        const record = {
+          schemaVersion: 1,
+          type: "billing_reconciliation_rejected",
+          reason: "stripe_identity_conflict",
+          eventCategory: category,
+          count: Math.min(Number(existing?.data?.count || 0) + 1, Number.MAX_SAFE_INTEGER),
+          firstOccurredAt: existing?.data?.firstOccurredAt || occurredAt,
+          lastOccurredAt: occurredAt,
+        };
+        const write = await store().setJSON(
+          IDENTITY_CONFLICT_KEY,
+          record,
+          existing?.etag ? { onlyIfMatch: existing.etag } : { onlyIfNew: true },
+        );
+        if (write?.modified !== false) return record;
+      }
+      throw new Error("Billing identity conflict record changed too frequently to update safely.");
+    },
+
     async recordSubscription({
       accountId,
       customerId,
@@ -99,11 +127,11 @@ export function createBlobBillingRepository({ getStore, context }) {
       eventId = "",
       eventType = "",
     }) {
-      if (!accountId || !customerId || !subscriptionId) return false;
+      if (!accountId || !customerId || !subscriptionId) return { outcome: "invalid" };
       const linkedAccountId = await accountIdForCustomer(store, customerId);
-      if (linkedAccountId && linkedAccountId !== accountId) return false;
+      if (linkedAccountId && linkedAccountId !== accountId) return { outcome: "identity_conflict" };
       const subscriptionKey = `subscriptions/${keyPart(accountId)}`;
-      if (!await this.linkCustomerFromWebhook(accountId, customerId)) return false;
+      if (!await this.linkCustomerFromWebhook(accountId, customerId)) return { outcome: "identity_conflict" };
       const incoming = {
         accountId,
         stripeCustomerId: customerId,
@@ -125,13 +153,13 @@ export function createBlobBillingRepository({ getStore, context }) {
           type: "json",
           consistency: "strong",
         });
-        if (existing?.data && compareSubscriptionEvents(existing.data, incoming) >= 0) return false;
+        if (existing?.data && compareSubscriptionEvents(existing.data, incoming) >= 0) return { outcome: "stale" };
         const write = await store().setJSON(
           subscriptionKey,
           incoming,
           existing?.etag ? { onlyIfMatch: existing.etag } : { onlyIfNew: true },
         );
-        if (write?.modified !== false) return true;
+        if (write?.modified !== false) return { outcome: "applied" };
       }
       throw new Error("Membership state changed too frequently to reconcile safely.");
     },

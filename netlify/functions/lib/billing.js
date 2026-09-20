@@ -17,6 +17,7 @@ export function createBillingServices({
   poolFactory = config => new pg.Pool(config),
   runStripeMigrations = runMigrations,
   getStore = getBlobStore,
+  logger = console,
 } = {}) {
   const useBlobBilling = env.NETLIFY === "true"
     || Boolean(env.AWS_LAMBDA_FUNCTION_NAME)
@@ -68,7 +69,17 @@ export function createBillingServices({
       const current = await stripe.subscriptions.retrieve(event.data.object.id);
       event = { ...event, data: { ...event.data, object: current } };
     }
-    await applyBlobBillingEvent({ event, repository: repository(context), env });
+    const result = await applyBlobBillingEvent({ event, repository: repository(context), env });
+    if (result?.reason === "stripe_identity_conflict") {
+      logger.warn("[billing] membership update rejected", {
+        type: result.operation.type,
+        reason: result.operation.reason,
+        eventCategory: result.operation.eventCategory,
+        count: result.operation.count,
+        firstOccurredAt: result.operation.firstOccurredAt,
+        lastOccurredAt: result.operation.lastOccurredAt,
+      });
+    }
   };
   return {
     initialize,

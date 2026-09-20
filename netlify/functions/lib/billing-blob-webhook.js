@@ -13,7 +13,12 @@ export async function applyBlobBillingEvent({ event, repository, env = process.e
     if (event.type === "checkout.session.completed") {
       const accountId = object.metadata?.fandom_account_id;
       const customerId = typeof object.customer === "string" ? object.customer : object.customer?.id;
-      await repository.linkCustomerFromWebhook(accountId, customerId);
+      const linked = await repository.linkCustomerFromWebhook(accountId, customerId);
+      if (!linked && accountId && customerId) {
+        const operation = await repository.recordIdentityConflict({ eventCategory: "checkout" });
+        await repository.recordProcessedEvent?.(event);
+        return { rejected: true, reason: "stripe_identity_conflict", operation };
+      }
       await repository.recordProcessedEvent?.(event);
       return { applied: true };
     }
@@ -31,7 +36,7 @@ export async function applyBlobBillingEvent({ event, repository, env = process.e
       : null;
     const priceId = object.items?.data?.[0]?.price?.id || object.plan?.id || null;
     const metadata = capabilityMetadata(object.metadata);
-    await repository.recordSubscription({
+    const result = await repository.recordSubscription({
       accountId,
       customerId,
       subscriptionId: object.id,
@@ -46,8 +51,13 @@ export async function applyBlobBillingEvent({ event, repository, env = process.e
       eventId: event.id,
       eventType: event.type,
     });
+    if (result?.outcome === "identity_conflict") {
+      const operation = await repository.recordIdentityConflict({ eventCategory: "subscription" });
+      await repository.recordProcessedEvent?.(event);
+      return { rejected: true, reason: "stripe_identity_conflict", operation };
+    }
     await repository.recordProcessedEvent?.(event);
-    return { applied: true };
+    return result?.outcome === "applied" ? { applied: true } : { ignored: true };
   } catch (error) {
     await repository.releaseEvent?.(event.id);
     throw error;

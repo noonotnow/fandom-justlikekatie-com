@@ -262,3 +262,65 @@ test("external Netlify billing does not require the internal Replit database hos
   await billing.processWebhook(Buffer.from('{"id":"evt_external"}'), "t=1,v1=signed", {});
   assert.equal((await billing.repository({}).membershipForAccount(user.accountId)).status, "active");
 });
+
+test("blob billing logs identity conflicts without exposing Stripe or account identifiers", async () => {
+  const values = new Map();
+  const warnings = [];
+  const event = {
+    id: "evt_private",
+    created: 50,
+    type: "customer.subscription.updated",
+    data: {
+      object: {
+        id: "sub_private",
+        customer: "cus_private",
+        status: "active",
+        metadata: {
+          fandom_account_id: "account_other",
+          email: "private@example.com",
+        },
+      },
+    },
+  };
+  const store = {
+    async get(key) { return values.get(key) || null; },
+    async getWithMetadata(key) {
+      return values.has(key) ? { data: values.get(key), etag: `"${key}"` } : null;
+    },
+    async setJSON(key, value, options = {}) {
+      if (options.onlyIfNew && values.has(key)) return { modified: false };
+      values.set(key, value);
+      return { modified: true };
+    },
+    async delete(key) { values.delete(key); },
+  };
+  const billing = createBillingServices({
+    env: {
+      NETLIFY: "true",
+      STRIPE_SECRET_KEY: "sk_test_private",
+      STRIPE_WEBHOOK_SECRET: "whsec_private",
+    },
+    stripeClient: async () => ({
+      webhooks: { constructEvent: () => event },
+      subscriptions: { retrieve: async () => event.data.object },
+    }),
+    getStore: () => store,
+    logger: { warn: (...args) => warnings.push(args) },
+  });
+  await billing.repository({}).linkCustomer("account_owner", "cus_private");
+
+  await billing.processWebhook(
+    Buffer.from(JSON.stringify(event)),
+    "t=1,v1=private-signature",
+    {},
+  );
+
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0][0], "[billing] membership update rejected");
+  const operatorOutput = JSON.stringify(warnings[0]);
+  assert.match(operatorOutput, /stripe_identity_conflict/);
+  assert.doesNotMatch(
+    operatorOutput,
+    /cus_private|sub_private|account_owner|account_other|private@example\.com|evt_private|private-signature/,
+  );
+});
