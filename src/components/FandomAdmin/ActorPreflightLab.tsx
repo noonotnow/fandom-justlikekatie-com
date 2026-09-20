@@ -1032,7 +1032,7 @@ function CandidateFunnelSummary({run}:{run:Run}) {
   const queryYield = analysis?.queryVisualYield ?? [];
   const retrieval = run.retrievalRepetition;
   const retrievalRungs = retrieval?.rungs ?? [];
-  const retrievalCount = (value:unknown) => typeof value === 'number' ? String(value) : 'Unavailable';
+  const recordedCount = (value:unknown) => typeof value === 'number' ? String(value) : 'Unavailable';
   const hasCompleteOverlapDetail = retrievalRungs.length > 0
     && retrievalRungs.every((rung:AnyRecord)=>Array.isArray(rung.overlapsWithEarlierRungs));
   const families = analysis?.sameShootFamilies ?? [];
@@ -1045,14 +1045,14 @@ function CandidateFunnelSummary({run}:{run:Run}) {
     {retrieval&&<section className={styles.retrievalRepetition} aria-label="Retrieval repetition">
       <div><h6>Retrieval repetition</h6><p>Exact result and image identity repetition is measured before promise, ranking, deduplication, or composition decisions. It does not change queries or selection.</p></div>
       <div className={styles.evidenceSummary}>
-        <strong>{retrievalCount(retrieval.occurrenceCount)}</strong><span>result occurrences</span>
-        <strong>{retrievalCount(retrieval.uniqueCandidateIdentityCount)}</strong><span>unique candidate identities</span>
-        <strong>{retrievalCount(retrieval.uniqueImageIdentityCount)}</strong><span>unique image identities</span>
-        <strong>{retrievalCount(retrieval.repeatedImageOccurrenceCount)}</strong><span>repeated image occurrences</span>
+        <strong>{recordedCount(retrieval.occurrenceCount)}</strong><span>result occurrences</span>
+        <strong>{recordedCount(retrieval.uniqueCandidateIdentityCount)}</strong><span>unique candidate identities</span>
+        <strong>{recordedCount(retrieval.uniqueImageIdentityCount)}</strong><span>unique image identities</span>
+        <strong>{recordedCount(retrieval.repeatedImageOccurrenceCount)}</strong><span>repeated image occurrences</span>
       </div>
       <div className={styles.retrievalRungs}>{retrievalRungs.map((rung:AnyRecord)=><article key={`${rung.ladderRung}:${rung.query}`}>
         <strong>Rung {Number(rung.ladderRung)+1} · {rung.query}</strong>
-        <span>{retrievalCount(rung.occurrenceCount)} occurrences · {retrievalCount(rung.uniqueImageIdentityCount)} unique images · {typeof rung.incrementalImageIdentityCount === 'number' ? `+${rung.incrementalImageIdentityCount}` : 'Unavailable'} new images</span>
+        <span>{recordedCount(rung.occurrenceCount)} occurrences · {recordedCount(rung.uniqueImageIdentityCount)} unique images · {typeof rung.incrementalImageIdentityCount === 'number' ? `+${rung.incrementalImageIdentityCount}` : 'Unavailable'} new images</span>
         <small>{!Array.isArray(rung.overlapsWithEarlierRungs)
           ? 'Exact overlap detail unavailable for this rung'
           : rung.overlapsWithEarlierRungs.length
@@ -1065,13 +1065,13 @@ function CandidateFunnelSummary({run}:{run:Run}) {
       </details>
     </section>}
     <div className={styles.evidenceSummary}>
-      <strong>{distribution.queryNotVisibleToCuration ?? 0}</strong><span>hidden below ranked query cutoff</span>
-      <strong>{distribution.filteredBeforeAnalysis ?? 0}</strong><span>failed image or safety gates</span>
-      <strong>{distribution.exactDuplicates ?? 0}</strong><span>exact copies collapsed</span>
-      <strong>{distribution.transformedDuplicates ?? 0}</strong><span>transformed copies measured</span>
-      <strong>{distribution.promiseRejected ?? 0}</strong><span>contradictory or irrelevant</span>
-      <strong>{distribution.selected ?? 0}</strong><span>selected by the winning board</span>
-      <strong>{distribution.published ?? 0}</strong><span>{distribution.publishedStatus?.replaceAll('_',' ') ?? 'publication unknown'}</span>
+      <strong>{recordedCount(distribution.queryNotVisibleToCuration)}</strong><span>hidden below ranked query cutoff</span>
+      <strong>{recordedCount(distribution.filteredBeforeAnalysis)}</strong><span>failed image or safety gates</span>
+      <strong>{recordedCount(distribution.exactDuplicates)}</strong><span>exact copies collapsed</span>
+      <strong>{recordedCount(distribution.transformedDuplicates)}</strong><span>transformed copies measured</span>
+      <strong>{recordedCount(distribution.promiseRejected)}</strong><span>contradictory or irrelevant</span>
+      <strong>{recordedCount(distribution.selected)}</strong><span>selected by the winning board</span>
+      <strong>{recordedCount(distribution.published)}</strong><span>{distribution.publishedStatus?.replaceAll('_',' ') ?? 'publication unknown'}</span>
     </div>
     <details><summary>Query and ladder-rung yield <span className={styles.muted}>{queryYield.length} queries</span></summary><pre>{text(queryYield)}</pre></details>
     <details><summary>Search cache provenance <span className={styles.muted}>{run.queryRuns?.length ?? 0} receipts</span></summary>

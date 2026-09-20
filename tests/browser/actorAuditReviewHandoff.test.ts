@@ -385,6 +385,8 @@ function withPartialRetrievalRepetition(result: AnyRecord): AnyRecord {
   delete result.retrievalRepetition.rungs[1].incrementalImageIdentityCount;
   delete result.retrievalRepetition.rungs[0].overlapsWithEarlierRungs;
   delete result.retrievalRepetition.rungs[1].overlapsWithEarlierRungs;
+  delete result.calibrationAnalysis.failureDistribution.filteredBeforeAnalysis;
+  delete result.calibrationAnalysis.failureDistribution.promiseRejected;
   return result;
 }
 
@@ -1626,11 +1628,16 @@ test('partial retrieval receipts distinguish unavailable counts from recorded ze
     await page.getByRole('button', { name: 'Choose Compiled', exact: true }).click();
 
     const currentReceipt = page.getByRole('region', { name: 'Retrieval repetition' });
+    const currentFunnel = page.getByRole('region', { name: 'Candidate loss funnel' });
     await currentReceipt.getByText('result occurrences', { exact: true }).waitFor();
     assert.deepEqual((await currentReceipt.locator('strong').allTextContents()).slice(0, 4), ['7', 'Unavailable', '5', '0']);
     assert.equal(await currentReceipt.getByText('Unavailable occurrences · 0 unique images · +4 new images', { exact: true }).isVisible(), true);
     assert.equal(await currentReceipt.getByText('0 occurrences · Unavailable unique images · Unavailable new images', { exact: true }).isVisible(), true);
     assert.equal(await currentReceipt.getByText('Exact overlap detail unavailable for this rung', { exact: true }).count(), 2);
+    assert.equal(await currentFunnel.getByText('failed image or safety gates', { exact: true }).locator('xpath=preceding-sibling::strong[1]').textContent(), 'Unavailable');
+    assert.equal(await currentFunnel.getByText('contradictory or irrelevant', { exact: true }).locator('xpath=preceding-sibling::strong[1]').textContent(), 'Unavailable');
+    assert.equal(await currentFunnel.getByText('transformed copies measured', { exact: true }).locator('xpath=preceding-sibling::strong[1]').textContent(), '0');
+    assert.equal(await currentFunnel.getByText('not published', { exact: true }).locator('xpath=preceding-sibling::strong[1]').textContent(), '0');
 
     const currentRequestsBeforeExpansion = structuredClone(auditRequests);
     const currentPartialReceipt = currentReceipt.locator('details').filter({ hasText: 'Partial retrieval receipt · exact overlap unavailable' });
@@ -1646,10 +1653,13 @@ test('partial retrieval receipts distinguish unavailable counts from recorded ze
     await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor();
 
     const retainedReceipt = page.getByRole('region', { name: 'Retrieval repetition' });
+    const retainedFunnel = page.getByRole('region', { name: 'Candidate loss funnel' });
     await retainedReceipt.getByText('result occurrences', { exact: true }).waitFor();
     assert.deepEqual((await retainedReceipt.locator('strong').allTextContents()).slice(0, 4), ['7', 'Unavailable', '5', '0']);
     assert.equal(await retainedReceipt.getByText('Unavailable occurrences · 0 unique images · +4 new images', { exact: true }).isVisible(), true);
     assert.equal(await retainedReceipt.getByText('0 occurrences · Unavailable unique images · Unavailable new images', { exact: true }).isVisible(), true);
+    assert.equal(await retainedFunnel.getByText('failed image or safety gates', { exact: true }).locator('xpath=preceding-sibling::strong[1]').textContent(), 'Unavailable');
+    assert.equal(await retainedFunnel.getByText('transformed copies measured', { exact: true }).locator('xpath=preceding-sibling::strong[1]').textContent(), '0');
     const retainedPartialReceipt = retainedReceipt.locator('details').filter({ hasText: 'Partial retrieval receipt · exact overlap unavailable' });
     await retainedPartialReceipt.locator('summary').click();
     assert.equal(await retainedPartialReceipt.getByText('Exact overlap detail is unavailable in this retained receipt.', { exact: false }).isVisible(), true);
@@ -1659,11 +1669,14 @@ test('partial retrieval receipts distinguish unavailable counts from recorded ze
     await page.getByLabel('Audit run').selectOption('run-legacy');
     await page.getByRole('heading', { name: 'Legacy audit · retained history · run-legacy', exact: true }).waitFor();
     const legacyReceipt = page.getByRole('region', { name: 'Retrieval repetition' });
+    const legacyFunnel = page.getByRole('region', { name: 'Candidate loss funnel' });
     await legacyReceipt.getByText('result occurrences', { exact: true }).waitFor();
     assert.deepEqual((await legacyReceipt.locator('strong').allTextContents()).slice(0, 4), ['7', 'Unavailable', '5', '0']);
     assert.equal(await legacyReceipt.getByText('Unavailable occurrences · 0 unique images · +4 new images', { exact: true }).isVisible(), true);
     assert.equal(await legacyReceipt.getByText('0 occurrences · Unavailable unique images · Unavailable new images', { exact: true }).isVisible(), true);
-    assert.equal(await legacyReceipt.locator('button, input, select, textarea, form').count(), 0);
+    assert.equal(await legacyFunnel.getByText('contradictory or irrelevant', { exact: true }).locator('xpath=preceding-sibling::strong[1]').textContent(), 'Unavailable');
+    assert.equal(await legacyFunnel.getByText('not published', { exact: true }).locator('xpath=preceding-sibling::strong[1]').textContent(), '0');
+    assert.equal(await legacyFunnel.locator('button, input, select, textarea, form').count(), 0);
     assert.deepEqual(auditRequests, requestsBeforeRetainedReview, 'switching to and reading a Legacy partial receipt must not run or mutate an audit');
   } finally {
     await browser.close();
