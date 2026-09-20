@@ -63,8 +63,31 @@ test("SQL receipt cleanup deletes only a bounded expired batch", async () => {
   });
   assert.equal(await repository.pruneProcessedEvents(), 1);
   assert.match(cleanup.sql, /state = 'processed'/);
+  assert.match(cleanup.sql, /ORDER BY processed_at, stripe_event_id/);
   assert.match(cleanup.sql, /LIMIT \$2/);
   assert.deepEqual(cleanup.params, [BILLING_EVENT_RETENTION_DAYS, 25]);
+});
+
+test("application schema idempotently indexes processed receipt retention order", async () => {
+  let schemaSql;
+  const repository = createBillingRepository({
+    query: async sql => {
+      schemaSql = sql;
+      return { rows: [] };
+    },
+  });
+
+  await repository.ensureApplicationSchema();
+
+  assert.match(
+    schemaSql,
+    /CREATE INDEX IF NOT EXISTS fandom_billing_events_processed_retention_idx/,
+  );
+  assert.match(
+    schemaSql,
+    /ON public\.fandom_billing_events \(processed_at, stripe_event_id\)\s+WHERE state = 'processed'/,
+  );
+  assert.doesNotMatch(schemaSql, /fandom_billing_accounts[\s\S]*CREATE INDEX/);
 });
 
 test("protected membership reads never run receipt cleanup", async () => {

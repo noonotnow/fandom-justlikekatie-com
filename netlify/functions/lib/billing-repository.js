@@ -24,7 +24,10 @@ export function createBillingRepository({ query }) {
          );
          ALTER TABLE public.fandom_billing_events
            ADD COLUMN IF NOT EXISTS state TEXT NOT NULL DEFAULT 'processed',
-           ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+           ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+         CREATE INDEX IF NOT EXISTS fandom_billing_events_processed_retention_idx
+           ON public.fandom_billing_events (processed_at, stripe_event_id)
+           WHERE state = 'processed'`,
       );
     },
     async hasProcessedEvent(eventId) {
@@ -72,7 +75,7 @@ export function createBillingRepository({ query }) {
              FROM public.fandom_billing_events
             WHERE state = 'processed'
               AND processed_at < NOW() - ($1 * INTERVAL '1 day')
-            ORDER BY processed_at
+             ORDER BY processed_at, stripe_event_id
             LIMIT $2
          )
          DELETE FROM public.fandom_billing_events events
