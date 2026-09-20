@@ -2475,19 +2475,19 @@ export function createActorAuditHandler({
           auditRescueCalibrationKey(pair.actor.id, pair.vibeIdx, input.receiptId),
           { type: "json", consistency: "strong" },
         );
-        if (!calibration
-          || calibration.sourceRescueReceiptId !== input.receiptId
-          || calibration.actor?.id !== pair.actor.id
-          || calibration.vibePack?.key !== pair.vibeKey
-          || calibration.status !== "confirmed"
-          || calibration.calibrationVersion !== RESCUE_CALIBRATION_VERSION) {
+        const report = calibration ? null : await readReport(store, pair);
+        const blindEvidence = report?.calibrationProfile?.evidenceLedger?.find(item =>
+          item.evidenceType === "blind_review_disagreement"
+          && item.status === "active"
+          && item.sourceRescueReceiptId === input.receiptId);
+        const validRescueCalibration = calibration
+          && calibration.sourceRescueReceiptId === input.receiptId
+          && calibration.actor?.id === pair.actor.id
+          && calibration.vibePack?.key === pair.vibeKey
+          && calibration.status === "confirmed"
+          && calibration.calibrationVersion === RESCUE_CALIBRATION_VERSION;
+        if (!validRescueCalibration && !blindEvidence) {
           return json(404, { error: "That confirmed calibration receipt was not found for this pairing." });
-        }
-        const availableSignals = calibrationSignalValues(calibration, signalFamily);
-        if (!availableSignals.includes(signalValue)) {
-          return json(404, {
-            error: "That signal is not present in the selected calibration receipt.",
-          });
         }
         const retirementKey = auditRescueCalibrationSignalRetirementKey(
           pair.actor.id,
@@ -2511,13 +2511,24 @@ export function createActorAuditHandler({
             ...detailResponse(pair, next),
           });
         }
+        const availableSignals = validRescueCalibration
+          ? calibrationSignalValues(calibration, signalFamily)
+          : report.calibrationProfile.signalInventory.find(item =>
+            item.sourceRescueReceiptId === input.receiptId)?.signals?.[signalFamily] || [];
+        if (!availableSignals.includes(signalValue)) {
+          return json(404, {
+            error: "That signal is not present in the selected calibration receipt.",
+          });
+        }
         const retirement = {
           schemaVersion: 1,
           retirementVersion: 1,
           retirementId: createFeedbackId(),
           status: "retired",
           sourceRescueReceiptId: input.receiptId,
-          sourceRunId: calibration.sourceRunId || null,
+          sourceRunId: validRescueCalibration
+            ? calibration.sourceRunId || null
+            : blindEvidence.sourceRunId || null,
           actorId: pair.actor.id,
           vibeKey: pair.vibeKey,
           signalFamily: CALIBRATION_SIGNAL_LABELS[signalFamily],

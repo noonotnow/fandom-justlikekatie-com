@@ -5363,6 +5363,118 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
   for (const [key, value] of immutableJudgments) assert.deepEqual(store.records.get(key), value);
 });
 
+test("an approved exact-image signal learned from blind reviews can be retired without rewriting evidence", async () => {
+  const curateOptions = [];
+  const { handler, store } = harness({
+    freshEvidenceOnRerun: true,
+    onCurateOptions: options => curateOptions.push(options),
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const originals = new Map();
+  const repeatedCandidateId = "blind-review:exact/candidate";
+
+  for (const runId of ["run-1", "run-2"]) {
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const runKey = auditRunKey(pairActor.id, 0, runId);
+    const run = store.records.get(runKey);
+    run.calibrationAnalysis = {
+      ...(run.calibrationAnalysis || {}),
+      candidates: run.rawResults.slice(0, 5).map((candidate, index) => ({
+        ...candidate,
+        candidateId: index === 0 ? repeatedCandidateId : candidate.candidateId,
+        occurrenceId: `${runId}:retire-blind:${index}`,
+        visualClass: "supporting",
+        selected: false,
+        dropReason: "unusable_image",
+      })),
+    };
+    store.records.set(runKey, run);
+    for (const [index, candidate] of run.calibrationAnalysis.candidates.entries()) {
+      const receiptId = `${runId}-retire-blind-${index}`;
+      const receipt = {
+        receiptId,
+        runId,
+        sourceOccurrenceId: candidate.occurrenceId,
+        classification: index === 0 ? "core" : "supporting",
+        judgedAt: "2026-09-15T12:00:00.000Z",
+      };
+      const key = auditVisualJudgmentKey(pairActor.id, 0, runId, receiptId);
+      store.records.set(key, receipt);
+      originals.set(key, structuredClone(receipt));
+    }
+    originals.set(runKey, structuredClone(run));
+  }
+
+  const before = await (await handler(request("GET", undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`), {})).json();
+  const blindEvidence = before.calibrationProfile.evidenceLedger
+    .filter(item => item.evidenceType === "blind_review_disagreement");
+  assert.equal(blindEvidence.length, 2);
+  assert.ok(before.calibrationProfile.reusableSignalDeltas.candidateIds.some(signal =>
+    signal.value === repeatedCandidateId
+    && signal.selectedEvidenceCount === 2));
+
+  const approvalResponse = await handler(request("POST", {
+    action: "approve_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    adjustmentType: "class",
+    signalFamily: "candidateIds",
+    direction: "positive",
+    signalValues: [repeatedCandidateId],
+  }), {});
+  const approval = await approvalResponse.json();
+  assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+  assert.deepEqual(
+    approval.calibrationProfile.activeApproval.adjustment.signalValues,
+    [repeatedCandidateId],
+  );
+  const unrelatedSignals = Object.fromEntries(
+    ["positiveQueries", "negativeQueries", "positiveSources", "negativeSources"]
+      .map(field => [field, structuredClone(approval.calibrationProfile[field])]),
+  );
+
+  curateOptions.length = 0;
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  assert.deepEqual(
+    curateOptions.find(options => options.calibrationProfile)
+      .calibrationProfile.positiveCandidateIds,
+    [repeatedCandidateId],
+  );
+
+  const retirementResponse = await handler(request("POST", {
+    action: "retire_rescue_signal",
+    actorId: pairActor.id,
+    vibeKey,
+    receiptId: blindEvidence[0].sourceRescueReceiptId,
+    signalFamily: "candidate",
+    signalValue: repeatedCandidateId,
+    reason: "This exact image no longer represents reusable positive evidence.",
+  }), {});
+  const retired = await retirementResponse.json();
+  assert.equal(retirementResponse.status, 200, JSON.stringify(retired));
+  assert.equal(retired.calibrationProfile.activeApproval, null);
+  assert.equal(retired.calibrationProfile.retiredSignalCount, 1);
+  for (const [field, signals] of Object.entries(unrelatedSignals)) {
+    assert.deepEqual(retired.calibrationProfile[field], signals, field);
+  }
+  for (const [key, value] of originals) assert.deepEqual(store.records.get(key), value);
+
+  curateOptions.length = 0;
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  assert.equal(
+    curateOptions.filter(options => options.calibrationProfile).length,
+    0,
+    "retiring blind-review evidence must invalidate its production authority",
+  );
+});
+
 test("one blind-review example can be excluded without rewriting its audit or judgment", async () => {
   const { handler, store } = harness({ freshEvidenceOnRerun: true });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
