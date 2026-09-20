@@ -2973,6 +2973,11 @@ test("cache diagnostic receipt reopens without searches and overwrites the bound
   assert.equal(receipt.queryContract.status, "current");
   assert.equal(receipt.queryContract.isCurrent, true);
   assert.deepEqual(receipt.queryContract.currentQueries, frozenQueries);
+  assert.deepEqual(receipt.queryContract.changes, {
+    added: [],
+    removed: [],
+    reordered: [],
+  });
   assert.equal(receipt.comparedAt, "2026-09-19T11:00:00.000Z");
   assert.deepEqual(receipt.frozenQueries, frozenQueries);
   assert.equal(receipt.comparisons[0].normal.resultFingerprint, "new-normal-0");
@@ -3117,6 +3122,14 @@ test("reopened cache proof is marked historical when the server-derived query se
   assert.deepEqual(receipt.frozenQueries, frozenQueries);
   assert.deepEqual(receipt.comparisons.map(item => item.query), frozenQueries);
   assert.deepEqual(receipt.queryContract.currentQueries, actor.vibes[0].queries.slice(0, 3));
+  assert.deepEqual(receipt.queryContract.changes, {
+    added: [{ query: "new current query", currentIndex: 0 }],
+    removed: [{ query: frozenQueries[2], frozenIndex: 2 }],
+    reordered: [
+      { query: frozenQueries[0], frozenIndex: 0, currentIndex: 1 },
+      { query: frozenQueries[1], frozenIndex: 1, currentIndex: 2 },
+    ],
+  });
 });
 
 test("cache diagnostic redacts signed display URLs and withholds metrics when identity capture is truncated", async () => {

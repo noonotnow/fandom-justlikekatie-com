@@ -26,3 +26,11 @@ test('failed cache comparisons only reuse a current unexpired reservation', () =
   assert.match(source, /comparisonId:manifest\.comparisonId/);
   assert.match(source, /reservationExpiresAt:diagnostic\.reservationExpiresAt/);
 });
+
+test('historical cache proof shows added, removed, and reordered query summaries', () => {
+  assert.match(source, /aria-label="Query contract changes"/);
+  assert.match(source, /queryContract\?\.changes\?\.added/);
+  assert.match(source, /queryContract\?\.changes\?\.removed/);
+  assert.match(source, /queryContract\?\.changes\?\.reordered/);
+  assert.match(source, /item\.frozenIndex\+1} → \$\{item\.currentIndex\+1/);
+});

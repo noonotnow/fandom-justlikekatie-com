@@ -578,7 +578,15 @@ export const ActorPreflightLab: React.FC = () => {
             <div className={styles.detailHead}><div><p className={styles.eyebrow}>Read-only search proof</p><h4>Normal vs bypass cache comparison</h4><p>Runs the selected frozen query set once normally and once with cache bypass requested. It does not save an audit or change ranking, scoring, eligibility, curation, or publication.</p></div></div>
              <div className={styles.controls}><button type="button" className={styles.buttonSecondary} disabled={!vibeKey||!!busy} onClick={()=>void runCacheDiagnostic()}>{busy==='cache-diagnostic'?'Comparing cache paths…':visibleCacheDiagnostic?.queryContract?.status==='historical'?'Run new comparison with current queries':visibleCacheDiagnostic?.comparisons?.some((item:AnyRecord)=>item.normalError||item.bypassedError)?'Retry failed searches':'Compare normal vs bypass'}</button><span className={styles.muted}>{scope} scope</span></div>
              {visibleCacheDiagnostic&&<details open><summary>Comparison receipt · {visibleCacheDiagnostic.queryContract?.status==='historical'?'Historical query set':'Current query set'} · {visibleCacheDiagnostic.comparisons?.filter((item:AnyRecord)=>item.normal&&item.bypassed).length ?? 0} of {visibleCacheDiagnostic.comparisons?.length ?? 0} complete</summary>
-               {visibleCacheDiagnostic.queryContract?.status==='historical'&&<p className={styles.historicalNotice}>This saved proof used an older frozen query set. Its original queries and evidence remain below. Run a new comparison only when current proof is needed.</p>}
+                {visibleCacheDiagnostic.queryContract?.status==='historical'&&<>
+                  <p className={styles.historicalNotice}>This saved proof used an older frozen query set. Its original queries and evidence remain below. Run a new comparison only when current proof is needed.</p>
+                  <div className={styles.queryContractChanges} aria-label="Query contract changes">
+                    <strong>What changed</strong>
+                    <p><span>Added</span>{visibleCacheDiagnostic.queryContract?.changes?.added?.length?(visibleCacheDiagnostic.queryContract.changes.added as AnyRecord[]).map(item=>`${item.currentIndex+1}. ${item.query}`).join(' · '):'None'}</p>
+                    <p><span>Removed</span>{visibleCacheDiagnostic.queryContract?.changes?.removed?.length?(visibleCacheDiagnostic.queryContract.changes.removed as AnyRecord[]).map(item=>`${item.frozenIndex+1}. ${item.query}`).join(' · '):'None'}</p>
+                    <p><span>Reordered</span>{visibleCacheDiagnostic.queryContract?.changes?.reordered?.length?(visibleCacheDiagnostic.queryContract.changes.reordered as AnyRecord[]).map(item=>`${item.query} (${item.frozenIndex+1} → ${item.currentIndex+1})`).join(' · '):'None'}</p>
+                  </div>
+                </>}
               {(visibleCacheDiagnostic.comparisons??[]).map((item:AnyRecord,index:number)=><div key={`${index}:${item.query}`}>
                 <strong>{index+1}. {item.query}</strong>
                 {item.normalError&&<p className={styles.error} role="status">Normal request failed: {item.normalError}</p>}

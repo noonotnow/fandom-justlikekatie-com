@@ -442,7 +442,10 @@ export function createActorAuditHandler({
               calibrationProfile,
               { baseLimit: scope === "representative" ? 3 : null },
             );
-            const isCurrent = JSON.stringify(receipt.frozenQueries) === JSON.stringify(currentQueries);
+            const queryChanges = compareQueryContracts(receipt.frozenQueries, currentQueries);
+            const isCurrent = queryChanges.added.length === 0
+              && queryChanges.removed.length === 0
+              && queryChanges.reordered.length === 0;
             return [scope, {
               ...receipt,
               queryContract: {
@@ -450,6 +453,7 @@ export function createActorAuditHandler({
                 isCurrent,
                 checkedAt: now().toISOString(),
                 currentQueries,
+                changes: queryChanges,
               },
             }];
           }),
@@ -2873,6 +2877,40 @@ function searchCacheDiagnosticReceipt(response) {
       truncated: seen.size > captured.length,
     },
     resultIdentities: captured,
+  };
+}
+
+function compareQueryContracts(frozenQueries, currentQueries) {
+  const frozen = Array.isArray(frozenQueries) ? frozenQueries : [];
+  const current = Array.isArray(currentQueries) ? currentQueries : [];
+  const currentIndexesByQuery = new Map();
+  current.forEach((query, index) => {
+    const indexes = currentIndexesByQuery.get(query) || [];
+    indexes.push(index);
+    currentIndexesByQuery.set(query, indexes);
+  });
+  const matchedCurrentIndexes = new Set();
+  const removed = [];
+  const reordered = [];
+
+  frozen.forEach((query, frozenIndex) => {
+    const currentIndex = (currentIndexesByQuery.get(query) || [])
+      .find(index => !matchedCurrentIndexes.has(index));
+    if (currentIndex === undefined) {
+      removed.push({ query, frozenIndex });
+      return;
+    }
+    matchedCurrentIndexes.add(currentIndex);
+    if (currentIndex !== frozenIndex) {
+      reordered.push({ query, frozenIndex, currentIndex });
+    }
+  });
+
+  return {
+    added: current.flatMap((query, currentIndex) =>
+      matchedCurrentIndexes.has(currentIndex) ? [] : [{ query, currentIndex }]),
+    removed,
+    reordered,
   };
 }
 
