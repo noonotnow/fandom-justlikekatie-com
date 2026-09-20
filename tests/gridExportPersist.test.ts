@@ -105,8 +105,10 @@ test('Collection export persists via the onBlob hook without awaiting the upload
   const idx = collectionSource.indexOf('uploadExportedCard(grid.id');
   assert.notEqual(idx, -1, 'Collection export must upload the rendered blob keyed by grid id');
   const region = collectionSource.slice(idx - 400, idx + 200);
-  assert.match(region, /saveShareCard\(starData,\s*'full',\s*\(blob\)/,
+  assert.match(region, /saveShareCard\(starData,\s*variant,\s*\(blob\)/,
     'upload must be wired through the saveShareCard onBlob hook');
+  assert.match(region, /uploadExportedCard\(grid\.id,\s*persistedExportId,\s*renderedBlob,\s*variant,\s*tier,\s*manifest\)/,
+    'the selected Collection variant and Master manifest must be preserved in export history');
   assert.match(region, /void uploadExportedCard\(/, 'upload must be fire-and-forget');
   assert.doesNotMatch(region, /await uploadExportedCard/, 'upload must never be awaited');
 });

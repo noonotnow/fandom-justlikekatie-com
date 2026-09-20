@@ -5,6 +5,8 @@ import {
   launchPageForServer,
   startViteTestServer,
 } from './browserEngines.ts';
+// @ts-expect-error Netlify function helpers are plain JavaScript modules.
+import { createGridExportHandlers } from '../../netlify/functions/lib/grid-exports.js';
 
 const FIXTURE_MEDIA_ORIGIN = 'https://media.example.test';
 const FIXTURE_COLORS = [
@@ -202,12 +204,82 @@ test('square PNG exports preserve layout, attribution, MEDIA provenance, and Moo
 test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, and attribution', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const { browser, page } = await launchPageForServer(server);
+  const exportStore = new Map<string, ArrayBuffer | string>();
+  const store = {
+    async set(key: string, value: ArrayBuffer) { exportStore.set(key, value); },
+    async setJSON(key: string, value: unknown) { exportStore.set(key, JSON.stringify(value)); },
+    async get(key: string, options?: { type?: string }) {
+      const value = exportStore.get(key);
+      if (value === undefined) return null;
+      return options?.type === 'json' && typeof value === 'string' ? JSON.parse(value) : value;
+    },
+    async delete(key: string) { exportStore.delete(key); },
+    async list({ prefix = '' }: { prefix?: string } = {}) {
+      return { blobs: [...exportStore.keys()].filter(key => key.startsWith(prefix)).map(key => ({ key })) };
+    },
+  };
+  const exportHandlers = createGridExportHandlers({
+    auth: { authenticate: async () => ({ user: { accountId: 'fixture-collector' } }) },
+    getStore: () => store,
+    verifyMasterAssets: async () => true,
+  });
 
   try {
-    await page.addInitScript({ content: 'globalThis.__name = target => target;' });
+    await page.addInitScript({ content: `
+      globalThis.__name = target => target;
+      globalThis.__collectionExportDimensions = [];
+      globalThis.__collectionExportText = [];
+      const originalToBlob = HTMLCanvasElement.prototype.toBlob;
+      HTMLCanvasElement.prototype.toBlob = function (...args) {
+        globalThis.__collectionExportDimensions.push([this.width, this.height]);
+        return originalToBlob.apply(this, args);
+      };
+      const originalFillText = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
+        globalThis.__collectionExportText.push({ text: String(text), color: String(this.fillStyle) });
+        return maxWidth === undefined
+          ? originalFillText.call(this, text, x, y)
+          : originalFillText.call(this, text, x, y, maxWidth);
+      };
+    ` });
     await page.route('**/api/auth/session', route => route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({ user: null }),
+    }));
+    await page.route('**/api/membership/status', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        state: 'active',
+        isMember: true,
+        capabilities: ['fandom_collector'],
+      }),
+    }));
+    await page.route(
+      url => new URL(url).pathname === '/.netlify/functions/grid-exports',
+      async route => {
+        const request = route.request();
+        const requestBody = request.postDataBuffer();
+        const requestHeaders = request.headers();
+        const response = await exportHandlers.handler({
+          method: request.method(),
+          url: request.url(),
+          headers: { get: (name: string) => requestHeaders[name.toLowerCase()] ?? null },
+          arrayBuffer: async () => requestBody
+            ? requestBody.buffer.slice(requestBody.byteOffset, requestBody.byteOffset + requestBody.byteLength)
+            : new ArrayBuffer(0),
+        }, {});
+        const responseBody = Buffer.from(await response.arrayBuffer());
+        await route.fulfill({
+          status: response.status,
+          headers: Object.fromEntries(response.headers.entries()),
+          contentType: 'application/json',
+          body: responseBody,
+        });
+      },
+    );
+    await page.route('**/.netlify/functions/log-engagement', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true }),
     }));
     await page.route('**/.netlify/functions/image-proxy?*', async route => {
       const proxiedUrl = new URL(route.request().url()).searchParams.get('url');
@@ -222,13 +294,11 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
     });
     await page.goto(origin);
 
-    const rendered = await page.evaluate(async ({ mediaOrigin, fixtureColors }) => {
+    await page.evaluate(async ({ mediaOrigin, fixtureColors }) => {
       const historyModulePath = '/src/utils/collectionHistoryModel.ts';
       const collectionModulePath = '/src/utils/collectionDB.ts';
-      const exportModulePath = '/src/utils/exportCanvas.ts';
       const history = await import(/* @vite-ignore */ historyModulePath);
       const collection = await import(/* @vite-ignore */ collectionModulePath);
-      const exports = await import(/* @vite-ignore */ exportModulePath);
       const deliveryUrls = fixtureColors.map((_: string, index: number) => `${mediaOrigin}/fixture-${index}.svg`);
       const savedAt = '2026-09-20T12:00:00.000Z';
       const data = {
@@ -258,39 +328,48 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
       };
 
       const savedGrid = history.collectionGridFromStar(data, '/vibe-atlas?view=collection', savedAt);
+      savedGrid.images = savedGrid.images.map((image: Record<string, unknown>, index: number) => ({
+        ...image,
+        media: {
+          schemaVersion: 1,
+          assetId: `11111111-2222-4${String(index).padStart(3, '0')}-8444-555555555555`,
+          deliveryUrl: deliveryUrls[index],
+          thumbnailUrl: deliveryUrls[index],
+          mimeType: 'image/png',
+          sizeBytes: 1024,
+          checksum: String(index + 1).repeat(64).slice(0, 64),
+          dimensions: { width: 300, height: 300 },
+          association: { type: 'collection', id: 'fixture-collector', itemId: savedGrid.id },
+        },
+      }));
       await collection.dbSaveGrid(savedGrid);
-      const restoredGrid = (await collection.dbGetAllGrids())
-        .find((grid: { id: string }) => grid.id === savedGrid.id);
-      if (!restoredGrid) throw new Error('Saved Collection grid was not restored.');
-
-      const textCalls: Array<{ text: string; color: string }> = [];
-      const originalFillText = CanvasRenderingContext2D.prototype.fillText;
-      CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
-        textCalls.push({ text: String(text), color: String(this.fillStyle) });
-        return maxWidth === undefined
-          ? originalFillText.call(this, text, x, y)
-          : originalFillText.call(this, text, x, y, maxWidth);
-      };
-      try {
-        const canvas = await exports.renderExportCanvas(
-          history.starDataFromCollectionGrid(restoredGrid),
-          'standard',
-        );
-        const context = canvas.getContext('2d')!;
-        return {
-          width: canvas.width,
-          height: canvas.height,
-          background: Array.from(context.getImageData(1, 1, 1, 1).data),
-          textCalls,
-        };
-      } finally {
-        CanvasRenderingContext2D.prototype.fillText = originalFillText;
-      }
     }, { mediaOrigin: FIXTURE_MEDIA_ORIGIN, fixtureColors: FIXTURE_COLORS });
 
-    assert.equal(rendered.width, 1080);
-    assert.equal(rendered.height, 1080);
-    assert.deepEqual(rendered.background, [23, 24, 43, 255]);
+    await page.goto(`${origin}/vibe-atlas?view=collection`);
+    const standardButton = page.getByRole('button', { name: 'Export standard PNG' });
+    const masterButton = page.getByRole('button', { name: 'Export Master PNG' });
+    await standardButton.waitFor();
+    await masterButton.waitFor();
+
+    await standardButton.click();
+    await page.waitForFunction(() => (globalThis as typeof globalThis & {
+      __collectionExportDimensions: number[][];
+    }).__collectionExportDimensions.length === 1);
+    await masterButton.click();
+    await page.waitForFunction(() => (globalThis as typeof globalThis & {
+      __collectionExportDimensions: number[][];
+    }).__collectionExportDimensions.length === 2);
+
+    const rendered = await page.evaluate(() => ({
+      dimensions: (globalThis as typeof globalThis & {
+        __collectionExportDimensions: number[][];
+      }).__collectionExportDimensions,
+      textCalls: (globalThis as typeof globalThis & {
+        __collectionExportText: Array<{ text: string; color: string }>;
+      }).__collectionExportText,
+    }));
+
+    assert.deepEqual(rendered.dimensions, [[1080, 1080], [2160, 2160]]);
     assert.equal(
       rendered.textCalls.find(call => call.text === 'Fixture Actor · Moonlit Ink')?.color,
       '#9f9bea',
@@ -299,6 +378,20 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
     const attribution = rendered.textCalls.find(call => call.text.startsWith('Sources: Fixture Actor · Publisher 1'));
     assert.ok(attribution, 'the restored export must retain saved source attribution');
     assert.equal(attribution.color, '#c9a96e', 'the restored attribution must retain the Moonlit Ink gold');
+    const exportHistory = await page.evaluate(async (gridId) => {
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        const response = await fetch(`/.netlify/functions/grid-exports?gridId=${encodeURIComponent(gridId)}`);
+        const body = await response.json();
+        if (body.exports?.length === 2) return body.exports;
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      return [];
+    }, 'vibe-atlas-2026-09-20-fixture-actor');
+    assert.deepEqual(
+      exportHistory.map((entry: { variant: string }) => entry.variant).sort(),
+      ['master', 'standard'],
+      'the actual export handler must accept and list both visible choices',
+    );
   } finally {
     await closeBrowserAndServer(browser, server);
   }

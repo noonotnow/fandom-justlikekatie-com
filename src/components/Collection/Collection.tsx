@@ -32,16 +32,27 @@ import {
   recoverCollectionGrid,
   uploadCollectionImage,
 } from '../../utils/collectionMedia';
-import { buildExportPayload, classifyEditionTier, saveShareCard } from '../../utils/exportCanvas';
+import {
+  buildMasterExportManifest,
+  buildExportPayload,
+  classifyEditionTier,
+  saveShareCard,
+  type ExportManifest,
+  type ExportProvenanceAsset,
+  type ExportVariant,
+} from '../../utils/exportCanvas';
 import {
   exportDownloadUrl,
   fetchExportHistory,
+  gridExportEventFromRecord,
+  logGridExport,
   retryPendingExportCleanups,
   uploadExportedCard,
   type PersistedExportEntry,
 } from '../../utils/gridExportLog';
 import { ArtifactZoomDialog } from '../ArtifactZoomDialog/ArtifactZoomDialog';
 import { GridBuilder } from '../GridBuilder/GridBuilder';
+import { isVerifiedMediaReference } from '../../utils/mediaReference';
 import {
   getPublicSession,
   hasMergeDecision,
@@ -642,6 +653,53 @@ export const Collection: React.FC<Props> = ({
     }
   }
 
+  async function exportSavedGrid(grid: GridRecord, variant: Extract<ExportVariant, 'standard' | 'master'>) {
+    const exportKey = `export:${variant}:${grid.id}`;
+    setBusyKey(exportKey);
+    try {
+      let exportGrid = grid;
+      let manifest: ExportManifest | undefined;
+      if (variant === 'master') {
+        const assets: ExportProvenanceAsset[] = grid.images.map(image => {
+          if (!isVerifiedMediaReference(image.media)) {
+            throw new Error('Master Export needs nine materialized MEDIA assets. Recover every image first.');
+          }
+          return {
+            assetId: image.media.assetId,
+            checksum: image.media.checksum,
+            deliveryUrl: image.media.deliveryUrl,
+            sourceUrl: image.sourceUrl,
+            attribution: { publisher: image.publisher, title: image.title },
+            permitted: true,
+          };
+        });
+        manifest = buildMasterExportManifest(grid.id, grid.id, assets);
+        exportGrid = {
+          ...grid,
+          images: grid.images.map(image => ({ ...image, imageUrl: image.media!.deliveryUrl })),
+        };
+      }
+      const starData = starDataFromCollectionGrid(exportGrid);
+      let renderedBlob: Blob | null = null;
+      const message = await saveShareCard(starData, variant, (blob) => { renderedBlob = blob; });
+      try {
+        const tier = classifyEditionTier(buildExportPayload(starData).chosen);
+        const persistedExportId = renderedBlob ? crypto.randomUUID() : undefined;
+        if (renderedBlob && persistedExportId) {
+          void uploadExportedCard(grid.id, persistedExportId, renderedBlob, variant, tier, manifest);
+        }
+        logGridExport(gridExportEventFromRecord(grid, variant, tier, true, persistedExportId));
+      } catch (bookkeepingError) {
+        console.warn('Post-export logging failed (export succeeded):', bookkeepingError);
+      }
+      setAccountNotice(message);
+    } catch (error) {
+      setAccountNotice(messageFrom(error, 'The grid could not be exported.'));
+    } finally {
+      setBusyKey('');
+    }
+  }
+
   async function handleMiddleEarthUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -956,25 +1014,19 @@ export const Collection: React.FC<Props> = ({
                   <button
                     type="button"
                     disabled={Boolean(busyKey)}
-                    onClick={async () => {
-                      setBusyKey(`export:${grid.id}`);
-                      try {
-                        // Persist the render for this saved grid, fire-and-forget —
-                        // the upload never blocks the download/share path.
-                        const starData = starDataFromCollectionGrid(grid);
-                        setAccountNotice(await saveShareCard(starData, 'standard', (blob) => {
-                          const tier = classifyEditionTier(buildExportPayload(starData).chosen);
-                          void uploadExportedCard(grid.id, crypto.randomUUID(), blob, 'standard', tier);
-                        }));
-                      } catch (error) {
-                        setAccountNotice(messageFrom(error, 'The grid could not be exported.'));
-                      } finally {
-                        setBusyKey('');
-                      }
-                    }}
+                     onClick={() => void exportSavedGrid(grid, 'standard')}
                   >
-                    {busyKey === `export:${grid.id}` ? 'Rendering…' : 'Export grid'}
+                     {busyKey === `export:standard:${grid.id}` ? 'Rendering…' : 'Export standard PNG'}
                   </button>
+                   {hasCollectorAccess && (
+                     <button
+                       type="button"
+                       disabled={Boolean(busyKey)}
+                       onClick={() => void exportSavedGrid(grid, 'master')}
+                     >
+                       {busyKey === `export:master:${grid.id}` ? 'Rendering…' : 'Export Master PNG'}
+                     </button>
+                   )}
                   {!grid.legendaryMisprint && (
                     <button
                       type="button"
