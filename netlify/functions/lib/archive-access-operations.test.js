@@ -273,7 +273,7 @@ test("archive health matches Netlify Blobs strong JSON read contract", async t =
   }]);
 });
 
-test("notification state matches Netlify Blobs strong metadata read contract", async t => {
+test("notification state repairs malformed and invalid blobs through conditional strong reads", async t => {
   const directory = await mkdtemp(join(tmpdir(), "archive-access-notification-blobs-"));
   const server = new BlobsServer({ directory });
   const { address } = await server.start();
@@ -311,6 +311,7 @@ test("notification state matches Netlify Blobs strong metadata read contract", a
   });
   const firstNow = new Date("2026-09-20T12:30:00.000Z");
 
+  await data.set("archive-access:notification-state", "{not-json");
   await notifyArchiveAccessTransitions({
     store: data,
     health: health("warning"),
@@ -335,12 +336,23 @@ test("notification state matches Netlify Blobs strong metadata read contract", a
     read.key === "archive-access:notification-state"
     && read.options?.consistency === "strong"));
   assert.ok(metadataReads.some(read =>
-    read.method === "getWithMetadata" && read.options?.type === "json"));
+    read.method === "getWithMetadata" && read.options?.type === "text"));
 
   const secondNow = new Date("2026-09-20T13:30:00.000Z");
+  await data.setJSON("archive-access:notification-state", {
+    signals: {
+      billing: {
+        pending: true,
+        claimId: "corrupted-claim",
+        claimedAt: "2999-01-01T00:00:00.000Z",
+        previousStatus: "normal",
+        targetStatus: "warning",
+      },
+    },
+  });
   await notifyArchiveAccessTransitions({
     store: data,
-    health: health("normal"),
+    health: health("warning"),
     notify: async () => {},
     now: secondNow,
   });
@@ -352,7 +364,7 @@ test("notification state matches Netlify Blobs strong metadata read contract", a
 
   assert.notEqual(secondEtag, firstEtag);
   assert.deepEqual(second.data.signals.billing, {
-    status: "normal",
+    status: "warning",
     notifiedAt: secondNow.toISOString(),
     updatedAt: secondNow.toISOString(),
   });
@@ -368,6 +380,39 @@ test("notification state matches Netlify Blobs strong metadata read contract", a
     )).data,
     second.data,
   );
+});
+
+test("corrupt-state repair does not overwrite a concurrent valid transition", async () => {
+  const data = store();
+  await data.setJSON("archive-access:notification-state", "{not-json");
+  const originalSetJSON = data.setJSON;
+  let injected = false;
+  data.setJSON = async (key, value, options) => {
+    if (!injected && options.onlyIfMatch) {
+      injected = true;
+      await originalSetJSON(key, {
+        updatedAt: "2026-09-20T12:31:00.000Z",
+        signals: { billing: { status: "warning", notifiedAt: "2026-09-20T12:31:00.000Z" } },
+      });
+    }
+    return originalSetJSON(key, value, options);
+  };
+  let deliveries = 0;
+
+  const notifications = await notifyArchiveAccessTransitions({
+    store: data,
+    health: {
+      recentHour: { billing_delay: 4, authenticated_checks: 10, billingDelayRate: 0.4 },
+      status: { billing: "warning", deniedAccess: "normal" },
+    },
+    notify: async () => { deliveries += 1; },
+    now: new Date("2026-09-20T12:30:00.000Z"),
+  });
+
+  assert.deepEqual(notifications, []);
+  assert.equal(deliveries, 0);
+  assert.equal(data.values.get("archive-access:notification-state").signals.billing.notifiedAt,
+    "2026-09-20T12:31:00.000Z");
 });
 
 test("cleanup failures do not fail or distort the rolling report", async () => {

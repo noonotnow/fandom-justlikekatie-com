@@ -329,12 +329,13 @@ async function settleClaim(store, signal, claimId, signalState, deliveryOutcome)
 }
 
 function normalizeNotificationState(value) {
-  const delivery = value?.delivery && typeof value.delivery === "object"
+  const root = isPlainObject(value) ? value : {};
+  const delivery = isPlainObject(root.delivery)
     ? value.delivery
     : {};
   return {
-    updatedAt: typeof value?.updatedAt === "string" ? value.updatedAt : null,
-    signals: value?.signals && typeof value.signals === "object" ? value.signals : {},
+    updatedAt: typeof root.updatedAt === "string" ? root.updatedAt : null,
+    signals: isPlainObject(root.signals) ? root.signals : {},
     delivery: {
       status: delivery.status === "success" || delivery.status === "failure"
         ? delivery.status
@@ -367,10 +368,10 @@ async function processSignalTransition({ store, health, notify, now, signal, def
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const entry = await getWithMetadata(store, NOTIFICATION_STATE_KEY);
     const state = normalizeNotificationState(entry?.data);
-    const current = state.signals[signal] || { status: "normal" };
+    const current = normalizeSignalState(state.signals[signal]);
     if (current.pending === true) {
       const claimAge = now.getTime() - Date.parse(current.claimedAt);
-      if (!Number.isFinite(claimAge) || claimAge < NOTIFICATION_CLAIM_TTL_MS) return null;
+      if (claimAge >= 0 && claimAge < NOTIFICATION_CLAIM_TTL_MS) return null;
     } else if (current.status === targetStatus) {
       return null;
     }
@@ -465,14 +466,48 @@ function updateDeliveryState(state, outcome, attemptedAt) {
 
 async function getWithMetadata(store, key) {
   if (typeof store.getWithMetadata === "function") {
-    const entry = await store.getWithMetadata(key, { type: "json", consistency: "strong" });
-    if (!entry || entry.etag || typeof store.list !== "function") return entry;
+    const entry = await store.getWithMetadata(key, { type: "text", consistency: "strong" });
+    if (!entry) return null;
+    const decoded = { ...entry, data: parseNotificationState(entry.data) };
+    if (entry.etag || typeof store.list !== "function") return decoded;
     const listing = await store.list({ prefix: key });
     const blob = listing?.blobs?.find(candidate => candidate.key === key);
-    return { ...entry, etag: blob?.etag };
+    return { ...decoded, etag: blob?.etag };
   }
-  const data = await store.get(key, { type: "json", consistency: "strong" });
-  return data ? { data } : null;
+  const data = await store.get(key, { type: "text", consistency: "strong" });
+  return data === null ? null : { data: parseNotificationState(data) };
+}
+
+function parseNotificationState(value) {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeSignalState(value) {
+  if (!isPlainObject(value)) return { status: "normal" };
+  if (value.pending === true) {
+    const previousStatus = value.previousStatus;
+    const targetStatus = value.targetStatus;
+    if (
+      typeof value.claimId === "string"
+      && value.claimId.length > 0
+      && Number.isFinite(Date.parse(value.claimedAt))
+      && ["normal", "warning", "critical"].includes(previousStatus)
+      && ["normal", "warning", "critical"].includes(targetStatus)
+    ) return value;
+    return { status: "normal" };
+  }
+  return ["normal", "warning", "critical"].includes(value.status)
+    ? value
+    : { status: "normal" };
 }
 
 const NOTIFICATION_CLAIM_TTL_MS = 5 * 60 * 1000;
