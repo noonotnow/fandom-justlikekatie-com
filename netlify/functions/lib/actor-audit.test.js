@@ -27,6 +27,7 @@ import {
   auditRescueCalibrationPrefix,
   auditRescueCalibrationApprovalKey,
   auditRescueCalibrationApprovalPrefix,
+  auditRescueCalibrationApprovalRevocationKey,
   auditRescueCalibrationApprovalRevocationPrefix,
   auditRescueCalibrationAuthorityKey,
   auditRescueCalibrationOutcomePrefix,
@@ -5337,7 +5338,12 @@ test("production calibration requires repeated aggregate evidence, applies one a
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   const listed = store.list.bind(store);
   let lagAuthorityListings = false;
+  let lagRevocationListings = false;
   store.list = async options => {
+    if (
+      lagRevocationListings
+      && options?.prefix === auditRescueCalibrationApprovalRevocationPrefix(pairActor.id, 0)
+    ) return { blobs: [] };
     if (lagAuthorityListings && (
       options?.prefix === auditRescueCalibrationApprovalPrefix(pairActor.id, 0)
       || options?.prefix === auditRescueCalibrationApprovalRevocationPrefix(pairActor.id, 0)
@@ -5452,6 +5458,60 @@ test("production calibration requires repeated aggregate evidence, applies one a
     approvalId,
     "production eligibility must ignore a conflicting listed revocation for the canonical approval",
   );
+
+  const canonicalRevocationKey = auditRescueCalibrationApprovalRevocationKey(
+    pairActor.id,
+    0,
+    approvalId,
+  );
+  lagRevocationListings = true;
+  await store.setJSON(canonicalRevocationKey, {
+    status: "revoked",
+    approvalId,
+    actorId: pairActor.id,
+    vibeKey,
+    revokedAt: "2026-09-11T11:30:00.000Z",
+    revokedBy: "canonical-revocation",
+    reason: "Canonical evidence authority revoked this approval.",
+  });
+  assert.equal(
+    (await store.list({
+      prefix: auditRescueCalibrationApprovalPrefix(pairActor.id, 0),
+    })).blobs.some(blob =>
+      blob.key === auditRescueCalibrationApprovalKey(pairActor.id, 0, approvalId)),
+    true,
+    "fixture must retain the stale listed active approval",
+  );
+  assert.deepEqual(
+    await store.list({
+      prefix: auditRescueCalibrationApprovalRevocationPrefix(pairActor.id, 0),
+    }),
+    { blobs: [] },
+    "fixture must hide the canonical revocation from lagging listings",
+  );
+  assert.equal(
+    store.records.get(canonicalRevocationKey)?.status,
+    "revoked",
+    "fixture must keep the canonical revocation directly readable",
+  );
+  const profileWithCanonicalRevocation = await handler(
+    request("GET", undefined, `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`),
+    {},
+  );
+  const canonicalRevocationProfile = await profileWithCanonicalRevocation.json();
+  assert.equal(profileWithCanonicalRevocation.status, 200, JSON.stringify(canonicalRevocationProfile));
+  assert.equal(
+    canonicalRevocationProfile.calibrationProfile.activeApproval,
+    null,
+    "operator profile must not revive a canonically revoked approval from a stale active listing",
+  );
+  assert.equal(
+    await getEligibility(store, pairActor, 0),
+    null,
+    "production eligibility must not revive a canonically revoked approval from a stale active listing",
+  );
+  lagRevocationListings = false;
+  store.records.delete(canonicalRevocationKey);
 
   const existingCalibrationKey = [...store.records.keys()].find(key =>
     key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0)));
