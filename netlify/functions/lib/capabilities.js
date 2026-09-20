@@ -12,17 +12,11 @@ export const MEMBERSHIP_PRICE_MAPPINGS = Object.freeze([
   }),
   Object.freeze({
     product: "creator_os",
-    envKeys: Object.freeze([
-      "FANDOM_CREATOR_OS_PRICE_ID",
-      "FANDOM_CREATOR_OS_MEMBERSHIP_PRICE_ID",
-    ]),
+    envKeys: Object.freeze(["FANDOM_CREATOR_OS_PRICE_ID"]),
   }),
   Object.freeze({
     product: "fandom_creator_bridge",
-    envKeys: Object.freeze([
-      "FANDOM_CREATOR_BRIDGE_PRICE_ID",
-      "FANDOM_FANDOM_CREATOR_BRIDGE_PRICE_ID",
-    ]),
+    envKeys: Object.freeze(["FANDOM_CREATOR_BRIDGE_PRICE_ID"]),
   }),
   Object.freeze({
     product: "ecosystem_bundle",

@@ -41,33 +41,13 @@ test("release configuration maps every supported membership product exactly once
   ]);
 });
 
-test("release configuration rejects missing, duplicate, and conflicting mappings", () => {
+test("release configuration rejects missing and conflicting canonical mappings", () => {
   const missing = validateMembershipPriceMappings({
     ...env,
     FANDOM_ECOSYSTEM_BUNDLE_PRICE_ID: "",
   });
   assert.equal(missing.valid, false);
   assert.deepEqual(missing.missing, ["ecosystem_bundle"]);
-
-  const duplicate = validateMembershipPriceMappings({
-    ...env,
-    FANDOM_CREATOR_OS_MEMBERSHIP_PRICE_ID: "price_creator",
-  });
-  assert.equal(duplicate.valid, false);
-  assert.deepEqual(duplicate.duplicate, [{
-    product: "creator_os",
-    envKeys: ["FANDOM_CREATOR_OS_PRICE_ID", "FANDOM_CREATOR_OS_MEMBERSHIP_PRICE_ID"],
-  }]);
-
-  const conflictingAliases = validateMembershipPriceMappings({
-    ...env,
-    FANDOM_FANDOM_CREATOR_BRIDGE_PRICE_ID: "price_other_bridge",
-  });
-  assert.equal(conflictingAliases.valid, false);
-  assert.deepEqual(conflictingAliases.conflicting, [{
-    product: "fandom_creator_bridge",
-    envKeys: ["FANDOM_CREATOR_BRIDGE_PRICE_ID", "FANDOM_FANDOM_CREATOR_BRIDGE_PRICE_ID"],
-  }]);
 
   const sharedPrice = validateMembershipPriceMappings({
     ...env,
@@ -78,6 +58,21 @@ test("release configuration rejects missing, duplicate, and conflicting mappings
     products: ["fandom_collector", "ecosystem_bundle"],
     envKeys: ["FANDOM_STRIPE_MEMBERSHIP_PRICE_ID", "FANDOM_ECOSYSTEM_BUNDLE_PRICE_ID"],
   }]);
+});
+
+test("release configuration ignores retired legacy price aliases", () => {
+  const result = validateMembershipPriceMappings({
+    ...env,
+    FANDOM_CREATOR_OS_MEMBERSHIP_PRICE_ID: "price_legacy_creator",
+    FANDOM_FANDOM_CREATOR_BRIDGE_PRICE_ID: "price_legacy_bridge",
+  });
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.configured, [
+    { product: "fandom_collector", envKey: "FANDOM_STRIPE_MEMBERSHIP_PRICE_ID" },
+    { product: "creator_os", envKey: "FANDOM_CREATOR_OS_PRICE_ID" },
+    { product: "fandom_creator_bridge", envKey: "FANDOM_CREATOR_BRIDGE_PRICE_ID" },
+    { product: "ecosystem_bundle", envKey: "FANDOM_ECOSYSTEM_BUNDLE_PRICE_ID" },
+  ]);
 });
 
 test("audit reports safe identifiers and backfills only unambiguous subscriptions", async () => {

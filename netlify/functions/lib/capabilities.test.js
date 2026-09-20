@@ -46,6 +46,21 @@ test("configured price IDs preserve Collector and identify other products", () =
   ]);
 });
 
+test("legacy price aliases no longer identify membership products", () => {
+  const legacyEnv = {
+    FANDOM_CREATOR_OS_MEMBERSHIP_PRICE_ID: "price_legacy_creator",
+    FANDOM_FANDOM_CREATOR_BRIDGE_PRICE_ID: "price_legacy_bridge",
+  };
+  assert.deepEqual(capabilitiesForMembership({
+    status: "active",
+    priceId: "price_legacy_creator",
+  }, legacyEnv), []);
+  assert.deepEqual(capabilitiesForMembership({
+    status: "active",
+    priceId: "price_legacy_bridge",
+  }, legacyEnv), []);
+});
+
 test("capability enforcement rejects Collector-only handoff but accepts Creator products", async () => {
   const checker = capability => createCapabilityChecker({
     env,
