@@ -38,6 +38,7 @@ export function blindCalibrationEvidence(run, judgments = [], expectedContract =
     (candidate?.selected === false || candidate?.dropReason)
     && candidate?.thumbnail
     && candidate?.occurrenceId);
+  const occurrenceIds = new Set(candidates.map(candidate => candidate.occurrenceId));
   const judgmentsByOccurrence = new Map();
   for (const judgment of judgments) {
     if (!judgment?.sourceOccurrenceId) continue;
@@ -47,6 +48,7 @@ export function blindCalibrationEvidence(run, judgments = [], expectedContract =
   }
   if (
     candidates.length < MIN_BLIND_CALIBRATION_SAMPLE
+    || occurrenceIds.size !== candidates.length
     || candidates.some(candidate =>
       (judgmentsByOccurrence.get(candidate.occurrenceId) || []).length !== 1)
   ) return null;

@@ -5256,6 +5256,19 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
     savedEligibility.rescueCalibrationApprovalEvidenceHash,
     approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
   );
+  const malformedRunKey = auditRunKey(pairActor.id, 0, "run-1");
+  const validRun = store.records.get(malformedRunKey);
+  const malformedRun = structuredClone(validRun);
+  malformedRun.calibrationAnalysis.candidates[4].occurrenceId =
+    malformedRun.calibrationAnalysis.candidates[0].occurrenceId;
+  store.records.set(malformedRunKey, malformedRun);
+  assert.equal(
+    await getEligibility(store, pairActor, 0),
+    null,
+    "eligibility reconstruction must reject occurrence identities rejected by approval evidence",
+  );
+  store.records.set(malformedRunKey, validRun);
+  assert.ok(await getEligibility(store, pairActor, 0));
   lagVisualJudgmentListings = true;
   lagRetainedRunListings = true;
   for (let reread = 0; reread < 2; reread += 1) {

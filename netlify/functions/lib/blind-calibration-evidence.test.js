@@ -61,4 +61,13 @@ test("blind calibration evidence has one stable identity and validity contract",
     [...judgments, { ...judgments[0], receiptId: "duplicate-judgment" }],
     expectedContract,
   ), null);
+
+  const duplicateOccurrenceRun = structuredClone(run);
+  duplicateOccurrenceRun.calibrationAnalysis.candidates[4].occurrenceId =
+    duplicateOccurrenceRun.calibrationAnalysis.candidates[0].occurrenceId;
+  assert.equal(blindCalibrationEvidence(
+    duplicateOccurrenceRun,
+    judgments,
+    expectedContract,
+  ), null);
 });
