@@ -1543,7 +1543,7 @@ test('retrieval repetition remains visible and read-only after switching to a re
 
 test('retrieval repetition remains visible beneath Legacy warnings without audit mutations', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { auditRequests } = await configureNetwork(page, { retrievalRepetition: true });
 
