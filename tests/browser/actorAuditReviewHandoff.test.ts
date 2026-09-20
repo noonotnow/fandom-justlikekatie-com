@@ -1639,7 +1639,7 @@ test('a date-bounded editorial packet download preserves publication join outcom
 
 test('a valid vendor JSON editorial packet downloads exactly once without mutations', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const {
     auditRequests,
@@ -2425,7 +2425,7 @@ test('a failed image-only judgment stays blinded and ready to retry', { timeout:
 
 test('a saved image judgment repairs index contention without repeating classification', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { auditRequests } = await configureNetwork(page, {
     visualReview: true,
@@ -2869,6 +2869,21 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
       'the fresh audit must be a distinct audit request after calibration confirmation',
     );
 
+    const runSelect = page.getByLabel('Audit run');
+    const wideCurrentRawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
+    await wideCurrentRawResults.locator(':scope > summary').click();
+    assert.equal(await wideCurrentRawResults.getAttribute('open'), '', 'the current raw evidence should open in the wide layout');
+    await runSelect.selectOption('run-1');
+    await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor();
+    const wideRetainedRawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
+    assert.equal(
+      await wideRetainedRawResults.getAttribute('open'),
+      null,
+      'switching to retained evidence in the wide layout must start its raw results collapsed',
+    );
+    await runSelect.selectOption('run-2');
+    await page.getByRole('heading', { name: 'Audit evidence · run-2', exact: true }).waitFor();
+
     await page.setViewportSize({ width: 360, height: 800 });
     const rawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
     assert.equal(await rawResults.getAttribute('open'), null, 'the current summary should be readable while collapsed');
@@ -2890,8 +2905,6 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
     );
     await rawResults.locator(':scope > summary').click();
     const firstResult = rawResults.locator('article').first();
-    await rawResults.locator(':scope > summary').click();
-    const runSelect = page.getByLabel('Audit run');
     await runSelect.selectOption('run-1');
     await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor();
     const historicalRawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
@@ -2932,10 +2945,6 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
       0,
       'selecting historical evidence must not record a mark_misprint request',
     );
-    await historicalRawResults.evaluate((element: HTMLDetailsElement) => {
-      element.open = false;
-    });
-
     await runSelect.selectOption('run-legacy');
     await page.getByRole('heading', { name: 'Legacy audit · retained history · run-legacy', exact: true }).waitFor();
     await page.getByText('Fully read-only retained Legacy run.', { exact: false }).waitFor();
@@ -3033,7 +3042,7 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
 
 test('release inventory repair warnings distinguish repeated repairs from one successful bootstrap and stay private', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
 
   try {
     const repeatedRepairPage = await browser.newPage();
