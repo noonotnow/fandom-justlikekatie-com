@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
+  assessArchiveLinkReviewReadiness,
   trackActorSourceNotesLoadFailed,
   trackActorSourceNotesLoadSucceeded,
   trackActorSourceNotesOpened,
   trackCollectionOpened,
   trackArchiveRecordOpened,
+  trackArchiveLinkReviewReadiness,
   trackDailyArchiveEditionSelected,
   trackDailyArchiveOpened,
   trackArchiveAccess,
@@ -94,6 +96,99 @@ test('archive record analytics uses one bounded event for record type and locati
       ['location', 'record_type'],
       'record events must not include dates, paths, capability values, or free-form labels',
     );
+  } finally {
+    Reflect.deleteProperty(globalThis, 'window');
+  }
+});
+
+test('archive link review readiness starts only after confirmed production reporting', () => {
+  assert.deepEqual(
+    assessArchiveLinkReviewReadiness(null, [
+      { date: '2026-09-19', relevantPageviews: 20, archiveRecordOpened: 2 },
+    ], new Date('2026-09-20T12:00:00Z')),
+    {
+      status: 'awaiting_reporting',
+      reportingStartDate: null,
+      coveredStartDate: null,
+      coveredEndDate: null,
+      completeDayCount: 0,
+      usableDayCount: 0,
+      sampleUsable: false,
+    },
+  );
+});
+
+test('archive link review requires 30 complete days with pageviews and record clicks', () => {
+  const aggregates = Array.from({ length: 32 }, (_, index) => {
+    const date = new Date(Date.UTC(2026, 7, 20 + index)).toISOString().slice(0, 10);
+    return {
+      date,
+      relevantPageviews: index === 5 ? 0 : 20,
+      archiveRecordOpened: index === 9 ? 0 : 2,
+    };
+  });
+  const readiness = assessArchiveLinkReviewReadiness(
+    '2026-08-21',
+    aggregates,
+    new Date('2026-09-20T12:00:00Z'),
+  );
+
+  assert.deepEqual(readiness, {
+    status: 'collecting',
+    reportingStartDate: '2026-08-21',
+    coveredStartDate: '2026-08-21',
+    coveredEndDate: '2026-09-19',
+    completeDayCount: 30,
+    usableDayCount: 28,
+    sampleUsable: false,
+  });
+
+  aggregates.push(
+    { date: '2026-09-20', relevantPageviews: 50, archiveRecordOpened: 3 },
+    { date: '2026-09-21', relevantPageviews: 50, archiveRecordOpened: 3 },
+  );
+  const ready = assessArchiveLinkReviewReadiness(
+    '2026-08-21',
+    aggregates,
+    new Date('2026-09-22T01:00:00Z'),
+  );
+  assert.equal(ready.status, 'ready');
+  assert.equal(ready.usableDayCount, 30);
+  assert.equal(ready.sampleUsable, true);
+  assert.equal(ready.coveredStartDate, '2026-08-21');
+  assert.equal(ready.coveredEndDate, '2026-09-21');
+});
+
+test('archive link readiness signal exposes only aggregate coverage metadata', () => {
+  const events: Array<{ name: string; data?: Record<string, string | number | boolean> }> = [];
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      gtag(_command: string, name: string, data?: Record<string, string | number | boolean>) {
+        events.push({ name, data });
+      },
+    },
+  });
+  try {
+    trackArchiveLinkReviewReadiness({
+      status: 'ready',
+      reportingStartDate: '2026-08-21',
+      coveredStartDate: '2026-08-21',
+      coveredEndDate: '2026-09-21',
+      completeDayCount: 32,
+      usableDayCount: 30,
+      sampleUsable: true,
+    });
+    assert.deepEqual(Object.keys(events[0].data ?? {}).sort(), [
+      'complete_day_count',
+      'covered_end_date',
+      'covered_start_date',
+      'reporting_start_date',
+      'sample_usable',
+      'status',
+      'usable_day_count',
+    ]);
+    assert.equal(JSON.stringify(events).match(/visitor|record_path|page_location|capability|url/i), null);
   } finally {
     Reflect.deleteProperty(globalThis, 'window');
   }

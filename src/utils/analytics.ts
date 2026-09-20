@@ -9,6 +9,20 @@ export type ArchiveRecordLocation =
   | 'archive_picker'
   | 'locked_preview'
   | 'full_archive';
+export interface ArchiveLinkDailyAggregate {
+  date: string;
+  relevantPageviews: number;
+  archiveRecordOpened: number;
+}
+export interface ArchiveLinkReviewReadiness {
+  status: 'awaiting_reporting' | 'collecting' | 'ready';
+  reportingStartDate: string | null;
+  coveredStartDate: string | null;
+  coveredEndDate: string | null;
+  completeDayCount: number;
+  usableDayCount: number;
+  sampleUsable: boolean;
+}
 export type GridBuilderMode = 'smart' | 'manual';
 
 interface DailyDropServerEvent {
@@ -122,6 +136,88 @@ export function trackArchiveRecordOpened(
     record_type: recordType,
     location,
   });
+}
+
+const ARCHIVE_LINK_REVIEW_USABLE_DAYS = 30;
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Assesses only privacy-safe daily aggregates. The current UTC day is excluded
+ * because it is not complete, and reporting cannot predate explicit production
+ * confirmation.
+ */
+export function assessArchiveLinkReviewReadiness(
+  reportingStartDate: string | null,
+  dailyAggregates: readonly ArchiveLinkDailyAggregate[],
+  asOf: Date = new Date(),
+): ArchiveLinkReviewReadiness {
+  if (!reportingStartDate) {
+    return {
+      status: 'awaiting_reporting',
+      reportingStartDate: null,
+      coveredStartDate: null,
+      coveredEndDate: null,
+      completeDayCount: 0,
+      usableDayCount: 0,
+      sampleUsable: false,
+    };
+  }
+  assertIsoDate(reportingStartDate, 'reportingStartDate');
+  const currentUtcDate = asOf.toISOString().slice(0, 10);
+  const byDate = new Map<string, ArchiveLinkDailyAggregate>();
+  for (const aggregate of dailyAggregates) {
+    assertIsoDate(aggregate.date, 'daily aggregate date');
+    assertAggregateCount(aggregate.relevantPageviews, 'relevantPageviews');
+    assertAggregateCount(aggregate.archiveRecordOpened, 'archiveRecordOpened');
+    if (aggregate.date >= reportingStartDate && aggregate.date < currentUtcDate) {
+      byDate.set(aggregate.date, aggregate);
+    }
+  }
+
+  const completeDates = [...byDate.keys()].sort();
+  const usableDates = completeDates.filter(date => {
+    const aggregate = byDate.get(date)!;
+    return aggregate.relevantPageviews > 0 && aggregate.archiveRecordOpened > 0;
+  });
+  const coveredDates = usableDates.slice(0, ARCHIVE_LINK_REVIEW_USABLE_DAYS);
+  const sampleUsable = coveredDates.length === ARCHIVE_LINK_REVIEW_USABLE_DAYS;
+
+  return {
+    status: sampleUsable ? 'ready' : 'collecting',
+    reportingStartDate,
+    coveredStartDate: coveredDates[0] ?? completeDates[0] ?? null,
+    coveredEndDate: coveredDates.at(-1) ?? completeDates.at(-1) ?? null,
+    completeDayCount: completeDates.length,
+    usableDayCount: usableDates.length,
+    sampleUsable,
+  };
+}
+
+/** Emits no visitor, path, record, URL, or event-level data. */
+export function trackArchiveLinkReviewReadiness(
+  readiness: ArchiveLinkReviewReadiness,
+): void {
+  trackEvent('archive_link_review_readiness', {
+    status: readiness.status,
+    reporting_start_date: readiness.reportingStartDate ?? 'unconfirmed',
+    covered_start_date: readiness.coveredStartDate ?? 'none',
+    covered_end_date: readiness.coveredEndDate ?? 'none',
+    complete_day_count: readiness.completeDayCount,
+    usable_day_count: readiness.usableDayCount,
+    sample_usable: readiness.sampleUsable,
+  });
+}
+
+function assertIsoDate(value: string, field: string): void {
+  if (!ISO_DATE_PATTERN.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00.000Z`))) {
+    throw new TypeError(`${field} must be an ISO calendar date`);
+  }
+}
+
+function assertAggregateCount(value: number, field: string): void {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError(`${field} must be a non-negative integer`);
+  }
 }
 
 export function trackArchiveAccess(

@@ -44,3 +44,31 @@ traffic, then compare:
 Report aggregate event counts and click events per relevant pageview. Do not
 export raw events, visitor identifiers, record paths, edition dates, or
 capability-bearing URLs.
+
+## Operator readiness signal
+
+Do not start the clock when instrumentation ships. Record the first UTC calendar
+date only after the production reporting destination confirms that relevant
+pageviews and `archive_record_opened` events are arriving from the externally
+deployed site. Until that date is confirmed, readiness is
+`awaiting_reporting`.
+
+Build one privacy-safe aggregate row per UTC date with only:
+
+- the calendar date;
+- the total relevant pageviews across the review's approved page groups; and
+- the total `archive_record_opened` events.
+
+Exclude the current UTC date because it is partial. A complete day is usable
+only when both aggregate counts are greater than zero. The review becomes
+`ready` when 30 complete days on or after the confirmed reporting start are
+usable; 30 elapsed calendar days alone are not enough. Before then it remains
+`collecting`.
+
+The operator signal reports the confirmed reporting start, covered complete-day
+start and end, complete-day count, usable-day count, and `sample_usable`
+boolean. It must not include raw events, visitor or session identifiers, record
+paths, edition dates from clicked records, page locations, or
+capability-bearing URLs. When `sample_usable` first becomes true, notify the
+operators that the aggregate review can begin; do not interpret the signal as a
+performance finding.
