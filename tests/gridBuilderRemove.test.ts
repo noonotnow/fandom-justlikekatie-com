@@ -637,7 +637,7 @@ test('exportGrid source uses exportInFlight ref for synchronous re-entrant guard
   );
 
   // Locate the exportGrid function body.
-  const exportGridIdx = source.indexOf('async function exportGrid()');
+  const exportGridIdx = source.indexOf('async function exportGrid(');
   assert.ok(exportGridIdx !== -1, 'exportGrid function must exist in GridBuilder.tsx');
   const bodyAfter = source.slice(exportGridIdx);
   const nextFnIdx = bodyAfter.indexOf('\n  if (loadError)');

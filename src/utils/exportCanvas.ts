@@ -115,6 +115,7 @@ function drawCoverImageRounded(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
   x: number, y: number, w: number, h: number, r: number,
+  verticalAlignment = 0.15,
 ) {
   ctx.save();
   ctx.beginPath();
@@ -140,7 +141,7 @@ function drawCoverImageRounded(
     sw = srcW;
     sh = srcW / dstRatio;
     sx = 0;
-    sy = (srcH - sh) * 0.15;
+    sy = (srcH - sh) * verticalAlignment;
   }
   ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
   ctx.restore();
@@ -327,7 +328,7 @@ export function buildExportFilename(
   dateStr: string,
   actorNameEn: string,
   rankNum: number,
-  variant: 'full' | 'teaser',
+  variant: ExportVariant,
   tier: string,
   vibeLabel = '',
   boardShortId = '',
@@ -336,7 +337,7 @@ export function buildExportFilename(
   const vibeSlug = actorFilenameSlug(vibeLabel);
   const nn = pad2(rankNum);
   const tierTag = (tier && tier !== 'standard') ? ('_' + tier) : '';
-  const suffix = variant === 'teaser' ? '_teaser' : '';
+  const suffix = variant === 'teaser' ? '_teaser' : (variant === 'raw' ? '_raw' : '');
   const boardTag = boardShortId ? '_' + actorFilenameSlug(boardShortId).slice(0, 16) : '';
   return 'vibe-guide_' + dateStr + '_' + slug + (vibeSlug ? '_' + vibeSlug : '')
     + boardTag + tierTag + '_ep' + nn + suffix + '.png';
@@ -772,13 +773,50 @@ async function renderTeaserExportCanvas(payload: ExportPayload): Promise<HTMLCan
 
 // ── Public API ─────────────────────────────────────────────────────
 
-export type ExportVariant = 'full' | 'teaser';
+async function renderRawExportCanvas(payload: ExportPayload): Promise<HTMLCanvasElement> {
+  const allResults = payload.chosen?.results ?? [];
+  const cols = allResults.length >= 12 ? 4 : 3;
+  const rows = 3;
+  const results = allResults.slice(0, cols * rows);
+
+  if (results.length < 9) {
+    throw new Error('This approved board is not complete yet. A share card requires at least nine images.');
+  }
+
+  const imagesPromise = Promise.all(results.map((r) => loadProxiedImage(r.thumbnail)));
+
+  const tileSize = 360;
+  const canvas = document.createElement('canvas');
+  canvas.width = cols * tileSize;
+  canvas.height = rows * tileSize;
+  const ctx = canvas.getContext('2d')!;
+
+  const images = await imagesPromise;
+  if (images.length !== results.length || images.some((image) => !image)) {
+    throw new Error('The share card could not load every approved image. Nothing was exported.');
+  }
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const idx = r * cols + c;
+      const tx = c * tileSize;
+      const ty = r * tileSize;
+      const img = images[idx];
+      drawCoverImageRounded(ctx, img!, tx, ty, tileSize, tileSize, 0, 0.5);
+    }
+  }
+
+  return canvas;
+}
+
+export type ExportVariant = 'full' | 'teaser' | 'raw';
 
 export async function renderExportCanvas(
   data: StarOfDayData,
   variant: ExportVariant = 'full',
 ): Promise<HTMLCanvasElement> {
   const payload = buildExportPayload(data);
+  if (variant === 'raw') return renderRawExportCanvas(payload);
   return variant === 'teaser'
     ? renderTeaserExportCanvas(payload)
     : renderFullExportCanvas(payload);
@@ -845,6 +883,21 @@ function notifyExportBlob(onBlob: ((blob: Blob) => void) | undefined, blob: Blob
   } catch {
     // Persistence hooks must never interfere with the export path.
   }
+}
+
+export async function prepareShareCard(
+  data: StarOfDayData,
+  variant: ExportVariant = 'full',
+  onBlob?: (blob: Blob) => void,
+): Promise<{ objectUrl: string; file: File; fileName: string; tier: string }> {
+  const { artifact, tier } = await createAndLogExport(data, variant);
+  notifyExportBlob(onBlob, artifact.blob);
+  return {
+    objectUrl: URL.createObjectURL(artifact.blob),
+    file: artifact.file,
+    fileName: artifact.fileName,
+    tier,
+  };
 }
 
 function tierMessage(tier: string): string {

@@ -32,7 +32,12 @@ import {
   recoverCollectionGrid,
   uploadCollectionImage,
 } from '../../utils/collectionMedia';
-import { buildExportPayload, classifyEditionTier, saveShareCard } from '../../utils/exportCanvas';
+import {
+  buildExportPayload,
+  classifyEditionTier,
+  prepareShareCard,
+  saveShareCard,
+} from '../../utils/exportCanvas';
 import {
   exportDownloadUrl,
   fetchExportHistory,
@@ -906,6 +911,7 @@ export const Collection: React.FC<Props> = ({
                    })()}
                 </div>
                 <div className={styles.gridActions}>
+                  {isMember && <GridPublishingHandoff grid={grid} />}
                   <button
                     type="button"
                     disabled={Boolean(busyKey)}
@@ -1215,6 +1221,126 @@ export const Collection: React.FC<Props> = ({
  * History is loaded lazily on first expand — export storage is server-side
  * and account-scoped, so anonymous visitors are pointed at sign-in instead.
  */
+function GridPublishingHandoff({ grid }: { grid: GridRecord }) {
+  const [expanded, setExpanded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [prepared, setPrepared] = useState<{
+    objectUrl: string;
+    file: File;
+    expiresAt: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!prepared) return;
+    const remaining = prepared.expiresAt - Date.now();
+    const timeout = window.setTimeout(() => setPrepared(null), Math.max(0, remaining));
+    const url = prepared.objectUrl;
+    return () => {
+      window.clearTimeout(timeout);
+      URL.revokeObjectURL(url);
+    };
+  }, [prepared]);
+
+  async function prepareHandoff() {
+    if (busy) return;
+    setBusy(true);
+    setNotice('Preparing the exact saved grid…');
+    try {
+      const starData = starDataFromCollectionGrid(grid);
+      let renderedBlob: Blob | null = null;
+      const artifact = await prepareShareCard(starData, 'raw', blob => {
+        renderedBlob = blob;
+      });
+      if (renderedBlob) {
+        const tier = classifyEditionTier(buildExportPayload(starData).chosen);
+        void uploadExportedCard(grid.id, crypto.randomUUID(), renderedBlob, 'raw', tier);
+      }
+      setPrepared({
+        objectUrl: artifact.objectUrl,
+        file: artifact.file,
+        expiresAt: Date.now() + 120_000,
+      });
+      setNotice('Handoff prepared for two minutes.');
+    } catch (error) {
+      setNotice(messageFrom(error, 'The publishing handoff could not be prepared.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sharePrepared() {
+    if (!prepared || prepared.expiresAt <= Date.now()) {
+      setPrepared(null);
+      setNotice('This handoff expired. Prepare it again.');
+      return;
+    }
+    const shareData: ShareData = { files: [prepared.file] };
+    if (
+      typeof navigator.share !== 'function'
+      || typeof navigator.canShare !== 'function'
+      || !navigator.canShare(shareData)
+    ) {
+      setNotice('Native file sharing is unavailable here. Use Download PNG.');
+      return;
+    }
+    try {
+      await navigator.share(shareData);
+      setNotice('Share sheet closed. This does not prove publication.');
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setNotice('Sharing cancelled. Nothing was downloaded.');
+        return;
+      }
+      setNotice('Native sharing failed. Use Download PNG.');
+    }
+  }
+
+  function downloadPrepared() {
+    if (!prepared || prepared.expiresAt <= Date.now()) {
+      setPrepared(null);
+      setNotice('This handoff expired. Prepare it again.');
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = prepared.objectUrl;
+    link.download = prepared.file.name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setNotice('PNG downloaded.');
+  }
+
+  return (
+    <div className={styles.publishingHandoff}>
+      <button type="button" onClick={() => setExpanded(current => !current)}>
+        {expanded ? 'Close handoff' : 'Handoff for Publishing'}
+      </button>
+      {expanded && (
+        <div className={styles.publishingHandoffPanel}>
+          <strong>RedNote</strong>
+          {!prepared ? (
+            <button type="button" onClick={() => void prepareHandoff()} disabled={busy}>
+              {busy ? 'Preparing…' : 'Prepare RedNote handoff'}
+            </button>
+          ) : (
+            <div className={styles.publishingHandoffActions}>
+              <button type="button" onClick={() => void sharePrepared()}>Share to device</button>
+              <button type="button" onClick={downloadPrepared}>Download PNG</button>
+              <a href="https://creator.rednote.com/publish/publish" target="_blank" rel="noreferrer">
+                Open RedNote
+              </a>
+            </div>
+          )}
+          <span>Weibo · Instagram · Facebook — coming next</span>
+          <small>Opening RedNote or closing the share sheet does not prove publication.</small>
+          {notice && <p role="status">{notice}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GridExportHistory({ gridId, signedIn }: { gridId: string; signedIn: boolean }) {
   const [entries, setEntries] = useState<PersistedExportEntry[] | null>(null);
   const [historyError, setHistoryError] = useState('');

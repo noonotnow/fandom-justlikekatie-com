@@ -27,6 +27,7 @@ import {
   initialCollectionType,
   initialVibeAtlasEditionDate,
   initialVibeAtlasView,
+  isPublishingHandoffPreview,
   isValidVibeAtlasEditionDate,
   isVibeAtlasArchiveLocation,
   resolveFandomProductRoute,
@@ -131,6 +132,10 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   } = useStarOfDay(archivePage && !selectedEditionDate ? undefined : selectedEditionDate);
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
   const [isMember, setIsMember] = useState(false);
+  const canUsePremiumTools = isMember || isPublishingHandoffPreview(
+    window.location.hostname,
+    window.location.search,
+  );
   const [membershipResolved, setMembershipResolved] = useState(false);
   const [editionShareNotice, setEditionShareNotice] = useState('');
   const dropEngagement = useRef({
@@ -701,7 +706,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         <Collection
           key={collectionTab}
           initialType={collectionTab}
-          isMember={isMember}
+          isMember={canUsePremiumTools}
           onUpgrade={() => {
             trackUpgradeStarted('grid_builder');
             navigateAtlas('membership');

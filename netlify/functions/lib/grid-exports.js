@@ -117,7 +117,10 @@ export function createGridExportHandlers({
 async function handleUpload(req, store, accountId, gridId, url, now) {
   const exportId = url.searchParams.get("exportId") || "";
   if (!EXPORT_ID_RE.test(exportId)) return json(400, { error: "Invalid exportId." });
-  const variant = url.searchParams.get("variant") === "teaser" ? "teaser" : "full";
+  const variant = url.searchParams.get("variant") || "full";
+  if (!["full", "teaser", "raw"].includes(variant)) {
+    return json(400, { error: "Invalid export variant." });
+  }
   const tier = sanitizeTier(url.searchParams.get("tier"));
 
   const declared = Number(req.headers.get("content-length") || 0);

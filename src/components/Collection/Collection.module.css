@@ -125,6 +125,20 @@
 .filters button[aria-pressed="true"] { background: #c9a96e; color: #17130d; }
 
 .gridArtifacts { display: grid; gap: 28px; padding-top: 28px; }
+.publishingHandoff { display: grid; gap: 10px; width: 100%; }
+.publishingHandoffPanel {
+  display: grid;
+  gap: 10px;
+  width: min(100%, 560px);
+  padding: 14px;
+  border: 1px solid rgba(179, 95, 73, .3);
+  border-radius: 8px;
+  background: rgba(211, 174, 98, .1);
+}
+.publishingHandoffPanel > span,
+.publishingHandoffPanel > small,
+.publishingHandoffPanel > p { margin: 0; }
+.publishingHandoffActions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .gridArtifact {
   display: grid;
   grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
