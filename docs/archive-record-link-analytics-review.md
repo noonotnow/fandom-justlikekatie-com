@@ -72,3 +72,17 @@ paths, edition dates from clicked records, page locations, or
 capability-bearing URLs. When `sample_usable` first becomes true, notify the
 operators that the aggregate review can begin; do not interpret the signal as a
 performance finding.
+
+Persist the notification state returned by the readiness tracker and supply it
+to the next reporting run. The ordinary readiness signal continues on every run
+so `ready` remains visible, but `archive_link_review_ready` is emitted only on
+the first ready assessment for that confirmed reporting start. Repeated ready
+runs do not resend it. Deliberately changing the confirmed reporting start
+begins a new notification cycle: the new period collects independently and can
+emit one ready notification when its sample becomes usable.
+
+The persisted notification state is limited to the confirmed reporting start,
+the current readiness status, and whether that period's ready notification was
+sent. It must not be expanded with visitor or session identifiers, record
+paths, clicked edition dates, page locations, raw events, or
+capability-bearing URLs.

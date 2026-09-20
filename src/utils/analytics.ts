@@ -23,6 +23,11 @@ export interface ArchiveLinkReviewReadiness {
   usableDayCount: number;
   sampleUsable: boolean;
 }
+export interface ArchiveLinkReviewNotificationState {
+  reportingStartDate: string | null;
+  status: ArchiveLinkReviewReadiness['status'];
+  readyNotificationSent: boolean;
+}
 export type GridBuilderMode = 'smart' | 'manual';
 
 interface DailyDropServerEvent {
@@ -208,10 +213,15 @@ export function assessArchiveLinkReviewReadiness(
   };
 }
 
-/** Emits no visitor, path, record, URL, or event-level data. */
+/**
+ * Emits no visitor, path, record, URL, or event-level data. The returned state
+ * is safe to persist and pass back on the next reporting run. A changed
+ * reporting start begins a new notification cycle.
+ */
 export function trackArchiveLinkReviewReadiness(
   readiness: ArchiveLinkReviewReadiness,
-): void {
+  previousNotificationState: ArchiveLinkReviewNotificationState | null = null,
+): ArchiveLinkReviewNotificationState {
   trackEvent('archive_link_review_readiness', {
     status: readiness.status,
     reporting_start_date: readiness.reportingStartDate ?? 'unconfirmed',
@@ -221,6 +231,29 @@ export function trackArchiveLinkReviewReadiness(
     usable_day_count: readiness.usableDayCount,
     sample_usable: readiness.sampleUsable,
   });
+
+  const sameMeasurementPeriod = previousNotificationState?.reportingStartDate
+    === readiness.reportingStartDate;
+  const readyNotificationSent = sameMeasurementPeriod
+    && previousNotificationState?.readyNotificationSent === true;
+  const shouldNotify = readiness.status === 'ready' && !readyNotificationSent;
+
+  if (shouldNotify) {
+    trackEvent('archive_link_review_ready', {
+      reporting_start_date: readiness.reportingStartDate ?? 'unconfirmed',
+      covered_start_date: readiness.coveredStartDate ?? 'none',
+      covered_end_date: readiness.coveredEndDate ?? 'none',
+      complete_day_count: readiness.completeDayCount,
+      usable_day_count: readiness.usableDayCount,
+      sample_usable: true,
+    });
+  }
+
+  return {
+    reportingStartDate: readiness.reportingStartDate,
+    status: readiness.status,
+    readyNotificationSent: shouldNotify || readyNotificationSent,
+  };
 }
 
 function assertIsoDate(value: string, field: string): void {

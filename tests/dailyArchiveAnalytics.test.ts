@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   assessArchiveLinkReviewReadiness,
+  type ArchiveLinkReviewNotificationState,
   trackActorSourceNotesLoadFailed,
   trackActorSourceNotesLoadSucceeded,
   trackActorSourceNotesOpened,
@@ -228,6 +229,119 @@ test('archive link readiness signal exposes only aggregate coverage metadata', (
       'usable_day_count',
     ]);
     assert.equal(JSON.stringify(events).match(/visitor|record_path|page_location|capability|url/i), null);
+  } finally {
+    Reflect.deleteProperty(globalThis, 'window');
+  }
+});
+
+test('archive link review notifies once when a measurement period becomes ready', () => {
+  const events: Array<{ name: string; data?: Record<string, string | number | boolean> }> = [];
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      gtag(_command: string, name: string, data?: Record<string, string | number | boolean>) {
+        events.push({ name, data });
+      },
+    },
+  });
+  const collecting = {
+    status: 'collecting' as const,
+    reportingStartDate: '2026-08-21',
+    coveredStartDate: '2026-08-21',
+    coveredEndDate: '2026-09-19',
+    completeDayCount: 30,
+    usableDayCount: 29,
+    sampleUsable: false,
+  };
+  const ready = {
+    ...collecting,
+    status: 'ready' as const,
+    coveredEndDate: '2026-09-20',
+    completeDayCount: 31,
+    usableDayCount: 30,
+    sampleUsable: true,
+  };
+
+  try {
+    let state: ArchiveLinkReviewNotificationState | null = null;
+    state = trackArchiveLinkReviewReadiness(collecting, state);
+    state = trackArchiveLinkReviewReadiness(ready, state);
+    state = trackArchiveLinkReviewReadiness(ready, state);
+
+    assert.deepEqual(events.map(event => event.name), [
+      'archive_link_review_readiness',
+      'archive_link_review_readiness',
+      'archive_link_review_ready',
+      'archive_link_review_readiness',
+    ]);
+    assert.deepEqual(state, {
+      reportingStartDate: '2026-08-21',
+      status: 'ready',
+      readyNotificationSent: true,
+    });
+    const notification = events.find(event => event.name === 'archive_link_review_ready');
+    assert.equal(
+      JSON.stringify(notification).match(/visitor|record_path|page_location|capability|url/i),
+      null,
+    );
+  } finally {
+    Reflect.deleteProperty(globalThis, 'window');
+  }
+});
+
+test('resetting the archive measurement start permits one new ready notification', () => {
+  const events: Array<{ name: string }> = [];
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      gtag(_command: string, name: string) {
+        events.push({ name });
+      },
+    },
+  });
+  const oldState: ArchiveLinkReviewNotificationState = {
+    reportingStartDate: '2026-08-21',
+    status: 'ready',
+    readyNotificationSent: true,
+  };
+  const resetCollecting = {
+    status: 'collecting' as const,
+    reportingStartDate: '2026-09-22',
+    coveredStartDate: '2026-09-22',
+    coveredEndDate: '2026-10-20',
+    completeDayCount: 29,
+    usableDayCount: 29,
+    sampleUsable: false,
+  };
+
+  try {
+    const resetState = trackArchiveLinkReviewReadiness(resetCollecting, oldState);
+    assert.deepEqual(resetState, {
+      reportingStartDate: '2026-09-22',
+      status: 'collecting',
+      readyNotificationSent: false,
+    });
+    const readyState = trackArchiveLinkReviewReadiness({
+      ...resetCollecting,
+      status: 'ready',
+      coveredEndDate: '2026-10-21',
+      completeDayCount: 30,
+      usableDayCount: 30,
+      sampleUsable: true,
+    }, resetState);
+    trackArchiveLinkReviewReadiness({
+      ...resetCollecting,
+      status: 'ready',
+      coveredEndDate: '2026-10-21',
+      completeDayCount: 30,
+      usableDayCount: 30,
+      sampleUsable: true,
+    }, readyState);
+
+    assert.equal(
+      events.filter(event => event.name === 'archive_link_review_ready').length,
+      1,
+    );
   } finally {
     Reflect.deleteProperty(globalThis, 'window');
   }
