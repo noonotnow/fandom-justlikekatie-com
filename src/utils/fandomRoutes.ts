@@ -51,3 +51,8 @@ export function initialCollectionType(search: string): 'grids' | 'results' | 'bu
   if (view === 'results' || view === 'builder') return view;
   return 'grids';
 }
+
+export function isPublishingHandoffPreview(hostname: string, search: string): boolean {
+  const isDeployPreview = /^deploy-preview-\d+--earnest-gecko-17eb0c\.netlify\.app$/i.test(hostname);
+  return isDeployPreview && new URLSearchParams(search).get('handoff-preview') === '1';
+}

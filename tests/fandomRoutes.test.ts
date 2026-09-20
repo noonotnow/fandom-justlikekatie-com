@@ -6,6 +6,7 @@ import {
   initialVibeAtlasEditionDate,
   initialVibeAtlasView,
   isAdminEntryLocation,
+  isPublishingHandoffPreview,
   isVibeAtlasArchiveLocation,
   isValidVibeAtlasEditionDate,
   resolveFandomProductRoute,
@@ -57,6 +58,28 @@ test('collection links open the requested Vibe Atlas tool', () => {
   assert.equal(initialCollectionType('?view=results'), 'results');
   assert.equal(initialCollectionType('?view=builder'), 'builder');
   assert.equal(initialCollectionType(''), 'grids');
+});
+
+test('publishing handoff preview access is explicit and limited to this Netlify deploy preview', () => {
+  assert.equal(
+    isPublishingHandoffPreview(
+      'deploy-preview-74--earnest-gecko-17eb0c.netlify.app',
+      '?view=builder&handoff-preview=1',
+    ),
+    true,
+  );
+  assert.equal(
+    isPublishingHandoffPreview('fandom.justlikekatie.com', '?handoff-preview=1'),
+    false,
+  );
+  assert.equal(
+    isPublishingHandoffPreview('deploy-preview-74--earnest-gecko-17eb0c.netlify.app', '?view=builder'),
+    false,
+  );
+  assert.equal(
+    isPublishingHandoffPreview('deploy-preview-74--evil-example.netlify.app', '?handoff-preview=1'),
+    false,
+  );
 });
 
 test('the archive has a dedicated public route', () => {
