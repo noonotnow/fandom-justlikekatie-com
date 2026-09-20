@@ -157,6 +157,32 @@ export function createBlobBillingRepository({ getStore, context }) {
       throw new Error("Billing identity conflict record changed too frequently to update safely.");
     },
 
+    async identityConflictSummary() {
+      const record = await store().get(IDENTITY_CONFLICT_KEY, {
+        type: "json",
+        consistency: "strong",
+      });
+      if (!record) return null;
+      const count = Number(record.count);
+      const firstOccurredAt = validTimestamp(record.firstOccurredAt);
+      const lastOccurredAt = validTimestamp(record.lastOccurredAt);
+      if (
+        record.reason !== "stripe_identity_conflict"
+        || !["checkout", "subscription"].includes(record.eventCategory)
+        || !Number.isSafeInteger(count)
+        || count < 1
+        || !firstOccurredAt
+        || !lastOccurredAt
+      ) return null;
+      return {
+        reason: "stripe_identity_conflict",
+        category: record.eventCategory,
+        count,
+        firstOccurredAt,
+        lastOccurredAt,
+      };
+    },
+
     async recordSubscription({
       accountId,
       customerId,
@@ -263,6 +289,10 @@ function membershipStatus(stripeStatus) {
   if (stripeStatus === "past_due") return "past_due";
   if (stripeStatus === "incomplete") return "incomplete";
   return "inactive";
+}
+
+function validTimestamp(value) {
+  return typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : null;
 }
 
 async function firstListingPage(blobStore, options) {

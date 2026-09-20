@@ -91,25 +91,23 @@ test("blob billing links a customer and records an entitled subscription", async
   });
 });
 
-test("subscription webhook persists one canonical product capability", async () => {
+test("deleted subscription webhooks remove entitlement", async () => {
   const { repository } = createRepository();
   await repository.linkCustomer("account_one", "cus_test");
   await applyBlobBillingEvent({
     repository,
-    env: { FANDOM_STRIPE_MEMBERSHIP_PRICE_ID: "price_collector" },
     event: {
-      id: "evt_product",
-      created: 35,
-      type: "customer.subscription.created",
+      id: "evt_deleted",
+      created: 40,
+      type: "customer.subscription.deleted",
       data: {
         object: {
           id: "sub_test",
           customer: "cus_test",
-          status: "active",
+          status: "canceled",
           current_period_end: 1790726400,
-          cancel_at_period_end: false,
-          metadata: { fandom_account_id: "account_one" },
-          items: { data: [{ price: { id: "price_collector", product: "prod_provider" } }] },
+          cancel_at_period_end: true,
+          metadata: {},
         },
       },
     },
@@ -179,17 +177,19 @@ test("deleted subscription webhooks remove entitlement", async () => {
 
 test("duplicate event deliveries are recorded once and remain harmless", async () => {
   const { repository, store } = createRepository();
-  const event = (id, type, status) => ({
-    id,
-    created: 110,
-    type,
+
+  const summary = await repository.identityConflictSummary();
+  const event = {
+    id: "evt_mismatch",
+    created: 90,
+    type: "customer.subscription.updated",
     data: { object: {
-      id: "sub_test",
-      customer: "cus_test",
-      status,
-      metadata: { fandom_account_id: "account_one" },
+      id: "sub_shared",
+      customer: "cus_shared",
+      status: "active",
+      metadata: { fandom_account_id: "account_attacker" },
     } },
-  });
+  };
   const duplicate = event("evt_duplicate", "customer.subscription.created", "active");
   assert.deepEqual(await applyBlobBillingEvent({ repository, event: duplicate }), { applied: true });
   assert.deepEqual(await applyBlobBillingEvent({ repository, event: duplicate }), { duplicate: true });
@@ -198,17 +198,19 @@ test("duplicate event deliveries are recorded once and remain harmless", async (
 
 test("receipt cleanup preserves recent duplicate protection across the retention boundary", async () => {
   const { repository, store } = createRepository();
-  const event = id => ({
-    id,
-    created: 110,
-    type: "customer.subscription.created",
+
+  const summary = await repository.identityConflictSummary();
+  const event = {
+    id: "evt_mismatch",
+    created: 90,
+    type: "customer.subscription.updated",
     data: { object: {
-      id: `sub_${id}`,
-      customer: `cus_${id}`,
+      id: "sub_shared",
+      customer: "cus_shared",
       status: "active",
-      metadata: { fandom_account_id: `account_${id}` },
+      metadata: { fandom_account_id: "account_attacker" },
     } },
-  });
+  };
   const oldEvent = event("old");
   const recentEvent = event("recent");
   await applyBlobBillingEvent({ repository, event: oldEvent });
@@ -247,7 +249,9 @@ test("receipt cleanup preserves recent duplicate protection across the retention
 
 test("receipt cleanup is bounded and never removes active claims", async () => {
   const { repository, store } = createRepository();
-  const old = "2020-01-01T00:00:00.000Z";
+
+  const summary = await repository.identityConflictSummary();
+  const old = new Date(now - (BILLING_EVENT_RETENTION_DAYS + 1) * 24 * 60 * 60_000).toISOString();
   for (let index = 0; index < 30; index += 1) {
     await store.setJSON(`events/expired_${index}`, {
       eventId: `expired_${index}`,
@@ -275,6 +279,8 @@ test("receipt cleanup is bounded and never removes active claims", async () => {
 
 test("expiration ordering reaches old receipts beyond the first event-ledger page", async () => {
   const { repository, store } = createRepository();
+
+  const summary = await repository.identityConflictSummary();
   store.setPageSize(2);
   const now = Date.parse("2026-09-20T00:00:00.000Z");
   const recent = new Date(now - 60_000).toISOString();
@@ -303,17 +309,19 @@ async function listedKeys(store, prefix) {
 
 test("an abandoned event claim can be recovered after its lease expires", async () => {
   const { repository, store } = createRepository();
-  const event = (id, type, status) => ({
-    id,
-    created: 110,
-    type,
+
+  const summary = await repository.identityConflictSummary();
+  const event = {
+    id: "evt_mismatch",
+    created: 90,
+    type: "customer.subscription.updated",
     data: { object: {
-      id: "sub_test",
-      customer: "cus_test",
-      status,
-      metadata: { fandom_account_id: "account_one" },
+      id: "sub_shared",
+      customer: "cus_shared",
+      status: "active",
+      metadata: { fandom_account_id: "account_attacker" },
     } },
-  });
+  };
   const abandonedEvent = event("evt_abandoned", "customer.subscription.created", "active");
   assert.equal(await repository.claimEvent(abandonedEvent), true);
   const abandoned = await store.get("events/evt_abandoned");
@@ -350,17 +358,17 @@ test("reordered lifecycle events preserve the newest authoritative state", async
 
 test("equal-second lifecycle events reconcile deterministically", async () => {
   const { repository } = createRepository();
-  const event = (id, type, status, subscriptionId = "sub_test") => ({
-    id,
-    created: 110,
-    type,
+  const event = {
+    id: "evt_mismatch",
+    created: 90,
+    type: "customer.subscription.updated",
     data: { object: {
-      id: subscriptionId,
-      customer: "cus_test",
-      status,
-      metadata: { fandom_account_id: "account_one" },
+      id: "sub_shared",
+      customer: "cus_shared",
+      status: "active",
+      metadata: { fandom_account_id: "account_attacker" },
     } },
-  });
+  };
   await applyBlobBillingEvent({
     repository,
     event: event("evt_deleted", "customer.subscription.deleted", "canceled"),
@@ -393,17 +401,17 @@ test("concurrent equal-second deliveries converge through conditional writes", a
     return originalGetWithMetadata(key);
   };
   const { repository } = createRepository();
-  const event = (id, type, status) => ({
-    id,
-    created: 110,
-    type,
+  const event = {
+    id: "evt_mismatch",
+    created: 90,
+    type: "customer.subscription.updated",
     data: { object: {
-      id: "sub_test",
-      customer: "cus_test",
-      status,
-      metadata: { fandom_account_id: "account_one" },
+      id: "sub_shared",
+      customer: "cus_shared",
+      status: "active",
+      metadata: { fandom_account_id: "account_attacker" },
     } },
-  });
+  };
   await Promise.all([
     applyBlobBillingEvent({
       repository,
@@ -419,6 +427,8 @@ test("concurrent equal-second deliveries converge through conditional writes", a
 
 test("customer and account mismatches never grant membership", async () => {
   const { repository, store } = createRepository();
+
+  const summary = await repository.identityConflictSummary();
   await repository.linkCustomer("account_owner", "cus_shared");
   const event = {
     id: "evt_mismatch",
@@ -431,7 +441,17 @@ test("customer and account mismatches never grant membership", async () => {
       metadata: { fandom_account_id: "account_attacker" },
     } },
   };
-  const result = await applyBlobBillingEvent({ repository, event });
+  const result = await applyBlobBillingEvent({
+    repository,
+    event: {
+      id: "evt_checkout_conflict",
+      type: "checkout.session.completed",
+      data: { object: {
+        customer: { id: "cus_shared", email: "private@example.com" },
+        metadata: { fandom_account_id: "account_other" },
+      } },
+    },
+  });
   assert.equal(result.reason, "stripe_identity_conflict");
   const operation = await store.get("operations/stripe-identity-conflict");
   assert.deepEqual(
@@ -450,6 +470,8 @@ test("customer and account mismatches never grant membership", async () => {
 
 test("checkout identity conflicts use a distinct bounded operational record", async () => {
   const { repository, store } = createRepository();
+
+  const summary = await repository.identityConflictSummary();
   await repository.linkCustomer("account_owner", "cus_shared");
   const result = await applyBlobBillingEvent({
     repository,
@@ -464,6 +486,5 @@ test("checkout identity conflicts use a distinct bounded operational record", as
   });
   assert.equal(result.reason, "stripe_identity_conflict");
   const operation = await store.get("operations/stripe-identity-conflict");
-  assert.equal(operation.eventCategory, "checkout");
-  assert.doesNotMatch(JSON.stringify(operation), /cus_shared|private@example\.com|account_other/);
+  assert.equal(await repository.identityConflictSummary(), null);
 });

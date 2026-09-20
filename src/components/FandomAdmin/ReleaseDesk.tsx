@@ -144,6 +144,7 @@ export const ReleaseDesk: React.FC = () => {
 function EngagementEvidence() {
   const [summary, setSummary] = useState<AnyRecord | null>(null);
   const [archiveHealth, setArchiveHealth] = useState<AnyRecord | null>(null);
+  const [billingOperations, setBillingOperations] = useState<AnyRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [notice, setNotice] = useState('');
@@ -153,17 +154,21 @@ function EngagementEvidence() {
     void Promise.all([
       fetch('/.netlify/functions/engagement-export?records=0', { credentials: 'include' }),
       fetch('/.netlify/functions/archive-access-operations', { credentials: 'include' }),
+      fetch('/.netlify/functions/billing-operations', { credentials: 'include' }),
     ])
-      .then(async ([engagementResponse, archiveResponse]) => {
-        const [engagementResult, archiveResult] = await Promise.all([
+      .then(async ([engagementResponse, archiveResponse, billingResponse]) => {
+        const [engagementResult, archiveResult, billingResult] = await Promise.all([
           engagementResponse.json().catch(() => null),
           archiveResponse.json().catch(() => null),
+          billingResponse.json().catch(() => null),
         ]);
         if (!engagementResponse.ok) throw new Error(engagementResult?.error || 'Audience evidence unavailable.');
         if (!archiveResponse.ok) throw new Error(archiveResult?.error || 'Archive access health unavailable.');
+        if (!billingResponse.ok) throw new Error(billingResult?.error || 'Billing operations unavailable.');
         if (live) {
           setSummary(engagementResult.summary ?? null);
           setArchiveHealth(archiveResult);
+          setBillingOperations(billingResult);
         }
       })
       .catch(error => {
@@ -229,6 +234,7 @@ function EngagementEvidence() {
         Event ratios, not unique-user conversion. These records intentionally contain no anonymous visitor or session identifier.
       </p>
       {archiveHealth && <ArchiveAccessHealth health={archiveHealth} />}
+      {billingOperations && <BillingIdentityConflict conflict={billingOperations.identityConflict} />}
 
       <div className={styles.evidenceMetrics}>
         <div><strong>{summary.recordCount ?? 0}</strong><span>Recorded events</span></div>
@@ -262,6 +268,23 @@ function EngagementEvidence() {
         </section>
       </div>
       {notice && <p className={styles.productionError} role="alert">{notice}</p>}
+    </section>
+  );
+}
+
+function BillingIdentityConflict({ conflict }: { conflict: AnyRecord | null }) {
+  return (
+    <section aria-labelledby="billing-identity-conflict-title">
+      <h5 id="billing-identity-conflict-title">Stripe identity conflicts</h5>
+      {conflict
+        ? <dl className={styles.qualityInventory}>
+          <div><dt>Reason</dt><dd>{conflict.reason}</dd></div>
+          <div><dt>Category</dt><dd>{conflict.category}</dd></div>
+          <div><dt>Count</dt><dd>{conflict.count}</dd></div>
+          <div><dt>First occurrence</dt><dd>{formatDeliveryTime(conflict.firstOccurredAt)}</dd></div>
+          <div><dt>Last occurrence</dt><dd>{formatDeliveryTime(conflict.lastOccurredAt)}</dd></div>
+        </dl>
+        : <p>No Stripe identity conflicts have been recorded.</p>}
     </section>
   );
 }
