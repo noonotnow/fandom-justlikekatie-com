@@ -7538,9 +7538,10 @@ function clientRun(run, pair) {
 function isVisualJudgmentCandidate(candidate) {
   return Boolean(
     candidate
-    && candidate.selected !== true
+    && (candidate.selected !== true || candidate.dropReason)
     && candidate.thumbnail
-    && candidate.occurrenceId
+    && typeof candidate.occurrenceId === "string"
+    && candidate.occurrenceId.trim()
   );
 }
 

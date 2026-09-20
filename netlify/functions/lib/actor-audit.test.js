@@ -58,6 +58,7 @@ import {
   publicationManifestCatalogKey,
   readPublicationCorrections,
 } from "./publication-manifest.js";
+import { BLIND_REVIEW_CANDIDATE_SHAPES } from "./blind-review-candidate-fixtures.js";
 
 test("run-scoped mutation policy defaults Legacy audits to read-only", () => {
   assert.deepEqual(legacyAuditMutationPolicy("verdict"), {
@@ -1565,6 +1566,85 @@ test("a failed-board run exposes implicitly unselected retained images for blind
   const completed = await implicitJudgment.json();
   assert.equal(completed.currentRun.calibrationAnalysis.candidates.length, 3);
   assert.equal("visualJudgmentQueue" in completed.currentRun, false);
+});
+
+test("blind review candidate shapes share queue, acceptance, completion, and comparison outcomes", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const runBody = await runResponse.json();
+  const runId = runBody.currentRun.runId;
+  const runKey = auditRunKey(pairActor.id, 0, runId);
+  const run = structuredClone(store.records.get(runKey));
+  run.strongestEvent = null;
+  run.strongestCompiled = null;
+  run.winner = null;
+  run.alternate = null;
+  run.completeProposalCardCount = 0;
+  run.calibrationAnalysis = {
+    candidates: BLIND_REVIEW_CANDIDATE_SHAPES.map(({ candidate }) =>
+      structuredClone(candidate)),
+  };
+  store.records.set(runKey, run);
+
+  const pendingResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const pending = await pendingResponse.json();
+  const queuedShapes = BLIND_REVIEW_CANDIDATE_SHAPES.filter(shape => shape.queued);
+  assert.deepEqual(
+    pending.currentRun.visualJudgmentQueue.map(item => item.thumbnail).sort(),
+    queuedShapes.map(shape => shape.candidate.thumbnail).sort(),
+  );
+
+  for (const shape of BLIND_REVIEW_CANDIDATE_SHAPES.filter(item => !item.queued)) {
+    const rejected = await handler(request("POST", {
+      action: "record_visual_judgment",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      judgmentToken: createHash("sha256")
+        .update(`visual-judgment:${runId}:${shape.candidate.occurrenceId}`)
+        .digest("hex")
+        .slice(0, 24),
+      classification: "core",
+    }), {});
+    assert.equal(rejected.status, 400, shape.name);
+  }
+
+  let completed;
+  for (const shape of queuedShapes) {
+    const queueItem = pending.currentRun.visualJudgmentQueue
+      .find(item => item.thumbnail === shape.candidate.thumbnail);
+    const accepted = await handler(request("POST", {
+      action: "record_visual_judgment",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      judgmentToken: queueItem.judgmentToken,
+      classification: "core",
+    }), {});
+    assert.equal(accepted.status, 200, shape.name);
+    completed = await accepted.json();
+  }
+
+  assert.equal("visualJudgmentQueue" in completed.currentRun, false);
+  assert.equal(completed.currentRun.humanVisualJudgments.length, queuedShapes.length);
+
+  const exportResponse = await handler(request(
+    "GET",
+    undefined,
+    `?export=calibration&actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=${runId}`,
+  ), {});
+  const comparison = (await exportResponse.json()).run.humanProxyComparison;
+  assert.equal(exportResponse.status, 200);
+  assert.equal(comparison.occurrenceCount, queuedShapes.length);
+  assert.equal(comparison.reviewedCount, queuedShapes.length);
+  assert.deepEqual(comparison.missingOccurrences, []);
 });
 
 test("private calibration export is admin-only, GET-only, and requires a retained run", async () => {

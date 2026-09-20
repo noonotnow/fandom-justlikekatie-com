@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blindCalibrationEvidence } from "./blind-calibration-evidence.js";
+import { BLIND_REVIEW_CANDIDATE_SHAPES } from "./blind-review-candidate-fixtures.js";
 
 const expectedContract = {
   profileVersion: 4,
@@ -93,4 +94,32 @@ test("blind calibration evidence excludes legacy implicitly unselected queue can
   assert.equal(evidence.disagreements.some(item =>
     item.occurrenceId === implicitCandidate.occurrenceId), false);
   assert.equal(evidence.receiptIds.includes("judgment-implicit"), false);
+});
+
+test("blind calibration evidence follows the shared candidate-shape contract", () => {
+  const candidates = BLIND_REVIEW_CANDIDATE_SHAPES.map(({ candidate }) =>
+    structuredClone(candidate));
+  const evidenceCandidates = BLIND_REVIEW_CANDIDATE_SHAPES
+    .filter(shape => shape.evidenceEligible);
+  const judgments = evidenceCandidates.map(({ candidate }, index) => ({
+    receiptId: `shape-judgment-${index}`,
+    sourceOccurrenceId: candidate.occurrenceId,
+    classification: "core",
+  }));
+  const evidence = blindCalibrationEvidence({
+    runId: "shape-matrix",
+    ...expectedContract,
+    calibrationAnalysis: { candidates },
+  }, judgments, expectedContract);
+
+  assert.ok(evidence);
+  assert.equal(evidence.reviewedCount, evidenceCandidates.length);
+  assert.deepEqual(
+    evidence.disagreements.map(item => item.occurrenceId).sort(),
+    evidenceCandidates.map(shape => shape.candidate.occurrenceId).sort(),
+  );
+  assert.deepEqual(
+    evidence.receiptIds,
+    judgments.map(judgment => judgment.receiptId).sort(),
+  );
 });
