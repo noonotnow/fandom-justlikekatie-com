@@ -9,6 +9,7 @@ export type ArchiveRecordLocation =
   | 'archive_picker'
   | 'locked_preview'
   | 'full_archive';
+export type GridBuilderMode = 'smart' | 'manual';
 
 interface DailyDropServerEvent {
   event:
@@ -198,6 +199,34 @@ export function trackCollectionOpened(lastSavedEdition?: string): void {
 
 export function trackGridBuilderPreviewOpened(isMember: boolean): void {
   trackEvent('grid_builder_preview_opened', { is_member: isMember });
+}
+
+function actorSourceNotesData(isMember: boolean, builderMode: GridBuilderMode): AnalyticsData {
+  return {
+    is_member: isMember,
+    builder_mode: builderMode,
+  };
+}
+
+export function trackActorSourceNotesOpened(
+  isMember: boolean,
+  builderMode: GridBuilderMode,
+): void {
+  trackEvent('actor_source_notes_opened', actorSourceNotesData(isMember, builderMode));
+}
+
+export function trackActorSourceNotesLoadSucceeded(
+  isMember: boolean,
+  builderMode: GridBuilderMode,
+): void {
+  trackEvent('actor_source_notes_load_succeeded', actorSourceNotesData(isMember, builderMode));
+}
+
+export function trackActorSourceNotesLoadFailed(
+  isMember: boolean,
+  builderMode: GridBuilderMode,
+): void {
+  trackEvent('actor_source_notes_load_failed', actorSourceNotesData(isMember, builderMode));
 }
 
 export function trackUpgradeStarted(boundary: 'grid_builder' | 'premium_export'): void {

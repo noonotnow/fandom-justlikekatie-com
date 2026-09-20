@@ -21,6 +21,11 @@ import { logMembershipEvent } from '../../utils/membership';
 import { collectorBenefits, type CollectorPalette } from '../../utils/collectorBenefits';
 import { isVerifiedMediaReference } from '../../utils/mediaReference';
 import {
+  trackActorSourceNotesLoadFailed,
+  trackActorSourceNotesLoadSucceeded,
+  trackActorSourceNotesOpened,
+} from '../../utils/analytics';
+import {
   applyLens,
   actorPackIdForLens,
   buildVibeAtlasPool,
@@ -206,6 +211,7 @@ export const GridBuilder: React.FC<Props> = ({
 
   async function openSourceNotes() {
     setSourceNotesOpen(true);
+    trackActorSourceNotesOpened(hasCollectorAccess, builderMode);
     if (!hasCollectorAccess || !selectedActorPackId || sourceNotes?.id === selectedActorPackId) return;
 
     const requestId = ++sourceNotesRequest.current;
@@ -225,10 +231,14 @@ export const GridBuilder: React.FC<Props> = ({
       if (!pack?.id || !pack?.provenance?.attribution || !Array.isArray(pack?.vibes)) {
         throw new Error('Source notes are temporarily unavailable.');
       }
-      if (sourceNotesRequest.current === requestId) setSourceNotes(pack);
+      if (sourceNotesRequest.current === requestId) {
+        setSourceNotes(pack);
+        trackActorSourceNotesLoadSucceeded(hasCollectorAccess, builderMode);
+      }
     } catch {
       if (sourceNotesRequest.current === requestId) {
         setSourceNotesError('Source notes are still syncing. You can keep building with your saved images.');
+        trackActorSourceNotesLoadFailed(hasCollectorAccess, builderMode);
       }
     } finally {
       if (sourceNotesRequest.current === requestId) setSourceNotesBusy(false);

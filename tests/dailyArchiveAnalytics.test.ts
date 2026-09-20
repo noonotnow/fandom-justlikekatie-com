@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
+  trackActorSourceNotesLoadFailed,
+  trackActorSourceNotesLoadSucceeded,
+  trackActorSourceNotesOpened,
   trackCollectionOpened,
   trackArchiveRecordOpened,
   trackDailyArchiveEditionSelected,
@@ -164,6 +167,57 @@ test('broken analytics cannot interrupt daily archive interactions', () => {
     assert.doesNotThrow(() => {
       trackDailyArchiveOpened();
       trackDailyArchiveEditionSelected('2026-08-31', true);
+    });
+  } finally {
+    Reflect.deleteProperty(globalThis, 'window');
+  }
+});
+
+test('actor source-note analytics uses bounded membership and Builder mode properties', () => {
+  const events: Array<{ name: string; data?: Record<string, string | number | boolean> }> = [];
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      gtag(_command: string, name: string, data?: Record<string, string | number | boolean>) {
+        events.push({ name, data });
+      },
+    },
+  });
+
+  try {
+    trackActorSourceNotesOpened(false, 'smart');
+    trackActorSourceNotesOpened(true, 'manual');
+    trackActorSourceNotesLoadSucceeded(true, 'smart');
+    trackActorSourceNotesLoadFailed(true, 'manual');
+
+    assert.deepEqual(events, [
+      { name: 'actor_source_notes_opened', data: { is_member: false, builder_mode: 'smart' } },
+      { name: 'actor_source_notes_opened', data: { is_member: true, builder_mode: 'manual' } },
+      { name: 'actor_source_notes_load_succeeded', data: { is_member: true, builder_mode: 'smart' } },
+      { name: 'actor_source_notes_load_failed', data: { is_member: true, builder_mode: 'manual' } },
+    ]);
+    for (const event of events) {
+      assert.deepEqual(Object.keys(event.data ?? {}).sort(), ['builder_mode', 'is_member']);
+    }
+  } finally {
+    Reflect.deleteProperty(globalThis, 'window');
+  }
+});
+
+test('broken analytics cannot interrupt actor source-note interactions', () => {
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      umami: { track() { throw new Error('analytics unavailable'); } },
+      gtag() { throw new Error('analytics unavailable'); },
+    },
+  });
+
+  try {
+    assert.doesNotThrow(() => {
+      trackActorSourceNotesOpened(false, 'smart');
+      trackActorSourceNotesLoadSucceeded(true, 'manual');
+      trackActorSourceNotesLoadFailed(true, 'manual');
     });
   } finally {
     Reflect.deleteProperty(globalThis, 'window');
