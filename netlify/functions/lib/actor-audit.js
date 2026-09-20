@@ -452,8 +452,12 @@ export function createActorAuditHandler({
               calibrationProfile,
               { baseLimit: scope === "representative" ? 3 : null },
             );
-            const queryChanges = compareQueryContracts(receipt.frozenQueries, currentQueries);
-            const isCurrent = queryChanges.added.length === 0
+            const changeSummaryAvailable = Array.isArray(receipt.frozenQueries);
+            const queryChanges = changeSummaryAvailable
+              ? compareQueryContracts(receipt.frozenQueries, currentQueries)
+              : null;
+            const isCurrent = changeSummaryAvailable
+              && queryChanges.added.length === 0
               && queryChanges.removed.length === 0
               && queryChanges.reordered.length === 0;
             return [scope, {
@@ -463,6 +467,7 @@ export function createActorAuditHandler({
                 isCurrent,
                 checkedAt: now().toISOString(),
                 currentQueries,
+                changeSummaryAvailability: changeSummaryAvailable ? "available" : "unavailable",
                 changes: queryChanges,
               },
             }];
@@ -836,6 +841,7 @@ export function createActorAuditHandler({
             isCurrent: true,
             checkedAt: now().toISOString(),
             currentQueries: frozenQueries,
+            changeSummaryAvailability: "available",
           },
           comparisonId: boundedText(input.comparisonId, 160),
           reservationExpiresAt: typeof input.reservationExpiresAt === "string"

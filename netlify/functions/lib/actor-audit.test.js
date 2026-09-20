@@ -37,6 +37,7 @@ import {
   auditRunPrefix,
   auditVerdictPrefix,
   approvalSourceRunIds,
+  cacheDiagnosticReceiptKey,
   eligibilityKey,
   getEligibility,
   resolveRescueCalibrationApprovalAuthority,
@@ -3221,6 +3222,7 @@ test("cache diagnostic receipt reopens without searches and overwrites the bound
   assert.equal(receipt.reservationExpiresAt, "2026-09-19T11:05:00.000Z");
   assert.equal(receipt.queryContract.status, "current");
   assert.equal(receipt.queryContract.isCurrent, true);
+  assert.equal(receipt.queryContract.changeSummaryAvailability, "available");
   assert.deepEqual(receipt.queryContract.currentQueries, frozenQueries);
   assert.deepEqual(receipt.queryContract.changes, {
     added: [],
@@ -3368,6 +3370,7 @@ test("reopened cache proof is marked historical when the server-derived query se
   assert.equal(getSearchCall(), 0);
   assert.equal(receipt.queryContract.status, "historical");
   assert.equal(receipt.queryContract.isCurrent, false);
+  assert.equal(receipt.queryContract.changeSummaryAvailability, "available");
   assert.deepEqual(receipt.frozenQueries, frozenQueries);
   assert.deepEqual(receipt.comparisons.map(item => item.query), frozenQueries);
   assert.deepEqual(receipt.queryContract.currentQueries, actor.vibes[0].queries.slice(0, 3));
@@ -3379,6 +3382,42 @@ test("reopened cache proof is marked historical when the server-derived query se
       { query: frozenQueries[1], frozenIndex: 1, currentIndex: 2 },
     ],
   });
+});
+
+test("legacy cache proof reports unavailable query changes instead of an empty summary", async () => {
+  const actor = structuredClone(pairActor);
+  const { handler, store, getSearchCall } = harness({ actorPacks: [actor] });
+  const vibeKey = vibeKeyFor(actor.id, 0);
+  const legacyReceipt = {
+    schemaVersion: 0,
+    diagnosticOnly: true,
+    retention: "latest_per_pairing_and_scope",
+    actorId: actor.id,
+    vibeKey,
+    scope: "representative",
+    comparedAt: "2026-09-18T10:00:00.000Z",
+    savedAt: "2026-09-18T10:01:00.000Z",
+    comparisons: [],
+  };
+  store.records.set(
+    cacheDiagnosticReceiptKey(actor.id, 0, "representative"),
+    legacyReceipt,
+  );
+
+  const reopened = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${actor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const receipt = (await reopened.json()).cacheDiagnostics.representative;
+
+  assert.equal(reopened.status, 200);
+  assert.equal(getSearchCall(), 0);
+  assert.equal(receipt.queryContract.status, "historical");
+  assert.equal(receipt.queryContract.isCurrent, false);
+  assert.equal(receipt.queryContract.changeSummaryAvailability, "unavailable");
+  assert.equal(receipt.queryContract.changes, null);
+  assert.deepEqual(receipt.queryContract.currentQueries, actor.vibes[0].queries.slice(0, 3));
 });
 
 test("cache diagnostic redacts signed display URLs and withholds metrics when identity capture is truncated", async () => {

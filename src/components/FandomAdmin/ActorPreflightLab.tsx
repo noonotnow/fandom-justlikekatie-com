@@ -602,6 +602,11 @@ export const ActorPreflightLab: React.FC = () => {
   const hasStructuredQueryContractChanges = Array.isArray(queryContractChanges?.added)
     && Array.isArray(queryContractChanges?.removed)
     && Array.isArray(queryContractChanges?.reordered);
+  const queryChangeSummaryAvailable = visibleCacheDiagnostic?.queryContract?.changeSummaryAvailability === 'available'
+    || (
+      visibleCacheDiagnostic?.queryContract?.changeSummaryAvailability === undefined
+      && hasStructuredQueryContractChanges
+    );
   if(loading) return <div className={styles.empty}>Loading actor evidence desk…</div>;
   return <section className={styles.lab} aria-labelledby="actor-preflight-title">
     <header className={styles.masthead}><div><p className={styles.eyebrow}>Fandom Vibes / private calibration</p><h3 id="actor-preflight-title">Actor preflight lab</h3><p>Calibrate actor × Vibe Pack pairings against bounded evidence before they enter the Daily Drop rotation.</p></div><div className={styles.runbook}><span>Operator boundary</span><strong>One pairing at a time</strong><span>Every decision leaves a receipt.</span></div></header>
@@ -618,7 +623,7 @@ export const ActorPreflightLab: React.FC = () => {
                   <p className={styles.historicalNotice}>This saved proof used an older frozen query set. Its original queries and evidence remain below. Run a new comparison only when current proof is needed.</p>
                   <div className={styles.queryContractChanges} aria-label="Query contract changes">
                     <strong>What changed</strong>
-                     {!hasStructuredQueryContractChanges
+                     {!queryChangeSummaryAvailable
                        ? <p>Change summary unavailable for this older receipt.</p>
                        : <>
                          <p><span>Added</span>{queryContractChanges.added.length?(queryContractChanges.added as AnyRecord[]).map(item=>`${item.currentIndex+1}. ${item.query}`).join(' · '):'None'}</p>
