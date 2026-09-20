@@ -3,6 +3,8 @@ name: Editorial record and collectible utility boundary
 description: Public authority, protected product data, and the experiential premium model for Vibe Atlas.
 ---
 
+This is the user-confirmed product doctrine for Vibe Atlas.
+
 Index the editorial record; gate the collectible utility. Public actor and edition pages should contain substantive original context, approved standard-resolution previews, canonical entity relationships, publication dates, and source credits where appropriate. Raw retrieval inventories, search spells, diagnostics, rejected media, internal scores, unpublished combinations, and complete pack payloads stay private.
 
 **Why:** Authority comes from transformation—retrieval, judgment, classification, context, and a durable artifact—not from publishing scraped-looking result inventories. A useful public record supports discovery without leaking the product or creating thin, duplicative pages.
