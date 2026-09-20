@@ -5,16 +5,35 @@ import {
   archiveAccessHealth,
   createArchiveAccessOperationsHandler,
   createArchiveAccessRetentionHandler,
+  notifyArchiveAccessTransitions,
   pruneExpiredArchiveAccessChecks,
   recordArchiveAccessCheck,
+  sendArchiveAccessNotification,
 } from "./archive-access-operations.js";
 
 function store() {
   const values = new Map();
+  const versions = new Map();
   return {
     values,
     async get(key) { return structuredClone(values.get(key) ?? null); },
-    async setJSON(key, value) { values.set(key, structuredClone(value)); },
+    async getWithMetadata(key) {
+      if (!values.has(key)) return null;
+      return {
+        data: structuredClone(values.get(key)),
+        etag: String(versions.get(key)),
+      };
+    },
+    async setJSON(key, value, options = {}) {
+      const exists = values.has(key);
+      if (options.onlyIfNew && exists) return { modified: false };
+      if (options.onlyIfMatch && String(versions.get(key)) !== options.onlyIfMatch) {
+        return { modified: false };
+      }
+      values.set(key, structuredClone(value));
+      versions.set(key, (versions.get(key) || 0) + 1);
+      return { modified: true };
+    },
     async delete(key) { values.delete(key); },
     async list({ prefix }) {
       return { blobs: [...values.keys()].filter(key => key.startsWith(prefix)).map(key => ({ key })) };
@@ -175,7 +194,6 @@ test("cleanup failures do not fail or distort the rolling report", async () => {
   assert.equal(health.totals.billing_delay, 1);
   assert.equal(health.recentHour.authenticated_checks, 1);
 });
-
 test("concurrent report and scheduled retention cleanups are idempotent", async () => {
   const data = paginatedStore(2);
   const now = new Date("2026-09-20T12:30:00.000Z");
@@ -224,4 +242,158 @@ test("scheduled retention can run repeatedly and isolates cleanup failures", asy
   await assert.doesNotReject(handler(new Request("https://example.test/scheduled"), {}));
   assert.equal(Array.isArray(messages[2]), true);
   assert.match(messages[2][0], /cleanup failed/);
+});
+
+test("warning, escalation, and recovery transitions notify once with aggregate fields only", async () => {
+  const data = store();
+  const sent = [];
+  const base = {
+    generatedAt: "2026-09-20T12:30:00.000Z",
+    recentHour: {
+      billing_delay: 4,
+      upgrade: 0,
+      authenticated_checks: 10,
+      billingDelayRate: 0.4,
+      deniedAccessRate: 0,
+    },
+    status: { billing: "warning", deniedAccess: "normal" },
+  };
+  const notify = async payload => sent.push(payload);
+  await notifyArchiveAccessTransitions({ store: data, health: base, notify });
+  await notifyArchiveAccessTransitions({ store: data, health: base, notify });
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health: { ...base, status: { ...base.status, billing: "critical" } },
+    notify,
+  });
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health: {
+      ...base,
+      recentHour: { ...base.recentHour, billing_delay: 0, billingDelayRate: 0 },
+      status: { ...base.status, billing: "normal" },
+    },
+    notify,
+  });
+  assert.deepEqual(sent.map(item => item.status), ["warning", "critical", "resolved"]);
+  assert.deepEqual(Object.keys(sent[0]).sort(), [
+    "authenticatedChecks", "count", "kind", "rate", "signalCategory", "status",
+    "windowMinutes",
+  ]);
+});
+
+test("critical de-escalation is silent but a later re-escalation notifies", async () => {
+  const data = store();
+  const sent = [];
+  const health = status => ({
+    recentHour: {
+      billing_delay: status === "critical" ? 5 : 3,
+      authenticated_checks: 10,
+      billingDelayRate: status === "critical" ? 0.5 : 0.3,
+    },
+    status: { billing: status, deniedAccess: "normal" },
+  });
+  const notify = async payload => sent.push(payload);
+  await notifyArchiveAccessTransitions({ store: data, health: health("critical"), notify });
+  await notifyArchiveAccessTransitions({ store: data, health: health("warning"), notify });
+  await notifyArchiveAccessTransitions({ store: data, health: health("critical"), notify });
+  assert.deepEqual(sent.map(item => item.status), ["critical", "critical"]);
+});
+
+test("concurrent transition evaluations claim a single notification", async () => {
+  const data = store();
+  const health = {
+    recentHour: {
+      billing_delay: 4,
+      authenticated_checks: 10,
+      billingDelayRate: 0.4,
+    },
+    status: { billing: "warning", deniedAccess: "normal" },
+  };
+  let release;
+  const claimed = new Promise(resolve => { release = resolve; });
+  let deliveries = 0;
+  const notify = async () => {
+    deliveries += 1;
+    if (deliveries === 1) await claimed;
+  };
+  const first = notifyArchiveAccessTransitions({ store: data, health, notify });
+  await new Promise(resolve => setImmediate(resolve));
+  const second = await notifyArchiveAccessTransitions({ store: data, health, notify });
+  release();
+  const firstResult = await first;
+  assert.equal(deliveries, 1);
+  assert.equal(firstResult.length, 1);
+  assert.deepEqual(second, []);
+});
+
+test("anonymous previews and sign-in gates cannot trigger notifications", async () => {
+  const data = store();
+  const now = new Date("2026-09-20T12:30:00.000Z");
+  for (let index = 0; index < 100; index += 1) {
+    await recordArchiveAccessCheck(data, { outcome: "sign_in", authenticated: false }, now);
+  }
+  const health = await archiveAccessHealth(data, now);
+  const sent = [];
+  const notifications = await notifyArchiveAccessTransitions({
+    store: data,
+    health,
+    notify: async payload => sent.push(payload),
+  });
+  assert.deepEqual(notifications, []);
+  assert.deepEqual(sent, []);
+});
+
+test("notification delivery failure never changes the health response", async () => {
+  const data = store();
+  const now = new Date("2026-09-20T12:30:00.000Z");
+  for (let index = 0; index < 4; index += 1) {
+    await recordArchiveAccessCheck(data, { outcome: "billing_delay", authenticated: true }, now);
+  }
+  for (let index = 0; index < 6; index += 1) {
+    await recordArchiveAccessCheck(data, { outcome: "allowed", authenticated: true }, now);
+  }
+  const errors = [];
+  const handler = createArchiveAccessOperationsHandler({
+    auth: { authenticateAdmin: async () => {} },
+    getStore: () => data,
+    now: () => now,
+    notify: async () => { throw new Error("delivery unavailable"); },
+    logger: { error: (...args) => errors.push(args) },
+  });
+  const result = await handler(new Request("https://example.test/report"), {});
+  const body = await result.json();
+  assert.equal(result.status, 200);
+  assert.equal(body.status.billing, "warning");
+  assert.deepEqual(body.notifications, []);
+  assert.equal(errors.length, 1);
+});
+
+test("notification email contains aggregate operations data only", async () => {
+  let request;
+  await sendArchiveAccessNotification({
+    payload: {
+      kind: "incident",
+      signalCategory: "billing_delay",
+      status: "warning",
+      count: 4,
+      authenticatedChecks: 10,
+      rate: 0.4,
+      windowMinutes: 60,
+    },
+    env: {
+      RESEND_API_KEY: "test-key",
+      FANDOM_AUTH_FROM_EMAIL: "Fandom <ops@example.test>",
+      FANDOM_ADMIN_EMAILS: "admin@example.test",
+    },
+    fetchImpl: async (...args) => {
+      request = args;
+      return new Response(null, { status: 202 });
+    },
+  });
+  const message = JSON.parse(request[1].body);
+  assert.deepEqual(message.to, ["admin@example.test"]);
+  assert.match(message.text, /Count: 4/);
+  assert.match(message.text, /Rate: 40%/);
+  assert.doesNotMatch(message.text, /customer|account|session|email|url/i);
 });

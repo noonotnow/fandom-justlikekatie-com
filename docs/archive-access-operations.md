@@ -47,6 +47,28 @@ trigger an alert.
 Counts below the minimum sample remain `normal` even when their percentage is
 high. Missing buckets mean no recorded checks, not proof of healthy billing.
 
+
+## Operator notifications
+
+The admin health endpoint evaluates each signal independently. A transition from
+`normal` to `warning` or `critical` sends one email to the configured operator
+allowlist. Escalation from `warning` to `critical` sends one additional email.
+When an alerted signal returns to `normal`, one resolved email is sent. Repeated
+reads at the same state are deduplicated in the aggregate operations store.
+An hourly scheduled health check drives the same transition logic, so operators
+do not need to keep Release Desk open.
+
+Messages contain only the bounded signal category, aggregate count,
+authenticated-check denominator, rate, trailing 60-minute window, status, and
+transition kind. They never contain customer, account, email, session, IP, URL,
+edition, request, capability, timestamp, or error details. Anonymous previews
+and sign-in gates cannot enter the notification state machine.
+
+Notification delivery is best-effort. Missing email configuration or a provider
+failure is logged for operators but does not change archive access or prevent
+the health report from loading. A failed transition remains eligible for retry
+on the next authenticated health check.
+
 ## Triage
 
 For a billing warning, confirm Stripe and membership-repository availability,

@@ -13,4 +13,6 @@ failures or unusual authenticated upgrade denials.
 
 **How to apply:** Keep operational records immutable, bounded, and free of
 customer/session identifiers. Require both a minimum count and a rate threshold,
-and report billing delay separately from inactive-membership denial.
+and report billing delay separately from inactive-membership denial. Notify only
+on warning/critical transitions and recovery, deduplicate unchanged states, and
+isolate delivery failures from archive access.

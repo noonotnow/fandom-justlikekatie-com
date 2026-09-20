@@ -1,7 +1,22 @@
 import { randomUUID } from "node:crypto";
 
 const BUCKET_PREFIX = "archive-access:hour:";
+
+const NOTIFICATION_STATE_KEY = "archive-access:notification-state";
 const OUTCOMES = new Set(["sign_in", "upgrade", "billing_delay", "allowed"]);
+
+const SIGNALS = {
+  billing: {
+    category: "billing_delay",
+    countKey: "billing_delay",
+    rateKey: "billingDelayRate",
+  },
+  deniedAccess: {
+    category: "authenticated_denial",
+    countKey: "upgrade",
+    rateKey: "deniedAccessRate",
+  },
+};
 export const ARCHIVE_ACCESS_RETENTION_DAYS = 7;
 const RETENTION_MS = ARCHIVE_ACCESS_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 const DELETE_BATCH_SIZE = 100;
@@ -100,6 +115,28 @@ export async function archiveAccessHealth(store, date = new Date(), hours = 24) 
   return report;
 }
 
+export async function notifyArchiveAccessTransitions({
+  store,
+  health,
+  notify,
+  now = new Date(),
+} = {}) {
+  if (!store || !health || typeof notify !== "function") return [];
+  const notifications = [];
+  for (const [signal, definition] of Object.entries(SIGNALS)) {
+    const notification = await processSignalTransition({
+      store,
+      health,
+      notify,
+      now,
+      signal,
+      definition,
+    });
+    if (notification) notifications.push(notification);
+  }
+  return notifications;
+}
+
 export async function pruneExpiredArchiveAccessChecks(store, date = new Date()) {
   const retentionCutoff = date.getTime() - RETENTION_MS;
   const { expiredKeys } = await classifyBlobKeys(store, Number.POSITIVE_INFINITY, retentionCutoff);
@@ -176,12 +213,30 @@ export function createArchiveAccessOperationsHandler({
   auth,
   getStore,
   now = () => new Date(),
+  notify = payload => sendArchiveAccessNotification({ payload }),
+  logger = console,
 } = {}) {
   return async (req, context) => {
     if (req.method && req.method !== "GET") return response(405, { error: "Method not allowed" });
     try {
       await auth.authenticateAdmin(req, context);
-      return response(200, await archiveAccessHealth(getStore(context), now()));
+      const store = getStore(context);
+      const generatedAt = now();
+      const health = await archiveAccessHealth(store, generatedAt);
+      try {
+        health.notifications = await notifyArchiveAccessTransitions({
+          store,
+          health,
+          notify,
+          now: generatedAt,
+        });
+      } catch (error) {
+        health.notifications = [];
+        logger.error("[archive-access] operator notification failed", {
+          message: error instanceof Error ? error.message : "Unknown delivery failure",
+        });
+      }
+      return response(200, health);
     } catch (error) {
       return response(error?.status || 500, {
         error: error?.status === 403 ? "Admin access required." : "Archive access health unavailable.",
@@ -196,3 +251,169 @@ function response(status, body) {
     headers: { "Content-Type": "application/json", "Cache-Control": "private, no-store" },
   });
 }
+
+export async function sendArchiveAccessNotification({
+  payload,
+  env = process.env,
+  fetchImpl = fetch,
+} = {}) {
+  const recipients = String(env.FANDOM_ADMIN_EMAILS || "")
+    .split(",")
+    .map(value => value.trim())
+    .filter(Boolean);
+  if (!env.RESEND_API_KEY || !env.FANDOM_AUTH_FROM_EMAIL || recipients.length === 0) {
+    throw new Error("Archive access notifications are not configured.");
+  }
+  const percent = `${Math.round(payload.rate * 100)}%`;
+  const title = payload.kind === "resolved"
+    ? `Resolved: archive ${payload.signalCategory}`
+    : `${payload.status.toUpperCase()}: archive ${payload.signalCategory}`;
+  const lines = [
+    title,
+    `Signal category: ${payload.signalCategory}`,
+    `Status: ${payload.status}`,
+    `Count: ${payload.count}`,
+    `Authenticated checks: ${payload.authenticatedChecks}`,
+    `Rate: ${percent}`,
+    `Window: ${payload.windowMinutes} minutes`,
+  ];
+  const response = await fetchImpl("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: env.FANDOM_AUTH_FROM_EMAIL,
+      to: recipients,
+      subject: `[Fandom operations] ${title}`,
+      text: lines.join("\n"),
+    }),
+  });
+  if (!response.ok) throw new Error(`Archive access notification delivery failed (${response.status}).`);
+}
+
+async function settleClaim(store, signal, claimId, signalState) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const entry = await getWithMetadata(store, NOTIFICATION_STATE_KEY);
+    const state = normalizeNotificationState(entry?.data);
+    if (state.signals[signal]?.claimId !== claimId) return;
+    const write = await conditionalStateWrite(
+      store,
+      entry,
+      updateSignalState(state, signal, signalState),
+    );
+    if (write?.modified !== false) return;
+  }
+  throw new Error("Archive access notification claim could not be settled.");
+}
+
+function normalizeNotificationState(value) {
+  return {
+    updatedAt: typeof value?.updatedAt === "string" ? value.updatedAt : null,
+    signals: value?.signals && typeof value.signals === "object" ? value.signals : {},
+  };
+}
+
+function notificationKind(previousStatus, targetStatus) {
+  if (previousStatus === "normal" && (targetStatus === "warning" || targetStatus === "critical")) {
+    return "incident";
+  }
+  if (previousStatus === "warning" && targetStatus === "critical") return "incident";
+  if (
+    (previousStatus === "warning" || previousStatus === "critical")
+    && targetStatus === "normal"
+  ) return "resolved";
+  return null;
+}
+
+async function processSignalTransition({ store, health, notify, now, signal, definition }) {
+  const targetStatus = health.status?.[signal] || "normal";
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const entry = await getWithMetadata(store, NOTIFICATION_STATE_KEY);
+    const state = normalizeNotificationState(entry?.data);
+    const current = state.signals[signal] || { status: "normal" };
+    if (current.pending === true) {
+      const claimAge = now.getTime() - Date.parse(current.claimedAt);
+      if (!Number.isFinite(claimAge) || claimAge < NOTIFICATION_CLAIM_TTL_MS) return null;
+    } else if (current.status === targetStatus) {
+      return null;
+    }
+    const previousStatus = current.pending === true
+      ? current.previousStatus
+      : current.status;
+    const transitionKind = notificationKind(previousStatus, targetStatus);
+    if (!transitionKind) {
+      const next = updateSignalState(state, signal, {
+        status: targetStatus,
+        updatedAt: now.toISOString(),
+      });
+      const write = await conditionalStateWrite(store, entry, next);
+      if (write?.modified !== false) return null;
+      continue;
+    }
+    const claimId = randomUUID();
+    const claimed = updateSignalState(state, signal, {
+      pending: true,
+      claimId,
+      claimedAt: now.toISOString(),
+      previousStatus,
+      targetStatus,
+      transitionKind,
+    });
+    const claimWrite = await conditionalStateWrite(store, entry, claimed);
+    if (claimWrite?.modified === false) continue;
+    const payload = {
+      kind: transitionKind,
+      signalCategory: definition.category,
+      status: transitionKind === "resolved" ? "resolved" : targetStatus,
+      count: Number(health.recentHour?.[definition.countKey]) || 0,
+      authenticatedChecks: Number(health.recentHour?.authenticated_checks) || 0,
+      rate: Number(health.recentHour?.[definition.rateKey]) || 0,
+      windowMinutes: 60,
+    };
+    try {
+      await notify(payload);
+    } catch (error) {
+      await settleClaim(store, signal, claimId, {
+        status: previousStatus,
+        updatedAt: now.toISOString(),
+      });
+      throw error;
+    }
+    await settleClaim(store, signal, claimId, {
+      status: targetStatus,
+      notifiedAt: now.toISOString(),
+    });
+    return payload;
+  }
+  throw new Error("Archive access notification state changed too frequently.");
+}
+
+async function conditionalStateWrite(store, entry, state) {
+  return store.setJSON(
+    NOTIFICATION_STATE_KEY,
+    state,
+    entry?.etag ? { onlyIfMatch: entry.etag } : { onlyIfNew: true },
+  );
+}
+
+function updateSignalState(state, signal, signalState) {
+  return {
+    updatedAt: signalState.updatedAt || signalState.notifiedAt || signalState.claimedAt,
+    signals: {
+      ...state.signals,
+      [signal]: signalState,
+    },
+  };
+}
+
+async function getWithMetadata(store, key) {
+  if (typeof store.getWithMetadata === "function") {
+    return store.getWithMetadata(key, { type: "json", consistency: "strong" });
+  }
+  const data = await store.get(key, { type: "json", consistency: "strong" });
+  return data ? { data } : null;
+}
+
+const NOTIFICATION_CLAIM_TTL_MS = 5 * 60 * 1000;

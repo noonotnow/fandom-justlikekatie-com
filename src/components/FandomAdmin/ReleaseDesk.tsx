@@ -269,6 +269,7 @@ function EngagementEvidence() {
 function ArchiveAccessHealth({ health }: { health: AnyRecord }) {
   const recent = health.recentHour ?? {};
   const status = health.status ?? {};
+  const notifications = (health.notifications ?? []) as AnyRecord[];
   const percentage = (value: unknown) => `${Math.round((Number(value) || 0) * 100)}%`;
   return (
     <section aria-labelledby="archive-access-health-title">
@@ -289,6 +290,11 @@ function ArchiveAccessHealth({ health }: { health: AnyRecord }) {
       <p className={styles.measurementBoundary}>
         Billing: {health.thresholds?.billingWarning}. Denials: {health.thresholds?.deniedWarning}.
       </p>
+      {notifications.length > 0 && (
+        <p className={styles.measurementBoundary} role="status">
+          Operator notification sent for {notifications.map(item => `${item.signalCategory} ${item.status}`).join(', ')}.
+        </p>
+      )}
     </section>
   );
 }
