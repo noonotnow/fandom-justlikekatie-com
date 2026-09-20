@@ -39,6 +39,7 @@
 - [Rescue preference boundary](rescue-preference-boundary.md) — a saved rescue can be preferred as point-in-time editorial metadata without changing curator approval or Daily Drop eligibility.
 - [Adobe Firefly entitlement](adobe-firefly-entitlement.md) — connector discovery does not guarantee Firefly Services API access; check the Adobe project/license entitlement first.
 - [Netlify Blob canonical reads](netlify-blob-canonical-reads.md) — fetch known immutable run and verdict keys directly; prefix listings can lag behind successful writes.
+- [Netlify Blobs test-server etags](netlify-blobs-test-server-etags.md) — SDK test-server GET and HEAD reads may omit etags even though writes and listings return them.
 - [Publication MEDIA boundary](publication-media-boundary.md) — MEDIA owns immutable image bytes; the date manifest owns the approved nine-card composition and provenance.
 - [Calibration authority boundary](calibration-authority-boundary.md) — repeated diagnostic image evidence is inert until a bounded approval; live eligibility must match current evidence and authority.
 - [SerpAPI diagnostic bypass](serpapi-diagnostic-bypass.md) — HTTP no-cache headers do not bypass SerpAPI’s result cache; explicit diagnostic refreshes require its provider parameter.

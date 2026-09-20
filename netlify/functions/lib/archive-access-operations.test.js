@@ -273,6 +273,101 @@ test("archive health matches Netlify Blobs strong JSON read contract", async t =
   }]);
 });
 
+test("notification state matches Netlify Blobs strong metadata read contract", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "archive-access-notification-blobs-"));
+  const server = new BlobsServer({ directory });
+  const { address } = await server.start();
+  t.after(async () => {
+    await server.stop();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const data = getStore({
+    edgeURL: address,
+    uncachedEdgeURL: address,
+    name: "archive-access-notification-contract",
+    siteID: "test-site",
+    token: "test-token",
+  });
+  const metadataReads = [];
+  const writes = [];
+  const originalGetWithMetadata = data.getWithMetadata.bind(data);
+  const originalSetJSON = data.setJSON.bind(data);
+  data.getWithMetadata = async (key, options) => {
+    metadataReads.push({ method: "getWithMetadata", key, options });
+    return originalGetWithMetadata(key, options);
+  };
+  data.setJSON = async (key, value, options) => {
+    const result = await originalSetJSON(key, value, options);
+    writes.push({ key, value, options, result });
+    return result;
+  };
+  const health = status => ({
+    recentHour: {
+      billing_delay: status === "normal" ? 0 : 4,
+      authenticated_checks: 10,
+      billingDelayRate: status === "normal" ? 0 : 0.4,
+    },
+    status: { billing: status, deniedAccess: "normal" },
+  });
+  const firstNow = new Date("2026-09-20T12:30:00.000Z");
+
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health: health("warning"),
+    notify: async () => {},
+    now: firstNow,
+  });
+  const first = await data.getWithMetadata(
+    "archive-access:notification-state",
+    { type: "json", consistency: "strong" },
+  );
+  const firstEtag = writes.at(-1).result.etag;
+
+  assert.equal(typeof firstEtag, "string");
+  assert.deepEqual(first.data.signals.billing, {
+    status: "warning",
+    notifiedAt: firstNow.toISOString(),
+  });
+  assert.equal(typeof first.data, "object");
+  assert.ok(metadataReads.length >= 2);
+  assert.ok(metadataReads.every(read =>
+    read.key === "archive-access:notification-state"
+    && read.options?.consistency === "strong"));
+  assert.ok(metadataReads.some(read =>
+    read.method === "getWithMetadata" && read.options?.type === "json"));
+
+  const secondNow = new Date("2026-09-20T13:30:00.000Z");
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health: health("normal"),
+    notify: async () => {},
+    now: secondNow,
+  });
+  const second = await data.getWithMetadata(
+    "archive-access:notification-state",
+    { type: "json", consistency: "strong" },
+  );
+  const secondEtag = writes.at(-1).result.etag;
+
+  assert.notEqual(secondEtag, firstEtag);
+  assert.deepEqual(second.data.signals.billing, {
+    status: "normal",
+    notifiedAt: secondNow.toISOString(),
+  });
+  assert.deepEqual(await data.setJSON(
+    "archive-access:notification-state",
+    { updatedAt: "stale", signals: {} },
+    { onlyIfMatch: firstEtag },
+  ), { modified: false });
+  assert.deepEqual(
+    (await data.getWithMetadata(
+      "archive-access:notification-state",
+      { type: "json", consistency: "strong" },
+    )).data,
+    second.data,
+  );
+});
+
 test("cleanup failures do not fail or distort the rolling report", async () => {
   const data = paginatedStore(2);
   const now = new Date("2026-09-20T12:30:00.000Z");

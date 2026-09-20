@@ -465,7 +465,11 @@ function updateDeliveryState(state, outcome, attemptedAt) {
 
 async function getWithMetadata(store, key) {
   if (typeof store.getWithMetadata === "function") {
-    return store.getWithMetadata(key, { type: "json", consistency: "strong" });
+    const entry = await store.getWithMetadata(key, { type: "json", consistency: "strong" });
+    if (!entry || entry.etag || typeof store.list !== "function") return entry;
+    const listing = await store.list({ prefix: key });
+    const blob = listing?.blobs?.find(candidate => candidate.key === key);
+    return { ...entry, etag: blob?.etag };
   }
   const data = await store.get(key, { type: "json", consistency: "strong" });
   return data ? { data } : null;
