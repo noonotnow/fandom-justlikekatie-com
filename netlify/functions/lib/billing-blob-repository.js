@@ -1,5 +1,10 @@
 const STORE_NAME = "fandom-billing";
 const IDENTITY_CONFLICT_KEY = "operations/stripe-identity-conflict";
+export const BILLING_EVENT_RETENTION_DAYS = 30;
+const EVENT_RETENTION_MS = BILLING_EVENT_RETENTION_DAYS * 24 * 60 * 60_000;
+const EVENT_CLEANUP_SCAN_LIMIT = 100;
+const EVENT_CLEANUP_DELETE_LIMIT = 25;
+const EVENT_EXPIRATIONS_PREFIX = "event-expirations/";
 
 const keyPart = value => encodeURIComponent(String(value));
 
@@ -76,13 +81,53 @@ export function createBlobBillingRepository({ getStore, context }) {
 
     async recordProcessedEvent(event) {
       if (!event?.id) return;
-      await store().setJSON(`events/${keyPart(event.id)}`, {
+      const processedAt = new Date().toISOString();
+      const eventKey = `events/${keyPart(event.id)}`;
+      await store().setJSON(eventKey, {
         eventId: event.id,
         type: event.type || null,
         created: event.created || 0,
         state: "processed",
-        processedAt: new Date().toISOString(),
+        processedAt,
       });
+      await store().setJSON(expirationKey(processedAt, event.id), {
+        eventKey,
+        processedAt,
+      });
+    },
+
+    async pruneProcessedEvents({ now = Date.now() } = {}) {
+      const cutoff = now - EVENT_RETENTION_MS;
+      const listing = await firstListingPage(store(), {
+        prefix: EVENT_EXPIRATIONS_PREFIX,
+      });
+      let deleted = 0;
+      for (const blob of (listing?.blobs || []).slice(0, EVENT_CLEANUP_SCAN_LIMIT)) {
+        if (deleted >= EVENT_CLEANUP_DELETE_LIMIT) break;
+        const expiration = await store().get(blob.key, {
+          type: "json",
+          consistency: "strong",
+        });
+        const indexedAt = Date.parse(expiration?.processedAt || "");
+        if (!expiration?.eventKey || !Number.isFinite(indexedAt)) {
+          await store().delete(blob.key);
+          continue;
+        }
+        if (indexedAt >= cutoff) break;
+        const receipt = await store().get(expiration.eventKey, {
+          type: "json",
+          consistency: "strong",
+        });
+        const processedAt = Date.parse(receipt?.processedAt || "");
+        if (receipt?.state === "processed"
+          && Number.isFinite(processedAt)
+          && processedAt < cutoff) {
+          await store().delete(expiration.eventKey);
+          deleted += 1;
+        }
+        await store().delete(blob.key);
+      }
+      return deleted;
     },
 
     async recordIdentityConflict({ eventCategory }) {
@@ -218,4 +263,15 @@ function membershipStatus(stripeStatus) {
   if (stripeStatus === "past_due") return "past_due";
   if (stripeStatus === "incomplete") return "incomplete";
   return "inactive";
+}
+
+async function firstListingPage(blobStore, options) {
+  const pages = blobStore.list({ ...options, paginate: true });
+  for await (const page of pages) return page;
+  return { blobs: [] };
+}
+
+function expirationKey(processedAt, eventId) {
+  const expiresAt = new Date(Date.parse(processedAt) + EVENT_RETENTION_MS).toISOString();
+  return `${EVENT_EXPIRATIONS_PREFIX}${expiresAt}/${keyPart(eventId)}`;
 }

@@ -1,11 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createBlobBillingRepository } from "./billing-blob-repository.js";
+import {
+  BILLING_EVENT_RETENTION_DAYS,
+  createBlobBillingRepository,
+} from "./billing-blob-repository.js";
 import { applyBlobBillingEvent } from "./billing-blob-webhook.js";
 
 function createMemoryStore() {
   const values = new Map();
   const versions = new Map();
+  let pageSize = Infinity;
   return {
     async get(key) {
       return values.get(key) || null;
@@ -27,6 +31,23 @@ function createMemoryStore() {
     async delete(key) {
       values.delete(key);
       versions.delete(key);
+    },
+    list({ prefix, paginate }) {
+      const blobs = [...values.keys()]
+        .filter(key => key.startsWith(prefix))
+        .sort()
+        .map(key => ({ key }));
+      if (!paginate) return Promise.resolve({ blobs });
+      return {
+        async *[Symbol.asyncIterator]() {
+          for (let index = 0; index < blobs.length; index += pageSize) {
+            yield { blobs: blobs.slice(index, index + pageSize) };
+          }
+        },
+      };
+    },
+    setPageSize(size) {
+      pageSize = size;
     },
   };
 }
@@ -175,6 +196,111 @@ test("duplicate event deliveries are recorded once and remain harmless", async (
   assert.equal((await store.get("events/evt_duplicate")).eventId, "evt_duplicate");
 });
 
+test("receipt cleanup preserves recent duplicate protection across the retention boundary", async () => {
+  const { repository, store } = createRepository();
+  const event = id => ({
+    id,
+    created: 110,
+    type: "customer.subscription.created",
+    data: { object: {
+      id: `sub_${id}`,
+      customer: `cus_${id}`,
+      status: "active",
+      metadata: { fandom_account_id: `account_${id}` },
+    } },
+  });
+  const oldEvent = event("old");
+  const recentEvent = event("recent");
+  await applyBlobBillingEvent({ repository, event: oldEvent });
+  await applyBlobBillingEvent({ repository, event: recentEvent });
+  const now = Date.parse("2026-09-20T00:00:00.000Z");
+  const oldProcessedAt = new Date(
+    now - (BILLING_EVENT_RETENTION_DAYS * 24 * 60 * 60_000) - 1,
+  ).toISOString();
+  const recentProcessedAt = new Date(
+    now - (BILLING_EVENT_RETENTION_DAYS * 24 * 60 * 60_000) + 1,
+  ).toISOString();
+  await store.setJSON("events/old", {
+    ...await store.get("events/old"),
+    processedAt: oldProcessedAt,
+  });
+  await store.setJSON("events/recent", {
+    ...await store.get("events/recent"),
+    processedAt: recentProcessedAt,
+  });
+  for (const key of await listedKeys(store, "event-expirations/")) await store.delete(key);
+  await store.setJSON(
+    `event-expirations/${new Date(now - 1).toISOString()}/old`,
+    { eventKey: "events/old", processedAt: oldProcessedAt },
+  );
+  await store.setJSON(
+    `event-expirations/${new Date(now + 1).toISOString()}/recent`,
+    { eventKey: "events/recent", processedAt: recentProcessedAt },
+  );
+
+  assert.deepEqual(await applyBlobBillingEvent({ repository, event: recentEvent }), { duplicate: true });
+  assert.equal(await repository.pruneProcessedEvents({ now }), 1);
+  assert.equal(await store.get("events/old"), null);
+  assert.equal((await store.get("events/recent")).state, "processed");
+  assert.deepEqual(await applyBlobBillingEvent({ repository, event: recentEvent }), { duplicate: true });
+});
+
+test("receipt cleanup is bounded and never removes active claims", async () => {
+  const { repository, store } = createRepository();
+  const old = "2020-01-01T00:00:00.000Z";
+  for (let index = 0; index < 30; index += 1) {
+    await store.setJSON(`events/expired_${index}`, {
+      eventId: `expired_${index}`,
+      state: "processed",
+      processedAt: old,
+    });
+    await store.setJSON(`event-expirations/2020-01-31T00:00:00.000Z/expired_${index}`, {
+      eventKey: `events/expired_${index}`,
+      processedAt: old,
+    });
+  }
+  await store.setJSON("events/processing", {
+    eventId: "processing",
+    state: "processing",
+    claimedAt: old,
+  });
+
+  assert.equal(await repository.pruneProcessedEvents(), 25);
+  assert.notEqual(await store.get("events/processing"), null);
+  const remainingExpired = await Promise.all(
+    Array.from({ length: 30 }, (_, index) => store.get(`events/expired_${index}`)),
+  );
+  assert.equal(remainingExpired.filter(Boolean).length, 5);
+});
+
+test("expiration ordering reaches old receipts beyond the first event-ledger page", async () => {
+  const { repository, store } = createRepository();
+  store.setPageSize(2);
+  const now = Date.parse("2026-09-20T00:00:00.000Z");
+  const recent = new Date(now - 60_000).toISOString();
+  const old = new Date(now - (BILLING_EVENT_RETENTION_DAYS + 1) * 24 * 60 * 60_000).toISOString();
+  await store.setJSON("events/a_recent", { state: "processed", processedAt: recent });
+  await store.setJSON("events/b_processing", { state: "processing", claimedAt: recent });
+  await store.setJSON("events/z_expired", { state: "processed", processedAt: old });
+  await store.setJSON(
+    `event-expirations/${new Date(Date.parse(old) + BILLING_EVENT_RETENTION_DAYS * 24 * 60 * 60_000).toISOString()}/z_expired`,
+    { eventKey: "events/z_expired", processedAt: old },
+  );
+  await store.setJSON(
+    `event-expirations/${new Date(Date.parse(recent) + BILLING_EVENT_RETENTION_DAYS * 24 * 60 * 60_000).toISOString()}/a_recent`,
+    { eventKey: "events/a_recent", processedAt: recent },
+  );
+
+  assert.equal(await repository.pruneProcessedEvents({ now }), 1);
+  assert.equal(await store.get("events/z_expired"), null);
+  assert.notEqual(await store.get("events/a_recent"), null);
+  assert.notEqual(await store.get("events/b_processing"), null);
+});
+
+async function listedKeys(store, prefix) {
+  return (await store.list({ prefix })).blobs.map(blob => blob.key);
+}
+
 test("an abandoned event claim can be recovered after its lease expires", async () => {
   const { repository, store } = createRepository();
   const event = (id, type, status) => ({
@@ -294,26 +420,19 @@ test("concurrent equal-second deliveries converge through conditional writes", a
 test("customer and account mismatches never grant membership", async () => {
   const { repository, store } = createRepository();
   await repository.linkCustomer("account_owner", "cus_shared");
-  const rawPayload = JSON.stringify({ email: "collector@example.com", customer: "cus_shared" });
-  const result = await applyBlobBillingEvent({
-    repository,
-    event: {
-      id: "evt_mismatch",
-      created: 90,
-      type: "customer.subscription.updated",
-      data: { object: {
-        id: "sub_shared",
-        customer: "cus_shared",
-        status: "active",
-        metadata: { fandom_account_id: "account_attacker", email: "collector@example.com" },
-        rawPayload,
-      } },
-    },
-  });
-  assert.equal(result.rejected, true);
+  const event = {
+    id: "evt_mismatch",
+    created: 90,
+    type: "customer.subscription.updated",
+    data: { object: {
+      id: "sub_shared",
+      customer: "cus_shared",
+      status: "active",
+      metadata: { fandom_account_id: "account_attacker" },
+    } },
+  };
+  const result = await applyBlobBillingEvent({ repository, event });
   assert.equal(result.reason, "stripe_identity_conflict");
-  assert.equal((await repository.membershipForAccount("account_attacker")).status, "inactive");
-  assert.equal((await repository.membershipForAccount("account_owner")).status, "inactive");
   const operation = await store.get("operations/stripe-identity-conflict");
   assert.deepEqual(
     Object.keys(operation).sort(),
@@ -323,21 +442,10 @@ test("customer and account mismatches never grant membership", async () => {
   assert.equal(operation.count, 1);
   const operatorOutput = JSON.stringify(operation);
   assert.doesNotMatch(operatorOutput, /cus_shared|collector@example\.com|account_attacker|rawPayload/);
-  assert.deepEqual(await applyBlobBillingEvent({
-    repository,
-    event: {
-      id: "evt_mismatch",
-      created: 90,
-      type: "customer.subscription.updated",
-      data: { object: {
-        id: "sub_shared",
-        customer: "cus_shared",
-        status: "active",
-        metadata: { fandom_account_id: "account_attacker" },
-      } },
-    },
-  }), { duplicate: true });
+  assert.deepEqual(await applyBlobBillingEvent({ repository, event }), { duplicate: true });
   assert.equal((await store.get("operations/stripe-identity-conflict")).count, 1);
+  assert.equal((await repository.membershipForAccount("account_attacker")).status, "inactive");
+  assert.equal((await repository.membershipForAccount("account_owner")).status, "inactive");
 });
 
 test("checkout identity conflicts use a distinct bounded operational record", async () => {

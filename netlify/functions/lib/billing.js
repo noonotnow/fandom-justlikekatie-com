@@ -48,6 +48,15 @@ export function createBillingServices({
   const repository = context => useBlobBilling
     ? createBlobBillingRepository({ getStore, context })
     : createBillingRepository({ query: (...args) => database().query(...args) });
+  const pruneEventReceipts = async repo => {
+    try {
+      await repo.pruneProcessedEvents?.();
+    } catch (error) {
+      logger.warn("[billing] event receipt cleanup failed", {
+        name: typeof error?.name === "string" ? error.name : "Error",
+      });
+    }
+  };
   const processWebhook = async (body, signature, context) => {
     const { webhookSecret } = await getStripeCredentials({ env });
     const stripe = await stripeClient({ env });
@@ -63,13 +72,15 @@ export function createBillingServices({
         await repo.releaseEvent?.(event.id);
         throw error;
       }
+      await pruneEventReceipts(repo);
       return;
     }
     if (event.type.startsWith("customer.subscription.") && event.type !== "customer.subscription.deleted") {
       const current = await stripe.subscriptions.retrieve(event.data.object.id);
       event = { ...event, data: { ...event.data, object: current } };
     }
-    const result = await applyBlobBillingEvent({ event, repository: repository(context), env });
+    const repo = repository(context);
+    const result = await applyBlobBillingEvent({ event, repository: repo, env });
     if (result?.reason === "stripe_identity_conflict") {
       logger.warn("[billing] membership update rejected", {
         type: result.operation.type,
@@ -80,6 +91,7 @@ export function createBillingServices({
         lastOccurredAt: result.operation.lastOccurredAt,
       });
     }
+    await pruneEventReceipts(repo);
   };
   return {
     initialize,

@@ -1,4 +1,6 @@
 const ENTITLED = new Set(["active", "trialing"]);
+export const BILLING_EVENT_RETENTION_DAYS = 30;
+const EVENT_CLEANUP_DELETE_LIMIT = 25;
 
 export function membershipStatus(stripeStatus) {
   if (ENTITLED.has(stripeStatus)) return "active";
@@ -62,6 +64,24 @@ export function createBillingRepository({ query }) {
           WHERE stripe_event_id = $1 AND state = 'processing'`,
         [event.id],
       );
+    },
+    async pruneProcessedEvents() {
+      const result = await query(
+        `WITH expired AS (
+           SELECT stripe_event_id
+             FROM public.fandom_billing_events
+            WHERE state = 'processed'
+              AND processed_at < NOW() - ($1 * INTERVAL '1 day')
+            ORDER BY processed_at
+            LIMIT $2
+         )
+         DELETE FROM public.fandom_billing_events events
+          USING expired
+          WHERE events.stripe_event_id = expired.stripe_event_id
+         RETURNING events.stripe_event_id`,
+        [BILLING_EVENT_RETENTION_DAYS, EVENT_CLEANUP_DELETE_LIMIT],
+      );
+      return result.rows.length;
     },
     async linkCustomer(accountId, customerId) {
       const result = await query(

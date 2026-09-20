@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createBillingHandlers, createBillingServices, createEntitlementChecker } from "./billing.js";
-import { createBillingRepository, membershipStatus } from "./billing-repository.js";
+import {
+  BILLING_EVENT_RETENTION_DAYS,
+  createBillingRepository,
+  membershipStatus,
+} from "./billing-repository.js";
 import { createGridExportHandlers } from "./grid-exports.js";
 
 const user = { accountId: "usr_member", email: "member@example.test" };
@@ -47,6 +51,36 @@ test("SQL event claims suppress duplicates and can be released after failure", a
   assert.equal(await repository.claimEvent(event), true);
   await repository.releaseEvent(event.id);
   assert.equal(await repository.claimEvent(event), true);
+});
+
+test("SQL receipt cleanup deletes only a bounded expired batch", async () => {
+  let cleanup;
+  const repository = createBillingRepository({
+    query: async (sql, params) => {
+      cleanup = { sql, params };
+      return { rows: [{ stripe_event_id: "evt_old" }] };
+    },
+  });
+  assert.equal(await repository.pruneProcessedEvents(), 1);
+  assert.match(cleanup.sql, /state = 'processed'/);
+  assert.match(cleanup.sql, /LIMIT \$2/);
+  assert.deepEqual(cleanup.params, [BILLING_EVENT_RETENTION_DAYS, 25]);
+});
+
+test("protected membership reads never run receipt cleanup", async () => {
+  let cleanupCalls = 0;
+  const handlers = createBillingHandlers({
+    auth,
+    billing: {
+      initialize: async () => {},
+      repository: () => ({
+        membershipForAccount: async () => ({ status: "active" }),
+        pruneProcessedEvents: async () => { cleanupCalls += 1; },
+      }),
+    },
+  });
+  assert.equal((await handlers.status(request("/api/billing/status", { method: "GET" }), {})).status, 200);
+  assert.equal(cleanupCalls, 0);
 });
 
 test("billing status requires passwordless authentication", async () => {
@@ -254,6 +288,19 @@ test("external Netlify billing does not require the internal Replit database hos
         return { modified: true };
       },
       async delete(key) { values.delete(key); },
+      list({ prefix, paginate }) {
+        const page = {
+          blobs: [...values.keys()]
+            .filter(key => key.startsWith(prefix))
+            .map(key => ({ key })),
+        };
+        if (!paginate) return Promise.resolve(page);
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield page;
+          },
+        };
+      },
     }),
     runStripeMigrations: async () => { throw new Error("Postgres migrations must not run on Netlify."); },
   });
@@ -293,6 +340,19 @@ test("blob billing logs identity conflicts without exposing Stripe or account id
       return { modified: true };
     },
     async delete(key) { values.delete(key); },
+    list({ prefix, paginate }) {
+      const page = {
+        blobs: [...values.keys()]
+          .filter(key => key.startsWith(prefix))
+          .map(key => ({ key })),
+      };
+      if (!paginate) return Promise.resolve(page);
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield page;
+        },
+      };
+    },
   };
   const billing = createBillingServices({
     env: {
