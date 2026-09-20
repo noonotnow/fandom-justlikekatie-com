@@ -1675,66 +1675,71 @@ test('a date-bounded editorial packet download preserves publication join outcom
   }
 });
 
-test('a valid vendor JSON editorial packet downloads exactly once without mutations', { timeout: 60_000 }, async () => {
-  const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
-  const {
-    auditRequests,
-    calibrationRequests,
-    calibrationExportRequests,
-    exportRequests,
-    misprintRequests,
-  } = await configureNetwork(page, {
-    calibrationExportContentType: 'application/vnd.fandom.calibration+json',
-  });
-  const mutationRequests: Array<{ method: string; url: string }> = [];
-  let downloads = 0;
-  page.on('download', () => {
-    downloads += 1;
-  });
-  page.on('request', request => {
-    const url = new URL(request.url());
-    if (
-      request.method() !== 'GET'
-      && (
-        url.pathname.includes('/.netlify/functions/actor-audits')
-        || url.pathname.includes('/.netlify/functions/star-of-day')
-      )
-    ) {
-      mutationRequests.push({ method: request.method(), url: request.url() });
+for (const { label, contentType } of [
+  { label: 'vendor JSON', contentType: 'application/vnd.fandom.calibration+json' },
+  { label: 'parameterized JSON', contentType: 'application/json; charset=utf-8' },
+]) {
+  test(`a valid ${label} editorial packet downloads exactly once without mutations`, { timeout: 60_000 }, async () => {
+    const { server, origin } = await startApp();
+    const browser = await launchBrowserForServer(server);
+    const page = await browser.newPage();
+    const {
+      auditRequests,
+      calibrationRequests,
+      calibrationExportRequests,
+      exportRequests,
+      misprintRequests,
+    } = await configureNetwork(page, {
+      calibrationExportContentType: contentType,
+    });
+    const mutationRequests: Array<{ method: string; url: string }> = [];
+    let downloads = 0;
+    page.on('download', () => {
+      downloads += 1;
+    });
+    page.on('request', request => {
+      const url = new URL(request.url());
+      if (
+        request.method() !== 'GET'
+        && (
+          url.pathname.includes('/.netlify/functions/actor-audits')
+          || url.pathname.includes('/.netlify/functions/star-of-day')
+        )
+      ) {
+        mutationRequests.push({ method: request.method(), url: request.url() });
+      }
+    });
+
+    try {
+      await page.goto(`${origin}/vibe-atlas?admin=true`);
+      await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+      const exportPanel = page.getByLabel('Read-only calibration export');
+      await exportPanel.getByLabel('From').fill('2026-09-01');
+      await exportPanel.getByLabel('To').fill('2026-09-10');
+
+      const downloadPromise = page.waitForEvent('download');
+      await exportPanel.getByRole('button', { name: 'Download editorial review packet', exact: true }).click();
+      const download = await downloadPromise;
+      const downloadPath = await download.path();
+      assert.ok(downloadPath, `the browser should retain the ${label} editorial packet`);
+      const payload = JSON.parse(await readFile(downloadPath, 'utf8')) as AnyRecord;
+
+      assert.equal(download.suggestedFilename(), 'actor-calibration-2026-09-01-2026-09-10.json');
+      assert.equal(downloads, 1, `the valid ${label} response should trigger exactly one download`);
+      assert.equal(calibrationExportRequests.length, 1, 'the download should require only one read-only packet request');
+      assert.equal(payload.exportMetadata.readOnly, true, 'the downloaded body should remain a valid editorial packet');
+      assert.ok(Array.isArray(payload.runs), 'the downloaded editorial packet should retain its run list');
+      assert.deepEqual(mutationRequests, [], `downloading ${label} must not issue audit or publication mutations`);
+      assert.deepEqual(auditRequests, [], `downloading ${label} must not search, score, rerun, or mutate an audit`);
+      assert.deepEqual(calibrationRequests, [], `downloading ${label} must not change calibration`);
+      assert.deepEqual(exportRequests, [], `downloading ${label} must not export or persist a rescue board`);
+      assert.deepEqual(misprintRequests, [], `downloading ${label} must not alter publication correction records`);
+    } finally {
+      await browser.close();
+      await server.close();
     }
   });
-
-  try {
-    await page.goto(`${origin}/vibe-atlas?admin=true`);
-    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
-    const exportPanel = page.getByLabel('Read-only calibration export');
-    await exportPanel.getByLabel('From').fill('2026-09-01');
-    await exportPanel.getByLabel('To').fill('2026-09-10');
-
-    const downloadPromise = page.waitForEvent('download');
-    await exportPanel.getByRole('button', { name: 'Download editorial review packet', exact: true }).click();
-    const download = await downloadPromise;
-    const downloadPath = await download.path();
-    assert.ok(downloadPath, 'the browser should retain the vendor JSON editorial packet');
-    const payload = JSON.parse(await readFile(downloadPath, 'utf8')) as AnyRecord;
-
-    assert.equal(download.suggestedFilename(), 'actor-calibration-2026-09-01-2026-09-10.json');
-    assert.equal(downloads, 1, 'the valid vendor JSON response should trigger exactly one download');
-    assert.equal(calibrationExportRequests.length, 1, 'the download should require only one read-only packet request');
-    assert.equal(payload.exportMetadata.readOnly, true, 'the downloaded body should remain a valid editorial packet');
-    assert.ok(Array.isArray(payload.runs), 'the downloaded editorial packet should retain its run list');
-    assert.deepEqual(mutationRequests, [], 'downloading vendor JSON must not issue audit or publication mutations');
-    assert.deepEqual(auditRequests, [], 'downloading vendor JSON must not search, score, rerun, or mutate an audit');
-    assert.deepEqual(calibrationRequests, [], 'downloading vendor JSON must not change calibration');
-    assert.deepEqual(exportRequests, [], 'downloading vendor JSON must not export or persist a rescue board');
-    assert.deepEqual(misprintRequests, [], 'downloading vendor JSON must not alter publication correction records');
-  } finally {
-    await browser.close();
-    await server.close();
-  }
-});
+}
 
 test('retained-run publication summaries keep outcomes and immutable edition links visible without mutations', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
