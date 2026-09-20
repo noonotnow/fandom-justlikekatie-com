@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { createBillingHandlers, createBillingServices, createEntitlementChecker } from "./billing.js";
 import {
   BILLING_EVENT_RETENTION_DAYS,
@@ -68,7 +69,7 @@ test("SQL receipt cleanup deletes only a bounded expired batch", async () => {
   assert.deepEqual(cleanup.params, [BILLING_EVENT_RETENTION_DAYS, 25]);
 });
 
-test("application schema idempotently indexes processed receipt retention order", async () => {
+test("application schema leaves the processed receipt retention index to migrations", async () => {
   let schemaSql;
   const repository = createBillingRepository({
     query: async sql => {
@@ -79,15 +80,31 @@ test("application schema idempotently indexes processed receipt retention order"
 
   await repository.ensureApplicationSchema();
 
-  assert.match(
-    schemaSql,
-    /CREATE INDEX IF NOT EXISTS fandom_billing_events_processed_retention_idx/,
+  assert.doesNotMatch(schemaSql, /CREATE INDEX/);
+});
+
+test("processed receipt retention migration is concurrent, retry-safe, and verifiable", async () => {
+  const migration = await readFile(
+    new URL("../migrations/002_processed_receipt_retention_index.sql", import.meta.url),
+    "utf8",
   );
+
+  assert.match(migration, /^-- postgres-migrations disable-transaction/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.fandom_billing_events/);
+  const dropPosition = migration.indexOf(
+    "DROP INDEX CONCURRENTLY IF EXISTS public.fandom_billing_events_processed_retention_idx",
+  );
+  const createPosition = migration.indexOf(
+    "CREATE INDEX CONCURRENTLY fandom_billing_events_processed_retention_idx",
+  );
+  assert.ok(dropPosition >= 0);
+  assert.ok(createPosition > dropPosition);
   assert.match(
-    schemaSql,
+    migration,
     /ON public\.fandom_billing_events \(processed_at, stripe_event_id\)\s+WHERE state = 'processed'/,
   );
-  assert.doesNotMatch(schemaSql, /fandom_billing_accounts[\s\S]*CREATE INDEX/);
+  assert.match(migration, /indisvalid/);
+  assert.match(migration, /indisready/);
 });
 
 test("protected membership reads never run receipt cleanup", async () => {
