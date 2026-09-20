@@ -28,8 +28,10 @@ import { createPublicAuth } from "./lib/public-auth.js";
 import { createBillingServices } from "./lib/billing.js";
 import {
   archiveAccessDecision,
+  archiveAccessWindowDates,
+  ARCHIVE_ACCESS_WINDOW_KEY,
   archiveGateEnabled,
-  freeArchiveDates,
+  ensureArchiveAccessWindow,
   publicArchiveEdition,
 } from "./lib/archive-access.js";
 import { recordArchiveAccessCheck } from "./lib/archive-access-operations.js";
@@ -717,8 +719,14 @@ export function createStarOfDayHandler({
         if (!archived) {
           return jsonResponse(404, { error: "That Vibe Atlas edition is not available." });
         }
-        const catalogue = await listArchivedEditions(store, todayStr);
-        const freeDates = freeArchiveDates(catalogue.editions);
+        let accessWindow = await store.get(ARCHIVE_ACCESS_WINDOW_KEY, {
+          type: "json",
+          consistency: "strong",
+        });
+        if (!accessWindow) {
+          accessWindow = await backfillArchiveAccessWindow(store, todayStr);
+        }
+        const freeDates = archiveAccessWindowDates(accessWindow);
         let session = null;
         let membership = null;
         if (!freeDates.has(requestedDate) && archiveGateEnabled(env)) {
@@ -752,7 +760,8 @@ export function createStarOfDayHandler({
         }
         const decision = archiveAccessDecision({
           requestedDate,
-          editions: catalogue.editions,
+          editions: [],
+          freeDates,
           session,
           membership,
           enforcementEnabled: archiveGateEnabled(env),
@@ -942,6 +951,7 @@ async function listArchivedEditions(store, todayStr) {
       const date = key.slice(GRID_MANIFEST_PREFIX.length);
       if (isUsableDate(date) && date <= todayStr) versionsByDate.set(date, "manifest");
     });
+  await ensureArchiveAccessWindow(store, [...versionsByDate.keys()]);
 
   const editions = await Promise.all([...versionsByDate].map(async ([date, version]) => {
     const payload = version === "manifest"
@@ -982,6 +992,27 @@ async function listArchivedEditions(store, todayStr) {
         access: index < 4 ? "free" : "member",
       })),
   };
+}
+
+async function backfillArchiveAccessWindow(store, todayStr) {
+  const [legacyListing, manifestListing] = await Promise.all([
+    store.list({ prefix: "starOfDay:" }),
+    store.list({ prefix: GRID_MANIFEST_PREFIX }),
+  ]);
+  const availableVersions = new Set([VERSION, ...LEGACY_READ_VERSIONS]);
+  const dates = new Set();
+  for (const blob of legacyListing?.blobs || []) {
+    const match = String(blob?.key || "").match(/^starOfDay:(v\d+):(\d{4}-\d{2}-\d{2})$/);
+    if (match && availableVersions.has(match[1]) && match[2] <= todayStr) dates.add(match[2]);
+  }
+  for (const blob of manifestListing?.blobs || []) {
+    const key = String(blob?.key || "");
+    const date = key.slice(GRID_MANIFEST_PREFIX.length);
+    if (key.startsWith(GRID_MANIFEST_PREFIX) && isUsableDate(date) && date <= todayStr) {
+      dates.add(date);
+    }
+  }
+  return ensureArchiveAccessWindow(store, [...dates]);
 }
 
 async function pollForCache(store, eligibilityStore, todayKey, todayStr) {

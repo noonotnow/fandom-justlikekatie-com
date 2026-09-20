@@ -30,7 +30,11 @@ import {
   VIBE_PROMISE_CONTRACT_VERSION,
 } from "./actor-identity-profiles.js";
 import { CURATION_VERSION } from "./grid-curation.js";
-import { boardHash, gridManifestKey } from "./publication-manifest.js";
+import {
+  boardHash,
+  gridManifestKey,
+} from "./publication-manifest.js";
+import { ARCHIVE_ACCESS_WINDOW_KEY } from "./archive-access.js";
 
 function makeStore(entries = {}) {
   const values = new Map(Object.entries(entries));
@@ -97,6 +101,16 @@ test("the daily build lock admits only one concurrent builder", async () => {
 
 function contextFor(store) {
   return { blobs: { getStore: () => store } };
+}
+
+function archiveAccessWindow(...dates) {
+  return {
+    schemaVersion: 1,
+    accessWindowVersion: 1,
+    kind: "vibe-atlas-archive-access-window",
+    freeArchiveDates: [...dates].sort((left, right) => right.localeCompare(left)).slice(0, 4),
+    updatedAt: "2026-09-20T00:00:00.000Z",
+  };
 }
 
 function approvedEligibility(actor, vibeIdx, verdict = "approved") {
@@ -473,7 +487,10 @@ test("archive preserves the Dylan Wangtermelon edition as a named legendary misp
 
 test("historical date reads use the existing cache without starting a build", async () => {
   const archived = archivePayload("2026-08-29");
-  const store = makeStore({ "starOfDay:v6:2026-08-29": archived });
+  const store = makeStore({
+    "starOfDay:v6:2026-08-29": archived,
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow("2026-08-29"),
+  });
 
   const response = await starOfDay(
     { method: "GET", url: "https://example.test/star-of-day?date=2026-08-29" },
@@ -482,12 +499,15 @@ test("historical date reads use the existing cache without starting a build", as
 
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), archived);
-  assert.deepEqual(store.stats(), { listCalls: 2, setCalls: 0 });
+  assert.deepEqual(store.stats(), { listCalls: 0, setCalls: 0 });
 });
 
 test("historical date reads preserve legacy v5 editions after the curation upgrade", async () => {
   const archived = { ...archivePayload("2026-08-28"), version: "v5" };
-  const store = makeStore({ "starOfDay:v5:2026-08-28": archived });
+  const store = makeStore({
+    "starOfDay:v5:2026-08-28": archived,
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow("2026-08-28"),
+  });
 
   const response = await starOfDay(
     { method: "GET", url: "https://example.test/star-of-day?date=2026-08-28" },
@@ -496,7 +516,7 @@ test("historical date reads preserve legacy v5 editions after the curation upgra
 
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), archived);
-  assert.deepEqual(store.stats(), { listCalls: 2, setCalls: 0 });
+  assert.deepEqual(store.stats(), { listCalls: 0, setCalls: 0 });
 });
 
 test("historical and archive reads prefer the verified publication manifest over transient cache URLs", async () => {
@@ -510,6 +530,7 @@ test("historical and archive reads prefer the verified publication manifest over
   const store = makeStore({
     [`starOfDay:v10:${date}`]: transient,
     [gridManifestKey(date)]: publicationManifest(date),
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(date),
   });
 
   const historical = await starOfDay(

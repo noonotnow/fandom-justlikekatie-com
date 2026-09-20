@@ -1,8 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  ARCHIVE_ACCESS_WINDOW_KEY,
   ARCHIVE_FREE_EDITION_COUNT,
   archiveAccessDecision,
+  archiveAccessWindowDates,
+  ensureArchiveAccessWindow,
   freeArchiveDates,
   publicArchiveEdition,
 } from "./archive-access.js";
@@ -24,6 +27,29 @@ test("the free archive window follows the four latest published editions, not ca
     "2026-09-17",
     "2026-09-12",
   ]);
+});
+
+test("the compact archive access window validates strictly and fails closed", () => {
+  const valid = {
+    schemaVersion: 1,
+    accessWindowVersion: 1,
+    kind: "vibe-atlas-archive-access-window",
+    freeArchiveDates: ["2026-09-20", "2026-09-18", "2026-09-17", "2026-09-12"],
+  };
+  assert.deepEqual([...archiveAccessWindowDates(valid)], valid.freeArchiveDates);
+  assert.deepEqual([...archiveAccessWindowDates({ ...valid, freeArchiveDates: ["2026-09-18", "2026-09-20"] })], []);
+  assert.deepEqual([...archiveAccessWindowDates({ ...valid, accessWindowVersion: 2 })], []);
+});
+
+test("archive access window storage stays fixed-size for a large catalogue", async () => {
+  const store = memoryStore({});
+  const dates = Array.from({ length: 10000 }, (_, index) =>
+    new Date(Date.UTC(1990, 0, index + 1)).toISOString().slice(0, 10));
+  await ensureArchiveAccessWindow(store, dates, () => "2026-09-20T00:00:00.000Z");
+  const record = await store.get(ARCHIVE_ACCESS_WINDOW_KEY, { type: "json" });
+  assert.equal(record.freeArchiveDates.length, ARCHIVE_FREE_EDITION_COUNT);
+  assert.ok(JSON.stringify(record).length < 500);
+  assert.deepEqual(record.freeArchiveDates, [...dates].sort().reverse().slice(0, 4));
 });
 
 test("archive policy distinguishes anonymous, free, active, billing-delay, and inactive access", () => {
@@ -107,12 +133,15 @@ function archivePayload(date) {
 
 function memoryStore(entries) {
   const values = new Map(Object.entries(entries));
+  let listCalls = 0;
   return {
+    stats: () => ({ listCalls }),
     async get(key, options) {
       const value = values.get(key);
       return options?.type === "json" && value ? structuredClone(value) : value || null;
     },
     async list({ prefix } = {}) {
+      listCalls += 1;
       return {
         blobs: [...values.keys()]
           .filter(key => !prefix || key.startsWith(prefix))
@@ -124,11 +153,47 @@ function memoryStore(entries) {
   };
 }
 
-function endpointFixture({ authResult = null, membershipStatus = "inactive", env = {} } = {}) {
+function endpointFixture({
+  authResult = null,
+  membershipStatus = "inactive",
+  env = {},
+  rejectListings = false,
+  rejectCatalogueReads = false,
+  omitAccessWindow = false,
+} = {}) {
   const dates = ["2026-09-20", "2026-09-18", "2026-09-17", "2026-09-12", "2026-09-01"];
-  const publication = memoryStore(Object.fromEntries(
-    dates.map(date => [`starOfDay:v11:${date}`, archivePayload(date)]),
-  ));
+  const publicationEntries = {
+    ...Object.fromEntries(dates.map(date => [`starOfDay:v11:${date}`, archivePayload(date)])),
+    "vibeAtlas:grid-manifest-catalog:v1:dates": {
+      schemaVersion: 1,
+      catalogVersion: "v1",
+      kind: "vibe-atlas-publication-manifest-catalog",
+      dates: Array.from({ length: 10000 }, (_, index) =>
+        new Date(Date.UTC(1990, 0, index + 1)).toISOString().slice(0, 10)),
+    },
+    ...(omitAccessWindow ? {} : { [ARCHIVE_ACCESS_WINDOW_KEY]: {
+      schemaVersion: 1,
+      accessWindowVersion: 1,
+      kind: "vibe-atlas-archive-access-window",
+      freeArchiveDates: dates.slice(0, 4),
+      updatedAt: "2026-09-20T00:00:00.000Z",
+    } }),
+  };
+  const publication = memoryStore(publicationEntries);
+  if (rejectCatalogueReads) {
+    const get = publication.get;
+    publication.get = async (key, options) => {
+      if (String(key).includes("grid-manifest-catalog")) {
+        throw new Error("protected archive access must not read the full catalogue");
+      }
+      return get(key, options);
+    };
+  }
+  if (rejectListings) {
+    publication.list = async () => {
+      throw new Error("protected archive access must not list catalogue blobs");
+    };
+  }
   const eligibility = memoryStore({});
   const auth = {
     authenticate: async () => {
@@ -147,13 +212,15 @@ function endpointFixture({ authResult = null, membershipStatus = "inactive", env
       membershipForAccount: async () => ({ status: membershipStatus }),
     }),
   };
-  return createStarOfDayHandler({
+  const handler = createStarOfDayHandler({
     env,
     auth,
     billing,
     getStore: name => name === "star-of-day" ? publication : eligibility,
     today: () => "2026-09-20",
   });
+  handler.publicationStore = publication;
+  return handler;
 }
 
 test("historical endpoint keeps free editions public and gates older direct URLs", async () => {
@@ -171,6 +238,42 @@ test("historical endpoint keeps free editions public and gates older direct URLs
   assert.equal(body.edition.previewThumbnails.length, 3);
   assert.equal("displayResults" in body, false);
   assert.equal(JSON.stringify(body).includes("private-provider"), false);
+});
+
+test("historical access uses the compact window without listing the catalogue", async () => {
+  const handler = endpointFixture({
+    rejectListings: true,
+    rejectCatalogueReads: true,
+  });
+  const response = await handler(
+    new Request("https://example.test/star-of-day?date=2026-09-12"),
+    {},
+  );
+  assert.equal(response.status, 200);
+});
+
+test("a direct historical request backfills a missing compact window only once", async () => {
+  const handler = endpointFixture({ omitAccessWindow: true });
+  const first = await handler(
+    new Request("https://example.test/star-of-day?date=2026-09-12"),
+    {},
+  );
+  assert.equal(first.status, 200);
+  assert.equal(handler.publicationStore.stats().listCalls, 2);
+  const stored = await handler.publicationStore.get(ARCHIVE_ACCESS_WINDOW_KEY, { type: "json" });
+  assert.deepEqual(stored.freeArchiveDates, [
+    "2026-09-20",
+    "2026-09-18",
+    "2026-09-17",
+    "2026-09-12",
+  ]);
+
+  const second = await handler(
+    new Request("https://example.test/star-of-day?date=2026-09-12"),
+    {},
+  );
+  assert.equal(second.status, 200);
+  assert.equal(handler.publicationStore.stats().listCalls, 2);
 });
 
 test("historical endpoint treats stale sessions as signed out and separates active member caches", async () => {

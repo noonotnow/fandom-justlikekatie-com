@@ -7,6 +7,9 @@ import {
   registerMediaBytes,
   requestError,
 } from "./media-asset.js";
+import {
+  ensureArchiveAccessWindow,
+} from "./archive-access.js";
 
 export const GRID_MANIFEST_VERSION = "v1";
 export const GRID_MANIFEST_PREFIX = `vibeAtlas:grid-manifest:${GRID_MANIFEST_VERSION}:`;
@@ -901,7 +904,6 @@ function isPublicationManifestCatalog(value) {
     && Array.isArray(value.dates)
     && value.dates.every(isPublicationDate);
 }
-
 async function ensurePublicationManifestCatalogDate(store, date, now) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const currentWithMetadata = typeof store.getWithMetadata === "function"
@@ -918,11 +920,12 @@ async function ensurePublicationManifestCatalogDate(store, date, now) {
     if (current && !isPublicationManifestCatalog(current)) {
       throw requestError("The publication manifest catalog is invalid.", 503);
     }
+    const dates = [...new Set([...(current?.dates || []), date])].sort();
     const next = {
       schemaVersion: 1,
       catalogVersion: GRID_MANIFEST_VERSION,
       kind: "vibe-atlas-publication-manifest-catalog",
-      dates: [...new Set([...(current?.dates || []), date])].sort(),
+      dates,
       updatedAt: asTimestamp(now()),
     };
     const write = await store.setJSON(
@@ -1057,7 +1060,7 @@ async function materializePublicationManifestUnlocked({
   validateBeforeCommit = null,
 }) {
   validatePublicationInput(date, actor, vibe, board);
-  await ensurePublicationManifestCatalogDate(store, date, now);
+  const publicationCatalog = await ensurePublicationManifestCatalogDate(store, date, now);
   const boardHashValue = boardHash(board);
   const manifestKey = gridManifestKey(date);
   const existingManifest = await store.get(manifestKey, {
@@ -1068,6 +1071,7 @@ async function materializePublicationManifestUnlocked({
     if (!isGridManifest(existingManifest) || existingManifest.boardHash !== boardHashValue) {
       throw requestError("That publication date already contains a different immutable board.", 409);
     }
+    await ensureArchiveAccessWindow(store, publicationCatalog.dates, now);
     await updatePublicationActorIndexSafely(store, existingManifest, now);
     return { manifest: existingManifest, payload: manifestPayload(existingManifest) };
   }
@@ -1081,6 +1085,7 @@ async function materializePublicationManifestUnlocked({
     if (!isGridManifest(racedManifest) || racedManifest.boardHash !== boardHashValue) {
       throw requestError("That publication date already contains a different immutable board.", 409);
     }
+    await ensureArchiveAccessWindow(store, publicationCatalog.dates, now);
     await updatePublicationActorIndexSafely(store, racedManifest, now);
     return { manifest: racedManifest, payload: manifestPayload(racedManifest) };
   }
@@ -1196,6 +1201,7 @@ async function materializePublicationManifestUnlocked({
   if (!isGridManifest(authoritative) || authoritative.boardHash !== boardHashValue) {
     throw requestError("Another board won this publication date.", 409);
   }
+  await ensureArchiveAccessWindow(store, publicationCatalog.dates, now);
   await updatePublicationActorIndexSafely(store, authoritative, now);
   try {
     await store.delete(pendingKey);
