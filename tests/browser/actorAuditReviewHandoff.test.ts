@@ -830,9 +830,11 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
         return;
       }
       if (url.searchParams.get('runId') === 'run-legacy') {
+        const requestedLegacyRun = legacyRun('run-legacy');
+        if (retrievalRepetition) withRetrievalRepetition(requestedLegacyRun);
         await route.fulfill({
           contentType: 'application/json',
-          body: JSON.stringify({ run: legacyRun('run-legacy') }),
+          body: JSON.stringify({ run: requestedLegacyRun }),
         });
         return;
       }
@@ -1516,6 +1518,50 @@ test('retrieval repetition remains visible and read-only after switching to a re
       auditRequests,
       requestsBeforeHistoryReview,
       'switching to and reading a retained retrieval receipt must not run or mutate an audit',
+    );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('retrieval repetition remains visible beneath Legacy warnings without audit mutations', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { auditRequests } = await configureNetwork(page, { retrievalRepetition: true });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('button', { name: 'Run audit', exact: true }).click();
+    await page.getByRole('button', { name: 'Choose Compiled', exact: true }).click();
+    await page.getByRole('button', { name: 'Run audit', exact: true }).click();
+    await page.getByRole('button', { name: 'Choose Compiled', exact: true }).click();
+
+    const requestsBeforeLegacyReview = structuredClone(auditRequests);
+    await page.getByLabel('Audit run').selectOption('run-legacy');
+    await page.getByRole('heading', { name: 'Legacy audit · retained history · run-legacy', exact: true }).waitFor();
+    assert.equal(await page.getByText('Fully read-only retained Legacy run.', { exact: false }).isVisible(), true);
+    assert.equal(await page.getByText('Read-only Legacy rescue history:', { exact: false }).isVisible(), true);
+
+    const repetition = page
+      .getByRole('region', { name: 'Candidate loss funnel' })
+      .getByRole('region', { name: 'Retrieval repetition' });
+    await repetition.getByText('result occurrences', { exact: true }).waitFor();
+    assert.deepEqual((await repetition.locator('strong').allTextContents()).slice(0, 4), ['7', '6', '5', '2']);
+    assert.equal(await repetition.getByText('4 occurrences · 4 unique images · +4 new images', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('3 occurrences · 2 unique images · +1 new images', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('rung 1: 1 exact', { exact: true }).isVisible(), true);
+
+    const overlapReceipt = repetition.locator('details').filter({ hasText: 'Exact overlap receipt' });
+    await overlapReceipt.locator('summary').click();
+    assert.equal(await overlapReceipt.getByText('"exactImageIdentityOverlapCount": 1', { exact: false }).isVisible(), true);
+    assert.equal(await repetition.locator('button, input, select, textarea, form').count(), 0);
+    assert.deepEqual(
+      auditRequests,
+      requestsBeforeLegacyReview,
+      'switching to and reading a Legacy retrieval receipt must not run or mutate an audit',
     );
   } finally {
     await browser.close();
