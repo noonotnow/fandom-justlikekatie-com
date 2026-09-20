@@ -66,7 +66,8 @@ interface Props {
   hasCollectorAccess?: boolean;
   onUpgrade?: () => void;
   onTypeChange?: (type: 'grids' | 'results' | 'builder') => void;
-  builderSourceKind?: 'collection' | 'daily';
+  builderSourceKind?: 'collection' | 'daily' | 'edition';
+  builderSourceEditionDate?: string;
   builderSourcePool?: BuilderCard[];
 }
 
@@ -118,6 +119,7 @@ export const Collection: React.FC<Props> = ({
   onUpgrade,
   onTypeChange,
   builderSourceKind = 'collection',
+  builderSourceEditionDate,
   builderSourcePool = [],
 }) => {
   const isMiddleEarth = scope === 'middle-earth';
@@ -132,7 +134,8 @@ export const Collection: React.FC<Props> = ({
   const [activeType, setActiveType] = useState<'grids' | 'results' | 'builder'>(
     isMiddleEarth ? 'results' : initialType,
   );
-  const isDailyBuilder = !isMiddleEarth && activeType === 'builder' && builderSourceKind === 'daily';
+  const isExternalBuilder = !isMiddleEarth && activeType === 'builder' && builderSourceKind !== 'collection';
+  const isEditionBuilder = isExternalBuilder && builderSourceKind === 'edition';
   const [filterActor, setFilterActor] = useState<string | null>(null);
   const [user, setUser] = useState<PublicUser | null>(null);
   const [email, setEmail] = useState('');
@@ -721,16 +724,18 @@ export const Collection: React.FC<Props> = ({
         <div>
           <h2>{isMiddleEarth
             ? 'Middle-earth Collection'
-            : isDailyBuilder
-              ? 'Today’s Grid Builder'
+            : isExternalBuilder
+              ? isEditionBuilder ? 'Archive Edition Grid Builder' : 'Today’s Grid Builder'
               : 'Your Collection'}</h2>
           <p>{isMiddleEarth
             ? 'Your separate MemeForge shelf for finished Middle-earth memes.'
-            : isDailyBuilder
-              ? 'Build only with the active Star of the Day inventory. Nothing from My Collection is added here.'
+            : isExternalBuilder
+              ? isEditionBuilder
+                ? 'Rebuild or remix this immutable historical edition. Its images are not added to My Collection.'
+                : 'Build only with the active Star of the Day inventory. Nothing from My Collection is added here.'
               : 'Collect individual finds, keep finished worlds, and compose Event or Compiled editorial sets.'}</p>
         </div>
-        {!isDailyBuilder && <div className={styles.heroActions}>
+        {!isExternalBuilder && <div className={styles.heroActions}>
           <span>{isMiddleEarth ? `${cards.length} memes` : `${grids.length} grids · ${cards.length} results`}</span>
           <button
             type="button"
@@ -742,7 +747,7 @@ export const Collection: React.FC<Props> = ({
         </div>}
       </header>
 
-      {!isDailyBuilder && <section className={styles.account}>
+      {!isExternalBuilder && <section className={styles.account}>
         {user ? (
           <div className={styles.signedIn}>
             <p>{isMiddleEarth ? 'Middle-earth memes synced as' : 'Synced as'} <strong>{user.email}</strong></p>
@@ -776,11 +781,19 @@ export const Collection: React.FC<Props> = ({
         {accountNotice && <p className={styles.notice} role="status">{accountNotice}</p>}
       </section>}
 
-      {isDailyBuilder ? (
+      {isExternalBuilder ? (
         <div className={styles.collectionScopeNav}>
-          <strong>Active Daily Drop inventory</strong>
+          <strong>
+            {isEditionBuilder
+              ? `Historical edition${builderSourceEditionDate ? ` · ${builderSourceEditionDate}` : ''}`
+              : 'Active Daily Drop inventory'}
+          </strong>
           <div className={styles.collectionScopeActions}>
-            <a href="/vibe-atlas">Back to today’s drop</a>
+            <a href={isEditionBuilder && builderSourceEditionDate
+              ? `/vibe-atlas?date=${encodeURIComponent(builderSourceEditionDate)}`
+              : '/vibe-atlas'}>
+              {isEditionBuilder ? 'Back to this edition' : 'Back to today’s drop'}
+            </a>
           </div>
         </div>
       ) : isMiddleEarth ? (
@@ -845,6 +858,7 @@ export const Collection: React.FC<Props> = ({
           hasCollectorAccess={hasCollectorAccess}
           onUpgrade={onUpgrade}
           sourceKind={builderSourceKind}
+          sourceEditionDate={builderSourceEditionDate}
           sourcePool={builderSourcePool}
           onCollectionChanged={async () => {
             await loadCollection();

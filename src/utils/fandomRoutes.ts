@@ -52,9 +52,13 @@ export function initialCollectionType(search: string): 'grids' | 'results' | 'bu
   return 'grids';
 }
 
-export function initialGridBuilderSource(search: string): 'collection' | 'daily' {
+export type GridBuilderSource = 'collection' | 'daily' | 'edition';
+
+export function initialGridBuilderSource(search: string): GridBuilderSource {
   const params = new URLSearchParams(search);
-  return params.get('view') === 'builder' && params.get('source') === 'daily'
-    ? 'daily'
+  if (params.get('view') !== 'builder') return 'collection';
+  if (params.get('source') === 'daily') return 'daily';
+  return params.get('source') === 'edition' && isValidVibeAtlasEditionDate(params.get('date') || '')
+    ? 'edition'
     : 'collection';
 }

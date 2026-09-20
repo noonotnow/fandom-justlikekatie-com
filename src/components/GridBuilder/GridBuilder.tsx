@@ -71,8 +71,9 @@ interface Props {
   hasCollectorAccess?: boolean;
   onUpgrade?: () => void;
   onCollectionChanged?: () => Promise<void>;
-  /** Explicit inventory boundary. Daily Drop cards never fall back to My Collection. */
-  sourceKind?: 'collection' | 'daily';
+  /** Explicit inventory boundary. Daily Drop and edition cards never fall back to My Collection. */
+  sourceKind?: 'collection' | 'daily' | 'edition';
+  sourceEditionDate?: string;
   sourcePool?: BuilderCard[];
 }
 
@@ -87,10 +88,11 @@ export const GridBuilder: React.FC<Props> = ({
   onUpgrade,
   onCollectionChanged,
   sourceKind = 'collection',
+  sourceEditionDate,
   sourcePool = [],
 }) => {
   const isCollectionSource = sourceKind === 'collection';
-  const dailySourcePool = isCollectionSource ? null : sourcePool;
+  const externalSourcePool = isCollectionSource ? null : sourcePool;
   const benefits = collectorBenefits(hasCollectorAccess);
   const [pool, setPool] = useState<BuilderCard[] | null>(null);
   const [sourceRecords, setSourceRecords] = useState<{ cards: CardRecord[] } | null>(null);
@@ -146,7 +148,7 @@ export const GridBuilder: React.FC<Props> = ({
         ]);
         if (!cancelled) {
           setSourceRecords(isCollectionSource ? { cards } : null);
-          setPool(isCollectionSource ? buildVibeAtlasPool(cards, 'standard') : dailySourcePool || []);
+          setPool(isCollectionSource ? buildVibeAtlasPool(cards, 'standard') : externalSourcePool || []);
           setSavedCanvasCount(grids.length);
         }
       } catch (caught) {
@@ -158,7 +160,7 @@ export const GridBuilder: React.FC<Props> = ({
       }
     })();
     return () => { cancelled = true; };
-  }, [accountId, dailySourcePool, isCollectionSource]);
+  }, [accountId, externalSourcePool, isCollectionSource]);
 
   const savedOptions = useMemo(() => (pool ? lensOptions(pool) : null), [pool]);
   const smartOptionPool = useMemo(
@@ -445,9 +447,16 @@ export const GridBuilder: React.FC<Props> = ({
     }
     setBusy('save');
     try {
-      const grid = gridRecordFromProposal(proposal.slots, proposal.rationale, new Date(), palette
-        ? { paletteId: palette.id, atmosphereId: palette.id }
-        : undefined);
+      const grid = gridRecordFromProposal(
+        proposal.slots,
+        proposal.rationale,
+        new Date(),
+        palette ? { paletteId: palette.id, atmosphereId: palette.id } : undefined,
+        {
+          kind: sourceKind,
+          ...(sourceKind === 'edition' && sourceEditionDate ? { editionDate: sourceEditionDate } : {}),
+        },
+      );
       // If the user edited slots after a previous save, the slot hash changed
       // and this is a brand-new id.  Remove the orphaned prior record first so
       // the store never holds two versions of the same conceptual grid.
@@ -589,15 +598,27 @@ export const GridBuilder: React.FC<Props> = ({
 
   if (loadError) return <div className={styles.notice} role="alert">{loadError}</div>;
   if (!pool || !savedOptions || !smartOptions) {
-    return <div className={styles.loading} aria-label={isCollectionSource ? 'Loading saved collection' : 'Loading Daily Drop inventory'}><span /><span /><span /></div>;
+    return <div className={styles.loading} aria-label={
+      isCollectionSource
+        ? 'Loading saved collection'
+        : sourceKind === 'edition'
+          ? 'Loading historical edition inventory'
+          : 'Loading Daily Drop inventory'
+    }><span /><span /><span /></div>;
   }
   if (pool.length === 0) {
     return (
       <div className={styles.empty}>
-        <strong>{isCollectionSource ? 'The shelf is empty.' : 'Today’s inventory is not ready yet.'}</strong>
+        <strong>{isCollectionSource
+          ? 'The shelf is empty.'
+          : sourceKind === 'edition'
+            ? 'This edition’s inventory could not be loaded.'
+            : 'Today’s inventory is not ready yet.'}</strong>
         <span>{isCollectionSource
           ? 'Save cards or grids first — the Grid Builder assembles editorial sets from saved material.'
-          : 'Return to today’s drop while its approved images finish loading.'}</span>
+          : sourceKind === 'edition'
+            ? 'Return to the archived edition and try again.'
+            : 'Return to today’s drop while its approved images finish loading.'}</span>
       </div>
     );
   }

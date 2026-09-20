@@ -7,7 +7,12 @@ import {
   gridRecordFromProposal,
   proposeGrid,
 } from '../src/utils/gridBuilder';
-import { markGridAsLegendaryMisprint, type CardRecord, type GridRecord } from '../src/utils/collectionDB';
+import {
+  markGridAsLegendaryMisprint,
+  normalizeGridRecord,
+  type CardRecord,
+  type GridRecord,
+} from '../src/utils/collectionDB';
 import { starDataFromCollectionGrid } from '../src/utils/collectionHistoryModel';
 import { classifyEditionTier } from '../src/utils/exportCanvas';
 
@@ -39,6 +44,44 @@ test('Daily Drop inventory stays a distinct builder source rather than a saved C
   assert.equal(pool[0].capturedDate, '2026-09-20');
   assert.equal(pool[0].sourceUrl, 'https://source.example.test/a');
   assert.match(pool[0].imageUrl, /^\/\.netlify\/functions\/image-proxy\?url=/);
+});
+
+test('saved grids preserve historical edition provenance without copying edition cards into saved results', () => {
+  const pool = buildDailyDropPool({
+    actorId: 'actor-archive',
+    actorName: '往期之星',
+    actorShortNameEn: 'Archive Star',
+    actorAccentColor: '#654321',
+    vibeEmoji: '🌙',
+    vibeLabel: '往期氛围',
+    vibeLabelEn: 'Archive Vibe',
+    vibeSubtitle: '往期',
+    vibeSubtitleEn: 'Archive',
+    date: '2026-09-19',
+    rankedBatches: [{
+      query: 'immutable edition family',
+      results: Array.from({ length: 9 }, (_, index) => ({
+        title: `Edition image ${index + 1}`,
+        thumbnail: `https://images.example.test/archive-${index + 1}.jpg`,
+      })),
+    }],
+  });
+  const proposal = proposeGrid(pool, {}, 'compiled');
+  const record = gridRecordFromProposal(
+    proposal.slots,
+    proposal.rationale,
+    new Date('2026-09-20T12:00:00.000Z'),
+    undefined,
+    { kind: 'edition', editionDate: '2026-09-19' },
+  );
+
+  assert.deepEqual(record.sourceProvenance, {
+    kind: 'edition',
+    editionDate: '2026-09-19',
+  });
+  assert.deepEqual(normalizeGridRecord(record).sourceProvenance, record.sourceProvenance);
+  assert.equal(record.images.length, 9);
+  assert.ok(record.images.every(image => image.resultId.includes('/archive-')));
 });
 
 function card(actor: string, id: string, collectionScope: CardRecord['collectionScope'] = 'vibe-atlas'): CardRecord {

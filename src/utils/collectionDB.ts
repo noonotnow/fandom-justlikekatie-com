@@ -191,6 +191,10 @@ export interface GridRecord {
     misprint: boolean;
     legendary: boolean;
   };
+  sourceProvenance?: {
+    kind: 'collection' | 'daily' | 'edition';
+    editionDate?: string;
+  };
   capturedDate: string;
   generatedAt: string;
   savedAt: string;
@@ -963,6 +967,16 @@ export async function dbGetAllGrids(): Promise<GridRecord[]> {
 
 export function normalizeGridRecord(grid: Partial<GridRecord>): GridRecord {
   const images = Array.isArray(grid.images) ? grid.images : [];
+  const sourceProvenance = grid.sourceProvenance;
+  const normalizedSourceProvenance = sourceProvenance
+    && ['collection', 'daily', 'edition'].includes(sourceProvenance.kind)
+    && (sourceProvenance.kind !== 'edition'
+      || typeof sourceProvenance.editionDate === 'string')
+    ? {
+      kind: sourceProvenance.kind,
+      ...(sourceProvenance.editionDate ? { editionDate: sourceProvenance.editionDate } : {}),
+    }
+    : undefined;
   return {
     kind: 'grid',
     schemaVersion: 1,
@@ -983,6 +997,7 @@ export function normalizeGridRecord(grid: Partial<GridRecord>): GridRecord {
       misprint: grid.edition?.misprint === true,
       legendary: grid.edition?.legendary === true,
     },
+    ...(normalizedSourceProvenance ? { sourceProvenance: normalizedSourceProvenance } : {}),
     capturedDate: grid.capturedDate || new Date().toISOString().slice(0, 10),
     generatedAt: grid.generatedAt || grid.savedAt || new Date().toISOString(),
     savedAt: grid.savedAt || grid.generatedAt || new Date().toISOString(),

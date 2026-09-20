@@ -60,8 +60,11 @@ test('collection links open the requested Vibe Atlas tool', () => {
   assert.equal(initialCollectionType(''), 'grids');
 });
 
-test('grid builder links keep Daily Drop inventory separate from My Collection', () => {
+test('grid builder links keep Daily Drop and validated edition inventory separate from My Collection', () => {
   assert.equal(initialGridBuilderSource('?view=builder&source=daily'), 'daily');
+  assert.equal(initialGridBuilderSource('?view=builder&source=edition&date=2026-09-19'), 'edition');
+  assert.equal(initialGridBuilderSource('?view=builder&source=edition&date=2026-02-29'), 'collection');
+  assert.equal(initialGridBuilderSource('?view=builder&source=edition'), 'collection');
   assert.equal(initialGridBuilderSource('?view=builder'), 'collection');
   assert.equal(initialGridBuilderSource('?view=builder&source=unknown'), 'collection');
   assert.equal(initialGridBuilderSource('?view=collection&source=daily'), 'collection');

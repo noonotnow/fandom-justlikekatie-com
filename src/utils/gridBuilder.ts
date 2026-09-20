@@ -592,6 +592,7 @@ export function gridRecordFromProposal(
   rationale: GridRationale,
   now = new Date(),
   presentation?: GridRecord['presentation'],
+  sourceProvenance?: GridRecord['sourceProvenance'],
 ): GridRecord {
   if (slots.length !== 9 && slots.length !== 12) {
     throw new Error(`A composition needs exactly 9 or 12 slots (got ${slots.length}).`);
@@ -637,6 +638,7 @@ export function gridRecordFromProposal(
       misprint: intentionalMisprint,
       legendary: intentionalMisprint,
     },
+    ...(sourceProvenance ? { sourceProvenance } : {}),
     capturedDate: date,
     generatedAt: now.toISOString(),
     savedAt: now.toISOString(),

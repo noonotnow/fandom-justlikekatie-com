@@ -33,6 +33,7 @@ import {
   hasInvalidVibeAtlasEditionDate,
   initialCollectionType,
   initialGridBuilderSource,
+  type GridBuilderSource,
   initialVibeAtlasEditionDate,
   initialVibeAtlasView,
   isValidVibeAtlasEditionDate,
@@ -176,6 +177,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   const [dailyGridZoomOpen, setDailyGridZoomOpen] = useState(false);
   const [selectedEditionDate, setSelectedEditionDate] = useState<string | null>(
     () => initialVibeAtlasView(window.location.search) === 'daily'
+      || initialGridBuilderSource(window.location.search) === 'edition'
       ? initialVibeAtlasEditionDate(window.location.search)
       : null,
   );
@@ -193,9 +195,12 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   const [collectionTab, setCollectionTab] = useState<'grids' | 'results' | 'builder'>(
     () => initialCollectionType(window.location.search),
   );
-  const [builderSource, setBuilderSource] = useState<'collection' | 'daily'>(
+  const [builderSource, setBuilderSource] = useState<GridBuilderSource>(
     () => initialGridBuilderSource(window.location.search),
   );
+  const activeEditionDate = builderSource === 'edition'
+    ? selectedEditionDate ?? initialVibeAtlasEditionDate(window.location.search)
+    : selectedEditionDate;
   const { isAdmin, loading: adminLoading, recheck: recheckAdmin } = useIsAdmin();
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const {
@@ -212,7 +217,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     loading,
     error,
     gate,
-  } = useStarOfDay(archivePage && !selectedEditionDate ? undefined : selectedEditionDate);
+  } = useStarOfDay(archivePage && !activeEditionDate ? undefined : activeEditionDate);
   const dailyBuilderPool = useMemo(
     () => rawData ? buildDailyDropPool(rawData) : [],
     [rawData],
@@ -493,6 +498,16 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     if (destination === 'daily') selectEdition(null);
   };
 
+  const openEditionBuilder = (date: string) => {
+    if (!isValidVibeAtlasEditionDate(date)) return;
+    window.history.pushState({}, '', `/vibe-atlas?view=builder&source=edition&date=${encodeURIComponent(date)}`);
+    setArchivePage(false);
+    setView('collection');
+    setCollectionTab('builder');
+    setBuilderSource('edition');
+    setSelectedEditionDate(date);
+  };
+
   useEffect(() => {
     const restoreUrlState = () => {
       const restoredView = initialVibeAtlasView(window.location.search);
@@ -506,7 +521,9 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       setLightboxIndex(null);
       setDailyGridZoomOpen(false);
       setImageTiers({});
-      const restoredEditionDate = restoredView === 'daily' && !restoredArchivePage
+      const restoredBuilderSource = initialGridBuilderSource(window.location.search);
+      const restoredEditionDate = (restoredView === 'daily' && !restoredArchivePage)
+        || restoredBuilderSource === 'edition'
         ? initialVibeAtlasEditionDate(window.location.search)
         : null;
       setSelectedEditionDate(restoredEditionDate);
@@ -533,11 +550,11 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     // A valid date can still point at a cache entry that has been retired or
     // was never generated. Return the visitor to a usable picker rather than
     // leaving them on an empty/error grid.
-    if (!selectedEditionDate || loading || !error) return;
+    if (view !== 'daily' || !selectedEditionDate || loading || !error) return;
     syncVibeAtlasEditionUrl(null, true);
     setSelectedEditionDate(null);
     openArchivePicker();
-  }, [error, loading, openArchivePicker, selectedEditionDate]);
+  }, [error, loading, openArchivePicker, selectedEditionDate, view]);
 
   const toggleArchive = () => {
     const nextOpen = !archiveOpen;
@@ -838,6 +855,9 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             </div>
             {selectedEditionDate && isValidVibeAtlasEditionDate(selectedEditionDate) && (
               <div className="daily-edition-share">
+                <button type="button" onClick={() => openEditionBuilder(selectedEditionDate)}>
+                  Rebuild this edition
+                </button>
                 <button type="button" onClick={copyArchivedEditionLink}>
                   Copy archived edition link
                 </button>
@@ -918,13 +938,25 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         />
       )}
         </>
-            ) : view === 'collection' ? (
+      ) : view === 'collection' && builderSource === 'edition' && gate && activeEditionDate ? (
+        <ArchiveLockedEdition
+          gate={gate}
+          email={archiveGateEmail}
+          busy={archiveGateBusy}
+          notice={archiveGateNotice}
+          onEmailChange={setArchiveGateEmail}
+          onSignIn={sendArchiveSignIn}
+          onCheckout={startArchiveCheckout}
+          onIntent={() => trackArchiveAccess('gated_intent', activeEditionDate, gate.reason)}
+        />
+      ) : view === 'collection' ? (
         <Collection
           key={collectionTab}
           initialType={collectionTab}
           hasCollectorAccess={hasCollectorCapability({ capabilities: membershipCapabilities })}
           builderSourceKind={builderSource}
-          builderSourcePool={builderSource === 'daily' ? dailyBuilderPool : []}
+          builderSourcePool={builderSource === 'collection' ? [] : dailyBuilderPool}
+          builderSourceEditionDate={builderSource === 'edition' ? activeEditionDate ?? undefined : undefined}
           onUpgrade={() => {
             trackUpgradeStarted('grid_builder');
             navigateAtlas('membership');
@@ -1175,6 +1207,7 @@ function ArchiveEditionCard({
         >
           <a href={edition.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'full_archive')}>Actor record</a>
           <a href={edition.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'full_archive')}>Edition record</a>
+          <a href={`/vibe-atlas?view=builder&source=edition&date=${encodeURIComponent(edition.date)}`}>Rebuild this edition</a>
         </VisibleArchiveRecordPlacement>
       )}
     </article>
