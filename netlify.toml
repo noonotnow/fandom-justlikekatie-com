@@ -96,6 +96,29 @@
   status = 200
 
 [[redirects]]
+  from = "/api/public-editions"
+  to = "/.netlify/functions/public-editions"
+  status = 200
+
+[[redirects]]
+  from = "/vibe-atlas/actors/*"
+  to = "/.netlify/functions/public-records"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/vibe-atlas/editions/*"
+  to = "/.netlify/functions/public-records"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/sitemap.xml"
+  to = "/.netlify/functions/public-sitemap"
+  status = 200
+  force = true
+
+[[redirects]]
 from = "/api/billing/status"
 to = "/.netlify/functions/billing-status"
 status = 200

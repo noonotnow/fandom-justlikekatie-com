@@ -602,3 +602,61 @@ export const ACTOR_PACKS = [
     ]
   }
 ];
+
+/**
+ * Public actor-directory contract.
+ *
+ * Keep this projection explicit rather than masking the private pack objects:
+ * retrieval queries, generation prompts, source inventories, diagnostics, and
+ * scoring fields must not be able to cross the public endpoint by accident
+ * when the private pack schema evolves.
+ */
+const PUBLIC_ACTOR_FIELDS = [
+  "id",
+  "name",
+  "shortName",
+  "shortName_en",
+  "title",
+  "title_en",
+  "icon",
+  "accentColor",
+  "cardBg",
+];
+
+const PUBLIC_VIBE_FIELDS = [
+  "emoji",
+  "label",
+  "label_en",
+  "subtitle",
+  "subtitle_en",
+  "supportingCopy",
+  "supportingCopy_en",
+  "shareFragment",
+];
+
+function pickFields(source, fields) {
+  return Object.fromEntries(fields
+    .filter(field => Object.prototype.hasOwnProperty.call(source, field))
+    .map(field => [field, source[field]]));
+}
+
+export function toPublicActorPack(actor) {
+  if (!actor || typeof actor !== "object") return null;
+  return {
+    ...pickFields(actor, PUBLIC_ACTOR_FIELDS),
+    vibes: Array.isArray(actor.vibes)
+      ? actor.vibes
+        .map(vibe => pickFields(vibe, PUBLIC_VIBE_FIELDS))
+        .filter(vibe => Object.keys(vibe).length > 0)
+      : [],
+  };
+}
+
+export const PUBLIC_ACTOR_PACKS = ACTOR_PACKS
+  .map(toPublicActorPack)
+  .filter(Boolean);
+
+// This is deliberately separate from private retrieval and operator caches.
+// Public records are identical for every visitor and contain no account data.
+export const PUBLIC_ACTOR_PACKS_CACHE_CONTROL =
+  "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400";

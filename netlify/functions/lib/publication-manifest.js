@@ -40,6 +40,139 @@ export const publicationActorIndexKey = () => PUBLICATION_ACTOR_INDEX_KEY;
 export const publicationActorIndexRepairKey = () => PUBLICATION_ACTOR_INDEX_REPAIR_KEY;
 export const publicationManifestCatalogKey = () => PUBLICATION_MANIFEST_CATALOG_KEY;
 
+export const PUBLIC_VIBE_ATLAS_ORIGIN = "https://fandom.justlikekatie.com";
+export const PUBLIC_ACTOR_PATH = "/vibe-atlas/actors";
+export const PUBLIC_EDITION_PATH = "/vibe-atlas/editions";
+const MIN_PUBLIC_EDITORIAL_COPY_LENGTH = 40;
+
+export function publicActorSlug(actor) {
+  const source = actor?.nameEn || actor?.name || actor?.id || "";
+  return String(source)
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "actor";
+}
+
+export function publicActorPath(actor) {
+  return `${PUBLIC_ACTOR_PATH}/${publicActorSlug(actor)}/`;
+}
+
+export function publicEditionPath(manifest) {
+  if (!isPublicationDate(manifest?.publicationDate) || !manifest?.actor) return null;
+  return `${PUBLIC_EDITION_PATH}/${manifest.publicationDate}/${publicActorSlug(manifest.actor)}/`;
+}
+
+function publicCanonical(path) {
+  return `${PUBLIC_VIBE_ATLAS_ORIGIN}${path}`;
+}
+
+/**
+ * A manifest can be immutable without being a useful public editorial record.
+ * Keep this gate stricter than isGridManifest: it is the sole indexability
+ * predicate used by the public directory and edition endpoint.
+ */
+export function isIndexablePublicationManifest(manifest) {
+  if (!isGridManifest(manifest)) return false;
+  const copy = manifest.vibe?.supportingCopyEn || manifest.vibe?.supportingCopy;
+  if (typeof copy !== "string" || copy.trim().length < MIN_PUBLIC_EDITORIAL_COPY_LENGTH) {
+    return false;
+  }
+  if (!manifest.vibe?.labelEn?.trim() || !manifest.vibe?.subtitleEn?.trim()) return false;
+  return Boolean(publicEditionPath(manifest));
+}
+
+export function publicEditionPreview(manifest) {
+  if (!isIndexablePublicationManifest(manifest)) return null;
+  const actorPath = publicActorPath(manifest.actor);
+  const editionPath = publicEditionPath(manifest);
+  const copy = (manifest.vibe.supportingCopyEn || manifest.vibe.supportingCopy).trim();
+  return {
+    kind: "vibe-atlas-public-edition",
+    date: manifest.publicationDate,
+    actor: {
+      id: manifest.actor.id,
+      name: manifest.actor.name,
+      nameEn: manifest.actor.nameEn,
+      accentColor: manifest.actor.accentColor,
+      slug: publicActorSlug(manifest.actor),
+      path: actorPath,
+      canonical: publicCanonical(actorPath),
+    },
+    vibe: {
+      label: manifest.vibe.label,
+      labelEn: manifest.vibe.labelEn,
+      emoji: manifest.vibe.emoji || null,
+      subtitleEn: manifest.vibe.subtitleEn,
+      copy,
+    },
+    canonical: publicCanonical(editionPath),
+    path: editionPath,
+    publishedAt: manifest.publishedAt,
+    heroPosition: manifest.heroPosition,
+    previews: manifest.cards.map(card => ({
+      position: card.position,
+      title: typeof card.title === "string" ? card.title : "",
+      source: typeof card.source === "string" ? card.source : "",
+      link: typeof card.link === "string" && card.link.startsWith("https://")
+        ? card.link
+        : null,
+      thumbnailUrl: card.media.thumbnailUrl,
+      deliveryUrl: card.media.deliveryUrl,
+      mimeType: card.media.mimeType,
+      dimensions: {
+        width: card.media.dimensions.width,
+        height: card.media.dimensions.height,
+      },
+    })),
+  };
+}
+
+export function publicActorDirectory(manifests) {
+  const editions = (Array.isArray(manifests) ? manifests : [])
+    .filter(isIndexablePublicationManifest)
+    .map(publicEditionPreview)
+    .sort((left, right) => right.date.localeCompare(left.date));
+  const actors = new Map();
+  for (const edition of editions) {
+    const current = actors.get(edition.actor.id);
+    if (!current) {
+      actors.set(edition.actor.id, {
+        ...edition.actor,
+        editionCount: 1,
+        latestEdition: edition.date,
+        editions: [{ date: edition.date, path: edition.path, canonical: edition.canonical }],
+        relatedContext: [{
+          label: edition.vibe.label,
+          labelEn: edition.vibe.labelEn,
+          subtitleEn: edition.vibe.subtitleEn,
+        }],
+      });
+      continue;
+    }
+    current.editionCount += 1;
+    current.editions.push({
+      date: edition.date,
+      path: edition.path,
+      canonical: edition.canonical,
+    });
+    if (!current.relatedContext.some(context => context.labelEn === edition.vibe.labelEn)) {
+      current.relatedContext.push({
+        label: edition.vibe.label,
+        labelEn: edition.vibe.labelEn,
+        subtitleEn: edition.vibe.subtitleEn,
+      });
+    }
+  }
+  return [...actors.values()]
+    .sort((left, right) => left.nameEn.localeCompare(right.nameEn))
+    .map(actor => ({
+      ...actor,
+      canonical: publicCanonical(actor.path),
+    }));
+}
+
 export async function readPublicationManifests(store) {
   const catalog = await store.get(publicationManifestCatalogKey(), {
     type: "json",
@@ -54,14 +187,20 @@ export async function readPublicationManifests(store) {
     type: "json",
     consistency: "strong",
   })));
+  const validCatalog = isPublicationManifestCatalog(catalog);
+  const validManifests = manifests.filter(isGridManifest);
+  const catalogCoverageComplete = validCatalog && catalog.dates.every(date => {
+    const manifest = manifests[keys.indexOf(gridManifestKey(date))];
+    return isGridManifest(manifest) && manifest.publicationDate === date;
+  });
   return {
-    manifests: manifests.filter(isGridManifest),
+    manifests: validManifests,
     inventory: {
-      catalogValid: isPublicationManifestCatalog(catalog),
+      catalogValid: validCatalog,
       catalogDateCount: catalogKeys.length,
       listedManifestCount: listedKeys.length,
-      manifestCount: manifests.filter(isGridManifest).length,
-      complete: isPublicationManifestCatalog(catalog),
+      manifestCount: validManifests.length,
+      complete: catalogCoverageComplete,
     },
   };
 }
@@ -580,7 +719,7 @@ async function publicationActorIndexIsStale(store, index, throughDate, actorIds)
 function publicationActorIndexEntryMatchesManifest(index, manifest) {
   const actorId = manifest?.actor?.id;
   const entry = typeof actorId === "string" ? index.actors?.[actorId] : null;
-  if (!entry || !isIndexablePublicationManifest(manifest)
+  if (!entry || !isVerifiedPublicationManifest(manifest)
     || entry.latestPublicationDate !== manifest.publicationDate) return false;
   if (entry.manifestId && entry.manifestId !== manifest.manifestId) return false;
   if (entry.boardHash && entry.boardHash !== manifest.boardHash) return false;
@@ -734,7 +873,7 @@ function isPublicationActorIndexEntry(entry) {
   );
 }
 
-function isIndexablePublicationManifest(manifest) {
+function isVerifiedPublicationManifest(manifest) {
   return isGridManifest(manifest);
 }
 

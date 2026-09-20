@@ -13,12 +13,103 @@ import {
   publicationActorIndexRepairKey,
   publicationManifestCatalogKey,
   publicationJoinReceipt,
+  readPublicationManifests,
+  isIndexablePublicationManifest,
+  publicActorDirectory,
+  publicActorPath,
+  publicEditionPath,
+  publicEditionPreview,
+  publicActorSlug,
   readPublicationCorrections,
   recordPublicationCorrectionsForMisprint,
   readLatestPublicationDatesByActor,
   readLatestPublicationDatesByActorWithHealth,
   rebuildPublicationActorIndex,
 } from "./publication-manifest.js";
+
+test("public projections are explicit allowlists with stable canonical paths", () => {
+  const manifest = storedPublicationManifest("2026-09-03", "liu-xueyi");
+  manifest.vibe.subtitleEn = "A beautiful ache held in perfect stillness.";
+  manifest.vibe.supportingCopyEn =
+    "A carefully curated visual record of Liu Xueyi's restrained, moonlit melancholy.";
+  assert.equal(isIndexablePublicationManifest(manifest), true);
+  assert.equal(publicActorSlug(manifest.actor), "liu-xueyi");
+  assert.equal(publicActorPath(manifest.actor), "/vibe-atlas/actors/liu-xueyi/");
+  assert.equal(publicEditionPath(manifest), "/vibe-atlas/editions/2026-09-03/liu-xueyi/");
+
+  const projection = publicEditionPreview(manifest);
+  assert.deepEqual(Object.keys(projection).sort(), [
+    "actor", "canonical", "date", "heroPosition", "kind", "path",
+    "previews", "publishedAt", "vibe",
+  ].sort());
+  assert.equal(projection.previews.length, 9);
+  assert.equal(projection.previews[0].thumbnailUrl, manifest.cards[0].media.thumbnailUrl);
+  assert.equal(projection.previews[0].deliveryUrl, manifest.cards[0].media.deliveryUrl);
+  const serialized = JSON.stringify(projection);
+  for (const forbidden of [
+    "query", "prompt", "diagnostic", "confidence", "score", "audit",
+    "account", "entitlement", "checksum", "provenance", "candidateId",
+    "sourceUrl", "assetId",
+  ]) {
+    assert.doesNotMatch(serialized, new RegExp(forbidden, "i"));
+  }
+
+  const directory = publicActorDirectory([manifest]);
+  assert.equal(directory.length, 1);
+  assert.equal(directory[0].path, "/vibe-atlas/actors/liu-xueyi/");
+  assert.equal(directory[0].editions[0].path, projection.path);
+});
+
+test("public indexability fails closed for incomplete editorial or MEDIA records", () => {
+  const manifest = storedPublicationManifest("2026-09-03", "liu-xueyi");
+  assert.equal(isIndexablePublicationManifest(manifest), false);
+  manifest.vibe.subtitleEn = "A beautiful ache held in perfect stillness.";
+  manifest.vibe.supportingCopyEn = "A substantial original editorial context for this approved edition.";
+  assert.equal(isIndexablePublicationManifest(manifest), true);
+  manifest.cards[4].media.thumbnailUrl = "";
+  assert.equal(isIndexablePublicationManifest(manifest), false);
+  const malformed = { ...manifest, cards: manifest.cards.slice(0, 8) };
+  assert.equal(publicEditionPreview(malformed), null);
+  assert.deepEqual(publicActorDirectory([malformed]), []);
+});
+
+test("publication inventory requires every catalog date to resolve to its exact valid manifest", async () => {
+  const missingStore = memoryStore();
+  await missingStore.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1,
+    catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog",
+    dates: ["2026-09-03"],
+  });
+  const missing = await readPublicationManifests(missingStore);
+  assert.equal(missing.inventory.complete, false);
+
+  const malformedStore = memoryStore();
+  await malformedStore.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1,
+    catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog",
+    dates: ["2026-09-03"],
+  });
+  await malformedStore.setJSON(gridManifestKey("2026-09-03"), {
+    publicationDate: "2026-09-03",
+    actor: { id: "not-a-valid-manifest" },
+  });
+  const malformed = await readPublicationManifests(malformedStore);
+  assert.equal(malformed.inventory.complete, false);
+
+  const exactStore = memoryStore();
+  const valid = storedPublicationManifest("2026-09-03", "actor-a");
+  await exactStore.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1,
+    catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog",
+    dates: [valid.publicationDate],
+  });
+  await exactStore.setJSON(gridManifestKey(valid.publicationDate), valid);
+  const exact = await readPublicationManifests(exactStore);
+  assert.equal(exact.inventory.complete, true);
+});
 
 test("publication join receipt preserves matched, missing, ambiguous, and unavailable audit occurrences", () => {
   const input = publicationInput();

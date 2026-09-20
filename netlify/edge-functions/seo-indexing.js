@@ -14,7 +14,9 @@ export function shouldNoindexUrl(input) {
   const isStudioRoute = pathname === "/vibe-atlas"
     || pathname === "/vibe-atlas/archive"
     || pathname === "/memeforge/middle-earth";
-  return isStudioRoute && url.search.length > 0;
+  const isPublicRecordRoute = pathname.startsWith("/vibe-atlas/actors/")
+    || pathname.startsWith("/vibe-atlas/editions/");
+  return (isStudioRoute || isPublicRecordRoute) && url.search.length > 0;
 }
 
 export default async function seoIndexing(request, context) {

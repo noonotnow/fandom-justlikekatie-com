@@ -18,6 +18,10 @@ test('the response layer excludes private query views but not the public daily r
   assert.equal(shouldNoindexUrl('https://fandom.justlikekatie.com/vibe-atlas/archive?date=2026-09-01'), true);
   assert.equal(shouldNoindexUrl('https://fandom.justlikekatie.com/auth/verify?token=opaque'), true);
   assert.equal(shouldNoindexUrl('https://fandom.justlikekatie.com/memeforge/middle-earth?view=collection'), true);
+  assert.equal(shouldNoindexUrl('https://fandom.justlikekatie.com/vibe-atlas/actors/liu-xueyi/'), false);
+  assert.equal(shouldNoindexUrl('https://fandom.justlikekatie.com/vibe-atlas/actors/liu-xueyi/?source=share'), true);
+  assert.equal(shouldNoindexUrl('https://fandom.justlikekatie.com/vibe-atlas/editions/2026-09-03/liu-xueyi/'), false);
+  assert.equal(shouldNoindexUrl('https://fandom.justlikekatie.com/vibe-atlas/editions/2026-09-03/liu-xueyi/?date=2026-09-03'), true);
 });
 
 test('private raw HTML responses carry X-Robots-Tag before JavaScript runs', async () => {
@@ -47,6 +51,9 @@ test('Netlify applies the response rule to each SPA studio entry point', () => {
   assert.match(netlifyConfig, /path = "\/vibe-atlas"/);
   assert.match(netlifyConfig, /path = "\/auth\/\*"/);
   assert.match(netlifyConfig, /path = "\/memeforge\/middle-earth"/);
+  assert.match(netlifyConfig, /from = "\/vibe-atlas\/actors\/\*"/);
+  assert.match(netlifyConfig, /from = "\/vibe-atlas\/editions\/\*"/);
+  assert.match(netlifyConfig, /from = "\/sitemap\.xml"/);
 });
 
 test('robots lets crawlers observe noindex while the sitemap omits private views', () => {

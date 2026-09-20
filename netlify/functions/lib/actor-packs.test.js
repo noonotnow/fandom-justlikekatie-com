@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ACTOR_PACKS } from "./actor-packs.js";
+import {
+  ACTOR_PACKS,
+  PUBLIC_ACTOR_PACKS,
+  PUBLIC_ACTOR_PACKS_CACHE_CONTROL,
+  toPublicActorPack,
+} from "./actor-packs.js";
+import { handler } from "../actor-packs.js";
 
 test("Cold Jade Immortal searches stay grounded in Yuan Zhong's pale celestial character study", () => {
   const actor = ACTOR_PACKS.find(({ id }) => id === "liu-xueyi");
@@ -70,4 +76,63 @@ test("Court Menace searches stay grounded in institutional threat rather than ge
   assert.ok(vibe.queries.every(query => !query.endsWith("写真")));
   assert.ok(vibe.queries.some(query => query.includes("朝堂")));
   assert.ok(vibe.queries.some(query => query.includes("权谋")));
+});
+
+test("the public actor DTO is an explicit editorial allowlist", () => {
+  const actor = PUBLIC_ACTOR_PACKS.find(({ id }) => id === "liu-xueyi");
+  assert.ok(actor);
+  assert.deepEqual(Object.keys(actor).sort(), [
+    "accentColor",
+    "cardBg",
+    "icon",
+    "id",
+    "name",
+    "shortName",
+    "shortName_en",
+    "title",
+    "title_en",
+    "vibes",
+  ].sort());
+  assert.ok(actor.vibes.length > 0);
+  assert.deepEqual(Object.keys(actor.vibes[0]).sort(), [
+    "emoji",
+    "label",
+    "label_en",
+    "shareFragment",
+    "subtitle",
+    "subtitle_en",
+  ].sort());
+});
+
+test("public actor DTOs never expose private retrieval or authoring fields", () => {
+  const privateField = /query|prompt|diagnostic|score|source|candidate|reject|confidence|inventory|retrieval|audit/i;
+  const visit = value => {
+    if (!value || typeof value !== "object") return;
+    for (const [key, child] of Object.entries(value)) {
+      assert.doesNotMatch(key, privateField, `private field leaked: ${key}`);
+      visit(child);
+    }
+  };
+  visit(PUBLIC_ACTOR_PACKS);
+  assert.equal(JSON.stringify(PUBLIC_ACTOR_PACKS).includes("刘学义 念无双"), false);
+  assert.equal(JSON.stringify(PUBLIC_ACTOR_PACKS).includes("mjPrompt"), false);
+});
+
+test("public actor projection copies data instead of exposing private pack objects", () => {
+  const source = ACTOR_PACKS.find(({ id }) => id === "liu-xueyi");
+  const projected = toPublicActorPack(source);
+  assert.notEqual(projected, source);
+  assert.notEqual(projected.vibes, source.vibes);
+  assert.notEqual(projected.vibes[0], source.vibes[0]);
+  assert.equal("queries" in projected.vibes[0], false);
+});
+
+test("actor-pack endpoint serves the public DTO with a separate shared-cache contract", async () => {
+  const response = await handler();
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers["Content-Type"], "application/json");
+  assert.equal(response.headers["Cache-Control"], PUBLIC_ACTOR_PACKS_CACHE_CONTROL);
+  assert.match(response.headers["Cache-Control"], /^public, /);
+  assert.match(response.headers["Cache-Control"], /s-maxage=3600/);
+  assert.deepEqual(JSON.parse(response.body), PUBLIC_ACTOR_PACKS);
 });
