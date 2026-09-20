@@ -37,6 +37,9 @@ jobs:
       - name: Check TypeScript
         run: npm run check:types
 
+      - name: Validate application migrations
+        run: npm run check:migrations
+
       - name: Verify packaged scheduled functions
         run: npm run check:scheduled-functions-package
 
