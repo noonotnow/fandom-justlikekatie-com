@@ -33,6 +33,7 @@ export function createBillingServices({
     if (useBlobBilling) return null;
     ready ||= (async () => {
       await runStripeMigrations({ databaseUrl: env.DATABASE_URL });
+      await repository().ensureApplicationSchema?.();
       const sync = await stripeSync({ env });
       const webhookOrigin = env.FANDOM_PUBLIC_ORIGIN || env.URL;
       if (!webhookOrigin) throw new Error("FANDOM_PUBLIC_ORIGIN is required for managed Stripe webhooks.");
@@ -47,14 +48,26 @@ export function createBillingServices({
     ? createBlobBillingRepository({ getStore, context })
     : createBillingRepository({ query: (...args) => database().query(...args) });
   const processWebhook = async (body, signature, context) => {
-    if (!useBlobBilling) {
-      const sync = await initialize(context);
-      await sync.processWebhook(body, signature);
-      return;
-    }
     const { webhookSecret } = await getStripeCredentials({ env });
     const stripe = await stripeClient({ env });
-    const event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+    let event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+    if (!useBlobBilling) {
+      const sync = await initialize(context);
+      const repo = repository(context);
+      if (!await repo.claimEvent(event)) return;
+      try {
+        await sync.processWebhook(body, signature);
+        await repo.recordProcessedEvent?.(event);
+      } catch (error) {
+        await repo.releaseEvent?.(event.id);
+        throw error;
+      }
+      return;
+    }
+    if (event.type.startsWith("customer.subscription.") && event.type !== "customer.subscription.deleted") {
+      const current = await stripe.subscriptions.retrieve(event.data.object.id);
+      event = { ...event, data: { ...event.data, object: current } };
+    }
     await applyBlobBillingEvent({ event, repository: repository(context) });
   };
   return {
@@ -143,6 +156,10 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
         && /^\d{4}-\d{2}-\d{2}$/.test(input.returnDate)
         ? input.returnDate
         : null;
+      const campaign = typeof input?.campaign === "string"
+        && (env.FANDOM_STRIPE_CAMPAIGNS || "").split(",").map(value => value.trim()).includes(input.campaign)
+        ? input.campaign
+        : null;
       const session = await atStage("auth", () => auth.authenticate(req, context));
       const price = await atStage("price-config", () => {
         const configured = env.FANDOM_STRIPE_MEMBERSHIP_PRICE_ID;
@@ -182,25 +199,31 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
           fandom_account_id: session.user.accountId,
           capability: "fandom_collector",
           product: "fandom_collector",
+          ...(campaign ? { campaign } : {}),
         },
         subscription_data: {
           metadata: {
             fandom_account_id: session.user.accountId,
             capability: "fandom_collector",
             product: "fandom_collector",
+            ...(campaign ? { campaign } : {}),
           },
         },
+        ...(env.FANDOM_STRIPE_ALLOW_PROMOTION_CODES === "true" ? { allow_promotion_codes: true } : {}),
+      };
+      const checkoutOptions = {
+        idempotencyKey: `collector-checkout:${session.user.accountId}:${price}:${returnDate || "membership"}:${campaign || "direct"}`,
       };
       let checkout;
       try {
-        checkout = await atStage("checkout-session", () => stripe.checkout.sessions.create(checkoutInput));
+        checkout = await atStage("checkout-session", () => stripe.checkout.sessions.create(checkoutInput, checkoutOptions));
       } catch (error) {
         const resourceMissing = error?.code === "resource_missing" || error?.raw?.code === "resource_missing";
         if (!customer || !resourceMissing) throw error;
         const { customer: ignoredCustomer, ...emailCheckoutInput } = checkoutInput;
         checkout = await atStage("checkout-session-retry", () => stripe.checkout.sessions.create({
           ...emailCheckoutInput, customer_email: session.user.email,
-        }));
+        }, { ...checkoutOptions, idempotencyKey: `${checkoutOptions.idempotencyKey}:email` }));
       }
       return json(200, { url: checkout.url });
     }),

@@ -1,15 +1,22 @@
 export async function applyBlobBillingEvent({ event, repository }) {
+  if (!event?.id) return { ignored: true };
+  if (!await repository.claimEvent(event)) return { duplicate: true };
+  try {
   const object = event?.data?.object;
-  if (!object) return;
+  if (!object) return { ignored: true };
 
   if (event.type === "checkout.session.completed") {
     const accountId = object.metadata?.fandom_account_id;
     const customerId = typeof object.customer === "string" ? object.customer : object.customer?.id;
     await repository.linkCustomerFromWebhook(accountId, customerId);
-    return;
+    await repository.recordProcessedEvent?.(event);
+    return { applied: true };
   }
 
-  if (!event.type.startsWith("customer.subscription.")) return;
+  if (!event.type.startsWith("customer.subscription.")) {
+    await repository.recordProcessedEvent?.(event);
+    return { ignored: true };
+  }
 
   const accountId = object.metadata?.fandom_account_id
     || await repository.accountForCustomer(typeof object.customer === "string" ? object.customer : object.customer?.id);
@@ -29,7 +36,15 @@ export async function applyBlobBillingEvent({ event, repository }) {
     priceId: object.items?.data?.[0]?.price?.id || object.plan?.id || null,
     product: object.items?.data?.[0]?.price?.product || null,
     eventCreated: event.created,
+    eventId: event.id,
+    eventType: event.type,
   });
+  await repository.recordProcessedEvent?.(event);
+  return { applied: true };
+  } catch (error) {
+    await repository.releaseEvent?.(event.id);
+    throw error;
+  }
 }
 
 function capabilityMetadata(metadata) {

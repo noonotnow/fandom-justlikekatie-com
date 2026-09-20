@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createBillingHandlers, createBillingServices, createEntitlementChecker } from "./billing.js";
-import { membershipStatus } from "./billing-repository.js";
+import { createBillingRepository, membershipStatus } from "./billing-repository.js";
 import { createGridExportHandlers } from "./grid-exports.js";
 
 const user = { accountId: "usr_member", email: "member@example.test" };
@@ -18,6 +18,35 @@ test("membership maps only active and trialing subscriptions to entitlement", ()
   assert.equal(membershipStatus("past_due"), "past_due");
   assert.equal(membershipStatus("canceled"), "inactive");
   assert.equal(membershipStatus(null), "inactive");
+});
+
+test("SQL event claims suppress duplicates and can be released after failure", async () => {
+  const claimed = new Set();
+  let claimIsStale = false;
+  const repository = createBillingRepository({
+    query: async (sql, params = []) => {
+      if (sql.startsWith("INSERT INTO public.fandom_billing_events")) {
+        if (claimed.has(params[0]) && !(claimIsStale && sql.includes("INTERVAL '5 minutes'"))) {
+          return { rows: [] };
+        }
+        claimed.add(params[0]);
+        claimIsStale = false;
+        return { rows: [{ stripe_event_id: params[0] }] };
+      }
+      if (sql.startsWith("DELETE FROM public.fandom_billing_events")) {
+        claimed.delete(params[0]);
+        return { rows: [] };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  });
+  const event = { id: "evt_sql", type: "customer.subscription.updated", created: 1 };
+  assert.equal(await repository.claimEvent(event), true);
+  assert.equal(await repository.claimEvent(event), false);
+  claimIsStale = true;
+  assert.equal(await repository.claimEvent(event), true);
+  await repository.releaseEvent(event.id);
+  assert.equal(await repository.claimEvent(event), true);
 });
 
 test("billing status requires passwordless authentication", async () => {
@@ -39,7 +68,7 @@ test("checkout and portal are bound to the authenticated account", async () => {
     repository: () => repository,
     stripe: async () => ({
       customers: { retrieve: async customer => ({ id: customer, deleted: false }) },
-      checkout: { sessions: { create: async input => { calls.push(["checkout", input]); return { url: "https://checkout.test" }; } } },
+      checkout: { sessions: { create: async (input, options) => { calls.push(["checkout", input, options]); return { url: "https://checkout.test" }; } } },
       billingPortal: { sessions: { create: async input => { calls.push(["portal", input]); return { url: "https://portal.test" }; } } },
     }),
   };
@@ -50,6 +79,43 @@ test("checkout and portal are bound to the authenticated account", async () => {
   assert.equal(calls[3][1].customer, "cus_saved");
   assert.equal(calls[1][1].line_items[0].price, "price_real123");
   assert.deepEqual(calls[1][1].managed_payments, { enabled: false });
+  assert.match(calls[1][2].idempotencyKey, /^collector-checkout:usr_member:price_real123:/);
+});
+
+test("checkout accepts only configured campaign attribution and promotion codes", async () => {
+  const inputs = [];
+  const billing = {
+    initialize: async () => {},
+    repository: () => ({ customerForAccount: async () => "cus_saved" }),
+    stripe: async () => ({
+      customers: { retrieve: async () => ({ id: "cus_saved", deleted: false }) },
+      checkout: { sessions: { create: async input => {
+        inputs.push(input);
+        return { url: "https://checkout.test" };
+      } } },
+    }),
+  };
+  const handlers = createBillingHandlers({
+    auth,
+    billing,
+    env: {
+      FANDOM_STRIPE_MEMBERSHIP_PRICE_ID: "price_real123",
+      FANDOM_STRIPE_ALLOW_PROMOTION_CODES: "true",
+      FANDOM_STRIPE_CAMPAIGNS: "founding,archive",
+    },
+  });
+  await handlers.checkout(request("/api/billing/checkout", {
+    body: JSON.stringify({ campaign: "founding", price: "price_attacker" }),
+    headers: { "Content-Type": "application/json" },
+  }), {});
+  await handlers.checkout(request("/api/billing/checkout", {
+    body: JSON.stringify({ campaign: "untrusted" }),
+    headers: { "Content-Type": "application/json" },
+  }), {});
+  assert.equal(inputs[0].metadata.campaign, "founding");
+  assert.equal(inputs[0].allow_promotion_codes, true);
+  assert.equal(inputs[0].line_items[0].price, "price_real123");
+  assert.equal("campaign" in inputs[1].metadata, false);
 });
 
 test("archive checkout restores only a validated requested edition", async () => {
@@ -153,6 +219,7 @@ test("grid export enforcement is injected and can reject inactive accounts", asy
 test("external Netlify billing does not require the internal Replit database host", async () => {
   const values = new Map();
   const event = {
+    id: "evt_external",
     created: 50,
     type: "customer.subscription.created",
     data: {
@@ -174,10 +241,19 @@ test("external Netlify billing does not require the internal Replit database hos
     },
     stripeClient: async () => ({
       webhooks: { constructEvent: () => event },
+      subscriptions: { retrieve: async () => event.data.object },
     }),
     getStore: () => ({
       async get(key) { return values.get(key) || null; },
-      async setJSON(key, value) { values.set(key, value); },
+      async getWithMetadata(key) {
+        return values.has(key) ? { data: values.get(key), etag: `"${key}"` } : null;
+      },
+      async setJSON(key, value, options = {}) {
+        if (options.onlyIfNew && values.has(key)) return { modified: false };
+        values.set(key, value);
+        return { modified: true };
+      },
+      async delete(key) { values.delete(key); },
     }),
     runStripeMigrations: async () => { throw new Error("Postgres migrations must not run on Netlify."); },
   });

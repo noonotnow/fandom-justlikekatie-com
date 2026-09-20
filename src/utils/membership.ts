@@ -99,6 +99,19 @@ export async function createMembershipPortal(): Promise<string> {
   return body.url;
 }
 
+/** Poll the cached capability record after returning from Stripe without calling Stripe directly. */
+export async function refreshMembershipAfterBilling(
+  attempts = 5,
+  delayMs = 500,
+): Promise<MembershipStatus> {
+  let status = await getMembershipStatus();
+  for (let attempt = 1; attempt < attempts && status.state !== 'active'; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, delayMs));
+    status = await getMembershipStatus();
+  }
+  return status;
+}
+
 export function logMembershipEvent(
   event: 'membership_view' | 'upgrade_click' | 'checkout_started' | 'membership_activated' | 'paid_feature_used',
 ): void {

@@ -3,19 +3,17 @@ import { getPublicSession, requestMagicLink, type PublicUser } from '../../utils
 import {
   createMembershipCheckout,
   createMembershipPortal,
-  getMembershipStatus,
   hasCollectorCapability,
   logMembershipEvent,
   type MembershipStatus,
 } from '../../utils/membership';
 
 interface Props {
-  onStatusChange?: (status: MembershipStatus) => void;
+  status: MembershipStatus | null;
 }
 
-export function Membership({ onStatusChange }: Props) {
+export function Membership({ status }: Props) {
   const [user, setUser] = useState<PublicUser | null>(null);
-  const [status, setStatus] = useState<MembershipStatus | null>(null);
   const [email, setEmail] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState('');
@@ -23,15 +21,14 @@ export function Membership({ onStatusChange }: Props) {
 
   useEffect(() => {
     logMembershipEvent('membership_view');
-    void getPublicSession().then(async session => {
+    void getPublicSession().then(session => {
       setUser(session);
-      if (!session) return;
-      const membership = await getMembershipStatus();
-      setStatus(membership);
-      onStatusChange?.(membership);
-      if (hasCollectorCapability(membership)) logMembershipEvent('membership_activated');
     }).catch(error => setNotice(error instanceof Error ? error.message : 'Account status could not be checked.'));
   }, []);
+
+  useEffect(() => {
+    if (hasCollectorCapability(status)) logMembershipEvent('membership_activated');
+  }, [status]);
 
   async function sendLink(event: React.FormEvent) {
     event.preventDefault();

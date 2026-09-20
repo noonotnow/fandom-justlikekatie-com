@@ -23,7 +23,9 @@ import {
   createMembershipCheckout,
   getMembershipStatus,
   hasCollectorCapability,
+  refreshMembershipAfterBilling,
   type MembershipCapability,
+  type MembershipStatus,
 } from './utils/membership';
 import { Membership } from './components/Membership/Membership';
 import { useIsAdmin } from './hooks/useIsAdmin';
@@ -138,6 +140,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   } = useStarOfDay(archivePage && !selectedEditionDate ? undefined : selectedEditionDate);
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
   const [membershipCapabilities, setMembershipCapabilities] = useState<MembershipCapability[]>([]);
+  const [membershipStatus, setMembershipStatus] = useState<MembershipStatus | null>(null);
   const [membershipResolved, setMembershipResolved] = useState(false);
   const [editionShareNotice, setEditionShareNotice] = useState('');
   const [archiveGateEmail, setArchiveGateEmail] = useState('');
@@ -158,9 +161,14 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   const refreshMembership = useCallback(async () => {
     setMembershipResolved(false);
     try {
-      const status = await getMembershipStatus();
+      const returnedFromBilling = new URLSearchParams(window.location.search).get('membership') === 'success';
+      const status = returnedFromBilling
+        ? await refreshMembershipAfterBilling()
+        : await getMembershipStatus();
+      setMembershipStatus(status);
       setMembershipCapabilities(status.capabilities ?? []);
     } catch {
+      setMembershipStatus(null);
       setMembershipCapabilities([]);
     } finally {
       setMembershipResolved(true);
@@ -805,10 +813,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           onTypeChange={setCollectionTab}
         />
       ) : view === 'membership' ? (
-        <Membership onStatusChange={status => {
-          setMembershipCapabilities(status.capabilities ?? []);
-          setMembershipResolved(true);
-        }} />
+        <Membership status={membershipStatus} />
       ) : adminLoading ? (
         <div className="admin-gate-loading" aria-label="Checking admin session…" />
       ) : !isAdmin ? (

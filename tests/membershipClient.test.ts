@@ -7,6 +7,7 @@ import {
   createMembershipCheckout,
   getMembershipStatus,
   parseMembershipCapabilities,
+  refreshMembershipAfterBilling,
 } from '../src/utils/membership.ts';
 
 test('membership client exposes only a safe active entitlement', async () => {
@@ -36,6 +37,25 @@ test('membership checkout uses the authenticated checkout endpoint', async () =>
   }) as typeof fetch;
   try {
     assert.equal(await createMembershipCheckout(), 'https://checkout.stripe.com/c/pay_test');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('portal return refreshes cached capability state until the webhook is visible', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    return new Response(JSON.stringify(calls < 3
+      ? { state: 'inactive', capabilities: [] }
+      : { state: 'active', capabilities: ['fandom_collector'] }));
+  }) as typeof fetch;
+  try {
+    const status = await refreshMembershipAfterBilling(4, 0);
+    assert.equal(calls, 3);
+    assert.equal(status.state, 'active');
+    assert.deepEqual(status.capabilities, ['fandom_collector']);
   } finally {
     globalThis.fetch = originalFetch;
   }
