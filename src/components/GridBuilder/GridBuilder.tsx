@@ -1,9 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { dbGetVisibleCardsByScope, dbRemoveGrid, dbSaveGrid, type CardRecord } from '../../utils/collectionDB';
+import {
+  dbGetVisibleCardsByScope,
+  dbGetVisibleGrids,
+  dbRemoveGrid,
+  dbSaveGrid,
+  type CardRecord,
+  type GridRecord,
+} from '../../utils/collectionDB';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
-import { saveShareCard, buildExportPayload, classifyEditionTier } from '../../utils/exportCanvas';
+import {
+  buildExportPayload,
+  buildMasterExportManifest,
+  classifyEditionTier,
+  saveShareCard,
+  type ExportManifest,
+  type ExportProvenanceAsset,
+} from '../../utils/exportCanvas';
 import { deleteGridExports, gridExportEventFromRecord, logGridExport, uploadExportedCard } from '../../utils/gridExportLog';
 import { logMembershipEvent } from '../../utils/membership';
+import { collectorBenefits, type CollectorPalette } from '../../utils/collectorBenefits';
+import { isVerifiedMediaReference } from '../../utils/mediaReference';
 import {
   applyLens,
   buildVibeAtlasPool,
@@ -28,13 +44,21 @@ interface Props {
   /** Collector entitlement; server enforcement remains authoritative. */
   hasCollectorAccess?: boolean;
   onUpgrade?: () => void;
+  onCollectionChanged?: () => Promise<void>;
 }
 
 /**
  * Vibe Atlas Grid Builder — the core studio workflow. Saved collection →
  * lens → editorial contract → proposed set → slot swaps → save and export.
  */
-export const GridBuilder: React.FC<Props> = ({ accountId, onExported, hasCollectorAccess = false, onUpgrade }) => {
+export const GridBuilder: React.FC<Props> = ({
+  accountId,
+  onExported,
+  hasCollectorAccess = false,
+  onUpgrade,
+  onCollectionChanged,
+}) => {
+  const benefits = collectorBenefits(hasCollectorAccess);
   const [pool, setPool] = useState<BuilderCard[] | null>(null);
   const [sourceRecords, setSourceRecords] = useState<{ cards: CardRecord[] } | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -45,6 +69,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, hasCollect
   const [swapSlot, setSwapSlot] = useState<number | null>(null);
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
+  const [savedCanvasCount, setSavedCanvasCount] = useState(0);
   // Tracks whether the *current* proposal has been explicitly saved to the collection.
   // Resets to false whenever the proposal changes (re-propose, lens toggle, slot swap).
   const [isGridSaved, setIsGridSaved] = useState(false);
@@ -54,6 +79,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, hasCollect
   const [showSaveNudge, setShowSaveNudge] = useState(false);
   // When true, a successful save should also trigger the onExported navigation.
   const [pendingNavAfterSave, setPendingNavAfterSave] = useState(false);
+  const [palette, setPalette] = useState<CollectorPalette | null>(null);
   // Tracks the id of the last grid that was saved before a slot swap changed
   // the proposal.  When the user saves after swapping, the stale record is
   // removed first so only the latest version lives in the store.
@@ -74,10 +100,14 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, hasCollect
     setProposal(null);
     (async () => {
       try {
-        const cards = await dbGetVisibleCardsByScope(accountId, 'vibe-atlas');
+        const [cards, grids] = await Promise.all([
+          dbGetVisibleCardsByScope(accountId, 'vibe-atlas'),
+          dbGetVisibleGrids(accountId),
+        ]);
         if (!cancelled) {
           setSourceRecords({ cards });
           setPool(buildVibeAtlasPool(cards, 'standard'));
+          setSavedCanvasCount(grids.length);
         }
       } catch (caught) {
         if (!cancelled) setLoadError(caught instanceof Error ? caught.message : 'Saved collection could not be loaded.');
@@ -316,9 +346,17 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, hasCollect
   /** Persist the current grid to the local collection without rendering or sharing. */
   async function saveGrid() {
     if (!proposal || !proposalComplete || busy) return;
+    if (!isGridSaved && !priorSavedGridId && savedCanvasCount >= benefits.canvasAllowance) {
+      setNotice(hasCollectorAccess
+        ? `Collector includes ${benefits.canvasAllowance} active canvases. Remove one before saving another.`
+        : 'Your free canvas is already saved. You can keep editing it, or unlock three additional Collector canvases.');
+      return;
+    }
     setBusy('save');
     try {
-      const grid = gridRecordFromProposal(proposal.slots, proposal.rationale);
+      const grid = gridRecordFromProposal(proposal.slots, proposal.rationale, new Date(), palette
+        ? { paletteId: palette.id, atmosphereId: palette.id }
+        : undefined);
       // If the user edited slots after a previous save, the slot hash changed
       // and this is a brand-new id.  Remove the orphaned prior record first so
       // the store never holds two versions of the same conceptual grid.
@@ -328,10 +366,19 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, hasCollect
         setPriorSavedGridId(null);
       }
       await dbSaveGrid(grid);
+      let syncFailed = false;
+      try {
+        await onCollectionChanged?.();
+      } catch {
+        syncFailed = true;
+      }
+      if (!isGridSaved && !priorSavedGridId) setSavedCanvasCount(count => count + 1);
       setIsGridSaved(true);
       setSavedGridId(grid.id);
       setShowSaveNudge(false);
-      setNotice('Grid saved to your collection.');
+      setNotice(syncFailed
+        ? 'Grid saved locally. Cross-device sync will retry automatically.'
+        : 'Grid saved to your collection.');
       if (pendingNavAfterSave) {
         setPendingNavAfterSave(false);
         onExported?.();
@@ -352,9 +399,11 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, hasCollect
       // Best-effort server cleanup, awaited for delivery reliability; failure
       // never blocks the local removal.
       await deleteGridExports(savedGridId, accountId).catch(() => {});
+      await onCollectionChanged?.().catch(() => {});
       setIsGridSaved(false);
       setSavedGridId(null);
       setPriorSavedGridId(null);
+      setSavedCanvasCount(count => Math.max(0, count - 1));
       setNotice('Removed from your collection.');
     } catch (caught) {
       setNotice(caught instanceof Error ? caught.message : 'Could not remove the grid.');
@@ -368,10 +417,6 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, hasCollect
    * the notice area nudges the user to save if they haven't yet.
    */
   async function exportGrid() {
-    if (!hasCollectorAccess) {
-      setNotice('Premium exports are available with Founding Member.');
-      return;
-    }
     if (!proposal || !proposalComplete || busy) return;
     // Synchronous re-entrant guard: setBusy schedules a React update but does
     // not mutate the captured closure value until the next render.  A second
@@ -386,21 +431,53 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, hasCollect
     setNotice('正在生成分享卡……');
     setShowSaveNudge(false);
     try {
-      const grid = gridRecordFromProposal(proposal.slots, proposal.rationale);
-      const starData = starDataFromCollectionGrid(grid);
+      const grid = gridRecordFromProposal(proposal.slots, proposal.rationale, new Date(), palette
+        ? { paletteId: palette.id, atmosphereId: palette.id }
+        : undefined);
+      let exportGridRecord: GridRecord = grid;
+      let exportManifest: ExportManifest | undefined;
+      if (hasCollectorAccess) {
+        const assets: ExportProvenanceAsset[] = grid.images.map(image => {
+          if (!isVerifiedMediaReference(image.media)) {
+            throw new Error('Master Export needs nine materialized MEDIA assets. Save or recover every image first.');
+          }
+          return {
+            assetId: image.media.assetId,
+            checksum: image.media.checksum,
+            deliveryUrl: image.media.deliveryUrl,
+            sourceUrl: image.sourceUrl,
+            attribution: { publisher: image.publisher, title: image.title },
+            permitted: true,
+          };
+        });
+        exportManifest = buildMasterExportManifest(grid.id, grid.id, assets);
+        exportGridRecord = {
+          ...grid,
+          images: grid.images.map(image => ({ ...image, imageUrl: image.media!.deliveryUrl })),
+        };
+      }
+      const starData = starDataFromCollectionGrid(exportGridRecord);
       // Capture the rendered PNG so it can be persisted server-side after a
       // successful export of a SAVED grid.  Fire-and-forget: the upload never
       // blocks the download/share path, and export never saves a grid.
       let renderedBlob: Blob | null = null;
-      const message = await saveShareCard(starData, 'full', (blob) => { renderedBlob = blob; });
+      const exportVariant = hasCollectorAccess ? 'master' : 'standard';
+      const message = await saveShareCard(starData, exportVariant, (blob) => { renderedBlob = blob; });
       try {
         const tier = classifyEditionTier(buildExportPayload(starData).chosen);
         let persistedExportId: string | undefined;
         if (wasGridSaved && renderedBlob) {
           persistedExportId = crypto.randomUUID();
-          void uploadExportedCard(grid.id, persistedExportId, renderedBlob, 'full', tier);
+          void uploadExportedCard(
+            grid.id,
+            persistedExportId,
+            renderedBlob,
+            exportVariant,
+            tier,
+            exportManifest,
+          );
         }
-        logGridExport(gridExportEventFromRecord(grid, 'full', tier, wasGridSaved, persistedExportId));
+        logGridExport(gridExportEventFromRecord(grid, exportVariant, tier, wasGridSaved, persistedExportId));
       } catch (bookkeepingErr) {
         console.warn('Post-export logging failed (export succeeded):', bookkeepingErr);
       }
@@ -433,7 +510,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, hasCollect
   }
 
   return (
-    <section className={styles.builder}>
+    <section className={styles.builder} data-palette={palette?.id || 'default'}>
       <header className={styles.header}>
         <div>
           <h3>Vibe Atlas Grid Builder</h3>
@@ -445,6 +522,34 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, hasCollect
             : `${countLabel(lensedCount, 'saved result')} ${lensedCount === 1 ? 'matches' : 'match'} this lens`}
         </span>
       </header>
+
+      <div className={styles.benefitBar} role="note">
+        {hasCollectorAccess ? (
+          <>
+            <strong>Fandom Collector</strong>
+            <span>{benefits.canvasAllowance} canvases · cross-device persistence enabled</span>
+            {benefits.palettes.length > 0 && (
+              <label>
+                Atmosphere
+                <select
+                  value={palette?.id || ''}
+                  onChange={event => setPalette(
+                    benefits.palettes.find(item => item.id === event.target.value) || null,
+                  )}
+                >
+                  <option value="">Original</option>
+                  {benefits.palettes.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}
+                </select>
+              </label>
+            )}
+          </>
+        ) : (
+          <>
+            <strong>Free studio</strong>
+            <span>1 canvas · local saves, rearranging, sharing, and 1080×1080 sRGB export included.</span>
+          </>
+        )}
+      </div>
 
       <div className={styles.modeTabs} role="tablist" aria-label="Grid building method">
         <button type="button" role="tab" aria-selected={builderMode === 'smart'} onClick={() => chooseBuilderMode('smart')}>
@@ -671,13 +776,12 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, hasCollect
                   {busy === 'remove' ? 'Removing…' : 'Remove from collection'}
                 </button>
               )}
-              {hasCollectorAccess ? (
-                <button type="button" onClick={exportGrid} disabled={Boolean(busy) || !proposalComplete}>
-                  {busy === 'export' ? 'Exporting…' : '📤 Export share card'}
-                </button>
-              ) : (
+              <button type="button" onClick={exportGrid} disabled={Boolean(busy) || !proposalComplete}>
+                {busy === 'export' ? 'Exporting…' : `📤 Export ${hasCollectorAccess ? 'master' : 'square'} PNG`}
+              </button>
+              {!hasCollectorAccess && onUpgrade && (
                 <button type="button" onClick={onUpgrade} disabled={Boolean(busy)}>
-                  ✦ Upgrade for premium exports
+                  ✦ Unlock Collector canvases and palettes
                 </button>
               )}
             </div>

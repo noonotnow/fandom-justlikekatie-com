@@ -11,7 +11,9 @@ import {
   createLegendaryMisprint,
   dbApplySyncResponse,
   dbGetAllCards,
+  dbGetAllGrids,
   dbSaveCard,
+  dbSaveGrid,
   normalizeCardForCollection,
   markGridAsLegendaryMisprint,
   queueCardDelete,
@@ -396,6 +398,39 @@ test('saved grids sync as first-class artifacts without flattening their source 
     grid().releaseCandidateProvenance,
   );
   assert.equal(operations.filter(operation => operation.type === 'upsert').length, 2);
+});
+
+test('Collector presentation survives the first-class grid sync contract', () => {
+  const collectorGrid: GridRecord = {
+    ...grid(),
+    presentation: { paletteId: 'moonlit-ink', atmosphereId: 'moonlit-ink' },
+  };
+  const operations = buildSyncOperations([], state(), 'account-a', [collectorGrid]);
+  const gridOperation = operations.find(operation => operation.localId === 'grid-local-1');
+  assert.deepEqual(
+    Reflect.get(gridOperation?.item || {}, 'presentation'),
+    collectorGrid.presentation,
+  );
+});
+
+test('Collector presentation survives an IndexedDB save, read, and sync round trip', async () => {
+  Object.assign(globalThis, { indexedDB: new IDBFactory() });
+  const collectorGrid: GridRecord = {
+    ...grid(),
+    id: 'grid-presentation-round-trip',
+    localId: undefined,
+    presentation: { paletteId: 'moonlit-ink', atmosphereId: 'moonlit-ink' },
+  };
+  await dbSaveGrid(collectorGrid);
+  const stored = (await dbGetAllGrids()).find(item => item.id === collectorGrid.id);
+  assert.ok(stored);
+  assert.deepEqual(stored.presentation, collectorGrid.presentation);
+  const operations = buildSyncOperations([], state(), 'account-a', [stored]);
+  const gridOperation = operations.find(operation => operation.localId === stored.localId);
+  assert.deepEqual(
+    Reflect.get(gridOperation?.item || {}, 'presentation'),
+    collectorGrid.presentation,
+  );
 });
 
 test('an explicitly selected grid builds one upsert even when device merging is declined', async () => {

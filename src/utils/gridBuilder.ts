@@ -483,6 +483,7 @@ export function gridRecordFromProposal(
   slots: BuilderCard[],
   rationale: GridRationale,
   now = new Date(),
+  presentation?: GridRecord['presentation'],
 ): GridRecord {
   if (slots.length !== 9 && slots.length !== 12) {
     throw new Error(`A composition needs exactly 9 or 12 slots (got ${slots.length}).`);
@@ -513,6 +514,7 @@ export function gridRecordFromProposal(
     actor: anchor.actor,
     actorEn: anchor.actorEn,
     actorAccentColor: anchor.actorAccentColor,
+    ...(presentation ? { presentation } : {}),
     vibe: vibes.length === 1 ? anchor.vibe : `${anchor.vibe} +`,
     vibeEn: vibes.length === 1 ? anchor.vibeEn : `${anchor.vibeEn} + ${vibes.length - 1} more`,
     vibeEmoji: anchor.vibeEmoji,

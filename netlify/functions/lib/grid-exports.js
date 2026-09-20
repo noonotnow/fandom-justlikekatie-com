@@ -18,6 +18,13 @@ import { json } from "./public-auth.js";
 
 export const STORE_NAME = "grid-card-exports";
 export const MAX_EXPORT_BYTES = 8 * 1024 * 1024; // 8 MB — 1080×1350 PNGs are well under this
+export const EXPORT_CONTRACT_VERSION = 1;
+export const EXPORT_CONTRACTS = Object.freeze({
+  full: { width: 1080, height: 1350, colorProfile: "sRGB" },
+  teaser: { width: 1080, height: 1080, colorProfile: "sRGB" },
+  standard: { width: 1080, height: 1080, colorProfile: "sRGB" },
+  master: { width: 2160, height: 2160, colorProfile: "sRGB" },
+});
 const MAX_HISTORY_ENTRIES = 50;
 
 const EXPORT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -80,7 +87,11 @@ function tombstoneUploadState(record, now) {
 }
 
 export function createGridExportHandlers({
-  auth, getStore, now = () => new Date(), requireMembership = async () => {},
+  auth,
+  getStore,
+  now = () => new Date(),
+  requireMembership = async () => {},
+  verifyMasterAssets = async () => false,
 }) {
   return {
     handler: async (req, context) => {
@@ -94,7 +105,9 @@ export function createGridExportHandlers({
         if (!GRID_ID_RE.test(gridId)) return json(400, { error: "Invalid gridId." });
 
         if (req.method === "POST") {
-          return await handleUpload(req, store, accountId, gridId, url, now);
+          return await handleUpload(
+            req, store, accountId, gridId, url, now, context, verifyMasterAssets,
+          );
         }
         if (req.method === "GET") {
           const exportId = url.searchParams.get("exportId");
@@ -114,10 +127,14 @@ export function createGridExportHandlers({
   };
 }
 
-async function handleUpload(req, store, accountId, gridId, url, now) {
+async function handleUpload(
+  req, store, accountId, gridId, url, now, context, verifyMasterAssets,
+) {
   const exportId = url.searchParams.get("exportId") || "";
   if (!EXPORT_ID_RE.test(exportId)) return json(400, { error: "Invalid exportId." });
-  const variant = url.searchParams.get("variant") === "teaser" ? "teaser" : "full";
+  const requestedVariant = url.searchParams.get("variant");
+  const variant = ["teaser", "standard", "master"].includes(requestedVariant)
+    ? requestedVariant : "full";
   const tier = sanitizeTier(url.searchParams.get("tier"));
 
   const declared = Number(req.headers.get("content-length") || 0);
@@ -126,6 +143,32 @@ async function handleUpload(req, store, accountId, gridId, url, now) {
   if (bytes.byteLength === 0) return json(400, { error: "Empty export upload." });
   if (bytes.byteLength > MAX_EXPORT_BYTES) return json(413, { error: "Export image too large." });
   if (!isPng(bytes)) return json(400, { error: "Upload must be a PNG." });
+  // Legacy full/teaser uploads predate the versioned contract and are kept
+  // backward-compatible. New square standard/master artifacts are strict.
+  const contract = ["standard", "master"].includes(variant) ? EXPORT_CONTRACTS[variant] : null;
+  const dimensions = pngDimensions(bytes);
+  if (contract && (!dimensions
+    || dimensions.width !== contract.width
+    || dimensions.height !== contract.height)) {
+    return json(400, {
+      error: `The ${variant} export must be ${contract.width}×${contract.height} ${contract.colorProfile} PNG.`,
+    });
+  }
+  let manifest = null;
+  if (variant === "master") {
+    try {
+      manifest = validateMasterManifest(req.headers.get("x-export-manifest"));
+    } catch (error) {
+      return json(400, { error: error.message });
+    }
+    if (manifest.gridId !== gridId) return json(400, { error: "Master manifest does not match this grid." });
+    const authoritative = await verifyMasterAssets(accountId, gridId, manifest.assets, context);
+    if (!authoritative) {
+      return json(409, {
+        error: "Master Export assets do not match this account's saved MEDIA records.",
+      });
+    }
+  }
 
   const { index, png, tombstone } = keys(accountId, gridId, exportId);
 
@@ -158,6 +201,13 @@ async function handleUpload(req, store, accountId, gridId, url, now) {
       exportId,
       variant,
       tier,
+      ...(manifest ? { manifest } : {}),
+      ...(contract ? {
+        contractVersion: EXPORT_CONTRACT_VERSION,
+        width: contract.width,
+        height: contract.height,
+        colorProfile: contract.colorProfile,
+      } : {}),
       bytes: bytes.byteLength,
       exportedAt: now().toISOString(),
     });
@@ -350,4 +400,49 @@ function isPng(buffer) {
   const view = new Uint8Array(buffer.slice(0, 8));
   const magic = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
   return magic.every((byte, i) => view[i] === byte);
+}
+
+function pngDimensions(buffer) {
+  const view = new DataView(buffer);
+  if (view.byteLength < 24) return null;
+  return {
+    width: view.getUint32(16),
+    height: view.getUint32(20),
+  };
+}
+
+const ASSET_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CHECKSUM_RE = /^[0-9a-f]{64}$/i;
+
+function validateMasterManifest(raw) {
+  if (!raw) throw new Error("Master Export requires a provenance manifest.");
+  let manifest;
+  try { manifest = JSON.parse(raw); } catch { throw new Error("Master provenance manifest is invalid JSON."); }
+  if (manifest?.schemaVersion !== 1
+    || manifest.contractVersion !== EXPORT_CONTRACT_VERSION
+    || manifest.variant !== "master"
+    || manifest.colorProfile !== "sRGB"
+    || manifest.rendererVersion !== "vibe-atlas-export-v2"
+    || typeof manifest.gridId !== "string"
+    || typeof manifest.boardHash !== "string"
+    || !manifest.boardHash
+    || !Array.isArray(manifest.assets)
+    || manifest.assets.length !== 9) {
+    throw new Error("Master provenance manifest does not match the export contract.");
+  }
+  const ids = new Set();
+  for (const asset of manifest.assets) {
+    let delivery;
+    try { delivery = new URL(asset?.deliveryUrl); } catch { throw new Error("Master assets must use stable MEDIA delivery URLs."); }
+    if (asset?.permitted !== true
+      || typeof asset.assetId !== "string" || !ASSET_ID_RE.test(asset.assetId)
+      || ids.has(asset.assetId)
+      || typeof asset.checksum !== "string" || !CHECKSUM_RE.test(asset.checksum)
+      || delivery.protocol !== "https:" || delivery.search || delivery.hash
+      || delivery.username || delivery.password) {
+      throw new Error("Master Export contains an unpermitted or invalid MEDIA asset.");
+    }
+    ids.add(asset.assetId);
+  }
+  return manifest;
 }

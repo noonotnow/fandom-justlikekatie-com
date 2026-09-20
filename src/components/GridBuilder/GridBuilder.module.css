@@ -6,11 +6,16 @@
   display: grid;
   gap: 16px;
 }
+.builder[data-palette="moonlit-ink"] { --gb-gold: #9f9bea; --gb-panel: #17182b; }
 
 .header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
 .header h3 { margin: 0; color: var(--gb-gold); }
 .header p { margin: 4px 0 0; color: var(--gb-muted); font-size: 13px; }
 .header > span { color: var(--gb-muted); font-size: 12px; white-space: nowrap; }
+.benefitBar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--gb-border); border-radius: 10px; background: color-mix(in srgb, var(--gb-gold) 7%, transparent); color: var(--gb-muted); font-size: 12px; }
+.benefitBar strong { color: var(--gb-gold); }
+.benefitBar label { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.benefitBar select { border: 1px solid var(--gb-border); border-radius: 6px; padding: 4px 7px; background: var(--gb-panel); color: inherit; }
 
 .modeTabs { display: flex; gap: 8px; padding: 4px; width: fit-content; border: 1px solid var(--gb-border); border-radius: 12px; }
 .modeTabs button { min-height: 38px; padding: 7px 14px; border: 0; border-radius: 8px; background: transparent; color: inherit; }

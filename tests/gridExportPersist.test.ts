@@ -65,8 +65,8 @@ const exportGridBody = extractFunctionBody(builderSource, 'async function export
 test('exportGrid logs the captured saved-state value, not a literal true', () => {
   assert.match(
     exportGridBody,
-    /gridExportEventFromRecord\(grid,\s*'full',\s*tier,\s*wasGridSaved/,
-    'gridExportEventFromRecord must receive the captured wasGridSaved value',
+    /gridExportEventFromRecord\(grid,\s*exportVariant,\s*tier,\s*wasGridSaved/,
+    'gridExportEventFromRecord must receive the selected export variant and captured saved state',
   );
   assert.doesNotMatch(
     exportGridBody,

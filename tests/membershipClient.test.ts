@@ -12,22 +12,20 @@ import {
 
 test('membership client exposes only a safe active entitlement', async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (url: string) => {
-    assert.equal(url, '/api/membership/status');
-    return new Response(JSON.stringify({ state: 'active', renewsAt: '2026-04-01T00:00:00.000Z', card: 'never exposed' }));
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    assert.equal(url, '/api/membership/checkout');
+    assert.equal(init?.method, 'POST');
+    assert.equal(init?.credentials, 'same-origin');
+    return new Response(JSON.stringify({ url: 'https://checkout.stripe.com/c/pay_test' }));
   }) as typeof fetch;
   try {
-    assert.deepEqual(await getMembershipStatus(), {
-      state: 'active',
-      isMember: true,
-      renewsAt: '2026-04-01T00:00:00.000Z',
-    });
+    assert.equal(await createMembershipCheckout(), 'https://checkout.stripe.com/c/pay_test');
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test('membership checkout uses the authenticated checkout endpoint', async () => {
+test('portal return refreshes cached capability state until the webhook is visible', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
     assert.equal(url, '/api/membership/checkout');
@@ -89,7 +87,8 @@ test('Collector capability gates cloud sync and premium creation', async () => {
   ]);
 
   assert.match(collectionSource, /shouldSync = canSyncCloud && decided && await shouldSyncCollection/);
-  assert.match(collectionSource, /activeType === 'builder' && !hasCollectorAccess/);
+  assert.match(collectionSource, /activeType === 'builder' \?/);
+  assert.doesNotMatch(collectionSource, /Upgrade to use Grid Builder/);
   assert.doesNotMatch(collectionSource, /Cloud sync is available with Founding Member/);
   assert.match(membershipSource, /Collection sync with Collector access/);
   assert.match(collectionSource, /if \(canSyncCloud\) schedulePublicCollectionSync/);

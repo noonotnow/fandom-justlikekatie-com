@@ -41,8 +41,13 @@ function mediaResponse() {
 
 test("registers collection uploads in MEDIA and returns a stable associated descriptor", async () => {
   let mediaMetadata;
+  const registered = new Map();
   const handler = createCollectionMediaHandler({
     auth: { authenticate: async () => ({ user: { accountId: ACCOUNT_ID } }) },
+    getStore: name => {
+      assert.equal(name, "fandom-account-media");
+      return { setJSON: async (key, value) => registered.set(key, value) };
+    },
     env: {
       MEDIA_ASSETS_TOKEN: "test-token",
       MEDIA_ASSETS_URL: "https://media.example/v1/assets/images",
@@ -69,6 +74,10 @@ test("registers collection uploads in MEDIA and returns a stable associated desc
   assert.equal(mediaMetadata.sourceType, "fandom-collection-upload");
   assert.equal(mediaMetadata.linkedPostIdentifiers.includes("fandom/collection/middle-earth"), true);
   assert.deepEqual(JSON.parse(mediaMetadata.rightsNotes).association, body.media.association);
+  assert.deepEqual(
+    registered.get(`accounts/${ACCOUNT_ID}/assets/${ASSET_ID}`),
+    body.media,
+  );
 });
 
 test("rejects invalid uploads before MEDIA and never exposes its credential", async () => {

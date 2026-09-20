@@ -820,18 +820,17 @@ export const Collection: React.FC<Props> = ({
         </div>
       )}
 
-      {activeType === 'builder' && !hasCollectorAccess ? (
-        <section className={styles.upgradeGate}>
-          <span>✦ Founding Member</span>
-          <h3>Build a new world from your saved finds.</h3>
-          <p>Your local saves remain here. Upgrade to use Grid Builder and make premium exports.</p>
-          <button type="button" onClick={onUpgrade}>Explore membership</button>
-        </section>
-      ) : activeType === 'builder' ? (
+      {activeType === 'builder' ? (
         <GridBuilder
           accountId={user?.accountId}
           hasCollectorAccess={hasCollectorAccess}
           onUpgrade={onUpgrade}
+          onCollectionChanged={async () => {
+            await loadCollection();
+            if (canSyncCloud && user && await shouldSyncCollection(user.accountId)) {
+              await syncPublicCollection(user);
+            }
+          }}
           onExported={() => {
             setActiveType('grids');
             void loadCollection();

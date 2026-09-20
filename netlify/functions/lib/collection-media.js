@@ -9,6 +9,7 @@ const ITEM_ID_RE = /^[A-Za-z0-9_-]{1,120}$/;
 
 export function createCollectionMediaHandler({
   auth,
+  getStore,
   env = process.env,
   fetchImpl = fetch,
 }) {
@@ -16,7 +17,7 @@ export function createCollectionMediaHandler({
     if (req.method !== "POST") return json(405, { error: "Method not allowed." }, { Allow: "POST" });
     try {
       validateSameOrigin(req);
-      await auth.authenticate(req, context);
+      const session = await auth.authenticate(req, context);
       if (!env.MEDIA_ASSETS_TOKEN) return json(503, { error: "MEDIA registration is not configured." });
 
       const url = new URL(req.url);
@@ -50,6 +51,12 @@ export function createCollectionMediaHandler({
         env,
         fetchImpl,
       });
+      if (getStore) {
+        await getStore("fandom-account-media", context).setJSON(
+          `accounts/${session.user.accountId}/assets/${media.assetId}`,
+          media,
+        );
+      }
       return json(200, {
         media,
       });

@@ -4,9 +4,11 @@ import {
   ACTOR_PACKS,
   PUBLIC_ACTOR_PACKS,
   PUBLIC_ACTOR_PACKS_CACHE_CONTROL,
+  toCollectorActorPack,
   toPublicActorPack,
 } from "./actor-packs.js";
 import { handler } from "../actor-packs.js";
+import { createActorPackDepthHandler } from "./actor-pack-depth.js";
 
 test("Cold Jade Immortal searches stay grounded in Yuan Zhong's pale celestial character study", () => {
   const actor = ACTOR_PACKS.find(({ id }) => id === "liu-xueyi");
@@ -135,4 +137,94 @@ test("actor-pack endpoint serves the public DTO with a separate shared-cache con
   assert.match(response.headers["Cache-Control"], /^public, /);
   assert.match(response.headers["Cache-Control"], /s-maxage=3600/);
   assert.deepEqual(JSON.parse(response.body), PUBLIC_ACTOR_PACKS);
+});
+
+test("Collector actor projection keeps source depth and provenance separate from public data", () => {
+  const source = ACTOR_PACKS.find(({ id }) => id === "liu-yuning");
+  const projected = toCollectorActorPack(source);
+  assert.equal(projected.provenance.sourcePackId, "liu-yuning");
+  assert.equal(projected.provenance.attribution, "Vibe Atlas Fandom editorial actor pack");
+  assert.deepEqual(projected.vibes[0].sourceDepth.queries, source.vibes[0].queries);
+  assert.equal(projected.vibes[0].sourceDepth.authoringPrompt, source.vibes[0].mjPrompt);
+  assert.equal("queries" in projected.vibes[0], false);
+  assert.equal("mjPrompt" in projected.vibes[0], false);
+});
+
+test("Collector actor depth requires active membership and never uses a shared cache", async () => {
+  const makeRequest = (method = "GET", path = "/actor-pack-depth") =>
+    new Request(`https://example.test${path}`, { method });
+  const auth = { authenticate: async () => ({ user: { accountId: "usr_1" } }) };
+  const billing = {
+    initialize: async () => {},
+    repository: () => ({ membershipForAccount: async () => ({ status: "active" }) }),
+  };
+  const handlerWithAccess = createActorPackDepthHandler({ auth, billing });
+  const response = await handlerWithAccess(makeRequest(), {});
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.equal(response.headers.get("vary"), "Cookie");
+  const body = await response.json();
+  assert.equal(body.kind, "fandom-collector-actor-pack-depth");
+  assert.ok(body.packs[0].provenance);
+  assert.ok(body.packs[0].vibes[0].sourceDepth.queries.length > 0);
+  assert.doesNotMatch(JSON.stringify(body), /accountId|email/);
+
+  const locked = await createActorPackDepthHandler({
+    auth,
+    billing: {
+      initialize: async () => {},
+      repository: () => ({ membershipForAccount: async () => ({ status: "past_due" }) }),
+    },
+  })(makeRequest(), {});
+  assert.equal(locked.status, 403);
+  assert.equal(locked.headers.get("cache-control"), "private, no-store");
+
+  for (const product of ["creator_os", "fandom_creator_bridge"]) {
+    const denied = await createActorPackDepthHandler({
+      auth,
+      billing: {
+        initialize: async () => {},
+        repository: () => ({
+          membershipForAccount: async () => ({ status: "active", metadata: { product } }),
+        }),
+      },
+    })(makeRequest(), {});
+    assert.equal(denied.status, 403, `${product} must not unlock Collector actor depth`);
+  }
+
+  const bundled = await createActorPackDepthHandler({
+    auth,
+    billing: {
+      initialize: async () => {},
+      repository: () => ({
+        membershipForAccount: async () => ({
+          status: "active", metadata: { product: "ecosystem_bundle" },
+        }),
+      }),
+    },
+  })(makeRequest(), {});
+  assert.equal(bundled.status, 200);
+});
+
+test("Collector actor depth supports one actor without widening the public endpoint", async () => {
+  const handlerWithAccess = createActorPackDepthHandler({
+    auth: { authenticate: async () => ({ user: { accountId: "usr_1" } }) },
+    billing: {
+      initialize: async () => {},
+      repository: () => ({ membershipForAccount: async () => ({ status: "active" }) }),
+    },
+  });
+  const response = await handlerWithAccess(
+    new Request("https://example.test/actor-pack-depth?actorId=liu-xueyi"),
+    {},
+  );
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.deepEqual(body.packs.map(pack => pack.id), ["liu-xueyi"]);
+
+  const missing = await handlerWithAccess(
+    new Request("https://example.test/actor-pack-depth?actorId=not-real"),
+    {},
+  );
+  assert.equal(missing.status, 404);
 });

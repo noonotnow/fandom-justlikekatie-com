@@ -1,4 +1,4 @@
-import type { ExportVariant } from './exportCanvas';
+import type { ExportManifest, ExportVariant } from './exportCanvas';
 import type { GridRecord } from './collectionDB';
 
 /**
@@ -87,11 +87,15 @@ export function uploadExportedCard(
   blob: Blob,
   variant: ExportVariant,
   tier: string,
+  manifest?: ExportManifest,
 ): Promise<boolean> {
   const params = new URLSearchParams({ gridId, exportId, variant, tier });
   return fetch(`/.netlify/functions/grid-exports?${params.toString()}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'image/png' },
+    headers: {
+      'Content-Type': 'image/png',
+      ...(manifest ? { 'X-Export-Manifest': JSON.stringify(manifest) } : {}),
+    },
     body: blob,
   })
     .then(response => response.ok)

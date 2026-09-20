@@ -11,6 +11,57 @@ const EXPORT_CARD_H = 1350;
 const EXPORT_TEASER_W = 1080;
 const EXPORT_TEASER_H = 1080;
 
+/** Versioned output contracts. Canvas output is explicitly requested in sRGB;
+ * browsers encode canvas PNGs as sRGB even when no ICC chunk is emitted. */
+export const EXPORT_CONTRACT_VERSION = 1;
+export const EXPORT_CONTRACTS = {
+  standard: {
+    variant: 'standard' as const, width: 1080, height: 1080, colorProfile: 'sRGB' as const,
+    mimeType: 'image/png' as const, rendererVersion: 'vibe-atlas-export-v2',
+  },
+  master: {
+    variant: 'master' as const, width: 2160, height: 2160, colorProfile: 'sRGB' as const,
+    mimeType: 'image/png' as const, rendererVersion: 'vibe-atlas-export-v2',
+  },
+};
+
+export type ExportColorProfile = 'sRGB';
+export interface ExportProvenanceAsset {
+  assetId: string;
+  checksum: string;
+  deliveryUrl: string;
+  sourceUrl?: string;
+  attribution?: { publisher?: string; title?: string };
+  permitted: true;
+}
+export interface ExportManifest {
+  schemaVersion: 1;
+  contractVersion: typeof EXPORT_CONTRACT_VERSION;
+  variant: 'master';
+  rendererVersion: string;
+  colorProfile: ExportColorProfile;
+  gridId: string;
+  boardHash: string;
+  assets: ExportProvenanceAsset[];
+  createdAt: string;
+}
+
+export function buildMasterExportManifest(
+  gridId: string,
+  boardHash: string,
+  assets: ExportProvenanceAsset[],
+  createdAt = new Date().toISOString(),
+): ExportManifest {
+  if (!gridId || !boardHash || assets.length !== 9 || assets.some(asset => asset.permitted !== true)) {
+    throw new Error('Master Export requires nine permitted MEDIA assets and a board hash.');
+  }
+  return {
+    schemaVersion: 1, contractVersion: EXPORT_CONTRACT_VERSION, variant: 'master',
+    rendererVersion: EXPORT_CONTRACTS.master.rendererVersion, colorProfile: 'sRGB',
+    gridId, boardHash, assets: assets.map(asset => ({ ...asset })), createdAt,
+  };
+}
+
 // ── Badge assets ───────────────────────────────────────────────────
 const TIER_BADGE_PATHS: Record<string, string> = {
   'star-of-day': '/assets/cards/badges/star-of-day.svg',
@@ -327,7 +378,7 @@ export function buildExportFilename(
   dateStr: string,
   actorNameEn: string,
   rankNum: number,
-  variant: 'full' | 'teaser',
+  variant: ExportVariant,
   tier: string,
   vibeLabel = '',
   boardShortId = '',
@@ -336,7 +387,9 @@ export function buildExportFilename(
   const vibeSlug = actorFilenameSlug(vibeLabel);
   const nn = pad2(rankNum);
   const tierTag = (tier && tier !== 'standard') ? ('_' + tier) : '';
-  const suffix = variant === 'teaser' ? '_teaser' : '';
+  const suffix = variant === 'teaser' ? '_teaser'
+    : variant === 'standard' ? '_standard'
+      : variant === 'master' ? '_master' : '';
   const boardTag = boardShortId ? '_' + actorFilenameSlug(boardShortId).slice(0, 16) : '';
   return 'vibe-guide_' + dateStr + '_' + slug + (vibeSlug ? '_' + vibeSlug : '')
     + boardTag + tierTag + '_ep' + nn + suffix + '.png';
@@ -369,7 +422,7 @@ export interface ExportArtifact {
 function exportResults(data: StarOfDayData, variant: ExportVariant): RankedBatch['results'] {
   const payload = buildExportPayload(data);
   const results = payload.chosen?.results?.slice(0, variant === 'teaser' ? 6 : 12) ?? [];
-  if (variant === 'full' && results.length < 9) {
+  if ((variant === 'full' || variant === 'standard' || variant === 'master') && results.length < 9) {
     throw new Error('This approved board is not complete yet. A share card requires all nine images.');
   }
   return results;
@@ -772,13 +825,62 @@ async function renderTeaserExportCanvas(payload: ExportPayload): Promise<HTMLCan
 
 // ── Public API ─────────────────────────────────────────────────────
 
-export type ExportVariant = 'full' | 'teaser';
+export type ExportVariant = 'full' | 'teaser' | 'standard' | 'master';
+
+async function renderSquareGridCanvas(
+  payload: ExportPayload,
+  contract: typeof EXPORT_CONTRACTS.standard | typeof EXPORT_CONTRACTS.master,
+): Promise<HTMLCanvasElement> {
+  const results = payload.chosen?.results?.slice(0, 9) ?? [];
+  if (results.length < 9) {
+    throw new Error('A square grid requires all nine approved images.');
+  }
+  await loadExportCardFonts();
+  const images = await Promise.all(results.map(result => loadProxiedImage(result.thumbnail)));
+  if (images.some(image => !image)) {
+    throw new Error('The square grid could not load all nine approved images.');
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = contract.width;
+  canvas.height = contract.height;
+  // Request the browser's explicit sRGB canvas color space. Older browsers
+  // ignore the option and still produce their standard sRGB canvas output.
+  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' } as CanvasRenderingContext2DSettings)!;
+  const pad = Math.round(contract.width * 0.026);
+  const header = Math.round(contract.width * 0.045);
+  const footer = Math.round(contract.width * 0.052);
+  const gap = Math.round(contract.width * 0.009);
+  const tile = (contract.width - pad * 2 - gap * 2 - header - footer) / 3;
+  ctx.fillStyle = '#0e0e12';
+  ctx.fillRect(0, 0, contract.width, contract.height);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#f0ede8';
+  ctx.font = `700 ${Math.round(contract.width * 0.021)}px "Inter", sans-serif`;
+  ctx.fillText(`${payload.actorName || 'Vibe Atlas'} · ${payload.vibeLabel || 'Grid'}`, contract.width / 2, pad + header * 0.58);
+  results.forEach((_, index) => {
+    const image = images[index]!;
+    const x = pad + (index % 3) * (tile + gap);
+    const y = pad + header + (index / 3 | 0) * (tile + gap);
+    drawCoverImageRounded(ctx, image, x, y, tile, tile, Math.round(tile * 0.02));
+  });
+  const sourceNames = [...new Set(results.map(result => result.source).filter(Boolean))];
+  ctx.fillStyle = '#a3a3ad';
+  ctx.font = `400 ${Math.round(contract.width * 0.0105)}px "Inter", sans-serif`;
+  ctx.fillText(
+    `${sourceNames.length ? `Sources: ${sourceNames.slice(0, 5).join(' · ')} · ` : ''}Vibe Atlas · sRGB`,
+    contract.width / 2,
+    contract.height - pad,
+  );
+  return canvas;
+}
 
 export async function renderExportCanvas(
   data: StarOfDayData,
   variant: ExportVariant = 'full',
 ): Promise<HTMLCanvasElement> {
   const payload = buildExportPayload(data);
+  if (variant === 'standard') return renderSquareGridCanvas(payload, EXPORT_CONTRACTS.standard);
+  if (variant === 'master') return renderSquareGridCanvas(payload, EXPORT_CONTRACTS.master);
   return variant === 'teaser'
     ? renderTeaserExportCanvas(payload)
     : renderFullExportCanvas(payload);

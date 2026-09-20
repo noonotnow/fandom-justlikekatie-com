@@ -173,6 +173,11 @@ export interface GridRecord {
   actor: string;
   actorEn: string;
   actorAccentColor: string;
+  /** Optional presentation choice; does not replace source/provenance fields. */
+  presentation?: {
+    paletteId?: string;
+    atmosphereId?: string;
+  };
   vibe: string;
   vibeEn: string;
   vibeEmoji: string;
@@ -983,6 +988,12 @@ export function normalizeGridRecord(grid: Partial<GridRecord>): GridRecord {
     savedAt: grid.savedAt || grid.generatedAt || new Date().toISOString(),
     sourceRoute: grid.sourceRoute || '/',
     ...(grid.vibeKey ? { vibeKey: grid.vibeKey } : {}),
+    ...(grid.presentation ? {
+      presentation: {
+        ...(grid.presentation.paletteId ? { paletteId: grid.presentation.paletteId } : {}),
+        ...(grid.presentation.atmosphereId ? { atmosphereId: grid.presentation.atmosphereId } : {}),
+      },
+    } : {}),
     images,
     ...(grid.editorial ? { editorial: grid.editorial } : {}),
     ...(grid.localId ? { localId: grid.localId } : {}),
