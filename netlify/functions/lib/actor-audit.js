@@ -2316,7 +2316,7 @@ export function createActorAuditHandler({
         const jointlySupportingRunCount = new Set((profile.signalInventory || [])
           .filter(item => signalValues.every(value =>
             item.directionalSignals?.[signalFamily]?.[direction]?.includes(value)))
-          .map(item => item.sourceRunId)
+          .map(item => normalizeCalibrationSourceRunId(item.sourceRunId))
           .filter(Boolean)).size;
         if (jointlySupportingRunCount < MIN_CALIBRATION_APPROVAL_EVIDENCE) {
           return json(409, {
@@ -2325,7 +2325,7 @@ export function createActorAuditHandler({
         }
         const evidenceReceiptIds = [...profile.sourceReceiptIds].sort();
         const sourceRunIds = [...new Set((profile.evidenceLedger || [])
-          .map(item => item.sourceRunId)
+          .map(item => normalizeCalibrationSourceRunId(item.sourceRunId))
           .filter(Boolean))].sort();
         const aggregateEvidenceHash = calibrationApprovalEvidenceHash(profile, {
           signalFamily,
@@ -5663,6 +5663,7 @@ function reusableSignalPreferences(records, key, isRetired = () => false) {
     values.set(value, current);
   };
   for (const record of records) {
+    const sourceRunId = normalizeCalibrationSourceRunId(record.sourceRunId);
     const selected = record.selectedNine || [];
     const omitted = record.omittedAlternatives || [];
     const selectedCounts = new Map();
@@ -5688,11 +5689,11 @@ function reusableSignalPreferences(records, key, isRetired = () => false) {
       add(value, "omittedRateTotal", omittedCount / Math.max(1, omitted.length));
       if (selectedCount) add(value, "selectedEvidenceCount");
       if (omittedCount) add(value, "omittedEvidenceCount");
-      if (selectedCount && record.sourceRunId) {
-        values.get(value).selectedSourceRunIds.add(record.sourceRunId);
+      if (selectedCount && sourceRunId) {
+        values.get(value).selectedSourceRunIds.add(sourceRunId);
       }
-      if (omittedCount && record.sourceRunId) {
-        values.get(value).omittedSourceRunIds.add(record.sourceRunId);
+      if (omittedCount && sourceRunId) {
+        values.get(value).omittedSourceRunIds.add(sourceRunId);
       }
     }
   }
@@ -5725,6 +5726,9 @@ function reusableSignalPreferences(records, key, isRetired = () => false) {
   };
 }
 
+function normalizeCalibrationSourceRunId(value) {
+  return String(value ?? "").trim();
+}
 function createRescueCalibrationOutcome(pair, run, profile, now) {
   const inventory = profile?.signalInventory || [];
   if (!inventory.length) return null;
@@ -6405,7 +6409,9 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
     .filter(receipt => receipt?.status === "revoked")
     .map(receipt => receipt.approvalId));
   const evidenceReceiptIds = records.map(record => record.sourceRescueReceiptId).sort();
-  const reviewedRunCount = new Set(records.map(record => record.sourceRunId).filter(Boolean)).size;
+  const reviewedRunCount = new Set(records
+    .map(record => normalizeCalibrationSourceRunId(record.sourceRunId))
+    .filter(Boolean)).size;
   const activeApproval = approvalReceipts
     .filter(receipt =>
       receipt?.status === "approved"

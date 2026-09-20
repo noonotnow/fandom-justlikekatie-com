@@ -4868,6 +4868,7 @@ async function approveRepeatedCalibrationEvidence({
   selectCandidates,
   beforeApproval,
   signalValueFromSelection = false,
+  expectedApprovalStatus = 200,
 }) {
   const evidenceReceiptIds = [];
   let signalValue = "";
@@ -4925,10 +4926,75 @@ async function approveRepeatedCalibrationEvidence({
     signalValues: [signalValue],
   }), {});
   const approval = await approvalResponse.json();
-  assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+  assert.equal(approvalResponse.status, expectedApprovalStatus, JSON.stringify(approval));
 
-  return { approval, evidenceReceiptIds, selectionValue, signalValue };
+  return {
+    approval,
+    approvalStatus: approvalResponse.status,
+    evidenceReceiptIds,
+    selectionValue,
+    signalValue,
+  };
 }
+
+test("blank-looking audit IDs cannot satisfy calibration approval", async () => {
+  const { handler, store } = harness({ freshEvidenceOnRerun: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  let malformedProfile;
+
+  const result = await approveRepeatedCalibrationEvidence({
+    handler,
+    vibeKey,
+    adjustmentType: "class",
+    signalFamily: "sources",
+    expectedApprovalStatus: 409,
+    selectCandidates: rawResults => {
+      const bySource = rawResults.reduce((groups, candidate) => {
+        groups[candidate.source] = [...(groups[candidate.source] || []), candidate];
+        return groups;
+      }, {});
+      const [source, candidates] = Object.entries(bySource)
+        .find(([, items]) => items.length >= 9);
+      return { candidates, selectionValue: source };
+    },
+    beforeApproval: async ({ evidenceReceiptIds }) => {
+      const evidenceKeys = evidenceReceiptIds.map(receiptId =>
+        `${auditRescueCalibrationPrefix(pairActor.id, 0)}${receiptId}`);
+      const validEvidence = structuredClone(store.records.get(evidenceKeys[0]));
+      const whitespaceEvidence = structuredClone(store.records.get(evidenceKeys[1]));
+      whitespaceEvidence.sourceRunId = "   ";
+      store.records.set(evidenceKeys[1], whitespaceEvidence);
+
+      for (const [receiptId, sourceRunId] of [
+        ["missing-run-id", undefined],
+        ["empty-run-id", ""],
+      ]) {
+        const malformedEvidence = structuredClone(validEvidence);
+        malformedEvidence.sourceRescueReceiptId = receiptId;
+        if (sourceRunId === undefined) delete malformedEvidence.sourceRunId;
+        else malformedEvidence.sourceRunId = sourceRunId;
+        store.records.set(
+          `${auditRescueCalibrationPrefix(pairActor.id, 0)}${receiptId}`,
+          malformedEvidence,
+        );
+      }
+
+      const detailResponse = await handler(request(
+        "GET",
+        undefined,
+        `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+      ), {});
+      const detail = await detailResponse.json();
+      assert.equal(detailResponse.status, 200, JSON.stringify(detail));
+      malformedProfile = detail.calibrationProfile;
+    },
+  });
+
+  assert.equal(malformedProfile.reviewedRunCount, 1);
+  assert.equal(malformedProfile.approvalReady, false);
+  assert.equal(result.approvalStatus, 409);
+  assert.match(result.approval.error, /at least 2 distinct reviewed audits/i);
+});
 
 test("production calibration requires repeated aggregate evidence, applies one approved class, and is reversible", async () => {
   const curateOptions = [];

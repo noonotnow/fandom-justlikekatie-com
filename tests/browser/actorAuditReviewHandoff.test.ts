@@ -187,6 +187,12 @@ function mixedCalibrationApprovalProfile(activeApproval = false): AnyRecord {
         sourceRunId: '',
         directionalSignals: { queries: { positive: ['signal-a', 'signal-b'] } },
       },
+      {
+        sourceRescueReceiptId: 'rescue-whitespace-run',
+        evidenceType: 'rescue',
+        sourceRunId: '   ',
+        directionalSignals: { queries: { positive: ['signal-a', 'signal-b'] } },
+      },
     ],
   };
   if (activeApproval) {
@@ -2589,7 +2595,7 @@ test('mixed calibration evidence does not overstate joint bundle support', { tim
     assert.equal(
       await approvalCard.getByText('Affected reviewed audits: joint-run,', { exact: false }).count(),
       0,
-      'matching evidence without a source run ID must not add a blank jointly supporting audit',
+      'matching evidence with a missing, empty, or whitespace-only source run ID must not add a blank jointly supporting audit',
     );
     assert.equal(
       await approvalCard.getByText('partial-run-a', { exact: false }).count(),
