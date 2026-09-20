@@ -78,24 +78,24 @@ export function Membership({ onStatusChange }: Props) {
       <header className="membership__hero">
         <p className="membership__label">Vibe Atlas Collector Membership</p>
         <h1>Today’s drop is free.<br /><em>The whole Atlas is for collectors.</em></h1>
-        <p>Browse today’s edition, save what catches you, and build a grid of your own. Collector Membership opens the back catalog and gives you premium studio tools for turning a collection into a finished artifact.</p>
+        <p>Browse today’s edition, save the cards that catch you, and build a grid that feels like yours. Collector Membership opens the back catalog and gives you more ways to style, save, and export what you make.</p>
       </header>
       {(returnNotice || notice) && <p className="membership__notice" role="status">{returnNotice || notice}</p>}
       <section className="membership__journey" aria-label="How Vibe Atlas grows with you">
         <article>
           <span>Discover</span>
-          <h2>Today’s drop belongs to everyone.</h2>
-          <p>Browse the current star, save individual cards, and revisit the recent free window.</p>
+          <h2>Today’s drop is for everybody.</h2>
+          <p>Come for the star, save the cards that get you, and catch up on the last few drops.</p>
         </article>
         <article>
           <span>Collect</span>
-          <h2>Go deeper than today.</h2>
-          <p>Collector access opens the historical Atlas, including past editions and expanded actor collections.</p>
+          <h2>Missed one? Go back for it.</h2>
+          <p>Collector membership opens past editions, actor collections, and the vibes you weren’t ready to let go.</p>
         </article>
         <article>
           <span>Create</span>
-          <h2>Give your collection a finished form.</h2>
-          <p>Premium Canvas treatments, saved versions, and collector-quality exports elevate the artifact—not the pitch.</p>
+          <h2>Make the grid you actually want.</h2>
+          <p>Use premium Canvas styles, keep different versions, and export something worth posting, saving, or sending to a friend.</p>
         </article>
       </section>
       <section className="membership__plans" aria-label="Membership options">
@@ -140,7 +140,7 @@ export function Membership({ onStatusChange }: Props) {
       <section className="membership__research" aria-labelledby="publishing-interest-title">
         <p className="membership__label">A question for collectors</p>
         <h2 id="publishing-interest-title">Do your finished grids become posts?</h2>
-        <p>We’re exploring an optional workflow for taking a finished Vibe Atlas artifact into captioning, planning, and publishing tools. Vibe Atlas would remain complete on its own.</p>
+        <p>We’re exploring an optional way to take a finished Vibe Atlas grid into captioning, planning, and publishing tools. It would be optional—your Vibe Atlas collection would still stand on its own.</p>
         {publishingInterest === null ? (
           <>
             <button type="button" onClick={() => recordPublishingInterest('interest')}>I’d use this</button>
