@@ -46,3 +46,4 @@
 - [Calibration authority boundary](calibration-authority-boundary.md) — repeated diagnostic image evidence is inert until a bounded approval; live eligibility must match current evidence and authority.
 - [SerpAPI diagnostic bypass](serpapi-diagnostic-bypass.md) — HTTP no-cache headers do not bypass SerpAPI’s result cache; explicit diagnostic refreshes require its provider parameter.
 - [Archive access incident signals](archive-access-incident-signals.md) — alert only on aggregate authenticated checks; anonymous previews and sign-in gates are funnel activity, not incidents.
+- [Playwright WebKit on Replit Nix](playwright-webkit-replit-nix.md) — bypass ldconfig-only preflight and the WebKit wrapper’s overwritten library path while retaining a real launch probe.

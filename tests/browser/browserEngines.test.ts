@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import type { Browser, BrowserType } from '@playwright/test';
 import {
   assertBrowserEnginesInstalled,
+  assertBrowserEnginesLaunchable,
   BROWSER_ENGINES,
   launchBrowserForServer,
   launchBrowserWithServer,
@@ -36,6 +37,37 @@ test('browser prerequisite check explains how to install missing engines', () =>
 
 test('browser prerequisite check accepts a complete engine installation', () => {
   assert.doesNotThrow(() => assertBrowserEnginesInstalled(BROWSER_ENGINES, () => true));
+});
+
+test('browser prerequisite check distinguishes missing host libraries', async () => {
+  const launchError = new Error(
+    'error while loading shared libraries: libgtk-4.so.1: cannot open shared object file',
+  );
+
+  await assert.rejects(
+    assertBrowserEnginesLaunchable(
+      [BROWSER_ENGINES[2]],
+      async () => { throw launchError; },
+    ),
+    error => {
+      assert.match(String(error), /binaries are installed but cannot launch: WebKit/);
+      assert.match(String(error), /\.replit declares the required native browser libraries/);
+      assert.match(String(error), /browser:install:ci/);
+      assert.match(String(error), /libgtk-4\.so\.1/);
+      return true;
+    },
+  );
+});
+
+test('browser prerequisite launch check accepts launchable engines', async () => {
+  let closeCount = 0;
+  await assert.doesNotReject(assertBrowserEnginesLaunchable(
+    BROWSER_ENGINES,
+    async () => ({
+      close: async () => { closeCount += 1; },
+    } as Browser),
+  ));
+  assert.equal(closeCount, BROWSER_ENGINES.length);
 });
 
 test('sequential browser launch failure closes its listening server', async () => {

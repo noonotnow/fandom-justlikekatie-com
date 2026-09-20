@@ -1,4 +1,6 @@
-import { existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import {
   chromium,
   firefox,
@@ -21,6 +23,41 @@ export const BROWSER_ENGINES = [
 
 export type BrowserEngine = (typeof BROWSER_ENGINES)[number];
 
+const isReplitNix = Boolean(process.env.REPLIT_PID2);
+if (isReplitNix) {
+  // Playwright checks dlopen-only libraries through ldconfig, which cannot see
+  // libraries supplied from the Nix store. A real launch probe still runs.
+  process.env.PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS ??= '1';
+}
+
+function replitNixLibraryPath(): string {
+  const nixLibraryDirectories = [...(process.env.NIX_LDFLAGS?.matchAll(/(?:^|\s)-L(\S+)/g) ?? [])]
+    .flatMap(match => [match[1], join(match[1], 'gstreamer-1.0')])
+    .filter(existsSync);
+  const compilerLibraryDirectory = dirname(
+    execFileSync('gcc', ['-print-file-name=libatomic.so.1'], { encoding: 'utf8' }).trim(),
+  );
+  const nixStoreEntries = readdirSync('/nix/store');
+  const gstreamerPluginDirectories = nixStoreEntries
+    .filter(entry => entry.includes('-gst-libav-'))
+    .map(entry => join('/nix/store', entry, 'lib', 'gstreamer-1.0'))
+    .filter(existsSync);
+  const jpeg8Directories = nixStoreEntries
+    .filter(entry => entry.includes('-libjpeg-turbo-'))
+    .map(entry => join('/nix/store', entry, 'lib'))
+    .filter(directory => existsSync(join(directory, 'libjpeg.so.8')));
+  const supplementalDirectories = [...gstreamerPluginDirectories, ...jpeg8Directories]
+    .filter(existsSync);
+  return [
+    ...nixLibraryDirectories,
+    compilerLibraryDirectory,
+    ...supplementalDirectories,
+    process.env.LD_LIBRARY_PATH,
+  ]
+    .filter((path): path is string => Boolean(path))
+    .join(':');
+}
+
 export function missingBrowserEngines(
   engines: readonly BrowserEngine[] = BROWSER_ENGINES,
   executableExists: (path: string) => boolean = existsSync,
@@ -38,6 +75,36 @@ export function assertBrowserEnginesInstalled(
   throw new Error(
     `Missing Playwright browser binaries: ${missing.map(engine => engine.name).join(', ')}. `
     + 'Run "npm run browser:install" before running browser tests.',
+  );
+}
+
+export async function assertBrowserEnginesLaunchable(
+  engines: readonly BrowserEngine[] = BROWSER_ENGINES,
+  launch: (engine: BrowserEngine) => Promise<Browser> = engine => launchBrowser(engine.type),
+): Promise<void> {
+  const failures: Array<{ engine: BrowserEngine; error: unknown }> = [];
+
+  for (const engine of engines) {
+    try {
+      const browser = await launch(engine);
+      await browser.close();
+    } catch (error) {
+      failures.push({ engine, error });
+    }
+  }
+
+  if (failures.length === 0) return;
+
+  const details = failures
+    .map(({ engine, error }) => `${engine.name}: ${String(error)}`)
+    .join('\n\n');
+  throw new Error(
+    `Playwright browser binaries are installed but cannot launch: ${
+      failures.map(({ engine }) => engine.name).join(', ')
+    }.\n`
+    + 'In Replit, ensure .replit declares the required native browser libraries, then reload the environment. '
+    + 'In CI or Debian/Ubuntu, run "npm run browser:install:ci".\n\n'
+    + details,
   );
 }
 
@@ -70,6 +137,25 @@ export async function startViteTestServer(
 }
 
 export async function launchBrowser(browserType: BrowserType = chromium): Promise<Browser> {
+  if (isReplitNix && browserType === webkit) {
+    const webkitRoot = dirname(browserType.executablePath());
+    const miniBrowserRoot = join(webkitRoot, 'minibrowser-wpe');
+    return browserType.launch({
+      executablePath: join(miniBrowserRoot, 'bin', 'MiniBrowser'),
+      env: {
+        ...process.env,
+        LD_LIBRARY_PATH: [
+          join(miniBrowserRoot, 'lib'),
+          join(miniBrowserRoot, 'sys', 'lib'),
+          replitNixLibraryPath(),
+        ].join(':'),
+        WEBKIT_EXEC_PATH: join(miniBrowserRoot, 'bin'),
+        WEBKIT_INJECTED_BUNDLE_PATH: join(miniBrowserRoot, 'lib'),
+        WEBKIT_INSPECTOR_RESOURCES_PATH: join(miniBrowserRoot, 'share'),
+      },
+    });
+  }
+
   try {
     return await browserType.launch();
   } catch (defaultLaunchError) {

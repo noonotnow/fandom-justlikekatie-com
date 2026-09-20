@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import {
   assertBrowserEnginesInstalled,
+  assertBrowserEnginesLaunchable,
   BROWSER_ENGINES,
 } from '../tests/browser/browserEngines.ts';
 
@@ -30,6 +31,7 @@ if (mode === '--install' || mode === '--install-with-deps') {
 }
 
 assertBrowserEnginesInstalled();
+await assertBrowserEnginesLaunchable();
 console.log(
   `Playwright browser engines ready: ${BROWSER_ENGINES.map(engine => engine.name).join(', ')}`,
 );
