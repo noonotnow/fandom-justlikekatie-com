@@ -844,7 +844,7 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
         });
         return;
       }
-      if (url.searchParams.get('runId') === 'run-1' && activeRunId === 'run-2') {
+      if (url.searchParams.get('runId') === 'run-1' && ['run-2', 'current-legacy'].includes(activeRunId ?? '')) {
         const retainedRun = run('run-1', true);
         if (partialRetrievalRepetition) withPartialRetrievalRepetition(retainedRun);
         else if (retrievalRepetition) withRetrievalRepetition(retainedRun);
@@ -907,6 +907,9 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
       }
       if (boundedLegacyRecovery) {
         response.calibrationProfile = boundedLegacyRecoveryProfile();
+      }
+      if (currentLegacy) {
+        response.priorRuns = [run('run-1', true), legacyRun('run-legacy')];
       }
       if (visualReview) {
         response.priorRuns = [
@@ -2987,6 +2990,82 @@ test('a current Legacy audit keeps only annotation and rescue exceptions actiona
       requestsBeforeReceiptReview,
       'reading the current Legacy retrieval receipt and exceptions must not run or mutate an audit',
     );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('a current Legacy retrieval receipt survives refresh and history switching without writes', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowserForServer(server);
+  const page = await browser.newPage();
+  const { auditRequests } = await configureNetwork(page, { currentLegacy: true, retrievalRepetition: true });
+  const auditTraffic: Array<{ method: string; runId: string | null }> = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/actor-audits')) {
+      auditTraffic.push({ method: request.method(), runId: url.searchParams.get('runId') });
+    }
+  });
+
+  async function assertCurrentLegacyReceipt(): Promise<void> {
+    await page.getByRole('heading', { name: 'Legacy audit · retained history · current-legacy', exact: true }).waitFor();
+    await page.getByText('Still available on this current Legacy head:', { exact: false }).waitFor();
+    await page.getByText('Retained rescue-board exception:', { exact: false }).waitFor();
+    const repetition = page
+      .getByRole('region', { name: 'Candidate loss funnel' })
+      .getByRole('region', { name: 'Retrieval repetition' });
+    assert.deepEqual((await repetition.locator('strong').allTextContents()).slice(0, 4), ['7', '6', '5', '2']);
+    assert.equal(await repetition.getByText('4 occurrences · 4 unique images · +4 new images', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('3 occurrences · 2 unique images · +1 new images', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('rung 1: 1 exact', { exact: true }).isVisible(), true);
+    const overlapReceipt = repetition.locator('details').filter({ hasText: 'Exact overlap receipt' });
+    await overlapReceipt.evaluate((element: HTMLDetailsElement) => {
+      element.open = true;
+    });
+    assert.equal(await overlapReceipt.getByText('"exactImageIdentityOverlapCount": 1', { exact: false }).isVisible(), true);
+    assert.equal(await repetition.locator('button, input, select, textarea, form').count(), 0);
+
+    const rawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
+    await rawResults.evaluate((element: HTMLDetailsElement) => {
+      element.open = true;
+    });
+    const firstResult = rawResults.locator('article').first();
+    assert.equal(await firstResult.getByRole('button', { name: 'Pin for board', exact: true }).isEnabled(), true);
+    assert.equal(await firstResult.getByText('Retained annotation exception:', { exact: false }).isVisible(), true);
+    assert.equal(await firstResult.locator('details').filter({ hasText: 'Mark Misprint' }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Choose nine to save', exact: true }).isDisabled(), true);
+  }
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await assertCurrentLegacyReceipt();
+
+    await page.reload();
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await assertCurrentLegacyReceipt();
+
+    const runSelect = page.getByLabel('Audit run');
+    await runSelect.selectOption('run-1');
+    await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor();
+    await runSelect.selectOption('run-legacy');
+    await page.getByRole('heading', { name: 'Legacy audit · retained history · run-legacy', exact: true }).waitFor();
+    await runSelect.selectOption('current-legacy');
+    await assertCurrentLegacyReceipt();
+
+    assert.deepEqual(
+      auditTraffic.filter(request => request.runId).map(request => request.runId),
+      ['current-legacy', 'current-legacy', 'run-1', 'run-legacy', 'current-legacy'],
+      'refresh and history switching must use only read-only detail loads for the selected runs',
+    );
+    assert.equal(
+      auditTraffic.every(request => request.method === 'GET'),
+      true,
+      'refresh and history switching must not send an audit mutation request',
+    );
+    assert.deepEqual(auditRequests, [], 'refresh and history switching must not run or mutate an audit');
   } finally {
     await browser.close();
     await server.close();
