@@ -7331,10 +7331,18 @@ for (const {
 
     const deterministicSignalValues = [...signalValues].sort();
     const approvalIdentities = [];
-    for (const requestedSignalValues of [
+    const aggregateSnapshots = [];
+    for (const [approvalIndex, requestedSignalValues] of [
       signalValues,
       [...signalValues].reverse(),
-    ]) {
+    ].entries()) {
+      if (approvalIndex === 1) {
+        const list = store.list.bind(store);
+        store.list = async options => {
+          const listing = await list(options);
+          return { ...listing, blobs: [...listing.blobs].reverse() };
+        };
+      }
       const approvalResponse = await handler(request("POST", {
         action: "approve_rescue_calibration",
         actorId: pairActor.id,
@@ -7358,8 +7366,16 @@ for (const {
         aggregateEvidenceHash:
           approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
       });
+      aggregateSnapshots.push({
+        negativeSources: approval.calibrationProfile.negativeSources,
+        negativeClusters: approval.calibrationProfile.negativeClusters,
+        negativeCompositions: approval.calibrationProfile.negativeCompositions,
+        evidenceCount: approval.calibrationProfile.activeApproval.evidenceCount,
+        adjustment: approval.calibrationProfile.activeApproval.adjustment,
+      });
     }
     assert.deepEqual(approvalIdentities[1], approvalIdentities[0]);
+    assert.deepEqual(aggregateSnapshots[1], aggregateSnapshots[0]);
 
     await handler(request("POST", {
       action: "run", actorId: pairActor.id, vibeKey, scope: "full",
