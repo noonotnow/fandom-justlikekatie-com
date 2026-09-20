@@ -59,6 +59,7 @@ import {
   trackUpgradeStarted,
 } from './utils/analytics';
 import type { ArchiveRecordLocation, ArchiveRecordType } from './utils/analytics';
+import { PUBLIC_ROUTE_PATHS, publicRouteUrl } from '../shared/public-routes.js';
 
 /** Number of columns in the grid — used to calculate preview row insertion */
 const GRID_COLS = 3;
@@ -412,9 +413,9 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')
       ?? document.head.appendChild(document.createElement('link'));
     canonical.rel = 'canonical';
-    canonical.href = archivePage
-      ? 'https://fandom.justlikekatie.com/vibe-atlas/archive'
-      : 'https://fandom.justlikekatie.com/vibe-atlas';
+    canonical.href = publicRouteUrl(
+      archivePage ? PUBLIC_ROUTE_PATHS.vibeAtlasArchive : PUBLIC_ROUTE_PATHS.vibeAtlas,
+    );
   }, [archivePage, view]);
 
   useEffect(() => {

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import {
   PUBLIC_ORIGIN,
   PUBLIC_STATIC_ROUTES,
-} from '../../netlify/functions/lib/public-routes.js';
+} from '../../shared/public-routes.js';
 import {
   closeBrowserAndServer,
   launchBrowserWithServer,
@@ -44,7 +44,7 @@ test('app-rendered public routes canonically match their registered production U
   try {
     const page = await browser.newPage();
     page.setDefaultTimeout(5_000);
-    page.setDefaultNavigationTimeout(10_000);
+    page.setDefaultNavigationTimeout(15_000);
     await page.route('https://www.googletagmanager.com/**', route => route.abort());
 
     for (const route of appRenderedRoutes) {

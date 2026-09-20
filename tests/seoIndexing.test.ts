@@ -42,8 +42,9 @@ test('the public daily HTML remains indexable and advertises its own route', asy
 
   assert.equal(response.headers.get('x-robots-tag'), null);
   assert.match(await response.text(), /<meta name="robots" content="index,follow/);
-  assert.match(appSource, /canonical\.href = archivePage/);
-  assert.match(appSource, /https:\/\/fandom\.justlikekatie\.com\/vibe-atlas\/archive/);
+  assert.match(appSource, /canonical\.href = publicRouteUrl/);
+  assert.match(appSource, /PUBLIC_ROUTE_PATHS\.vibeAtlasArchive/);
+  assert.doesNotMatch(appSource, /https:\/\/fandom\.justlikekatie\.com\/vibe-atlas\/archive/);
 });
 
 test('Netlify applies the response rule to each SPA studio entry point', () => {
