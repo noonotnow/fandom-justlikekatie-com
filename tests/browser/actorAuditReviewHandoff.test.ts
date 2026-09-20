@@ -2671,10 +2671,16 @@ test('only the latest rapid audit-history selection can update the displayed run
   const { server, origin } = await startApp();
   const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
+  const abortedHistoryRunIds: string[] = [];
+  page.on('requestfailed', request => {
+    const url = new URL(request.url());
+    const runId = url.searchParams.get('runId');
+    if (runId && request.failure()?.errorText === 'net::ERR_ABORTED') abortedHistoryRunIds.push(runId);
+  });
   await configureNetwork(page, {
     visualReview: true,
     auditHistoryDetailDelays: {
-      'visual-review-current': [0, 300],
+      'visual-review-current': [0, 0, 300],
       'visual-review-retained': [300, 0],
       'visual-review-legacy': [0, 300],
     },
@@ -2703,6 +2709,16 @@ test('only the latest rapid audit-history selection can update the displayed run
     await page.getByText('Image-only calibration · audit visual-review-retained', { exact: true }).waitFor();
     await new Promise(resolve => setTimeout(resolve, 350));
     assert.equal(await runSelect.inputValue(), 'visual-review-retained');
+    assert.deepEqual(
+      abortedHistoryRunIds,
+      ['visual-review-retained', 'visual-review-legacy', 'visual-review-current'],
+      'each superseded Current, Retained, or Legacy detail request must be aborted',
+    );
+    assert.equal(
+      await page.getByText(/aborted|failed to fetch/i).count(),
+      0,
+      'aborted history requests must not show an operator-facing error',
+    );
   } finally {
     await browser.close();
     await server.close();
