@@ -6904,6 +6904,135 @@ test("aggregate calibration canonicalizes reordered negative class bundles", asy
   assert.deepEqual(productionProfile.positiveCandidateIds, []);
 });
 
+for (const {
+  signalFamily,
+  signalKey,
+  productionField,
+  fixtureSignalValues,
+  applyFixtureSignals,
+} of [
+  {
+    signalFamily: "sources",
+    signalKey: "sources",
+    productionField: "negativeSources",
+    fixtureSignalValues: ["negative alpha example", "negative beta example"],
+    applyFixtureSignals: (candidate, index) => {
+      candidate.source = `negative-${index ? "beta" : "alpha"}.example`;
+    },
+  },
+  {
+    signalFamily: "clusters",
+    signalKey: "clusters",
+    productionField: "negativeClusters",
+    fixtureSignalValues: ["negative alpha", "negative beta"],
+    applyFixtureSignals: (candidate, index) => {
+      candidate.promise = {
+        ...(candidate.promise || {}),
+        clusters: [{ id: `negative-${index ? "beta" : "alpha"}` }],
+      };
+    },
+  },
+  {
+    signalFamily: "composition",
+    signalKey: "composition",
+    productionField: "negativeCompositions",
+    fixtureSignalValues: ["negativealpha", "negativebeta"],
+    applyFixtureSignals: (candidate, index) => {
+      candidate.title = `negative${index ? "beta" : "alpha"}`;
+      candidate.description = "";
+    },
+  },
+]) {
+  test(`aggregate calibration canonicalizes reordered negative ${signalFamily} bundles`, async () => {
+    const curateOptions = [];
+    const { handler, store } = harness({
+      freshEvidenceOnRerun: true,
+      onCurateOptions: options => curateOptions.push(options),
+      searchResultCount: 5,
+    });
+    const vibeKey = vibeKeyFor(pairActor.id, 0);
+    let signalValues = [];
+
+    for (const runId of ["run-1", "run-2"]) {
+      await handler(request("POST", {
+        action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+      }), {});
+      const choiceResponse = await handler(request("POST", {
+        action: "blind_choice", actorId: pairActor.id, vibeKey, runId, choice: "compiled",
+      }), {});
+      const chosen = await choiceResponse.json();
+      const selectedCandidates = chosen.currentRun.rawResults.slice(-9);
+      const saveResponse = await handler(request("POST", {
+        action: "save_rescue_board",
+        actorId: pairActor.id,
+        vibeKey,
+        runId,
+        candidateIds: selectedCandidates.map(candidate => candidate.candidateId),
+      }), {});
+      const saved = await saveResponse.json();
+      assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+      const receipt = saved.currentRun.editorialFeedback.operatorRescueBoard;
+      const storedReceipt = store.records.get(
+        auditRescueBoardKey(pairActor.id, 0, runId, receipt.receiptId),
+      );
+      assert.ok(storedReceipt.calibrationBasis.omittedAlternatives.length >= 2);
+      storedReceipt.calibrationBasis.omittedAlternatives.slice(0, 2)
+        .forEach((candidate, index) => applyFixtureSignals(candidate, index));
+      signalValues = fixtureSignalValues;
+      storedReceipt.calibrationBasis.signals.reusable[signalKey].negative = runId === "run-2"
+        ? [...signalValues].reverse()
+        : [...signalValues];
+
+      const markResponse = await handler(request("POST", {
+        action: "mark_rescue_calibration",
+        actorId: pairActor.id,
+        vibeKey,
+        runId,
+        receiptId: receipt.receiptId,
+      }), {});
+      const marked = await markResponse.json();
+      assert.equal(markResponse.status, 200, JSON.stringify(marked));
+      assert.deepEqual(
+        marked.currentRun.editorialFeedback.operatorRescueBoard
+          .calibrationBasis.signals.reusable[signalKey].negative,
+        runId === "run-2" ? [...signalValues].reverse() : signalValues,
+      );
+    }
+
+    const deterministicSignalValues = [...signalValues].sort();
+    for (const requestedSignalValues of [
+      signalValues,
+      [...signalValues].reverse(),
+    ]) {
+      const approvalResponse = await handler(request("POST", {
+        action: "approve_rescue_calibration",
+        actorId: pairActor.id,
+        vibeKey,
+        adjustmentType: "class",
+        signalFamily,
+        direction: "negative",
+        signalValues: requestedSignalValues,
+      }), {});
+      const approval = await approvalResponse.json();
+      assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+      assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
+        type: "class",
+        signalFamily,
+        direction: "negative",
+        signalValues: deterministicSignalValues,
+      });
+      assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
+    }
+
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const productionProfile = curateOptions.find(options => options.calibrationProfile)
+      .calibrationProfile;
+    assert.deepEqual(productionProfile[productionField], deterministicSignalValues);
+  });
+}
+
 test("diagnostic evidence beyond the source audit display cap cannot prove transfer", async () => {
   const curateOptions = [];
   const { handler } = harness({
