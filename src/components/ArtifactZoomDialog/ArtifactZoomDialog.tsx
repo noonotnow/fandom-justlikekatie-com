@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import styles from './ArtifactZoomDialog.module.css';
 
 interface ZoomImage {
@@ -10,7 +10,7 @@ interface Props {
   title: string;
   subtitle?: string;
   images: ZoomImage[];
-  footer?: string;
+  footer?: ReactNode;
   singleImage?: boolean;
   onClose: () => void;
 }

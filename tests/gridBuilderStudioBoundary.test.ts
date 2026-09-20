@@ -8,6 +8,7 @@ import {
   proposeGrid,
 } from '../src/utils/gridBuilder';
 import {
+  historicalEditionHref,
   markGridAsLegendaryMisprint,
   normalizeGridRecord,
   type CardRecord,
@@ -80,8 +81,25 @@ test('saved grids preserve historical edition provenance without copying edition
     editionDate: '2026-09-19',
   });
   assert.deepEqual(normalizeGridRecord(record).sourceProvenance, record.sourceProvenance);
+  assert.equal(historicalEditionHref(record), '/vibe-atlas?date=2026-09-19');
   assert.equal(record.images.length, 9);
   assert.ok(record.images.every(image => image.resultId.includes('/archive-')));
+});
+
+test('older grids without valid historical provenance render without an archive link', () => {
+  const legacy = normalizeGridRecord({
+    id: 'legacy-grid',
+    sourceProvenance: undefined,
+  });
+  const malformed = normalizeGridRecord({
+    id: 'malformed-grid',
+    sourceProvenance: { kind: 'edition', editionDate: 'not-a-date' },
+  });
+
+  assert.equal(legacy.sourceProvenance, undefined);
+  assert.equal(historicalEditionHref(legacy), undefined);
+  assert.equal(malformed.sourceProvenance, undefined);
+  assert.equal(historicalEditionHref(malformed), undefined);
 });
 
 function card(actor: string, id: string, collectionScope: CardRecord['collectionScope'] = 'vibe-atlas'): CardRecord {

@@ -11,6 +11,7 @@ import {
   dbGetVisibleGrids,
   dbSaveCard,
   dbSaveGrid,
+  historicalEditionHref,
   type CardRecord,
   type GridRecord,
   type MisprintLearningScope,
@@ -970,6 +971,14 @@ export const Collection: React.FC<Props> = ({
                   </div>
                   {grid.searchSpell && <p className={styles.spell}>⌕ {grid.searchSpell}</p>}
                   {grid.vibeSubtitle && <p className={styles.subtitle}>{grid.vibeSubtitle}</p>}
+                  {historicalEditionHref(grid) && (
+                    <p className={styles.editionSource}>
+                      Historical Daily Drop ·{' '}
+                      <a href={historicalEditionHref(grid)}>
+                        {formatDate(grid.sourceProvenance!.editionDate!)}
+                      </a>
+                    </p>
+                  )}
                   <p className={styles.provenance}>
                     {grid.images.length} source results · {grid.rendererVersion}
                     {grid.legendaryMisprint || grid.intent === 'legendary-misprint'
@@ -1268,13 +1277,26 @@ export const Collection: React.FC<Props> = ({
           subtitle={`${expandedArtifact.record.vibe} · ${expandedArtifact.record.vibeEn}`}
           images={expandedArtifact.record.images.map(image => ({ src: image.imageUrl, alt: image.title }))}
           singleImage={Boolean(expandedArtifact.record.legacyCompositeUrl)}
-          footer={expandedArtifact.record.legacyCompositeUrl
-            ? 'Legacy saved share card'
-            : `${expandedArtifact.record.images.length} source results · ${expandedArtifact.record.editorial
-              ? `${expandedArtifact.record.editorial.mode === 'event' ? 'Event' : 'Compiled'} · ${expandedArtifact.record.editorial.arrangement === 'creator-arranged' ? 'creator-arranged' : 'automatic'} · `
-              : ''}${expandedArtifact.record.rendererVersion}${expandedArtifact.record.legendaryMisprint || expandedArtifact.record.intent === 'legendary-misprint'
-              ? ` · Intentional Legendary Misprint · unexpected ${expandedArtifact.record.legendaryMisprint?.unexpectedActor.name || expandedArtifact.record.misprintMetadata?.unexpectedImageIdentities.join(', ') || 'identity recorded in provenance'}`
-              : ''}`}
+          footer={(() => {
+            const grid = expandedArtifact.record;
+            const editionHref = historicalEditionHref(grid);
+            const details = grid.legacyCompositeUrl
+              ? 'Legacy saved share card'
+              : `${grid.images.length} source results · ${grid.editorial
+                ? `${grid.editorial.mode === 'event' ? 'Event' : 'Compiled'} · ${grid.editorial.arrangement === 'creator-arranged' ? 'creator-arranged' : 'automatic'} · `
+                : ''}${grid.rendererVersion}${grid.legendaryMisprint || grid.intent === 'legendary-misprint'
+                ? ` · Intentional Legendary Misprint · unexpected ${grid.legendaryMisprint?.unexpectedActor.name || grid.misprintMetadata?.unexpectedImageIdentities.join(', ') || 'identity recorded in provenance'}`
+                : ''}`;
+            return editionHref ? (
+              <>
+                <span>{details}</span>
+                <span className={styles.zoomEditionSource}>
+                  Historical Daily Drop ·{' '}
+                  <a href={editionHref}>{formatDate(grid.sourceProvenance!.editionDate!)}</a>
+                </span>
+              </>
+            ) : details;
+          })()}
           onClose={() => setExpandedArtifact(null)}
         />
       )}

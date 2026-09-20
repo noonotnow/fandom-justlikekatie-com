@@ -232,6 +232,16 @@ export interface GridRecord {
   };
 }
 
+export function historicalEditionHref(grid: Pick<GridRecord, 'sourceProvenance'>): string | undefined {
+  const provenance = grid.sourceProvenance;
+  if (
+    provenance?.kind !== 'edition'
+    || !provenance.editionDate
+    || !/^\d{4}-\d{2}-\d{2}$/u.test(provenance.editionDate)
+  ) return undefined;
+  return `/vibe-atlas?date=${encodeURIComponent(provenance.editionDate)}`;
+}
+
 export function markGridAsLegendaryMisprint(
   grid: GridRecord,
   now = new Date(),
@@ -971,7 +981,10 @@ export function normalizeGridRecord(grid: Partial<GridRecord>): GridRecord {
   const normalizedSourceProvenance = sourceProvenance
     && ['collection', 'daily', 'edition'].includes(sourceProvenance.kind)
     && (sourceProvenance.kind !== 'edition'
-      || typeof sourceProvenance.editionDate === 'string')
+      || (
+        typeof sourceProvenance.editionDate === 'string'
+        && /^\d{4}-\d{2}-\d{2}$/u.test(sourceProvenance.editionDate)
+      ))
     ? {
       kind: sourceProvenance.kind,
       ...(sourceProvenance.editionDate ? { editionDate: sourceProvenance.editionDate } : {}),

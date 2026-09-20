@@ -206,6 +206,17 @@
   white-space: nowrap;
 }
 .subtitle { max-width: 65ch; margin: 16px 0 0; color: color-mix(in srgb, currentColor 72%, transparent); line-height: 1.55; }
+.editionSource {
+  margin: 16px 0 0;
+  color: color-mix(in srgb, currentColor 68%, transparent);
+  font-size: .78rem;
+  font-weight: 650;
+}
+.editionSource a, .zoomEditionSource a {
+  color: #9b762e;
+  text-underline-offset: 3px;
+}
+.zoomEditionSource { display: block; margin-top: 6px; }
 .provenance { margin: 16px 0 0; color: color-mix(in srgb, currentColor 50%, transparent); font-size: .72rem; }
 .mediaRecovery {
   display: grid;
