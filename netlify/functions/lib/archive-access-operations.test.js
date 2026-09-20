@@ -214,6 +214,43 @@ test("retention matches Netlify Blobs paginated listing and repeated deletion co
   ));
 });
 
+test("archive health matches Netlify Blobs strong JSON read contract", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "archive-access-health-blobs-"));
+  const server = new BlobsServer({ directory });
+  const { address } = await server.start();
+  t.after(async () => {
+    await server.stop();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const data = getStore({
+    edgeURL: address,
+    uncachedEdgeURL: address,
+    name: "archive-access-health-contract",
+    siteID: "test-site",
+    token: "test-token",
+  });
+  const now = new Date("2026-09-20T12:30:00.000Z");
+  await data.setJSON(
+    `archive-access:hour:${now.toISOString().slice(0, 13)}:${now.getTime()}:current`,
+    { timestamp: now.toISOString(), outcome: "allowed", authenticated: true },
+  );
+
+  const health = await archiveAccessHealth(data, now);
+
+  assert.equal(health.totals.allowed, 1);
+  assert.equal(health.recentHour.authenticated_checks, 1);
+  assert.deepEqual(health.buckets, [{
+    hour: "2026-09-20T12",
+    counts: {
+      sign_in: 0,
+      upgrade: 0,
+      billing_delay: 0,
+      allowed: 1,
+      authenticated_checks: 1,
+    },
+  }]);
+});
+
 test("cleanup failures do not fail or distort the rolling report", async () => {
   const data = paginatedStore(2);
   const now = new Date("2026-09-20T12:30:00.000Z");
