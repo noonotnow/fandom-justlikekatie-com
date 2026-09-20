@@ -565,6 +565,64 @@ test("scheduled archive health runs hourly through shared transitions and isolat
   assert.equal(await storageFailure.text(), "");
 });
 
+test("scheduled archive health uses the production Netlify blob context safely", async () => {
+  const data = store();
+  const storeNames = [];
+  const handler = createArchiveAccessHealthScheduledHandler({
+    getHealth: async actualStore => {
+      assert.equal(actualStore, data);
+      return { status: { billing: "normal", deniedAccess: "normal" } };
+    },
+    notifyTransitions: async () => {},
+  });
+  const context = {
+    blobs: {
+      getStore(name) {
+        storeNames.push(name);
+        return data;
+      },
+    },
+  };
+
+  const response = await handler(new Request("https://example.test/scheduled"), context);
+
+  assert.deepEqual(storeNames, ["archive-access-operations"]);
+  assert.equal(response.status, 204);
+  assert.equal(await response.text(), "");
+
+  const errors = [];
+  const missingContextHandler = createArchiveAccessHealthScheduledHandler({
+    getHealth: async () => {
+      throw new Error("private storage configuration details");
+    },
+    logger: { error: (...args) => errors.push(args) },
+  });
+  const malformedContextHandler = createArchiveAccessHealthScheduledHandler({
+    logger: { error: (...args) => errors.push(args) },
+  });
+
+  const missingContextResponse = await missingContextHandler(
+    new Request("https://example.test/scheduled"),
+    {},
+  );
+  const malformedContextResponse = await malformedContextHandler(
+    new Request("https://example.test/scheduled"),
+    {
+      blobs: {
+        getStore() {
+          throw new Error("private malformed blob context details");
+        },
+      },
+    },
+  );
+
+  for (const failureResponse of [missingContextResponse, malformedContextResponse]) {
+    assert.equal(failureResponse.status, 204);
+    assert.equal(await failureResponse.text(), "");
+  }
+  assert.equal(errors.length, 2);
+});
+
 test("notification email contains aggregate operations data only", async () => {
   let request;
   await sendArchiveAccessNotification({
