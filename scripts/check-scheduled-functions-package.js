@@ -5,6 +5,7 @@ export const EXPECTED_SCHEDULED_FUNCTIONS = new Map([
   ["archive-access-health-scheduled", "@hourly"],
   ["archive-access-retention", "@daily"],
   ["prune-rate-limits", "@hourly"],
+  ["receipt-index-health-scheduled", "@hourly"],
 ]);
 
 export function validateScheduledFunctionsManifest(manifest) {

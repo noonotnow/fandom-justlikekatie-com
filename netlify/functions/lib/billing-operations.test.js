@@ -3,8 +3,37 @@ import assert from "node:assert/strict";
 import {
   createBillingOperationsHandler,
   createReceiptIndexHealthCheck,
+  notifyReceiptIndexTransition,
   PROCESSED_RECEIPT_RETENTION_INDEX,
+  RECEIPT_INDEX_NOTIFICATION_STATE_KEY,
+  sendReceiptIndexNotification,
 } from "./billing-operations.js";
+import {
+  config as receiptIndexSchedule,
+  createReceiptIndexHealthScheduledHandler,
+} from "../receipt-index-health-scheduled.js";
+
+function notificationStore() {
+  const values = new Map();
+  let version = 0;
+  return {
+    values,
+    async getWithMetadata(key) {
+      return values.has(key)
+        ? { data: structuredClone(values.get(key)), etag: String(version) }
+        : null;
+    },
+    async setJSON(key, value, options = {}) {
+      if (options.onlyIfNew && values.has(key)) return { modified: false };
+      if (options.onlyIfMatch && options.onlyIfMatch !== String(version)) {
+        return { modified: false };
+      }
+      values.set(key, structuredClone(value));
+      version += 1;
+      return { modified: true };
+    },
+  };
+}
 
 test("billing operations is admin-only", async () => {
   const handler = createBillingOperationsHandler({
@@ -129,6 +158,131 @@ test("receipt index health reads pg_index without reading billing data", async (
     assert.doesNotMatch(statement, /FROM public\.fandom_billing_events(?:\s|$)/);
     assert.deepEqual(parameters, [PROCESSED_RECEIPT_RETENTION_INDEX]);
   }
+});
+
+test("receipt index notifications are transition-bounded and represent recovery", async () => {
+  const store = notificationStore();
+  const notifications = [];
+  const notify = async payload => notifications.push(payload);
+  const times = [
+    "2026-09-20T12:00:00.000Z",
+    "2026-09-20T13:00:00.000Z",
+    "2026-09-20T14:00:00.000Z",
+    "2026-09-20T15:00:00.000Z",
+    "2026-09-20T16:00:00.000Z",
+  ];
+
+  await notifyReceiptIndexTransition({
+    store, health: { status: "release_ready" }, notify, now: new Date(times[0]),
+  });
+  await notifyReceiptIndexTransition({
+    store, health: { status: "invalid" }, notify, now: new Date(times[1]),
+  });
+  await notifyReceiptIndexTransition({
+    store, health: { status: "invalid" }, notify, now: new Date(times[2]),
+  });
+  await notifyReceiptIndexTransition({
+    store, health: { status: "missing" }, notify, now: new Date(times[3]),
+  });
+  await notifyReceiptIndexTransition({
+    store, health: { status: "release_ready" }, notify, now: new Date(times[4]),
+  });
+
+  assert.deepEqual(notifications, [
+    { kind: "incident", status: "invalid", observedAt: times[1] },
+    { kind: "resolved", status: "release_ready", observedAt: times[4] },
+  ]);
+  assert.equal(store.values.get(RECEIPT_INDEX_NOTIFICATION_STATE_KEY).status, "release_ready");
+});
+
+test("an initially unhealthy receipt index establishes a baseline without alerting", async () => {
+  const store = notificationStore();
+  const notifications = [];
+  await notifyReceiptIndexTransition({
+    store,
+    health: { status: "not_ready" },
+    notify: async payload => notifications.push(payload),
+    now: new Date("2026-09-20T12:00:00.000Z"),
+  });
+  assert.deepEqual(notifications, []);
+  assert.equal(store.values.get(RECEIPT_INDEX_NOTIFICATION_STATE_KEY).status, "not_ready");
+});
+
+test("failed receipt index delivery remains retryable without storing failure details", async () => {
+  const store = notificationStore();
+  await notifyReceiptIndexTransition({
+    store,
+    health: { status: "release_ready" },
+    notify: async () => {},
+    now: new Date("2026-09-20T12:00:00.000Z"),
+  });
+  await assert.rejects(notifyReceiptIndexTransition({
+    store,
+    health: { status: "missing" },
+    notify: async () => { throw new Error("private provider failure"); },
+    now: new Date("2026-09-20T13:00:00.000Z"),
+  }));
+  assert.equal(store.values.get(RECEIPT_INDEX_NOTIFICATION_STATE_KEY).status, "release_ready");
+  assert.doesNotMatch(
+    JSON.stringify(store.values.get(RECEIPT_INDEX_NOTIFICATION_STATE_KEY)),
+    /private provider failure/,
+  );
+});
+
+test("scheduled receipt index health runs hourly and isolates private failures", async () => {
+  assert.deepEqual(receiptIndexSchedule, { schedule: "@hourly" });
+  const calls = [];
+  const errors = [];
+  const context = { requestId: "receipt-index-check" };
+  const handler = createReceiptIndexHealthScheduledHandler({
+    getStore: actual => {
+      calls.push(["store", actual]);
+      return notificationStore();
+    },
+    getHealth: async actual => {
+      calls.push(["health", actual]);
+      return { status: "release_ready", releaseReady: true };
+    },
+    notifyTransition: async options => calls.push(["transition", options.health]),
+    now: () => new Date("2026-09-20T12:00:00.000Z"),
+    logger: { error: (...args) => errors.push(args) },
+  });
+  const response = await handler(new Request("https://example.test/scheduled"), context);
+  assert.equal(response.status, 204);
+  assert.deepEqual(calls.slice(0, 2), [["store", context], ["health", context]]);
+  assert.deepEqual(calls[2], ["transition", { status: "release_ready", releaseReady: true }]);
+
+  const failure = createReceiptIndexHealthScheduledHandler({
+    getHealth: async () => { throw new Error("private database details"); },
+    logger: { error: (...args) => errors.push(args) },
+  });
+  assert.equal((await failure(new Request("https://example.test/scheduled"), {})).status, 204);
+  assert.equal(errors.length, 1);
+});
+
+test("receipt index email contains only bounded readiness data", async () => {
+  let request;
+  await sendReceiptIndexNotification({
+    payload: {
+      kind: "incident",
+      status: "invalid",
+      observedAt: "2026-09-20T12:00:00.000Z",
+      account: "must not pass",
+    },
+    env: {
+      FANDOM_ADMIN_EMAILS: "operator@example.test",
+      FANDOM_AUTH_FROM_EMAIL: "Fandom <ops@example.test>",
+      RESEND_API_KEY: "test-key",
+    },
+    fetchImpl: async (url, options) => {
+      request = { url, options };
+      return { ok: true };
+    },
+  });
+  const body = JSON.parse(request.options.body);
+  assert.equal(request.url, "https://api.resend.com/emails");
+  assert.match(body.subject, /processed-receipt retention index is invalid/);
+  assert.doesNotMatch(JSON.stringify(body), /must not pass|account|billing event|customer/i);
 });
 
 test("billing operations resolution is admin-only", async () => {
