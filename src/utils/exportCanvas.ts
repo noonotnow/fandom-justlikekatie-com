@@ -271,6 +271,92 @@ function legacySourceCreditLines(
   ];
 }
 
+type LegacyFooterVariant = 'portrait' | 'teaser';
+
+interface LegacyFooterLayout {
+  zoneHeight: number;
+  sourceTop: number;
+  sourceFont: string;
+  sourceLineHeight: number;
+  brandBottom: number;
+  brandFont: string;
+  editionBottom: number;
+  editionFont: string;
+  microCopyBottom: number;
+  microCopyFont: string;
+}
+
+const LEGACY_FOOTER_LAYOUTS: Record<LegacyFooterVariant, LegacyFooterLayout> = {
+  portrait: {
+    zoneHeight: 190,
+    sourceTop: 30,
+    sourceFont: '400 18px "Inter", "Noto Sans SC", sans-serif',
+    sourceLineHeight: 22,
+    brandBottom: 96,
+    brandFont: '600 20px "Inter", "Noto Sans SC", sans-serif',
+    editionBottom: 68,
+    editionFont: '400 17px "Inter", "Noto Sans SC", sans-serif',
+    microCopyBottom: 40,
+    microCopyFont: '400 15px "Inter", "Noto Sans SC", sans-serif',
+  },
+  teaser: {
+    zoneHeight: 170,
+    sourceTop: 28,
+    sourceFont: '400 17px "Inter", "Noto Sans SC", sans-serif',
+    sourceLineHeight: 21,
+    brandBottom: 84,
+    brandFont: '600 18px "Inter", "Noto Sans SC", sans-serif',
+    editionBottom: 60,
+    editionFont: '400 15px "Inter", "Noto Sans SC", sans-serif',
+    microCopyBottom: 34,
+    microCopyFont: '400 14px "Inter", "Noto Sans SC", sans-serif',
+  },
+};
+
+function drawLegacyFooter(
+  ctx: CanvasRenderingContext2D,
+  variant: LegacyFooterVariant,
+  canvasHeight: number,
+  contentWidth: number,
+  centerX: number,
+  sourceNames: string[],
+  editionDetail: string,
+  microCopy: string,
+  colors: ExportCardColors,
+): void {
+  const layout = LEGACY_FOOTER_LAYOUTS[variant];
+  const footerTop = canvasHeight - layout.zoneHeight;
+
+  if (sourceNames.length) {
+    ctx.font = layout.sourceFont;
+    ctx.fillStyle = colors.textDarker;
+    const sourceLines = legacySourceCreditLines(ctx, sourceNames, contentWidth);
+    sourceLines.forEach((line, index) => {
+      ctx.fillText(line, centerX, footerTop + layout.sourceTop + index * layout.sourceLineHeight);
+    });
+  }
+
+  ctx.font = layout.brandFont;
+  ctx.fillStyle = colors.gold;
+  ctx.fillText('🔮 Vibe Guide · 氛围图鉴 · fandom.justlikekatie.com', centerX, canvasHeight - layout.brandBottom);
+
+  ctx.font = layout.editionFont;
+  ctx.fillStyle = colors.textDim;
+  ctx.fillText(
+    truncateCanvasText(ctx, editionDetail, contentWidth),
+    centerX,
+    canvasHeight - layout.editionBottom,
+  );
+
+  ctx.font = layout.microCopyFont;
+  ctx.fillStyle = hexToRgba(colors.textDarker, 0.85);
+  ctx.fillText(
+    truncateCanvasText(ctx, microCopy, contentWidth),
+    centerX,
+    canvasHeight - layout.microCopyBottom,
+  );
+}
+
 function drawLetterSpacedText(
   ctx: CanvasRenderingContext2D,
   text: string, cx: number, y: number, spacing: number,
@@ -676,7 +762,7 @@ async function renderFullExportCanvas(payload: ExportPayload): Promise<HTMLCanva
   }
 
   // 7. Standard 3×3 or bounded Event 4×3 image composition
-  const footerZoneH = 190;
+  const footerZoneH = LEGACY_FOOTER_LAYOUTS.portrait.zoneHeight;
   const gridTop = y + 36;
   const gridBottom = EXPORT_CARD_H - footerZoneH;
   const gridGap = 12;
@@ -711,28 +797,10 @@ async function renderFullExportCanvas(payload: ExportPayload): Promise<HTMLCanva
   results.forEach((r) => {
     if (r.source && !sourceNames.includes(r.source)) sourceNames.push(r.source);
   });
-  const sourcesLineY = EXPORT_CARD_H - footerZoneH + 30;
-  if (sourceNames.length) {
-    ctx.font = '400 18px "Inter", "Noto Sans SC", sans-serif';
-    ctx.fillStyle = colors.textDarker;
-    const sourceLines = legacySourceCreditLines(ctx, sourceNames, contentW);
-    sourceLines.forEach((line, index) => {
-      ctx.fillText(line, cx, sourcesLineY + index * 22);
-    });
-  }
-
-  // 9. Footer stack
-  ctx.font = '600 20px "Inter", "Noto Sans SC", sans-serif';
-  ctx.fillStyle = colors.gold;
-  ctx.fillText('🔮 Vibe Guide · 氛围图鉴 · fandom.justlikekatie.com', cx, EXPORT_CARD_H - 96);
-
-  ctx.font = '400 17px "Inter", "Noto Sans SC", sans-serif';
-  ctx.fillStyle = colors.textDim;
-  ctx.fillText(truncateCanvasText(ctx, editionStamp.text, contentW), cx, EXPORT_CARD_H - 68);
-
-  ctx.font = '400 15px "Inter", "Noto Sans SC", sans-serif';
-  ctx.fillStyle = hexToRgba(colors.textDarker, 0.85);
-  ctx.fillText(microCopy, cx, EXPORT_CARD_H - 40);
+  drawLegacyFooter(
+    ctx, 'portrait', EXPORT_CARD_H, contentW, cx,
+    sourceNames, editionStamp.text, microCopy, colors,
+  );
 
   // 10. Tier badge overlay
   await compositeBadge(canvas, ctx, payload.badgeTier || tier);
@@ -823,7 +891,7 @@ async function renderTeaserExportCanvas(payload: ExportPayload): Promise<HTMLCan
   }
 
   // 5. Image grid (2×3 or 2×2)
-  const footerZoneH = 170;
+  const footerZoneH = LEGACY_FOOTER_LAYOUTS.teaser.zoneHeight;
   const gridTop = y + 34;
   const gridBottom = EXPORT_TEASER_H - footerZoneH;
   const gridGap = 12;
@@ -858,28 +926,10 @@ async function renderTeaserExportCanvas(payload: ExportPayload): Promise<HTMLCan
   results.forEach((r) => {
     if (r.source && !sourceNames.includes(r.source)) sourceNames.push(r.source);
   });
-  const sourcesLineY = EXPORT_TEASER_H - footerZoneH + 28;
-  if (sourceNames.length) {
-    ctx.font = '400 17px "Inter", "Noto Sans SC", sans-serif';
-    ctx.fillStyle = colors.textDarker;
-    const sourceLines = legacySourceCreditLines(ctx, sourceNames, contentW);
-    sourceLines.forEach((line, index) => {
-      ctx.fillText(line, cx, sourcesLineY + index * 21);
-    });
-  }
-
-  // 7. Footer stack
-  ctx.font = '600 18px "Inter", "Noto Sans SC", sans-serif';
-  ctx.fillStyle = colors.gold;
-  ctx.fillText('🔮 Vibe Guide · 氛围图鉴 · fandom.justlikekatie.com', cx, EXPORT_TEASER_H - 84);
-
-  ctx.font = '400 15px "Inter", "Noto Sans SC", sans-serif';
-  ctx.fillStyle = colors.textDim;
-  ctx.fillText(truncateCanvasText(ctx, editionStamp.text, contentW), cx, EXPORT_TEASER_H - 60);
-
-  ctx.font = '400 14px "Inter", "Noto Sans SC", sans-serif';
-  ctx.fillStyle = hexToRgba(colors.textDarker, 0.85);
-  ctx.fillText(microCopy, cx, EXPORT_TEASER_H - 34);
+  drawLegacyFooter(
+    ctx, 'teaser', EXPORT_TEASER_H, contentW, cx,
+    sourceNames, editionStamp.text, microCopy, colors,
+  );
 
   // 8. Tier badge overlay
   await compositeBadge(canvas, ctx, payload.badgeTier || tier);
