@@ -13,6 +13,10 @@ const exportCanvasSource = readFileSync(
   path.join(__dirname, '../src/utils/exportCanvas.ts'),
   'utf8',
 );
+const collectionSource = readFileSync(
+  path.join(__dirname, '../src/components/Collection/Collection.tsx'),
+  'utf8',
+);
 
 test('prepareShareCard exists and returns objectUrl', () => {
   assert.match(
@@ -102,6 +106,24 @@ test('RedNote handoff UI provides the two required steps and download', () => {
     builderSource,
     /action === 'download_raw'/,
     'GridBuilder must support direct download of the raw grid'
+  );
+});
+
+test('saved Collection Grids expose the publishing handoff directly', () => {
+  assert.match(
+    collectionSource,
+    /<GridPublishingHandoff grid=\{grid\}/,
+    'each saved grid must render its own publishing handoff',
+  );
+  assert.match(
+    collectionSource,
+    /Handoff for Publishing/,
+    'the saved-grid action must use the publishing handoff label',
+  );
+  assert.match(
+    collectionSource,
+    /prepareShareCard\(starData,\s*'raw'/,
+    'the saved-grid handoff must prepare the unchanged raw grid',
   );
 });
 
