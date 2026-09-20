@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
+import { PUBLIC_STATIC_ROUTES, staticSitemapXml } from "../netlify/functions/lib/public-routes.js";
 
 const scriptFile = fileURLToPath(import.meta.url);
 const root = resolve(dirname(scriptFile), "..");
@@ -39,32 +40,15 @@ const journalRanges = [
   url: `/c-drama-fandom/watch-journal/episodes-${start}-${end}/`,
 }));
 
-export const REQUIRED_PUBLIC_PAGES = [
-  "public/c-drama-fandom/index.html",
-  "public/c-drama-fandom/getting-started/index.html",
-  "public/c-drama-fandom/glossary/index.html",
-  "public/c-drama-fandom/glossary/cp/index.html",
-  "public/c-drama-fandom/glossary/cultivation/index.html",
-  "public/c-drama-fandom/glossary/xianxia/index.html",
-  "public/c-drama-fandom/glossary/jianghu/index.html",
-  "public/c-drama-fandom/glossary/wuxia/index.html",
-  "public/c-drama-fandom/glossary/wuxia-vs-xianxia-vs-xuanhuan/index.html",
-  "public/c-drama-fandom/glossary/historical-vs-costume-drama/index.html",
-  "public/c-drama-fandom/glossary/duanju-microdrama-vertical-drama/index.html",
-  "public/c-drama-fandom/archetypes/index.html",
-  "public/c-drama-fandom/archetypes/cold-male-lead-vs-tsundere/index.html",
-  "public/c-drama-fandom/archetypes/black-bellied-vs-white-cut-black/index.html",
-  "public/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole/index.html",
-  "public/c-drama-fandom/trope-decoder/index.html",
-  "public/c-drama-fandom/fandom-games/index.html",
-];
+export const REQUIRED_PUBLIC_PAGES = PUBLIC_STATIC_ROUTES
+  .filter(({ group }) => group === "editorial")
+  .map(({ page }) => page);
 
 export const TROPE_DECODER_SHARE_EVENT = "decoder_share_succeeded";
 
-export const WATCH_JOURNAL_PUBLIC_PAGES = [
-  "public/c-drama-fandom/watch-journal/index.html",
-  ...journalRanges.map((range) => range.path),
-];
+export const WATCH_JOURNAL_PUBLIC_PAGES = PUBLIC_STATIC_ROUTES
+  .filter(({ group }) => group === "journal")
+  .map(({ page }) => page);
 
 function loadLg01Outcomes() {
   const script = readFileSync(gameScript, "utf8");
@@ -515,6 +499,7 @@ export async function preparePublicPages() {
         : {},
     ));
   }
+  writeFileSync(resolve(root, "public/sitemap.xml"), staticSitemapXml());
 
   mkdirSync(outputDir, { recursive: true });
   const template = readFileSync(gamePage, "utf8");

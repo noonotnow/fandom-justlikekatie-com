@@ -13,6 +13,9 @@ import {
   TROPE_DECODER_SHARE_EVENT,
   WATCH_JOURNAL_PUBLIC_PAGES,
 } from "./generate-public-pages.js";
+import { PUBLIC_ORIGIN, PUBLIC_STATIC_ROUTES } from "../netlify/functions/lib/public-routes.js";
+import { createPublicSitemapHandler } from "../netlify/functions/public-sitemap.js";
+import { manifestStore, publicManifest } from "../netlify/functions/public-test-fixture.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -143,6 +146,26 @@ test("robots and sitemap expose only intended public surfaces", () => {
       netlify,
       new RegExp(`from = "/c-drama-fandom/${slug}"[\\s\\S]*?to = "/c-drama-fandom/${slug}/index\\.html"`),
     );
+  }
+});
+
+test("generated and production sitemaps preserve every crawlable static route", async () => {
+  const staticUrls = new XMLParser({ ignoreAttributes: true })
+    .parse(read("public/sitemap.xml"))
+    .urlset.url.map(({ loc }) => loc);
+  const handler = createPublicSitemapHandler({
+    getStore: () => manifestStore([publicManifest()]),
+  });
+  const result = await handler(new Request(`${PUBLIC_ORIGIN}/sitemap.xml`), {});
+  assert.equal(result.statusCode, 200);
+
+  for (const { path } of PUBLIC_STATIC_ROUTES) {
+    const url = `${PUBLIC_ORIGIN}${path}`;
+    assert.equal(staticUrls.filter((entry) => entry === url).length, 1, `${url} must appear once in the generated sitemap`);
+    assert.equal(result.body.split(`<loc>${url}</loc>`).length - 1, 1, `${url} must appear once in the production sitemap`);
+  }
+  for (const url of staticUrls) {
+    assert.doesNotMatch(url, /\?|\/(?:api|auth)\//);
   }
 });
 
