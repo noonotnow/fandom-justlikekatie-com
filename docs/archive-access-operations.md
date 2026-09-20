@@ -28,6 +28,13 @@ It contains no account, customer, session, request, URL, edition, or error
 identifier. Billing lookup exceptions are grouped with `billing_delay`;
 exception messages and identities are not retained.
 
+Immutable access-check records are retained for seven days, which covers the
+24-hour operational report and short incident review. Opening the admin report
+also runs an idempotent, paginated cleanup: records older than seven days are
+deleted after the rolling report is calculated. The exact seven-day boundary is
+retained. Cleanup failures do not fail or change the report, and cleanup never
+runs in the member archive-access request path.
+
 The denominator for both incident rates is authenticated server access checks.
 Anonymous previews and sign-in gates remain visible as funnel volume but cannot
 trigger an alert.

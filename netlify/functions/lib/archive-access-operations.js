@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 
 const BUCKET_PREFIX = "archive-access:hour:";
 const OUTCOMES = new Set(["sign_in", "upgrade", "billing_delay", "allowed"]);
+export const ARCHIVE_ACCESS_RETENTION_DAYS = 7;
+const RETENTION_MS = ARCHIVE_ACCESS_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+const DELETE_BATCH_SIZE = 100;
 
 export function archiveAccessBucketKey(date) {
   return `${BUCKET_PREFIX}${date.toISOString().slice(0, 13)}`;
@@ -23,9 +26,10 @@ export async function recordArchiveAccessCheck(store, event, date = new Date()) 
 
 export async function archiveAccessHealth(store, date = new Date(), hours = 24) {
   const cutoff = date.getTime() - hours * 60 * 60 * 1000;
-  const blobs = await listAllBlobs(store);
-  const records = (await Promise.all(blobs.map(blob =>
-    store.get(blob.key, { type: "json", consistency: "strong" }))))
+  const retentionCutoff = date.getTime() - RETENTION_MS;
+  const { reportKeys, expiredKeys } = await classifyBlobKeys(store, cutoff, retentionCutoff);
+  const records = (await Promise.all(reportKeys.map(key =>
+    store.get(key, { type: "json", consistency: "strong" }))))
     .filter(record =>
       OUTCOMES.has(record?.outcome)
       && Number.isFinite(Date.parse(record?.timestamp))
@@ -69,7 +73,7 @@ export async function archiveAccessHealth(store, date = new Date(), hours = 24) 
     : recentTotals.upgrade >= 10 && denialRate >= 0.4
       ? "warning"
       : "normal";
-  return {
+  const report = {
     generatedAt: date.toISOString(),
     windowHours: hours,
     totals,
@@ -92,6 +96,8 @@ export async function archiveAccessHealth(store, date = new Date(), hours = 24) 
     },
     buckets,
   };
+  await deleteExpiredBlobs(store, expiredKeys);
+  return report;
 }
 
 function trailingHoursWith(buckets, outcome) {
@@ -107,14 +113,37 @@ function trailingHoursWith(buckets, outcome) {
   return count;
 }
 
-async function listAllBlobs(store) {
+async function classifyBlobKeys(store, reportCutoff, retentionCutoff) {
+  const reportKeys = [];
+  const expiredKeys = [];
+  const classify = blob => {
+    const timestamp = archiveAccessKeyTimestamp(blob?.key);
+    if (timestamp !== null && timestamp < retentionCutoff) expiredKeys.push(blob.key);
+    else if (timestamp === null || timestamp >= reportCutoff) reportKeys.push(blob.key);
+  };
   const listing = store.list({ prefix: BUCKET_PREFIX, paginate: true });
   if (listing && typeof listing[Symbol.asyncIterator] === "function") {
-    const blobs = [];
-    for await (const page of listing) blobs.push(...(page.blobs || []));
-    return blobs;
+    for await (const page of listing) {
+      for (const blob of page.blobs || []) classify(blob);
+    }
+  } else {
+    for (const blob of (await listing)?.blobs || []) classify(blob);
   }
-  return (await listing)?.blobs || [];
+  return { reportKeys, expiredKeys };
+}
+
+function archiveAccessKeyTimestamp(key) {
+  if (typeof key !== "string" || !key.startsWith(BUCKET_PREFIX)) return null;
+  const remainder = key.slice(BUCKET_PREFIX.length);
+  const timestamp = Number(remainder.slice(remainder.indexOf(":") + 1, remainder.lastIndexOf(":")));
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+async function deleteExpiredBlobs(store, keys) {
+  if (typeof store?.delete !== "function") return;
+  for (let index = 0; index < keys.length; index += DELETE_BATCH_SIZE) {
+    await Promise.allSettled(keys.slice(index, index + DELETE_BATCH_SIZE).map(key => store.delete(key)));
+  }
 }
 
 export function createArchiveAccessOperationsHandler({

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  ARCHIVE_ACCESS_RETENTION_DAYS,
   archiveAccessHealth,
   createArchiveAccessOperationsHandler,
   recordArchiveAccessCheck,
@@ -9,12 +10,29 @@ import {
 function store() {
   const values = new Map();
   return {
+    values,
     async get(key) { return structuredClone(values.get(key) ?? null); },
     async setJSON(key, value) { values.set(key, structuredClone(value)); },
+    async delete(key) { values.delete(key); },
     async list({ prefix }) {
       return { blobs: [...values.keys()].filter(key => key.startsWith(prefix)).map(key => ({ key })) };
     },
   };
+}
+
+function paginatedStore(pageSize = 100) {
+  const data = store();
+  data.list = ({ prefix }) => ({
+    async *[Symbol.asyncIterator]() {
+      const blobs = [...data.values.keys()]
+        .filter(key => key.startsWith(prefix))
+        .map(key => ({ key }));
+      for (let index = 0; index < blobs.length; index += pageSize) {
+        yield { blobs: blobs.slice(index, index + pageSize) };
+      }
+    },
+  });
+  return data;
 }
 
 test("archive health separates anonymous gates from billing and denial incidents", async () => {
@@ -105,4 +123,53 @@ test("recent-hour alerts recover after the failed checks leave the trailing wind
   assert.equal(health.recentHour.billing_delay, 0);
   assert.equal(health.recentHour.authenticated_checks, 10);
   assert.equal(health.status.billing, "normal");
+});
+
+test("retention cleanup paginates high-volume records without changing the rolling report", async () => {
+  const data = paginatedStore(37);
+  const now = new Date("2026-09-20T12:30:00.000Z");
+  const expired = new Date(now.getTime() - (ARCHIVE_ACCESS_RETENTION_DAYS * 24 + 1) * 60 * 60 * 1000);
+  for (let index = 0; index < 1_250; index += 1) {
+    await recordArchiveAccessCheck(data, { outcome: "allowed", authenticated: true }, expired);
+  }
+  for (let index = 0; index < 25; index += 1) {
+    await recordArchiveAccessCheck(data, { outcome: "allowed", authenticated: true }, now);
+  }
+
+  const health = await archiveAccessHealth(data, now);
+
+  assert.equal(health.totals.allowed, 25);
+  assert.equal(data.values.size, 25);
+});
+
+test("retention keeps the exact boundary and cleanup is idempotent", async () => {
+  const data = paginatedStore(1);
+  const now = new Date("2026-09-20T12:30:00.000Z");
+  const boundary = new Date(now.getTime() - ARCHIVE_ACCESS_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const expired = new Date(boundary.getTime() - 1);
+  await recordArchiveAccessCheck(data, { outcome: "allowed", authenticated: true }, boundary);
+  await recordArchiveAccessCheck(data, { outcome: "allowed", authenticated: true }, expired);
+
+  await archiveAccessHealth(data, now);
+  await archiveAccessHealth(data, now);
+
+  assert.equal(data.values.size, 1);
+  assert.equal([...data.values.values()][0].timestamp, boundary.toISOString());
+});
+
+test("cleanup failures do not fail or distort the rolling report", async () => {
+  const data = paginatedStore(2);
+  const now = new Date("2026-09-20T12:30:00.000Z");
+  await recordArchiveAccessCheck(
+    data,
+    { outcome: "allowed", authenticated: true },
+    new Date(now.getTime() - (ARCHIVE_ACCESS_RETENTION_DAYS + 1) * 24 * 60 * 60 * 1000),
+  );
+  await recordArchiveAccessCheck(data, { outcome: "billing_delay", authenticated: true }, now);
+  data.delete = async () => { throw new Error("temporary delete failure"); };
+
+  const health = await archiveAccessHealth(data, now);
+
+  assert.equal(health.totals.billing_delay, 1);
+  assert.equal(health.recentHour.authenticated_checks, 1);
 });
