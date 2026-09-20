@@ -497,7 +497,7 @@ function publicationReviewRun(runId: string, historical = false, includePublicat
   return result;
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, partialRetrievalRepetition = false, currentLegacy = false, publicationIndexRepairHealth = null as AnyRecord | null, auditHistoryDetailDelays = {} as Record<string, number[]>, auditHistoryDetailErrors = {} as Record<string, string[]> } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, partialRetrievalRepetition = false, currentLegacy = false, publicationIndexRepairHealth = null as AnyRecord | null, auditHistoryDetailDelays = {} as Record<string, number[]>, auditHistoryDetailErrors = {} as Record<string, string[]>, auditHistoryDetailDrops = {} as Record<string, boolean[]> } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   calibrationExportRequests: URL[];
@@ -777,8 +777,14 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
       const requestedHistoryDelay = requestedHistoryDelays?.shift() ?? 0;
       const requestedHistoryErrors = requestedHistoryRunId ? auditHistoryDetailErrors[requestedHistoryRunId] : undefined;
       const requestedHistoryError = requestedHistoryErrors?.shift();
+      const requestedHistoryDrops = requestedHistoryRunId ? auditHistoryDetailDrops[requestedHistoryRunId] : undefined;
+      const requestedHistoryDrop = requestedHistoryDrops?.shift();
       if (requestedHistoryDelay > 0) {
         await new Promise(resolve => setTimeout(resolve, requestedHistoryDelay));
+      }
+      if (requestedHistoryDrop) {
+        await route.abort('connectionreset');
+        return;
       }
       if (requestedHistoryError) {
         await route.fulfill({
@@ -3196,6 +3202,91 @@ test('a failed history detail load preserves the current Legacy retrieval receip
       'a failed history detail load and recovery must not send an audit mutation request',
     );
     assert.deepEqual(auditRequests, [], 'a failed history detail load and recovery must not run or mutate an audit');
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('a lost history connection preserves the current Legacy evidence and recovers without writes', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowserForServer(server);
+  const page = await browser.newPage();
+  const { auditRequests } = await configureNetwork(page, {
+    currentLegacy: true,
+    retrievalRepetition: true,
+    auditHistoryDetailDrops: {
+      'run-1': [true],
+    },
+  });
+  const auditTraffic: Array<{ method: string; runId: string | null }> = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/actor-audits')) {
+      auditTraffic.push({ method: request.method(), runId: url.searchParams.get('runId') });
+    }
+  });
+
+  async function assertCurrentLegacyEvidence(): Promise<void> {
+    await page.getByRole('heading', { name: 'Legacy audit · retained history · current-legacy', exact: true }).waitFor();
+    await page.getByText('Still available on this current Legacy head:', { exact: false }).waitFor();
+    await page.getByText('Retained rescue-board exception:', { exact: false }).waitFor();
+
+    const repetition = page
+      .getByRole('region', { name: 'Candidate loss funnel' })
+      .getByRole('region', { name: 'Retrieval repetition' });
+    assert.deepEqual((await repetition.locator('strong').allTextContents()).slice(0, 4), ['7', '6', '5', '2']);
+    assert.equal(await repetition.getByText('4 occurrences · 4 unique images · +4 new images', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('3 occurrences · 2 unique images · +1 new images', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('rung 1: 1 exact', { exact: true }).isVisible(), true);
+    const overlapReceipt = repetition.locator('details').filter({ hasText: 'Exact overlap receipt' });
+    await overlapReceipt.evaluate((element: HTMLDetailsElement) => {
+      element.open = true;
+    });
+    assert.equal(await overlapReceipt.getByText('"exactImageIdentityOverlapCount": 1', { exact: false }).isVisible(), true);
+
+    const rawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
+    await rawResults.evaluate((element: HTMLDetailsElement) => {
+      element.open = true;
+    });
+    const firstResult = rawResults.locator('article').first();
+    assert.equal(await firstResult.getByRole('button', { name: 'Pin for board', exact: true }).isEnabled(), true);
+    assert.equal(await firstResult.getByText('Retained annotation exception:', { exact: false }).isVisible(), true);
+    assert.equal(await page.getByRole('button', { name: 'Choose nine to save', exact: true }).isDisabled(), true);
+  }
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await assertCurrentLegacyEvidence();
+
+    const failedRequest = page.waitForEvent('requestfailed', request => {
+      const url = new URL(request.url());
+      return url.pathname.endsWith('/actor-audits') && url.searchParams.get('runId') === 'run-1';
+    });
+    const runSelect = page.getByLabel('Audit run');
+    await runSelect.selectOption('run-1');
+    await failedRequest;
+    await page.getByText(/failed to fetch/i).waitFor();
+    assert.equal(await runSelect.inputValue(), 'current-legacy');
+    await assertCurrentLegacyEvidence();
+
+    await runSelect.selectOption('run-legacy');
+    await page.getByRole('heading', { name: 'Legacy audit · retained history · run-legacy', exact: true }).waitFor();
+    await runSelect.selectOption('current-legacy');
+    await assertCurrentLegacyEvidence();
+
+    assert.deepEqual(
+      auditTraffic.filter(request => request.runId).map(request => request.runId),
+      ['current-legacy', 'run-1', 'run-legacy', 'current-legacy'],
+      'the lost detail request and recovery must use only selected-run detail reads',
+    );
+    assert.equal(
+      auditTraffic.every(request => request.method === 'GET'),
+      true,
+      'a lost history connection and recovery must not send an audit mutation request',
+    );
+    assert.deepEqual(auditRequests, [], 'a lost history connection and recovery must not run or mutate an audit');
   } finally {
     await browser.close();
     await server.close();
