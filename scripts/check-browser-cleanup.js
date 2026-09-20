@@ -3,10 +3,83 @@ import { fileURLToPath } from 'node:url';
 import fastGlob from 'fast-glob';
 import ts from 'typescript';
 
-const BROWSER_RESOURCE = /browser/i;
-const SERVER_RESOURCE = /server/i;
+const BROWSER_FACTORIES = /^(?:launch|launchBrowser(?:ForServer|WithServer)?|launchPageForServer)$/;
+const SERVER_FACTORIES = /^(?:createServer|start[A-Z].*(?:Server|App)|startViteTestServer)$/;
 
-function closedResourceName(node) {
+function calledName(node) {
+  if (!ts.isCallExpression(node)) return null;
+  const expression = node.expression;
+  if (ts.isIdentifier(expression)) return expression.text;
+  if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
+  return null;
+}
+
+function unwrappedInitializer(node) {
+  let current = node;
+  while (current && (
+    ts.isAwaitExpression(current)
+    || ts.isParenthesizedExpression(current)
+    || ts.isAsExpression(current)
+  )) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function bindingIdentifier(binding) {
+  return binding && ts.isIdentifier(binding.name) ? binding.name.text : null;
+}
+
+function collectOwnedResources(scope) {
+  const owned = new Map();
+
+  function markBinding(name, kind) {
+    if (name) owned.set(name, kind);
+  }
+
+  function collect(node) {
+    if (node !== scope && ts.isFunctionLike(node)) return;
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      const initializer = unwrappedInitializer(node.initializer);
+      const factory = calledName(initializer);
+
+      if (ts.isIdentifier(node.name)) {
+        if (factory && BROWSER_FACTORIES.test(factory)) markBinding(node.name.text, 'browser');
+        if (factory && SERVER_FACTORIES.test(factory)) markBinding(node.name.text, 'server');
+      } else if (factory && ts.isObjectBindingPattern(node.name)) {
+        for (const element of node.name.elements) {
+          const property = element.propertyName?.getText() ?? element.name.getText();
+          if (property === 'browser') markBinding(bindingIdentifier(element), 'browser');
+          if (property === 'server') markBinding(bindingIdentifier(element), 'server');
+        }
+      } else if (
+        factory === 'launchBrowserWithServer'
+        && ts.isArrayBindingPattern(node.name)
+      ) {
+        const serverResult = node.name.elements[0];
+        const browserResult = node.name.elements[1];
+        if (serverResult && ts.isBindingElement(serverResult)) {
+          if (ts.isObjectBindingPattern(serverResult.name)) {
+            for (const element of serverResult.name.elements) {
+              const property = element.propertyName?.getText() ?? element.name.getText();
+              if (property === 'server') markBinding(bindingIdentifier(element), 'server');
+            }
+          } else {
+            markBinding(bindingIdentifier(serverResult), 'server');
+          }
+        }
+        if (browserResult && ts.isBindingElement(browserResult)) {
+          markBinding(bindingIdentifier(browserResult), 'browser');
+        }
+      }
+    }
+    ts.forEachChild(node, collect);
+  }
+  collect(scope);
+  return owned;
+}
+
+function closedResource(node) {
   if (
     !ts.isAwaitExpression(node)
     || !ts.isCallExpression(node.expression)
@@ -16,7 +89,10 @@ function closedResourceName(node) {
     return null;
   }
 
-  return node.expression.expression.expression.getText();
+  const receiver = node.expression.expression.expression;
+  return ts.isIdentifier(receiver)
+    ? { name: receiver.text, node }
+    : null;
 }
 
 export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
@@ -29,34 +105,44 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
   );
   const violations = [];
 
-  function inspectFinallyBlock(block) {
+  function inspectScope(scope) {
+    const owned = collectOwnedResources(scope);
+    if (![...owned.values()].includes('browser') || ![...owned.values()].includes('server')) {
+      return;
+    }
+
     const closes = [];
     function collect(node) {
-      const resource = closedResourceName(node);
-      if (resource) closes.push({ resource, node });
+      if (node !== scope && ts.isFunctionLike(node)) return;
+      const resource = closedResource(node);
+      if (resource && owned.has(resource.name)) {
+        closes.push({ ...resource, kind: owned.get(resource.name) });
+      }
       ts.forEachChild(node, collect);
     }
-    collect(block);
+    collect(scope);
 
     for (let index = 0; index < closes.length; index += 1) {
-      if (!BROWSER_RESOURCE.test(closes[index].resource)) continue;
-      const serverClose = closes
+      const first = closes[index];
+      const second = closes
         .slice(index + 1)
-        .find(close => SERVER_RESOURCE.test(close.resource));
-      if (!serverClose) continue;
+        .find(close => close.kind !== first.kind);
+      if (!second) continue;
 
-      const position = sourceFile.getLineAndCharacterOfPosition(closes[index].node.getStart());
+      const browserClose = first.kind === 'browser' ? first : second;
+      const serverClose = first.kind === 'server' ? first : second;
+      const position = sourceFile.getLineAndCharacterOfPosition(first.node.getStart());
       violations.push({
         line: position.line + 1,
-        browser: closes[index].resource,
-        server: serverClose.resource,
+        browser: browserClose.name,
+        server: serverClose.name,
       });
       break;
     }
   }
 
   function visit(node) {
-    if (ts.isTryStatement(node) && node.finallyBlock) inspectFinallyBlock(node.finallyBlock);
+    if (ts.isSourceFile(node) || ts.isFunctionLike(node)) inspectScope(node);
     ts.forEachChild(node, visit);
   }
   visit(sourceFile);
@@ -80,7 +166,7 @@ function main() {
   for (const violation of violations) {
     console.error(
       `${violation.file}:${violation.line}: unsafe sequential cleanup of `
-      + `${violation.browser} before ${violation.server}; use closeBrowserAndServer().`,
+      + `${violation.browser} and ${violation.server}; use closeBrowserAndServer().`,
     );
   }
   process.exitCode = 1;
