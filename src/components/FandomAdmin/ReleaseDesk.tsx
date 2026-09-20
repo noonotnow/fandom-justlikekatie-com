@@ -698,6 +698,7 @@ function ReleaseInventory({ inventory }: { inventory: AnyRecord }) {
   const unusedCount = Number(inventory.unusedWithinRecentWindowPairingCount ?? 0);
   const unavailableCount = Number(inventory.unavailablePairingCount ?? 0);
   const repairHealth = inventory.publicationIndexRepairHealth;
+  const repairWarningDetail = repairHealth ? formatRepairWarningDetail(repairHealth) : '';
   const depthLabel = readyCount === 0
     ? 'No current release-ready pairing'
     : readyCount === 1
@@ -724,9 +725,7 @@ function ReleaseInventory({ inventory }: { inventory: AnyRecord }) {
         <div className={styles.inventoryRepairWarning} role="status">
           <strong>Release inventory repair needs attention</strong>
           <span>
-            {repairHealth.failedAttemptCount > 0
-              ? `${repairHealth.failedAttemptCount} repair attempt${repairHealth.failedAttemptCount === 1 ? '' : 's'} did not complete normally`
-              : `${repairHealth.attemptCount} rebuilds were needed in the last ${repairHealth.windowHours} hours`}
+            {repairWarningDetail}
             . Inventory remains fail-closed; check Blob listing and historical manifest health.
           </span>
         </div>
@@ -803,6 +802,26 @@ function ReleaseInventory({ inventory }: { inventory: AnyRecord }) {
       </div>
     </section>
   );
+}
+
+function formatRepairWarningDetail(repairHealth: AnyRecord) {
+  const isCount = (value: unknown) => (
+    typeof value === 'number'
+    && Number.isFinite(value)
+    && value >= 0
+  );
+  const failedAttemptCount = repairHealth.failedAttemptCount;
+  if (isCount(failedAttemptCount) && failedAttemptCount > 0) {
+    return `${failedAttemptCount} repair attempt${failedAttemptCount === 1 ? '' : 's'} did not complete normally`;
+  }
+  if (
+    isCount(failedAttemptCount)
+    && isCount(repairHealth.attemptCount)
+    && isCount(repairHealth.windowHours)
+  ) {
+    return `${repairHealth.attemptCount} rebuilds were needed in the last ${repairHealth.windowHours} hours`;
+  }
+  return 'Repair health details are incomplete, so recent repair counts are unavailable';
 }
 
 function formatEditionDate(value: unknown) {

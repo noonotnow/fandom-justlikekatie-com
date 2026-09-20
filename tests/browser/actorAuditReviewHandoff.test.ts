@@ -3635,6 +3635,26 @@ test('release inventory repair warnings cover repeated and failed repairs, one s
       await failedRepairPage.close();
     }
 
+    for (const publicationIndexRepairHealth of [
+      { warning: true, failedAttemptCount: 0, windowHours: 24 },
+      { warning: true, attemptCount: '3', failedAttemptCount: 0, windowHours: 24 },
+      { warning: true, attemptCount: 3, failedAttemptCount: 0, windowHours: null },
+    ]) {
+      const incompleteRepairPage = await browser.newPage();
+      await configureNetwork(incompleteRepairPage, { publicationIndexRepairHealth });
+      await incompleteRepairPage.goto(`${origin}/vibe-atlas?admin=true`);
+      await incompleteRepairPage.getByRole('heading', { name: 'Release Desk', exact: true }).waitFor();
+      assert.equal(
+        await incompleteRepairPage.getByText(
+          'Repair health details are incomplete, so recent repair counts are unavailable. Inventory remains fail-closed; check Blob listing and historical manifest health.',
+          { exact: true },
+        ).isVisible(),
+        true,
+        'incomplete or invalid repair health must use explicit fallback copy and retain fail-closed guidance',
+      );
+      await incompleteRepairPage.close();
+    }
+
     const successfulBootstrapPage = await browser.newPage();
     await configureNetwork(successfulBootstrapPage, {
       publicationIndexRepairHealth: {
