@@ -135,6 +135,7 @@ export function starDataFromCollectionGrid(grid: GridRecord): StarOfDayData {
     ...(grid.generationPrompt ? { generationPrompt: grid.generationPrompt } : {}),
     ...(grid.searchSpell ? { generationQuery: grid.searchSpell } : {}),
     ...(grid.ctaSeed ? { ctaSeed: grid.ctaSeed } : {}),
+    ...(grid.presentation ? { presentation: { ...grid.presentation } } : {}),
     ...(grid.editorial ? { editorial: grid.editorial } : {}),
   };
 }

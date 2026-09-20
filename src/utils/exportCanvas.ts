@@ -410,6 +410,7 @@ interface ExportPayload {
   rankIndex: number | null;
   totalBatches: number | null;
   badgeTier: string;
+  presentation?: StarOfDayData['presentation'];
   editorial?: StarOfDayData['editorial'];
 }
 
@@ -504,6 +505,7 @@ export function buildExportPayload(data: StarOfDayData): ExportPayload {
     rankIndex: 0,
     totalBatches: data.rankedBatches.length,
     badgeTier: tier !== 'standard' ? tier : 'star-of-day',
+    ...(data.presentation ? { presentation: data.presentation } : {}),
     ...(data.editorial ? { editorial: data.editorial } : {}),
   };
 }
@@ -851,10 +853,15 @@ async function renderSquareGridCanvas(
   const footer = Math.round(contract.width * 0.052);
   const gap = Math.round(contract.width * 0.009);
   const tile = (contract.width - pad * 2 - gap * 2 - header - footer) / 3;
-  ctx.fillStyle = '#0e0e12';
+  const moonlitInk = payload.presentation?.paletteId === 'moonlit-ink'
+    || payload.presentation?.atmosphereId === 'moonlit-ink';
+  const background = moonlitInk ? '#17182b' : '#0e0e12';
+  const heading = moonlitInk ? '#9f9bea' : '#f0ede8';
+  const attribution = moonlitInk ? '#c9a96e' : '#a3a3ad';
+  ctx.fillStyle = background;
   ctx.fillRect(0, 0, contract.width, contract.height);
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#f0ede8';
+  ctx.fillStyle = heading;
   ctx.font = `700 ${Math.round(contract.width * 0.021)}px "Inter", sans-serif`;
   ctx.fillText(`${payload.actorName || 'Vibe Atlas'} · ${payload.vibeLabel || 'Grid'}`, contract.width / 2, pad + header * 0.58);
   results.forEach((_, index) => {
@@ -864,7 +871,7 @@ async function renderSquareGridCanvas(
     drawCoverImageRounded(ctx, image, x, y, tile, tile, Math.round(tile * 0.02));
   });
   const sourceNames = [...new Set(results.map(result => result.source).filter(Boolean))];
-  ctx.fillStyle = '#a3a3ad';
+  ctx.fillStyle = attribution;
   ctx.font = `400 ${Math.round(contract.width * 0.0105)}px "Inter", sans-serif`;
   ctx.fillText(
     `${sourceNames.length ? `Sources: ${sourceNames.slice(0, 5).join(' · ')} · ` : ''}Vibe Atlas · sRGB`,

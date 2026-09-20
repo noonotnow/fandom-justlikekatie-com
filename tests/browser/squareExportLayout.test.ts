@@ -1,0 +1,185 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { createServer, type ViteDevServer } from 'vite';
+import { closeBrowserAndServer, launchBrowserForServer } from './browserEngines.ts';
+
+const FIXTURE_MEDIA_ORIGIN = 'https://media.example.test';
+const FIXTURE_COLORS = [
+  '#d1495b', '#edae49', '#00798c',
+  '#30638e', '#003d5b', '#7a5195',
+  '#ef5675', '#ffa600', '#2f4b7c',
+];
+
+async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
+  const server = await createServer({
+    configFile: 'vite.config.ts',
+    server: { host: '127.0.0.1', port: 5000, strictPort: false },
+  });
+  await server.listen();
+  const address = server.httpServer?.address();
+  if (!address || typeof address === 'string') {
+    await server.close();
+    throw new Error('The browser test server did not expose a TCP port.');
+  }
+  return { server, origin: `http://127.0.0.1:${address.port}` };
+}
+
+function solidSvg(color: string): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><rect width="300" height="300" fill="${color}"/></svg>`;
+}
+
+test('square PNG exports preserve layout, attribution, MEDIA provenance, and Moonlit Ink', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowserForServer(server);
+  const page = await browser.newPage();
+  const requestedMediaUrls: string[] = [];
+
+  try {
+    await page.addInitScript({ content: 'globalThis.__name = target => target;' });
+    await page.route('**/.netlify/functions/image-proxy?*', async route => {
+      const proxiedUrl = new URL(route.request().url()).searchParams.get('url');
+      assert.ok(proxiedUrl, 'the image proxy request must name its source');
+      requestedMediaUrls.push(proxiedUrl);
+      const index = Number(new URL(proxiedUrl).pathname.match(/fixture-(\d+)\.svg$/)?.[1]);
+      assert.ok(Number.isInteger(index) && index >= 0 && index < 9, `unexpected fixture URL: ${proxiedUrl}`);
+      await route.fulfill({
+        contentType: 'image/svg+xml',
+        headers: { 'access-control-allow-origin': '*' },
+        body: solidSvg(FIXTURE_COLORS[index]),
+      });
+    });
+    await page.goto(origin);
+
+    const result = await page.evaluate(async ({ mediaOrigin, fixtureColors }) => {
+      const modulePath = '/src/utils/exportCanvas.ts';
+      const exports = await import(/* @vite-ignore */ modulePath);
+      const deliveryUrls = fixtureColors.map((_, index) => `${mediaOrigin}/fixture-${index}.svg`);
+      const data = {
+        actorId: 'fixture-actor',
+        actorName: 'Fixture Actor',
+        actorShortNameEn: 'Fixture Actor',
+        actorAccentColor: '#9f9bea',
+        vibeEmoji: '🌙',
+        vibeLabel: 'Moonlit Ink',
+        vibeLabelEn: 'Moonlit Ink',
+        vibeSubtitle: 'A browser-rendered export fixture',
+        vibeSubtitleEn: 'A browser-rendered export fixture',
+        rankedBatches: [{
+          query: 'fixture query',
+          results: deliveryUrls.map((deliveryUrl, index) => ({
+            title: `Fixture ${index + 1}`,
+            thumbnail: deliveryUrl,
+            link: `https://publisher.example.test/source-${index}`,
+            source: index < 5 ? `Publisher ${index + 1}` : 'Publisher 1',
+          })),
+          count: 9,
+          distinctSources: 5,
+          provider: 'fixture',
+        }],
+        date: '2026-09-20',
+        presentation: { paletteId: 'moonlit-ink', atmosphereId: 'moonlit-ink' },
+      };
+      const assets = deliveryUrls.map((deliveryUrl, index) => ({
+        assetId: `11111111-2222-4${String(index).padStart(3, '0')}-8444-555555555555`,
+        checksum: String(index + 1).repeat(64).slice(0, 64),
+        deliveryUrl,
+        permitted: true,
+      }));
+      const manifest = exports.buildMasterExportManifest(
+        'fixture-grid',
+        'fixture-board-hash',
+        assets,
+        '2026-09-20T12:00:00.000Z',
+      );
+
+      const render = async (variant: 'standard' | 'master') => {
+        const textCalls: Array<{ text: string; x: number; y: number; color: string }> = [];
+        const originalFillText = CanvasRenderingContext2D.prototype.fillText;
+        CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
+          textCalls.push({ text: String(text), x, y, color: String(this.fillStyle) });
+          return maxWidth === undefined
+            ? originalFillText.call(this, text, x, y)
+            : originalFillText.call(this, text, x, y, maxWidth);
+        };
+        try {
+          const canvas = await exports.renderExportCanvas(data, variant);
+          const png = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
+            (blob: Blob | null) => blob ? resolve(blob) : reject(new Error('PNG encoding failed')),
+            'image/png',
+          ));
+          const context = canvas.getContext('2d')!;
+          const pixels = fixtureColors.map((_, index) => {
+            const width = canvas.width;
+            const pad = Math.round(width * 0.026);
+            const header = Math.round(width * 0.045);
+            const footer = Math.round(width * 0.052);
+            const gap = Math.round(width * 0.009);
+            const tile = (width - pad * 2 - gap * 2 - header - footer) / 3;
+            const x = Math.round(pad + (index % 3) * (tile + gap) + tile / 2);
+            const y = Math.round(pad + header + Math.floor(index / 3) * (tile + gap) + tile / 2);
+            return Array.from(context.getImageData(x, y, 1, 1).data);
+          });
+          return {
+            width: canvas.width,
+            height: canvas.height,
+            pngType: png.type,
+            pngSize: png.size,
+            background: Array.from(context.getImageData(1, 1, 1, 1).data),
+            pixels,
+            textCalls,
+          };
+        } finally {
+          CanvasRenderingContext2D.prototype.fillText = originalFillText;
+        }
+      };
+
+      return {
+        standard: await render('standard'),
+        master: await render('master'),
+        manifest,
+        deliveryUrls,
+      };
+    }, { mediaOrigin: FIXTURE_MEDIA_ORIGIN, fixtureColors: FIXTURE_COLORS });
+
+    for (const [variant, rendered, dimension] of [
+      ['standard', result.standard, 1080],
+      ['master', result.master, 2160],
+    ] as const) {
+      assert.equal(rendered.width, dimension, `${variant} width`);
+      assert.equal(rendered.height, dimension, `${variant} height`);
+      assert.equal(rendered.pngType, 'image/png');
+      assert.ok(rendered.pngSize > 10_000, `${variant} should encode a substantive browser PNG`);
+      assert.deepEqual(rendered.background, [23, 24, 43, 255], `${variant} must use the Moonlit Ink surface`);
+      rendered.pixels.forEach((pixel, index) => {
+        const expected = FIXTURE_COLORS[index].match(/[a-f\d]{2}/gi)!.map(value => Number.parseInt(value, 16));
+        assert.deepEqual(pixel, [...expected, 255], `${variant} tile ${index + 1} should occupy its own grid cell`);
+      });
+      const heading = rendered.textCalls.find(call => call.text === 'Fixture Actor · Moonlit Ink');
+      assert.ok(heading && heading.y < dimension * 0.1, `${variant} heading must stay above the tile grid`);
+      assert.equal(heading.color, '#9f9bea', `${variant} heading must use the approved Moonlit Ink accent`);
+      const attribution = rendered.textCalls.find(call => call.text.startsWith('Sources: Publisher 1'));
+      assert.ok(attribution, `${variant} must render source attribution`);
+      assert.ok(attribution.y > dimension * 0.9 && attribution.y < dimension, `${variant} attribution must remain visible below the tiles`);
+      assert.equal(attribution.color, '#c9a96e', `${variant} attribution must use the approved Moonlit Ink gold`);
+    }
+
+    assert.equal(result.manifest.colorProfile, 'sRGB');
+    assert.equal(result.manifest.rendererVersion, 'vibe-atlas-export-v2');
+    assert.deepEqual(
+      result.manifest.assets.map((asset: { deliveryUrl: string }) => asset.deliveryUrl),
+      result.deliveryUrls,
+    );
+    assert.equal(
+      result.manifest.assets.every((asset: { deliveryUrl: string }) =>
+        asset.deliveryUrl.startsWith(`${FIXTURE_MEDIA_ORIGIN}/`)),
+      true,
+    );
+    assert.deepEqual(
+      [...new Set(requestedMediaUrls)],
+      result.deliveryUrls,
+      'both exports must load only the nine fixture MEDIA delivery URLs',
+    );
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});

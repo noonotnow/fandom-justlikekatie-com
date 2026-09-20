@@ -41,6 +41,10 @@ export interface StarOfDayData {
   generationPrompt?: string;
   generationQuery?: string;
   ctaSeed?: string;
+  presentation?: {
+    paletteId?: string;
+    atmosphereId?: string;
+  };
   editorial?: {
     mode: 'event' | 'compiled';
     compositionSize: 9 | 12;
