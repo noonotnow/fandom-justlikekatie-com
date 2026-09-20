@@ -7749,6 +7749,18 @@ test("aggregate calibration canonicalizes reordered positive candidate-class bun
   });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   const candidateSignals = ["positive-candidate-alpha", "positive-candidate-beta"];
+  const listed = store.list.bind(store);
+  let reverseEvidenceListings = false;
+  store.list = async options => {
+    const listing = await listed(options);
+    if (
+      reverseEvidenceListings
+      && options?.prefix === auditRescueCalibrationPrefix(pairActor.id, 0)
+    ) {
+      return { ...listing, blobs: [...listing.blobs].reverse() };
+    }
+    return listing;
+  };
 
   for (const runId of ["run-1", "run-2"]) {
     await handler(request("POST", {
@@ -7796,11 +7808,12 @@ test("aggregate calibration canonicalizes reordered positive candidate-class bun
   }
 
   const deterministicSignalValues = [...candidateSignals].sort();
-  const approvalIdentities = [];
-  for (const requestedSignalValues of [
-    candidateSignals,
-    [...candidateSignals].reverse(),
+  const aggregateSnapshots = [];
+  for (const [listingOrder, requestedSignalValues] of [
+    ["forward", candidateSignals],
+    ["reversed", [...candidateSignals].reverse()],
   ]) {
+    reverseEvidenceListings = listingOrder === "reversed";
     const approvalResponse = await handler(request("POST", {
       action: "approve_rescue_calibration",
       actorId: pairActor.id,
@@ -7819,21 +7832,26 @@ test("aggregate calibration canonicalizes reordered positive candidate-class bun
       signalValues: deterministicSignalValues,
     });
     assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
-    approvalIdentities.push({
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const productionProfile = curateOptions
+      .filter(options => options.calibrationProfile)
+      .at(-1)
+      .calibrationProfile;
+    assert.deepEqual(productionProfile.positiveCandidateIds, deterministicSignalValues);
+    assert.deepEqual(productionProfile.negativeCandidateIds, []);
+    aggregateSnapshots.push({
       approvalId: approval.calibrationProfile.activeApproval.approvalId,
       aggregateEvidenceHash:
         approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
+      evidenceCount: approval.calibrationProfile.activeApproval.evidenceCount,
+      adjustment: approval.calibrationProfile.activeApproval.adjustment,
+      positiveCandidateIds: approval.calibrationProfile.positiveCandidateIds,
+      productionPositiveCandidateIds: productionProfile.positiveCandidateIds,
     });
   }
-  assert.deepEqual(approvalIdentities[1], approvalIdentities[0]);
-
-  await handler(request("POST", {
-    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
-  }), {});
-  const productionProfile = curateOptions.find(options => options.calibrationProfile)
-    .calibrationProfile;
-  assert.deepEqual(productionProfile.positiveCandidateIds, deterministicSignalValues);
-  assert.deepEqual(productionProfile.negativeCandidateIds, []);
+  assert.deepEqual(aggregateSnapshots[1], aggregateSnapshots[0]);
 });
 
 for (const {

@@ -63,8 +63,7 @@ function candidate(index: number): AnyRecord
   const candidateId = String(index + 1).padStart(2, '0').repeat(12)
 ;
 
-  return 
-{
+  return {
 
     candidateId,
     query: 'browser calibration query',
@@ -96,8 +95,7 @@ function candidates(): AnyRecord[]
 function actor(pairingState: string, eligible = false): AnyRecord 
 {
 
-  return 
-{
+  return {
 
     actorId: ACTOR_ID,
     canonicalName: 'Browser Test Actor',
@@ -147,8 +145,7 @@ function actor(pairingState: string, eligible = false): AnyRecord
 function contract(): AnyRecord 
 {
 
-  return 
-{
+  return {
 
     status: 'current',
     isCurrent: true,
@@ -174,8 +171,7 @@ function contract(): AnyRecord
 function board(mode: string, items: AnyRecord[]): AnyRecord 
 {
 
-  return 
-{
+  return {
 
     boardId: `${mode}-browser-board`,
     mode,
@@ -227,8 +223,7 @@ function feedback(savedBoard?: AnyRecord, calibrationEvidence?: AnyRecord): AnyR
     : null
 ;
 
-  return 
-{
+  return {
 
     schemaVersion: 1,
     eventCount: savedBoard ? 0 : 0,
@@ -247,8 +242,7 @@ function feedback(savedBoard?: AnyRecord, calibrationEvidence?: AnyRecord): AnyR
 function calibrationProfile(): AnyRecord 
 {
 
-  return 
-{
+  return {
 
     calibrationVersion: 1,
     evidenceCount: 1,
@@ -875,8 +869,7 @@ function legacyRun(runId: string, proof = false): AnyRecord
 function rescueCalibrationDetails(): AnyRecord 
 {
 
-  return 
-{
+  return {
 
     schemaVersion: 1,
     calibrationVersion: 1,
@@ -900,8 +893,7 @@ function responseBody(
 ): AnyRecord 
 {
 
-  return 
-{
+  return {
 
     actor: actor(pairingState, false),
     pairing: actor(pairingState).pairings[0],
@@ -1060,16 +1052,7 @@ function publicationReviewRun(runId: string, historical = false, includePublicat
 
 async function configureNetwork(page: Page, 
 {
- missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, partialRetrievalRepetition = false, partialCalibrationProofMetrics = false, currentLegacy = false, publicationIndexRepairHealth = null as AnyRecord | null, auditHistoryDetailDelays = 
-{
-}
- as Record<string, number[]>, auditHistoryDetailErrors = 
-{
-}
- as Record<string, string[]>, auditHistoryDetailDrops = 
-{
-}
- as Record<string, boolean[]> 
+ missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, partialRetrievalRepetition = false, partialCalibrationProofMetrics = false, currentLegacy = false, publicationIndexRepairHealth = null as AnyRecord | null, auditHistoryDetailDelays = {} as Record<string, number[]>, auditHistoryDetailErrors = {} as Record<string, string[]>, auditHistoryDetailDrops = {} as Record<string, boolean[]>
 }
  = 
 {
@@ -2660,8 +2643,7 @@ async function configureNetwork(page: Page,
 ;
 
 
-  return 
-{
+  return {
 
     auditRequests,
     calibrationRequests,
@@ -3042,8 +3024,7 @@ async function configureCacheDiagnosticNetwork(
 ;
 
 
-  return 
-{
+  return {
  providerSearchRequests, receiptSaveRequests 
 }
 ;
@@ -6940,8 +6921,7 @@ async function configureCompleteHeroReviewNetwork(
 ;
 
 
-  return 
-{
+  return {
  saveRequests, verdictRequests 
 }
 ;
