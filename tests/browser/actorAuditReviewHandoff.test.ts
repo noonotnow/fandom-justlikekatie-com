@@ -816,9 +816,11 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
         return;
       }
       if (url.searchParams.get('runId') === 'run-1' && activeRunId === 'run-2') {
+        const retainedRun = run('run-1', true);
+        if (retrievalRepetition) withRetrievalRepetition(retainedRun);
         await route.fulfill({
           contentType: 'application/json',
-          body: JSON.stringify({ run: run('run-1', true) }),
+          body: JSON.stringify({ run: retainedRun }),
         });
         return;
       }
@@ -1341,6 +1343,53 @@ test('retrieval repetition stays visibly separate from the downstream rejection 
     );
     assert.equal(await repetition.getByRole('button').count(), 0);
     assert.equal(await repetition.locator('input, select, textarea').count(), 0);
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('retrieval repetition remains visible and read-only after switching to a retained audit', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { auditRequests } = await configureNetwork(page, { retrievalRepetition: true });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('button', { name: 'Run audit', exact: true }).click();
+    await page.getByRole('button', { name: 'Choose Compiled', exact: true }).click();
+    await page.getByRole('button', { name: 'Run audit', exact: true }).click();
+    await page.getByRole('button', { name: 'Choose Compiled', exact: true }).click();
+
+    const requestsBeforeHistoryReview = structuredClone(auditRequests);
+    await page.getByLabel('Audit run').selectOption('run-1');
+    await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor();
+
+    const repetition = page
+      .getByRole('region', { name: 'Candidate loss funnel' })
+      .getByRole('region', { name: 'Retrieval repetition' });
+    await repetition.getByText('result occurrences', { exact: true }).waitFor();
+    assert.deepEqual((await repetition.locator('strong').allTextContents()).slice(0, 4), ['7', '6', '5', '2']);
+    assert.equal(await repetition.getByText('4 occurrences · 4 unique images · +4 new images', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('3 occurrences · 2 unique images · +1 new images', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('rung 1: 1 exact', { exact: true }).isVisible(), true);
+
+    const overlapReceipt = repetition.locator('details').filter({ hasText: 'Exact overlap receipt' });
+    await overlapReceipt.locator('summary').click();
+    assert.equal(await overlapReceipt.getByText('"exactImageIdentityOverlapCount": 1', { exact: false }).isVisible(), true);
+    assert.equal(await repetition.getByRole('button').count(), 0);
+    assert.equal(await repetition.locator('input, select, textarea, form').count(), 0);
+    assert.equal(
+      await page.getByText('This is a frozen historical review. Return to the current run to revise scheduling eligibility.', { exact: true }).isVisible(),
+      true,
+    );
+    assert.deepEqual(
+      auditRequests,
+      requestsBeforeHistoryReview,
+      'switching to and reading a retained retrieval receipt must not run or mutate an audit',
+    );
   } finally {
     await browser.close();
     await server.close();
