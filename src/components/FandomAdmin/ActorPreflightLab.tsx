@@ -622,7 +622,7 @@ export const ActorPreflightLab: React.FC = () => {
             </>}
           </section>
           <section className={styles.panel}>
-            {calibrationProfile&&<><CalibrationApproval profile={calibrationProfile} busy={busy} onApprove={approveCalibration} onRevoke={revokeCalibrationApproval}/>{calibrationProfile.legacyRecovery?.status!=='recovery_window_exhausted'&&<><BlindEvidenceExclusions profile={calibrationProfile} busy={busy} onExclude={excludeBlindCalibrationItem}/><CalibrationProfileSummary profile={calibrationProfile} busy={busy} onRetireCalibration={retireRescueCalibration}/><CalibrationTransferSummary profile={calibrationProfile} busy={busy} onRetireSignal={retireRescueSignal}/></>}</>}
+            {calibrationProfile&&<><CalibrationApproval profile={calibrationProfile} busy={busy} onApprove={approveCalibration} onRevoke={revokeCalibrationApproval}/><BlindEvidenceExclusions profile={calibrationProfile} busy={busy} onExclude={excludeBlindCalibrationItem}/><CalibrationProfileSummary profile={calibrationProfile} busy={busy} onRetireCalibration={retireRescueCalibration}/><CalibrationTransferSummary profile={calibrationProfile} busy={busy} onRetireSignal={retireRescueSignal}/></>}
           <div className={styles.grid}>
             <InfoCard title="Identity profile" data={actor} keys={['commonCollisions','representativeWorks','knownContamination','productStockMeanings','trustedSourcePatterns','problematicSourcePatterns']} />
             <RunEvidence
@@ -665,7 +665,6 @@ export const ActorPreflightLab: React.FC = () => {
 
 function CalibrationApproval({profile,busy,onApprove,onRevoke}:{profile:AnyRecord;busy:string;onApprove:(type:string,family:string,direction:string,values:string[])=>Promise<void>;onRevoke:(approvalId:string,reason:string)=>Promise<boolean>}) {
   const [type,setType]=useState('query_ladder'); const [family,setFamily]=useState('sources'); const [direction,setDirection]=useState('positive'); const [values,setValues]=useState<string[]>([]); const [reason,setReason]=useState('');
-  if(profile.legacyRecovery?.status==='recovery_window_exhausted')return <section className={styles.calibrationProfile} aria-label="Production calibration approval"><div><h5>Legacy approval recovery paused</h5><p className={styles.historicalNotice} role="alert">{profile.legacyRecovery.message}</p><small>The compatibility lookup found more than {profile.legacyRecovery.recoveryRunLimit??32} source runs. This is a retained-listing recovery condition, not a request for ordinary new calibration evidence.</small></div></section>;
   const signalFamily=type==='query_ladder'?'queries':family;
   const choices=(profile.reusableSignalDeltas?.[signalFamily]??EMPTY_RECORDS).filter((item:any)=>direction==='positive'?item.delta>=0.15&&item.selectedEvidenceCount>=2:item.delta<=-0.15&&item.omittedEvidenceCount>=2);
   const approval=profile.activeApproval;

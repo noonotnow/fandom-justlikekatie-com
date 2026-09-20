@@ -233,9 +233,9 @@ test('rescue calibration is explicit, future-facing, and reports transfer proof'
   assert.match(source, /run\.auditContract\?\.isLegacy/);
 });
 
-test('an exhausted legacy approval recovery window replaces ordinary approval controls with a fail-closed notice', () => {
-  assert.match(source, /legacyRecovery\?\.status==='recovery_window_exhausted'/);
-  assert.match(source, /Legacy approval recovery paused/);
-  assert.match(source, /role="alert"/);
-  assert.match(source, /retained-listing recovery condition, not a request for ordinary new calibration evidence/);
+test('bounded legacy approval recovery uses the ordinary active approval controls', () => {
+  assert.doesNotMatch(source, /legacyRecovery\?\.status==='recovery_window_exhausted'/);
+  assert.doesNotMatch(source, /Legacy approval recovery paused/);
+  assert.match(source, /Active approval/);
+  assert.match(source, /Revoke approved adjustment/);
 });

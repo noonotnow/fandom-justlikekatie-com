@@ -73,7 +73,7 @@ test("run-scoped mutation policy defaults Legacy audits to read-only", () => {
   assert.equal(legacyAuditMutationPolicy("repair_visual_judgment_index").legacyWritable, true);
 });
 
-test("approval source recovery applies one fail-closed bounded policy", async () => {
+test("approval source recovery applies one deterministic bounded policy", async () => {
   const authority = {
     status: "approved",
     approvalId: "approval-1",
@@ -5559,28 +5559,52 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
 
   for (let index = 3; index <= 33; index += 1) {
     store.records.set(
-      `${auditVisualJudgmentIndexPrefix(pairActor.id, 0)}overflow-run-${index}`,
+      `${auditVisualJudgmentIndexPrefix(pairActor.id, 0)}z-overflow-run-${String(index).padStart(2, "0")}`,
       { receiptIds: [] },
     );
   }
-  const exhaustedResponse = await handler(request(
+  const outOfWindowRunId = "z-overflow-run-33";
+  store.records.set(
+    auditRunKey(pairActor.id, 0, outOfWindowRunId),
+    structuredClone(validRun),
+  );
+  const boundedRunIds = await approvalSourceRunIds({
+    store,
+    actorId: pairActor.id,
+    vibeIdx: 0,
+    authority: store.records.get(auditRescueCalibrationAuthorityKey(pairActor.id, 0)),
+    approval: legacyApproval,
+  });
+  assert.equal(boundedRunIds.length, 32);
+  assert.deepEqual(boundedRunIds, [...boundedRunIds].sort());
+  assert.deepEqual(boundedRunIds.slice(0, 2), ["run-1", "run-2"]);
+  assert.equal(boundedRunIds.includes(outOfWindowRunId), false);
+
+  const boundedProfileResponse = await handler(request(
     "GET",
     undefined,
     `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
   ), {});
-  const exhausted = await exhaustedResponse.json();
-  assert.equal(exhaustedResponse.status, 200, JSON.stringify(exhausted));
-  assert.equal(exhausted.calibrationProfile.activeApproval, null);
-  assert.deepEqual(exhausted.calibrationProfile.legacyRecovery, {
-    status: "recovery_window_exhausted",
-    reasonCode: "legacy_approval_recovery_window_exhausted",
-    recoveryRunLimit: 32,
-    failClosed: true,
-    message: "This legacy approval exceeds the 32-run compatibility recovery window. The approval remains fail-closed until retained-run listings recover.",
-  });
+  const boundedProfile = await boundedProfileResponse.json();
+  assert.equal(boundedProfileResponse.status, 200, JSON.stringify(boundedProfile));
+  assert.deepEqual(
+    boundedProfile.calibrationProfile.evidenceLedger.map(item => item.sourceRunId).sort(),
+    ["run-1", "run-2"],
+  );
+  assert.equal(
+    boundedProfile.calibrationProfile.activeApproval.approvalId,
+    savedEligibility.rescueCalibrationApprovalId,
+  );
+  assert.equal(boundedProfile.calibrationProfile.legacyRecovery, undefined);
+  assert.equal(
+    (await getEligibility(store, pairActor, 0)).rescueCalibrationApprovalId,
+    savedEligibility.rescueCalibrationApprovalId,
+    "a source run beyond the shared recovery bound must not affect production evidence",
+  );
+  store.records.delete(auditRunKey(pairActor.id, 0, outOfWindowRunId));
   for (let index = 3; index <= 33; index += 1) {
     store.records.delete(
-      `${auditVisualJudgmentIndexPrefix(pairActor.id, 0)}overflow-run-${index}`,
+      `${auditVisualJudgmentIndexPrefix(pairActor.id, 0)}z-overflow-run-${String(index).padStart(2, "0")}`,
     );
   }
 

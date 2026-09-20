@@ -22,7 +22,6 @@ import {
   auditVisualJudgmentKey,
   auditVisualJudgmentPrefix,
   auditVisualJudgmentIndexKey,
-  auditVisualJudgmentIndexPrefix,
   auditFeedbackKey,
   auditFeedbackPrefix,
   auditMisprintActorPrefix,
@@ -6362,26 +6361,6 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
     authority: canonicalAuthority,
     approval: canonicalApproval,
   });
-  let legacyRecovery = null;
-  const canonicalLegacyApproval = canonicalApproval?.status === "approved"
-    && canonicalApproval.approvalId === canonicalAuthority?.approvalId
-    && canonicalApproval.aggregateEvidenceHash === canonicalAuthority?.aggregateEvidenceHash
-    && !Array.isArray(canonicalApproval.sourceRunIds);
-  if (canonicalLegacyApproval) {
-    const legacyIndexListing = await store.list({
-      prefix: auditVisualJudgmentIndexPrefix(pair.actor.id, pair.vibeIdx),
-      limit: 33,
-    });
-    if ((legacyIndexListing?.blobs || []).length > 32) {
-      legacyRecovery = {
-        status: "recovery_window_exhausted",
-        reasonCode: "legacy_approval_recovery_window_exhausted",
-        recoveryRunLimit: 32,
-        failClosed: true,
-        message: "This legacy approval exceeds the 32-run compatibility recovery window. The approval remains fail-closed until retained-run listings recover.",
-      };
-    }
-  }
   if (recoverableSourceRunIds.length) {
     const knownRunIds = new Set(reviewedRuns.map(run => run?.runId).filter(Boolean));
     const recoveredRuns = (await Promise.all(recoverableSourceRunIds
@@ -6454,22 +6433,7 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
       };
     }).filter(Boolean);
   const currentRecords = [...rescueRecords, ...blindRecords];
-  if (!currentRecords.length) {
-    if (!legacyRecovery) return null;
-    return {
-      schemaVersion: 1,
-      calibrationVersion: RESCUE_CALIBRATION_VERSION,
-      queryCompatibilityVersion: CALIBRATION_QUERY_COMPATIBILITY_VERSION,
-      actorId: pair.actor.id,
-      vibeKey: pair.vibeKey,
-      evidenceCount: 0,
-      reviewedRunCount: 0,
-      minimumApprovalEvidenceCount: MIN_CALIBRATION_APPROVAL_EVIDENCE,
-      approvalReady: false,
-      activeApproval: null,
-      legacyRecovery,
-    };
-  }
+  if (!currentRecords.length) return null;
   const currentReceiptIds = new Set(currentRecords.map(record =>
     record.sourceRescueReceiptId));
   const retirements = retirementReceipts.filter(retirement =>
@@ -6623,7 +6587,6 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
     minimumApprovalEvidenceCount: MIN_CALIBRATION_APPROVAL_EVIDENCE,
     approvalReady: reviewedRunCount >= MIN_CALIBRATION_APPROVAL_EVIDENCE,
     activeApproval,
-    legacyRecovery,
     approvalHistory: approvalReceipts.map(receipt => ({
       ...receipt,
       effectiveStatus: revokedApprovalIds.has(receipt.approvalId) ? "revoked" : "approved",
