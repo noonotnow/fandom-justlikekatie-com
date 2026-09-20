@@ -2,8 +2,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { type Page } from '@playwright/test';
-import { createServer, type ViteDevServer } from 'vite';
-import { launchBrowserForServer } from './browserEngines.ts';
+import {
+  closeBrowserAndServer,
+  launchBrowserForServer,
+  launchPageForServer,
+  startViteTestServer,
+} from './browserEngines.ts';
 
 const ACTOR_ID = 'browser-test-actor';
 const VIBE_KEY = `${ACTOR_ID}:0`;
@@ -11,18 +15,8 @@ const RESCUE_RECEIPT_ID = 'rescue-receipt-1';
 
 type AnyRecord = Record<string, any>;
 
-async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
-  const server = await createServer({
-    configFile: 'vite.config.ts',
-    server: { host: '127.0.0.1', port: 5000, strictPort: false },
-  });
-  await server.listen();
-  const address = server.httpServer?.address();
-  if (!address || typeof address === 'string') {
-    await server.close();
-    throw new Error('The browser test server did not expose a TCP port.');
-  }
-  return { server, origin: `http://127.0.0.1:${address.port}` };
+async function startApp() {
+  return startViteTestServer();
 }
 
 function candidate(index: number): AnyRecord {
@@ -1324,11 +1318,10 @@ async function configureCacheDiagnosticNetwork(
 
 test('saved cache proof reopens after refresh without provider searches and stays scoped to its pairing', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { providerSearchRequests, receiptSaveRequests } = await configureCacheDiagnosticNetwork(page);
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     const diagnostic = page.getByRole('region', { name: 'Search cache diagnostic' });
@@ -1368,8 +1361,7 @@ test('saved cache proof reopens after refresh without provider searches and stay
     );
     assert.equal(providerSearchRequests.length, searchesBeforeRefresh, 'switching pairing or scope must not invoke provider searches');
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
@@ -1417,14 +1409,13 @@ test('historical cache proof keeps its frozen evidence and starts a new current-
     })),
   };
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { providerSearchRequests, receiptSaveRequests } = await configureCacheDiagnosticNetwork(page, {
     initialDiagnostic: historicalDiagnostic,
     manifestQueries: currentQueries,
   });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByLabel('Audit scope').selectOption('full');
@@ -1475,8 +1466,7 @@ test('historical cache proof keeps its frozen evidence and starts a new current-
     assert.deepEqual(receiptSaveRequests[0].frozenQueries, currentQueries);
     assert.deepEqual(receiptSaveRequests[0].comparisons.map((comparison: AnyRecord) => comparison.query), currentQueries);
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
@@ -1510,13 +1500,12 @@ test('legacy historical cache proof marks its query-change summary unavailable w
     }],
   };
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { providerSearchRequests, receiptSaveRequests } = await configureCacheDiagnosticNetwork(page, {
     initialDiagnostic: historicalDiagnostic,
   });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByLabel('Audit scope').selectOption('full');
@@ -1532,21 +1521,19 @@ test('legacy historical cache proof marks its query-change summary unavailable w
     assert.equal(providerSearchRequests.length, 0, 'opening a legacy historical proof must not invoke provider searches');
     assert.equal(receiptSaveRequests.length, 0, 'opening a legacy historical proof must not create audit or publication writes');
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('a failed cache comparison retries immediately with its active saved reservation', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { providerSearchRequests, receiptSaveRequests } = await configureCacheDiagnosticNetwork(
     page,
     { failFirstRefresh: true },
   );
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     const diagnostic = page.getByRole('region', { name: 'Search cache diagnostic' });
@@ -1563,18 +1550,16 @@ test('a failed cache comparison retries immediately with its active saved reserv
     assert.equal(providerSearchRequests[2].comparisonId, 'browser-comparison-id');
     assert.equal(receiptSaveRequests.length, 2);
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('retrieval repetition stays visibly separate from the downstream rejection funnel and read-only', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   await configureNetwork(page, { retrievalRepetition: true });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('button', { name: 'Run audit', exact: true }).click();
@@ -1610,18 +1595,16 @@ test('retrieval repetition stays visibly separate from the downstream rejection 
     assert.equal(await repetition.getByRole('button').count(), 0);
     assert.equal(await repetition.locator('input, select, textarea').count(), 0);
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('partial retrieval receipts distinguish unavailable counts from recorded zeroes without mutations', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { auditRequests } = await configureNetwork(page, { partialRetrievalRepetition: true });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('button', { name: 'Run audit', exact: true }).click();
@@ -1679,18 +1662,16 @@ test('partial retrieval receipts distinguish unavailable counts from recorded ze
     assert.equal(await legacyFunnel.locator('button, input, select, textarea, form').count(), 0);
     assert.deepEqual(auditRequests, requestsBeforeRetainedReview, 'switching to and reading a Legacy partial receipt must not run or mutate an audit');
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('retrieval repetition remains visible and read-only after switching to a retained audit', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { auditRequests } = await configureNetwork(page, { retrievalRepetition: true });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('button', { name: 'Run audit', exact: true }).click();
@@ -1726,18 +1707,16 @@ test('retrieval repetition remains visible and read-only after switching to a re
       'switching to and reading a retained retrieval receipt must not run or mutate an audit',
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('retrieval repetition remains visible beneath Legacy warnings without audit mutations', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { auditRequests } = await configureNetwork(page, { retrievalRepetition: true });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('button', { name: 'Run audit', exact: true }).click();
@@ -1770,15 +1749,14 @@ test('retrieval repetition remains visible beneath Legacy warnings without audit
       'switching to and reading a Legacy retrieval receipt must not run or mutate an audit',
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('a date-bounded editorial packet download preserves publication join outcomes without mutations', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const {
     auditRequests,
     calibrationRequests,
@@ -1800,7 +1778,6 @@ test('a date-bounded editorial packet download preserves publication join outcom
     }
   });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     const exportPanel = page.getByLabel('Read-only calibration export');
@@ -1870,8 +1847,7 @@ test('a date-bounded editorial packet download preserves publication join outcom
     assert.deepEqual(exportRequests, [], 'downloading must not export or persist a rescue board');
     assert.deepEqual(misprintRequests, [], 'downloading must not alter publication correction records');
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
@@ -1881,8 +1857,8 @@ for (const { label, contentType } of [
 ]) {
   test(`a valid ${label} editorial packet downloads exactly once without mutations`, { timeout: 60_000 }, async () => {
     const { server, origin } = await startApp();
-    const browser = await launchBrowserForServer(server);
-    const page = await browser.newPage();
+    const { browser, page } = await launchPageForServer(server);
+    try {
     const {
       auditRequests,
       calibrationRequests,
@@ -1910,7 +1886,6 @@ for (const { label, contentType } of [
       }
     });
 
-    try {
       await page.goto(`${origin}/vibe-atlas?admin=true`);
       await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
       const exportPanel = page.getByLabel('Read-only calibration export');
@@ -1935,16 +1910,15 @@ for (const { label, contentType } of [
       assert.deepEqual(exportRequests, [], `downloading ${label} must not export or persist a rescue board`);
       assert.deepEqual(misprintRequests, [], `downloading ${label} must not alter publication correction records`);
     } finally {
-      await browser.close();
-      await server.close();
+      await closeBrowserAndServer(browser, server);
     }
   });
 }
 
 test('retained-run publication summaries keep outcomes and immutable edition links visible without mutations', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { auditRequests } = await configureNetwork(page, { publicationReview: true });
   const actorAuditRequests: Array<{ method: string; url: URL }> = [];
   page.on('request', request => {
@@ -1954,7 +1928,6 @@ test('retained-run publication summaries keep outcomes and immutable edition lin
     }
   });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
 
@@ -2005,15 +1978,14 @@ test('retained-run publication summaries keep outcomes and immutable edition lin
     assert.ok(actorAuditRequests.every(request => request.method === 'GET'), 'selecting publication summaries must perform only read requests');
     assert.deepEqual(auditRequests, [], 'retained-run switching must not issue an audit action');
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('failed editorial packet downloads stay useful and retryable without mutations', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const {
     auditRequests,
     calibrationRequests,
@@ -2044,7 +2016,6 @@ test('failed editorial packet downloads stay useful and retryable without mutati
     }
   });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     const exportPanel = page.getByLabel('Read-only calibration export');
@@ -2097,16 +2068,15 @@ test('failed editorial packet downloads stay useful and retryable without mutati
     assert.deepEqual(exportRequests, [], 'failure and retry must not export or persist a rescue board');
     assert.deepEqual(misprintRequests, [], 'failure and retry must not alter publication correction records');
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 for (const malformedContentType of ['application/json', 'application/vnd.fandom.calibration+json']) {
   test(`malformed ${malformedContentType} editorial packet responses stay retryable without downloads or mutations`, { timeout: 60_000 }, async () => {
     const { server, origin } = await startApp();
-    const browser = await launchBrowserForServer(server);
-    const page = await browser.newPage();
+    const { browser, page } = await launchPageForServer(server);
+    try {
     const {
       auditRequests,
       calibrationRequests,
@@ -2135,7 +2105,6 @@ for (const malformedContentType of ['application/json', 'application/vnd.fandom.
       }
     });
 
-    try {
       await page.goto(`${origin}/vibe-atlas?admin=true`);
       await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
       const exportPanel = page.getByLabel('Read-only calibration export');
@@ -2158,8 +2127,7 @@ for (const malformedContentType of ['application/json', 'application/vnd.fandom.
       assert.deepEqual(exportRequests, [], 'the malformed response must not export or persist a rescue board');
       assert.deepEqual(misprintRequests, [], 'the malformed response must not alter publication correction records');
     } finally {
-      await browser.close();
-      await server.close();
+      await closeBrowserAndServer(browser, server);
     }
   });
 }
@@ -2526,11 +2494,10 @@ async function configureCompleteHeroReviewNetwork(
 
 test('an authenticated image-only review stays completed after read-only history switching', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { auditRequests } = await configureNetwork(page, { visualReview: true });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
@@ -2613,18 +2580,16 @@ test('an authenticated image-only review stays completed after read-only history
       'completed-state history switching must not create additional judgment receipts',
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('a failed image-only judgment stays blinded and ready to retry', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { auditRequests } = await configureNetwork(page, { visualReview: true, failVisualJudgment: true });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
@@ -2661,21 +2626,19 @@ test('a failed image-only judgment stays blinded and ready to retry', { timeout:
       [{ judgmentToken: 'visual-token-1', classification: 'core' }],
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('a saved image judgment repairs index contention without repeating classification', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { auditRequests } = await configureNetwork(page, {
     visualReview: true,
     contendVisualJudgmentIndex: true,
   });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
@@ -2713,18 +2676,16 @@ test('a saved image judgment repairs index contention without repeating classifi
       }],
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('a slow image-only judgment ignores a rapid repeated click', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { auditRequests } = await configureNetwork(page, { visualReview: true, slowVisualJudgment: true });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
@@ -2746,8 +2707,7 @@ test('a slow image-only judgment ignores a rapid repeated click', { timeout: 60_
       'the same judgment token must have no more than one save in flight',
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
@@ -2807,11 +2767,10 @@ async function assertArchivedHistoricalReview(
 
 test('retained and Legacy image-only reviews stay read-only and blinded before returning to the active queue', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { auditRequests } = await configureNetwork(page, { visualReview: true });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
@@ -2852,15 +2811,14 @@ test('retained and Legacy image-only reviews stay read-only and blinded before r
       'browsing archived queues must not create judgment receipts',
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('only the latest rapid audit-history selection can update the displayed run', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const abortedHistoryRunIds: string[] = [];
   page.on('requestfailed', request => {
     const url = new URL(request.url());
@@ -2876,7 +2834,6 @@ test('only the latest rapid audit-history selection can update the displayed run
     },
   });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByText('Image-only calibration · audit visual-review-current', { exact: true }).waitFor();
@@ -2910,16 +2867,15 @@ test('only the latest rapid audit-history selection can update the displayed run
       'aborted history requests must not show an operator-facing error',
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('a stale audit-history error cannot replace a newer successful selection', { timeout: 60_000 }, async () => {
   const staleError = 'The abandoned retained audit could not be loaded.';
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   await configureNetwork(page, {
     visualReview: true,
     auditHistoryDetailDelays: {
@@ -2930,7 +2886,6 @@ test('a stale audit-history error cannot replace a newer successful selection', 
     },
   });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByText('Image-only calibration · audit visual-review-current', { exact: true }).waitFor();
@@ -2952,8 +2907,7 @@ test('a stale audit-history error cannot replace a newer successful selection', 
       true,
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
@@ -2962,14 +2916,13 @@ async function runDirectHistoricalReviewScenario(
   completedCurrentReview: boolean,
 ): Promise<void> {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { auditRequests } = await configureNetwork(page, {
     visualReview: true,
     completedVisualReview: completedCurrentReview,
   });
 
-  try {
     const params = new URLSearchParams({
       admin: 'true',
       actorId: ACTOR_ID,
@@ -3014,8 +2967,7 @@ async function runDirectHistoricalReviewScenario(
       `${completedCurrentReview ? 'completed' : 'unfinished'} direct-link ${history.name} history switching must not create judgment receipts`,
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 }
 
@@ -3031,11 +2983,10 @@ for (const history of archivedReviewHistories) {
 
 test('a direct unfinished retained board review stays frozen and blinded before returning to the current audit', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { auditRequests } = await configureNetwork(page, { unfinishedBoardReview: true });
 
-  try {
     const params = new URLSearchParams({
       admin: 'true',
       actorId: ACTOR_ID,
@@ -3065,18 +3016,16 @@ test('a direct unfinished retained board review stays frozen and blinded before 
     assert.equal(new URL(page.url()).searchParams.has('receiptId'), false);
     assert.equal(auditRequests.filter(request => request.action === 'blind_choice').length, 0);
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('a current Legacy audit keeps only annotation and rescue exceptions actionable', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { auditRequests } = await configureNetwork(page, { currentLegacy: true, retrievalRepetition: true });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('heading', { name: 'Legacy audit · retained history · current-legacy', exact: true }).waitFor();
@@ -3117,15 +3066,14 @@ test('a current Legacy audit keeps only annotation and rescue exceptions actiona
       'reading the current Legacy retrieval receipt and exceptions must not run or mutate an audit',
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('a current Legacy retrieval receipt survives refresh and history switching without writes', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { auditRequests } = await configureNetwork(page, { currentLegacy: true, retrievalRepetition: true });
   const auditTraffic: Array<{ method: string; runId: string | null }> = [];
   page.on('request', request => {
@@ -3164,7 +3112,6 @@ test('a current Legacy retrieval receipt survives refresh and history switching 
     assert.equal(await page.getByRole('button', { name: 'Choose nine to save', exact: true }).isDisabled(), true);
   }
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await assertCurrentLegacyReceipt();
@@ -3193,16 +3140,15 @@ test('a current Legacy retrieval receipt survives refresh and history switching 
     );
     assert.deepEqual(auditRequests, [], 'refresh and history switching must not run or mutate an audit');
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('a failed history detail load preserves the current Legacy retrieval receipt without writes', { timeout: 60_000 }, async () => {
   const historyError = 'The retained audit detail is temporarily unavailable.';
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { auditRequests } = await configureNetwork(page, {
     currentLegacy: true,
     retrievalRepetition: true,
@@ -3245,7 +3191,6 @@ test('a failed history detail load preserves the current Legacy retrieval receip
     assert.equal(await page.getByRole('button', { name: 'Choose nine to save', exact: true }).isDisabled(), true);
   }
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await assertCurrentLegacyReceipt();
@@ -3273,8 +3218,7 @@ test('a failed history detail load preserves the current Legacy retrieval receip
     );
     assert.deepEqual(auditRequests, [], 'a failed history detail load and recovery must not run or mutate an audit');
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
@@ -3358,15 +3302,14 @@ test('a lost history connection preserves the current Legacy evidence and recove
     );
     assert.deepEqual(auditRequests, [], 'a lost history connection and recovery must not run or mutate an audit');
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('a signed-in operator saves a rescue board to Collection without calibrating it', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const {
     auditRequests,
     calibrationRequests,
@@ -3376,7 +3319,6 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
     getCollectionSyncRequests,
   } = await configureNetwork(page);
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('heading', { name: 'Release Desk', exact: true }).waitFor();
     await page.getByRole('heading', { name: 'Inventory', exact: true }).waitFor();
@@ -3640,8 +3582,7 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
       'an immutable Misprint should not offer a second correction action',
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
@@ -3728,8 +3669,7 @@ test('release inventory repair warnings cover repeated and failed repairs, one s
       'repair warning copy must remain private to the operator surface',
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
@@ -3780,18 +3720,16 @@ test('mixed calibration evidence does not overstate joint bundle support', { tim
       'the active approval summary must list only distinct runs supporting every approved signal',
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('a bounded legacy recovery keeps its active approval visible to operators', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   await configureNetwork(page, { boundedLegacyRecovery: true });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
@@ -3801,18 +3739,16 @@ test('a bounded legacy recovery keeps its active approval visible to operators',
     await approvalCard.getByRole('button', { name: 'Revoke approved adjustment', exact: true }).waitFor();
     assert.equal(await page.getByText('Legacy approval recovery paused', { exact: true }).count(), 0);
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('a retirement evidence handoff preserves the receipt identifier when its source run is gone', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   await configureNetwork(page, { missingRetirementRun: true });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('heading', { name: 'Release Desk', exact: true }).waitFor();
     await page.getByRole('link', { name: 'Open exact evidence', exact: true }).click();
@@ -3823,18 +3759,16 @@ test('a retirement evidence handoff preserves the receipt identifier when its so
     ).waitFor();
     assert.equal(new URL(page.url()).searchParams.get('receiptId'), 'rescue-receipt-7');
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('a stale rescue approval keeps the recovery form visible without showing publication success', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { saveRequests, verdictRequests } = await configureCompleteHeroReviewNetwork(page, { staleOnVerdict: true });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
@@ -3872,20 +3806,18 @@ test('a stale rescue approval keeps the recovery form visible without showing pu
     );
     assert.equal(saveRequests.length, 1);
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('a newer current audit keeps the approval draft intact until the operator refreshes', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { saveRequests, verdictRequests } = await configureCompleteHeroReviewNetwork(page, {
     newerRunOnVerdict: true,
   });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
@@ -3933,20 +3865,18 @@ test('a newer current audit keeps the approval draft intact until the operator r
     assert.equal(await page.getByLabel('Publication decision').inputValue(), '');
     assert.equal(await page.getByLabel('Operator notes').inputValue(), '');
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('a newer current audit keeps the rescue-board arrangement intact until the operator refreshes', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { saveRequests } = await configureCompleteHeroReviewNetwork(page, {
     newerRunOnRescueSave: true,
   });
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
@@ -4004,18 +3934,16 @@ test('a newer current audit keeps the rescue-board arrangement intact until the 
       'refreshing must reveal the newer run rather than a falsely saved board',
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('an admin can hand off a complete compiled proposal that needs hero review', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
+  try {
   const { saveRequests, verdictRequests } = await configureCompleteHeroReviewNetwork(page);
 
-  try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
@@ -4104,7 +4032,6 @@ test('an admin can hand off a complete compiled proposal that needs hero review'
       'the approved receipt must remain the publication source after submission',
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });

@@ -1,28 +1,19 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createServer, type ViteDevServer } from 'vite';
 import { type Page } from '@playwright/test';
 import {
   BROWSER_ENGINES,
-  launchBrowserForServer,
+  closeBrowserAndServer,
+  launchPageForServer,
+  startViteTestServer,
 } from './browserEngines.ts';
 
 const ACCOUNT_ID = 'collection-cleanup-account';
 const GRID_ID = 'pending-unmount-grid';
 const CARD_URL = 'https://images.example/pending-unmount-card.jpg';
 
-async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
-  const server = await createServer({
-    configFile: 'vite.config.ts',
-    server: { host: '127.0.0.1', port: 5000, strictPort: false },
-  });
-  await server.listen();
-  const address = server.httpServer?.address();
-  if (!address || typeof address === 'string') {
-    await server.close();
-    throw new Error('The browser test server did not expose a TCP port.');
-  }
-  return { server, origin: `http://127.0.0.1:${address.port}` };
+async function startApp() {
+  return startViteTestServer();
 }
 
 async function seedCollection(page: Page): Promise<void> {
@@ -130,8 +121,7 @@ async function collectionContents(page: Page): Promise<{
 
 test('Collection commits pending grid and saved-result removals when navigation unmounts it', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
   const exportCleanupRequests: string[] = [];
 
   try {
@@ -180,15 +170,13 @@ test('Collection commits pending grid and saved-result removals when navigation 
       );
     });
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('Collection shows local records when account sync fails', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
 
   try {
     await page.route('**/api/auth/session', route => route.fulfill({
@@ -234,15 +222,13 @@ test('Collection shows local records when account sync fails', { timeout: 60_000
     await page.getByText('Grid cleanup actor').first().waitFor();
     await page.getByRole('status').filter({ hasText: 'account sync failed' }).waitFor();
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('Grid Builder keeps saved results but does not unpack saved grids into its source pool', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
 
   try {
     await page.route('**/api/auth/session', route => route.fulfill({
@@ -264,15 +250,13 @@ test('Grid Builder keeps saved results but does not unpack saved grids into its 
     await page.getByRole('button', { name: /Card cleanup actor 1/ }).waitFor();
     assert.equal(await page.getByRole('button', { name: /Grid cleanup actor 1/ }).count(), 0);
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('Collection result Misprints teach the curator before preserving the collectible receipt', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
   let correctionRequest: Record<string, unknown> | null = null;
   let correctionRequestCount = 0;
 
@@ -373,16 +357,14 @@ test('Collection result Misprints teach the curator before preserving the collec
     assert.equal(moved.misprint?.calibrationStatus, 'applied');
     assert.equal(correctionRequestCount, 1);
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 for (const engine of BROWSER_ENGINES) {
   test(`Collection commits a pending removal after the browser page reloads in ${engine.name}`, { timeout: 60_000 }, async () => {
     const { server, origin } = await startApp();
-    const browser = await launchBrowserForServer(server, engine.type);
-    const page = await browser.newPage();
+    const { browser, page } = await launchPageForServer(server, engine.type);
     const exportCleanupRequests: string[] = [];
 
     try {
@@ -427,16 +409,14 @@ for (const engine of BROWSER_ENGINES) {
         );
       });
     } finally {
-      await browser.close();
-      await server.close();
+      await closeBrowserAndServer(browser, server);
     }
   });
 }
 
 test('Collection replays a saved-result removal left durable by a closed page', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowserForServer(server);
-  const page = await browser.newPage();
+  const { browser, page } = await launchPageForServer(server);
 
   try {
     await page.route('**/api/auth/session', route => route.fulfill({
@@ -480,8 +460,7 @@ test('Collection replays a saved-result removal left durable by a closed page', 
       );
     });
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 

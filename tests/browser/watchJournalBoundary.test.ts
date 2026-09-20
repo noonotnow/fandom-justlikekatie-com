@@ -1,20 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createServer, type ViteDevServer } from 'vite';
-import { launchBrowserWithServer } from './browserEngines.ts';
+import {
+  closeBrowserAndServer,
+  launchBrowserWithServer,
+  startViteTestServer,
+} from './browserEngines.ts';
 
-async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
-  const server = await createServer({
-    configFile: 'vite.config.ts',
-    server: { host: '127.0.0.1', port: 5000, strictPort: false },
-  });
-  await server.listen();
-  const address = server.httpServer?.address();
-  if (!address || typeof address === 'string') {
-    await server.close();
-    throw new Error('The browser test server did not expose a TCP port.');
-  }
-  return { server, origin: `http://127.0.0.1:${address.port}` };
+async function startApp() {
+  return startViteTestServer();
 }
 
 test('an episode-range share page caps a previously saved later boundary', { timeout: 30_000 }, async () => {
@@ -57,7 +50,6 @@ test('an episode-range share page caps a previously saved later boundary', { tim
     await page.getByText('This shared page is capped at Episode 4.').waitFor();
     assert.deepEqual(requestedBoundaries, ['4'], 'a range route must not request beyond its endpoint');
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });

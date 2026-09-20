@@ -7,13 +7,45 @@ import {
   type BrowserType,
   type Page,
 } from '@playwright/test';
-import type { ViteDevServer } from 'vite';
+import {
+  createServer,
+  type InlineConfig,
+  type ViteDevServer,
+} from 'vite';
 
 export const BROWSER_ENGINES = [
   { name: 'Chromium', type: chromium },
   { name: 'Firefox', type: firefox },
   { name: 'WebKit', type: webkit },
 ] as const;
+
+export async function startViteTestServer(
+  config: InlineConfig = {
+    configFile: 'vite.config.ts',
+    server: { host: '127.0.0.1', port: 5000, strictPort: false },
+  },
+  createTestServer: (config: InlineConfig) => Promise<ViteDevServer> = createServer,
+): Promise<{ server: ViteDevServer; origin: string }> {
+  const server = await createTestServer(config);
+  try {
+    await server.listen();
+    const address = server.httpServer?.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('The browser test server did not expose a TCP port.');
+    }
+    return { server, origin: `http://127.0.0.1:${address.port}` };
+  } catch (startError) {
+    try {
+      await server.close();
+    } catch (closeError) {
+      throw new AggregateError(
+        [startError, closeError],
+        'The browser test server failed to start and failed to close.',
+      );
+    }
+    throw startError;
+  }
+}
 
 export async function launchBrowser(browserType: BrowserType = chromium): Promise<Browser> {
   try {

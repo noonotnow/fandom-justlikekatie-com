@@ -4,7 +4,9 @@ import type { Browser, BrowserType } from '@playwright/test';
 import {
   launchBrowserForServer,
   launchBrowserWithServer,
+  startViteTestServer,
 } from './browserEngines.ts';
+import type { ViteDevServer } from 'vite';
 
 function failingBrowserType(launchError: Error): BrowserType {
   return {
@@ -69,4 +71,23 @@ test('parallel server startup failure closes an already launched browser', async
     serverError,
   );
   assert.equal(browserClosed, true);
+});
+
+test('Vite listen failure closes the created browser test server', async () => {
+  const listenError = new Error('server failed to listen');
+  let serverClosed = false;
+  const createTestServer = async () => ({
+    listen: async () => {
+      throw listenError;
+    },
+    close: async () => {
+      serverClosed = true;
+    },
+  } as unknown as ViteDevServer);
+
+  await assert.rejects(
+    startViteTestServer({}, createTestServer),
+    listenError,
+  );
+  assert.equal(serverClosed, true);
 });

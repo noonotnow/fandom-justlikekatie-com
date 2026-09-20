@@ -1,44 +1,39 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { type Page } from '@playwright/test';
-import { createServer, type ViteDevServer } from 'vite';
-import { BROWSER_ENGINES, launchBrowser } from './browserEngines.ts';
+import {
+  BROWSER_ENGINES,
+  closeBrowserAndServer,
+  launchBrowserWithServer,
+  startViteTestServer,
+} from './browserEngines.ts';
 
 const ARCHIVED_DATE = '2026-08-31';
 const FALLBACK_DATE = '2026-08-30';
 const ACTOR_RECORD_PATH = '/vibe-atlas/actors/browser-archive-actor';
 const EDITION_RECORD_PATH = `/vibe-atlas/editions/${ARCHIVED_DATE}`;
-const MALFORMED_FIXTURES = [
+const MALFORMED_DATE = '2026-08-29';
+const UNAPPROVED_PATH_FIXTURES = [
   {
-    date: '2026-08-29',
+    date: '2026-08-28',
     actorName: 'Wrong Prefix Record Actor',
     publicRecord: {
       actorPath: '/admin/vibe-atlas/actors/wrong-prefix-record-actor',
-      editionPath: '/vibe-atlas/editions/2026-08-29',
+      editionPath: '/vibe-atlas/editions/2026-08-28',
     },
   },
   {
-    date: '2026-08-28',
+    date: '2026-08-27',
     actorName: 'External Record Actor',
     publicRecord: {
       actorPath: '/vibe-atlas/actors/external-record-actor',
-      editionPath: 'https://records.browser-archive.test/vibe-atlas/editions/2026-08-28',
+      editionPath: 'https://records.browser-archive.test/vibe-atlas/editions/2026-08-27',
     },
   },
 ] as const;
 
-async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
-  const server = await createServer({
-    configFile: 'vite.config.ts',
-    server: { host: '127.0.0.1', port: 5000, strictPort: false },
-  });
-  await server.listen();
-  const address = server.httpServer?.address();
-  if (!address || typeof address === 'string') {
-    await server.close();
-    throw new Error('The browser test server did not expose a TCP port.');
-  }
-  return { server, origin: `http://127.0.0.1:${address.port}` };
+async function startApp() {
+  return startViteTestServer();
 }
 
 async function installClipboardHarness(page: Page): Promise<void> {
@@ -124,7 +119,23 @@ function archiveEditions() {
   ];
 }
 
-function malformedArchiveEdition(fixture: typeof MALFORMED_FIXTURES[number]) {
+function malformedArchiveEdition() {
+  return {
+    date: MALFORMED_DATE,
+    actorName: 'Partial Record Actor',
+    actorShortNameEn: 'Partial Record Actor',
+    vibeEmoji: '🧩',
+    vibeLabel: 'Partial Record Vibe',
+    vibeLabelEn: 'Partial Record Vibe',
+    vibeSubtitleEn: '',
+    access: 'free',
+    publicRecord: {
+      actorPath: '/vibe-atlas/actors/partial-record-actor',
+    },
+  };
+}
+
+function unapprovedPathEdition(fixture: typeof UNAPPROVED_PATH_FIXTURES[number]) {
   return {
     date: fixture.date,
     actorName: fixture.actorName,
@@ -140,24 +151,23 @@ function malformedArchiveEdition(fixture: typeof MALFORMED_FIXTURES[number]) {
 
 for (const engine of BROWSER_ENGINES) {
   test(`archived edition copy uses its date and announces clipboard success or failure in ${engine.name}`, { timeout: 45_000 }, async () => {
-    const browser = await launchBrowser(engine.type);
-    let app: Awaited<ReturnType<typeof startApp>> | undefined;
+    const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
     try {
-      app = await startApp();
-      const { origin } = app;
-      const page = await browser.newPage();
-      await installClipboardHarness(page);
-      await page.route('https://www.googletagmanager.com/**', route => route.abort());
-      await page.route('**/api/auth/session', route => route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({ user: null }),
-      }));
-      await page.route('**/api/membership/status', route => route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({ state: 'inactive', isMember: false }),
-      }));
-      await page.route('**/.netlify/functions/star-of-day**', async route => {
-        const url = new URL(route.request().url());
+    const page = await browser.newPage();
+    await installClipboardHarness(page);
+    await page.route('https://www.googletagmanager.com/**', route => route.abort());
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ user: null }),
+    }));
+    await page.route('**/api/membership/status', route => route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Sign in is required.' }),
+    }));
+    await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
+    await page.route('**/.netlify/functions/star-of-day**', async route => {
+      const url = new URL(route.request().url());
         const response = url.searchParams.get('archive') === '1'
           ? {
               editions: [{
@@ -212,18 +222,15 @@ for (const engine of BROWSER_ENGINES) {
         'returning to today must remove the archived-edition copy action',
       );
     } finally {
-      await browser.close();
-      await app?.server.close();
+      await closeBrowserAndServer(browser, server);
     }
   });
 }
 
 test('approved public-record links work across today, the picker, and the full archive while unapproved entries keep their board fallback', { timeout: 45_000 }, async () => {
   const engine = BROWSER_ENGINES[0];
-  const browser = await launchBrowser(engine.type);
-  let app: Awaited<ReturnType<typeof startApp>> | undefined;
+  const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
   try {
-    app = await startApp();
     const page = await browser.newPage();
     await page.route('https://www.googletagmanager.com/**', route => route.abort());
     await page.route('**/api/auth/session', route => route.fulfill({
@@ -231,8 +238,9 @@ test('approved public-record links work across today, the picker, and the full a
       body: JSON.stringify({ user: null }),
     }));
     await page.route('**/api/membership/status', route => route.fulfill({
+      status: 401,
       contentType: 'application/json',
-      body: JSON.stringify({ state: 'inactive', isMember: false }),
+      body: JSON.stringify({ error: 'Sign in is required.' }),
     }));
     await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
     await page.route('**/.netlify/functions/star-of-day**', async route => {
@@ -247,7 +255,7 @@ test('approved public-record links work across today, the picker, and the full a
       });
     });
 
-    await page.goto(`${app.origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
     const todayRecords = page.getByRole('navigation', { name: 'Curated public records' });
     await todayRecords.waitFor();
     assert.equal(
@@ -303,119 +311,209 @@ test('approved public-record links work across today, the picker, and the full a
     assert.equal(await fallbackCard.getByRole('link', { name: 'Actor record' }).count(), 0);
     assert.equal(await fallbackCard.getByRole('link', { name: 'Edition record' }).count(), 0);
   } finally {
-    await browser.close();
-    await app?.server.close();
+    await closeBrowserAndServer(browser, server);
+  }
+});
+
+test('partial public-record metadata stays fail-closed across today, the picker, the locked preview, and the full archive', { timeout: 45_000 }, async () => {
+  const engine = BROWSER_ENGINES[0];
+  const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
+  try {
+    const page = await browser.newPage();
+    await page.route('https://www.googletagmanager.com/**', route => route.abort());
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ user: null }),
+    }));
+    await page.route('**/api/membership/status', route => route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Sign in is required.' }),
+    }));
+    await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
+    await page.route('**/.netlify/functions/star-of-day**', async route => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get('archive') === '1') {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ editions: [malformedArchiveEdition()] }),
+        });
+        return;
+      }
+      if (url.searchParams.get('date') === MALFORMED_DATE) {
+        await route.fulfill({
+          status: 401,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: 'archive_access_required',
+            access: 'sign_in',
+            capability: 'fandom_collector',
+            edition: {
+              ...malformedArchiveEdition(),
+              access: 'member',
+              previewThumbnails: ['https://images.browser-archive.test/partial.jpg'],
+            },
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...starOfDay('2026-09-02'),
+          publicRecord: {
+            actorPath: '/vibe-atlas/actors/partial-record-actor',
+          },
+        }),
+      });
+    });
+
+    await page.goto(`${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
+    await page.getByText("Today's curated card drop").waitFor();
+    assert.equal(
+      await page.getByRole('navigation', { name: 'Curated public records' }).count(),
+      0,
+      'today must not render navigation for a partial record pair',
+    );
+
+    await page.getByRole('button', { name: /Browse past editions/ }).click();
+    const malformedPickerEntry = page.locator('.daily-archive__edition-group').filter({
+      hasText: 'Partial Record Actor',
+    });
+    await malformedPickerEntry.waitFor();
+    assert.equal(
+      await malformedPickerEntry.getByRole('link').count(),
+      0,
+      'the picker must not render navigation for a partial record pair',
+    );
+
+    await malformedPickerEntry.getByRole('button').click();
+    await page.getByText(/Founding Members can unlock the complete nine-card board/).waitFor();
+    assert.equal(
+      await page.getByRole('navigation', { name: 'Curated public records' }).count(),
+      0,
+      'the locked preview must not render navigation for a partial record pair',
+    );
+
+    await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
+    await page.getByRole('heading', { name: 'The Star of the Day Archive' }).waitFor();
+    const malformedCard = page.locator('.archive-card').filter({ hasText: 'Partial Record Actor' });
+    const boardFallback = malformedCard.getByRole('link', { name: /Open Issue/ });
+    assert.equal(
+      await boardFallback.getAttribute('href'),
+      `/vibe-atlas?date=${MALFORMED_DATE}`,
+      'the full archive must retain the ordinary board fallback',
+    );
+    assert.match(await boardFallback.textContent() ?? '', /Open the nine-card board/);
+    assert.equal(await malformedCard.getByRole('link', { name: 'Actor record' }).count(), 0);
+    assert.equal(await malformedCard.getByRole('link', { name: 'Edition record' }).count(), 0);
+  } finally {
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('complete-looking public-record metadata with unapproved paths stays fail-closed across reader surfaces', { timeout: 45_000 }, async () => {
   const engine = BROWSER_ENGINES[0];
-  const browser = await launchBrowser(engine.type);
+  const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
   try {
-    for (const fixture of MALFORMED_FIXTURES) {
-      const app = await startApp();
-      try {
-        const page = await browser.newPage();
-        await page.route('https://www.googletagmanager.com/**', route => route.abort());
-        await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
-        await page.route('**/api/auth/session', route => route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify({ user: null }),
-        }));
-        await page.route('**/api/membership/status', route => route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify({ state: 'inactive', isMember: false }),
-        }));
-        await page.route('**/.netlify/functions/star-of-day**', async route => {
-          const url = new URL(route.request().url());
-          if (url.searchParams.get('archive') === '1') {
-            await route.fulfill({
-              contentType: 'application/json',
-              body: JSON.stringify({ editions: [malformedArchiveEdition(fixture)] }),
-            });
-            return;
-          }
-          if (url.searchParams.get('date') === fixture.date) {
-            await route.fulfill({
-              status: 401,
-              contentType: 'application/json',
-              body: JSON.stringify({
-                error: 'archive_access_required',
-                access: 'sign_in',
-                capability: 'fandom_collector',
-                edition: {
-                  ...malformedArchiveEdition(fixture),
-                  access: 'member',
-                  previewThumbnails: ['https://images.browser-archive.test/malformed.jpg'],
-                },
-              }),
-            });
-            return;
-          }
+    for (const fixture of UNAPPROVED_PATH_FIXTURES) {
+      const page = await browser.newPage();
+      await page.route('https://www.googletagmanager.com/**', route => route.abort());
+      await page.route('**/api/auth/session', route => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ user: null }),
+      }));
+      await page.route('**/api/membership/status', route => route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Sign in is required.' }),
+      }));
+      await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
+      await page.route('**/.netlify/functions/star-of-day**', async route => {
+        const url = new URL(route.request().url());
+        if (url.searchParams.get('archive') === '1') {
           await route.fulfill({
             contentType: 'application/json',
+            body: JSON.stringify({ editions: [unapprovedPathEdition(fixture)] }),
+          });
+          return;
+        }
+        if (url.searchParams.get('date') === fixture.date) {
+          await route.fulfill({
+            status: 401,
+            contentType: 'application/json',
             body: JSON.stringify({
-              ...starOfDay('2026-09-02'),
-              publicRecord: fixture.publicRecord,
+              error: 'archive_access_required',
+              access: 'sign_in',
+              capability: 'fandom_collector',
+              edition: {
+                ...unapprovedPathEdition(fixture),
+                access: 'member',
+                previewThumbnails: ['https://images.browser-archive.test/malformed.jpg'],
+              },
             }),
           });
+          return;
+        }
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ...starOfDay('2026-09-02'),
+            publicRecord: fixture.publicRecord,
+          }),
         });
+      });
 
-        await page.goto(`${app.origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
-        await page.getByText("Today's curated card drop").waitFor();
-        assert.equal(
-          await page.getByRole('navigation', { name: 'Curated public records' }).count(),
-          0,
-          `today must not render navigation for ${fixture.actorName}`,
-        );
+      await page.goto(`${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
+      await page.getByText("Today's curated card drop").waitFor();
+      assert.equal(
+        await page.getByRole('navigation', { name: 'Curated public records' }).count(),
+        0,
+        `today must not render navigation for ${fixture.actorName}`,
+      );
 
-        await page.getByRole('button', { name: /Browse past editions/ }).click();
-        const malformedPickerEntry = page.locator('.daily-archive__edition-group').filter({
-          hasText: fixture.actorName,
-        });
-        await malformedPickerEntry.waitFor();
-        assert.equal(
-          await malformedPickerEntry.getByRole('link').count(),
-          0,
-          `the picker must not render navigation for ${fixture.actorName}`,
-        );
+      await page.getByRole('button', { name: /Browse past editions/ }).click();
+      const malformedPickerEntry = page.locator('.daily-archive__edition-group').filter({
+        hasText: fixture.actorName,
+      });
+      await malformedPickerEntry.waitFor();
+      assert.equal(
+        await malformedPickerEntry.getByRole('link').count(),
+        0,
+        `the picker must not render navigation for ${fixture.actorName}`,
+      );
 
-        await malformedPickerEntry.getByRole('button').click();
-        await page.getByText(/Founding Members can unlock the complete nine-card board/).waitFor();
-        assert.equal(
-          await page.getByRole('navigation', { name: 'Curated public records' }).count(),
-          0,
-          `the locked preview must not render navigation for ${fixture.actorName}`,
-        );
+      await malformedPickerEntry.getByRole('button').click();
+      await page.getByText(/Founding Members can unlock the complete nine-card board/).waitFor();
+      assert.equal(
+        await page.getByRole('navigation', { name: 'Curated public records' }).count(),
+        0,
+        `the locked preview must not render navigation for ${fixture.actorName}`,
+      );
 
-        await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
-        await page.getByRole('heading', { name: 'The Star of the Day Archive' }).waitFor();
-        const malformedCard = page.locator('.archive-card').filter({ hasText: fixture.actorName });
-        const boardFallback = malformedCard.getByRole('link', { name: /Open Issue/ });
-        assert.equal(
-          await boardFallback.getAttribute('href'),
-          `/vibe-atlas?date=${fixture.date}`,
-          'the full archive must retain the ordinary board fallback',
-        );
-        assert.match(await boardFallback.textContent() ?? '', /Open the nine-card board/);
-        assert.equal(await malformedCard.getByRole('link', { name: 'Actor record' }).count(), 0);
-        assert.equal(await malformedCard.getByRole('link', { name: 'Edition record' }).count(), 0);
-        await page.close();
-      } finally {
-        await app.server.close();
-      }
+      await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
+      await page.getByRole('heading', { name: 'The Star of the Day Archive' }).waitFor();
+      const malformedCard = page.locator('.archive-card').filter({ hasText: fixture.actorName });
+      const boardFallback = malformedCard.getByRole('link', { name: /Open Issue/ });
+      assert.equal(
+        await boardFallback.getAttribute('href'),
+        `/vibe-atlas?date=${fixture.date}`,
+        'the full archive must retain the ordinary board fallback',
+      );
+      assert.match(await boardFallback.textContent() ?? '', /Open the nine-card board/);
+      assert.equal(await malformedCard.getByRole('link', { name: 'Actor record' }).count(), 0);
+      assert.equal(await malformedCard.getByRole('link', { name: 'Edition record' }).count(), 0);
+      await page.close();
     }
   } finally {
-    await browser.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 test('an older direct archive URL renders only the Founding Member preview gate', { timeout: 45_000 }, async () => {
   const engine = BROWSER_ENGINES[0];
-  const browser = await launchBrowser(engine.type);
-  let app: Awaited<ReturnType<typeof startApp>> | undefined;
+  const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
   try {
-    app = await startApp();
     const page = await browser.newPage();
     await page.route('https://www.googletagmanager.com/**', route => route.abort());
     await page.route('**/api/auth/session', route => route.fulfill({
@@ -462,7 +560,7 @@ test('an older direct archive URL renders only the Founding Member preview gate'
       });
     });
 
-    await page.goto(`${app.origin}/vibe-atlas?date=${ARCHIVED_DATE}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${origin}/vibe-atlas?date=${ARCHIVED_DATE}`, { waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: /Browser Archive Actor/ }).waitFor();
     await page.getByText(/Founding Members can unlock the complete nine-card board/).waitFor();
     const lockedRecords = page.getByRole('navigation', { name: 'Curated public records' });
@@ -477,7 +575,6 @@ test('an older direct archive URL renders only the Founding Member preview gate'
     assert.equal(await page.locator('.daily-grid').count(), 0);
     assert.equal(await page.getByLabel('Sign in to check your archive access').count(), 1);
   } finally {
-    await browser.close();
-    await app?.server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });

@@ -1,23 +1,16 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { createServer, type ViteDevServer } from 'vite';
-import { launchBrowserWithServer } from './browserEngines.ts';
+import {
+  closeBrowserAndServer,
+  launchBrowserWithServer,
+  startViteTestServer,
+} from './browserEngines.ts';
 
 const JOURNAL_CAPABILITY = 'PrivateJournalCapability';
 
-async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
-  const server = await createServer({
-    configFile: 'vite.config.ts',
-    server: { host: '127.0.0.1', port: 5000, strictPort: false },
-  });
-  await server.listen();
-  const address = server.httpServer?.address();
-  if (!address || typeof address === 'string') {
-    await server.close();
-    throw new Error('The browser test server did not expose a TCP port.');
-  }
-  return { server, origin: `http://127.0.0.1:${address.port}` };
+async function startApp() {
+  return startViteTestServer();
 }
 
 test('veteran pageviews and events never expose the journal capability', { timeout: 30_000 }, async () => {
@@ -100,7 +93,6 @@ test('veteran pageviews and events never expose the journal capability', { timeo
       );
     }
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
