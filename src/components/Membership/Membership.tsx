@@ -94,8 +94,8 @@ export function Membership({ onStatusChange }: Props) {
         </article>
         <article>
           <span>Create</span>
-          <h2>Make the grid you actually want.</h2>
-          <p>Use premium Canvas styles, keep different versions, and export something worth posting, saving, or sending to a friend.</p>
+          <h2>Make your own legendary grid.</h2>
+          <p>Start with the Vibe Atlas Canvas, then unlock premium styles, saved versions, and collector-quality exports for your most shareable grids.</p>
         </article>
       </section>
       <section className="membership__plans" aria-label="Membership options">
