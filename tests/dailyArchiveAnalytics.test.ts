@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
   trackCollectionOpened,
+  trackArchiveRecordOpened,
   trackDailyArchiveEditionSelected,
   trackDailyArchiveOpened,
   trackArchiveAccess,
@@ -12,6 +14,8 @@ import {
   trackGridBuilderPreviewOpened,
   trackUpgradeStarted,
 } from '../src/utils/analytics.ts';
+
+const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 
 test('daily archive analytics records only the edition date and latest flag', () => {
   const events: Array<{
@@ -56,6 +60,57 @@ test('daily archive analytics records only the edition date and latest flag', ()
     ]);
   } finally {
     Reflect.deleteProperty(globalThis, 'window');
+  }
+});
+
+test('archive record analytics uses one bounded event for record type and location', () => {
+  const events: Array<{ name: string; data?: Record<string, string | number | boolean> }> = [];
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      gtag(_command: string, name: string, data?: Record<string, string | number | boolean>) {
+        events.push({ name, data });
+      },
+    },
+  });
+
+  try {
+    for (const location of ['daily', 'archive_picker', 'locked_preview', 'full_archive'] as const) {
+      trackArchiveRecordOpened('actor', location);
+      trackArchiveRecordOpened('edition', location);
+    }
+
+    assert.deepEqual(events, [
+      ...['daily', 'archive_picker', 'locked_preview', 'full_archive'].flatMap(location => [
+        { name: 'archive_record_opened', data: { record_type: 'actor', location } },
+        { name: 'archive_record_opened', data: { record_type: 'edition', location } },
+      ]),
+    ]);
+    assert.deepEqual(
+      Object.keys(events[0].data ?? {}).sort(),
+      ['location', 'record_type'],
+      'record events must not include dates, paths, capability values, or free-form labels',
+    );
+  } finally {
+    Reflect.deleteProperty(globalThis, 'window');
+  }
+});
+
+test('every visible archive record-link location is instrumented', () => {
+  for (const [location, expectedActorLinks, expectedEditionLinks] of [
+    ['daily', 1, 1],
+    ['archive_picker', 1, 1],
+    ['locked_preview', 1, 1],
+    ['full_archive', 1, 2],
+  ] as const) {
+    const actorCalls = appSource.match(
+      new RegExp(`trackArchiveRecordOpened\\('actor', '${location}'\\)`, 'g'),
+    ) ?? [];
+    const editionCalls = appSource.match(
+      new RegExp(`trackArchiveRecordOpened\\('edition', '${location}'\\)`, 'g'),
+    ) ?? [];
+    assert.equal(actorCalls.length, expectedActorLinks, `${location} actor record links`);
+    assert.equal(editionCalls.length, expectedEditionLinks, `${location} edition record links`);
   }
 });
 

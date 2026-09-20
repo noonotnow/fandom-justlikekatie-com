@@ -3,6 +3,12 @@ import type { CreatorPlatform } from './creatorDraft';
 type AnalyticsData = Record<string, string | number | boolean>;
 type DailyDropEngagementReason = 'three_cards' | 'twenty_seconds';
 type DailyDropShareMethod = 'edition_link' | 'image';
+export type ArchiveRecordType = 'actor' | 'edition';
+export type ArchiveRecordLocation =
+  | 'daily'
+  | 'archive_picker'
+  | 'locked_preview'
+  | 'full_archive';
 
 interface DailyDropServerEvent {
   event:
@@ -104,6 +110,16 @@ export function trackDailyArchiveEditionSelected(
   trackEvent('daily_archive_edition_selected', {
     edition_date: editionDate,
     is_latest: isLatest,
+  });
+}
+
+export function trackArchiveRecordOpened(
+  recordType: ArchiveRecordType,
+  location: ArchiveRecordLocation,
+): void {
+  trackEvent('archive_record_opened', {
+    record_type: recordType,
+    location,
   });
 }
 

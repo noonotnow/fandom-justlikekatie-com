@@ -45,6 +45,7 @@ import {
   trackDailyArchiveEditionSelected,
   trackDailyArchiveOpened,
   trackArchiveAccess,
+  trackArchiveRecordOpened,
   trackDailyDropCardSave,
   trackDailyDropEngaged,
   trackDailyDropShared,
@@ -706,8 +707,8 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
               </div>
                 {rawData?.publicRecord && (
                   <nav className="atlas-edition__records" aria-label="Curated public records">
-                    <a href={rawData.publicRecord.actorPath}>Explore {meta.actorName}’s actor record</a>
-                    <a href={rawData.publicRecord.editionPath}>Read this edition’s permanent record</a>
+                    <a href={rawData.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'daily')}>Explore {meta.actorName}’s actor record</a>
+                    <a href={rawData.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'daily')}>Read this edition’s permanent record</a>
                   </nav>
                 )}
               {meta.vibeSupportingCopyEn && (
@@ -861,8 +862,8 @@ function ArchiveEditionButton({
       </button>
       {edition.publicRecord && (
         <span className="daily-archive__record-links">
-          <a href={edition.publicRecord.actorPath}>Actor record</a>
-          <a href={edition.publicRecord.editionPath}>Edition record</a>
+          <a href={edition.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'archive_picker')}>Actor record</a>
+          <a href={edition.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'archive_picker')}>Edition record</a>
         </span>
       )}
     </div>
@@ -903,8 +904,8 @@ function ArchiveLockedEdition({
         <p><strong>{edition.vibeLabel}</strong> · {edition.vibeLabelEn}</p>
         {edition.publicRecord && (
           <nav className="atlas-edition__records" aria-label="Curated public records">
-            <a href={edition.publicRecord.actorPath}>Explore {edition.actorName}’s actor record</a>
-            <a href={edition.publicRecord.editionPath}>Read this edition’s permanent record</a>
+            <a href={edition.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'locked_preview')}>Explore {edition.actorName}’s actor record</a>
+            <a href={edition.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'locked_preview')}>Read this edition’s permanent record</a>
           </nav>
         )}
         <p>
@@ -968,7 +969,10 @@ function ArchiveEditionCard({
       <a
         className="archive-card__main"
         href={href}
-        onClick={() => trackDailyArchiveEditionSelected(edition.date, isLatest)}
+        onClick={() => {
+          trackDailyArchiveEditionSelected(edition.date, isLatest);
+          if (edition.publicRecord) trackArchiveRecordOpened('edition', 'full_archive');
+        }}
         aria-label={`Open Issue ${issueNumber}, ${formatEditionDate(edition.date)}: ${edition.actorName}, ${edition.vibeLabelEn}`}
       >
       <span className="archive-card__plate" aria-hidden="true">
@@ -1024,8 +1028,8 @@ function ArchiveEditionCard({
       </a>
       {edition.publicRecord && (
         <nav className="archive-card__records" aria-label={`Curated records for ${edition.actorName}`}>
-          <a href={edition.publicRecord.actorPath}>Actor record</a>
-          <a href={edition.publicRecord.editionPath}>Edition record</a>
+          <a href={edition.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'full_archive')}>Actor record</a>
+          <a href={edition.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'full_archive')}>Edition record</a>
         </nav>
       )}
     </article>
