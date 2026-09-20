@@ -2389,6 +2389,7 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
       element.open = true;
     });
     const legacyFirstResult = legacyRawResults.locator('article').first();
+    await legacyFirstResult.getByText('Frozen audit evidence', { exact: true }).waitFor();
     assert.equal(
       await legacyFirstResult.locator('button, input, select, textarea, form, details').count(),
       0,
