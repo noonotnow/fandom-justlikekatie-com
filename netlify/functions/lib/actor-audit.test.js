@@ -42,6 +42,7 @@ import {
   classifyPreflightOutcome,
   compareCalibrationOutcomes,
   createActorAuditHandler,
+  legacyAuditMutationPolicy,
   rescueCalibrationBasis,
   vibeKeyFor,
   writeCalibrationAuthority,
@@ -54,6 +55,19 @@ import {
   publicationManifestCatalogKey,
   readPublicationCorrections,
 } from "./publication-manifest.js";
+
+test("run-scoped mutation policy defaults Legacy audits to read-only", () => {
+  assert.deepEqual(legacyAuditMutationPolicy("verdict"), {
+    declared: true,
+    legacyWritable: false,
+  });
+  assert.deepEqual(legacyAuditMutationPolicy("future_editorial_action"), {
+    declared: false,
+    legacyWritable: false,
+  });
+  assert.equal(legacyAuditMutationPolicy("flag_candidate").legacyWritable, true);
+  assert.equal(legacyAuditMutationPolicy("save_rescue_board").legacyWritable, true);
+});
 
 const ORIGIN = "https://fandom.example";
 const PREVIOUS_CURATION_VERSION = 7;
@@ -6722,7 +6736,7 @@ test("legacy rescue receipts remain records-only and cannot calibrate the curren
     receiptId,
   }), {});
   assert.equal(markResponse.status, 409);
-  assert.match((await markResponse.json()).error, /legacy rescue boards remain historical records/i);
+  assert.match((await markResponse.json()).error, /Legacy audits are retained history/i);
   assert.equal([...store.records.keys()]
     .filter(key => key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0))).length, 0);
 
@@ -6738,7 +6752,7 @@ test("legacy rescue receipts remain records-only and cannot calibrate the curren
     rescueReceiptId: receiptId,
   }), {});
   assert.equal(legacyVerdict.status, 409);
-  assert.match((await legacyVerdict.json()).error, /invalid under the current profile contract/i);
+  assert.match((await legacyVerdict.json()).error, /Legacy audits are retained history/i);
   assert.equal(
     [...store.records.keys()].filter(key =>
       key.startsWith(auditRescuePreferencePrefix(pairActor.id, 0, "run-1"))).length,
@@ -7712,6 +7726,17 @@ test("a blinded legacy run reveals retained evidence and still accepts a rescue 
   assert.equal(detail.currentRun.auditContract.isLegacy, true);
   assert.ok(detail.currentRun.rawResults.length > 0);
   assert.equal(detail.currentRun.blindReview.status, "pending");
+
+  const recordsBeforeUndeclaredAction = structuredClone([...store.records.entries()]);
+  const undeclaredResponse = await handler(request("POST", {
+    action: "future_editorial_action",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+  }), {});
+  assert.equal(undeclaredResponse.status, 409);
+  assert.match((await undeclaredResponse.json()).error, /explicit Legacy write exception/i);
+  assert.deepEqual([...store.records.entries()], recordsBeforeUndeclaredAction);
 
   const choiceResponse = await handler(request("POST", {
     action: "blind_choice",

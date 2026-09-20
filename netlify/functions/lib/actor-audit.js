@@ -224,6 +224,24 @@ const MISPRINT_PUBLICATION_ACTIONS = new Set([
   "verdict",
   "publish_backfill",
 ]);
+const RUN_SCOPED_MUTATION_LEGACY_WRITES = new Map([
+  ["verdict", false],
+  ["blind_choice", false],
+  ["record_visual_judgment", false],
+  ["blind_reasons", false],
+  ["mark_misprint", false],
+  ["flag_candidate", true],
+  ["save_rescue_board", true],
+  ["publish_backfill", false],
+  ["mark_rescue_calibration", false],
+]);
+
+export function legacyAuditMutationPolicy(action) {
+  return {
+    declared: RUN_SCOPED_MUTATION_LEGACY_WRITES.has(action),
+    legacyWritable: RUN_SCOPED_MUTATION_LEGACY_WRITES.get(action) === true,
+  };
+}
 
 export function createActorAuditHandler({
   auth,
@@ -315,6 +333,19 @@ export function createActorAuditHandler({
         return json(200, payload, {
           "Content-Disposition": `attachment; filename="actor-calibration-${encodeURIComponent(actorId)}-${encodeURIComponent(runId)}.json"`,
         });
+      }
+      if (req.method === "POST" && typeof input?.runId === "string" && input.runId) {
+        const pair = resolvePair(actorPacks, input.actorId, input.vibeKey);
+        if (pair) {
+          const run = await readRun(store, pair, input.runId);
+          if (run
+            && auditContractFor(run, pair).isLegacy
+            && !legacyAuditMutationPolicy(input.action).legacyWritable) {
+            return json(409, {
+              error: "Legacy audits are retained history. This action is read-only unless it declares an explicit Legacy write exception.",
+            });
+          }
+        }
       }
       if (
         req.method === "POST"
@@ -1271,9 +1302,6 @@ export function createActorAuditHandler({
         if (!report?.currentRun || input.runId !== report.currentRun.runId) {
           return json(409, { error: "This review is not for the current audit run. Refresh and try again." });
         }
-        if (!currentRunMatchesCurrentContract(report.currentRun, pair)) {
-          return json(409, { error: "Legacy audits are retained history. Run a fresh audit before recording a board choice." });
-        }
         if (!comparableBoards(report.currentRun)) {
           return json(409, { error: "A blinded comparison requires two complete Event and Compiled boards." });
         }
@@ -1317,9 +1345,6 @@ export function createActorAuditHandler({
         const report = await readReport(store, pair);
         if (!report?.currentRun || input.runId !== report.currentRun.runId) {
           return json(409, { error: "This judgment is not for the current audit run. Refresh and try again." });
-        }
-        if (!currentRunMatchesCurrentContract(report.currentRun, pair)) {
-          return json(409, { error: "Legacy audits are retained history. Run a fresh audit before recording visual judgments." });
         }
         if (!VISUAL_JUDGMENT_CLASSES.has(input.classification)) {
           return json(400, { error: "Choose core, supporting, connective, contradictory, or irrelevant." });
@@ -1380,9 +1405,6 @@ export function createActorAuditHandler({
         const report = await readReport(store, pair);
         if (!report?.currentRun || input.runId !== report.currentRun.runId) {
           return json(409, { error: "This review is not for the current audit run. Refresh and try again." });
-        }
-        if (!currentRunMatchesCurrentContract(report.currentRun, pair)) {
-          return json(409, { error: "Legacy audits are retained history. Their calibration cannot be changed." });
         }
         if (report.currentRun.operatorVerdict) {
           return json(409, { error: "This audit run is finalized; its calibration receipt is immutable." });
@@ -1770,9 +1792,6 @@ export function createActorAuditHandler({
         }
         if (report.currentRun?.runId !== run.runId) {
           return json(409, { error: "Only the current audit run can receive new Misprint corrections." });
-        }
-        if (auditContractFor(run, pair).isLegacy) {
-          return json(409, { error: "Legacy audits are retained history. Run a fresh audit before recording Misprint corrections." });
         }
         if (currentRunMatchesCurrentContract(run, pair)
           && !run.blindReview?.choice
@@ -2239,11 +2258,6 @@ export function createActorAuditHandler({
         const run = await readRun(store, pair, input.runId);
         if (!run || run.runId !== input.runId) {
           return json(404, { error: "That audit run was not found." });
-        }
-        if (!currentRunMatchesCurrentContract(run, pair)) {
-          return json(409, {
-            error: "Legacy rescue boards remain historical records and cannot calibrate the current profile. Run a fresh audit and save a current-contract rescue board.",
-          });
         }
         const receipt = await store.get(
           auditRescueBoardKey(pair.actor.id, pair.vibeIdx, run.runId, input.receiptId),
