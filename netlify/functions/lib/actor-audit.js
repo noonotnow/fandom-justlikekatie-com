@@ -58,6 +58,7 @@ import {
   auditVibeKey,
   eligibilityKey,
   isReleaseReady,
+  legacyBlindCalibrationRunIds,
   pairingFingerprintFor,
   rescueCalibrationRetirementHash,
   getEligibility,
@@ -6226,13 +6227,27 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
       approvalRevocations.push(canonicalRevocation);
     }
   }
-  const approvedSourceRunIds = [...new Set(approvalReceipts
+  let approvedSourceRunIds = [...new Set(approvalReceipts
     .filter(receipt =>
       receipt?.status === "approved"
       && receipt.approvalId === canonicalAuthority?.approvalId
       && receipt.aggregateEvidenceHash === canonicalAuthority?.aggregateEvidenceHash)
     .flatMap(receipt => receipt.sourceRunIds || [])
-    .filter(Boolean))];
+    .filter(runId => typeof runId === "string" && runId.length > 0))]
+    .sort()
+    .slice(0, 32);
+  const canonicalLegacyApproval = approvalReceipts.find(receipt =>
+    receipt?.status === "approved"
+    && receipt.approvalId === canonicalAuthority?.approvalId
+    && receipt.aggregateEvidenceHash === canonicalAuthority?.aggregateEvidenceHash
+    && !Array.isArray(receipt.sourceRunIds));
+  if (!approvedSourceRunIds.length && canonicalLegacyApproval) {
+    approvedSourceRunIds = await legacyBlindCalibrationRunIds(
+      store,
+      pair.actor.id,
+      pair.vibeIdx,
+    );
+  }
   if (approvedSourceRunIds.length) {
     const knownRunIds = new Set(reviewedRuns.map(run => run?.runId).filter(Boolean));
     const recoveredRuns = (await Promise.all(approvedSourceRunIds

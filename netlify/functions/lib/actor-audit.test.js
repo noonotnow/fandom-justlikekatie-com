@@ -24,6 +24,7 @@ import {
   auditRescuePreferenceKey,
   auditRescuePreferencePrefix,
   auditRescueCalibrationPrefix,
+  auditRescueCalibrationApprovalKey,
   auditRescueCalibrationApprovalPrefix,
   auditRescueCalibrationApprovalRevocationPrefix,
   auditRescueCalibrationAuthorityKey,
@@ -5298,6 +5299,15 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
     approval.calibrationProfile.activeApproval.approvalId,
   );
 
+  const approvalKey = auditRescueCalibrationApprovalKey(
+    pairActor.id,
+    0,
+    approval.calibrationProfile.activeApproval.approvalId,
+  );
+  const legacyApproval = structuredClone(store.records.get(approvalKey));
+  delete legacyApproval.sourceRunIds;
+  store.records.set(approvalKey, legacyApproval);
+  lagRetainedRunListings = false;
   curateOptions.length = 0;
   await handler(request("POST", {
     action: "run", actorId: pairActor.id, vibeKey, scope: "full",
@@ -5318,6 +5328,11 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
   }), {});
   assert.equal(verdictResponse.status, 200, JSON.stringify(await verdictResponse.clone().json()));
   const savedEligibility = store.records.get(eligibilityKey(pairActor.id, 0));
+  assert.equal(
+    savedEligibility.calibrationProfile.sourceRunIds,
+    undefined,
+    "the compatibility test must retain the pre-upgrade eligibility snapshot shape",
+  );
   assert.equal(
     savedEligibility.rescueCalibrationApprovalEvidenceHash,
     approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
@@ -5349,6 +5364,33 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
       savedEligibility.rescueCalibrationApprovalEvidenceHash,
     );
   }
+  const legacyProfileResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const legacyProfile = await legacyProfileResponse.json();
+  assert.equal(legacyProfileResponse.status, 200, JSON.stringify(legacyProfile));
+  assert.equal(legacyProfile.calibrationProfile.reviewedRunCount, 2);
+  assert.equal(
+    legacyProfile.calibrationProfile.activeApproval.approvalId,
+    savedEligibility.rescueCalibrationApprovalId,
+  );
+  const changedJudgmentKey = [...immutableJudgments.keys()][0];
+  const changedJudgment = structuredClone(store.records.get(changedJudgmentKey));
+  const sourceRun = store.records.get(
+    auditRunKey(pairActor.id, 0, changedJudgment.runId),
+  );
+  const sourceCandidate = sourceRun.calibrationAnalysis.candidates.find(candidate =>
+    candidate.occurrenceId === changedJudgment.sourceOccurrenceId);
+  changedJudgment.classification = sourceCandidate.visualClass;
+  store.records.set(changedJudgmentKey, changedJudgment);
+  assert.equal(
+    await getEligibility(store, pairActor, 0),
+    null,
+    "a legacy approval recovered from its bounded run inventory must still recompute current evidence",
+  );
+  store.records.set(changedJudgmentKey, immutableJudgments.get(changedJudgmentKey));
 
   const revokeResponse = await handler(request("POST", {
     action: "revoke_rescue_calibration_approval",

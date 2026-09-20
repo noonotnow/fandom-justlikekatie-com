@@ -31,6 +31,8 @@ export const auditCalibrationReasonsKey = (actorId, vibeIdx, runId, receiptId = 
 export const auditVisualJudgmentPrefix = (actorId, vibeIdx, runId) => `visual-judgments/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
 export const auditVisualJudgmentKey = (actorId, vibeIdx, runId, receiptId) => `${auditVisualJudgmentPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
 export const auditVisualJudgmentIndexKey = (actorId, vibeIdx, runId) => `visual-judgment-index/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}`;
+export const auditVisualJudgmentIndexPrefix = (actorId, vibeIdx) =>
+  `visual-judgment-index/${actorId}/${vibeIdx}/`;
 export const auditFeedbackPrefix = (actorId, vibeIdx, runId) => `feedback/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
 export const auditFeedbackKey = (actorId, vibeIdx, runId, receiptId) => `${auditFeedbackPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
 export const auditMisprintGlobalPrefix = () => "misprints/global/";
@@ -198,6 +200,7 @@ export async function getEligibility(store, actor, vibeIdx) {
     actor,
     vibeIdx,
     liveRetirementHash,
+    snapshot.calibrationProfile,
   );
   if (
     (snapshot.rescueCalibrationApprovalId || null) !== (liveCalibrationApproval?.approvalId || null)
@@ -569,14 +572,20 @@ async function currentRescueCalibrationRetirementHash(store, actorId, vibeIdx) {
     : null;
 }
 
-async function currentRescueCalibrationApproval(store, actor, vibeIdx, retirementHash) {
+async function currentRescueCalibrationApproval(
+  store,
+  actor,
+  vibeIdx,
+  retirementHash,
+  compatibilityProfile = null,
+) {
   const actorId = actor.id;
   const vibeKey = auditVibeKey(actorId, vibeIdx);
   const [calibrations, retirements, blindExclusions, blindEvidenceIds, approvals, revocations, authority] = await Promise.all([
     readReceipts(store, auditRescueCalibrationPrefix(actorId, vibeIdx), "confirmedAt"),
     readReceipts(store, auditRescueCalibrationRetirementPrefix(actorId, vibeIdx), "retiredAt"),
     readReceipts(store, auditBlindCalibrationExclusionPrefix(actorId, vibeIdx), "excludedAt"),
-    currentBlindCalibrationEvidenceIds(store, actor, vibeIdx),
+    currentBlindCalibrationEvidenceIds(store, actor, vibeIdx, compatibilityProfile),
     readReceipts(store, auditRescueCalibrationApprovalPrefix(actorId, vibeIdx), "approvedAt"),
     readReceipts(
       store,
@@ -667,7 +676,7 @@ async function currentRescueCalibrationApproval(store, actor, vibeIdx, retiremen
       || String(right.approvalId).localeCompare(String(left.approvalId)))[0] || null;
 }
 
-async function currentBlindCalibrationEvidenceIds(store, actor, vibeIdx) {
+async function currentBlindCalibrationEvidenceIds(store, actor, vibeIdx, compatibilityProfile) {
   const actorId = actor.id;
   const vibeKey = auditVibeKey(actorId, vibeIdx);
   const [listedRuns, authority] = await Promise.all([
@@ -683,10 +692,30 @@ async function currentBlindCalibrationEvidenceIds(store, actor, vibeIdx) {
       { type: "json", consistency: "strong" },
     )
     : null;
+  const approvedEvidenceIds = new Set(canonicalApproval?.evidenceReceiptIds || []);
+  const compatibilityRunIds = canonicalApproval?.status === "approved"
+    && canonicalApproval.aggregateEvidenceHash === authority?.aggregateEvidenceHash
+    && !Array.isArray(canonicalApproval.sourceRunIds)
+    ? [...new Set([
+      ...(compatibilityProfile?.sourceRunIds || []),
+      ...(compatibilityProfile?.signalInventory || [])
+        .filter(item => approvedEvidenceIds.has(item?.sourceRescueReceiptId))
+        .map(item => item?.sourceRunId),
+    ].filter(runId => typeof runId === "string" && runId.length > 0))]
+      .sort()
+      .slice(0, 32)
+    : [];
+  const legacyRunIds = compatibilityRunIds.length
+    ? compatibilityRunIds
+    : canonicalApproval?.status === "approved"
+      && canonicalApproval.aggregateEvidenceHash === authority?.aggregateEvidenceHash
+      && !Array.isArray(canonicalApproval.sourceRunIds)
+      ? await legacyBlindCalibrationRunIds(store, actorId, vibeIdx)
+      : [];
   const knownRunIds = new Set(listedRuns.map(run => run?.runId).filter(Boolean));
   const recoveredRuns = canonicalApproval?.status === "approved"
     && canonicalApproval.aggregateEvidenceHash === authority?.aggregateEvidenceHash
-    ? (await Promise.all((canonicalApproval.sourceRunIds || [])
+    ? (await Promise.all((canonicalApproval.sourceRunIds || legacyRunIds)
       .filter(runId => typeof runId === "string" && !knownRunIds.has(runId))
       .map(runId => store.get(
         auditRunKey(actorId, vibeIdx, runId),
@@ -712,6 +741,18 @@ async function currentBlindCalibrationEvidenceIds(store, actor, vibeIdx) {
       vibeKey,
     };
   }))).filter(Boolean);
+}
+
+export async function legacyBlindCalibrationRunIds(store, actorId, vibeIdx) {
+  const prefix = auditVisualJudgmentIndexPrefix(actorId, vibeIdx);
+  const listing = await store.list({ prefix, limit: 33 });
+  return [...new Set((listing?.blobs || [])
+    .map(blob => typeof blob?.key === "string" && blob.key.startsWith(prefix)
+      ? decodeURIComponent(blob.key.slice(prefix.length))
+      : null)
+    .filter(runId => typeof runId === "string" && runId.length > 0))]
+    .sort()
+    .slice(0, 32);
 }
 
 async function readVisualJudgments(store, actorId, vibeIdx, runId) {
