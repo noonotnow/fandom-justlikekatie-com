@@ -8,6 +8,8 @@ import {
   trackActorSourceNotesLoadSucceeded,
   trackActorSourceNotesOpened,
   trackCollectionOpened,
+  trackArchiveGatedPreviewView,
+  trackArchivePageView,
   trackArchiveRecordOpened,
   trackArchiveRecordImpression,
   trackArchiveLinkReviewReadiness,
@@ -98,6 +100,39 @@ test('archive record analytics uses one bounded event for record type and locati
       ['location', 'record_type'],
       'record events must not include dates, paths, capability values, or free-form labels',
     );
+  } finally {
+    Reflect.deleteProperty(globalThis, 'window');
+  }
+});
+
+test('archive review traffic mirrors only canonical aggregate dimensions', async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      fetch(_url: string, init: { body: string }) {
+        requests.push(JSON.parse(init.body));
+        return Promise.resolve({ ok: true });
+      },
+    },
+  });
+  try {
+    trackArchivePageView('/vibe-atlas');
+    trackArchivePageView('/vibe-atlas/archive');
+    trackArchiveGatedPreviewView();
+    trackArchiveRecordOpened('actor', 'locked_preview');
+    await Promise.resolve();
+    assert.deepEqual(requests, [
+      { event: 'archive_page_view', batchKey: 'archive-link-review', pagePath: '/vibe-atlas' },
+      { event: 'archive_page_view', batchKey: 'archive-link-review', pagePath: '/vibe-atlas/archive' },
+      { event: 'archive_gated_preview_view', batchKey: 'archive-link-review' },
+      {
+        event: 'archive_record_opened',
+        batchKey: 'archive-link-review',
+        recordType: 'actor',
+        location: 'locked_preview',
+      },
+    ]);
   } finally {
     Reflect.deleteProperty(globalThis, 'window');
   }

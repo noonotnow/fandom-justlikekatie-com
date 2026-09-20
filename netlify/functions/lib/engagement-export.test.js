@@ -123,6 +123,41 @@ test("supports summary-only responses and downloadable exports", async () => {
   assert.match(download.headers.get("Content-Disposition"), /fandom-engagement-2026-09-05\.json/);
 });
 
+test("returns a bounded aggregate archive-link review without raw records", async () => {
+  const store = memoryStore({
+    "pv": { event: "archive_page_view", batchKey: "archive-link-review", pagePath: "/vibe-atlas", timestamp: "2026-09-02T00:00:00.000Z" },
+    "archive-pv": { event: "archive_page_view", batchKey: "archive-link-review", pagePath: "/vibe-atlas/archive", timestamp: "2026-09-02T01:00:00.000Z" },
+    "gate": { event: "archive_gated_preview_view", batchKey: "archive-link-review", timestamp: "2026-09-02T02:00:00.000Z" },
+    "click": { event: "archive_record_opened", batchKey: "archive-link-review", recordType: "actor", location: "locked_preview", timestamp: "2026-09-02T03:00:00.000Z" },
+    "outside": { event: "archive_record_opened", batchKey: "archive-link-review", recordType: "edition", location: "daily", timestamp: "2026-08-31T23:59:59.000Z" },
+  });
+  const handler = createEngagementExportHandler({
+    auth: { async authenticateAdmin() {} },
+    getStore: () => store,
+  });
+  const response = await handler(request("?archiveLinkReview=1&from=2026-09-01&to=2026-09-04"));
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.deepEqual(body.pageviews, { "/vibe-atlas": 1, "/vibe-atlas/archive": 1 });
+  assert.equal(body.gatedPreviewViews, 1);
+  assert.deepEqual(
+    body.rows.find(row => row.location === "locked_preview" && row.recordType === "actor"),
+    { location: "locked_preview", recordType: "actor", clicks: 1, relevantPageviews: 1, clicksPerPageview: 1 },
+  );
+  assert.equal(body.records, undefined);
+  assert.equal(JSON.stringify(body).includes("storageKey"), false);
+});
+
+test("rejects missing, reversed, or overlong archive review ranges", async () => {
+  const handler = createEngagementExportHandler({
+    auth: { async authenticateAdmin() {} },
+    getStore: () => memoryStore(),
+  });
+  assert.equal((await handler(request("?archiveLinkReview=1"))).status, 400);
+  assert.equal((await handler(request("?archiveLinkReview=1&from=2026-09-02&to=2026-09-01"))).status, 400);
+  assert.equal((await handler(request("?archiveLinkReview=1&from=2026-01-01&to=2026-09-01"))).status, 400);
+});
+
 test("requires admin authentication", async () => {
   const handler = createEngagementExportHandler({
     auth: { async authenticateAdmin() { throw Object.assign(new Error("Admin access is required."), { status: 403 }); } },

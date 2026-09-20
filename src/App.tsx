@@ -45,6 +45,8 @@ import {
   trackDailyArchiveEditionSelected,
   trackDailyArchiveOpened,
   trackArchiveAccess,
+  trackArchiveGatedPreviewView,
+  trackArchivePageView,
   trackArchiveRecordImpression,
   trackArchiveRecordOpened,
   trackDailyDropCardSave,
@@ -218,6 +220,22 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     openedCards: new Set<string>(),
     tracked: false,
   });
+  const lastArchiveReviewPagePath = useRef<string | null>(null);
+
+  useEffect(() => {
+    const pagePath = archivePage
+      ? '/vibe-atlas/archive'
+      : view === 'daily'
+        ? '/vibe-atlas'
+        : null;
+    if (!pagePath) {
+      lastArchiveReviewPagePath.current = null;
+      return;
+    }
+    if (lastArchiveReviewPagePath.current === pagePath) return;
+    lastArchiveReviewPagePath.current = pagePath;
+    trackArchivePageView(pagePath);
+  }, [archivePage, view]);
 
   // Whole-board (share-card) manual tier override — distinct from per-image
   // `imageTiers` above. Resets automatically whenever a new board (new
@@ -323,6 +341,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
 
   useEffect(() => {
     if (!gate || !selectedEditionDate) return;
+    trackArchiveGatedPreviewView();
     trackArchiveAccess('preview_view', selectedEditionDate, gate.reason);
     if (gate.reason !== 'sign_in') {
       trackArchiveAccess('denied', selectedEditionDate, gate.reason);

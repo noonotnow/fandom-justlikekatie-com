@@ -45,6 +45,27 @@ Report aggregate event counts and click events per relevant pageview. Do not
 export raw events, visitor identifiers, record paths, edition dates, or
 capability-bearing URLs.
 
+
+## Production aggregate review source
+
+Starting with the next production deployment, the Netlify engagement store
+records a privacy-bounded mirror of the two canonical archive pageviews, gated
+preview views, and `archive_record_opened` events. The mirror accepts only the
+documented `record_type` and `location` enums; it does not store visitor,
+session, account, capability, edition-date, or record-path values.
+
+An authenticated operator can query a half-open UTC date range of at most 93
+days:
+
+`/.netlify/functions/engagement-export?archiveLinkReview=1&from=YYYY-MM-DD&to=YYYY-MM-DD`
+
+The response contains only aggregate canonical pageview counts, the gated
+preview denominator, and eight placement-by-record-type rows with click counts,
+relevant pageviews, and clicks per pageview. It never includes raw records.
+Use `/vibe-atlas` as the denominator for `daily` and `archive_picker`,
+`/vibe-atlas/archive` for `full_archive`, and gated preview views for
+`locked_preview`. A valid 30-day review window begins only after this
+instrumentation is deployed and confirmed to be receiving production traffic.
 ## Operator readiness signal
 
 Do not start the clock when instrumentation ships. Record the first UTC calendar

@@ -227,6 +227,59 @@ for (const engine of BROWSER_ENGINES) {
   });
 }
 
+test('archive review pageviews follow in-app daily and archive surface transitions', { timeout: 45_000 }, async () => {
+  const engine = BROWSER_ENGINES[0];
+  const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
+  try {
+    const page = await browser.newPage();
+    const reviewPageviews: string[] = [];
+    await page.route('https://www.googletagmanager.com/**', route => route.abort());
+    await page.route('**/.netlify/functions/log-engagement', async route => {
+      const payload = route.request().postDataJSON() as { event?: string; pagePath?: string };
+      if (payload.event === 'archive_page_view' && payload.pagePath) {
+        reviewPageviews.push(payload.pagePath);
+      }
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+    });
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ user: null }),
+    }));
+    await page.route('**/api/membership/status', route => route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Sign in is required.' }),
+    }));
+    await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
+    await page.route('**/.netlify/functions/star-of-day**', async route => {
+      const url = new URL(route.request().url());
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(
+          url.searchParams.get('archive') === '1'
+            ? { editions: archiveEditions() }
+            : starOfDay('2026-09-02'),
+        ),
+      });
+    });
+
+    await page.goto(`${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
+    await page.getByText("Today's curated card drop").waitFor();
+    await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
+    await page.getByRole('heading', { name: 'The Star of the Day Archive' }).waitFor();
+    await page.getByRole('button', { name: '今日之星 · Daily' }).click();
+    await page.getByText("Today's curated card drop").waitFor();
+
+    assert.deepEqual(
+      reviewPageviews,
+      ['/vibe-atlas', '/vibe-atlas/archive', '/vibe-atlas'],
+      'each visible canonical surface transition should produce one classified pageview',
+    );
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
+
 test('approved public-record links work across today, the picker, and the full archive while unapproved entries keep their board fallback', { timeout: 45_000 }, async () => {
   const engine = BROWSER_ENGINES[0];
   const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);

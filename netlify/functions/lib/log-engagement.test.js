@@ -244,6 +244,49 @@ test("Daily Drop events persist only their bounded measurement fields", async ()
   assert.equal(saved.imageUrl, undefined);
 });
 
+test("archive review events persist only bounded aggregate dimensions", async () => {
+  const { store, context } = makeStoreContext();
+  await handler(req({
+    event: "archive_page_view",
+    batchKey: "archive-link-review",
+    pagePath: "/vibe-atlas/archive",
+    capability: "must-not-be-stored",
+  }), context);
+  await handler(req({
+    event: "archive_record_opened",
+    batchKey: "archive-link-review",
+    recordType: "edition",
+    location: "full_archive",
+    recordPath: "/private/path",
+  }), context);
+  const [pageview] = store._values("archive-link-review:archive_page_view:");
+  const [opened] = store._values("archive-link-review:archive_record_opened:");
+  assert.equal(pageview.pagePath, "/vibe-atlas/archive");
+  assert.equal(pageview.capability, undefined);
+  assert.deepEqual(
+    { recordType: opened.recordType, location: opened.location },
+    { recordType: "edition", location: "full_archive" },
+  );
+  assert.equal(opened.recordPath, undefined);
+});
+
+test("archive review events reject unbounded dimensions", async () => {
+  const { context } = makeStoreContext();
+  const badPath = await handler(req({
+    event: "archive_page_view",
+    batchKey: "archive-link-review",
+    pagePath: "/vibe-atlas?date=private",
+  }), context);
+  const badPlacement = await handler(req({
+    event: "archive_record_opened",
+    batchKey: "archive-link-review",
+    recordType: "actor",
+    location: "arbitrary",
+  }), context);
+  assert.equal(badPath.status, 400);
+  assert.equal(badPlacement.status, 400);
+});
+
 test("concurrent Daily Drop events are stored as distinct immutable records", async () => {
   const { store, context } = makeStoreContext();
   const payload = {

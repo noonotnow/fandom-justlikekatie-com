@@ -45,6 +45,13 @@ interface DailyDropServerEvent {
   shareMethod?: DailyDropShareMethod;
 }
 
+interface ArchiveReviewServerEvent {
+  event: 'archive_page_view' | 'archive_gated_preview_view' | 'archive_record_opened';
+  batchKey: 'archive-link-review';
+  pagePath?: '/vibe-atlas' | '/vibe-atlas/archive';
+  recordType?: ArchiveRecordType;
+  location?: ArchiveRecordLocation;
+}
 export type CreatorHandoffEntryPoint = 'operator_console';
 export type VeteranSubmissionRelation = 'entry' | 'prediction';
 type VeteranSubmissionFailureCategory =
@@ -108,6 +115,18 @@ function recordDailyDropEvent(event: DailyDropServerEvent): void {
   }
 }
 
+function recordArchiveReviewEvent(event: ArchiveReviewServerEvent): void {
+  try {
+    void window.fetch('/.netlify/functions/log-engagement', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(event),
+      keepalive: true,
+    }).catch(() => undefined);
+  } catch {
+    // Production measurement must never interrupt the visitor's action.
+  }
+}
 function dailyDropEvent(
   editionDate: string,
   event: DailyDropServerEvent['event'],
@@ -139,6 +158,12 @@ export function trackArchiveRecordOpened(
 ): void {
   trackEvent('archive_record_opened', {
     record_type: recordType,
+    location,
+  });
+  recordArchiveReviewEvent({
+    event: 'archive_record_opened',
+    batchKey: 'archive-link-review',
+    recordType,
     location,
   });
 }
@@ -500,4 +525,21 @@ function classifyHandoffFailure(value: unknown): HandoffFailureCategory {
     return 'precondition';
   }
   return 'unknown';
+}
+
+export function trackArchivePageView(
+  pagePath: '/vibe-atlas' | '/vibe-atlas/archive',
+): void {
+  recordArchiveReviewEvent({
+    event: 'archive_page_view',
+    batchKey: 'archive-link-review',
+    pagePath,
+  });
+}
+
+export function trackArchiveGatedPreviewView(): void {
+  recordArchiveReviewEvent({
+    event: 'archive_gated_preview_view',
+    batchKey: 'archive-link-review',
+  });
 }
