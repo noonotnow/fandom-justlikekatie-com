@@ -183,6 +183,26 @@ test('legacy audits are visibly historical and require a fresh audit', () => {
   assert.match(source, /legacyBoardReview/);
 });
 
+test('legacy audit controls explain the read-only default and both explicit write exceptions', () => {
+  assert.match(source, /run-scoped controls are read-only unless the server policy declares an explicit Legacy write exception/);
+  assert.match(source, /Still available on this current Legacy head:/);
+  assert.match(source, /retained image annotations, including duplicate-classification disputes/);
+  assert.match(source, /append-only rescue-board handling/);
+  assert.match(source, /Board choices, judgments, reasons, Misprint changes, publication backfills, and calibration confirmation are read-only/);
+  assert.match(source, /Legacy · annotations only/);
+  assert.match(source, /Retained Legacy image annotations/);
+  assert.match(source, /Retained annotation exception:/);
+  assert.match(source, /Misprint correction is read-only on Legacy audits/);
+  assert.match(source, /isCurrent&&!isLegacy&&!misprint/);
+  assert.match(source, /Retained rescue-board exception:/);
+  assert.match(source, /Calibration confirmation and other run-scoped changes remain read-only/);
+  assert.match(source, /Fully read-only retained Legacy run/);
+  assert.match(source, /Write exceptions apply only while a Legacy run is the current audit head/);
+  assert.match(source, /Read-only Legacy rescue history:/);
+  assert.match(source, /disabled=\{Boolean\(busy\)\|\|Boolean\(run\.auditContract\?\.isLegacy\)\|\|Boolean\(receipt\.calibrationEvidence\)\}/);
+  assert.match(source, /<RawResultGrid run=\{run\} isCurrent=\{isCurrent\} isLegacy=\{isLegacy\}/);
+});
+
 test('rescue calibration is explicit, future-facing, and reports transfer proof', () => {
   assert.match(markRescueCalibration, /action:'mark_rescue_calibration'/);
   assert.match(markRescueCalibration, /fresh audit must reproduce its signals beyond these exact nine/i);

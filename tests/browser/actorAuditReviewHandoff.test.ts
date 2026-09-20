@@ -479,7 +479,7 @@ function publicationReviewRun(runId: string, historical = false, includePublicat
   return result;
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, retrievalRepetition = false } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, retrievalRepetition = false, currentLegacy = false } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   calibrationExportRequests: URL[];
@@ -488,7 +488,7 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
   getMediaUploads: () => number;
   getCollectionSyncRequests: () => AnyRecord[];
 }> {
-  let activeRunId: string | null = unfinishedBoardReview ? 'board-review-current' : null;
+  let activeRunId: string | null = currentLegacy ? 'current-legacy' : unfinishedBoardReview ? 'board-review-current' : null;
   let savedBoard: AnyRecord | undefined;
   let calibrationConfirmed = false;
   let runNumber = 0;
@@ -855,7 +855,9 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
         return;
       }
       const current = activeRunId
-        ? run(activeRunId, revealed, activeRunId === 'run-2' && revealed)
+        ? currentLegacy
+          ? legacyRun(activeRunId)
+          : run(activeRunId, revealed, activeRunId === 'run-2' && revealed)
         : visualReview
           ? visualReviewRun(visualJudgments)
           : null;
@@ -2473,6 +2475,37 @@ test('a direct unfinished retained board review stays frozen and blinded before 
   }
 });
 
+test('a current Legacy audit keeps only annotation and rescue exceptions actionable', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { auditRequests } = await configureNetwork(page, { currentLegacy: true });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('heading', { name: 'Legacy audit · retained history · current-legacy', exact: true }).waitFor();
+    await page.getByText('Still available on this current Legacy head:', { exact: false }).waitFor();
+    await page.getByText('Retained rescue-board exception:', { exact: false }).waitFor();
+
+    const rawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
+    assert.match(await rawResults.locator(':scope > summary').innerText(), /Legacy · annotations only/);
+    await rawResults.locator(':scope > summary').click();
+    const firstResult = rawResults.locator('article').first();
+    assert.equal(await firstResult.getByRole('button', { name: 'Pin for board', exact: true }).isEnabled(), true);
+    assert.equal(await firstResult.locator('details').filter({ hasText: 'Mark Misprint' }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Choose nine to save', exact: true }).isDisabled(), true);
+    assert.equal(
+      await page.getByText(/Calibration confirmation and other run-scoped changes remain read-only/).isVisible(),
+      true,
+    );
+    assert.equal(auditRequests.filter(request => request.action === 'mark_misprint').length, 0);
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
 test('a signed-in operator saves a rescue board to Collection without calibrating it', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowser();
@@ -2624,6 +2657,13 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
 
     await runSelect.selectOption('run-legacy');
     await page.getByRole('heading', { name: 'Legacy audit · retained history · run-legacy', exact: true }).waitFor();
+    await page.getByText('Fully read-only retained Legacy run.', { exact: false }).waitFor();
+    await page.getByText('Read-only Legacy rescue history:', { exact: false }).waitFor();
+    assert.equal(
+      await page.getByText('Still available on this current Legacy head:', { exact: false }).count(),
+      0,
+      'a prior Legacy run must not advertise current-head write exceptions',
+    );
     const legacyRawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
     assert.match(
       await legacyRawResults.locator(':scope > summary').innerText(),
