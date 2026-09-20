@@ -57,9 +57,9 @@ test('calibration evidence export is a credentialed date-bounded read-only downl
   assert.match(downloadCalibrationExport, /method:'GET'/);
   assert.match(downloadCalibrationExport, /credentials:'include'/);
   assert.doesNotMatch(downloadCalibrationExport, /api\(\{action:/);
-  assert.match(source, /Date-bounded calibration evidence/);
-  assert.match(source, /Download read-only audit export/);
-  assert.match(source, /Stored evidence only · no searches, cache changes, scoring changes, or publication actions/);
+  assert.match(source, /Download an editorial packet that compares complete, minimum-sample human-versus-proxy reviews across actors and Vibe pairings/);
+  assert.match(source, /Download editorial review packet/);
+  assert.match(source, /stored evidence only · no ranking, eligibility, scoring, or publication changes/);
   assert.match(source, /Where expressive images left the funnel/);
   assert.match(source, /Query and ladder-rung yield/);
   assert.match(source, /Same-shoot family sizes/);
