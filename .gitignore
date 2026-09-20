@@ -8,6 +8,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+.netlify
 dist
 dist-ssr
 *.local
@@ -23,3 +24,6 @@ dist-ssr
 *.sln
 *.sw?
 attached_assets/image_1786887897680.png
+
+# Local Netlify folder
+.netlify
