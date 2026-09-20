@@ -224,6 +224,42 @@ test("simultaneous publications use independent keys and preserve both editions"
   );
 });
 
+test("simultaneous same-edition updates without revision tags preserve authoritative metadata", async () => {
+  const authoritative = {
+    date: "2026-09-20",
+    actorName: "Authoritative Actor",
+    vibeLabel: "氛围",
+    previewThumbnails: [],
+    access: "member",
+  };
+  const store = conditionalCatalogStore({
+    date: authoritative.date,
+    initial: authoritative,
+    synchronizeInitialReads: 2,
+    omitEtags: true,
+  });
+
+  const results = await Promise.allSettled([
+    updateArchiveCatalog(store, { ...authoritative, actorName: "First Actor" }),
+    updateArchiveCatalog(store, { ...authoritative, actorName: "Second Actor" }),
+  ]);
+
+  assert.ok(results.every(result =>
+    result.status === "rejected"
+    && /storage did not provide a revision tag/.test(result.reason.message)));
+  assert.deepEqual(
+    await store.get(
+      `${ARCHIVE_CATALOG_EDITION_PREFIX}${authoritative.date}`,
+      { type: "json" },
+    ),
+    authoritative,
+  );
+  assert.deepEqual(store.stats(), {
+    conflicts: 0,
+    onlyIfNewConflicts: 0,
+  });
+});
+
 test("exhausted same-edition conflicts preserve the authoritative metadata", async () => {
   const authoritative = {
     date: "2026-09-20",
@@ -467,11 +503,13 @@ function conditionalCatalogStore({
   initial = null,
   synchronizeInitialReads = 0,
   rejectAllWrites = false,
+  omitEtags = false,
 } = {}) {
   return conditionalRevisionStore(`${ARCHIVE_CATALOG_EDITION_PREFIX}${date}`, {
     initial,
     synchronizeInitialReads,
     rejectAllWrites,
+    omitEtags,
   });
 }
 
