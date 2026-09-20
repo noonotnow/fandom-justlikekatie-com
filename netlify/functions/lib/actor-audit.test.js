@@ -59,6 +59,8 @@ import {
   readPublicationCorrections,
 } from "./publication-manifest.js";
 import { BLIND_REVIEW_CANDIDATE_SHAPES } from "./blind-review-candidate-fixtures.js";
+import { ARCHIVE_CATALOG_KEY } from "./archive-access.js";
+import { createStarOfDayHandler } from "../star-of-day.js";
 
 test("run-scoped mutation policy defaults Legacy audits to read-only", () => {
   assert.deepEqual(legacyAuditMutationPolicy("verdict"), {
@@ -3634,6 +3636,19 @@ test("an approved rescue backfill uses direct canonical reads when blob listings
       };
     },
   });
+  await store.setJSON(ARCHIVE_CATALOG_KEY, {
+    schemaVersion: 1,
+    catalogVersion: 1,
+    kind: "vibe-atlas-archive-catalog",
+    editions: [{
+      date: "2026-08-31",
+      actorName: "Earlier Actor",
+      vibeLabel: "Earlier Vibe",
+      previewThumbnails: [],
+      access: "member",
+    }],
+    updatedAt: "2026-08-31T12:00:00.000Z",
+  });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   await handler(request("POST", {
     action: "run", actorId: pairActor.id, vibeKey, scope: "full",
@@ -3698,6 +3713,25 @@ test("an approved rescue backfill uses direct canonical reads when blob listings
     key.startsWith("starOfDay:") && key.endsWith(":2026-09-01"));
   assert.ok(publicationKey);
   assert.equal(store.records.get(publicationKey).displayResults.length, 9);
+
+  store.list = async () => {
+    throw new Error("archive metadata reads must not list historical blobs");
+  };
+  const archiveHandler = createStarOfDayHandler({
+    getStore: () => store,
+    today: () => "2026-09-02",
+  });
+  const archiveResponse = await archiveHandler(
+    new Request("https://example.test/star-of-day?archive=1"),
+    {},
+  );
+  const archive = await archiveResponse.json();
+  assert.equal(archiveResponse.status, 200, JSON.stringify(archive));
+  assert.deepEqual(archive.editions.map(edition => edition.date), [
+    "2026-09-01",
+    "2026-08-31",
+  ]);
+  assert.equal(archive.editions[0].actorName, pairActor.name);
 });
 
 test("rescue approval cannot point at a missing or stale rescue board", async () => {
@@ -4809,7 +4843,12 @@ test("publication and correction activation serialize so an in-flight edition re
           date: input.date,
           actorId: input.actor.id,
           actorName: input.actor.name,
+          actorShortNameEn: input.actor.nameEn,
           vibeIdx: input.vibe.idx,
+          vibeEmoji: input.vibe.emoji,
+          vibeLabel: input.vibe.label,
+          vibeLabelEn: input.vibe.labelEn,
+          vibeSubtitleEn: input.vibe.subtitleEn,
           rankedBatches: [],
           displayResults: input.board.candidates.map(candidate => ({
             title: candidate.title || "",

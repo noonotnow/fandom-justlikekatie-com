@@ -93,6 +93,10 @@ import {
 } from "./publication-manifest.js";
 import { approvedBoardAuthorityKey } from "./approved-board-provenance.js";
 import {
+  archiveEditionMetadata,
+  updateArchiveCatalog,
+} from "./archive-access.js";
+import {
   blindCalibrationEvidence,
   requiresBlindCalibrationOccurrenceIdentity,
 } from "./blind-calibration-evidence.js";
@@ -2282,6 +2286,7 @@ export function createActorAuditHandler({
             if (materializePublication && !samePublicPayload(existing, payload)) {
               await publicationStore.setJSON(key, payload);
             }
+            await updateArchiveCatalogForPayload(publicationStore, payload, now);
             return json(200, {
               backfill: { date: input.date, status: "already_published" },
               payload: publicBackfillSummary(payload),
@@ -2295,6 +2300,7 @@ export function createActorAuditHandler({
           if (!raced || !sameBoardAsPublicPayload(raced, approval.publicationBoard)) {
             return json(409, { error: "Another board won that edition date." });
           }
+          await updateArchiveCatalogForPayload(publicationStore, raced, now);
           return json(200, {
             backfill: { date: input.date, status: "already_published" },
             payload: publicBackfillSummary(raced),
@@ -2304,6 +2310,7 @@ export function createActorAuditHandler({
         if (!written || !samePublicPayload(written, payload)) {
           return json(409, { error: "The backfill could not be verified after writing. Refresh the archive before trying again." });
         }
+        await updateArchiveCatalogForPayload(publicationStore, written, now);
         return json(200, {
           backfill: { date: input.date, status: "published" },
           payload: publicBackfillSummary(written),
@@ -2886,6 +2893,13 @@ export function createActorAuditHandler({
   };
 }
 
+async function updateArchiveCatalogForPayload(store, payload, now) {
+  const edition = archiveEditionMetadata(payload);
+  if (!edition) {
+    throw new Error("The published backfill does not contain valid archive metadata.");
+  }
+  await updateArchiveCatalog(store, edition, () => now().toISOString());
+}
 function searchCacheDiagnosticReceipt(response) {
   const identityLimit = 24;
   const captured = [];

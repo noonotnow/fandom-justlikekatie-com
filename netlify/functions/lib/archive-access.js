@@ -2,6 +2,9 @@ export const ARCHIVE_FREE_EDITION_COUNT = 4;
 export const ARCHIVE_ACCESS_WINDOW_VERSION = 1;
 export const ARCHIVE_ACCESS_WINDOW_KEY =
   `vibeAtlas:archive-access-window:v${ARCHIVE_ACCESS_WINDOW_VERSION}:latest`;
+export const ARCHIVE_CATALOG_VERSION = 1;
+export const ARCHIVE_CATALOG_KEY =
+  `vibeAtlas:archive-catalog:v${ARCHIVE_CATALOG_VERSION}:latest`;
 
 export function archiveGateEnabled(env = process.env) {
   return env.FANDOM_ARCHIVE_GATE_ENABLED !== "false";
@@ -93,6 +96,105 @@ export async function ensureArchiveAccessWindow(
       && freeArchiveDates.every(date => authoritativeDates.has(date))) return authoritative;
   }
   throw new Error("The archive access window could not be updated safely.");
+}
+
+export function archiveCatalogEditions(value) {
+  if (!isArchiveCatalog(value)) return null;
+  return value.editions.map(edition => structuredClone(edition));
+}
+
+function isArchiveCatalog(value) {
+  return value?.schemaVersion === 1
+    && value?.catalogVersion === ARCHIVE_CATALOG_VERSION
+    && value?.kind === "vibe-atlas-archive-catalog"
+    && Array.isArray(value?.editions)
+    && value.editions.every((edition, index, editions) =>
+      typeof edition?.date === "string"
+      && /^\d{4}-\d{2}-\d{2}$/.test(edition.date)
+      && typeof edition?.actorName === "string"
+      && edition.actorName.length > 0
+      && typeof edition?.vibeLabel === "string"
+      && edition.vibeLabel.length > 0
+      && (index === 0 || editions[index - 1].date.localeCompare(edition.date) > 0));
+}
+
+export async function updateArchiveCatalog(
+  store,
+  edition,
+  now = () => new Date().toISOString(),
+) {
+  if (!isArchiveCatalog({
+    schemaVersion: 1,
+    catalogVersion: ARCHIVE_CATALOG_VERSION,
+    kind: "vibe-atlas-archive-catalog",
+    editions: [edition],
+  })) {
+    throw new Error("The archive catalogue edition is invalid.");
+  }
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const currentWithMetadata = typeof store.getWithMetadata === "function"
+      ? await store.getWithMetadata(ARCHIVE_CATALOG_KEY, {
+        type: "json",
+        consistency: "strong",
+      })
+      : null;
+    const current = currentWithMetadata?.data ?? await store.get(
+      ARCHIVE_CATALOG_KEY,
+      { type: "json", consistency: "strong" },
+    );
+    const currentEditions = current ? archiveCatalogEditions(current) : [];
+    if (current && !currentEditions) {
+      throw new Error("The archive catalogue is invalid.");
+    }
+    const editions = [
+      edition,
+      ...currentEditions.filter(item => item.date !== edition.date),
+    ].sort((left, right) => right.date.localeCompare(left.date));
+    const timestamp = now();
+    const next = {
+      schemaVersion: 1,
+      catalogVersion: ARCHIVE_CATALOG_VERSION,
+      kind: "vibe-atlas-archive-catalog",
+      editions,
+      updatedAt: typeof timestamp === "string" ? timestamp : timestamp.toISOString(),
+    };
+    const write = await store.setJSON(
+      ARCHIVE_CATALOG_KEY,
+      next,
+      currentWithMetadata?.etag
+        ? { onlyIfMatch: currentWithMetadata.etag }
+        : current ? {} : { onlyIfNew: true },
+    );
+    if (write?.modified === false) continue;
+    const authoritative = await store.get(ARCHIVE_CATALOG_KEY, {
+      type: "json",
+      consistency: "strong",
+    });
+    const authoritativeEditions = archiveCatalogEditions(authoritative);
+    if (authoritativeEditions?.some(item => item.date === edition.date)) {
+      return authoritative;
+    }
+  }
+  throw new Error("The archive catalogue could not be updated safely.");
+}
+
+export function archiveEditionMetadata(payload) {
+  const canonicalLegendaryMisprints = new Map([
+    ["2026-08-04|王鹤棣", "The Dylan Wangtermelon incident"],
+  ]);
+  if (!payload?.date || !payload?.actorName || !payload?.vibeLabel) return null;
+  const legendaryMisprint = (payload.rankedBatches || []).some(batch =>
+    batch?.intentionalMisprint === true || (batch?.legendary === true && batch?.misprint === true)
+  );
+  const canonicalMisprintTitle =
+    canonicalLegendaryMisprints.get(`${payload.date}|${payload.actorName}`);
+  const publicEdition = publicArchiveEdition(payload);
+  return {
+    ...publicEdition,
+    ...(payload.publicRecord ? { publicRecord: publicEdition.publicRecord } : {}),
+    ...(legendaryMisprint || canonicalMisprintTitle ? { legendaryMisprint: true } : {}),
+    ...(canonicalMisprintTitle ? { legendaryMisprintTitle: canonicalMisprintTitle } : {}),
+  };
 }
 
 export function archiveAccessDecision({

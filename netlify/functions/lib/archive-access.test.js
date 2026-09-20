@@ -2,12 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   ARCHIVE_ACCESS_WINDOW_KEY,
+  ARCHIVE_CATALOG_KEY,
   ARCHIVE_FREE_EDITION_COUNT,
   archiveAccessDecision,
+  archiveCatalogEditions,
   archiveAccessWindowDates,
   ensureArchiveAccessWindow,
   freeArchiveDates,
   publicArchiveEdition,
+  updateArchiveCatalog,
 } from "./archive-access.js";
 import { createStarOfDayHandler } from "../star-of-day.js";
 
@@ -50,6 +53,55 @@ test("archive access window storage stays fixed-size for a large catalogue", asy
   assert.equal(record.freeArchiveDates.length, ARCHIVE_FREE_EDITION_COUNT);
   assert.ok(JSON.stringify(record).length < 500);
   assert.deepEqual(record.freeArchiveDates, [...dates].sort().reverse().slice(0, 4));
+});
+
+test("publication safely merges archive metadata in newest-first order", async () => {
+  const store = memoryStore({});
+  const edition = date => ({
+    date,
+    actorName: `Actor ${date}`,
+    vibeLabel: "氛围",
+    previewThumbnails: [],
+    access: "member",
+  });
+
+  await updateArchiveCatalog(store, edition("2026-09-18"), () => "2026-09-18T04:00:00.000Z");
+  await updateArchiveCatalog(store, edition("2026-09-20"), () => "2026-09-20T04:00:00.000Z");
+  await updateArchiveCatalog(store, {
+    ...edition("2026-09-18"),
+    actorName: "Corrected Actor",
+  }, () => "2026-09-20T05:00:00.000Z");
+
+  const catalog = await store.get(ARCHIVE_CATALOG_KEY, { type: "json" });
+  assert.deepEqual(
+    archiveCatalogEditions(catalog).map(item => [item.date, item.actorName]),
+    [
+      ["2026-09-20", "Actor 2026-09-20"],
+      ["2026-09-18", "Corrected Actor"],
+    ],
+  );
+});
+
+test("publication refuses to merge into invalid archive metadata", async () => {
+  const store = memoryStore({
+    [ARCHIVE_CATALOG_KEY]: {
+      schemaVersion: 1,
+      catalogVersion: 1,
+      kind: "vibe-atlas-archive-catalog",
+      editions: [{ date: "2026-09-20", actorName: "Incomplete" }],
+    },
+  });
+
+  await assert.rejects(
+    updateArchiveCatalog(store, {
+      date: "2026-09-21",
+      actorName: "Actor",
+      vibeLabel: "氛围",
+      previewThumbnails: [],
+      access: "member",
+    }),
+    /archive catalogue is invalid/,
+  );
 });
 
 test("archive policy distinguishes anonymous, free, active, billing-delay, and inactive access", () => {

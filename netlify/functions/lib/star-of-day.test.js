@@ -34,7 +34,10 @@ import {
   boardHash,
   gridManifestKey,
 } from "./publication-manifest.js";
-import { ARCHIVE_ACCESS_WINDOW_KEY } from "./archive-access.js";
+import {
+  ARCHIVE_ACCESS_WINDOW_KEY,
+  ARCHIVE_CATALOG_KEY,
+} from "./archive-access.js";
 
 function makeStore(entries = {}) {
   const values = new Map(Object.entries(entries));
@@ -484,6 +487,56 @@ test("archive preserves the Dylan Wangtermelon edition as a named legendary misp
   const body = await response.json();
   assert.equal(body.editions[0].legendaryMisprint, true);
   assert.equal(body.editions[0].legendaryMisprintTitle, "The Dylan Wangtermelon incident");
+});
+
+test("archive reads use precomputed metadata without listing or loading historical payloads", async () => {
+  const date = "2026-08-30";
+  const metadata = {
+    date,
+    actorName: "Actor 2026-08-30",
+    actorShortNameEn: "Actor 2026-08-30",
+    vibeEmoji: "✨",
+    vibeLabel: "夜色",
+    vibeLabelEn: "Night",
+    vibeSubtitleEn: "A midnight assignment",
+    previewThumbnails: ["https://images.test/evidence.jpg"],
+    access: "member",
+  };
+  const store = makeStore({
+    [ARCHIVE_CATALOG_KEY]: {
+      schemaVersion: 1,
+      catalogVersion: 1,
+      kind: "vibe-atlas-archive-catalog",
+      editions: [metadata],
+      updatedAt: "2026-09-20T00:00:00.000Z",
+    },
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(date),
+    [`starOfDay:v6:${date}`]: archivePayload(date),
+  });
+
+  const response = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1" },
+    contextFor(store),
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).editions, [{ ...metadata, access: "free" }]);
+  assert.deepEqual(store.stats(), { listCalls: 0, setCalls: 0 });
+});
+
+test("archive migration fails closed instead of publishing an incomplete catalogue", async () => {
+  const store = makeStore({
+    "starOfDay:v6:2026-08-30": archivePayload("2026-08-30"),
+    "starOfDay:v6:2026-08-29": { date: "2026-08-29", actorName: "Incomplete" },
+  });
+
+  const response = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1" },
+    contextFor(store),
+  );
+
+  assert.equal(response.status, 500);
+  assert.equal(await store.get(ARCHIVE_CATALOG_KEY, { type: "json" }), null);
 });
 
 test("historical date reads use the existing cache without starting a build", async () => {

@@ -30,9 +30,13 @@ import {
   archiveAccessDecision,
   archiveAccessWindowDates,
   ARCHIVE_ACCESS_WINDOW_KEY,
+  ARCHIVE_CATALOG_KEY,
+  archiveCatalogEditions,
+  archiveEditionMetadata,
   archiveGateEnabled,
   ensureArchiveAccessWindow,
   publicArchiveEdition,
+  updateArchiveCatalog,
 } from "./lib/archive-access.js";
 import { recordArchiveAccessCheck } from "./lib/archive-access-operations.js";
 import { capabilitiesForMembership } from "./lib/capabilities.js";
@@ -278,6 +282,10 @@ export async function buildPayloadForDate(
           fetchImpl,
           now: generatedAt,
         });
+        const archiveEdition = archiveEditionMetadata(materialized.payload);
+        if (archiveEdition) {
+          await updateArchiveCatalog(publicationStore, archiveEdition, generatedAt);
+        }
         return materialized.payload;
       } catch {
         const backup = await tryEditorialBackup();
@@ -414,6 +422,10 @@ async function buildEditorialBackup({
           fetchImpl,
           now: generatedAt,
         });
+        const archiveEdition = archiveEditionMetadata(materialized.payload);
+        if (archiveEdition) {
+          await updateArchiveCatalog(publicationStore, archiveEdition, generatedAt);
+        }
         return materialized.payload;
       } catch {
         continue;
@@ -928,9 +940,29 @@ function isUsableDate(value) {
 }
 
 async function listArchivedEditions(store, todayStr) {
-  const canonicalLegendaryMisprints = new Map([
-    ["2026-08-04|王鹤棣", "The Dylan Wangtermelon incident"],
-  ]);
+  const existing = await store.get(ARCHIVE_CATALOG_KEY, {
+    type: "json",
+    consistency: "strong",
+  });
+  let editions = existing ? archiveCatalogEditions(existing) : null;
+  if (existing && !editions) {
+    throw new Error("The archive catalogue is invalid.");
+  }
+  if (!editions) {
+    editions = await migrateArchiveCatalog(store, todayStr);
+  }
+  const visible = editions.filter(edition => edition.date <= todayStr);
+  await ensureArchiveAccessWindow(store, visible.map(edition => edition.date));
+  return {
+    version: VERSION,
+    editions: visible.map((edition, index) => ({
+      ...edition,
+      access: index < 4 ? "free" : "member",
+    })),
+  };
+}
+
+async function migrateArchiveCatalog(store, todayStr) {
   const [listing, manifestListing] = await Promise.all([
     store.list({ prefix: "starOfDay:" }),
     store.list({ prefix: GRID_MANIFEST_PREFIX }),
@@ -953,8 +985,6 @@ async function listArchivedEditions(store, todayStr) {
       const date = key.slice(GRID_MANIFEST_PREFIX.length);
       if (isUsableDate(date) && date <= todayStr) versionsByDate.set(date, "manifest");
     });
-  await ensureArchiveAccessWindow(store, [...versionsByDate.keys()]);
-
   const editions = await Promise.all([...versionsByDate].map(async ([date, version]) => {
     const payload = version === "manifest"
       ? manifestPayload(await store.get(gridManifestKey(date), {
@@ -962,39 +992,20 @@ async function listArchivedEditions(store, todayStr) {
         consistency: "strong",
       }), VERSION)
       : await store.get(`starOfDay:${version}:${date}`, { type: "json" });
-    if (!payload || payload.date !== date || !payload.actorName || !payload.vibeLabel) return null;
-    const legendaryMisprint = (payload.rankedBatches || []).some(batch =>
-      batch?.intentionalMisprint === true || (batch?.legendary === true && batch?.misprint === true)
-    );
-    const canonicalMisprintTitle = canonicalLegendaryMisprints.get(`${date}|${payload.actorName}`);
-    const publicEdition = publicArchiveEdition(payload);
-    return {
-      ...publicEdition,
-      date,
-      actorName: payload.actorName,
-      actorShortNameEn: payload.actorShortNameEn,
-      vibeEmoji: payload.vibeEmoji,
-      vibeLabel: payload.vibeLabel,
-      vibeLabelEn: payload.vibeLabelEn,
-      vibeSubtitleEn: payload.vibeSubtitleEn,
-      generatedAt: payload.generatedAt,
-      previewThumbnails: publicEdition.previewThumbnails,
-      ...(payload.publicRecord ? { publicRecord: payload.publicRecord } : {}),
-      ...(legendaryMisprint || canonicalMisprintTitle ? { legendaryMisprint: true } : {}),
-      ...(canonicalMisprintTitle ? { legendaryMisprintTitle: canonicalMisprintTitle } : {}),
-    };
+    if (!payload || payload.date !== date) return null;
+    return archiveEditionMetadata(payload);
   }));
-
-  return {
-    version: VERSION,
-    editions: editions
-      .filter(Boolean)
-      .sort((a, b) => b.date.localeCompare(a.date))
-      .map((edition, index) => ({
-        ...edition,
-        access: index < 4 ? "free" : "member",
-      })),
-  };
+  if (editions.some(edition => !edition)) {
+    throw new Error("The archive catalogue migration found an invalid edition.");
+  }
+  const sorted = editions.sort((a, b) => b.date.localeCompare(a.date));
+  for (const edition of [...sorted].reverse()) {
+    await updateArchiveCatalog(store, edition);
+  }
+  return archiveCatalogEditions(await store.get(ARCHIVE_CATALOG_KEY, {
+    type: "json",
+    consistency: "strong",
+  })) || [];
 }
 
 async function backfillArchiveAccessWindow(store, todayStr) {
