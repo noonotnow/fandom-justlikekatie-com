@@ -336,17 +336,40 @@ test("locked previews omit full board, provider, and premium media fields", () =
 });
 
 test("server projection and reader normalization share an all-or-nothing public-record contract", () => {
-  const approved = {
-    actorPath: "/vibe-atlas/actors/actor/",
-    editionPath: "/vibe-atlas/editions/2026-09-01/actor/",
-  };
-  assert.deepEqual(publicArchiveRecord(approved), approved);
+  const approvedRecords = [
+    {
+      actorPath: "/vibe-atlas/actors/actor",
+      editionPath: "/vibe-atlas/editions/2026-09-01/actor",
+    },
+    {
+      actorPath: "/vibe-atlas/actors/actor/",
+      editionPath: "/vibe-atlas/editions/2026-09-01/actor/",
+    },
+  ];
+  for (const approved of approvedRecords) {
+    assert.deepEqual(publicArchiveRecord(approved), approved);
+  }
 
+  const approved = approvedRecords[1];
   for (const publicRecord of [
     { actorPath: approved.actorPath },
     { editionPath: approved.editionPath },
     { actorPath: "/admin/actors/actor", editionPath: approved.editionPath },
     { actorPath: approved.actorPath, editionPath: "https://example.test/edition" },
+    { actorPath: "/vibe-atlas/actors/", editionPath: approved.editionPath },
+    { actorPath: "/vibe-atlas/actors//actor", editionPath: approved.editionPath },
+    { actorPath: "/vibe-atlas/actors/../admin", editionPath: approved.editionPath },
+    { actorPath: "/vibe-atlas/actors/actor?preview=1", editionPath: approved.editionPath },
+    { actorPath: "/vibe-atlas/actors/actor#preview", editionPath: approved.editionPath },
+    { actorPath: approved.actorPath, editionPath: "/vibe-atlas/editions/" },
+    { actorPath: approved.actorPath, editionPath: "/vibe-atlas/editions/2026-09-01" },
+    { actorPath: approved.actorPath, editionPath: "/vibe-atlas/editions//2026-09-01" },
+    { actorPath: approved.actorPath, editionPath: "/vibe-atlas/editions/../actors/actor" },
+    { actorPath: approved.actorPath, editionPath: "/vibe-atlas/editions/2026-09-01/other-actor" },
+    { actorPath: approved.actorPath, editionPath: "/vibe-atlas/editions/2026-02-29/actor" },
+    { actorPath: approved.actorPath, editionPath: "/vibe-atlas/editions/9999-99-99/actor" },
+    { actorPath: approved.actorPath, editionPath: "/vibe-atlas/editions/2026-09-01/actor?preview=1" },
+    { actorPath: approved.actorPath, editionPath: "/vibe-atlas/editions/2026-09-01/actor#preview" },
   ]) {
     assert.equal(publicArchiveRecord(publicRecord), undefined);
     assert.equal(publicArchiveEdition({

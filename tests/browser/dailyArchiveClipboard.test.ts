@@ -11,7 +11,7 @@ import {
 const ARCHIVED_DATE = '2026-08-31';
 const FALLBACK_DATE = '2026-08-30';
 const ACTOR_RECORD_PATH = '/vibe-atlas/actors/browser-archive-actor';
-const EDITION_RECORD_PATH = `/vibe-atlas/editions/${ARCHIVED_DATE}`;
+const EDITION_RECORD_PATH = `/vibe-atlas/editions/${ARCHIVED_DATE}/browser-archive-actor`;
 const MALFORMED_DATE = '2026-08-29';
 const UNAPPROVED_PATH_FIXTURES = [
   {
@@ -28,6 +28,70 @@ const UNAPPROVED_PATH_FIXTURES = [
     publicRecord: {
       actorPath: '/vibe-atlas/actors/external-record-actor',
       editionPath: 'https://records.browser-archive.test/vibe-atlas/editions/2026-08-27',
+    },
+  },
+  {
+    date: '2026-08-26',
+    actorName: 'Traversal Record Actor',
+    publicRecord: {
+      actorPath: '/vibe-atlas/actors/../admin',
+      editionPath: '/vibe-atlas/editions/2026-08-26',
+    },
+  },
+  {
+    date: '2026-08-25',
+    actorName: 'Duplicate Separator Record Actor',
+    publicRecord: {
+      actorPath: '/vibe-atlas/actors//duplicate-separator-record-actor',
+      editionPath: '/vibe-atlas/editions/2026-08-25',
+    },
+  },
+  {
+    date: '2026-08-24',
+    actorName: 'Query Record Actor',
+    publicRecord: {
+      actorPath: '/vibe-atlas/actors/query-record-actor?preview=1',
+      editionPath: '/vibe-atlas/editions/2026-08-24',
+    },
+  },
+  {
+    date: '2026-08-23',
+    actorName: 'Fragment Record Actor',
+    publicRecord: {
+      actorPath: '/vibe-atlas/actors/fragment-record-actor',
+      editionPath: '/vibe-atlas/editions/2026-08-23#preview',
+    },
+  },
+  {
+    date: '2026-08-22',
+    actorName: 'Empty Identifier Record Actor',
+    publicRecord: {
+      actorPath: '/vibe-atlas/actors/',
+      editionPath: '/vibe-atlas/editions/2026-08-22',
+    },
+  },
+  {
+    date: '2026-08-21',
+    actorName: 'Missing Edition Actor Record',
+    publicRecord: {
+      actorPath: '/vibe-atlas/actors/missing-edition-actor-record',
+      editionPath: '/vibe-atlas/editions/2026-08-21',
+    },
+  },
+  {
+    date: '2026-08-20',
+    actorName: 'Mismatched Edition Actor Record',
+    publicRecord: {
+      actorPath: '/vibe-atlas/actors/mismatched-edition-actor-record',
+      editionPath: '/vibe-atlas/editions/2026-08-20/other-actor',
+    },
+  },
+  {
+    date: '2026-08-19',
+    actorName: 'Impossible Date Record Actor',
+    publicRecord: {
+      actorPath: '/vibe-atlas/actors/impossible-date-record-actor',
+      editionPath: '/vibe-atlas/editions/2026-02-29/impossible-date-record-actor',
     },
   },
 ] as const;
@@ -554,8 +618,16 @@ test('complete-looking public-record metadata with unapproved paths stays fail-c
         'the full archive must retain the ordinary board fallback',
       );
       assert.match(await boardFallback.textContent() ?? '', /Open the nine-card board/);
-      assert.equal(await malformedCard.getByRole('link', { name: 'Actor record' }).count(), 0);
-      assert.equal(await malformedCard.getByRole('link', { name: 'Edition record' }).count(), 0);
+      assert.equal(
+        await malformedCard.getByRole('link', { name: 'Actor record', exact: true }).count(),
+        0,
+        `the full archive must not render an actor link for ${fixture.actorName}`,
+      );
+      assert.equal(
+        await malformedCard.getByRole('link', { name: 'Edition record', exact: true }).count(),
+        0,
+        `the full archive must not render an edition link for ${fixture.actorName}`,
+      );
       await page.close();
     }
   } finally {
