@@ -1023,6 +1023,9 @@ function CandidateFunnelSummary({run}:{run:Run}) {
   const distribution = analysis?.failureDistribution;
   const queryYield = analysis?.queryVisualYield ?? [];
   const retrieval = run.retrievalRepetition;
+  const retrievalRungs = retrieval?.rungs ?? [];
+  const hasCompleteOverlapDetail = retrievalRungs.length > 0
+    && retrievalRungs.every((rung:AnyRecord)=>Array.isArray(rung.overlapsWithEarlierRungs));
   const families = analysis?.sameShootFamilies ?? [];
   if (!analysis || !distribution) return null;
   const viableFamilies = families.filter((family:AnyRecord)=>family.viableFourToEight);
@@ -1038,12 +1041,19 @@ function CandidateFunnelSummary({run}:{run:Run}) {
         <strong>{retrieval.uniqueImageIdentityCount??0}</strong><span>unique image identities</span>
         <strong>{retrieval.repeatedImageOccurrenceCount??0}</strong><span>repeated image occurrences</span>
       </div>
-      <div className={styles.retrievalRungs}>{(retrieval.rungs??[]).map((rung:AnyRecord)=><article key={`${rung.ladderRung}:${rung.query}`}>
+      <div className={styles.retrievalRungs}>{retrievalRungs.map((rung:AnyRecord)=><article key={`${rung.ladderRung}:${rung.query}`}>
         <strong>Rung {Number(rung.ladderRung)+1} · {rung.query}</strong>
         <span>{rung.occurrenceCount??0} occurrences · {rung.uniqueImageIdentityCount??0} unique images · +{rung.incrementalImageIdentityCount??0} new images</span>
-        <small>{(rung.overlapsWithEarlierRungs??[]).length?rung.overlapsWithEarlierRungs.map((overlap:AnyRecord)=>`rung ${Number(overlap.ladderRung)+1}: ${overlap.exactImageIdentityOverlapCount} exact`).join(' · '):'First rung · no earlier overlap'}</small>
+        <small>{!Array.isArray(rung.overlapsWithEarlierRungs)
+          ? 'Exact overlap detail unavailable for this rung'
+          : rung.overlapsWithEarlierRungs.length
+            ? rung.overlapsWithEarlierRungs.map((overlap:AnyRecord)=>`rung ${Number(overlap.ladderRung)+1}: ${overlap.exactImageIdentityOverlapCount} exact`).join(' · ')
+            : 'First rung · no earlier overlap'}</small>
       </article>)}</div>
-      <details><summary>Exact overlap receipt</summary><pre>{text(retrieval)}</pre></details>
+      <details><summary>{hasCompleteOverlapDetail?'Exact overlap receipt':'Partial retrieval receipt · exact overlap unavailable'}</summary>
+        {!hasCompleteOverlapDetail&&<p>Exact overlap detail is unavailable in this retained receipt. Recorded occurrence, unique-image, and incremental-yield values remain immutable and visible.</p>}
+        <pre>{text(retrieval)}</pre>
+      </details>
     </section>}
     <div className={styles.evidenceSummary}>
       <strong>{distribution.queryNotVisibleToCuration ?? 0}</strong><span>hidden below ranked query cutoff</span>

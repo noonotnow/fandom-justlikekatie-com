@@ -374,6 +374,13 @@ function withRetrievalRepetition(result: AnyRecord): AnyRecord {
   return result;
 }
 
+function withPartialRetrievalRepetition(result: AnyRecord): AnyRecord {
+  withRetrievalRepetition(result);
+  delete result.retrievalRepetition.rungs[0].overlapsWithEarlierRungs;
+  delete result.retrievalRepetition.rungs[1].overlapsWithEarlierRungs;
+  return result;
+}
+
 function legacyRun(runId: string): AnyRecord {
   const result = run(runId, true);
   result.auditContract = {
@@ -483,7 +490,7 @@ function publicationReviewRun(runId: string, historical = false, includePublicat
   return result;
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, currentLegacy = false, publicationIndexRepairHealth = null as AnyRecord | null, auditHistoryDetailDelays = {} as Record<string, number[]>, auditHistoryDetailErrors = {} as Record<string, string[]> } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, partialRetrievalRepetition = false, currentLegacy = false, publicationIndexRepairHealth = null as AnyRecord | null, auditHistoryDetailDelays = {} as Record<string, number[]>, auditHistoryDetailErrors = {} as Record<string, string[]> } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   calibrationExportRequests: URL[];
@@ -839,7 +846,8 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
       }
       if (url.searchParams.get('runId') === 'run-1' && activeRunId === 'run-2') {
         const retainedRun = run('run-1', true);
-        if (retrievalRepetition) withRetrievalRepetition(retainedRun);
+        if (partialRetrievalRepetition) withPartialRetrievalRepetition(retainedRun);
+        else if (retrievalRepetition) withRetrievalRepetition(retainedRun);
         await route.fulfill({
           contentType: 'application/json',
           body: JSON.stringify({ run: retainedRun }),
@@ -885,6 +893,7 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
         : visualReview
           ? visualReviewRun(visualJudgments)
           : null;
+      if (partialRetrievalRepetition && current) withPartialRetrievalRepetition(current);
       if (currentLegacy && retrievalRepetition && current) withRetrievalRepetition(current);
       const isFreshBlocked = activeRunId === 'run-2' && calibrationConfirmed && revealed;
       const response = responseBody(
@@ -934,7 +943,8 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
       const proof = selectedRunId === 'run-2';
       revealed = true;
       const revealedRun = run(selectedRunId, true, proof);
-      if (retrievalRepetition) withRetrievalRepetition(revealedRun);
+      if (partialRetrievalRepetition) withPartialRetrievalRepetition(revealedRun);
+      else if (retrievalRepetition) withRetrievalRepetition(revealedRun);
       if (selectedRunId === 'run-1' && savedBoard) {
         revealedRun.editorialFeedback = feedback(savedBoard, calibrationConfirmed ? rescueCalibrationDetails() : undefined);
       }
@@ -1492,6 +1502,53 @@ test('retrieval repetition stays visibly separate from the downstream rejection 
     );
     assert.equal(await repetition.getByRole('button').count(), 0);
     assert.equal(await repetition.locator('input, select, textarea').count(), 0);
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('partial retrieval receipts preserve available counts and label unavailable overlap detail without mutations', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowserForServer(server);
+  const page = await browser.newPage();
+  const { auditRequests } = await configureNetwork(page, { partialRetrievalRepetition: true });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('button', { name: 'Run audit', exact: true }).click();
+    await page.getByRole('button', { name: 'Choose Compiled', exact: true }).click();
+
+    const currentReceipt = page.getByRole('region', { name: 'Retrieval repetition' });
+    await currentReceipt.getByText('result occurrences', { exact: true }).waitFor();
+    assert.deepEqual((await currentReceipt.locator('strong').allTextContents()).slice(0, 4), ['7', '6', '5', '2']);
+    assert.equal(await currentReceipt.getByText('4 occurrences · 4 unique images · +4 new images', { exact: true }).isVisible(), true);
+    assert.equal(await currentReceipt.getByText('3 occurrences · 2 unique images · +1 new images', { exact: true }).isVisible(), true);
+    assert.equal(await currentReceipt.getByText('Exact overlap detail unavailable for this rung', { exact: true }).count(), 2);
+
+    const currentRequestsBeforeExpansion = structuredClone(auditRequests);
+    const currentPartialReceipt = currentReceipt.locator('details').filter({ hasText: 'Partial retrieval receipt · exact overlap unavailable' });
+    await currentPartialReceipt.locator('summary').click();
+    assert.equal(await currentPartialReceipt.getByText('Exact overlap detail is unavailable in this retained receipt.', { exact: false }).isVisible(), true);
+    assert.equal(await currentReceipt.locator('button, input, select, textarea, form').count(), 0);
+    assert.deepEqual(auditRequests, currentRequestsBeforeExpansion, 'expanding a current partial receipt must not run or mutate an audit');
+
+    await page.getByRole('button', { name: 'Run audit', exact: true }).click();
+    await page.getByRole('button', { name: 'Choose Compiled', exact: true }).click();
+    const requestsBeforeRetainedReview = structuredClone(auditRequests);
+    await page.getByLabel('Audit run').selectOption('run-1');
+    await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor();
+
+    const retainedReceipt = page.getByRole('region', { name: 'Retrieval repetition' });
+    await retainedReceipt.getByText('result occurrences', { exact: true }).waitFor();
+    assert.deepEqual((await retainedReceipt.locator('strong').allTextContents()).slice(0, 4), ['7', '6', '5', '2']);
+    assert.equal(await retainedReceipt.getByText('3 occurrences · 2 unique images · +1 new images', { exact: true }).isVisible(), true);
+    const retainedPartialReceipt = retainedReceipt.locator('details').filter({ hasText: 'Partial retrieval receipt · exact overlap unavailable' });
+    await retainedPartialReceipt.locator('summary').click();
+    assert.equal(await retainedPartialReceipt.getByText('Exact overlap detail is unavailable in this retained receipt.', { exact: false }).isVisible(), true);
+    assert.equal(await retainedReceipt.locator('button, input, select, textarea, form').count(), 0);
+    assert.deepEqual(auditRequests, requestsBeforeRetainedReview, 'switching to and expanding a retained partial receipt must not run or mutate an audit');
   } finally {
     await browser.close();
     await server.close();
