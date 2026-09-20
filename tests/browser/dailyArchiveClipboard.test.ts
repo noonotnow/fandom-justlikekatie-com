@@ -5,6 +5,9 @@ import { createServer, type ViteDevServer } from 'vite';
 import { BROWSER_ENGINES, launchBrowser } from './browserEngines.ts';
 
 const ARCHIVED_DATE = '2026-08-31';
+const FALLBACK_DATE = '2026-08-30';
+const ACTOR_RECORD_PATH = '/vibe-atlas/actors/browser-archive-actor';
+const EDITION_RECORD_PATH = `/vibe-atlas/editions/${ARCHIVED_DATE}`;
 
 async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
   const server = await createServer({
@@ -40,7 +43,7 @@ async function installClipboardHarness(page: Page): Promise<void> {
   `);
 }
 
-function starOfDay(date: string) {
+function starOfDay(date: string, includePublicRecord = false) {
   return {
     actorId: 'browser-archive-actor',
     actorName: 'Browser Archive Actor',
@@ -64,7 +67,43 @@ function starOfDay(date: string) {
       provider: null,
     }],
     date,
+    ...(includePublicRecord
+      ? {
+          publicRecord: {
+            actorPath: ACTOR_RECORD_PATH,
+            editionPath: EDITION_RECORD_PATH,
+          },
+        }
+      : {}),
   };
+}
+
+function archiveEditions() {
+  return [
+    {
+      date: ARCHIVED_DATE,
+      actorName: 'Browser Archive Actor',
+      actorShortNameEn: 'Browser Archive Actor',
+      vibeEmoji: '🧪',
+      vibeLabel: 'Browser Archive Vibe',
+      vibeLabelEn: 'Browser Archive Vibe',
+      vibeSubtitleEn: '',
+      publicRecord: {
+        actorPath: ACTOR_RECORD_PATH,
+        editionPath: EDITION_RECORD_PATH,
+      },
+    },
+    {
+      date: FALLBACK_DATE,
+      actorName: 'Fallback Archive Actor',
+      actorShortNameEn: 'Fallback Archive Actor',
+      vibeEmoji: '🗃️',
+      vibeLabel: 'Fallback Archive Vibe',
+      vibeLabelEn: 'Fallback Archive Vibe',
+      vibeSubtitleEn: '',
+      access: 'free',
+    },
+  ];
 }
 
 for (const engine of BROWSER_ENGINES) {
@@ -147,6 +186,96 @@ for (const engine of BROWSER_ENGINES) {
   });
 }
 
+test('approved public-record links work across today, the picker, and the full archive while unapproved entries keep their board fallback', { timeout: 45_000 }, async () => {
+  const engine = BROWSER_ENGINES[0];
+  const browser = await launchBrowser(engine.type);
+  let app: Awaited<ReturnType<typeof startApp>> | undefined;
+  try {
+    app = await startApp();
+    const page = await browser.newPage();
+    await page.route('https://www.googletagmanager.com/**', route => route.abort());
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ user: null }),
+    }));
+    await page.route('**/api/membership/status', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ state: 'inactive', isMember: false }),
+    }));
+    await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
+    await page.route('**/.netlify/functions/star-of-day**', async route => {
+      const url = new URL(route.request().url());
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(
+          url.searchParams.get('archive') === '1'
+            ? { editions: archiveEditions() }
+            : starOfDay(url.searchParams.get('date') ?? '2026-09-02', true),
+        ),
+      });
+    });
+
+    await page.goto(`${app.origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
+    const todayRecords = page.getByRole('navigation', { name: 'Curated public records' });
+    await todayRecords.waitFor();
+    assert.equal(
+      await todayRecords.getByRole('link', { name: /actor record/ }).getAttribute('href'),
+      ACTOR_RECORD_PATH,
+    );
+    assert.equal(
+      await todayRecords.getByRole('link', { name: /permanent record/ }).getAttribute('href'),
+      EDITION_RECORD_PATH,
+    );
+
+    await page.getByRole('button', { name: /Browse past editions/ }).click();
+    const approvedPickerEntry = page.locator('.daily-archive__edition-group').filter({
+      hasText: 'Browser Archive Actor',
+    });
+    assert.equal(
+      await approvedPickerEntry.getByRole('link', { name: 'Actor record' }).getAttribute('href'),
+      ACTOR_RECORD_PATH,
+    );
+    assert.equal(
+      await approvedPickerEntry.getByRole('link', { name: 'Edition record' }).getAttribute('href'),
+      EDITION_RECORD_PATH,
+    );
+    const fallbackPickerEntry = page.locator('.daily-archive__edition-group').filter({
+      hasText: 'Fallback Archive Actor',
+    });
+    await fallbackPickerEntry.waitFor();
+    assert.equal(await fallbackPickerEntry.getByRole('link').count(), 0);
+
+    await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
+    await page.getByRole('heading', { name: 'The Star of the Day Archive' }).waitFor();
+    const approvedCard = page.locator('.archive-card').filter({ hasText: 'Browser Archive Actor' });
+    assert.equal(
+      await approvedCard.getByRole('link', { name: /Open Issue/ }).getAttribute('href'),
+      EDITION_RECORD_PATH,
+    );
+    assert.equal(
+      await approvedCard.getByRole('link', { name: 'Actor record' }).getAttribute('href'),
+      ACTOR_RECORD_PATH,
+    );
+    assert.equal(
+      await approvedCard.getByRole('link', { name: 'Edition record' }).getAttribute('href'),
+      EDITION_RECORD_PATH,
+    );
+
+    const fallbackCard = page.locator('.archive-card').filter({ hasText: 'Fallback Archive Actor' });
+    const fallbackMainLink = fallbackCard.getByRole('link', { name: /Open Issue/ });
+    assert.equal(
+      await fallbackMainLink.getAttribute('href'),
+      `/vibe-atlas?date=${FALLBACK_DATE}`,
+    );
+    assert.match(await fallbackMainLink.textContent() ?? '', /Open the nine-card board/);
+    assert.equal(await fallbackCard.getByRole('link', { name: 'Actor record' }).count(), 0);
+    assert.equal(await fallbackCard.getByRole('link', { name: 'Edition record' }).count(), 0);
+  } finally {
+    await browser.close();
+    await app?.server.close();
+  }
+});
+
 test('an older direct archive URL renders only the Founding Member preview gate', { timeout: 45_000 }, async () => {
   const engine = BROWSER_ENGINES[0];
   const browser = await launchBrowser(engine.type);
@@ -190,6 +319,10 @@ test('an older direct archive URL renders only the Founding Member preview gate'
             vibeLabelEn: 'Browser Archive Vibe',
             previewThumbnails: ['https://images.browser-archive.test/preview.jpg'],
             access: 'member',
+            publicRecord: {
+              actorPath: ACTOR_RECORD_PATH,
+              editionPath: EDITION_RECORD_PATH,
+            },
           },
         }),
       });
@@ -198,6 +331,15 @@ test('an older direct archive URL renders only the Founding Member preview gate'
     await page.goto(`${app.origin}/vibe-atlas?date=${ARCHIVED_DATE}`, { waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: /Browser Archive Actor/ }).waitFor();
     await page.getByText(/Founding Members can unlock the complete nine-card board/).waitFor();
+    const lockedRecords = page.getByRole('navigation', { name: 'Curated public records' });
+    assert.equal(
+      await lockedRecords.getByRole('link', { name: /actor record/ }).getAttribute('href'),
+      ACTOR_RECORD_PATH,
+    );
+    assert.equal(
+      await lockedRecords.getByRole('link', { name: /permanent record/ }).getAttribute('href'),
+      EDITION_RECORD_PATH,
+    );
     assert.equal(await page.locator('.daily-grid').count(), 0);
     assert.equal(await page.getByLabel('Sign in to check your archive access').count(), 1);
   } finally {
