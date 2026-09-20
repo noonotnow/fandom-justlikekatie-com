@@ -7218,6 +7218,7 @@ for (const {
     }
 
     const deterministicSignalValues = [...signalValues].sort();
+    const approvalIdentities = [];
     for (const requestedSignalValues of [
       signalValues,
       [...signalValues].reverse(),
@@ -7240,7 +7241,13 @@ for (const {
         signalValues: deterministicSignalValues,
       });
       assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
+      approvalIdentities.push({
+        approvalId: approval.calibrationProfile.activeApproval.approvalId,
+        aggregateEvidenceHash:
+          approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
+      });
     }
+    assert.deepEqual(approvalIdentities[1], approvalIdentities[0]);
 
     await handler(request("POST", {
       action: "run", actorId: pairActor.id, vibeKey, scope: "full",
@@ -7347,6 +7354,7 @@ for (const {
     }
 
     const deterministicSignalValues = [...fixtureSignalValues].sort();
+    const approvalIdentities = [];
     for (const requestedSignalValues of [
       fixtureSignalValues,
       [...fixtureSignalValues].reverse(),
@@ -7369,7 +7377,13 @@ for (const {
         signalValues: deterministicSignalValues,
       });
       assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
+      approvalIdentities.push({
+        approvalId: approval.calibrationProfile.activeApproval.approvalId,
+        aggregateEvidenceHash:
+          approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
+      });
     }
+    assert.deepEqual(approvalIdentities[1], approvalIdentities[0]);
 
     await handler(request("POST", {
       action: "run", actorId: pairActor.id, vibeKey, scope: "full",
