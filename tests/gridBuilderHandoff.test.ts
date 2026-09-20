@@ -125,7 +125,7 @@ test('saved Collection Grids expose the publishing handoff directly', () => {
   );
   assert.match(
     collectionSource,
-    /Handoff raw grid for publishing/,
+    /Handoff Publishing Grid/,
     'the saved-grid action must use the publishing handoff label',
   );
   assert.match(
@@ -135,10 +135,10 @@ test('saved Collection Grids expose the publishing handoff directly', () => {
   );
 });
 
-test('Star of the Day distinguishes styled-card exports from the raw publishing handoff', () => {
-  assert.match(exportButtonSource, /Share styled card/);
-  assert.match(exportButtonSource, /Download styled card/);
-  assert.match(exportButtonSource, /Handoff raw grid for publishing/);
+test('Star of the Day distinguishes Spell Sheets from Publishing Grids', () => {
+  assert.match(exportButtonSource, /Share Spell Sheet/);
+  assert.match(exportButtonSource, /Download Spell Sheet/);
+  assert.match(exportButtonSource, /Handoff Publishing Grid/);
   assert.match(exportButtonSource, /Only the 3×3 images · no copy or styling/);
   assert.match(
     exportHookSource,
