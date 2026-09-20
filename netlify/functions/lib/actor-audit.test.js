@@ -12,6 +12,7 @@ import {
   auditBlindCalibrationExclusionKey,
   auditCalibrationPrefix,
   auditVisualJudgmentIndexKey,
+  auditVisualJudgmentIndexPrefix,
   auditVisualJudgmentKey,
   auditVisualJudgmentPrefix,
   auditEligibilityDecisionPrefix,
@@ -5469,6 +5470,34 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
     legacyProfile.calibrationProfile.activeApproval.approvalId,
     savedEligibility.rescueCalibrationApprovalId,
   );
+
+  for (let index = 3; index <= 33; index += 1) {
+    store.records.set(
+      `${auditVisualJudgmentIndexPrefix(pairActor.id, 0)}overflow-run-${index}`,
+      { receiptIds: [] },
+    );
+  }
+  const exhaustedResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const exhausted = await exhaustedResponse.json();
+  assert.equal(exhaustedResponse.status, 200, JSON.stringify(exhausted));
+  assert.equal(exhausted.calibrationProfile.activeApproval, null);
+  assert.deepEqual(exhausted.calibrationProfile.legacyRecovery, {
+    status: "recovery_window_exhausted",
+    reasonCode: "legacy_approval_recovery_window_exhausted",
+    recoveryRunLimit: 32,
+    failClosed: true,
+    message: "This legacy approval exceeds the 32-run compatibility recovery window. The approval remains fail-closed until retained-run listings recover.",
+  });
+  for (let index = 3; index <= 33; index += 1) {
+    store.records.delete(
+      `${auditVisualJudgmentIndexPrefix(pairActor.id, 0)}overflow-run-${index}`,
+    );
+  }
+
   const changedJudgmentKey = [...immutableJudgments.keys()][0];
   const changedJudgment = structuredClone(store.records.get(changedJudgmentKey));
   const sourceRun = store.records.get(

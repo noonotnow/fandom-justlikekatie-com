@@ -212,6 +212,24 @@ function mixedCalibrationApprovalProfile(activeApproval = false): AnyRecord {
   return profile;
 }
 
+function exhaustedLegacyRecoveryProfile(): AnyRecord {
+  return {
+    calibrationVersion: 1,
+    evidenceCount: 0,
+    reviewedRunCount: 0,
+    minimumApprovalEvidenceCount: 2,
+    approvalReady: false,
+    activeApproval: null,
+    legacyRecovery: {
+      status: 'recovery_window_exhausted',
+      reasonCode: 'legacy_approval_recovery_window_exhausted',
+      recoveryRunLimit: 32,
+      failClosed: true,
+      message: 'This legacy approval exceeds the 32-run compatibility recovery window. The approval remains fail-closed until retained-run listings recover.',
+    },
+  };
+}
+
 function run(runId: string, revealed: boolean, proof = false): AnyRecord {
   const retained = candidates();
   const event = board('event', retained);
@@ -479,7 +497,7 @@ function publicationReviewRun(runId: string, historical = false, includePublicat
   return result;
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, retrievalRepetition = false, currentLegacy = false } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, exhaustedLegacyRecovery = false, retrievalRepetition = false, currentLegacy = false } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   calibrationExportRequests: URL[];
@@ -870,6 +888,9 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
       );
       if (mixedCalibrationApproval || activeMixedCalibrationApproval) {
         response.calibrationProfile = mixedCalibrationApprovalProfile(activeMixedCalibrationApproval);
+      }
+      if (exhaustedLegacyRecovery) {
+        response.calibrationProfile = exhaustedLegacyRecoveryProfile();
       }
       if (visualReview) {
         response.priorRuns = [
@@ -2908,6 +2929,38 @@ test('mixed calibration evidence does not overstate joint bundle support', { tim
       await activeCard.getByText('partial-run-a', { exact: false }).count(),
       0,
       'the active approval summary must list only distinct runs supporting every approved signal',
+    );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('an exhausted legacy recovery window is explained without ordinary approval controls', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  await configureNetwork(page, { exhaustedLegacyRecovery: true });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+
+    const approvalCard = page.getByRole('region', { name: 'Production calibration approval' });
+    await approvalCard.getByRole('heading', { name: 'Legacy approval recovery paused' }).waitFor();
+    await approvalCard.getByRole('alert').getByText(
+      'This legacy approval exceeds the 32-run compatibility recovery window. The approval remains fail-closed until retained-run listings recover.',
+      { exact: true },
+    ).waitFor();
+    assert.equal(
+      await approvalCard.getByText('0 of 2 required distinct reviewed audits.', { exact: false }).count(),
+      0,
+      'the temporary recovery condition must not look like missing ordinary evidence',
+    );
+    assert.equal(
+      await approvalCard.getByRole('button', { name: 'Approve bounded production calibration', exact: true }).count(),
+      0,
     );
   } finally {
     await browser.close();
