@@ -1,0 +1,34 @@
+Recent activity
+Payment succeeded
+This payment successfully set up pm_1UHlBwCbDEj2ibKiRnxTN17f for future off-session payments
+Payment started
+Checkout summary
+Customer
+katie@justlikekatie.com
+Katherine Hendley
+30263 US
+Subscription
+Founding Member • Founding Member Special
+Access
+Subscription ID
+sub_1UHlC0CbDEj2ibKir1wam5Y7
+Invoice
+WMF82DDZ-0001
+Payment breakdown
+Payment method
+Sep 20, 9:54 AM
+Sep 20, 9:54 AM
+Sep 20, 9:54 AM
+Payment amount
+$9.00 USD
+Stripe processing fees Learn more
+- $0.56 USD
+Net amount
+$8.44 USD
+Link
+ID
+pm_1UHlBwCbDEj2ibKiRnxTN17f
+9/20/26, 10:18 AM
+Transactions – Just Like Katie – Stripe
+https://dashboard.stripe.com/acct_1U9wdxCbDEj2ibKi/payments/pi_3UHlBxCbDEj2ibKi0yY0spWx
+2/5

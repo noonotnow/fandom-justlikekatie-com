@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createPublicEditionsHandler } from "./public-editions.js";
-import { catalogStore, completeCatalog, manifestStore, publicManifest } from "./public-test-fixture.js";
+import { createPublicEditionsHandler } from "../public-editions.js";
+import { catalogStore, completeCatalog, manifestStore, publicManifest } from "../public-test-fixture.js";
 
 test("public editions fail closed while the immutable catalog is incomplete", async () => {
   const handler = createPublicEditionsHandler({

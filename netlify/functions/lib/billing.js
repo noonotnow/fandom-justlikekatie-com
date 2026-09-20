@@ -68,7 +68,7 @@ export function createBillingServices({
       const current = await stripe.subscriptions.retrieve(event.data.object.id);
       event = { ...event, data: { ...event.data, object: current } };
     }
-    await applyBlobBillingEvent({ event, repository: repository(context) });
+    await applyBlobBillingEvent({ event, repository: repository(context), env });
   };
   return {
     initialize,

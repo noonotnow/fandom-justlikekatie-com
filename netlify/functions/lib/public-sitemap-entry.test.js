@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createPublicSitemapHandler, sitemapXml } from "./public-sitemap.js";
-import { catalogStore, completeCatalog, manifestStore, publicManifest } from "./public-test-fixture.js";
+import { createPublicSitemapHandler, sitemapXml } from "../public-sitemap.js";
+import { catalogStore, completeCatalog, manifestStore, publicManifest } from "../public-test-fixture.js";
 
 test("sitemap preserves static public routes and never emits query-bearing URLs", () => {
   const xml = sitemapXml(["/", "/vibe-atlas", "/vibe-atlas/actors/liu-xueyi/"]);

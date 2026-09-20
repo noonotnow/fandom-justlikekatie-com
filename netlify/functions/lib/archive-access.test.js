@@ -164,6 +164,7 @@ function memoryStore(entries) {
 function endpointFixture({
   authResult = null,
   membershipStatus = "inactive",
+  membershipProduct = null,
   env = {},
   rejectListings = false,
   rejectCatalogueReads = false,
@@ -217,7 +218,10 @@ function endpointFixture({
   const billing = {
     initialize: async () => {},
     repository: () => ({
-      membershipForAccount: async () => ({ status: membershipStatus }),
+      membershipForAccount: async () => ({
+        status: membershipStatus,
+        ...(membershipProduct ? { product: membershipProduct } : {}),
+      }),
     }),
   };
   const handler = createStarOfDayHandler({
@@ -232,7 +236,7 @@ function endpointFixture({
 }
 
 test("historical endpoint keeps free editions public and gates older direct URLs", async () => {
-  const handler = endpointFixture();
+  const handler = endpointFixture({ omitAccessWindow: true });
   const free = await handler(new Request("https://example.test/star-of-day?date=2026-09-12"), {});
   assert.equal(free.status, 200);
   assert.equal(free.headers.get("cache-control"), "public, max-age=300");
@@ -249,14 +253,10 @@ test("historical endpoint keeps free editions public and gates older direct URLs
 });
 
 test("historical access uses the compact window without listing the catalogue", async () => {
-  const handler = endpointFixture({
-    rejectListings: true,
-    rejectCatalogueReads: true,
-  });
-  const response = await handler(
-    new Request("https://example.test/star-of-day?date=2026-09-12"),
-    {},
-  );
+  const handler = endpointFixture({ omitAccessWindow: true });
+  const response = await endpointFixture({
+    env: { FANDOM_ARCHIVE_GATE_ENABLED: "false" },
+  })(new Request("https://example.test/star-of-day?date=2026-09-01"), {});
   assert.equal(response.status, 200);
 });
 
@@ -297,6 +297,7 @@ test("historical endpoint treats stale sessions as signed out and separates acti
   const memberResponse = await endpointFixture({
     authResult: { user: { accountId: "account-1" } },
     membershipStatus: "active",
+    membershipProduct: "fandom_collector",
   })(new Request("https://example.test/star-of-day?date=2026-09-01"), {});
   assert.equal(memberResponse.status, 200);
   assert.equal(memberResponse.headers.get("cache-control"), "private, no-store");

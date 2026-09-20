@@ -13,7 +13,7 @@ const membership = metadata => ({ status: "active", metadata });
 
 test("capability matrix derives only the named active product", () => {
   assert.deepEqual(capabilitiesForMembership({ status: "inactive", metadata: { product: "ecosystem_bundle" } }, env), []);
-  assert.deepEqual(capabilitiesForMembership({ status: "active" }, env), ["fandom_collector"]);
+  assert.deepEqual(capabilitiesForMembership({ status: "active" }, env), []);
   assert.deepEqual(capabilitiesForMembership(membership({ product: "fandom_collector" }), env), ["fandom_collector"]);
   assert.deepEqual(capabilitiesForMembership(membership({ product: "creator_os" }), env), ["creator_os"]);
   assert.deepEqual(capabilitiesForMembership(membership({ product: "fandom_creator_bridge" }), env), ["fandom_creator_bridge"]);
@@ -22,6 +22,19 @@ test("capability matrix derives only the named active product", () => {
   ]);
   assert.deepEqual(capabilitiesForMembership({ status: "past_due", priceId: "price_collector" }, env), []);
   assert.deepEqual(capabilitiesForMembership(membership({ product: "unknown_product" }), env), []);
+});
+
+test("unidentified and conflicting active products fail closed", () => {
+  assert.deepEqual(capabilitiesForMembership({ status: "active" }, env), []);
+  assert.deepEqual(capabilitiesForMembership({
+    status: "active",
+    priceId: "price_collector",
+    metadata: { product: "creator_os" },
+  }, env), []);
+  assert.deepEqual(capabilitiesForMembership({
+    status: "active",
+    metadata: { product: "not_a_membership" },
+  }, env), []);
 });
 
 test("configured price IDs preserve Collector and identify other products", () => {
@@ -57,6 +70,7 @@ test("capability enforcement rejects Collector-only handoff but accepts Creator 
 test("enforcement matrix keeps product boundaries isolated", async () => {
   const products = [
     ["inactive", { status: "inactive" }, []],
+    ["unidentified", { status: "active" }, []],
     ["collector", membership({ product: "fandom_collector" }), ["fandom_collector"]],
     ["creator", membership({ product: "creator_os" }), ["creator_os"]],
     ["bridge", membership({ product: "fandom_creator_bridge" }), ["fandom_creator_bridge"]],

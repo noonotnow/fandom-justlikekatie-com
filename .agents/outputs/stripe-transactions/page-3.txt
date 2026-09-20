@@ -1,0 +1,26 @@
+Tax calculation
+Calculate tax on your subscriptions using Stripe. Learn more
+Risk analysis
+Related objects
+Origin
+United States
+Link funding source group
+lfsg_000
+Fraudulent payment
+Normal
+Fraudulent dispute
+Normal
+Early fraud warning
+Normal
+Latest charge
+Invoice
+WMF82DDZ-0001
+Subscription
+sub_1UHlC0CbDEj2ibKir1wam5Y7
+Created Sep 20
+ch_3UHlBxCbDEj2ibKi0DgkmTY9
+Paid
+9/20/26, 10:18 AM
+Transactions – Just Like Katie – Stripe
+https://dashboard.stripe.com/acct_1U9wdxCbDEj2ibKi/payments/pi_3UHlBxCbDEj2ibKi0yY0spWx
+3/5

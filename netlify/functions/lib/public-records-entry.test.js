@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createPublicRecordsHandler } from "./public-records.js";
-import { catalogStore, completeCatalog, manifestStore, publicManifest } from "./public-test-fixture.js";
+import { createPublicRecordsHandler } from "../public-records.js";
+import { catalogStore, completeCatalog, manifestStore, publicManifest } from "../public-test-fixture.js";
 
 const emptyStore = () => ({
   async get() { return null; },

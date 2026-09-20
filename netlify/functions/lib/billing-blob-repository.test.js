@@ -43,51 +43,63 @@ function createRepository(store = createMemoryStore()) {
 
 test("blob billing links a customer and records an entitled subscription", async () => {
   const { repository } = createRepository();
-  await repository.linkCustomer("account/one", "cus_test");
-  await repository.recordSubscription({
-    accountId: "account/one",
-    customerId: "cus_test",
-    subscriptionId: "sub_test",
-    status: "active",
-    currentPeriodEnd: "2026-09-30T00:00:00.000Z",
-    cancelAtPeriodEnd: false,
-    eventCreated: 10,
+  await applyBlobBillingEvent({
+    repository,
+    event: {
+      id: "evt_created",
+      created: 30,
+      type: "customer.subscription.created",
+      data: {
+        object: {
+          id: "sub_test",
+          customer: "cus_test",
+          status: "trialing",
+          current_period_end: 1790726400,
+          cancel_at_period_end: false,
+          metadata: { fandom_account_id: "account_one" },
+        },
+      },
+    },
   });
 
-  assert.equal(await repository.customerForAccount("account/one"), "cus_test");
-  assert.deepEqual(await repository.membershipForAccount("account/one"), {
+  assert.deepEqual(await repository.membershipForAccount("account_one"), {
     status: "active",
-    stripeStatus: "active",
+    stripeStatus: "trialing",
     currentPeriodEnd: "2026-09-30T00:00:00.000Z",
     cancelAtPeriodEnd: false,
   });
 });
 
-test("older subscription webhooks cannot overwrite newer membership state", async () => {
+test("subscription webhook persists one canonical product capability", async () => {
   const { repository } = createRepository();
-  await repository.recordSubscription({
-    accountId: "account_one",
-    customerId: "cus_test",
-    subscriptionId: "sub_test",
-    status: "active",
-    currentPeriodEnd: "2026-10-01T00:00:00.000Z",
-    eventCreated: 20,
-  });
-  await repository.recordSubscription({
-    accountId: "account_one",
-    customerId: "cus_test",
-    subscriptionId: "sub_test",
-    status: "canceled",
-    currentPeriodEnd: null,
-    eventCreated: 19,
+  await repository.linkCustomer("account_one", "cus_test");
+  await applyBlobBillingEvent({
+    repository,
+    env: { FANDOM_STRIPE_MEMBERSHIP_PRICE_ID: "price_collector" },
+    event: {
+      id: "evt_product",
+      created: 35,
+      type: "customer.subscription.created",
+      data: {
+        object: {
+          id: "sub_test",
+          customer: "cus_test",
+          status: "active",
+          current_period_end: 1790726400,
+          cancel_at_period_end: false,
+          metadata: { fandom_account_id: "account_one" },
+          items: { data: [{ price: { id: "price_collector", product: "prod_provider" } }] },
+        },
+      },
+    },
   });
 
   const membership = await repository.membershipForAccount("account_one");
-  assert.equal(membership.status, "active");
-  assert.equal(membership.currentPeriodEnd, "2026-10-01T00:00:00.000Z");
+  assert.equal(membership.product, "fandom_collector");
+  assert.equal(membership.priceId, "price_collector");
 });
 
-test("subscription webhook metadata binds the account without exposing provider data", async () => {
+test("deleted subscription webhooks remove entitlement", async () => {
   const { repository } = createRepository();
   await applyBlobBillingEvent({
     repository,
@@ -146,42 +158,44 @@ test("deleted subscription webhooks remove entitlement", async () => {
 
 test("duplicate event deliveries are recorded once and remain harmless", async () => {
   const { repository, store } = createRepository();
-  const event = {
-    id: "evt_duplicate",
-    created: 50,
-    type: "customer.subscription.created",
+  const event = (id, type, status) => ({
+    id,
+    created: 110,
+    type,
     data: { object: {
       id: "sub_test",
       customer: "cus_test",
-      status: "active",
+      status,
       metadata: { fandom_account_id: "account_one" },
     } },
-  };
-  assert.deepEqual(await applyBlobBillingEvent({ repository, event }), { applied: true });
-  assert.deepEqual(await applyBlobBillingEvent({ repository, event }), { duplicate: true });
+  });
+  const duplicate = event("evt_duplicate", "customer.subscription.created", "active");
+  assert.deepEqual(await applyBlobBillingEvent({ repository, event: duplicate }), { applied: true });
+  assert.deepEqual(await applyBlobBillingEvent({ repository, event: duplicate }), { duplicate: true });
   assert.equal((await store.get("events/evt_duplicate")).eventId, "evt_duplicate");
 });
 
 test("an abandoned event claim can be recovered after its lease expires", async () => {
   const { repository, store } = createRepository();
-  const event = {
-    id: "evt_abandoned",
-    created: 55,
-    type: "customer.subscription.updated",
+  const event = (id, type, status) => ({
+    id,
+    created: 110,
+    type,
     data: { object: {
       id: "sub_test",
       customer: "cus_test",
-      status: "active",
+      status,
       metadata: { fandom_account_id: "account_one" },
     } },
-  };
-  assert.equal(await repository.claimEvent(event), true);
+  });
+  const abandonedEvent = event("evt_abandoned", "customer.subscription.created", "active");
+  assert.equal(await repository.claimEvent(abandonedEvent), true);
   const abandoned = await store.get("events/evt_abandoned");
   await store.setJSON("events/evt_abandoned", {
     ...abandoned,
     claimedAt: "2020-01-01T00:00:00.000Z",
   });
-  assert.deepEqual(await applyBlobBillingEvent({ repository, event }), { applied: true });
+  assert.deepEqual(await applyBlobBillingEvent({ repository, event: abandonedEvent }), { applied: true });
   assert.equal((await repository.membershipForAccount("account_one")).status, "active");
   assert.equal((await store.get("events/evt_abandoned")).state, "processed");
 });
@@ -212,7 +226,7 @@ test("equal-second lifecycle events reconcile deterministically", async () => {
   const { repository } = createRepository();
   const event = (id, type, status, subscriptionId = "sub_test") => ({
     id,
-    created: 100,
+    created: 110,
     type,
     data: { object: {
       id: subscriptionId,
@@ -252,7 +266,7 @@ test("concurrent equal-second deliveries converge through conditional writes", a
     }
     return originalGetWithMetadata(key);
   };
-  const { repository } = createRepository(store);
+  const { repository } = createRepository();
   const event = (id, type, status) => ({
     id,
     created: 110,

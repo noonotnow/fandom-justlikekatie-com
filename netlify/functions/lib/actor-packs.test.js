@@ -156,7 +156,11 @@ test("Collector actor depth requires active membership and never uses a shared c
   const auth = { authenticate: async () => ({ user: { accountId: "usr_1" } }) };
   const billing = {
     initialize: async () => {},
-    repository: () => ({ membershipForAccount: async () => ({ status: "active" }) }),
+    repository: () => ({
+      membershipForAccount: async () => ({
+        status: "active", metadata: { product: "fandom_collector" },
+      }),
+    }),
   };
   const handlerWithAccess = createActorPackDepthHandler({ auth, billing });
   const response = await handlerWithAccess(makeRequest(), {});
@@ -211,7 +215,11 @@ test("Collector actor depth supports one actor without widening the public endpo
     auth: { authenticate: async () => ({ user: { accountId: "usr_1" } }) },
     billing: {
       initialize: async () => {},
-      repository: () => ({ membershipForAccount: async () => ({ status: "active" }) }),
+      repository: () => ({
+        membershipForAccount: async () => ({
+          status: "active", metadata: { product: "fandom_collector" },
+        }),
+      }),
     },
   });
   const response = await handlerWithAccess(

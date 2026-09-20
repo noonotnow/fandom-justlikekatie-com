@@ -5,7 +5,6 @@ export const CAPABILITIES = Object.freeze([
   "ecosystem_bundle",
 ]);
 
-const ALL = new Set(CAPABILITIES);
 const PRODUCT_CAPABILITIES = {
   fandom_collector: ["fandom_collector"],
   collector: ["fandom_collector"],
@@ -19,6 +18,19 @@ const PRODUCT_CAPABILITIES = {
   ecosystem: CAPABILITIES,
 };
 
+const CANONICAL_PRODUCTS = new Map([
+  ["fandom_collector", "fandom_collector"],
+  ["collector", "fandom_collector"],
+  ["creator_os", "creator_os"],
+  ["creator-os", "creator_os"],
+  ["fandom_creator_bridge", "fandom_creator_bridge"],
+  ["fandom-creator-bridge", "fandom_creator_bridge"],
+  ["bridge", "fandom_creator_bridge"],
+  ["ecosystem_bundle", "ecosystem_bundle"],
+  ["ecosystem-bundle", "ecosystem_bundle"],
+  ["ecosystem", "ecosystem_bundle"],
+]);
+
 function values(value) {
   if (Array.isArray(value)) return value;
   if (typeof value === "string") return value.split(/[,\s]+/).filter(Boolean);
@@ -29,46 +41,47 @@ function normalize(value) {
   return String(value || "").trim().toLowerCase().replace(/\s+/g, "_");
 }
 
-export function capabilitiesForMembership(membership, env = process.env) {
-  if (!membership || membership.status !== "active") return [];
-  const metadata = membership.metadata || {};
-  const explicit = [
-    ...values(membership.capabilities),
-    ...values(membership.capability),
+export function productForPrice(price, env = process.env) {
+  if (!price) return null;
+  if (price === env.FANDOM_STRIPE_MEMBERSHIP_PRICE_ID) return "fandom_collector";
+  if (price === env.FANDOM_CREATOR_OS_PRICE_ID
+    || price === env.FANDOM_CREATOR_OS_MEMBERSHIP_PRICE_ID) return "creator_os";
+  if (price === env.FANDOM_CREATOR_BRIDGE_PRICE_ID
+    || price === env.FANDOM_FANDOM_CREATOR_BRIDGE_PRICE_ID) return "fandom_creator_bridge";
+  if (price === env.FANDOM_ECOSYSTEM_BUNDLE_PRICE_ID) return "ecosystem_bundle";
+  return null;
+}
+
+export function explicitProductForMembership(membership, env = process.env) {
+  const metadata = membership?.metadata || {};
+  const namedValues = [
+    ...values(membership?.capabilities),
+    ...values(membership?.capability),
     ...values(metadata.capabilities),
     ...values(metadata.capability),
-    ...values(membership.products),
+    ...values(membership?.products),
     ...values(metadata.products),
-    ...values(metadata.product_capability),
-    membership.product,
+    membership?.productCapability,
+    metadata.product_capability,
+    membership?.product,
     metadata.product,
-    membership.productName,
+    membership?.productName,
     metadata.product_name,
   ].filter(Boolean);
-  const price = membership.priceId || membership.price_id || membership.price?.id
+  const named = namedValues.map(value => CANONICAL_PRODUCTS.get(normalize(value)));
+  if (named.some(product => !product)) return null;
+  const price = membership?.priceId || membership?.price_id || membership?.price?.id
     || metadata.price_id || metadata.priceId;
-  const result = new Set();
-  for (const raw of explicit) {
-    const key = normalize(raw);
-    for (const capability of PRODUCT_CAPABILITIES[key] || (ALL.has(key) ? [key] : [])) {
-      result.add(capability);
-    }
-  }
+  const priced = productForPrice(price, env);
+  if (price && !priced) return null;
+  const products = new Set([...named, ...(priced ? [priced] : [])]);
+  return products.size === 1 ? [...products][0] : null;
+}
 
-  if (price && price === env.FANDOM_STRIPE_MEMBERSHIP_PRICE_ID) result.add("fandom_collector");
-  if (price && (price === env.FANDOM_CREATOR_OS_PRICE_ID
-    || price === env.FANDOM_CREATOR_OS_MEMBERSHIP_PRICE_ID)) result.add("creator_os");
-  if (price && (price === env.FANDOM_CREATOR_BRIDGE_PRICE_ID
-    || price === env.FANDOM_FANDOM_CREATOR_BRIDGE_PRICE_ID)) result.add("fandom_creator_bridge");
-  if (price && price === env.FANDOM_ECOSYSTEM_BUNDLE_PRICE_ID) result.add("ecosystem_bundle");
-  if (result.has("ecosystem_bundle")) {
-    for (const capability of CAPABILITIES) result.add(capability);
-  }
-  // Before product-specific entitlements existed, every active subscription
-  // was the single Collector membership. Preserve those records, but fail
-  // closed for any explicit product or price identifier that is not recognized.
-  if (result.size === 0 && explicit.length === 0 && !price) result.add("fandom_collector");
-  return CAPABILITIES.filter(capability => result.has(capability));
+export function capabilitiesForMembership(membership, env = process.env) {
+  if (!membership || membership.status !== "active") return [];
+  const product = explicitProductForMembership(membership, env);
+  return product ? [...PRODUCT_CAPABILITIES[product]] : [];
 }
 
 export function hasCapability(membership, capability, env = process.env) {

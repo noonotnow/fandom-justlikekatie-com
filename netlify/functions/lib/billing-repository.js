@@ -84,8 +84,8 @@ export function createBillingRepository({ query }) {
     },
     async membershipForAccount(accountId) {
       const result = await query(
-         `SELECT s.status, s.current_period_end, s.cancel_at_period_end,
-                 s.metadata
+         `SELECT s.id, s.status, s.current_period_end, s.cancel_at_period_end,
+                  s.metadata
            FROM public.fandom_billing_accounts b
            JOIN stripe.subscriptions s ON s.customer = b.stripe_customer_id
           WHERE b.account_id = $1
@@ -96,6 +96,7 @@ export function createBillingRepository({ query }) {
       );
       const subscription = result.rows[0];
       return {
+        subscriptionId: subscription?.id || null,
         status: membershipStatus(subscription?.status),
         stripeStatus: subscription?.status || null,
         currentPeriodEnd: subscription?.current_period_end

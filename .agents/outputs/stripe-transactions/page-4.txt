@@ -1,0 +1,32 @@
+Receipt history
+Events
+Logs
+Customer
+View receipt
+Send receipt
+No receipts sent
+The payment
+pi_3UHlBxCbDEj2ibKi0yY0spWx for $9.00
+has succeeded
+1
+9/20/26, 9:54:08 AM
+ch_3UHlBxCbDEj2ibKi0DgkmTY9 was
+charged $9.00
+1
+9/20/26, 9:54:08 AM
+A new payment
+pi_3UHlBxCbDEj2ibKi0yY0spWx for $9.00
+was created
+1
+9/20/26, 9:54:05 AM
+POST /v1/payment_pages/cs_live_a1p4Ln…
+200 OK
+9/20/26, 9:54:09 AM
+POST /v1/checkout/sessions
+200 OK
+9/20/26, 9:53:36 AM
+ID
+9/20/26, 10:18 AM
+Transactions – Just Like Katie – Stripe
+https://dashboard.stripe.com/acct_1U9wdxCbDEj2ibKi/payments/pi_3UHlBxCbDEj2ibKi0yY0spWx
+4/5
