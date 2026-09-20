@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getStore } from "@netlify/blobs";
 import { BlobsServer } from "@netlify/blobs/server";
+import {
+  ARCHIVE_ACCESS_RETENTION_STORE,
+  config as retentionConfig,
+} from "../archive-access-retention.js";
 import {
   ARCHIVE_ACCESS_RETENTION_DAYS,
   archiveAccessHealth,
@@ -64,6 +68,20 @@ function paginatedStore(pageSize = 100) {
   });
   return data;
 }
+
+test("archive retention entry point keeps its daily schedule and operations store", async () => {
+  assert.deepEqual(retentionConfig, { schedule: "@daily" });
+  assert.equal(ARCHIVE_ACCESS_RETENTION_STORE, "archive-access-operations");
+
+  const entryPoint = await readFile(
+    new URL("../archive-access-retention.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    entryPoint,
+    /getBlobStore\(\s*ARCHIVE_ACCESS_RETENTION_STORE\s*,\s*context\s*\)/,
+  );
+});
 
 test("archive health separates anonymous gates from billing and denial incidents", async () => {
   const data = store();
