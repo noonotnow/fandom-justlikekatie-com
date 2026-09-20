@@ -1007,6 +1007,12 @@ function CalibrationLearningSummary({run}:{run:Run}) {
   if (!ranking && !signals && !proof) return null;
   const transferSucceeded = proof?.status === 'reproduced_beyond_saved_nine';
   const transferFailed = proof?.status === 'reaudit_not_yet_reproduced';
+  const effectCount = typeof proof?.beyondExactSavedNineCount === 'number'
+    ? `${proof.beyondExactSavedNineCount} effect${proof.beyondExactSavedNineCount === 1 ? '' : 's'} beyond the exact saved nine`
+    : 'Effect count unavailable';
+  const scoreDelta = typeof proof?.scoreDelta === 'number'
+    ? `score delta ${proof.scoreDelta.toFixed(3)}`
+    : 'score delta unavailable';
   return <section className={styles.calibrationLearning} aria-label="Rescue learning review">
     <div className={styles.calibrationLearningHeader}>
       <div>
@@ -1030,7 +1036,7 @@ function CalibrationLearningSummary({run}:{run:Run}) {
     {proof && <div className={`${styles.calibrationProof} ${transferFailed ? styles.calibrationProofFailed : ''}`}>
       <strong>{transferFailed ? 'Failed transfer remains visible' : transferSucceeded ? 'Transfer evidence' : 'Transfer proof'}</strong>
       <span>{proof.summary}</span>
-      <small>{proof.beyondExactSavedNineCount ?? 0} effect{proof.beyondExactSavedNineCount === 1 ? '' : 's'} beyond the exact saved nine · score delta {Number(proof.scoreDelta ?? 0).toFixed(3)}</small>
+      <small>{effectCount} · {scoreDelta}</small>
       {transferFailed && <small>Approval gates remain unchanged: a missing transfer proof does not make this board eligible, and calibration cannot bypass a failed image or anti-anchor gate.</small>}
     </div>}
   </section>;
