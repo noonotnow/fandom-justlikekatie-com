@@ -46,7 +46,6 @@ import { VeteranSubmissionForm } from './components/VeteranSubmissionForm/Vetera
 import {
   trackCollectionOpened,
   trackDailyArchiveEditionSelected,
-  trackDailyArchiveOpened,
   trackArchiveAccess,
   trackArchiveGatedPreviewView,
   trackArchivePageView,
@@ -181,13 +180,6 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       ? initialVibeAtlasEditionDate(window.location.search)
       : null,
   );
-  const [archiveOpen, setArchiveOpen] = useState(
-    () => archiveEntry || (initialVibeAtlasView(window.location.search) === 'daily'
-      && (
-        hasInvalidVibeAtlasEditionDate(window.location.search)
-        || Boolean(initialVibeAtlasEditionDate(window.location.search))
-      )),
-  );
   const [archivePage, setArchivePage] = useState(archiveEntry);
   const [view, setView] = useState<'daily' | 'collection' | 'admin' | 'membership'>(
     () => initialVibeAtlasView(window.location.search),
@@ -293,7 +285,6 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           ) {
             syncVibeAtlasEditionUrl(archiveReturnDate, true);
             setSelectedEditionDate(archiveReturnDate);
-            setArchiveOpen(true);
             setView('daily');
             trackArchiveAccess('restored', archiveReturnDate, 'sign_in');
           } else {
@@ -432,7 +423,12 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   }, [selectedEditionDate]);
 
   const openArchivePicker = useCallback(() => {
-    setArchiveOpen(true);
+    setArchivePage(true);
+    setSelectedEditionDate(null);
+    setExpandedId(null);
+    setLightboxIndex(null);
+    setDailyGridZoomOpen(false);
+    window.history.replaceState({}, '', '/vibe-atlas/archive');
     if (!archive.length && !archiveLoading) void loadArchive();
   }, [archive.length, archiveLoading, loadArchive]);
 
@@ -472,7 +468,6 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
 
   const openArchivePage = () => {
     setArchivePage(true);
-    setArchiveOpen(true);
     setSelectedEditionDate(null);
     setExpandedId(null);
     setLightboxIndex(null);
@@ -527,9 +522,6 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         ? initialVibeAtlasEditionDate(window.location.search)
         : null;
       setSelectedEditionDate(restoredEditionDate);
-      if (restoredArchivePage || (restoredView === 'daily' && restoredEditionDate)) {
-        setArchiveOpen(true);
-      }
       if (restoredView === 'daily' && !restoredArchivePage && invalidEditionDate) {
         syncVibeAtlasEditionUrl(null, true);
         openArchivePicker();
@@ -555,13 +547,6 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     setSelectedEditionDate(null);
     openArchivePicker();
   }, [error, loading, openArchivePicker, selectedEditionDate, view]);
-
-  const toggleArchive = () => {
-    const nextOpen = !archiveOpen;
-    if (nextOpen) trackDailyArchiveOpened();
-    setArchiveOpen(nextOpen);
-    if (nextOpen && !archive.length && !archiveLoading) void loadArchive();
-  };
 
   const handleItemClick = (itemId: string) => {
     setExpandedId((prev) => (prev === itemId ? null : itemId));
@@ -747,64 +732,6 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
            <a href="#daily-evidence">Browse today’s drop</a>
            <a href="/vibe-atlas?view=builder&amp;source=daily">Open the Grid Builder</a>
          </div>
-        <section className="daily-archive" aria-label="Vibe Atlas daily edition archive">
-          <button
-            type="button"
-            className="daily-archive__toggle"
-            aria-expanded={archiveOpen}
-            onClick={toggleArchive}
-          >
-            <span>{archiveOpen ? 'Hide past editions' : 'Browse past editions'}</span>
-            <small>{archiveOpen ? '收起往期' : '往期图鉴'}</small>
-            <strong aria-hidden="true">{archiveOpen ? '−' : '+'}</strong>
-          </button>
-          {archiveOpen && (
-            <div className="daily-archive__panel">
-              <div className="daily-archive__intro">
-                <div>
-                  <p className="daily-archive__kicker">The Vibe Atlas archive</p>
-                  <h2>Every star. Every assignment.</h2>
-                </div>
-                <p>Revisit past stars, vibes, and evidence.</p>
-              </div>
-              {archiveLoading && archive.length === 0 ? (
-                <p className="daily-archive__status">Loading available editions…</p>
-              ) : archiveError ? (
-                <p className="daily-archive__status daily-archive__status--error" role="alert">{archiveError}</p>
-              ) : archive.length === 0 ? (
-                <p className="daily-archive__status">No archived editions are available yet.</p>
-              ) : (
-                <>
-                  <div className="daily-archive__list">
-                    {archive.map((edition, index) => (
-                      <ArchiveEditionButton
-                        key={edition.date}
-                        edition={edition}
-                        isSelected={selectedEditionDate === edition.date}
-                        isLatest={index === 0}
-                        onSelect={() => {
-                          trackDailyArchiveEditionSelected(edition.date, index === 0);
-                          selectEdition(edition.date);
-                        }}
-                      />
-                    ))}
-                  </div>
-                  {archiveHasMore && (
-                    <button type="button" className="daily-archive__today" onClick={() => void loadMoreArchive()}>
-                      Load more editions
-                    </button>
-                  )}
-                </>
-              )}
-              <a className="daily-archive__full-link" href="/vibe-atlas/archive">Open the full archive →</a>
-              {selectedEditionDate && (
-                <button type="button" className="daily-archive__today" onClick={() => selectEdition(null)}>
-                  ← Return to today’s drop
-                </button>
-              )}
-            </div>
-          )}
-        </section>
         {gate && selectedEditionDate ? (
           <ArchiveLockedEdition
             gate={gate}
@@ -974,56 +901,6 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         <AdminSignIn />
       ) : (
         <FandomAdmin initialView="release-desk" />
-      )}
-    </div>
-  );
-}
-
-function ArchiveEditionButton({
-  edition,
-  isSelected,
-  isLatest,
-  onSelect,
-  href,
-}: {
-  edition: StarOfDayArchiveEntry;
-  isSelected: boolean;
-  isLatest: boolean;
-  onSelect?: () => void;
-  href?: string;
-}) {
-  const content = (
-    <>
-      <span className="daily-archive__date">
-        {formatEditionDate(edition.date)}
-        {isLatest && <small>Latest</small>}
-      </span>
-      <strong>{edition.vibeEmoji} {edition.actorName}</strong>
-      <span>{edition.vibeLabel} · {edition.vibeLabelEn}</span>
-      {edition.access === 'member' && <small>Founding Member archive</small>}
-      {isSelected && <b>Viewing</b>}
-    </>
-  );
-  const className = `daily-archive__edition${isSelected ? ' daily-archive__edition--selected' : ''}`;
-  if (href) {
-    return <a className={className} href={href} onClick={onSelect}>{content}</a>;
-  }
-  return (
-    <div className="daily-archive__edition-group">
-      <button type="button" className={className} aria-pressed={isSelected} onClick={onSelect}>
-        {content}
-      </button>
-      {edition.publicRecord && (
-        <VisibleArchiveRecordPlacement
-          as="span"
-          className="daily-archive__record-links"
-          location="archive_picker"
-          recordTypes={['actor', 'edition']}
-          presentationKey={`archive_picker:${edition.date}`}
-        >
-          <a href={edition.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'archive_picker')}>Actor record</a>
-          <a href={edition.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'archive_picker')}>Edition record</a>
-        </VisibleArchiveRecordPlacement>
       )}
     </div>
   );

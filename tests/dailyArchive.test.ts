@@ -8,9 +8,8 @@ const hookSource = await readFile(new URL('../src/hooks/useStarOfDay.ts', import
 test('daily archive selection reuses the daily payload renderer and keeps today as the default', () => {
   assert.match(hookSource, /useStarOfDay = \(editionDate: string \| null \| undefined = null\)/);
   assert.match(hookSource, /star-of-day\$\{query\}/);
-  assert.match(appSource, /useStarOfDay\(archivePage && !selectedEditionDate \? undefined : selectedEditionDate\)/);
+  assert.match(appSource, /useStarOfDay\(archivePage && !activeEditionDate \? undefined : activeEditionDate\)/);
   assert.match(appSource, /isVibeAtlasArchiveLocation/);
-  assert.match(appSource, /edition\.publicRecord\?\.editionPath/);
   assert.match(appSource, /`\/vibe-atlas\?date=\$\{encodeURIComponent\(edition\.date\)\}`/);
   assert.match(appSource, /selectedEditionDate \? `Archived card drop/);
   assert.match(appSource, /initialVibeAtlasEditionDate\(window\.location\.search\)/);
@@ -24,7 +23,7 @@ test('every return to today clears per-image edition state', () => {
   );
   const navigateAtlas = appSource.slice(
     appSource.indexOf('const navigateAtlas ='),
-    appSource.indexOf('const toggleArchive ='),
+    appSource.indexOf('const handleItemClick ='),
   );
 
   assert.match(selectEdition, /setImageTiers\(\{\}\)/);
@@ -53,9 +52,19 @@ test('full archive renders visual board plates and preserves genuine legendary m
   assert.match(appSource, /function ArchiveEditionCard/);
   assert.match(appSource, /archive-card__mosaic/);
   assert.match(appSource, /edition\.legendaryMisprint/);
-  assert.match(appSource, /archive\.length - index/);
+  assert.match(appSource, /\(archiveTotal \?\? archive\.length\) - index/);
   assert.match(appSource, /Archive anomaly · Legendary Misprint/);
   assert.match(appSource, /The Star of the Day Archive/);
+});
+
+test('homepage delegates historical browsing to the dedicated Archive', () => {
+  const dailyView = appSource.slice(
+    appSource.indexOf('<header className="atlas-hero">'),
+    appSource.indexOf('{gate && selectedEditionDate'),
+  );
+  assert.doesNotMatch(dailyView, /daily-archive__toggle/);
+  assert.doesNotMatch(dailyView, /ArchiveEditionButton/);
+  assert.match(appSource, /window\.history\.pushState\(\{\}, '', '\/vibe-atlas\/archive'\)/);
 });
 
 test('daily and archive previews link only approved canonical public records', () => {
