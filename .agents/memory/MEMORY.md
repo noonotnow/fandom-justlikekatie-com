@@ -29,6 +29,7 @@
 - [Capability-link analytics](capability-link-analytics.md) — remove public capability values from browser URLs before trackers initialize; canonicalize pageview and event locations.
 - [Vibe Atlas public positioning](vibe-atlas-public-positioning.md) — daily-drop messaging is funnel-wide; audit crawlable guides and regenerate derived previews when it changes.
 - [Daily Drop grid curation contract](grid-curation-contract.md) — Event is a bounded, evidence-backed exception that must beat a competitive Compiled board on scored evidence.
+- [Star of the Day collection loop](star-of-day-collection-loop.md) — today’s collection fuels free grids; Collectors can build from missed drops and deeper actor packs without losing public archive browsing.
 - [Daily Drop actor eligibility](daily-drop-eligibility.md) — approvals are pair-specific, bound to current audit evidence, and revalidated across builds, caches, and fallbacks.
 - [Private operator console](private-operator-console.md) — keep admin tools private for preflight, audits, and controlled publishing; do not make them part of the public product.
 - [Access grant ontology](access-grant-ontology.md) — keep paid products, membership designations, preview grants, and admin authority separate; founding status may confer revocable previews.
