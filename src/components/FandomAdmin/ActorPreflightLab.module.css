@@ -90,7 +90,8 @@
 .chip { padding:5px 7px; border:1px solid var(--admin-border); border-radius:5px; color:#b9bfbb; font-size:11px; }
 .evidence { display:grid; gap:8px; margin-top:8px; }
 .evidence details { border-top:1px solid var(--admin-border); padding-top:8px; }
-.evidence summary { cursor:pointer; font-size:12px; }
+.evidence summary { cursor:pointer; max-width:100%; font-size:12px; line-height:1.45; overflow-wrap:anywhere; }
+.evidence summary .muted { overflow-wrap:anywhere; }
 .evidence pre { max-height:240px; overflow:auto; margin:8px 0 0; padding:10px; background:#161714; color:#cbd1c9; font:10px/1.5 ui-monospace,SFMono-Regular,monospace; white-space:pre-wrap; }
 .evidenceSummary { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 9px; margin-top:12px; color:#8d928f; font-size:11px; }
 .evidenceSummary strong { color:#c9a96e; font-size:18px; }

@@ -2701,22 +2701,48 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
       'the fresh audit must be a distinct audit request after calibration confirmation',
     );
 
+    await page.setViewportSize({ width: 360, height: 800 });
     const rawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
+    assert.equal(await rawResults.getAttribute('open'), null, 'the current summary should be readable while collapsed');
     assert.match(
       await rawResults.locator(':scope > summary').innerText(),
       /Bounded raw results Current · writable · \d+ records/,
       'the current raw-results summary must identify its evidence as writable before expansion',
     );
+    assert.equal(
+      await rawResults.locator(':scope > summary').evaluate((summary) => {
+        const status = summary.querySelector('span');
+        const summaryRect = summary.getBoundingClientRect();
+        const statusRect = status?.getBoundingClientRect();
+        return summary.scrollWidth <= summary.clientWidth
+          && Boolean(statusRect && statusRect.left >= summaryRect.left && statusRect.right <= summaryRect.right);
+      }),
+      true,
+      'the current writable summary must remain inside the narrow viewport',
+    );
     await rawResults.locator(':scope > summary').click();
     const firstResult = rawResults.locator('article').first();
+    await rawResults.locator(':scope > summary').click();
     const runSelect = page.getByLabel('Audit run');
     await runSelect.selectOption('run-1');
     await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor();
     const historicalRawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
+    assert.equal(await historicalRawResults.getAttribute('open'), null, 'the retained summary should be readable while collapsed');
     assert.match(
       await historicalRawResults.locator(':scope > summary').innerText(),
       /Bounded raw results Retained · frozen read-only · \d+ records/,
       'the retained raw-results summary must identify its evidence as frozen before expansion',
+    );
+    assert.equal(
+      await historicalRawResults.locator(':scope > summary').evaluate((summary) => {
+        const status = summary.querySelector('span');
+        const summaryRect = summary.getBoundingClientRect();
+        const statusRect = status?.getBoundingClientRect();
+        return summary.scrollWidth <= summary.clientWidth
+          && Boolean(statusRect && statusRect.left >= summaryRect.left && statusRect.right <= summaryRect.right);
+      }),
+      true,
+      'the retained frozen summary must remain inside the narrow viewport',
     );
     await historicalRawResults.evaluate((element: HTMLDetailsElement) => {
       element.open = true;
@@ -2738,6 +2764,9 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
       0,
       'selecting historical evidence must not record a mark_misprint request',
     );
+    await historicalRawResults.evaluate((element: HTMLDetailsElement) => {
+      element.open = false;
+    });
 
     await runSelect.selectOption('run-legacy');
     await page.getByRole('heading', { name: 'Legacy audit · retained history · run-legacy', exact: true }).waitFor();
@@ -2749,10 +2778,22 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
       'a prior Legacy run must not advertise current-head write exceptions',
     );
     const legacyRawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
+    assert.equal(await legacyRawResults.getAttribute('open'), null, 'the Legacy summary should be readable while collapsed');
     assert.match(
       await legacyRawResults.locator(':scope > summary').innerText(),
       /Bounded raw results Legacy · frozen read-only · \d+ records/,
       'the Legacy raw-results summary must identify its evidence as frozen before expansion',
+    );
+    assert.equal(
+      await legacyRawResults.locator(':scope > summary').evaluate((summary) => {
+        const status = summary.querySelector('span');
+        const summaryRect = summary.getBoundingClientRect();
+        const statusRect = status?.getBoundingClientRect();
+        return summary.scrollWidth <= summary.clientWidth
+          && Boolean(statusRect && statusRect.left >= summaryRect.left && statusRect.right <= summaryRect.right);
+      }),
+      true,
+      'the Legacy frozen summary must remain inside the narrow viewport',
     );
     await legacyRawResults.evaluate((element: HTMLDetailsElement) => {
       element.open = true;
