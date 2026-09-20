@@ -184,7 +184,6 @@ test('archive link review requires 30 complete days with pageviews and record cl
   });
 
   aggregates.push(
-    { date: '2026-09-20', relevantPageviews: 50, archiveRecordOpened: 3 },
     { date: '2026-09-21', relevantPageviews: 50, archiveRecordOpened: 3 },
   );
   const ready = assessArchiveLinkReviewReadiness(
@@ -197,6 +196,95 @@ test('archive link review requires 30 complete days with pageviews and record cl
   assert.equal(ready.sampleUsable, true);
   assert.equal(ready.coveredStartDate, '2026-08-21');
   assert.equal(ready.coveredEndDate, '2026-09-21');
+});
+
+test('archive link review sorts daily rows without letting duplicate dates inflate readiness', () => {
+  const outOfOrder = [
+    { date: '2026-09-19', relevantPageviews: 20, archiveRecordOpened: 2 },
+    { date: '2026-09-17', relevantPageviews: 20, archiveRecordOpened: 2 },
+    { date: '2026-09-18', relevantPageviews: 20, archiveRecordOpened: 2 },
+  ];
+  assert.deepEqual(
+    assessArchiveLinkReviewReadiness(
+      '2026-09-17',
+      outOfOrder,
+      new Date('2026-09-20T12:00:00Z'),
+    ),
+    {
+      status: 'collecting',
+      reportingStartDate: '2026-09-17',
+      coveredStartDate: '2026-09-17',
+      coveredEndDate: '2026-09-19',
+      completeDayCount: 3,
+      usableDayCount: 3,
+      sampleUsable: false,
+    },
+  );
+
+  assert.throws(
+    () => assessArchiveLinkReviewReadiness(
+      '2026-09-17',
+      [...outOfOrder, outOfOrder[0]],
+      new Date('2026-09-20T12:00:00Z'),
+    ),
+    /daily aggregate date must be unique: 2026-09-19/,
+  );
+});
+
+test('archive link review rejects invalid dates and invalid aggregate counts', () => {
+  const validAggregate = {
+    date: '2026-09-19',
+    relevantPageviews: 20,
+    archiveRecordOpened: 2,
+  };
+  for (const date of ['2026-02-30', '2026-9-19', 'not-a-date']) {
+    assert.throws(
+      () => assessArchiveLinkReviewReadiness(
+        '2026-09-01',
+        [{ ...validAggregate, date }],
+        new Date('2026-09-20T12:00:00Z'),
+      ),
+      /daily aggregate date must be an ISO calendar date/,
+    );
+  }
+  for (const [field, value] of [
+    ['relevantPageviews', -1],
+    ['relevantPageviews', 1.5],
+    ['archiveRecordOpened', -1],
+    ['archiveRecordOpened', 1.5],
+  ] as const) {
+    assert.throws(
+      () => assessArchiveLinkReviewReadiness(
+        '2026-09-01',
+        [{ ...validAggregate, [field]: value }],
+        new Date('2026-09-20T12:00:00Z'),
+      ),
+      new RegExp(`${field} must be a non-negative integer`),
+    );
+  }
+});
+
+test('archive link review excludes pre-confirmation and partial current UTC days', () => {
+  const readiness = assessArchiveLinkReviewReadiness(
+    '2026-09-18',
+    [
+      { date: '2026-09-17', relevantPageviews: 20, archiveRecordOpened: 2 },
+      { date: '2026-09-18', relevantPageviews: 20, archiveRecordOpened: 2 },
+      { date: '2026-09-19', relevantPageviews: 20, archiveRecordOpened: 2 },
+      { date: '2026-09-20', relevantPageviews: 20, archiveRecordOpened: 2 },
+    ],
+    new Date('2026-09-20T23:59:59Z'),
+  );
+
+  assert.deepEqual(readiness, {
+    status: 'collecting',
+    reportingStartDate: '2026-09-18',
+    coveredStartDate: '2026-09-18',
+    coveredEndDate: '2026-09-19',
+    completeDayCount: 2,
+    usableDayCount: 2,
+    sampleUsable: false,
+  });
 });
 
 test('archive link readiness signal exposes only aggregate coverage metadata', () => {
@@ -228,6 +316,12 @@ test('archive link readiness signal exposes only aggregate coverage metadata', (
       'status',
       'usable_day_count',
     ]);
+    assert.ok(['awaiting_reporting', 'collecting', 'ready'].includes(
+      String(events[0].data?.status),
+    ));
+    assert.equal(typeof events[0].data?.complete_day_count, 'number');
+    assert.equal(typeof events[0].data?.usable_day_count, 'number');
+    assert.equal(typeof events[0].data?.sample_usable, 'boolean');
     assert.equal(JSON.stringify(events).match(/visitor|record_path|page_location|capability|url/i), null);
   } finally {
     Reflect.deleteProperty(globalThis, 'window');

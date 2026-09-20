@@ -189,12 +189,15 @@ export function assessArchiveLinkReviewReadiness(
     assertIsoDate(aggregate.date, 'daily aggregate date');
     assertAggregateCount(aggregate.relevantPageviews, 'relevantPageviews');
     assertAggregateCount(aggregate.archiveRecordOpened, 'archiveRecordOpened');
-    if (aggregate.date >= reportingStartDate && aggregate.date < currentUtcDate) {
-      byDate.set(aggregate.date, aggregate);
+    if (byDate.has(aggregate.date)) {
+      throw new TypeError(`daily aggregate date must be unique: ${aggregate.date}`);
     }
+    byDate.set(aggregate.date, aggregate);
   }
 
-  const completeDates = [...byDate.keys()].sort();
+  const completeDates = [...byDate.keys()]
+    .filter(date => date >= reportingStartDate && date < currentUtcDate)
+    .sort();
   const usableDates = completeDates.filter(date => {
     const aggregate = byDate.get(date)!;
     return aggregate.relevantPageviews > 0 && aggregate.archiveRecordOpened > 0;
@@ -257,7 +260,12 @@ export function trackArchiveLinkReviewReadiness(
 }
 
 function assertIsoDate(value: string, field: string): void {
-  if (!ISO_DATE_PATTERN.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00.000Z`))) {
+  const parsedDate = new Date(`${value}T00:00:00.000Z`);
+  if (
+    !ISO_DATE_PATTERN.test(value)
+    || Number.isNaN(parsedDate.getTime())
+    || parsedDate.toISOString().slice(0, 10) !== value
+  ) {
     throw new TypeError(`${field} must be an ISO calendar date`);
   }
 }
