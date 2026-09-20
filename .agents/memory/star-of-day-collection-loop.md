@@ -7,6 +7,8 @@ The Star of the Day collection is a server-owned published edition inventory for
 
 Collectors can reach back into prior Star of the Day collections to add material they missed and build new grids. Deeper actor packs add broader member-only choices, so Collector collections and compositions naturally diverge from the canonical Daily Drops rather than simply reproducing them.
 
+The active Actor of the Day record is part of the free discovery path. Collector membership turns saved-image provenance into broader navigation: members can browse approved deeper packs for actors represented in My Collection and build across those actors and prior editions. This member browsing exposes curated pack material, not raw searches, diagnostics, rejected results, or unpublished candidates.
+
 **Why:** A useful daily collection gives free visitors a complete creation loop and a reason to return. Paid archive utility solves the understandable “I missed that drop” problem, while deeper actor packs create expressive value and collection diversity without paywalling the public editorial record.
 
 **How to apply:** Separate active-day access from historical reconstruction. During the active window, an explicit Save action may materialize one selected image in My Collection for anyone, and individual downloads are allowed; never bulk-copy the edition. After the window closes, previously saved images remain usable, but reopening the missed edition inventory in the builder, reconstructing or remixing that day, and acquiring missed historical images require Collector access. Gate that historical utility, not the public record page. Preserve provenance from Daily Drop or actor pack through saves, grids, exports, and publishing handoffs.
