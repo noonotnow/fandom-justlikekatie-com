@@ -16,7 +16,8 @@
 - [MemeForge reaction-card format](memeforge-reaction-card.md) — clean-still aesthetic reaction cards are a finished path alongside unchanged memes and future reworks.
 - [MemeForge uploaded-source staging](memeforge-uploaded-source-staging.md) — canonicalize uploads to MEDIA with a stable UUID before creating durable packets.
 - [Distinct data-URL derivatives](distinct-data-url-derivatives.md) — use URL fragments for unique collection keys without changing image bytes or MIME type.
-- [Vibe Atlas billing boundary](vibe-atlas-billing-boundary.md) — Stripe membership gates Vibe Atlas cloud sync, Grid Builder, and premium exports; existing content storage and MemeForge remain separate.
+- [Vibe Atlas billing boundary](vibe-atlas-billing-boundary.md) — free users can finish standard grids; Collector gates archive depth, cloud persistence, premium treatments, and eligible Master Exports.
+- [Editorial record access boundary](editorial-record-access-boundary.md) — index substantive editorial records, gate collectible utility, and make premium emerge from artifact quality rather than raw-result access.
 - [External Netlify deployment](external-netlify-deployment.md) — verify the custom domain’s bundle and function routes before production-only tests; Replit deployment metadata is separate.
 - [Stripe account alignment](stripe-account-alignment.md) — Netlify credentials, Price IDs, and webhook secrets must share one Stripe account and mode; Replit can be connected to another.
 - [Creator OS packet retirement](creator-os-packet-retirement.md) — legacy packets are retired; CREATE holds migrated history, while selected grids sync directly through Collection.
