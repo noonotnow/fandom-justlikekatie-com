@@ -71,3 +71,26 @@ test("blind calibration evidence has one stable identity and validity contract",
     expectedContract,
   ), null);
 });
+
+test("blind calibration evidence excludes legacy implicitly unselected queue candidates", () => {
+  const { run, judgments } = evidenceFixture();
+  const implicitCandidate = {
+    candidateId: "candidate-implicit",
+    occurrenceId: "occurrence-implicit",
+    thumbnail: "https://example.com/implicit.jpg",
+    visualClass: "irrelevant",
+  };
+  run.calibrationAnalysis.candidates.push(implicitCandidate);
+  judgments.push({
+    receiptId: "judgment-implicit",
+    sourceOccurrenceId: implicitCandidate.occurrenceId,
+    classification: "core",
+  });
+
+  const evidence = blindCalibrationEvidence(run, judgments, expectedContract);
+
+  assert.equal(evidence.reviewedCount, 5);
+  assert.equal(evidence.disagreements.some(item =>
+    item.occurrenceId === implicitCandidate.occurrenceId), false);
+  assert.equal(evidence.receiptIds.includes("judgment-implicit"), false);
+});

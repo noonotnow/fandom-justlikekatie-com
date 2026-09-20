@@ -1533,6 +1533,38 @@ test("a failed-board run exposes implicitly unselected retained images for blind
     ],
   );
   assert.equal("humanProxyComparison" in payload.currentRun, false);
+
+  const explicitToken = payload.currentRun.visualJudgmentQueue
+    .find(item => item.thumbnail.endsWith("/explicit-unselected.jpg")).judgmentToken;
+  const explicitJudgment = await handler(request("POST", {
+    action: "record_visual_judgment",
+    actorId: pairActor.id,
+    vibeKey,
+    runId,
+    judgmentToken: explicitToken,
+    classification: "irrelevant",
+  }), {});
+  assert.equal(explicitJudgment.status, 200);
+
+  const earlyReveal = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId, choice: "compiled",
+  }), {});
+  assert.equal(earlyReveal.status, 409);
+
+  const implicitToken = payload.currentRun.visualJudgmentQueue
+    .find(item => item.thumbnail.endsWith("/implicit-unselected.jpg")).judgmentToken;
+  const implicitJudgment = await handler(request("POST", {
+    action: "record_visual_judgment",
+    actorId: pairActor.id,
+    vibeKey,
+    runId,
+    judgmentToken: implicitToken,
+    classification: "irrelevant",
+  }), {});
+  assert.equal(implicitJudgment.status, 200);
+  const completed = await implicitJudgment.json();
+  assert.equal(completed.currentRun.calibrationAnalysis.candidates.length, 3);
+  assert.equal("visualJudgmentQueue" in completed.currentRun, false);
 });
 
 test("private calibration export is admin-only, GET-only, and requires a retained run", async () => {

@@ -1363,8 +1363,8 @@ export function createActorAuditHandler({
           ?.find(candidate =>
             candidate?.occurrenceId
             && visualJudgmentToken(report.currentRun.runId, candidate.occurrenceId) === judgmentToken);
-        if (!source || (source.selected !== false && !source.dropReason) || !source.thumbnail) {
-          return json(400, { error: "Choose a rejected thumbnail retained by this audit occurrence." });
+        if (!isVisualJudgmentCandidate(source)) {
+          return json(400, { error: "Choose a reviewable thumbnail retained by this audit occurrence." });
         }
         const receiptId = `visual-${judgmentToken}`;
         const key = auditVisualJudgmentKey(
@@ -7530,6 +7530,11 @@ function clientRun(run, pair) {
   };
 }
 
+// The operator queue preserves legacy failed-board behavior: a retained image
+// without selected: true is reviewable, including candidates with no explicit
+// selected flag. Evidence extraction is intentionally narrower and uses
+// requiresBlindCalibrationOccurrenceIdentity, which only admits candidates
+// explicitly rejected by selection state or drop reason.
 function isVisualJudgmentCandidate(candidate) {
   return Boolean(
     candidate
@@ -7985,10 +7990,7 @@ function visualJudgmentsComplete(run) {
     .map(receipt => receipt?.sourceOccurrenceId)
     .filter(Boolean));
   return (run?.calibrationAnalysis?.candidates || [])
-    .filter(candidate =>
-      (candidate?.selected === false || candidate?.dropReason)
-      && candidate?.thumbnail
-      && candidate?.occurrenceId)
+    .filter(isVisualJudgmentCandidate)
     .every(candidate => judged.has(candidate.occurrenceId));
 }
 
