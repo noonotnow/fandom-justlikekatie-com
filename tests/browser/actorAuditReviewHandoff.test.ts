@@ -483,7 +483,7 @@ function publicationReviewRun(runId: string, historical = false, includePublicat
   return result;
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, currentLegacy = false, publicationIndexRepairHealth = null as AnyRecord | null } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, currentLegacy = false, publicationIndexRepairHealth = null as AnyRecord | null, auditHistoryDetailDelays = {} as Record<string, number[]> } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   calibrationExportRequests: URL[];
@@ -756,6 +756,12 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
           }),
         });
         return;
+      }
+      const requestedHistoryRunId = url.searchParams.get('runId');
+      const requestedHistoryDelays = requestedHistoryRunId ? auditHistoryDetailDelays[requestedHistoryRunId] : undefined;
+      const requestedHistoryDelay = requestedHistoryDelays?.shift() ?? 0;
+      if (requestedHistoryDelay > 0) {
+        await new Promise(resolve => setTimeout(resolve, requestedHistoryDelay));
       }
       if (publicationReview) {
         const current = publicationReviewRun('publication-current');
@@ -2640,6 +2646,48 @@ test('retained and Legacy image-only reviews stay read-only and blinded before r
       0,
       'browsing archived queues must not create judgment receipts',
     );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('only the latest rapid audit-history selection can update the displayed run', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowserForServer(server);
+  const page = await browser.newPage();
+  await configureNetwork(page, {
+    visualReview: true,
+    auditHistoryDetailDelays: {
+      'visual-review-current': [0, 300],
+      'visual-review-retained': [300, 0],
+      'visual-review-legacy': [0, 300],
+    },
+  });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByText('Image-only calibration · audit visual-review-current', { exact: true }).waitFor();
+    const runSelect = page.getByLabel('Audit run');
+
+    await runSelect.selectOption('visual-review-retained');
+    await runSelect.selectOption('visual-review-legacy');
+    await page.getByText('Image-only calibration · audit visual-review-legacy', { exact: true }).waitFor();
+    await new Promise(resolve => setTimeout(resolve, 350));
+    assert.equal(await runSelect.inputValue(), 'visual-review-legacy');
+
+    await runSelect.selectOption('visual-review-legacy');
+    await runSelect.selectOption('visual-review-current');
+    await page.getByText('Image-only calibration · audit visual-review-current', { exact: true }).waitFor();
+    await new Promise(resolve => setTimeout(resolve, 350));
+    assert.equal(await runSelect.inputValue(), 'visual-review-current');
+
+    await runSelect.selectOption('visual-review-current');
+    await runSelect.selectOption('visual-review-retained');
+    await page.getByText('Image-only calibration · audit visual-review-retained', { exact: true }).waitFor();
+    await new Promise(resolve => setTimeout(resolve, 350));
+    assert.equal(await runSelect.inputValue(), 'visual-review-retained');
   } finally {
     await browser.close();
     await server.close();

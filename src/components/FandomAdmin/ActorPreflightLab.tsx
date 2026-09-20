@@ -163,6 +163,7 @@ export const ActorPreflightLab: React.FC = () => {
   const [actors,setActors] = useState<Actor[]>([]); const [actorId,setActorId] = useState(''); const [vibeKey,setVibeKey] = useState('');
   const [run,setRun] = useState<Run|null>(null); const [currentRun,setCurrentRun] = useState<Run|null>(null); const [loading,setLoading] = useState(true); const [busy,setBusy] = useState(''); const [notice,setNotice] = useState(''); const [railOpen,setRailOpen] = useState(true);
   const visualJudgmentsInFlight=useRef(new Set<string>());
+  const auditHistorySelection=useRef(0);
   const [handoffReadOnly,setHandoffReadOnly] = useState(false);
   const [scope,setScope] = useState('full'); const [verdict,setVerdict] = useState(''); const [notes,setNotes] = useState(''); const [priorRuns,setPriorRuns] = useState<Run[]>([]);
   const [calibrationProfile,setCalibrationProfile] = useState<AnyRecord|null>(null);
@@ -185,7 +186,7 @@ export const ActorPreflightLab: React.FC = () => {
   const visibleCacheDiagnostic=cacheDiagnostic?.actorId===actorId&&cacheDiagnostic?.vibeKey===vibeKey&&cacheDiagnostic?.scope===scope?cacheDiagnostic:null;
   const visibleQueryRepairDiagnostic=queryRepairDiagnostic?.actorId===actorId&&queryRepairDiagnostic?.vibeKey===vibeKey?queryRepairDiagnostic:null;
   useEffect(()=>{setQueryRepairDiagnostic(null)},[scope]);
-  useEffect(() => { setRun(null); setCurrentRun(null); setPriorRuns([]); setCalibrationProfile(null); setCacheDiagnostics({}); setVerdict(''); setNotes(''); setVibeConfirmed(false); setPublishableConfirmed(false); setRescuePreferred(false); setPreferredRescueReceiptId(''); setBackfillDate(''); setDisagreementReasons([]); setEditorialNote(''); setHandoffReadOnly(false); if(!actorId||!vibeKey)return; let live=true; api(undefined,{actorId,vibeKey}).then(async result=>{const requestedRunId=handoff.runId&&actorId===handoff.actorId&&vibeKey===handoff.vibeKey?handoff.runId:result.currentRun?.runId;const selectedDetail=requestedRunId?await api(undefined,{actorId,vibeKey,runId:requestedRunId,receiptId:requestedRunId===handoff.runId?handoff.receiptId:''}):null;if(live){const preference=result.currentRun?.operatorVerdict?.rescuePreference;const selectedRun=selectedDetail?.run??result.currentRun??null;const current=selectedRun?.runId===result.currentRun?.runId?selectedRun:result.currentRun??null;setRun(selectedRun); setCurrentRun(current); setHandoffReadOnly(Boolean(handoff.runId&&selectedDetail?.run)); setPriorRuns(selectedDetail?.run&&selectedDetail.run.runId!==result.currentRun?.runId?[selectedDetail.run,...(result.priorRuns??[]).filter((item:Run)=>item.runId!==selectedDetail.run.runId)]:result.priorRuns??[]); setCalibrationProfile(result.calibrationProfile ?? null); setCacheDiagnostics(result.cacheDiagnostics ?? {}); setVerdict(result.verdict ?? ''); setNotes(result.notes ?? ''); setVibeConfirmed(result.currentRun?.operatorVerdict?.vibeConfirmed === true); setPublishableConfirmed(result.currentRun?.operatorVerdict?.publishableConfirmed === true); setRescuePreferred(preference?.preferred === true); setPreferredRescueReceiptId(preference?.rescueReceiptId ?? ''); setDisagreementReasons(selectedRun?.blindReview?.reasonCodes ?? []); setEditorialNote(selectedRun?.blindReview?.note ?? ''); if(handoff.runId&&selectedDetail?.run)setNotice(`Opened source receipt ${handoff.receiptId} from audit ${handoff.runId}.`);}}).catch(e=>live&&setNotice(e.message)); return()=>{live=false}; },[actorId,vibeKey,handoff.actorId,handoff.vibeKey,handoff.runId,handoff.receiptId]);
+  useEffect(() => { auditHistorySelection.current+=1; setRun(null); setCurrentRun(null); setPriorRuns([]); setCalibrationProfile(null); setCacheDiagnostics({}); setVerdict(''); setNotes(''); setVibeConfirmed(false); setPublishableConfirmed(false); setRescuePreferred(false); setPreferredRescueReceiptId(''); setBackfillDate(''); setDisagreementReasons([]); setEditorialNote(''); setHandoffReadOnly(false); if(!actorId||!vibeKey)return; let live=true; api(undefined,{actorId,vibeKey}).then(async result=>{const requestedRunId=handoff.runId&&actorId===handoff.actorId&&vibeKey===handoff.vibeKey?handoff.runId:result.currentRun?.runId;const selectedDetail=requestedRunId?await api(undefined,{actorId,vibeKey,runId:requestedRunId,receiptId:requestedRunId===handoff.runId?handoff.receiptId:''}):null;if(live){const preference=result.currentRun?.operatorVerdict?.rescuePreference;const selectedRun=selectedDetail?.run??result.currentRun??null;const current=selectedRun?.runId===result.currentRun?.runId?selectedRun:result.currentRun??null;setRun(selectedRun); setCurrentRun(current); setHandoffReadOnly(Boolean(handoff.runId&&selectedDetail?.run)); setPriorRuns(selectedDetail?.run&&selectedDetail.run.runId!==result.currentRun?.runId?[selectedDetail.run,...(result.priorRuns??[]).filter((item:Run)=>item.runId!==selectedDetail.run.runId)]:result.priorRuns??[]); setCalibrationProfile(result.calibrationProfile ?? null); setCacheDiagnostics(result.cacheDiagnostics ?? {}); setVerdict(result.verdict ?? ''); setNotes(result.notes ?? ''); setVibeConfirmed(result.currentRun?.operatorVerdict?.vibeConfirmed === true); setPublishableConfirmed(result.currentRun?.operatorVerdict?.publishableConfirmed === true); setRescuePreferred(preference?.preferred === true); setPreferredRescueReceiptId(preference?.rescueReceiptId ?? ''); setDisagreementReasons(selectedRun?.blindReview?.reasonCodes ?? []); setEditorialNote(selectedRun?.blindReview?.note ?? ''); if(handoff.runId&&selectedDetail?.run)setNotice(`Opened source receipt ${handoff.receiptId} from audit ${handoff.runId}.`);}}).catch(e=>live&&setNotice(e.message)); return()=>{live=false}; },[actorId,vibeKey,handoff.actorId,handoff.vibeKey,handoff.runId,handoff.receiptId]);
   function applyRefresh(result:AnyRecord) { if ('calibrationProfile' in result) setCalibrationProfile(result.calibrationProfile ?? null); if (result.actors) setActors(result.actors); else if (result.actor) setActors(current => current.map(item => item.actorId === result.actor.actorId ? result.actor : item)); }
   async function startAudit(nextScope:string) {
     setBusy(nextScope);
@@ -545,9 +546,12 @@ export const ActorPreflightLab: React.FC = () => {
   }
   async function selectRetainedRun(selected:Run) {
     if(!selected.runId)return;
+    const selection=auditHistorySelection.current+1;
+    auditHistorySelection.current=selection;
     setBusy('retained-run'); setNotice('');
     try {
       const result=await api(undefined,{actorId,vibeKey,runId:selected.runId});
+      if(selection!==auditHistorySelection.current)return;
       const detailed=(result.run??result.currentRun) as Run|undefined;
       if(!detailed?.runId)throw new Error('The selected audit run did not load. Retry the history selection.');
       setRun(detailed);
@@ -560,7 +564,11 @@ export const ActorPreflightLab: React.FC = () => {
       } else {
         setPriorRuns(items=>items.map(item=>item.runId===detailed.runId?detailed:item));
       }
-    } catch(e:any) { setNotice(e.message); } finally { setBusy(''); }
+    } catch(e:any) {
+      if(selection===auditHistorySelection.current)setNotice(e.message);
+    } finally {
+      if(selection===auditHistorySelection.current)setBusy('');
+    }
   }
   const selectedIsCurrent = Boolean(!handoffReadOnly && run?.runId && currentRun?.runId === run.runId);
   const review = run?.blindReview;
