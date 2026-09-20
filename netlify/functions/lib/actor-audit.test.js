@@ -7234,6 +7234,197 @@ test("aggregate calibration canonicalizes reordered negative class bundles", asy
   assert.deepEqual(productionProfile.positiveCandidateIds, []);
 });
 
+test("aggregate calibration canonicalizes reordered negative query-ladder bundles", async () => {
+  const curateOptions = [];
+  const { handler, store } = harness({
+    freshEvidenceOnRerun: true,
+    onCurateOptions: options => curateOptions.push(options),
+    searchResultCount: 5,
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const querySignals = ["negative alpha query", "negative beta query"];
+
+  for (const runId of ["run-1", "run-2"]) {
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const choiceResponse = await handler(request("POST", {
+      action: "blind_choice", actorId: pairActor.id, vibeKey, runId, choice: "compiled",
+    }), {});
+    const chosen = await choiceResponse.json();
+    const selectedCandidates = chosen.currentRun.rawResults.slice(-9);
+    const saveResponse = await handler(request("POST", {
+      action: "save_rescue_board",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      candidateIds: selectedCandidates.map(candidate => candidate.candidateId),
+    }), {});
+    const saved = await saveResponse.json();
+    assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+    const receipt = saved.currentRun.editorialFeedback.operatorRescueBoard;
+    const markResponse = await handler(request("POST", {
+      action: "mark_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      receiptId: receipt.receiptId,
+    }), {});
+    const marked = await markResponse.json();
+    assert.equal(markResponse.status, 200, JSON.stringify(marked));
+    const confirmedEntry = [...store.records.entries()]
+      .find(([key, value]) =>
+        key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0))
+        && value.sourceRescueReceiptId === receipt.receiptId);
+    const confirmedReceipt = confirmedEntry?.[1];
+    assert.ok(confirmedReceipt);
+    assert.ok(confirmedReceipt.omittedAlternatives.length >= 2);
+    confirmedReceipt.omittedAlternatives.slice(0, 2)
+      .forEach((candidate, index) => {
+        candidate.query = querySignals[index];
+      });
+    confirmedReceipt.signals.reusable.queries.negative = runId === "run-2"
+      ? [...querySignals].reverse()
+      : [...querySignals];
+    store.records.set(confirmedEntry[0], confirmedReceipt);
+  }
+
+  const deterministicSignalValues = [...querySignals].sort();
+  const approvalIdentities = [];
+  for (const requestedSignalValues of [
+    querySignals,
+    [...querySignals].reverse(),
+  ]) {
+    const approvalResponse = await handler(request("POST", {
+      action: "approve_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      adjustmentType: "query_ladder",
+      direction: "negative",
+      signalValues: requestedSignalValues,
+    }), {});
+    const approval = await approvalResponse.json();
+    assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+    assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
+      type: "query_ladder",
+      signalFamily: "queries",
+      direction: "negative",
+      signalValues: deterministicSignalValues,
+    });
+    assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
+    approvalIdentities.push({
+      approvalId: approval.calibrationProfile.activeApproval.approvalId,
+      aggregateEvidenceHash:
+        approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
+    });
+  }
+  assert.deepEqual(approvalIdentities[1], approvalIdentities[0]);
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const productionProfile = curateOptions.find(options => options.calibrationProfile)
+    .calibrationProfile;
+  assert.deepEqual(productionProfile.negativeQueries, deterministicSignalValues);
+  assert.deepEqual(productionProfile.positiveQueries ?? [], []);
+});
+
+test("aggregate calibration canonicalizes reordered positive candidate-class bundles", async () => {
+  const curateOptions = [];
+  const { handler, store } = harness({
+    freshEvidenceOnRerun: true,
+    onCurateOptions: options => curateOptions.push(options),
+    searchResultCount: 5,
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const candidateSignals = ["positive-candidate-alpha", "positive-candidate-beta"];
+
+  for (const runId of ["run-1", "run-2"]) {
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const choiceResponse = await handler(request("POST", {
+      action: "blind_choice", actorId: pairActor.id, vibeKey, runId, choice: "compiled",
+    }), {});
+    const chosen = await choiceResponse.json();
+    const selectedCandidates = chosen.currentRun.rawResults.slice(-9);
+    const saveResponse = await handler(request("POST", {
+      action: "save_rescue_board",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      candidateIds: selectedCandidates.map(candidate => candidate.candidateId),
+    }), {});
+    const saved = await saveResponse.json();
+    assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+    const receipt = saved.currentRun.editorialFeedback.operatorRescueBoard;
+    const markResponse = await handler(request("POST", {
+      action: "mark_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      receiptId: receipt.receiptId,
+    }), {});
+    const marked = await markResponse.json();
+    assert.equal(markResponse.status, 200, JSON.stringify(marked));
+    const confirmedEntry = [...store.records.entries()]
+      .find(([key, value]) =>
+        key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0))
+        && value.sourceRescueReceiptId === receipt.receiptId);
+    const confirmedReceipt = confirmedEntry?.[1];
+    assert.ok(confirmedReceipt);
+    assert.ok(confirmedReceipt.selectedNine.length >= 2);
+    confirmedReceipt.selectedNine
+      .forEach((candidate, index) => {
+        candidate.candidateId = candidateSignals[index % 2];
+      });
+    confirmedReceipt.signals.positive.candidateIds = runId === "run-2"
+      ? [...candidateSignals].reverse()
+      : [...candidateSignals];
+    store.records.set(confirmedEntry[0], confirmedReceipt);
+  }
+
+  const deterministicSignalValues = [...candidateSignals].sort();
+  const approvalIdentities = [];
+  for (const requestedSignalValues of [
+    candidateSignals,
+    [...candidateSignals].reverse(),
+  ]) {
+    const approvalResponse = await handler(request("POST", {
+      action: "approve_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      adjustmentType: "class",
+      signalFamily: "candidateIds",
+      direction: "positive",
+      signalValues: requestedSignalValues,
+    }), {});
+    const approval = await approvalResponse.json();
+    assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+    assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
+      type: "class",
+      signalFamily: "candidateIds",
+      direction: "positive",
+      signalValues: deterministicSignalValues,
+    });
+    assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
+    approvalIdentities.push({
+      approvalId: approval.calibrationProfile.activeApproval.approvalId,
+      aggregateEvidenceHash:
+        approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
+    });
+  }
+  assert.deepEqual(approvalIdentities[1], approvalIdentities[0]);
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const productionProfile = curateOptions.find(options => options.calibrationProfile)
+    .calibrationProfile;
+  assert.deepEqual(productionProfile.positiveCandidateIds, deterministicSignalValues);
+  assert.deepEqual(productionProfile.negativeCandidateIds, []);
+});
+
 for (const {
   signalFamily,
   signalKey,
