@@ -34,3 +34,28 @@ test('historical cache proof shows added, removed, and reordered query summaries
   assert.match(source, /queryContractChanges\.reordered/);
   assert.match(source, /item\.frozenIndex\+1} → \$\{item\.currentIndex\+1/);
 });
+
+test('available empty query-change summaries render every category as None', () => {
+  assert.match(
+    source,
+    /changeSummaryAvailability === 'available'[\s\S]*?\? <p>Change summary unavailable for this older receipt\.<\/p>[\s\S]*?queryContractChanges\.added\.length[\s\S]*?:'None'[\s\S]*?queryContractChanges\.removed\.length[\s\S]*?:'None'[\s\S]*?queryContractChanges\.reordered\.length[\s\S]*?:'None'/,
+  );
+});
+
+test('unavailable legacy query-change summaries render the unavailable message instead of empty categories', () => {
+  assert.match(
+    source,
+    /!queryChangeSummaryAvailable\s*\? <p>Change summary unavailable for this older receipt\.<\/p>\s*: <>/,
+  );
+});
+
+test('retained structured summaries remain available without the compatibility field', () => {
+  assert.match(
+    source,
+    /changeSummaryAvailability === undefined\s*&& hasStructuredQueryContractChanges/,
+  );
+  assert.match(
+    source,
+    /Array\.isArray\(queryContractChanges\?\.added\)[\s\S]*?Array\.isArray\(queryContractChanges\?\.removed\)[\s\S]*?Array\.isArray\(queryContractChanges\?\.reordered\)/,
+  );
+});
