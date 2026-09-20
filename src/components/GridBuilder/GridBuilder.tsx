@@ -71,6 +71,9 @@ interface Props {
   hasCollectorAccess?: boolean;
   onUpgrade?: () => void;
   onCollectionChanged?: () => Promise<void>;
+  /** Explicit inventory boundary. Daily Drop cards never fall back to My Collection. */
+  sourceKind?: 'collection' | 'daily';
+  sourcePool?: BuilderCard[];
 }
 
 /**
@@ -83,7 +86,11 @@ export const GridBuilder: React.FC<Props> = ({
   hasCollectorAccess = false,
   onUpgrade,
   onCollectionChanged,
+  sourceKind = 'collection',
+  sourcePool = [],
 }) => {
+  const isCollectionSource = sourceKind === 'collection';
+  const dailySourcePool = isCollectionSource ? null : sourcePool;
   const benefits = collectorBenefits(hasCollectorAccess);
   const [pool, setPool] = useState<BuilderCard[] | null>(null);
   const [sourceRecords, setSourceRecords] = useState<{ cards: CardRecord[] } | null>(null);
@@ -132,20 +139,26 @@ export const GridBuilder: React.FC<Props> = ({
     (async () => {
       try {
         const [cards, grids] = await Promise.all([
-          dbGetVisibleCardsByScope(accountId, 'vibe-atlas'),
+          isCollectionSource
+            ? dbGetVisibleCardsByScope(accountId, 'vibe-atlas')
+            : Promise.resolve([]),
           dbGetVisibleGrids(accountId),
         ]);
         if (!cancelled) {
-          setSourceRecords({ cards });
-          setPool(buildVibeAtlasPool(cards, 'standard'));
+          setSourceRecords(isCollectionSource ? { cards } : null);
+          setPool(isCollectionSource ? buildVibeAtlasPool(cards, 'standard') : dailySourcePool || []);
           setSavedCanvasCount(grids.length);
         }
       } catch (caught) {
-        if (!cancelled) setLoadError(caught instanceof Error ? caught.message : 'Saved collection could not be loaded.');
+        if (!cancelled) setLoadError(caught instanceof Error
+          ? caught.message
+          : isCollectionSource
+            ? 'Saved collection could not be loaded.'
+            : 'Today’s Daily Drop inventory could not be loaded.');
       }
     })();
     return () => { cancelled = true; };
-  }, [accountId]);
+  }, [accountId, dailySourcePool, isCollectionSource]);
 
   const savedOptions = useMemo(() => (pool ? lensOptions(pool) : null), [pool]);
   const smartOptionPool = useMemo(
@@ -246,7 +259,7 @@ export const GridBuilder: React.FC<Props> = ({
   }
 
   function setMode(mode: 'standard' | 'misprints') {
-    if (!sourceRecords) return;
+    if (!isCollectionSource || !sourceRecords) return;
     setPool(buildVibeAtlasPool(sourceRecords.cards, mode));
     setLens({ mode });
     setProposal(null);
@@ -576,13 +589,15 @@ export const GridBuilder: React.FC<Props> = ({
 
   if (loadError) return <div className={styles.notice} role="alert">{loadError}</div>;
   if (!pool || !savedOptions || !smartOptions) {
-    return <div className={styles.loading} aria-label="Loading saved collection"><span /><span /><span /></div>;
+    return <div className={styles.loading} aria-label={isCollectionSource ? 'Loading saved collection' : 'Loading Daily Drop inventory'}><span /><span /><span /></div>;
   }
   if (pool.length === 0) {
     return (
       <div className={styles.empty}>
-        <strong>The shelf is empty.</strong>
-        <span>Save cards or grids first — the Grid Builder assembles editorial sets from saved material.</span>
+        <strong>{isCollectionSource ? 'The shelf is empty.' : 'Today’s inventory is not ready yet.'}</strong>
+        <span>{isCollectionSource
+          ? 'Save cards or grids first — the Grid Builder assembles editorial sets from saved material.'
+          : 'Return to today’s drop while its approved images finish loading.'}</span>
       </div>
     );
   }
@@ -596,8 +611,8 @@ export const GridBuilder: React.FC<Props> = ({
         </div>
         <span>
           {builderMode === 'manual'
-            ? `${countLabel(manualCandidates.length, 'saved result')} for this star`
-            : `${countLabel(lensedCount, 'saved result')} ${lensedCount === 1 ? 'matches' : 'match'} this lens`}
+            ? `${countLabel(manualCandidates.length, isCollectionSource ? 'saved result' : 'Daily Drop image')} for this star`
+            : `${countLabel(lensedCount, isCollectionSource ? 'saved result' : 'Daily Drop image')} ${lensedCount === 1 ? 'matches' : 'match'} this lens`}
         </span>
       </header>
 
@@ -684,23 +699,25 @@ export const GridBuilder: React.FC<Props> = ({
       )}
 
       <div className={styles.lenses}>
-        <LensRow
-          label="Collection"
-          options={[
-            {
-              value: 'standard',
-              label: 'Ordinary Vibe Atlas',
-              count: collectionCounts.standard,
-            },
-            {
-              value: 'misprints',
-              label: 'Legendary Misprints',
-              count: collectionCounts.misprints,
-            },
-          ]}
-          active={lens.mode || 'standard'}
-          onToggle={value => setMode(value as 'standard' | 'misprints')}
-        />
+        {isCollectionSource && (
+          <LensRow
+            label="Collection"
+            options={[
+              {
+                value: 'standard',
+                label: 'Ordinary Vibe Atlas',
+                count: collectionCounts.standard,
+              },
+              {
+                value: 'misprints',
+                label: 'Legendary Misprints',
+                count: collectionCounts.misprints,
+              },
+            ]}
+            active={lens.mode || 'standard'}
+            onToggle={value => setMode(value as 'standard' | 'misprints')}
+          />
+        )}
         <LensRow label="Star" options={savedOptions.actors} active={lens.actor} onToggle={value => toggle('actor', value)} />
         {builderMode === 'smart' && <LensRow label="Vibe" options={smartOptions.vibes} active={lens.vibe} onToggle={value => toggle('vibe', value)} />}
         {builderMode === 'smart' && familyOptions.length > 0 && (
@@ -778,7 +795,9 @@ export const GridBuilder: React.FC<Props> = ({
         <section className={styles.manualPicker} aria-label="Choose nine saved images">
           <div className={styles.manualPickerHeader}>
             <strong>{lens.actor ? `${proposal?.slots.length || 0} of 9 selected` : 'Choose a star to begin'}</strong>
-            <span>Only saved images for the selected actor appear here. Select a placed image to duplicate it intentionally.</span>
+            <span>{isCollectionSource
+              ? 'Only saved images for the selected actor appear here. Select a placed image to duplicate it intentionally.'
+              : 'Only images from today’s Daily Drop appear here. Select a placed image to duplicate it intentionally.'}</span>
           </div>
           {lens.actor && manualCandidates.length === 0 ? (
             <div className={styles.notice}>Save at least one image for {lens.actor} to begin a custom grid.</div>

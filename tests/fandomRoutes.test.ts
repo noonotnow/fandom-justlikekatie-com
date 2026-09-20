@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   hasInvalidVibeAtlasEditionDate,
   initialCollectionType,
+  initialGridBuilderSource,
   initialVibeAtlasEditionDate,
   initialVibeAtlasView,
   isAdminEntryLocation,
@@ -57,6 +58,13 @@ test('collection links open the requested Vibe Atlas tool', () => {
   assert.equal(initialCollectionType('?view=results'), 'results');
   assert.equal(initialCollectionType('?view=builder'), 'builder');
   assert.equal(initialCollectionType(''), 'grids');
+});
+
+test('grid builder links keep Daily Drop inventory separate from My Collection', () => {
+  assert.equal(initialGridBuilderSource('?view=builder&source=daily'), 'daily');
+  assert.equal(initialGridBuilderSource('?view=builder'), 'collection');
+  assert.equal(initialGridBuilderSource('?view=builder&source=unknown'), 'collection');
+  assert.equal(initialGridBuilderSource('?view=collection&source=daily'), 'collection');
 });
 
 test('the archive has a dedicated public route', () => {

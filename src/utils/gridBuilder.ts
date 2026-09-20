@@ -38,13 +38,43 @@ export interface BuilderCard {
   resultId: string;
   /** Stable content checksum when the image has been registered in MEDIA. */
   mediaChecksum?: string;
-  origin: 'saved-card' | 'saved-grid';
+  origin: 'saved-card' | 'saved-grid' | 'daily-drop';
   sourceGridId?: string;
   /** Visual family id assigned during pool build (editorial set or batch). */
   familyId: string;
   familyLabel: string;
   familyEvidence?: 'persisted-event' | 'batch' | 'publisher' | 'fallback';
   legendaryMisprint?: LegendaryMisprint;
+}
+
+interface DailyDropBuilderResult {
+  title?: string;
+  thumbnail: string;
+  link?: string;
+  source?: string;
+  familyId?: string;
+  familyLabel?: string;
+  familyEvidence?: 'persisted-event' | 'batch' | 'publisher' | 'fallback';
+}
+
+interface DailyDropBuilderBatch {
+  query: string;
+  results: DailyDropBuilderResult[];
+}
+
+export interface DailyDropBuilderInput {
+  actorId: string;
+  actorName: string;
+  actorShortNameEn: string;
+  actorAccentColor: string;
+  vibeEmoji: string;
+  vibeLabel: string;
+  vibeLabelEn: string;
+  vibeSubtitle: string;
+  vibeSubtitleEn: string;
+  date: string;
+  rankedBatches: DailyDropBuilderBatch[];
+  displayResults?: DailyDropBuilderResult[];
 }
 
 export interface CollectionLens {
@@ -167,6 +197,54 @@ export function actorPackIdForLens(pool: BuilderCard[], actor: string | undefine
 
 function slugify(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-').replace(/^-+|-+$/g, '') || 'x';
+}
+
+/** Normalize the immutable active Daily Drop inventory for the shared builder UI. */
+export function buildDailyDropPool(data: DailyDropBuilderInput): BuilderCard[] {
+  const seen = new Set<string>();
+  const batches = data.displayResults?.length
+    ? [{
+      query: data.rankedBatches[0]?.query || 'daily-grid',
+      results: data.displayResults,
+    }]
+    : data.rankedBatches;
+  const cards: BuilderCard[] = [];
+
+  for (const batch of batches) {
+    for (const result of batch.results) {
+      if (!result.thumbnail || seen.has(result.thumbnail)) continue;
+      seen.add(result.thumbnail);
+      const batchKey = editorialBatchKey(batch.query);
+      const familyId = result.familyId
+        || (batchKey ? `batch-${slugify(batchKey)}` : `vibe-${slugify(data.vibeLabelEn || data.vibeLabel)}`);
+      const familyLabel = result.familyLabel || batchKey || data.vibeLabelEn || data.vibeLabel;
+      cards.push({
+        key: `daily:${data.date}:${result.thumbnail}`,
+        imageUrl: `/.netlify/functions/image-proxy?url=${encodeURIComponent(result.thumbnail)}`,
+        sourceUrl: result.link || result.thumbnail,
+        title: result.title || `${data.actorName} · ${data.vibeLabel}`,
+        ...(result.source ? { publisher: result.source } : {}),
+        actor: data.actorName,
+        actorEn: data.actorShortNameEn,
+        actorId: data.actorId,
+        actorAccentColor: data.actorAccentColor,
+        vibe: data.vibeLabel,
+        vibeEn: data.vibeLabelEn,
+        vibeEmoji: data.vibeEmoji,
+        vibeSubtitle: data.vibeSubtitle,
+        vibeSubtitleEn: data.vibeSubtitleEn,
+        ...(batchKey ? { batchKey } : {}),
+        capturedDate: data.date,
+        resultId: result.thumbnail,
+        origin: 'daily-drop',
+        familyId,
+        familyLabel,
+        familyEvidence: result.familyEvidence || (batchKey ? 'batch' : 'fallback'),
+      });
+    }
+  }
+
+  return cards;
 }
 
 const GENERIC_BATCH_KEYS = new Set([

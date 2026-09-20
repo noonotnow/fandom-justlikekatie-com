@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyLens,
+  buildDailyDropPool,
   buildVibeAtlasPool,
   gridRecordFromProposal,
   proposeGrid,
@@ -9,6 +10,36 @@ import {
 import { markGridAsLegendaryMisprint, type CardRecord, type GridRecord } from '../src/utils/collectionDB';
 import { starDataFromCollectionGrid } from '../src/utils/collectionHistoryModel';
 import { classifyEditionTier } from '../src/utils/exportCanvas';
+
+test('Daily Drop inventory stays a distinct builder source rather than a saved Collection', () => {
+  const pool = buildDailyDropPool({
+    actorId: 'actor-1',
+    actorName: '今日之星',
+    actorShortNameEn: 'Star Today',
+    actorAccentColor: '#123456',
+    vibeEmoji: '✨',
+    vibeLabel: '今日氛围',
+    vibeLabelEn: 'Today Vibe',
+    vibeSubtitle: '今天',
+    vibeSubtitleEn: 'Today',
+    date: '2026-09-20',
+    rankedBatches: [{
+      query: 'approved daily family',
+      results: [{
+        title: 'Approved image',
+        thumbnail: 'https://images.example.test/a.jpg',
+        link: 'https://source.example.test/a',
+        source: 'Source',
+      }],
+    }],
+  });
+
+  assert.equal(pool.length, 1);
+  assert.equal(pool[0].origin, 'daily-drop');
+  assert.equal(pool[0].capturedDate, '2026-09-20');
+  assert.equal(pool[0].sourceUrl, 'https://source.example.test/a');
+  assert.match(pool[0].imageUrl, /^\/\.netlify\/functions\/image-proxy\?url=/);
+});
 
 function card(actor: string, id: string, collectionScope: CardRecord['collectionScope'] = 'vibe-atlas'): CardRecord {
   return {

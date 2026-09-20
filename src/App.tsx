@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { ImageTier } from './types';
 import FandomLaunchpad from './components/FandomLaunchpad/FandomLaunchpad';
 import { MiddleEarthWorkspace } from './components/MiddleEarthWorkspace/MiddleEarthWorkspace';
@@ -32,12 +32,14 @@ import { useIsAdmin } from './hooks/useIsAdmin';
 import {
   hasInvalidVibeAtlasEditionDate,
   initialCollectionType,
+  initialGridBuilderSource,
   initialVibeAtlasEditionDate,
   initialVibeAtlasView,
   isValidVibeAtlasEditionDate,
   isVibeAtlasArchiveLocation,
   resolveFandomProductRoute,
 } from './utils/fandomRoutes';
+import { buildDailyDropPool } from './utils/gridBuilder';
 import './App.css';
 import { VeteranSubmissionForm } from './components/VeteranSubmissionForm/VeteranSubmissionForm';
 import {
@@ -190,6 +192,9 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   const [collectionTab, setCollectionTab] = useState<'grids' | 'results' | 'builder'>(
     () => initialCollectionType(window.location.search),
   );
+  const [builderSource, setBuilderSource] = useState<'collection' | 'daily'>(
+    () => initialGridBuilderSource(window.location.search),
+  );
   const { isAdmin, loading: adminLoading, recheck: recheckAdmin } = useIsAdmin();
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const {
@@ -207,6 +212,10 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     error,
     gate,
   } = useStarOfDay(archivePage && !selectedEditionDate ? undefined : selectedEditionDate);
+  const dailyBuilderPool = useMemo(
+    () => rawData ? buildDailyDropPool(rawData) : [],
+    [rawData],
+  );
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
   const [membershipCapabilities, setMembershipCapabilities] = useState<MembershipCapability[]>([]);
   const [membershipStatus, setMembershipStatus] = useState<MembershipStatus | null>(null);
@@ -478,6 +487,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     window.history.pushState({}, '', `/vibe-atlas${search}`);
     setArchivePage(false);
     setCollectionTab(tab);
+    setBuilderSource('collection');
     setView(destination);
     if (destination === 'daily') selectEdition(null);
   };
@@ -490,6 +500,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       setArchivePage(restoredArchivePage);
       setView(restoredView);
       setCollectionTab(initialCollectionType(window.location.search));
+      setBuilderSource(initialGridBuilderSource(window.location.search));
       setExpandedId(null);
       setLightboxIndex(null);
       setDailyGridZoomOpen(false);
@@ -660,7 +671,9 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             type="button"
             aria-label="今日之星 · Daily"
             onClick={() => navigateAtlas('daily')}
-            className={view === 'daily' && !archivePage ? 'fandom-atlas-nav__active' : ''}
+            className={(view === 'daily' || (view === 'collection' && collectionTab === 'builder' && builderSource === 'daily')) && !archivePage
+              ? 'fandom-atlas-nav__active'
+              : ''}
           >
             <span>Daily card drop</span><small>今日之星</small>
           </button>
@@ -676,7 +689,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             type="button"
             aria-label="Your Collection · Saved Grids and Grid Builder"
             onClick={() => navigateAtlas('collection', 'grids')}
-            className={view === 'collection' ? 'fandom-atlas-nav__active' : ''}
+            className={view === 'collection' && builderSource === 'collection' ? 'fandom-atlas-nav__active' : ''}
           >
             <span>Your Collection</span><small>Saved Grids · Grid Builder</small>
           </button>
@@ -714,7 +727,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
          <p className="atlas-hero__intro">Every day, Vibe Atlas pairs one C-drama star with one very specific kind of heartthrob energy. Browse nine collectible pieces of evidence, save the ones that understand your type, and build your own 3×3.</p>
          <div className="atlas-hero__actions" aria-label="Vibe Atlas actions">
            <a href="#daily-evidence">Browse today’s drop</a>
-           <a href="/vibe-atlas?view=builder">Open the Grid Builder</a>
+           <a href="/vibe-atlas?view=builder&amp;source=daily">Open the Grid Builder</a>
          </div>
         <section className="daily-archive" aria-label="Vibe Atlas daily edition archive">
           <button
@@ -909,11 +922,16 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           key={collectionTab}
           initialType={collectionTab}
           hasCollectorAccess={hasCollectorCapability({ capabilities: membershipCapabilities })}
+          builderSourceKind={builderSource}
+          builderSourcePool={builderSource === 'daily' ? dailyBuilderPool : []}
           onUpgrade={() => {
             trackUpgradeStarted('grid_builder');
             navigateAtlas('membership');
           }}
-          onTypeChange={setCollectionTab}
+          onTypeChange={(type) => {
+            setCollectionTab(type);
+            if (type === 'builder') setBuilderSource('collection');
+          }}
         />
       ) : view === 'membership' ? (
         <Membership status={membershipStatus} />

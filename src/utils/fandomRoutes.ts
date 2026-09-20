@@ -51,3 +51,10 @@ export function initialCollectionType(search: string): 'grids' | 'results' | 'bu
   if (view === 'results' || view === 'builder') return view;
   return 'grids';
 }
+
+export function initialGridBuilderSource(search: string): 'collection' | 'daily' {
+  const params = new URLSearchParams(search);
+  return params.get('view') === 'builder' && params.get('source') === 'daily'
+    ? 'daily'
+    : 'collection';
+}
