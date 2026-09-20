@@ -10,7 +10,6 @@ const allowMissing = process.argv.includes("--allow-missing");
 const configuration = validateMembershipPriceMappings();
 const configurationValid = configuration.valid
   || (allowMissing
-    && configuration.duplicate.length === 0
     && configuration.conflicting.length === 0);
 if (!configurationValid) {
   console.error(JSON.stringify({ configuration }, null, 2));

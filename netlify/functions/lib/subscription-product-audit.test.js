@@ -30,15 +30,19 @@ test("classification never guesses unknown, conflicting, or multi-price products
   }, env).reason, "subscription_must_have_one_identifiable_price");
 });
 
-test("release configuration maps every supported membership product exactly once", () => {
+test("release configuration reports every supported canonical membership mapping", () => {
   const result = validateMembershipPriceMappings(env);
-  assert.equal(result.valid, true);
-  assert.deepEqual(result.configured.map(mapping => mapping.product), [
-    "fandom_collector",
-    "creator_os",
-    "fandom_creator_bridge",
-    "ecosystem_bundle",
-  ]);
+  assert.deepEqual(result, {
+    valid: true,
+    configured: [
+      { product: "fandom_collector", envKey: "FANDOM_STRIPE_MEMBERSHIP_PRICE_ID" },
+      { product: "creator_os", envKey: "FANDOM_CREATOR_OS_PRICE_ID" },
+      { product: "fandom_creator_bridge", envKey: "FANDOM_CREATOR_BRIDGE_PRICE_ID" },
+      { product: "ecosystem_bundle", envKey: "FANDOM_ECOSYSTEM_BUNDLE_PRICE_ID" },
+    ],
+    missing: [],
+    conflicting: [],
+  });
 });
 
 test("release configuration rejects missing and conflicting canonical mappings", () => {
@@ -48,12 +52,14 @@ test("release configuration rejects missing and conflicting canonical mappings",
   });
   assert.equal(missing.valid, false);
   assert.deepEqual(missing.missing, ["ecosystem_bundle"]);
+  assert.deepEqual(missing.conflicting, []);
 
   const sharedPrice = validateMembershipPriceMappings({
     ...env,
     FANDOM_ECOSYSTEM_BUNDLE_PRICE_ID: "price_collector",
   });
   assert.equal(sharedPrice.valid, false);
+  assert.deepEqual(sharedPrice.missing, []);
   assert.deepEqual(sharedPrice.conflicting, [{
     products: ["fandom_collector", "ecosystem_bundle"],
     envKeys: ["FANDOM_STRIPE_MEMBERSHIP_PRICE_ID", "FANDOM_ECOSYSTEM_BUNDLE_PRICE_ID"],
