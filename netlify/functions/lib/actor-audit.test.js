@@ -6980,6 +6980,79 @@ test("signal retirement fails closed when its post-write strong read cannot veri
   }
 });
 
+test("calibration retirement fails closed when its post-write strong read cannot verify the receipt", async () => {
+  for (const verificationFailure of ["missing", "conflicting"]) {
+    const { handler, store } = harness({ freshEvidenceOnRerun: true });
+    const vibeKey = vibeKeyFor(pairActor.id, 0);
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const choiceResponse = await handler(request("POST", {
+      action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+    }), {});
+    const chosen = await choiceResponse.json();
+    const selectedSource = chosen.currentRun.rawResults.at(-1).source;
+    const selectedIds = chosen.currentRun.rawResults
+      .filter(candidate => candidate.source === selectedSource)
+      .slice(0, 9)
+      .map(candidate => candidate.candidateId);
+    const saveResponse = await handler(request("POST", {
+      action: "save_rescue_board",
+      actorId: pairActor.id,
+      vibeKey,
+      runId: "run-1",
+      candidateIds: selectedIds,
+    }), {});
+    const rescueReceiptId = (await saveResponse.json())
+      .currentRun.editorialFeedback.operatorRescueBoard.receiptId;
+    await handler(request("POST", {
+      action: "mark_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      runId: "run-1",
+      receiptId: rescueReceiptId,
+    }), {});
+    const protectedRecords = new Map(
+      [...store.records.entries()]
+        .filter(([key]) =>
+          !key.startsWith(auditRescueCalibrationRetirementPrefix(pairActor.id, 0)))
+        .map(([key, value]) => [key, structuredClone(value)]),
+    );
+    const originalGet = store.get.bind(store);
+    store.get = async (key, options) => {
+      const value = await originalGet(key, options);
+      if (!key.startsWith(auditRescueCalibrationRetirementPrefix(pairActor.id, 0))
+        || !store.records.has(key)) {
+        return value;
+      }
+      if (verificationFailure === "missing") return null;
+      return {
+        ...value,
+        retirementId: "conflicting-retirement-receipt",
+      };
+    };
+
+    const response = await handler(request("POST", {
+      action: "retire_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      receiptId: rescueReceiptId,
+      reason: "This calibration evidence can no longer be independently verified.",
+    }), {});
+    const body = await response.json();
+
+    assert.equal(response.status, 409, `${verificationFailure}: ${JSON.stringify(body)}`);
+    assert.equal(
+      body.error,
+      "The immutable calibration retirement receipt could not be verified.",
+      verificationFailure,
+    );
+    for (const [key, value] of protectedRecords) {
+      assert.deepEqual(store.records.get(key), value, `${verificationFailure}: ${key}`);
+    }
+  }
+});
+
 test("calibration remains discoverable and retireable after its source run leaves retained history", async () => {
   const { handler } = harness({ freshEvidenceOnRerun: true });
   const vibeKey = vibeKeyFor(pairActor.id, 0);

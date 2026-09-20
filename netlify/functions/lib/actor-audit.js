@@ -2771,6 +2771,15 @@ export function createActorAuditHandler({
         if (write?.modified === false) {
           return json(409, { error: "Another operator retired this calibration evidence first." });
         }
+        const authoritative = await store.get(retirementKey, {
+          type: "json",
+          consistency: "strong",
+        });
+        if (!authoritative
+          || recordHash(calibrationRetirementIdentity(authoritative))
+            !== recordHash(calibrationRetirementIdentity(retirement))) {
+          return json(409, { error: "The immutable calibration retirement receipt could not be verified." });
+        }
         const next = await readReport(store, pair);
         return json(200, {
           actor: await actorSummary(store, actorPacks, pair.actor),
@@ -8082,6 +8091,19 @@ function calibrationSignalRetirementIdentity(receipt) {
     vibeKey: receipt?.vibeKey,
     signalFamily: receipt?.signalFamily,
     signalValue: receipt?.signalValue,
+    reason: receipt?.reason,
+    retiredBy: receipt?.retiredBy,
+  };
+}
+
+function calibrationRetirementIdentity(receipt) {
+  return {
+    status: receipt?.status,
+    retirementId: receipt?.retirementId,
+    sourceRescueReceiptId: receipt?.sourceRescueReceiptId,
+    sourceRunId: receipt?.sourceRunId,
+    actorId: receipt?.actorId,
+    vibeKey: receipt?.vibeKey,
     reason: receipt?.reason,
     retiredBy: receipt?.retiredBy,
   };
