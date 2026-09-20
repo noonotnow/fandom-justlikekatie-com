@@ -479,7 +479,7 @@ function publicationReviewRun(runId: string, historical = false, includePublicat
   return result;
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, retrievalRepetition = false } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, retrievalRepetition = false } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   calibrationExportRequests: URL[];
@@ -611,7 +611,7 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
           malformedCalibrationExports += 1;
           await route.fulfill({
             status: 200,
-            contentType: 'application/json',
+            contentType: malformedCalibrationExportContentType,
             body: '{"packet":',
           });
           return;
@@ -1608,64 +1608,67 @@ test('failed editorial packet downloads stay useful and retryable without mutati
   }
 });
 
-test('malformed JSON editorial packet responses stay retryable without downloads or mutations', { timeout: 60_000 }, async () => {
-  const { server, origin } = await startApp();
-  const browser = await launchBrowser();
-  const page = await browser.newPage();
-  const {
-    auditRequests,
-    calibrationRequests,
-    calibrationExportRequests,
-    exportRequests,
-    misprintRequests,
-  } = await configureNetwork(page, {
-    returnMalformedCalibrationExportOnce: true,
-  });
-  const mutationRequests: Array<{ method: string; url: string }> = [];
-  let downloads = 0;
-  page.on('download', () => {
-    downloads += 1;
-  });
-  page.on('request', request => {
-    const url = new URL(request.url());
-    if (
-      request.method() !== 'GET'
-      && (
-        url.pathname.includes('/.netlify/functions/actor-audits')
-        || url.pathname.includes('/.netlify/functions/star-of-day')
-      )
-    ) {
-      mutationRequests.push({ method: request.method(), url: request.url() });
+for (const malformedContentType of ['application/json', 'application/vnd.fandom.calibration+json']) {
+  test(`malformed ${malformedContentType} editorial packet responses stay retryable without downloads or mutations`, { timeout: 60_000 }, async () => {
+    const { server, origin } = await startApp();
+    const browser = await launchBrowser();
+    const page = await browser.newPage();
+    const {
+      auditRequests,
+      calibrationRequests,
+      calibrationExportRequests,
+      exportRequests,
+      misprintRequests,
+    } = await configureNetwork(page, {
+      returnMalformedCalibrationExportOnce: true,
+      malformedCalibrationExportContentType: malformedContentType,
+    });
+    const mutationRequests: Array<{ method: string; url: string }> = [];
+    let downloads = 0;
+    page.on('download', () => {
+      downloads += 1;
+    });
+    page.on('request', request => {
+      const url = new URL(request.url());
+      if (
+        request.method() !== 'GET'
+        && (
+          url.pathname.includes('/.netlify/functions/actor-audits')
+          || url.pathname.includes('/.netlify/functions/star-of-day')
+        )
+      ) {
+        mutationRequests.push({ method: request.method(), url: request.url() });
+      }
+    });
+
+    try {
+      await page.goto(`${origin}/vibe-atlas?admin=true`);
+      await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+      const exportPanel = page.getByLabel('Read-only calibration export');
+      await exportPanel.getByLabel('From').fill('2026-09-01');
+      await exportPanel.getByLabel('To').fill('2026-09-10');
+      const downloadButton = exportPanel.getByRole('button', { name: 'Download editorial review packet', exact: true });
+
+      await downloadButton.click();
+      await page.getByText(
+        'Editorial packet response was not valid JSON. Retry the download.',
+        { exact: true },
+      ).waitFor();
+
+      assert.equal(downloads, 0, `an invalid ${malformedContentType} body must not trigger a download`);
+      assert.equal(await downloadButton.isEnabled(), true, 'the malformed response should restore the download action');
+      assert.equal(calibrationExportRequests.length, 1, 'the malformed response should require only the read-only packet request');
+      assert.deepEqual(mutationRequests, [], 'the malformed response must not issue audit or publication mutations');
+      assert.deepEqual(auditRequests, [], 'the malformed response must not search, score, rerun, or mutate an audit');
+      assert.deepEqual(calibrationRequests, [], 'the malformed response must not change calibration');
+      assert.deepEqual(exportRequests, [], 'the malformed response must not export or persist a rescue board');
+      assert.deepEqual(misprintRequests, [], 'the malformed response must not alter publication correction records');
+    } finally {
+      await browser.close();
+      await server.close();
     }
   });
-
-  try {
-    await page.goto(`${origin}/vibe-atlas?admin=true`);
-    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
-    const exportPanel = page.getByLabel('Read-only calibration export');
-    await exportPanel.getByLabel('From').fill('2026-09-01');
-    await exportPanel.getByLabel('To').fill('2026-09-10');
-    const downloadButton = exportPanel.getByRole('button', { name: 'Download editorial review packet', exact: true });
-
-    await downloadButton.click();
-    await page.getByText(
-      'Editorial packet response was not valid JSON. Retry the download.',
-      { exact: true },
-    ).waitFor();
-
-    assert.equal(downloads, 0, 'an invalid application/json body must not trigger a download');
-    assert.equal(await downloadButton.isEnabled(), true, 'the malformed response should restore the download action');
-    assert.equal(calibrationExportRequests.length, 1, 'the malformed response should require only the read-only packet request');
-    assert.deepEqual(mutationRequests, [], 'the malformed response must not issue audit or publication mutations');
-    assert.deepEqual(auditRequests, [], 'the malformed response must not search, score, rerun, or mutate an audit');
-    assert.deepEqual(calibrationRequests, [], 'the malformed response must not change calibration');
-    assert.deepEqual(exportRequests, [], 'the malformed response must not export or persist a rescue board');
-    assert.deepEqual(misprintRequests, [], 'the malformed response must not alter publication correction records');
-  } finally {
-    await browser.close();
-    await server.close();
-  }
-});
+}
 
 function visualReviewRun(receipts: AnyRecord[]): AnyRecord {
   const result = run('visual-review-current', true);
