@@ -58,7 +58,7 @@ import {
   auditVibeKey,
   eligibilityKey,
   isReleaseReady,
-  legacyBlindCalibrationRunIds,
+  approvalSourceRunIds,
   pairingFingerprintFor,
   rescueCalibrationRetirementHash,
   getEligibility,
@@ -6215,8 +6215,10 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
       { type: "json", consistency: "strong" },
     ),
   ]);
+  let canonicalApproval = null;
   if (canonicalAuthority?.approvalId) {
-    const [canonicalApproval, canonicalRevocation] = await Promise.all([
+    let canonicalRevocation;
+    [canonicalApproval, canonicalRevocation] = await Promise.all([
       store.get(
         auditRescueCalibrationApprovalKey(
           pair.actor.id,
@@ -6243,30 +6245,16 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
       approvalRevocations.push(canonicalRevocation);
     }
   }
-  let approvedSourceRunIds = [...new Set(approvalReceipts
-    .filter(receipt =>
-      receipt?.status === "approved"
-      && receipt.approvalId === canonicalAuthority?.approvalId
-      && receipt.aggregateEvidenceHash === canonicalAuthority?.aggregateEvidenceHash)
-    .flatMap(receipt => receipt.sourceRunIds || [])
-    .filter(runId => typeof runId === "string" && runId.length > 0))]
-    .sort()
-    .slice(0, 32);
-  const canonicalLegacyApproval = approvalReceipts.find(receipt =>
-    receipt?.status === "approved"
-    && receipt.approvalId === canonicalAuthority?.approvalId
-    && receipt.aggregateEvidenceHash === canonicalAuthority?.aggregateEvidenceHash
-    && !Array.isArray(receipt.sourceRunIds));
-  if (!approvedSourceRunIds.length && canonicalLegacyApproval) {
-    approvedSourceRunIds = await legacyBlindCalibrationRunIds(
-      store,
-      pair.actor.id,
-      pair.vibeIdx,
-    );
-  }
-  if (approvedSourceRunIds.length) {
+  const recoverableSourceRunIds = await approvalSourceRunIds({
+    store,
+    actorId: pair.actor.id,
+    vibeIdx: pair.vibeIdx,
+    authority: canonicalAuthority,
+    approval: canonicalApproval,
+  });
+  if (recoverableSourceRunIds.length) {
     const knownRunIds = new Set(reviewedRuns.map(run => run?.runId).filter(Boolean));
-    const recoveredRuns = (await Promise.all(approvedSourceRunIds
+    const recoveredRuns = (await Promise.all(recoverableSourceRunIds
       .filter(runId => !knownRunIds.has(runId))
       .map(async runId => {
         const run = await store.get(

@@ -692,36 +692,21 @@ async function currentBlindCalibrationEvidenceIds(store, actor, vibeIdx, compati
       { type: "json", consistency: "strong" },
     )
     : null;
-  const approvedEvidenceIds = new Set(canonicalApproval?.evidenceReceiptIds || []);
-  const compatibilityRunIds = canonicalApproval?.status === "approved"
-    && canonicalApproval.aggregateEvidenceHash === authority?.aggregateEvidenceHash
-    && !Array.isArray(canonicalApproval.sourceRunIds)
-    ? [...new Set([
-      ...(compatibilityProfile?.sourceRunIds || []),
-      ...(compatibilityProfile?.signalInventory || [])
-        .filter(item => approvedEvidenceIds.has(item?.sourceRescueReceiptId))
-        .map(item => item?.sourceRunId),
-    ].filter(runId => typeof runId === "string" && runId.length > 0))]
-      .sort()
-      .slice(0, 32)
-    : [];
-  const legacyRunIds = compatibilityRunIds.length
-    ? compatibilityRunIds
-    : canonicalApproval?.status === "approved"
-      && canonicalApproval.aggregateEvidenceHash === authority?.aggregateEvidenceHash
-      && !Array.isArray(canonicalApproval.sourceRunIds)
-      ? await legacyBlindCalibrationRunIds(store, actorId, vibeIdx)
-      : [];
+  const approvedSourceRunIds = await approvalSourceRunIds({
+    store,
+    actorId,
+    vibeIdx,
+    authority,
+    approval: canonicalApproval,
+    compatibilityProfile,
+  });
   const knownRunIds = new Set(listedRuns.map(run => run?.runId).filter(Boolean));
-  const recoveredRuns = canonicalApproval?.status === "approved"
-    && canonicalApproval.aggregateEvidenceHash === authority?.aggregateEvidenceHash
-    ? (await Promise.all((canonicalApproval.sourceRunIds || legacyRunIds)
-      .filter(runId => typeof runId === "string" && !knownRunIds.has(runId))
-      .map(runId => store.get(
-        auditRunKey(actorId, vibeIdx, runId),
-        { type: "json", consistency: "strong" },
-      )))).filter(Boolean)
-    : [];
+  const recoveredRuns = (await Promise.all(approvedSourceRunIds
+    .filter(runId => !knownRunIds.has(runId))
+    .map(runId => store.get(
+      auditRunKey(actorId, vibeIdx, runId),
+      { type: "json", consistency: "strong" },
+    )))).filter(Boolean);
   const runs = [...listedRuns, ...recoveredRuns];
   return (await Promise.all(runs.map(async run => {
     const judgments = await readVisualJudgments(store, actorId, vibeIdx, run.runId);
@@ -753,6 +738,53 @@ export async function legacyBlindCalibrationRunIds(store, actorId, vibeIdx) {
     .filter(runId => typeof runId === "string" && runId.length > 0))]
     .sort()
     .slice(0, 32);
+}
+
+export async function approvalSourceRunIds({
+  store,
+  actorId,
+  vibeIdx,
+  authority,
+  approval,
+  compatibilityProfile = null,
+}) {
+  if (
+    authority?.status !== "approved"
+    || typeof authority.approvalId !== "string"
+    || authority.approvalId.length === 0
+    || typeof authority.aggregateEvidenceHash !== "string"
+    || authority.aggregateEvidenceHash.length === 0
+    || approval?.status !== "approved"
+    || approval.approvalId !== authority.approvalId
+    || approval.aggregateEvidenceHash !== authority.aggregateEvidenceHash
+  ) return [];
+
+  if (Array.isArray(approval.sourceRunIds)) {
+    return [...new Set(approval.sourceRunIds
+      .filter(runId => typeof runId === "string" && runId.length > 0))]
+      .sort()
+      .slice(0, 32);
+  }
+
+  const approvedEvidenceIds = new Set(
+    Array.isArray(approval.evidenceReceiptIds) ? approval.evidenceReceiptIds : [],
+  );
+  const profileRunIds = [...new Set([
+    ...(Array.isArray(compatibilityProfile?.sourceRunIds)
+      ? compatibilityProfile.sourceRunIds
+      : []),
+    ...(Array.isArray(compatibilityProfile?.signalInventory)
+      ? compatibilityProfile.signalInventory
+      : [])
+      .filter(item => approvedEvidenceIds.has(item?.sourceRescueReceiptId))
+      .map(item => item?.sourceRunId),
+  ].filter(runId => typeof runId === "string" && runId.length > 0))]
+    .sort()
+    .slice(0, 32);
+
+  return profileRunIds.length
+    ? profileRunIds
+    : legacyBlindCalibrationRunIds(store, actorId, vibeIdx);
 }
 
 async function readVisualJudgments(store, actorId, vibeIdx, runId) {

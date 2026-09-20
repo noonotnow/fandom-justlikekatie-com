@@ -34,6 +34,7 @@ import {
   auditRunKey,
   auditRunPrefix,
   auditVerdictPrefix,
+  approvalSourceRunIds,
   eligibilityKey,
   getEligibility,
   productionReceiptPrefix,
@@ -68,6 +69,55 @@ test("run-scoped mutation policy defaults Legacy audits to read-only", () => {
   });
   assert.equal(legacyAuditMutationPolicy("flag_candidate").legacyWritable, true);
   assert.equal(legacyAuditMutationPolicy("save_rescue_board").legacyWritable, true);
+});
+
+test("approval source recovery applies one fail-closed bounded policy", async () => {
+  const authority = {
+    status: "approved",
+    approvalId: "approval-1",
+    aggregateEvidenceHash: "evidence-1",
+  };
+  const approval = {
+    status: "approved",
+    approvalId: "approval-1",
+    aggregateEvidenceHash: "evidence-1",
+    sourceRunIds: [
+      ...Array.from({ length: 34 }, (_, index) => `run-${String(index).padStart(2, "0")}`),
+      "run-00",
+      "",
+      null,
+    ],
+  };
+  const store = {
+    list: async () => ({ blobs: [] }),
+  };
+
+  assert.deepEqual(
+    await approvalSourceRunIds({
+      store,
+      actorId: "liu-xueyi",
+      vibeIdx: 0,
+      authority,
+      approval,
+    }),
+    Array.from({ length: 32 }, (_, index) => `run-${String(index).padStart(2, "0")}`),
+  );
+  for (const invalid of [
+    { authority: { ...authority, status: "pending" }, approval },
+    { authority: { ...authority, approvalId: "other" }, approval },
+    { authority, approval: { ...approval, aggregateEvidenceHash: "other" } },
+    { authority, approval: { ...approval, sourceRunIds: "run-00" } },
+  ]) {
+    assert.deepEqual(
+      await approvalSourceRunIds({
+        store,
+        actorId: "liu-xueyi",
+        vibeIdx: 0,
+        ...invalid,
+      }),
+      [],
+    );
+  }
 });
 
 const ORIGIN = "https://fandom.example";
