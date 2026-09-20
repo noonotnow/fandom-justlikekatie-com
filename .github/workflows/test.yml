@@ -53,5 +53,8 @@ jobs:
       - name: Run function tests
         run: npm run test:functions
 
+      - name: Run script tests
+        run: npm run test:scripts
+
       - name: Run browser tests
         run: npm run test:browser

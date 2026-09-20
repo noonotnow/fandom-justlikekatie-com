@@ -27,6 +27,69 @@ function sha256(path) {
   return createHash("sha256").update(readFileSync(resolve(root, path))).digest("hex");
 }
 
+function assertCanonicalMatchesRoute(html, route) {
+  const canonicalTags = [...html.matchAll(/<link\b[^>]*\brel=["'][^"']*\bcanonical\b[^"']*["'][^>]*>/gi)];
+  assert.equal(
+    canonicalTags.length,
+    1,
+    `${route.page} must contain exactly one canonical tag`,
+  );
+
+  const href = canonicalTags[0][0].match(/\bhref=["']([^"']+)["']/i)?.[1];
+  assert.equal(
+    href,
+    `${PUBLIC_ORIGIN}${route.path}`,
+    `${route.page} canonical must match its registered production URL`,
+  );
+}
+
+test("static public pages canonically match their registered production routes", () => {
+  const fileBackedRoutes = PUBLIC_STATIC_ROUTES.filter(({ page }) => page);
+  assert.ok(fileBackedRoutes.length > 0, "the registry must include static HTML pages");
+
+  for (const route of fileBackedRoutes) {
+    assertCanonicalMatchesRoute(read(route.page), route);
+  }
+});
+
+test("canonical route validation rejects conflicting indexing signals", async (t) => {
+  const route = {
+    path: "/c-drama-fandom/example/",
+    page: "public/c-drama-fandom/example/index.html",
+  };
+  const canonical = (href) => `<link rel="canonical" href="${href}">`;
+
+  await t.test("query-bearing canonical", () => {
+    assert.throws(
+      () => assertCanonicalMatchesRoute(
+        canonical(`${PUBLIC_ORIGIN}${route.path}?view=collection`),
+        route,
+      ),
+      /canonical must match its registered production URL/,
+    );
+  });
+
+  await t.test("alternate-origin canonical", () => {
+    assert.throws(
+      () => assertCanonicalMatchesRoute(
+        canonical(`https://example.com${route.path}`),
+        route,
+      ),
+      /canonical must match its registered production URL/,
+    );
+  });
+
+  await t.test("duplicate canonical tags", () => {
+    assert.throws(
+      () => assertCanonicalMatchesRoute(
+        `${canonical(`${PUBLIC_ORIGIN}${route.path}`)}${canonical(`${PUBLIC_ORIGIN}${route.path}`)}`,
+        route,
+      ),
+      /must contain exactly one canonical tag/,
+    );
+  });
+});
+
 test("the C-drama fandom routes are substantial static HTML documents", () => {
   const titles = new Set();
   const canonicals = new Set();
