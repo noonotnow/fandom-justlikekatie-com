@@ -270,6 +270,7 @@ function ArchiveAccessHealth({ health }: { health: AnyRecord }) {
   const recent = health.recentHour ?? {};
   const status = health.status ?? {};
   const notifications = (health.notifications ?? []) as AnyRecord[];
+  const delivery = health.notificationDelivery ?? {};
   const percentage = (value: unknown) => `${Math.round((Number(value) || 0) * 100)}%`;
   return (
     <section aria-labelledby="archive-access-health-title">
@@ -295,8 +296,25 @@ function ArchiveAccessHealth({ health }: { health: AnyRecord }) {
           Operator notification sent for {notifications.map(item => `${item.signalCategory} ${item.status}`).join(', ')}.
         </p>
       )}
+      <p
+        className={styles.measurementBoundary}
+        role={delivery.status === 'failure' ? 'alert' : 'status'}
+      >
+        Notification delivery: {delivery.status === 'success'
+          ? `last succeeded ${formatDeliveryTime(delivery.attemptedAt)}`
+          : delivery.status === 'failure'
+            ? `last failed ${formatDeliveryTime(delivery.attemptedAt)} · ${delivery.consecutiveFailures ?? 1} consecutive failure${delivery.consecutiveFailures === 1 ? '' : 's'}`
+            : delivery.status === 'unavailable'
+              ? 'health unavailable'
+              : 'no delivery attempted yet'}.
+      </p>
     </section>
   );
+}
+
+function formatDeliveryTime(value: unknown) {
+  const timestamp = typeof value === 'string' ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString() : 'at an unknown time';
 }
 
 function ProductionReadiness({

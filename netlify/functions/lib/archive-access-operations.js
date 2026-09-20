@@ -137,6 +137,11 @@ export async function notifyArchiveAccessTransitions({
   return notifications;
 }
 
+export async function archiveAccessNotificationDeliveryHealth(store) {
+  const entry = await getWithMetadata(store, NOTIFICATION_STATE_KEY);
+  return normalizeNotificationState(entry?.data).delivery;
+}
+
 export async function pruneExpiredArchiveAccessChecks(store, date = new Date()) {
   const retentionCutoff = date.getTime() - RETENTION_MS;
   const { expiredKeys } = await classifyBlobKeys(store, Number.POSITIVE_INFINITY, retentionCutoff);
@@ -236,6 +241,20 @@ export function createArchiveAccessOperationsHandler({
           message: error instanceof Error ? error.message : "Unknown delivery failure",
         });
       }
+      try {
+        health.notificationDelivery = await archiveAccessNotificationDeliveryHealth(store);
+      } catch (error) {
+        health.notificationDelivery = {
+          status: "unavailable",
+          attemptedAt: null,
+          lastSucceededAt: null,
+          lastFailedAt: null,
+          consecutiveFailures: 0,
+        };
+        logger.error("[archive-access] notification delivery health unavailable", {
+          message: error instanceof Error ? error.message : "Unknown delivery health failure",
+        });
+      }
       return response(200, health);
     } catch (error) {
       return response(error?.status || 500, {
@@ -293,15 +312,16 @@ export async function sendArchiveAccessNotification({
   if (!response.ok) throw new Error(`Archive access notification delivery failed (${response.status}).`);
 }
 
-async function settleClaim(store, signal, claimId, signalState) {
+async function settleClaim(store, signal, claimId, signalState, deliveryOutcome) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const entry = await getWithMetadata(store, NOTIFICATION_STATE_KEY);
     const state = normalizeNotificationState(entry?.data);
     if (state.signals[signal]?.claimId !== claimId) return;
+    const nextState = updateSignalState(state, signal, signalState);
     const write = await conditionalStateWrite(
       store,
       entry,
-      updateSignalState(state, signal, signalState),
+      deliveryOutcome ? updateDeliveryState(nextState, deliveryOutcome, signalState.updatedAt) : nextState,
     );
     if (write?.modified !== false) return;
   }
@@ -309,9 +329,24 @@ async function settleClaim(store, signal, claimId, signalState) {
 }
 
 function normalizeNotificationState(value) {
+  const delivery = value?.delivery && typeof value.delivery === "object"
+    ? value.delivery
+    : {};
   return {
     updatedAt: typeof value?.updatedAt === "string" ? value.updatedAt : null,
     signals: value?.signals && typeof value.signals === "object" ? value.signals : {},
+    delivery: {
+      status: delivery.status === "success" || delivery.status === "failure"
+        ? delivery.status
+        : "never_attempted",
+      attemptedAt: typeof delivery.attemptedAt === "string" ? delivery.attemptedAt : null,
+      lastSucceededAt: typeof delivery.lastSucceededAt === "string" ? delivery.lastSucceededAt : null,
+      lastFailedAt: typeof delivery.lastFailedAt === "string" ? delivery.lastFailedAt : null,
+      consecutiveFailures: Number.isSafeInteger(delivery.consecutiveFailures)
+        && delivery.consecutiveFailures > 0
+        ? delivery.consecutiveFailures
+        : 0,
+    },
   };
 }
 
@@ -378,13 +413,14 @@ async function processSignalTransition({ store, health, notify, now, signal, def
       await settleClaim(store, signal, claimId, {
         status: previousStatus,
         updatedAt: now.toISOString(),
-      });
+      }, "failure");
       throw error;
     }
     await settleClaim(store, signal, claimId, {
       status: targetStatus,
       notifiedAt: now.toISOString(),
-    });
+      updatedAt: now.toISOString(),
+    }, "success");
     return payload;
   }
   throw new Error("Archive access notification state changed too frequently.");
@@ -400,10 +436,29 @@ async function conditionalStateWrite(store, entry, state) {
 
 function updateSignalState(state, signal, signalState) {
   return {
+    ...state,
     updatedAt: signalState.updatedAt || signalState.notifiedAt || signalState.claimedAt,
     signals: {
       ...state.signals,
       [signal]: signalState,
+    },
+  };
+}
+
+function updateDeliveryState(state, outcome, attemptedAt) {
+  const previous = normalizeNotificationState(state).delivery;
+  const failed = outcome === "failure";
+  return {
+    ...state,
+    updatedAt: attemptedAt,
+    delivery: {
+      status: failed ? "failure" : "success",
+      attemptedAt,
+      lastSucceededAt: failed ? previous.lastSucceededAt : attemptedAt,
+      lastFailedAt: failed ? attemptedAt : previous.lastFailedAt,
+      consecutiveFailures: failed
+        ? Math.min(previous.consecutiveFailures + 1, Number.MAX_SAFE_INTEGER)
+        : 0,
     },
   };
 }

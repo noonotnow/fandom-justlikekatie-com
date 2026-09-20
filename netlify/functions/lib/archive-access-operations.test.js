@@ -461,7 +461,57 @@ test("notification delivery failure never changes the health response", async ()
   assert.equal(result.status, 200);
   assert.equal(body.status.billing, "warning");
   assert.deepEqual(body.notifications, []);
+  assert.deepEqual(body.notificationDelivery, {
+    status: "failure",
+    attemptedAt: now.toISOString(),
+    lastSucceededAt: null,
+    lastFailedAt: now.toISOString(),
+    consecutiveFailures: 1,
+  });
   assert.equal(errors.length, 1);
+});
+
+test("repeated delivery failures remain a bounded summary and success resets the streak", async () => {
+  const data = store();
+  const now = new Date("2026-09-20T12:30:00.000Z");
+  const health = {
+    recentHour: {
+      billing_delay: 4,
+      authenticated_checks: 10,
+      billingDelayRate: 0.4,
+    },
+    status: { billing: "warning", deniedAccess: "normal" },
+  };
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await assert.rejects(notifyArchiveAccessTransitions({
+      store: data,
+      health,
+      now: new Date(now.getTime() + attempt * 60_000),
+      notify: async () => { throw new Error("provider details must not be retained"); },
+    }));
+  }
+
+  const failedState = data.values.get("archive-access:notification-state");
+  assert.equal(failedState.delivery.status, "failure");
+  assert.equal(failedState.delivery.consecutiveFailures, 3);
+  assert.equal(JSON.stringify(failedState).includes("provider details"), false);
+  assert.equal(Object.keys(failedState).length, 3);
+
+  const successAt = new Date(now.getTime() + 3 * 60_000);
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health,
+    now: successAt,
+    notify: async () => {},
+  });
+  assert.deepEqual(data.values.get("archive-access:notification-state").delivery, {
+    status: "success",
+    attemptedAt: successAt.toISOString(),
+    lastSucceededAt: successAt.toISOString(),
+    lastFailedAt: new Date(now.getTime() + 2 * 60_000).toISOString(),
+    consecutiveFailures: 0,
+  });
 });
 
 test("scheduled archive health runs hourly through shared transitions and isolates failures", async () => {

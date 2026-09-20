@@ -69,6 +69,14 @@ failure is logged for operators but does not change archive access or prevent
 the health report from loading. A failed transition remains eligible for retry
 on the next authenticated health check.
 
+Release Desk also shows the latest aggregate delivery result, attempt time, and
+consecutive failure count. This is one bounded summary in the existing
+notification-state blob, not a delivery-event log. It contains no recipient,
+customer, provider response, or free-form error data. A successful delivery
+resets the consecutive failure count while retaining the latest success and
+failure timestamps. If the summary cannot be read, the archive health report
+still loads and marks delivery health unavailable.
+
 ## Triage
 
 For a billing warning, confirm Stripe and membership-repository availability,
