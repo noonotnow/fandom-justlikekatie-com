@@ -314,6 +314,56 @@ function run(runId: string, revealed: boolean, proof = false): AnyRecord {
   return result;
 }
 
+function withRetrievalRepetition(result: AnyRecord): AnyRecord {
+  result.retrievalRepetition = {
+    occurrenceCount: 7,
+    uniqueCandidateIdentityCount: 6,
+    uniqueImageIdentityCount: 5,
+    repeatedImageOccurrenceCount: 2,
+    rungs: [{
+      ladderRung: 0,
+      query: 'broad browser query',
+      occurrenceCount: 4,
+      uniqueImageIdentityCount: 4,
+      incrementalImageIdentityCount: 4,
+      overlapsWithEarlierRungs: [],
+    }, {
+      ladderRung: 1,
+      query: 'focused browser query',
+      occurrenceCount: 3,
+      uniqueImageIdentityCount: 2,
+      incrementalImageIdentityCount: 1,
+      overlapsWithEarlierRungs: [{
+        ladderRung: 0,
+        exactImageIdentityOverlapCount: 1,
+      }],
+    }],
+  };
+  result.calibrationAnalysis = {
+    failureDistribution: {
+      queryNotVisibleToCuration: 1,
+      filteredBeforeAnalysis: 2,
+      exactDuplicates: 1,
+      transformedDuplicates: 0,
+      promiseRejected: 3,
+      selected: 9,
+      published: 0,
+      publishedStatus: 'not_published',
+    },
+    queryVisualYield: [],
+    sameShootFamilies: [],
+    candidates: [{
+      occurrenceId: 'rejected-occurrence-1',
+      selected: false,
+      title: 'Downstream rejected candidate',
+      visualClass: 'expressive_single',
+      dropReason: 'promise_not_fulfilled',
+    }],
+    classificationLimitations: 'Downstream classifications are separate from retrieval repetition.',
+  };
+  return result;
+}
+
 function legacyRun(runId: string): AnyRecord {
   const result = run(runId, true);
   result.auditContract = {
@@ -423,7 +473,7 @@ function publicationReviewRun(runId: string, historical = false, includePublicat
   return result;
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationGatewayOnce = false, failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationGatewayOnce = false, failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, retrievalRepetition = false } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   calibrationExportRequests: URL[];
@@ -825,6 +875,7 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
       const proof = selectedRunId === 'run-2';
       revealed = true;
       const revealedRun = run(selectedRunId, true, proof);
+      if (retrievalRepetition) withRetrievalRepetition(revealedRun);
       if (selectedRunId === 'run-1' && savedBoard) {
         revealedRun.editorialFeedback = feedback(savedBoard, calibrationConfirmed ? rescueCalibrationDetails() : undefined);
       }
@@ -1216,6 +1267,53 @@ test('a failed cache comparison retries immediately with its active saved reserv
     assert.equal(providerSearchRequests[2].cacheMode, 'refresh');
     assert.equal(providerSearchRequests[2].comparisonId, 'browser-comparison-id');
     assert.equal(receiptSaveRequests.length, 2);
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('retrieval repetition stays visibly separate from the downstream rejection funnel and read-only', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  await configureNetwork(page, { retrievalRepetition: true });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('button', { name: 'Run audit', exact: true }).click();
+    await page.getByRole('button', { name: 'Choose Compiled', exact: true }).click();
+
+    const funnel = page.getByRole('region', { name: 'Candidate loss funnel' });
+    const repetition = funnel.getByRole('region', { name: 'Retrieval repetition' });
+    await repetition.getByText('result occurrences', { exact: true }).waitFor();
+    const retrievalValues = await repetition.locator('strong').allTextContents();
+    assert.deepEqual(retrievalValues.slice(0, 4), ['7', '6', '5', '2']);
+    assert.equal(await repetition.getByText('unique candidate identities', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('unique image identities', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('repeated image occurrences', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('4 occurrences · 4 unique images · +4 new images', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('3 occurrences · 2 unique images · +1 new images', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('rung 1: 1 exact', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('Exact overlap receipt', { exact: true }).isVisible(), true);
+
+    assert.equal(await funnel.getByText('failed image or safety gates', { exact: true }).isVisible(), true);
+    assert.equal(await funnel.getByText('contradictory or irrelevant', { exact: true }).isVisible(), true);
+    assert.equal(
+      await funnel.getByText('failed image or safety gates', { exact: true }).locator('xpath=preceding-sibling::strong[1]').textContent(),
+      '2',
+    );
+    assert.equal(
+      await funnel.getByText('contradictory or irrelevant', { exact: true }).locator('xpath=preceding-sibling::strong[1]').textContent(),
+      '3',
+    );
+    assert.equal(
+      await funnel.locator('summary').filter({ hasText: 'Blind rejected-candidate classification' }).isVisible(),
+      true,
+    );
+    assert.equal(await repetition.getByRole('button').count(), 0);
+    assert.equal(await repetition.locator('input, select, textarea').count(), 0);
   } finally {
     await browser.close();
     await server.close();
