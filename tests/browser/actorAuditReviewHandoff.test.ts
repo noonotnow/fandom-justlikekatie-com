@@ -376,6 +376,13 @@ function withRetrievalRepetition(result: AnyRecord): AnyRecord {
 
 function withPartialRetrievalRepetition(result: AnyRecord): AnyRecord {
   withRetrievalRepetition(result);
+  delete result.retrievalRepetition.uniqueCandidateIdentityCount;
+  result.retrievalRepetition.repeatedImageOccurrenceCount = 0;
+  delete result.retrievalRepetition.rungs[0].occurrenceCount;
+  result.retrievalRepetition.rungs[0].uniqueImageIdentityCount = 0;
+  result.retrievalRepetition.rungs[1].occurrenceCount = 0;
+  delete result.retrievalRepetition.rungs[1].uniqueImageIdentityCount;
+  delete result.retrievalRepetition.rungs[1].incrementalImageIdentityCount;
   delete result.retrievalRepetition.rungs[0].overlapsWithEarlierRungs;
   delete result.retrievalRepetition.rungs[1].overlapsWithEarlierRungs;
   return result;
@@ -856,7 +863,8 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
       }
       if (url.searchParams.get('runId') === 'run-legacy') {
         const requestedLegacyRun = legacyRun('run-legacy');
-        if (retrievalRepetition) withRetrievalRepetition(requestedLegacyRun);
+        if (partialRetrievalRepetition) withPartialRetrievalRepetition(requestedLegacyRun);
+        else if (retrievalRepetition) withRetrievalRepetition(requestedLegacyRun);
         await route.fulfill({
           contentType: 'application/json',
           body: JSON.stringify({ run: requestedLegacyRun }),
@@ -1542,7 +1550,7 @@ test('retrieval repetition stays visibly separate from the downstream rejection 
   }
 });
 
-test('partial retrieval receipts preserve available counts and label unavailable overlap detail without mutations', { timeout: 60_000 }, async () => {
+test('partial retrieval receipts distinguish unavailable counts from recorded zeroes without mutations', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
@@ -1556,9 +1564,9 @@ test('partial retrieval receipts preserve available counts and label unavailable
 
     const currentReceipt = page.getByRole('region', { name: 'Retrieval repetition' });
     await currentReceipt.getByText('result occurrences', { exact: true }).waitFor();
-    assert.deepEqual((await currentReceipt.locator('strong').allTextContents()).slice(0, 4), ['7', '6', '5', '2']);
-    assert.equal(await currentReceipt.getByText('4 occurrences · 4 unique images · +4 new images', { exact: true }).isVisible(), true);
-    assert.equal(await currentReceipt.getByText('3 occurrences · 2 unique images · +1 new images', { exact: true }).isVisible(), true);
+    assert.deepEqual((await currentReceipt.locator('strong').allTextContents()).slice(0, 4), ['7', 'Unavailable', '5', '0']);
+    assert.equal(await currentReceipt.getByText('Unavailable occurrences · 0 unique images · +4 new images', { exact: true }).isVisible(), true);
+    assert.equal(await currentReceipt.getByText('0 occurrences · Unavailable unique images · Unavailable new images', { exact: true }).isVisible(), true);
     assert.equal(await currentReceipt.getByText('Exact overlap detail unavailable for this rung', { exact: true }).count(), 2);
 
     const currentRequestsBeforeExpansion = structuredClone(auditRequests);
@@ -1576,13 +1584,24 @@ test('partial retrieval receipts preserve available counts and label unavailable
 
     const retainedReceipt = page.getByRole('region', { name: 'Retrieval repetition' });
     await retainedReceipt.getByText('result occurrences', { exact: true }).waitFor();
-    assert.deepEqual((await retainedReceipt.locator('strong').allTextContents()).slice(0, 4), ['7', '6', '5', '2']);
-    assert.equal(await retainedReceipt.getByText('3 occurrences · 2 unique images · +1 new images', { exact: true }).isVisible(), true);
+    assert.deepEqual((await retainedReceipt.locator('strong').allTextContents()).slice(0, 4), ['7', 'Unavailable', '5', '0']);
+    assert.equal(await retainedReceipt.getByText('Unavailable occurrences · 0 unique images · +4 new images', { exact: true }).isVisible(), true);
+    assert.equal(await retainedReceipt.getByText('0 occurrences · Unavailable unique images · Unavailable new images', { exact: true }).isVisible(), true);
     const retainedPartialReceipt = retainedReceipt.locator('details').filter({ hasText: 'Partial retrieval receipt · exact overlap unavailable' });
     await retainedPartialReceipt.locator('summary').click();
     assert.equal(await retainedPartialReceipt.getByText('Exact overlap detail is unavailable in this retained receipt.', { exact: false }).isVisible(), true);
     assert.equal(await retainedReceipt.locator('button, input, select, textarea, form').count(), 0);
     assert.deepEqual(auditRequests, requestsBeforeRetainedReview, 'switching to and expanding a retained partial receipt must not run or mutate an audit');
+
+    await page.getByLabel('Audit run').selectOption('run-legacy');
+    await page.getByRole('heading', { name: 'Legacy audit · retained history · run-legacy', exact: true }).waitFor();
+    const legacyReceipt = page.getByRole('region', { name: 'Retrieval repetition' });
+    await legacyReceipt.getByText('result occurrences', { exact: true }).waitFor();
+    assert.deepEqual((await legacyReceipt.locator('strong').allTextContents()).slice(0, 4), ['7', 'Unavailable', '5', '0']);
+    assert.equal(await legacyReceipt.getByText('Unavailable occurrences · 0 unique images · +4 new images', { exact: true }).isVisible(), true);
+    assert.equal(await legacyReceipt.getByText('0 occurrences · Unavailable unique images · Unavailable new images', { exact: true }).isVisible(), true);
+    assert.equal(await legacyReceipt.locator('button, input, select, textarea, form').count(), 0);
+    assert.deepEqual(auditRequests, requestsBeforeRetainedReview, 'switching to and reading a Legacy partial receipt must not run or mutate an audit');
   } finally {
     await browser.close();
     await server.close();

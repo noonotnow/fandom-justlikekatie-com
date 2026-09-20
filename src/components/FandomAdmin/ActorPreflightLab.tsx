@@ -1024,6 +1024,7 @@ function CandidateFunnelSummary({run}:{run:Run}) {
   const queryYield = analysis?.queryVisualYield ?? [];
   const retrieval = run.retrievalRepetition;
   const retrievalRungs = retrieval?.rungs ?? [];
+  const retrievalCount = (value:unknown) => typeof value === 'number' ? String(value) : 'Unavailable';
   const hasCompleteOverlapDetail = retrievalRungs.length > 0
     && retrievalRungs.every((rung:AnyRecord)=>Array.isArray(rung.overlapsWithEarlierRungs));
   const families = analysis?.sameShootFamilies ?? [];
@@ -1036,14 +1037,14 @@ function CandidateFunnelSummary({run}:{run:Run}) {
     {retrieval&&<section className={styles.retrievalRepetition} aria-label="Retrieval repetition">
       <div><h6>Retrieval repetition</h6><p>Exact result and image identity repetition is measured before promise, ranking, deduplication, or composition decisions. It does not change queries or selection.</p></div>
       <div className={styles.evidenceSummary}>
-        <strong>{retrieval.occurrenceCount??0}</strong><span>result occurrences</span>
-        <strong>{retrieval.uniqueCandidateIdentityCount??0}</strong><span>unique candidate identities</span>
-        <strong>{retrieval.uniqueImageIdentityCount??0}</strong><span>unique image identities</span>
-        <strong>{retrieval.repeatedImageOccurrenceCount??0}</strong><span>repeated image occurrences</span>
+        <strong>{retrievalCount(retrieval.occurrenceCount)}</strong><span>result occurrences</span>
+        <strong>{retrievalCount(retrieval.uniqueCandidateIdentityCount)}</strong><span>unique candidate identities</span>
+        <strong>{retrievalCount(retrieval.uniqueImageIdentityCount)}</strong><span>unique image identities</span>
+        <strong>{retrievalCount(retrieval.repeatedImageOccurrenceCount)}</strong><span>repeated image occurrences</span>
       </div>
       <div className={styles.retrievalRungs}>{retrievalRungs.map((rung:AnyRecord)=><article key={`${rung.ladderRung}:${rung.query}`}>
         <strong>Rung {Number(rung.ladderRung)+1} · {rung.query}</strong>
-        <span>{rung.occurrenceCount??0} occurrences · {rung.uniqueImageIdentityCount??0} unique images · +{rung.incrementalImageIdentityCount??0} new images</span>
+        <span>{retrievalCount(rung.occurrenceCount)} occurrences · {retrievalCount(rung.uniqueImageIdentityCount)} unique images · {typeof rung.incrementalImageIdentityCount === 'number' ? `+${rung.incrementalImageIdentityCount}` : 'Unavailable'} new images</span>
         <small>{!Array.isArray(rung.overlapsWithEarlierRungs)
           ? 'Exact overlap detail unavailable for this rung'
           : rung.overlapsWithEarlierRungs.length
