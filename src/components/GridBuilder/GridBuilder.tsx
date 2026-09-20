@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { dbGetVisibleCardsByScope, dbRemoveGrid, dbSaveGrid, type CardRecord } from '../../utils/collectionDB';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
-import { saveShareCard, prepareShareCard, buildExportPayload, classifyEditionTier } from '../../utils/exportCanvas';
+import { prepareShareCard, buildExportPayload, classifyEditionTier } from '../../utils/exportCanvas';
 import { deleteGridExports, gridExportEventFromRecord, logGridExport, uploadExportedCard } from '../../utils/gridExportLog';
 import { logMembershipEvent } from '../../utils/membership';
 import {
