@@ -57,7 +57,7 @@ test('app-rendered public routes canonically match their registered production U
   }
 });
 
-test('Daily and Archive UI navigation keeps one registered canonical', { timeout: 30_000 }, async () => {
+test('Daily and Archive UI and history navigation keeps one registered canonical', { timeout: 30_000 }, async () => {
   const dailyRoute = PUBLIC_STATIC_ROUTES.find(route => route.path === '/vibe-atlas' && !route.page);
   const archiveRoute = PUBLIC_STATIC_ROUTES.find(route => route.path === '/vibe-atlas/archive' && !route.page);
   assert.ok(dailyRoute, 'the registry must include the app-rendered Daily route');
@@ -77,9 +77,13 @@ test('Daily and Archive UI navigation keeps one registered canonical', { timeout
     await page.waitForURL(`${origin}${archiveRoute.path}`);
     assertCanonicalMatchesRoute(await canonicalHrefs(page), archiveRoute);
 
-    await page.getByRole('button', { name: '今日之星 · Daily' }).click();
+    await page.goBack();
     await page.waitForURL(`${origin}${dailyRoute.path}`);
     assertCanonicalMatchesRoute(await canonicalHrefs(page), dailyRoute);
+
+    await page.goForward();
+    await page.waitForURL(`${origin}${archiveRoute.path}`);
+    assertCanonicalMatchesRoute(await canonicalHrefs(page), archiveRoute);
   } finally {
     await closeBrowserAndServer(browser, server);
   }
