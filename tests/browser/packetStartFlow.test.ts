@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { type Page } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
-import { launchBrowser } from './browserEngines.ts';
 import { BROWSER_ENGINES, launchBrowser } from './browserEngines.ts';
 
 const ACCOUNT_ID = 'packet-start-account';

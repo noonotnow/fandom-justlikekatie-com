@@ -19,6 +19,9 @@ export const auditVibeKey = (actorId, vibeIdx) => `${actorId}:${vibeIdx}`;
 export const auditHeadKey = (actorId, vibeIdx) => `heads/${actorId}/${vibeIdx}`;
 export const auditRunPrefix = (actorId, vibeIdx) => `runs/${actorId}/${vibeIdx}/`;
 export const auditRunKey = (actorId, vibeIdx, runId) => `${auditRunPrefix(actorId, vibeIdx)}${encodeURIComponent(runId)}`;
+
+export const cacheDiagnosticReceiptKey = (actorId, vibeIdx, scope) =>
+  `cache-diagnostic-receipts/${actorId}/${vibeIdx}/${scope}`;
 export const auditVerdictPrefix = (actorId, vibeIdx, runId) => `verdicts/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
 export const auditVerdictKey = (actorId, vibeIdx, runId, receiptId = "canonical") => `${auditVerdictPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
 export const auditCalibrationPrefix = (actorId, vibeIdx, runId) => `calibrations/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;

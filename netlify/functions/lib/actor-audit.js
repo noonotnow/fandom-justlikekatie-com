@@ -18,6 +18,7 @@ import {
   auditCalibrationPrefix,
   auditCalibrationReasonsKey,
   auditCalibrationReasonsPrefix,
+  cacheDiagnosticReceiptKey,
   auditVisualJudgmentKey,
   auditVisualJudgmentPrefix,
   auditVisualJudgmentIndexKey,
@@ -391,9 +392,19 @@ export function createActorAuditHandler({
           .filter(receipt =>
             receipt.originalStatus === "pending_review"
             && receipt.status === "pending_review");
+        const cacheDiagnostics = Object.fromEntries((await Promise.all(
+          ["representative", "full"].map(async scope => [
+            scope,
+            await store.get(
+              cacheDiagnosticReceiptKey(pair.actor.id, pair.vibeIdx, scope),
+              { type: "json", consistency: "strong" },
+            ),
+          ]),
+        )).filter(([, receipt]) => receipt));
         return json(200, {
           ...detailResponse(pair, report),
           misprintReviewQueue,
+          cacheDiagnostics,
         });
       }
 
@@ -635,6 +646,66 @@ export function createActorAuditHandler({
           cacheMode,
           search: searchCacheDiagnosticReceipt(search),
         });
+      }
+
+      if (input.action === "cache_diagnostic_receipt") {
+        const scope = parseScope(input.scope);
+        if (!scope) return json(400, { error: "Diagnostic scope must be representative or full." });
+        const calibrationProfile = approvedCalibrationProfile(
+          await readRescueCalibrationProfile(store, pair),
+        );
+        const frozenQueries = searchQueriesFor(
+          pair.actor,
+          pair.vibeIdx,
+          calibrationProfile,
+          { baseLimit: scope === "representative" ? 3 : null },
+        );
+        if (JSON.stringify(input.frozenQueries) !== JSON.stringify(frozenQueries)) {
+          return json(409, { error: "The diagnostic query set changed before its receipt was saved." });
+        }
+        if (!Array.isArray(input.comparisons)
+          || input.comparisons.length !== frozenQueries.length
+          || input.comparisons.some((item, index) => item?.query !== frozenQueries[index])) {
+          return json(400, { error: "The diagnostic comparisons do not match the frozen query set." });
+        }
+        const sideReceipt = side => side && typeof side === "object" ? {
+          resultFingerprint: boundedText(side.resultFingerprint, 160),
+          providerSelectionOrder: boundedStringArray(side.providerSelectionOrder, 12, 160),
+          providerFetchOrder: boundedStringArray(side.providerFetchOrder, 12, 160),
+          cacheProvenance: boundedCacheProvenance(side.cacheProvenance),
+        } : null;
+        const receipt = {
+          schemaVersion: 1,
+          diagnosticOnly: true,
+          retention: "latest_per_pairing_and_scope",
+          actorId: pair.actor.id,
+          vibeKey: pair.vibeKey,
+          scope,
+          frozenQueries,
+          comparedAt: typeof input.comparedAt === "string"
+            && Number.isFinite(Date.parse(input.comparedAt))
+            ? new Date(input.comparedAt).toISOString()
+            : now().toISOString(),
+          savedAt: now().toISOString(),
+          comparisons: input.comparisons.map(item => ({
+            query: item.query,
+            normal: sideReceipt(item.normal),
+            bypassed: sideReceipt(item.bypassed),
+            normalError: boundedText(item.normalError, 500),
+            bypassedError: boundedText(item.bypassedError, 500),
+            sameResultFingerprint: typeof item.sameResultFingerprint === "boolean"
+              ? item.sameResultFingerprint
+              : null,
+            sameProviderFetchOrder: typeof item.sameProviderFetchOrder === "boolean"
+              ? item.sameProviderFetchOrder
+              : null,
+          })),
+        };
+        await store.setJSON(
+          cacheDiagnosticReceiptKey(pair.actor.id, pair.vibeIdx, scope),
+          receipt,
+        );
+        return json(200, { diagnostic: receipt });
       }
 
       if (input.action === "query_repair_manifest") {
@@ -7473,6 +7544,12 @@ function recordHash(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+function boundedStringArray(value, limit, itemLimit) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, limit)
+    .map(item => boundedText(item, itemLimit))
+    .filter(item => item !== null);
+}
 async function writeEligibility(store, pair, snapshot) {
   const value = snapshot || {
     schemaVersion: 1,
@@ -7708,4 +7785,15 @@ function approvedCalibrationProfile(profile) {
     backupBoards: [],
     [field]: [...signalValues].sort(),
   };
+}
+
+function boundedCacheProvenance(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return Object.fromEntries(Object.entries(value).slice(0, 24).flatMap(([key, item]) => {
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(key)) return [];
+    if (typeof item === "string") return [[key, item.slice(0, 500)]];
+    if (typeof item === "number" && Number.isFinite(item)) return [[key, item]];
+    if (typeof item === "boolean" || item === null) return [[key, item]];
+    return [];
+  }));
 }

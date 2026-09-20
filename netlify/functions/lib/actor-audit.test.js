@@ -2513,6 +2513,83 @@ test("cache diagnostic can be assembled from one-search serverless requests", as
   assert.equal(store.records.size, 0);
 });
 
+test("cache diagnostic receipt reopens without searches and overwrites the bounded pairing scope", async () => {
+  const { handler, store, getSearchCall } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const frozenQueries = pairActor.vibes[0].queries.slice(0, 3);
+  const comparisons = frozenQueries.map((query, index) => ({
+    query,
+    normal: {
+      resultFingerprint: `normal-${index}`,
+      providerSelectionOrder: ["test", "fallback"],
+      providerFetchOrder: ["test"],
+      cacheProvenance: { outcome: "hit", bypassRequested: false },
+    },
+    bypassed: {
+      resultFingerprint: `bypass-${index}`,
+      providerSelectionOrder: ["test", "fallback"],
+      providerFetchOrder: ["test"],
+      cacheProvenance: { outcome: "miss", bypassRequested: true },
+    },
+    sameResultFingerprint: false,
+    sameProviderFetchOrder: true,
+  }));
+
+  const firstSave = await handler(request("POST", {
+    action: "cache_diagnostic_receipt",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+    frozenQueries,
+    comparedAt: "2026-09-19T10:00:00.000Z",
+    comparisons,
+  }), {});
+  assert.equal(firstSave.status, 200);
+  assert.equal(getSearchCall(), 0);
+
+  const secondSave = await handler(request("POST", {
+    action: "cache_diagnostic_receipt",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+    frozenQueries,
+    comparedAt: "2026-09-19T11:00:00.000Z",
+    comparisons: comparisons.map(item => ({
+      ...item,
+      normal: { ...item.normal, resultFingerprint: `new-${item.normal.resultFingerprint}` },
+    })),
+  }), {});
+  assert.equal(secondSave.status, 200);
+
+  const reopened = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const payload = await reopened.json();
+  const receipt = payload.cacheDiagnostics.representative;
+
+  assert.equal(reopened.status, 200);
+  assert.equal(getSearchCall(), 0);
+  assert.equal(receipt.retention, "latest_per_pairing_and_scope");
+  assert.equal(receipt.comparedAt, "2026-09-19T11:00:00.000Z");
+  assert.deepEqual(receipt.frozenQueries, frozenQueries);
+  assert.equal(receipt.comparisons[0].normal.resultFingerprint, "new-normal-0");
+  assert.deepEqual(receipt.comparisons[0].normal.providerFetchOrder, ["test"]);
+  assert.equal(receipt.comparisons[0].bypassed.cacheProvenance.bypassRequested, true);
+  assert.equal(
+    [...store.records.keys()].filter(key => key.startsWith("cache-diagnostic-receipts/")).length,
+    1,
+  );
+  assert.equal(
+    [...store.records.keys()].some(key =>
+      key.startsWith("runs/")
+      || key.startsWith("eligibility/")
+      || key.startsWith("verdicts/")),
+    false,
+  );
+});
+
 test("cache diagnostic redacts signed display URLs and withholds metrics when identity capture is truncated", async () => {
   const oversized = Array.from({ length: 25 }, (_, index) => ({
     title: `Result ${index}`,
