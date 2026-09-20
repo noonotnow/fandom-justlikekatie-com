@@ -107,7 +107,7 @@ export function Membership({ onStatusChange }: Props) {
             <li>Recent free editions</li>
             <li>Individual card saves and a basic Canvas</li>
             <li>Standard share export</li>
-            <li>Free account sync</li>
+            <li>Full Collection sync after sign-in</li>
           </ul>
         </article>
         <article className="membership__featured">
