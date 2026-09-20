@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { PUBLIC_ROUTE_PATHS } from '../../../shared/public-routes.js';
 import {
   dbGetSyncState,
   dbGetVisibleCards,
@@ -849,8 +850,8 @@ export const Collection: React.FC<Props> = ({
           </strong>
           <div className={styles.collectionScopeActions}>
             <a href={isEditionBuilder && builderSourceEditionDate
-              ? `/vibe-atlas?date=${encodeURIComponent(builderSourceEditionDate)}`
-              : '/vibe-atlas'}>
+              ? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(builderSourceEditionDate)}`
+              : PUBLIC_ROUTE_PATHS.vibeAtlas}>
               {isEditionBuilder ? 'Back to this edition' : 'Back to today’s drop'}
             </a>
           </div>

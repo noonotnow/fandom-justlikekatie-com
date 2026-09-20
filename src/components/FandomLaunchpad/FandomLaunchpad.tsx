@@ -1,3 +1,4 @@
+import { PUBLIC_ROUTE_PATHS } from "../../../shared/public-routes.js";
 import styles from "./FandomLaunchpad.module.css";
 
 export function FandomLaunchpad() {
@@ -14,7 +15,7 @@ export function FandomLaunchpad() {
         </nav>
       </header>
       <section className={styles.workbenches} aria-label="Fandom workbenches">
-        <a className={`${styles.workbench} ${styles.atlas}`} href="/vibe-atlas">
+        <a className={`${styles.workbench} ${styles.atlas}`} href={PUBLIC_ROUTE_PATHS.vibeAtlas}>
           <span className={styles.index}>01 / daily C-drama card drop <b className={styles.launchStatus}>Now launching</b></span>
           <div className={styles.cardArt}><span>VIBE<br /><b>ATLAS</b></span><small>REDNOTE / C-DRAMA</small></div>
           <div className={styles.cardCopy}><h2>C-drama Vibe Atlas</h2><p>One star. One vibe. Nine pieces of evidence. Like Pokémon, but thirsty. You wanna catch all these. Browse today’s drop, save the cards that understand your type, and build your own 3×3.</p><span className={styles.enter}>Browse today’s card drop →</span></div>

@@ -1,3 +1,4 @@
+import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
 import { dbSaveGrid, type GridRecord } from './collectionDB';
 import { persistGridImagesToMedia, type CollectionGridMediaFailure } from './collectionMedia';
 import { completeWorkstationHandoff, type WorkstationReceipt } from './workstationHandoffClient';
@@ -178,7 +179,7 @@ function sourceVersionMaterial(grid: GridRecord) {
     editorial: grid.editorial || null,
     capturedDate: grid.capturedDate,
     generatedAt: grid.generatedAt,
-    sourceRoute: grid.sourceRoute || '/vibe-atlas',
+    sourceRoute: grid.sourceRoute || PUBLIC_ROUTE_PATHS.vibeAtlas,
     releaseCandidateProvenance: grid.releaseCandidateProvenance || null,
     images: orderedImages.map(image => ({
       position: image.gridPosition,

@@ -151,7 +151,7 @@ function syncVibeAtlasEditionUrl(date: string | null, replace = false) {
   }
 
   const query = params.toString();
-  const nextUrl = `/vibe-atlas${query ? `?${query}` : ''}`;
+  const nextUrl = `${PUBLIC_ROUTE_PATHS.vibeAtlas}${query ? `?${query}` : ''}`;
   if (`${window.location.pathname}${window.location.search}` === nextUrl) return;
   const update = replace ? window.history.replaceState : window.history.pushState;
   update.call(window.history, {}, '', nextUrl);
@@ -236,9 +236,9 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
 
   useEffect(() => {
     const pagePath = archivePage
-      ? '/vibe-atlas/archive'
+      ? PUBLIC_ROUTE_PATHS.vibeAtlasArchive
       : view === 'daily'
-        ? '/vibe-atlas'
+        ? PUBLIC_ROUTE_PATHS.vibeAtlas
         : null;
     if (!pagePath) {
       lastArchiveReviewPagePath.current = null;
@@ -319,7 +319,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     if (params.get('view') !== 'plan') return;
     params.delete('view');
     params.set('admin', 'true');
-    window.history.replaceState({}, '', `/vibe-atlas?${params.toString()}`);
+    window.history.replaceState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?${params.toString()}`);
   }, []);
 
   useEffect(() => {
@@ -433,7 +433,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     setExpandedId(null);
     setLightboxIndex(null);
     setDailyGridZoomOpen(false);
-    window.history.replaceState({}, '', '/vibe-atlas/archive');
+    window.history.replaceState({}, '', PUBLIC_ROUTE_PATHS.vibeAtlasArchive);
     if (!archive.length && !archiveLoading) void loadArchive();
   }, [archive.length, archiveLoading, loadArchive]);
 
@@ -456,7 +456,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   const copyArchivedEditionLink = async () => {
     if (!selectedEditionDate || !isValidVibeAtlasEditionDate(selectedEditionDate)) return;
 
-    const shareUrl = new URL('/vibe-atlas', window.location.origin);
+    const shareUrl = new URL(PUBLIC_ROUTE_PATHS.vibeAtlas, window.location.origin);
     shareUrl.searchParams.set('date', selectedEditionDate);
 
     try {
@@ -477,7 +477,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     setExpandedId(null);
     setLightboxIndex(null);
     setDailyGridZoomOpen(false);
-    window.history.pushState({}, '', '/vibe-atlas/archive');
+    window.history.pushState({}, '', PUBLIC_ROUTE_PATHS.vibeAtlasArchive);
     if (!archive.length && !archiveLoading) void loadArchive();
   };
 
@@ -490,7 +490,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       : destination === 'membership'
         ? '?view=membership'
       : `?view=${tab === 'grids' ? 'collection' : tab}`;
-    window.history.pushState({}, '', `/vibe-atlas${search}`);
+    window.history.pushState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}${search}`);
     setArchivePage(false);
     setCollectionTab(tab);
     setBuilderSource('collection');
@@ -501,7 +501,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   const openEditionBuilder = (date: string, placement: ArchiveRebuildPlacement) => {
     if (!isValidVibeAtlasEditionDate(date)) return;
     trackArchiveRebuildLaunched(date, placement);
-    window.history.pushState({}, '', `/vibe-atlas?view=builder&source=edition&date=${encodeURIComponent(date)}`);
+    window.history.pushState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=edition&date=${encodeURIComponent(date)}`);
     setArchivePage(false);
     setView('collection');
     setCollectionTab('builder');
@@ -671,7 +671,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         </a>
         <div className="fandom-universe-tools">
           <span className="fandom-universe-current">Current universe</span>
-          <a className="fandom-tool-link fandom-tool-link--active" href="/vibe-atlas">
+          <a className="fandom-tool-link fandom-tool-link--active" href={PUBLIC_ROUTE_PATHS.vibeAtlas}>
             <strong>Vibe Atlas</strong><small>Daily C-drama card drop</small>
           </a>
         </div>
@@ -736,7 +736,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
          <p className="atlas-hero__intro">Every day, Vibe Atlas pairs one C-drama star with one very specific kind of heartthrob energy. Browse nine collectible pieces of evidence, save the ones that understand your type, and build your own 3×3.</p>
          <div className="atlas-hero__actions" aria-label="Vibe Atlas actions">
            <a href="#daily-evidence">Browse today’s drop</a>
-           <a href="/vibe-atlas?view=builder&amp;source=daily">Open the Grid Builder</a>
+           <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=daily`}>Open the Grid Builder</a>
          </div>
         {gate && selectedEditionDate ? (
           <ArchiveLockedEdition
@@ -1014,7 +1014,7 @@ function ArchiveEditionCard({
     edition.legendaryMisprint ? 'archive-card--misprint' : '',
   ].filter(Boolean).join(' ');
   const href = edition.publicRecord?.editionPath
-    ?? `/vibe-atlas?date=${encodeURIComponent(edition.date)}`;
+    ?? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(edition.date)}`;
 
   return (
     <article className={className}>
@@ -1094,7 +1094,7 @@ function ArchiveEditionCard({
           <a href={edition.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'full_archive')}>Actor record</a>
           <a href={edition.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'full_archive')}>Edition record</a>
           <a
-            href={`/vibe-atlas?view=builder&source=edition&date=${encodeURIComponent(edition.date)}`}
+            href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=edition&date=${encodeURIComponent(edition.date)}`}
             onClick={() => trackArchiveRebuildLaunched(edition.date, 'archive_card')}
           >
             Rebuild this edition
@@ -1182,7 +1182,7 @@ function ArchivePage({
         )}
         <footer className="archive-footer">
           <span>Fandom Vibes · Permanent edition record</span>
-          <a className="daily-archive__today" href="/vibe-atlas">Return to today’s drop <b aria-hidden="true">→</b></a>
+          <a className="daily-archive__today" href={PUBLIC_ROUTE_PATHS.vibeAtlas}>Return to today’s drop <b aria-hidden="true">→</b></a>
         </footer>
       </section>
     </main>

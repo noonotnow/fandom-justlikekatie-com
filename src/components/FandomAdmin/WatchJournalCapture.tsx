@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PUBLIC_ROUTE_PATHS } from '../../../shared/public-routes.js';
 import {
   addWatchJournalEvidence,
   fetchVeteranModeration,
@@ -274,7 +275,7 @@ export const WatchJournalCapture: React.FC = () => {
           <span>Latest filed boundary</span>
           <div>Katie has watched through Episode <strong>{filedThroughEpisode || '—'}</strong>.</div>
           {draft.episodeEnd && <small>Unfiled draft: through Episode {draft.episodeEnd}</small>}
-          {publicJournalId && <a className={styles.journalPublicLink} href={`/vibe-atlas/veteran-journal?journal=${encodeURIComponent(publicJournalId)}`}>Open public veteran form</a>}
+          {publicJournalId && <a className={styles.journalPublicLink} href={`${PUBLIC_ROUTE_PATHS.vibeAtlasVeteranJournal}?journal=${encodeURIComponent(publicJournalId)}`}>Open public veteran form</a>}
         </div>
       </header>
       {notice && <div className={styles.notice} role="status">{notice}</div>}

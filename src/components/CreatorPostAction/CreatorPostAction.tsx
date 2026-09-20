@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { PUBLIC_ROUTE_PATHS } from '../../../shared/public-routes.js';
 import type {
   CreatorDraftProgress,
   CreatorDraftResult,
@@ -158,7 +159,7 @@ export function CreatorPostAction({
           )}
           <nav aria-label="Post recovery links">
             <button type="button" onClick={() => void submit()}>Retry preparation</button>
-            <a href="/vibe-atlas?view=collection">Open Your Collection</a>
+            <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=collection`}>Open Your Collection</a>
             <a href="https://workstation.justlikekatie.com" target="_blank" rel="noreferrer">Open Workstation</a>
           </nav>
         </div>

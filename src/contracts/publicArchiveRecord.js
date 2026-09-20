@@ -1,9 +1,11 @@
+import { PUBLIC_ROUTE_PATHS } from "../../shared/public-routes.js";
+
 const RECORD_IDENTIFIER = "[a-z0-9]+(?:-[a-z0-9]+)*";
 const ACTOR_RECORD_PATH = new RegExp(
-  `^/vibe-atlas/actors/(${RECORD_IDENTIFIER})/?$`,
+  `^${PUBLIC_ROUTE_PATHS.vibeAtlasActors}/(${RECORD_IDENTIFIER})/?$`,
 );
 const EDITION_RECORD_PATH = new RegExp(
-  `^/vibe-atlas/editions/(\\d{4}-\\d{2}-\\d{2})/(${RECORD_IDENTIFIER})/?$`,
+  `^${PUBLIC_ROUTE_PATHS.vibeAtlasEditions}/(\\d{4}-\\d{2}-\\d{2})/(${RECORD_IDENTIFIER})/?$`,
 );
 
 function isCalendarDate(value) {

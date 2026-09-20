@@ -4,7 +4,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
-import { PUBLIC_STATIC_ROUTES, staticSitemapXml } from "../netlify/functions/lib/public-routes.js";
+import {
+  PUBLIC_ROUTE_PATHS,
+  PUBLIC_STATIC_ROUTES,
+  staticSitemapXml,
+} from "../netlify/functions/lib/public-routes.js";
 
 const scriptFile = fileURLToPath(import.meta.url);
 const root = resolve(dirname(scriptFile), "..");
@@ -159,7 +163,7 @@ function journalPageHtml({ start = null, end = null } = {}) {
         <a href="/c-drama-fandom/trope-decoder/">Trope decoder</a>
         <a href="/c-drama-fandom/fandom-games/">Fandom games</a>
         <a href="/c-drama-fandom/watch-journal/" aria-current="page">Field journal</a>
-        <a href="/vibe-atlas">Vibe Atlas</a>
+        <a href="${PUBLIC_ROUTE_PATHS.vibeAtlas}">Vibe Atlas</a>
       </nav>
     </div>
   </header>
@@ -201,7 +205,7 @@ function journalPageHtml({ start = null, end = null } = {}) {
       </aside>
     </div>
   </main>
-  <footer class="site-footer"><div class="site-footer__inner"><div><h2>Fandom Vibes</h2><p>A creative home for the tools, rituals, and artifacts fans make around the worlds they love.</p></div><div><strong>Learn</strong><a href="/c-drama-fandom/">C-drama fandom guide</a><a href="/c-drama-fandom/glossary/">Glossary</a></div><div><strong>Create</strong><a href="/c-drama-fandom/fandom-games/">Fandom games</a><a href="/vibe-atlas">Vibe Atlas</a></div></div></footer>
+  <footer class="site-footer"><div class="site-footer__inner"><div><h2>Fandom Vibes</h2><p>A creative home for the tools, rituals, and artifacts fans make around the worlds they love.</p></div><div><strong>Learn</strong><a href="/c-drama-fandom/">C-drama fandom guide</a><a href="/c-drama-fandom/glossary/">Glossary</a></div><div><strong>Create</strong><a href="/c-drama-fandom/fandom-games/">Fandom games</a><a href="${PUBLIC_ROUTE_PATHS.vibeAtlas}">Vibe Atlas</a></div></div></footer>
   <script>
   (() => {
     const settingKey = "fandom-watch-journal-safe-through:the-untamed";

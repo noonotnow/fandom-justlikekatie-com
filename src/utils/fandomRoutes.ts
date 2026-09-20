@@ -1,3 +1,5 @@
+import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
+
 export type FandomProductRoute = 'launchpad' | 'vibe-atlas' | 'middle-earth' | 'veteran-journal';
 
 const EDITION_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -10,16 +12,16 @@ export function isAdminEntryLocation(pathname: string, search = '', hash = ''): 
 
 export function resolveFandomProductRoute(pathname: string, search = ''): FandomProductRoute {
   const normalized = pathname.replace(/\/+$/, '') || '/';
-  if (normalized === '/vibe-atlas' || normalized === '/vibe-atlas/archive' || normalized === '/auth/verify') return 'vibe-atlas';
+  if (normalized === PUBLIC_ROUTE_PATHS.vibeAtlas || normalized === PUBLIC_ROUTE_PATHS.vibeAtlasArchive || normalized === '/auth/verify') return 'vibe-atlas';
   if (normalized === '/' && isAdminEntryLocation(normalized, search)) return 'vibe-atlas';
-  if (normalized === '/vibe-atlas/veteran-journal') return 'veteran-journal';
+  if (normalized === PUBLIC_ROUTE_PATHS.vibeAtlasVeteranJournal) return 'veteran-journal';
   if (normalized === '/memeforge/middle-earth') return 'middle-earth';
   return 'launchpad';
 }
 
 export function isVibeAtlasArchiveLocation(pathname: string): boolean {
   const normalized = pathname.replace(/\/+$/, '') || '/';
-  return normalized === '/vibe-atlas/archive';
+  return normalized === PUBLIC_ROUTE_PATHS.vibeAtlasArchive;
 }
 
 export function initialVibeAtlasView(search: string): 'daily' | 'collection' | 'admin' | 'membership' {

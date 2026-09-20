@@ -1,3 +1,4 @@
+import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
 import {
   dbApplySyncResponse,
   dbBuildGridSyncRequest,
@@ -54,12 +55,12 @@ export async function consumeMagicLinkFromLocation(): Promise<
     {},
     '',
     next === 'plan' || next === 'admin'
-      ? '/vibe-atlas?admin=true'
+      ? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?admin=true`
       : archiveDate
-        ? `/vibe-atlas?date=${encodeURIComponent(archiveDate)}`
+        ? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(archiveDate)}`
       : next === 'membership'
-        ? '/vibe-atlas?view=membership'
-        : '/vibe-atlas?view=collection',
+        ? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=membership`
+        : `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=collection`,
   );
   if (!token) return false;
   const response = await postJson('/api/auth/verify', { token });

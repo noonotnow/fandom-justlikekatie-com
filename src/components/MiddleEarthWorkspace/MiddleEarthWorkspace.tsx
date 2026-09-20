@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { PUBLIC_ROUTE_PATHS } from "../../../shared/public-routes.js";
 import {
   generateRednoteCopy,
   generateVisualObject,
@@ -1493,7 +1494,7 @@ export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
           </div>
            {isAdmin
              ? <button className={styles.translateAction} type="button" onClick={() => void translateMoment()} disabled={busy || !moment.trim()}>{busy ? "Working…" : isReworkExisting ? "Suggest a joke" : "Translate moment"}</button>
-            : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in to translate</a>}
+            : <a className={styles.stagingLink} href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=plan`}>Sign in to translate</a>}
         </div>
         {translation && <div className={styles.translationResult}>
           <div><span>You asked</span><strong>{moment}</strong></div>
@@ -1737,7 +1738,7 @@ export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
                 <div><strong>{reworkPanelTitle}</strong><p>{isReworkExisting ? "AI is optional. Describe a moment above if you want a joke suggestion, or type your own overlay below." : "Uses the translated moment first, then the selected clean reaction still as its visual anchor. The new card copy remains yours to edit."}</p></div>
               {isAdmin
                 ? <button className={styles.aiAction} onClick={() => void generateVisual()} disabled={busy || !translation || isExistingMemeAsIs}>{busy ? "Generating…" : isExistingMemeAsIs ? "Choose Rework to forge" : visualGeneration ? "Reforge card" : "Forge card"}</button>
-                : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in to generate</a>}
+                : <a className={styles.stagingLink} href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=plan`}>Sign in to generate</a>}
             </div>
             {cardFormat && <div className={styles.cardFormat}><span>Reaction format</span><strong>{cardFormat}</strong><p>Two lines only: setup, then punchline. Keep longer interpretation in “Translated as.”</p></div>}
             <label>Tiny footer <small className={styles.optional}>optional</small><input value={title} onChange={(event) => { setTitle(event.target.value); }} maxLength={45} disabled={busy} /></label>
@@ -1757,7 +1758,7 @@ export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
               <div><strong>Character-filtered Rednote writer</strong><p>Generates a separate editable title, caption, and tag set. Existing edits are used as refinement context.</p></div>
               {isAdmin
                 ? <button className={styles.aiAction} onClick={() => void generateCopy()} disabled={busy || !visualGeneration || !text.trim()}>{busy ? "Writing…" : rednoteIsCurrent ? "Refine copy" : "Generate copy"}</button>
-                : <a className={styles.stagingLink} href="/vibe-atlas?view=plan">Sign in to generate</a>}
+                : <a className={styles.stagingLink} href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=plan`}>Sign in to generate</a>}
             </div>
             <label>Rednote title<input value={rednoteTitle} onChange={(event) => { setRednoteTitle(event.target.value); }} maxLength={120} placeholder="A scroll-stopping title" disabled={busy} /></label>
             <label>Rednote caption<textarea value={rednoteCaption} onChange={(event) => { setRednoteCaption(event.target.value); }} rows={8} maxLength={2200} placeholder="The editable caption draft will appear here." disabled={busy} /></label>

@@ -1,3 +1,4 @@
+import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
 import type { CreatorPlatform } from './creatorDraft';
 
 type AnalyticsData = Record<string, string | number | boolean>;
@@ -49,7 +50,7 @@ interface DailyDropServerEvent {
 interface ArchiveReviewServerEvent {
   event: 'archive_page_view' | 'archive_gated_preview_view' | 'archive_record_opened';
   batchKey: 'archive-link-review';
-  pagePath?: '/vibe-atlas' | '/vibe-atlas/archive';
+  pagePath?: typeof PUBLIC_ROUTE_PATHS.vibeAtlas | typeof PUBLIC_ROUTE_PATHS.vibeAtlasArchive;
   recordType?: ArchiveRecordType;
   location?: ArchiveRecordLocation;
 }
@@ -517,7 +518,7 @@ function classifyVeteranSubmissionFailure(value: unknown): VeteranSubmissionFail
 }
 
 function veteranAnalyticsPageLocation(): string {
-  const path = '/vibe-atlas/veteran-journal';
+  const path = PUBLIC_ROUTE_PATHS.vibeAtlasVeteranJournal;
   const origin = typeof window !== 'undefined' && typeof window.location?.origin === 'string'
     ? window.location.origin
     : '';
@@ -545,7 +546,7 @@ function classifyHandoffFailure(value: unknown): HandoffFailureCategory {
 }
 
 export function trackArchivePageView(
-  pagePath: '/vibe-atlas' | '/vibe-atlas/archive',
+  pagePath: typeof PUBLIC_ROUTE_PATHS.vibeAtlas | typeof PUBLIC_ROUTE_PATHS.vibeAtlasArchive,
 ): void {
   recordArchiveReviewEvent({
     event: 'archive_page_view',

@@ -10,7 +10,7 @@ test('daily archive selection reuses the daily payload renderer and keeps today 
   assert.match(hookSource, /star-of-day\$\{query\}/);
   assert.match(appSource, /useStarOfDay\(archivePage && !activeEditionDate \? undefined : activeEditionDate\)/);
   assert.match(appSource, /isVibeAtlasArchiveLocation/);
-  assert.match(appSource, /`\/vibe-atlas\?date=\$\{encodeURIComponent\(edition\.date\)\}`/);
+  assert.match(appSource, /`\$\{PUBLIC_ROUTE_PATHS\.vibeAtlas\}\?date=\$\{encodeURIComponent\(edition\.date\)\}`/);
   assert.match(appSource, /selectedEditionDate \? `Archived card drop/);
   assert.match(appSource, /initialVibeAtlasEditionDate\(window\.location\.search\)/);
   assert.match(appSource, /params\.set\('date', date\)/);
@@ -36,7 +36,7 @@ test('every return to today clears per-image edition state', () => {
 test('archived editions expose an accessible date-aware copy link, but today does not', () => {
   assert.match(appSource, /const copyArchivedEditionLink = async \(\) =>/);
   assert.match(appSource, /navigator\.clipboard\?\.writeText/);
-  assert.match(appSource, /new URL\('\/vibe-atlas', window\.location\.origin\)/);
+  assert.match(appSource, /new URL\(PUBLIC_ROUTE_PATHS\.vibeAtlas, window\.location\.origin\)/);
   assert.match(appSource, /shareUrl\.searchParams\.set\('date', selectedEditionDate\)/);
   assert.match(appSource, /Copied link for \$\{formatEditionDate\(selectedEditionDate\)\}/);
   assert.match(appSource, /Could not copy this archived edition link/);
@@ -64,7 +64,7 @@ test('homepage delegates historical browsing to the dedicated Archive', () => {
   );
   assert.doesNotMatch(dailyView, /daily-archive__toggle/);
   assert.doesNotMatch(dailyView, /ArchiveEditionButton/);
-  assert.match(appSource, /window\.history\.pushState\(\{\}, '', '\/vibe-atlas\/archive'\)/);
+  assert.match(appSource, /window\.history\.pushState\(\{\}, '', PUBLIC_ROUTE_PATHS\.vibeAtlasArchive\)/);
 });
 
 test('daily and archive previews link only approved canonical public records', () => {

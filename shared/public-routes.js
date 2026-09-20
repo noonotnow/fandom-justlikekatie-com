@@ -4,6 +4,9 @@ export const PUBLIC_ROUTE_PATHS = Object.freeze({
   launchpad: "/",
   vibeAtlas: "/vibe-atlas",
   vibeAtlasArchive: "/vibe-atlas/archive",
+  vibeAtlasActors: "/vibe-atlas/actors",
+  vibeAtlasEditions: "/vibe-atlas/editions",
+  vibeAtlasVeteranJournal: "/vibe-atlas/veteran-journal",
 });
 
 const editorial = (path, priority = "0.8") => ({

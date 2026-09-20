@@ -1,3 +1,4 @@
+import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
 /** IndexedDB persistence for saved cards */
 import type {
   CollectionMediaRecovery,
@@ -521,7 +522,7 @@ export function normalizeCardForCollection(card: CardRecord): CardRecord {
   if (
     collectionScopeForCard(card) !== 'middle-earth'
     || (
-      !card.sourceRoute?.startsWith('/vibe-atlas')
+      !card.sourceRoute?.startsWith(PUBLIC_ROUTE_PATHS.vibeAtlas)
       && !card.gridContext
     )
   ) return card;

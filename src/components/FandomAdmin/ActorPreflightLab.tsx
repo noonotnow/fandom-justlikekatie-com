@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { PUBLIC_ROUTE_PATHS } from '../../../shared/public-routes.js';
 import {
   createMisprint,
   dbSaveCard,
@@ -331,7 +332,7 @@ export const ActorPreflightLab: React.FC = () => {
         title:candidate.title,
         publisher:candidate.source,
         searchQuery:candidate.query,
-        sourceRoute:'/vibe-atlas?admin=true',
+        sourceRoute:`${PUBLIC_ROUTE_PATHS.vibeAtlas}?admin=true`,
         collectionScope:'vibe-atlas',
       };
       await dbSaveCard({...card,misprint:createMisprint(card,{reason,label:receipt.label||definition.label,learningScope:receipt.correctionScope||definition.scope,calibrationStatus:result.calibrationStatus||'applied',unexpectedImageIdentity:receipt.actualIdentity||undefined,note:receipt.note||undefined,imageDigest:candidate.imageDigest,sourceRunId:receipt.sourceRunId||currentRun.runId,correctionReceiptId:receipt.receiptId},new Date(receipt.markedAt))});
@@ -801,7 +802,7 @@ function PublicationJoinSummary({receipt}:{receipt?:PublicationJoinReceipt}) {
     </div></div>
     {occurrences.length>0&&<div className={styles.publicationOccurrences}>{occurrences.map((occurrence,index)=><article key={`${occurrence.auditOccurrenceId??index}:${occurrence.auditIndex??index}`} data-status={occurrence.status}>
       <span><strong>Result {(occurrence.auditIndex??index)+1}</strong><small>{occurrence.status==='identity_unavailable'?'Identity unavailable':occurrence.status}</small></span>
-      {occurrence.status==='matched'&&occurrence.matches?.[0]?.publicationDate?<a href={`/vibe-atlas?date=${encodeURIComponent(occurrence.matches[0].publicationDate)}`}>{occurrence.matches[0].publicationDate} · card {Number(occurrence.matches[0].position)+1}</a>:occurrence.status==='ambiguous'?<div className={styles.publicationLinks}>{(occurrence.matches??[]).map((match,index)=><a key={`${match.publicationDate}:${match.position}:${index}`} href={`/vibe-atlas?date=${encodeURIComponent(match.publicationDate??'')}`}>{match.publicationDate??'Unknown edition'} · card {Number(match.position)+1}</a>)}</div>:<span className={styles.muted}>{occurrence.status==='missing'?'No immutable edition match':'No stable image identity was retained'}</span>}
+      {occurrence.status==='matched'&&occurrence.matches?.[0]?.publicationDate?<a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(occurrence.matches[0].publicationDate)}`}>{occurrence.matches[0].publicationDate} · card {Number(occurrence.matches[0].position)+1}</a>:occurrence.status==='ambiguous'?<div className={styles.publicationLinks}>{(occurrence.matches??[]).map((match,index)=><a key={`${match.publicationDate}:${match.position}:${index}`} href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(match.publicationDate??'')}`}>{match.publicationDate??'Unknown edition'} · card {Number(match.position)+1}</a>)}</div>:<span className={styles.muted}>{occurrence.status==='missing'?'No immutable edition match':'No stable image identity was retained'}</span>}
     </article>)}</div>}
   </section>;
 }
