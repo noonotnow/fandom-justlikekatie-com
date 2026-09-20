@@ -10,12 +10,21 @@ export const EXPECTED_SCHEDULED_FUNCTIONS = new Map([
 export function validateScheduledFunctionsManifest(manifest) {
   if (!manifest || !Array.isArray(manifest.functions)) {
     throw new Error(
-      "Netlify functions manifest is invalid: expected a top-level functions array.",
+      "NETLIFY_MANIFEST_FORMAT_CHANGE: expected a top-level functions array. The Netlify functions manifest contract may have changed; inspect the generated manifest before updating the pinned CLI.",
+    );
+  }
+
+  const malformedEntry = manifest.functions.find(
+    entry => !entry || typeof entry !== "object" || typeof entry.name !== "string",
+  );
+  if (malformedEntry) {
+    throw new Error(
+      "NETLIFY_MANIFEST_FORMAT_CHANGE: expected every functions entry to be an object with a string name. The Netlify functions manifest contract may have changed; inspect the generated manifest before updating the pinned CLI.",
     );
   }
 
   const packagedFunctions = new Map(
-    manifest.functions.map(entry => [entry?.name, entry]),
+    manifest.functions.map(entry => [entry.name, entry]),
   );
   const errors = [];
 
@@ -23,14 +32,14 @@ export function validateScheduledFunctionsManifest(manifest) {
     const packagedFunction = packagedFunctions.get(name);
     if (!packagedFunction) {
       errors.push(
-        `${name}: missing from the packaged Netlify functions manifest (expected ${expectedSchedule})`,
+        `SCHEDULED_JOB_MISSING: ${name} is missing from the packaged Netlify functions manifest (expected ${expectedSchedule})`,
       );
       continue;
     }
 
     if (packagedFunction.schedule !== expectedSchedule) {
       errors.push(
-        `${name}: packaged schedule is ${JSON.stringify(packagedFunction.schedule ?? null)}; expected ${JSON.stringify(expectedSchedule)}`,
+        `SCHEDULED_JOB_CADENCE_MISMATCH: ${name} packaged schedule is ${JSON.stringify(packagedFunction.schedule ?? null)}; expected ${JSON.stringify(expectedSchedule)}`,
       );
     }
   }

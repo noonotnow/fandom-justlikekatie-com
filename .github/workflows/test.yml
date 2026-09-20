@@ -5,9 +5,13 @@ on:
     branches: ["**"]
   pull_request:
     branches: ["**"]
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
 
 jobs:
   test:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 
     steps:
@@ -64,3 +68,32 @@ jobs:
 
       - name: Run browser tests
         run: npm run test:browser
+
+  netlify-package-compatibility:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Report current supported Netlify CLI
+        run: npx --yes netlify-cli@latest --version
+
+      - name: Verify current Netlify packaging contract
+        run: npm run check:scheduled-functions-package:compat
+
+      - name: Explain the pinning decision
+        if: always()
+        run: |
+          echo "The required release check remains pinned to netlify-cli@27.8.0."
+          echo "When this compatibility check passes on a newer CLI, update that pin in a reviewed change and confirm the generated .netlify/functions/manifest.json remains compatible."

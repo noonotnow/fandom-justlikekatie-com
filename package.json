@@ -16,6 +16,7 @@
     "check:lockfiles": "node .github/scripts/check-lockfiles.mjs",
     "check:migrations": "node scripts/check-migrations.js",
     "check:scheduled-functions-package": "FANDOM_STRIPE_MEMBERSHIP_PRICE_ID=price_ci_collector FANDOM_CREATOR_OS_PRICE_ID=price_ci_creator FANDOM_CREATOR_BRIDGE_PRICE_ID=price_ci_bridge FANDOM_ECOSYSTEM_BUNDLE_PRICE_ID=price_ci_bundle npx --yes netlify-cli@27.8.0 build --offline && node scripts/check-scheduled-functions-package.js",
+    "check:scheduled-functions-package:compat": "FANDOM_STRIPE_MEMBERSHIP_PRICE_ID=price_ci_collector FANDOM_CREATOR_OS_PRICE_ID=price_ci_creator FANDOM_CREATOR_BRIDGE_PRICE_ID=price_ci_bridge FANDOM_ECOSYSTEM_BUNDLE_PRICE_ID=price_ci_bundle npx --yes netlify-cli@latest build --offline && node scripts/check-scheduled-functions-package.js",
     "check:types": "tsc -b",
     "test": "npm run test:app && npm run test:functions && npm run test:scripts && npm run test:browser",
     "test:app": "node --import tsx/esm --test tests/*.test.ts",

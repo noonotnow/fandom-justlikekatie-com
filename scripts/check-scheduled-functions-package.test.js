@@ -27,7 +27,7 @@ test("reports a maintenance function omitted during packaging", () => {
 
   assert.throws(
     () => validateScheduledFunctionsManifest(manifest),
-    /archive-access-retention: missing from the packaged Netlify functions manifest \(expected @daily\)/,
+    /SCHEDULED_JOB_MISSING: archive-access-retention is missing from the packaged Netlify functions manifest \(expected @daily\)/,
   );
 });
 
@@ -39,13 +39,23 @@ test("reports a packaged maintenance function with a changed cadence", () => {
 
   assert.throws(
     () => validateScheduledFunctionsManifest(manifest),
-    /prune-rate-limits: packaged schedule is "@daily"; expected "@hourly"/,
+    /SCHEDULED_JOB_CADENCE_MISMATCH: prune-rate-limits packaged schedule is "@daily"; expected "@hourly"/,
   );
 });
 
 test("rejects malformed manifests with a clear error", () => {
   assert.throws(
     () => validateScheduledFunctionsManifest({}),
-    /expected a top-level functions array/,
+    /NETLIFY_MANIFEST_FORMAT_CHANGE: expected a top-level functions array/,
+  );
+});
+
+test("classifies changed function entry shapes as manifest format changes", () => {
+  const manifest = expectedManifest();
+  manifest.functions.push({ function_name: "new-format-function" });
+
+  assert.throws(
+    () => validateScheduledFunctionsManifest(manifest),
+    /NETLIFY_MANIFEST_FORMAT_CHANGE: expected every functions entry to be an object with a string name/,
   );
 });
