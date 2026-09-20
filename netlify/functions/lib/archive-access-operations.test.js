@@ -327,6 +327,7 @@ test("notification state matches Netlify Blobs strong metadata read contract", a
   assert.deepEqual(first.data.signals.billing, {
     status: "warning",
     notifiedAt: firstNow.toISOString(),
+    updatedAt: firstNow.toISOString(),
   });
   assert.equal(typeof first.data, "object");
   assert.ok(metadataReads.length >= 2);
@@ -353,6 +354,7 @@ test("notification state matches Netlify Blobs strong metadata read contract", a
   assert.deepEqual(second.data.signals.billing, {
     status: "normal",
     notifiedAt: secondNow.toISOString(),
+    updatedAt: secondNow.toISOString(),
   });
   assert.deepEqual(await data.setJSON(
     "archive-access:notification-state",

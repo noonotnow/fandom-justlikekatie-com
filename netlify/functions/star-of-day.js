@@ -71,6 +71,8 @@ const LOCK_TTL_MS = 25000; // a stale/abandoned lock is ignored after this long
 const POLL_INTERVAL_MS = 700;
 const POLL_MAX_WAIT_MS = 12000;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+export const ARCHIVE_PAGE_SIZE = 24;
+export const ARCHIVE_MAX_PAGE_SIZE = 100;
 
 function cacheKeyFor(dateString) {
   return `starOfDay:${VERSION}:${dateString}`;
@@ -711,7 +713,11 @@ export function createStarOfDayHandler({
     const url = new URL(req.url || "https://fandom.local/.netlify/functions/star-of-day");
 
     if (url.searchParams.get("archive") === "1") {
-      return jsonResponse(200, await listArchivedEditions(store, todayStr), {
+      const archivePage = parseArchivePage(url.searchParams);
+      if (!archivePage) {
+        return jsonResponse(400, { error: "Invalid archive pagination." });
+      }
+      return jsonResponse(200, await listArchivedEditions(store, todayStr, archivePage), {
         "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
       });
     }
@@ -939,7 +945,22 @@ function isUsableDate(value) {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
-async function listArchivedEditions(store, todayStr) {
+function parseArchivePage(searchParams) {
+  const cursor = searchParams.get("cursor");
+  if (cursor !== null && !isUsableDate(cursor)) return null;
+  const rawLimit = searchParams.get("limit");
+  if (rawLimit === null) return { cursor, limit: ARCHIVE_PAGE_SIZE };
+  if (!/^\d+$/.test(rawLimit)) return null;
+  const limit = Number(rawLimit);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > ARCHIVE_MAX_PAGE_SIZE) return null;
+  return { cursor, limit };
+}
+
+async function listArchivedEditions(
+  store,
+  todayStr,
+  { cursor = null, limit = ARCHIVE_PAGE_SIZE } = {},
+) {
   const existing = await store.get(ARCHIVE_CATALOG_KEY, {
     type: "json",
     consistency: "strong",
@@ -952,13 +973,28 @@ async function listArchivedEditions(store, todayStr) {
     editions = await migrateArchiveCatalog(store, todayStr);
   }
   const visible = editions.filter(edition => edition.date <= todayStr);
-  await ensureArchiveAccessWindow(store, visible.map(edition => edition.date));
+  const accessWindow = await ensureArchiveAccessWindow(
+    store,
+    visible.map(edition => edition.date),
+  );
+  const freeDates = archiveAccessWindowDates(accessWindow);
+  const eligible = cursor
+    ? visible.filter(edition => edition.date < cursor)
+    : visible;
+  const page = eligible.slice(0, limit);
+  const hasMore = eligible.length > page.length;
   return {
     version: VERSION,
-    editions: visible.map((edition, index) => ({
+    editions: page.map(edition => ({
       ...edition,
-      access: index < 4 ? "free" : "member",
+      access: freeDates.has(edition.date) ? "free" : "member",
     })),
+    page: {
+      limit,
+      nextCursor: hasMore ? page.at(-1)?.date || null : null,
+      hasMore,
+      total: visible.length,
+    },
   };
 }
 

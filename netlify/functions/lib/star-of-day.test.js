@@ -524,6 +524,120 @@ test("archive reads use precomputed metadata without listing or loading historic
   assert.deepEqual(store.stats(), { listCalls: 0, setCalls: 0 });
 });
 
+test("archive pages stay newest-first and keep global free badges across boundaries", async () => {
+  const dates = Array.from(
+    { length: 7 },
+    (_, index) => `2026-09-${String(20 - index).padStart(2, "0")}`,
+  );
+  const editions = dates.map(date => ({
+    date,
+    actorName: `Actor ${date}`,
+    actorShortNameEn: `Actor ${date}`,
+    vibeLabel: "夜色",
+    vibeLabelEn: "Night",
+    previewThumbnails: [],
+    access: "member",
+  }));
+  const store = makeStore({
+    [ARCHIVE_CATALOG_KEY]: {
+      schemaVersion: 1,
+      catalogVersion: 1,
+      kind: "vibe-atlas-archive-catalog",
+      editions,
+      updatedAt: "2026-09-20T00:00:00.000Z",
+    },
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(...dates),
+  });
+
+  const first = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1&limit=3" },
+    contextFor(store),
+  );
+  const firstBody = await first.json();
+  assert.deepEqual(firstBody.editions.map(edition => [edition.date, edition.access]), [
+    ["2026-09-20", "free"],
+    ["2026-09-19", "free"],
+    ["2026-09-18", "free"],
+  ]);
+  assert.deepEqual(firstBody.page, {
+    limit: 3,
+    nextCursor: "2026-09-18",
+    hasMore: true,
+    total: 7,
+  });
+
+  const second = await starOfDay(
+    {
+      method: "GET",
+      url: `https://example.test/star-of-day?archive=1&limit=3&cursor=${firstBody.page.nextCursor}`,
+    },
+    contextFor(store),
+  );
+  const secondBody = await second.json();
+  assert.deepEqual(secondBody.editions.map(edition => [edition.date, edition.access]), [
+    ["2026-09-17", "free"],
+    ["2026-09-16", "member"],
+    ["2026-09-15", "member"],
+  ]);
+  assert.equal(secondBody.page.nextCursor, "2026-09-15");
+});
+
+test("archive cursors do not shift when a newer edition publishes", async () => {
+  const metadata = date => ({
+    date,
+    actorName: `Actor ${date}`,
+    vibeLabel: "夜色",
+    access: "member",
+  });
+  const initial = ["2026-09-19", "2026-09-18", "2026-09-17", "2026-09-16"].map(metadata);
+  const store = makeStore({
+    [ARCHIVE_CATALOG_KEY]: {
+      schemaVersion: 1,
+      catalogVersion: 1,
+      kind: "vibe-atlas-archive-catalog",
+      editions: initial,
+      updatedAt: "2026-09-19T00:00:00.000Z",
+    },
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(...initial.map(item => item.date)),
+  });
+  const first = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1&limit=2" },
+    contextFor(store),
+  );
+  const cursor = (await first.json()).page.nextCursor;
+
+  await store.setJSON(ARCHIVE_CATALOG_KEY, {
+    schemaVersion: 1,
+    catalogVersion: 1,
+    kind: "vibe-atlas-archive-catalog",
+    editions: [metadata("2026-09-20"), ...initial],
+    updatedAt: "2026-09-20T00:00:00.000Z",
+  });
+  const second = await starOfDay(
+    {
+      method: "GET",
+      url: `https://example.test/star-of-day?archive=1&limit=2&cursor=${cursor}`,
+    },
+    contextFor(store),
+  );
+  assert.deepEqual((await second.json()).editions.map(edition => edition.date), [
+    "2026-09-17",
+    "2026-09-16",
+  ]);
+});
+
+test("archive pagination rejects invalid cursors and oversized pages", async () => {
+  const store = makeStore();
+  for (const url of [
+    "https://example.test/star-of-day?archive=1&cursor=not-a-date",
+    "https://example.test/star-of-day?archive=1&limit=101",
+  ]) {
+    const response = await starOfDay({ method: "GET", url }, contextFor(store));
+    assert.equal(response.status, 400);
+  }
+  assert.deepEqual(store.stats(), { listCalls: 0, setCalls: 0 });
+});
+
 test("archive migration fails closed instead of publishing an incomplete catalogue", async () => {
   const store = makeStore({
     "starOfDay:v6:2026-08-30": archivePayload("2026-08-30"),

@@ -134,7 +134,10 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     archive,
     archiveLoading,
     archiveError,
+    archiveHasMore,
+    archiveTotal,
     loadArchive,
+    loadMoreArchive,
     loading,
     error,
     gate,
@@ -610,6 +613,9 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           archive={archive}
           archiveLoading={archiveLoading}
           archiveError={archiveError}
+          archiveHasMore={archiveHasMore}
+          archiveTotal={archiveTotal}
+          loadMoreArchive={loadMoreArchive}
         />
       ) : view === 'daily' ? (
         <>
@@ -648,27 +654,34 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
                 </div>
                 <p>Revisit past stars, vibes, and evidence.</p>
               </div>
-              {archiveLoading ? (
+              {archiveLoading && archive.length === 0 ? (
                 <p className="daily-archive__status">Loading available editions…</p>
               ) : archiveError ? (
                 <p className="daily-archive__status daily-archive__status--error" role="alert">{archiveError}</p>
               ) : archive.length === 0 ? (
                 <p className="daily-archive__status">No archived editions are available yet.</p>
               ) : (
-                <div className="daily-archive__list">
-                  {archive.map((edition, index) => (
-                    <ArchiveEditionButton
-                      key={edition.date}
-                      edition={edition}
-                      isSelected={selectedEditionDate === edition.date}
-                      isLatest={index === 0}
-                      onSelect={() => {
-                        trackDailyArchiveEditionSelected(edition.date, index === 0);
-                        selectEdition(edition.date);
-                      }}
-                    />
-                  ))}
-                </div>
+                <>
+                  <div className="daily-archive__list">
+                    {archive.map((edition, index) => (
+                      <ArchiveEditionButton
+                        key={edition.date}
+                        edition={edition}
+                        isSelected={selectedEditionDate === edition.date}
+                        isLatest={index === 0}
+                        onSelect={() => {
+                          trackDailyArchiveEditionSelected(edition.date, index === 0);
+                          selectEdition(edition.date);
+                        }}
+                      />
+                    ))}
+                  </div>
+                  {archiveHasMore && (
+                    <button type="button" className="daily-archive__today" onClick={() => void loadMoreArchive()}>
+                      Load more editions
+                    </button>
+                  )}
+                </>
               )}
               <a className="daily-archive__full-link" href="/vibe-atlas/archive">Open the full archive →</a>
               {selectedEditionDate && (
@@ -1040,10 +1053,16 @@ function ArchivePage({
   archive,
   archiveLoading,
   archiveError,
+  archiveHasMore,
+  archiveTotal,
+  loadMoreArchive,
 }: {
   archive: StarOfDayArchiveEntry[];
   archiveLoading: boolean;
   archiveError: string | null;
+  archiveHasMore: boolean;
+  archiveTotal: number | null;
+  loadMoreArchive: () => Promise<void>;
 }) {
   const yearCount = new Set(archive.map(edition => edition.date.slice(0, 4))).size;
 
@@ -1070,28 +1089,40 @@ function ArchivePage({
             <p>Published boards only. Each plate opens the exact original nine-card edition.</p>
           </div>
           <dl aria-label="Archive summary">
-            <div><dt>Editions</dt><dd>{archive.length || '—'}</dd></div>
+            <div><dt>Editions</dt><dd>{(archiveTotal ?? archive.length) || '—'}</dd></div>
             <div><dt>Years</dt><dd>{yearCount || '—'}</dd></div>
             <div><dt>Format</dt><dd>3 × 3</dd></div>
           </dl>
         </div>
-        {archiveLoading ? (
+        {archiveLoading && archive.length === 0 ? (
           <p className="daily-archive__status">Loading published editions…</p>
         ) : archiveError ? (
           <p className="daily-archive__status daily-archive__status--error" role="alert">{archiveError}</p>
         ) : archive.length === 0 ? (
           <p className="daily-archive__status">No published editions are available yet.</p>
         ) : (
-          <div className="archive-gallery">
-            {archive.map((edition, index) => (
-              <ArchiveEditionCard
-                key={edition.date}
-                edition={edition}
-                index={index}
-                issueNumber={archive.length - index}
-              />
-            ))}
-          </div>
+          <>
+            <div className="archive-gallery">
+              {archive.map((edition, index) => (
+                <ArchiveEditionCard
+                  key={edition.date}
+                  edition={edition}
+                  index={index}
+                  issueNumber={(archiveTotal ?? archive.length) - index}
+                />
+              ))}
+            </div>
+            {archiveHasMore && (
+              <button
+                type="button"
+                className="daily-archive__today"
+                disabled={archiveLoading}
+                onClick={() => void loadMoreArchive()}
+              >
+                {archiveLoading ? 'Loading editions…' : 'Load more editions'}
+              </button>
+            )}
+          </>
         )}
         <footer className="archive-footer">
           <span>Fandom Vibes · Permanent edition record</span>

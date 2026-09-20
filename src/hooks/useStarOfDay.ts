@@ -154,7 +154,10 @@ export interface UseStarOfDayReturn {
   archive: StarOfDayArchiveEntry[];
   archiveLoading: boolean;
   archiveError: string | null;
+  archiveHasMore: boolean;
+  archiveTotal: number | null;
   loadArchive: () => Promise<void>;
+  loadMoreArchive: () => Promise<void>;
   loading: boolean;
   error: string | null;
   gate: ArchiveGate | null;
@@ -167,6 +170,9 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
   const [archive, setArchive] = useState<StarOfDayArchiveEntry[]>([]);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [archiveNextCursor, setArchiveNextCursor] = useState<string | null>(null);
+  const [archiveHasMore, setArchiveHasMore] = useState(false);
+  const [archiveTotal, setArchiveTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [gate, setGate] = useState<ArchiveGate | null>(null);
@@ -263,25 +269,47 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
     return () => { cancelled = true; };
   }, [editionDate]);
 
-  const loadArchive = useCallback(async () => {
+  const fetchArchivePage = useCallback(async (cursor: string | null, append: boolean) => {
     setArchiveLoading(true);
     setArchiveError(null);
     try {
-      const res = await fetch('/.netlify/functions/star-of-day?archive=1');
+      const query = new URLSearchParams({ archive: '1' });
+      if (cursor) query.set('cursor', cursor);
+      const res = await fetch(`/.netlify/functions/star-of-day?${query}`);
       if (!res.ok) throw new Error(`API error: ${res.status}`);
       if (!res.headers.get('content-type')?.includes('application/json')) {
         throw new Error('The Vibe Atlas archive is unavailable in this preview.');
       }
-      const data: { editions?: StarOfDayArchiveEntry[] } = await res.json();
-      setArchive(Array.isArray(data.editions)
+      const data: {
+        editions?: StarOfDayArchiveEntry[];
+        page?: { nextCursor?: string | null; hasMore?: boolean; total?: number };
+      } = await res.json();
+      const editions = Array.isArray(data.editions)
         ? data.editions.map(projectPublicRecord)
-        : []);
+        : [];
+      setArchive(current => append
+        ? [...current, ...editions.filter(edition =>
+          !current.some(existing => existing.date === edition.date))]
+        : editions);
+      setArchiveNextCursor(data.page?.nextCursor || null);
+      setArchiveHasMore(data.page?.hasMore === true);
+      setArchiveTotal(Number.isInteger(data.page?.total) ? data.page!.total! : null);
     } catch (err) {
       setArchiveError(err instanceof Error ? err.message : 'Failed to load the archive');
     } finally {
       setArchiveLoading(false);
     }
   }, []);
+
+  const loadArchive = useCallback(
+    () => fetchArchivePage(null, false),
+    [fetchArchivePage],
+  );
+
+  const loadMoreArchive = useCallback(
+    () => archiveNextCursor ? fetchArchivePage(archiveNextCursor, true) : Promise.resolve(),
+    [archiveNextCursor, fetchArchivePage],
+  );
 
   return {
     items,
@@ -290,7 +318,10 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
     archive,
     archiveLoading,
     archiveError,
+    archiveHasMore,
+    archiveTotal,
     loadArchive,
+    loadMoreArchive,
     loading,
     error,
     gate,
