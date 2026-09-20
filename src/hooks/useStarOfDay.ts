@@ -60,6 +60,34 @@ export interface PublicRecordLinks {
   editionPath: string;
 }
 
+function validPublicRecord(value: unknown): PublicRecordLinks | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Partial<PublicRecordLinks>;
+  if (
+    typeof record.actorPath !== 'string'
+    || !record.actorPath.startsWith('/vibe-atlas/actors/')
+    || typeof record.editionPath !== 'string'
+    || !record.editionPath.startsWith('/vibe-atlas/editions/')
+  ) {
+    return undefined;
+  }
+  return {
+    actorPath: record.actorPath,
+    editionPath: record.editionPath,
+  };
+}
+
+function projectPublicRecord<T extends { publicRecord?: unknown }>(
+  value: T,
+): Omit<T, 'publicRecord'> & { publicRecord?: PublicRecordLinks } {
+  const { publicRecord, ...projected } = value;
+  const validated = validPublicRecord(publicRecord);
+  return {
+    ...projected,
+    ...(validated ? { publicRecord: validated } : {}),
+  };
+}
+
 export interface StarOfDayArchiveEntry {
   date: string;
   actorName: string;
@@ -184,7 +212,10 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
             && body?.edition
             && ['sign_in', 'upgrade', 'billing_delay'].includes(body.access || '')
           ) {
-            setGate({ reason: body.access as ArchiveGate['reason'], edition: body.edition });
+            setGate({
+              reason: body.access as ArchiveGate['reason'],
+              edition: projectPublicRecord(body.edition),
+            });
             setLoading(false);
             return;
           }
@@ -194,7 +225,7 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
           throw new Error('Today’s Vibe Atlas data service is unavailable in this preview.');
         }
 
-        const data: StarOfDayData = await res.json();
+        const data = projectPublicRecord(await res.json() as StarOfDayData);
 
         if (cancelled) return;
 
@@ -254,7 +285,9 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
         throw new Error('The Vibe Atlas archive is unavailable in this preview.');
       }
       const data: { editions?: StarOfDayArchiveEntry[] } = await res.json();
-      setArchive(Array.isArray(data.editions) ? data.editions : []);
+      setArchive(Array.isArray(data.editions)
+        ? data.editions.map(projectPublicRecord)
+        : []);
     } catch (err) {
       setArchiveError(err instanceof Error ? err.message : 'Failed to load the archive');
     } finally {
