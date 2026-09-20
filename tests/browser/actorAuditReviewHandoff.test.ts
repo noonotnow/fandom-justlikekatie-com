@@ -2119,13 +2119,23 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
       'the fresh audit must be a distinct audit request after calibration confirmation',
     );
 
-    const rawResults = page.locator('details').filter({ hasText: 'Bounded raw results' });
+    const rawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
+    assert.match(
+      await rawResults.locator(':scope > summary').innerText(),
+      /Bounded raw results Current · writable · \d+ records/,
+      'the current raw-results summary must identify its evidence as writable before expansion',
+    );
     await rawResults.locator(':scope > summary').click();
     const firstResult = rawResults.locator('article').first();
     const runSelect = page.getByLabel('Audit run');
     await runSelect.selectOption('run-1');
     await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor();
-    const historicalRawResults = page.locator('details').filter({ hasText: 'Bounded raw results' });
+    const historicalRawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
+    assert.match(
+      await historicalRawResults.locator(':scope > summary').innerText(),
+      /Bounded raw results Retained · frozen read-only · \d+ records/,
+      'the retained raw-results summary must identify its evidence as frozen before expansion',
+    );
     await historicalRawResults.evaluate((element: HTMLDetailsElement) => {
       element.open = true;
     });
@@ -2149,18 +2159,20 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
 
     await runSelect.selectOption('run-legacy');
     await page.getByRole('heading', { name: 'Legacy audit · retained history · run-legacy', exact: true }).waitFor();
-    const legacyRawResults = page.locator('details').filter({ hasText: 'Bounded raw results' });
+    const legacyRawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
+    assert.match(
+      await legacyRawResults.locator(':scope > summary').innerText(),
+      /Bounded raw results Legacy · frozen read-only · \d+ records/,
+      'the Legacy raw-results summary must identify its evidence as frozen before expansion',
+    );
     await legacyRawResults.evaluate((element: HTMLDetailsElement) => {
       element.open = true;
     });
     const legacyFirstResult = legacyRawResults.locator('article').first();
-    await legacyFirstResult.locator('details').filter({ hasText: 'Mark Misprint' }).evaluate((element: HTMLDetailsElement) => {
-      element.open = true;
-    });
     assert.equal(
-      await legacyFirstResult.getByRole('button', { name: 'Preserve & correct', exact: true }).isDisabled(),
-      true,
-      'a revealed Legacy result must not accept a new Misprint correction',
+      await legacyFirstResult.locator('button, input, select, textarea, form, details').count(),
+      0,
+      'a revealed Legacy result must hide all image mutation controls',
     );
     assert.equal(
       misprintRequests.length,
@@ -2170,20 +2182,22 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
 
     await runSelect.selectOption('run-2');
     await page.getByRole('heading', { name: 'Audit evidence · run-2', exact: true }).waitFor();
-    await rawResults.evaluate((element: HTMLDetailsElement) => {
+    const currentRawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
+    await currentRawResults.evaluate((element: HTMLDetailsElement) => {
       element.open = true;
     });
-    await firstResult.locator('details').filter({ hasText: 'Mark Misprint' }).evaluate((element: HTMLDetailsElement) => {
+    const currentFirstResult = currentRawResults.locator('article').first();
+    await currentFirstResult.locator('details').filter({ hasText: 'Mark Misprint' }).evaluate((element: HTMLDetailsElement) => {
       element.open = true;
     });
     assert.equal(
-      await firstResult.getByRole('button', { name: 'Preserve & correct', exact: true }).isEnabled(),
+      await currentFirstResult.getByRole('button', { name: 'Preserve & correct', exact: true }).isEnabled(),
       true,
       'returning to the current writable audit must restore the correction action',
     );
-    await firstResult.getByLabel('Who showed up? (optional)').fill('Zhang Linghe auditioning as Liu Xueyi');
-    await firstResult.getByLabel('Operator note (optional)').fill('Image metadata committed perjury.');
-    await firstResult.getByRole('button', { name: 'Preserve & correct', exact: true }).click();
+    await currentFirstResult.getByLabel('Who showed up? (optional)').fill('Zhang Linghe auditioning as Liu Xueyi');
+    await currentFirstResult.getByLabel('Operator note (optional)').fill('Image metadata committed perjury.');
+    await currentFirstResult.getByRole('button', { name: 'Preserve & correct', exact: true }).click();
     await page.getByText('Some Other Man™ preserved in Misprints.', { exact: false }).waitFor();
 
     assert.equal(misprintRequests.length, 1, 'the correction should create one candidate-level Misprint receipt');
@@ -2203,12 +2217,12 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
       'the failed result should remain visible as collectible evidence',
     );
     assert.equal(
-      await firstResult.getByRole('button', { name: 'Pin for board', exact: true }).isDisabled(),
+      await currentFirstResult.getByRole('button', { name: 'Pin for board', exact: true }).isDisabled(),
       true,
       'a Misprint cannot be turned back into positive curation evidence',
     );
     assert.equal(
-      await firstResult.getByText('Mark Misprint', { exact: true }).count(),
+      await currentFirstResult.getByText('Mark Misprint', { exact: true }).count(),
       0,
       'an immutable Misprint should not offer a second correction action',
     );
