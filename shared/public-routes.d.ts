@@ -8,6 +8,7 @@ export type PublicStaticRoute = {
 
 export const PUBLIC_ORIGIN: string;
 export const PUBLIC_ROUTE_PATHS: Readonly<{
+  launchpad: "/";
   vibeAtlas: "/vibe-atlas";
   vibeAtlasArchive: "/vibe-atlas/archive";
 }>;

@@ -2,12 +2,33 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import seoIndexing, { shouldNoindexUrl } from '../netlify/edge-functions/seo-indexing.js';
+import { PUBLIC_ROUTE_PATHS, publicRouteUrl } from '../shared/public-routes.js';
+import { injectLaunchpadCanonical } from '../vite.config.js';
 
 const indexHtml = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const netlifyConfig = await readFile(new URL('../netlify.toml', import.meta.url), 'utf8');
 const robots = await readFile(new URL('../public/robots.txt', import.meta.url), 'utf8');
 const sitemap = await readFile(new URL('../public/sitemap.xml', import.meta.url), 'utf8');
+
+test('the launchpad canonical is injected from the shared public route before React runs', () => {
+  const builtHtml = injectLaunchpadCanonical(indexHtml);
+  const expectedCanonical = publicRouteUrl(PUBLIC_ROUTE_PATHS.launchpad);
+
+  assert.match(
+    indexHtml,
+    /<link rel="canonical" href="%PUBLIC_LAUNCHPAD_CANONICAL%" \/>/,
+  );
+  assert.doesNotMatch(indexHtml, /<link rel="canonical" href="https?:\/\//);
+  assert.match(
+    builtHtml,
+    new RegExp(`<link rel="canonical" href="${expectedCanonical}" />`),
+  );
+  assert.throws(
+    () => injectLaunchpadCanonical(builtHtml),
+    /Expected exactly one %PUBLIC_LAUNCHPAD_CANONICAL% placeholder.*found 0/,
+  );
+});
 
 test('the response layer excludes private query views but not the public daily route', () => {
   assert.equal(shouldNoindexUrl('https://fandom.justlikekatie.com/vibe-atlas'), false);

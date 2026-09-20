@@ -1,5 +1,21 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { PUBLIC_ROUTE_PATHS, publicRouteUrl } from './shared/public-routes.js'
+
+const launchpadCanonicalPlaceholder = '%PUBLIC_LAUNCHPAD_CANONICAL%'
+
+export function injectLaunchpadCanonical(html: string) {
+  const occurrences = html.split(launchpadCanonicalPlaceholder).length - 1
+  if (occurrences !== 1) {
+    throw new Error(
+      `Expected exactly one ${launchpadCanonicalPlaceholder} placeholder in index.html; found ${occurrences}`,
+    )
+  }
+  return html.replace(
+    launchpadCanonicalPlaceholder,
+    publicRouteUrl(PUBLIC_ROUTE_PATHS.launchpad),
+  )
+}
 
 const editorialRouteFiles = new Map([
   ['/c-drama-fandom', '/c-drama-fandom/index.html'],
@@ -32,6 +48,13 @@ const editorialRouteFiles = new Map([
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
+    {
+      name: 'fandom-launchpad-canonical',
+      transformIndexHtml: {
+        order: 'pre',
+        handler: injectLaunchpadCanonical,
+      },
+    },
     {
       name: 'fandom-editorial-clean-routes',
       configureServer(server) {

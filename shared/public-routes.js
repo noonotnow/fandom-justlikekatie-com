@@ -1,6 +1,7 @@
 export const PUBLIC_ORIGIN = "https://fandom.justlikekatie.com";
 
 export const PUBLIC_ROUTE_PATHS = Object.freeze({
+  launchpad: "/",
   vibeAtlas: "/vibe-atlas",
   vibeAtlasArchive: "/vibe-atlas/archive",
 });
@@ -19,7 +20,7 @@ const journalRanges = [
 ];
 
 export const PUBLIC_STATIC_ROUTES = Object.freeze([
-  { path: "/", changefreq: "weekly", priority: "0.8" },
+  { path: PUBLIC_ROUTE_PATHS.launchpad, changefreq: "weekly", priority: "0.8" },
   editorial("/c-drama-fandom/", "1.0"),
   editorial("/c-drama-fandom/getting-started/"),
   editorial("/c-drama-fandom/glossary/"),
