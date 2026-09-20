@@ -22,6 +22,7 @@ import { collectorBenefits, type CollectorPalette } from '../../utils/collectorB
 import { isVerifiedMediaReference } from '../../utils/mediaReference';
 import {
   applyLens,
+  actorPackIdForLens,
   buildVibeAtlasPool,
   gridRecordFromProposal,
   lensOptions,
@@ -35,6 +36,26 @@ import {
   type GridProposal,
 } from '../../utils/gridBuilder';
 import styles from './GridBuilder.module.css';
+
+interface ActorPackSourceVibe {
+  emoji?: string;
+  label?: string;
+  label_en?: string;
+  sourceDepth?: {
+    queries?: string[];
+    authoringPrompt?: string;
+  };
+}
+
+interface ActorPackSourceNotes {
+  id: string;
+  name?: string;
+  name_en?: string;
+  provenance: {
+    attribution: string;
+  };
+  vibes: ActorPackSourceVibe[];
+}
 
 interface Props {
   /** Account id of the signed-in user; scopes the pool to that account's visible records. */
@@ -80,6 +101,11 @@ export const GridBuilder: React.FC<Props> = ({
   // When true, a successful save should also trigger the onExported navigation.
   const [pendingNavAfterSave, setPendingNavAfterSave] = useState(false);
   const [palette, setPalette] = useState<CollectorPalette | null>(null);
+  const [sourceNotesOpen, setSourceNotesOpen] = useState(false);
+  const [sourceNotesBusy, setSourceNotesBusy] = useState(false);
+  const [sourceNotesError, setSourceNotesError] = useState('');
+  const [sourceNotes, setSourceNotes] = useState<ActorPackSourceNotes | null>(null);
+  const sourceNotesRequest = useRef(0);
   // Tracks the id of the last grid that was saved before a slot swap changed
   // the proposal.  When the user saves after swapping, the stale record is
   // removed first so only the latest version lives in the store.
@@ -154,6 +180,9 @@ export const GridBuilder: React.FC<Props> = ({
     () => pool && lens.actor ? applyLens(pool, { mode: lens.mode, actor: lens.actor }) : [],
     [pool, lens.actor, lens.mode],
   );
+  const selectedActorPackId = useMemo(() => {
+    return pool ? actorPackIdForLens(pool, lens.actor) : '';
+  }, [lens.actor, pool]);
   const proposalTargetSize = proposal?.rationale.compositionSize || 9;
   const proposalComplete = Boolean(proposal && proposal.slots.length === proposalTargetSize);
   const proposalEvidence = useMemo(() => {
@@ -166,6 +195,45 @@ export const GridBuilder: React.FC<Props> = ({
       primaryFamily: proposal.slots[0]?.familyLabel || 'Unresolved family',
     };
   }, [proposal]);
+
+  useEffect(() => {
+    sourceNotesRequest.current += 1;
+    setSourceNotesOpen(false);
+    setSourceNotesBusy(false);
+    setSourceNotesError('');
+    setSourceNotes(null);
+  }, [lens.actor]);
+
+  async function openSourceNotes() {
+    setSourceNotesOpen(true);
+    if (!hasCollectorAccess || !selectedActorPackId || sourceNotes?.id === selectedActorPackId) return;
+
+    const requestId = ++sourceNotesRequest.current;
+    setSourceNotesBusy(true);
+    setSourceNotesError('');
+    try {
+      const params = new URLSearchParams({ actorId: selectedActorPackId });
+      const response = await fetch(`/.netlify/functions/actor-pack-depth?${params.toString()}`, {
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(result?.error || 'Source notes are temporarily unavailable.');
+      }
+      const pack = result?.packs?.[0];
+      if (!pack?.id || !pack?.provenance?.attribution || !Array.isArray(pack?.vibes)) {
+        throw new Error('Source notes are temporarily unavailable.');
+      }
+      if (sourceNotesRequest.current === requestId) setSourceNotes(pack);
+    } catch {
+      if (sourceNotesRequest.current === requestId) {
+        setSourceNotesError('Source notes are still syncing. You can keep building with your saved images.');
+      }
+    } finally {
+      if (sourceNotesRequest.current === requestId) setSourceNotesBusy(false);
+    }
+  }
 
   function setMode(mode: 'standard' | 'misprints') {
     if (!sourceRecords) return;
@@ -629,6 +697,66 @@ export const GridBuilder: React.FC<Props> = ({
           <LensRow label="Visual family" options={familyOptions} active={lens.familyId} onToggle={value => toggle('familyId', value)} />
         )}
       </div>
+
+      {lens.actor && (
+        <section className={styles.sourceNotes} aria-label={`Source notes for ${lens.actor}`}>
+          <div className={styles.sourceNotesIntro}>
+            <div>
+              <strong>Actor source notes</strong>
+              <span>
+                {hasCollectorAccess
+                  ? 'Open the editorial searches and visual directions behind this actor pack.'
+                  : 'Collector adds the source searches and editorial directions behind each actor pack.'}
+              </span>
+            </div>
+            <button
+              type="button"
+              aria-expanded={sourceNotesOpen}
+              onClick={sourceNotesOpen ? () => setSourceNotesOpen(false) : openSourceNotes}
+            >
+              {sourceNotesOpen ? 'Hide notes' : hasCollectorAccess ? 'Open notes' : 'Preview benefit'}
+            </button>
+          </div>
+
+          {sourceNotesOpen && (
+            <div className={styles.sourceNotesBody}>
+              {!hasCollectorAccess ? (
+                <>
+                  <p>Explore source trails and authoring context without leaving the Builder. Protected searches and notes stay available only to active Collectors.</p>
+                  {onUpgrade && <button type="button" className={styles.sourceNotesUpgrade} onClick={onUpgrade}>Explore Fandom Collector</button>}
+                </>
+              ) : sourceNotesBusy ? (
+                <p role="status">Loading private source notes…</p>
+              ) : sourceNotesError ? (
+                <p role="status">{sourceNotesError}</p>
+              ) : sourceNotes ? (
+                <>
+                  <div className={styles.sourceNotesList}>
+                    {sourceNotes.vibes.map((vibe, index) => (
+                      <article key={`${vibe.label_en || vibe.label || 'vibe'}-${index}`}>
+                        <strong>{vibe.emoji} {vibe.label_en || vibe.label || 'Editorial direction'}</strong>
+                        {vibe.sourceDepth?.queries && vibe.sourceDepth.queries.length > 0 && (
+                          <>
+                            <small>Source searches</small>
+                            <ul>{vibe.sourceDepth.queries.map(query => <li key={query}>{query}</li>)}</ul>
+                          </>
+                        )}
+                        {vibe.sourceDepth?.authoringPrompt && (
+                          <>
+                            <small>Authoring note</small>
+                            <p>{vibe.sourceDepth.authoringPrompt}</p>
+                          </>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                  <footer>Source: {sourceNotes.provenance.attribution}</footer>
+                </>
+              ) : null}
+            </div>
+          )}
+        </section>
+      )}
 
       {builderMode === 'smart' && <button type="button" className={styles.propose} onClick={propose} disabled={lensedCount === 0}>
         {proposal

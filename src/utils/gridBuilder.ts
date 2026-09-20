@@ -95,6 +95,27 @@ export interface GridProposal {
 
 // ── Pool construction ──────────────────────────────────────────────
 
+const LEGACY_ACTOR_PACK_IDS: Record<string, string> = {
+  '刘宇宁': 'liu-yuning',
+  'Liu Yuning': 'liu-yuning',
+  '刘学义': 'liu-xueyi',
+  'Liu Xueyi': 'liu-xueyi',
+  '宋威龙': 'song-weilong',
+  'Song Weilong': 'song-weilong',
+  '张凌赫': 'zhang-linghe',
+  'Zhang Linghe': 'zhang-linghe',
+  '敖瑞鹏': 'ao-ruipeng',
+  'Ao Ruipeng': 'ao-ruipeng',
+  '丁禹兮': 'ding-yuxi',
+  'Ding Yuxi': 'ding-yuxi',
+  '王鹤棣': 'dylan-wang',
+  'Dylan': 'dylan-wang',
+  'Dylan Wang': 'dylan-wang',
+  '王以纶': 'riley-wang',
+  'Riley': 'riley-wang',
+  'Riley Wang': 'riley-wang',
+};
+
 function savedRecordKey(card: CardRecord, index: number): string {
   return card.localId
     || card.serverId
@@ -108,6 +129,9 @@ function savedRecordKey(card: CardRecord, index: number): string {
 }
 
 function fromSavedCard(card: CardRecord, index: number): BuilderCard {
+  const canonicalActorId = card.actorId?.trim()
+    || LEGACY_ACTOR_PACK_IDS[card.actor]
+    || LEGACY_ACTOR_PACK_IDS[card.actorEn];
   return {
     key: savedRecordKey(card, index),
     imageUrl: card.media?.thumbnailUrl || card.thumbnailUrl || card.imageUrl,
@@ -116,7 +140,7 @@ function fromSavedCard(card: CardRecord, index: number): BuilderCard {
     ...(card.publisher ? { publisher: card.publisher } : {}),
     actor: card.actor,
     actorEn: card.actorEn,
-    actorId: `saved-${slugify(card.actorEn || card.actor)}`,
+    actorId: canonicalActorId || `saved-${slugify(card.actorEn || card.actor)}`,
     actorAccentColor: '#c9a96e',
     vibe: card.vibe,
     vibeEn: card.vibeEn,
@@ -133,6 +157,12 @@ function fromSavedCard(card: CardRecord, index: number): BuilderCard {
     familyLabel: '',
     ...(card.legendaryMisprint ? { legendaryMisprint: card.legendaryMisprint } : {}),
   };
+}
+
+export function actorPackIdForLens(pool: BuilderCard[], actor: string | undefined): string {
+  if (!actor) return '';
+  const actorId = pool.find(card => card.actor === actor)?.actorId || '';
+  return actorId.replace(/^saved-/, '');
 }
 
 function slugify(value: string): string {

@@ -62,6 +62,27 @@
 .chip[aria-pressed="true"] { background: var(--gb-gold); color: #15120e; border-color: var(--gb-gold); }
 .chip[aria-pressed="true"] em { color: #5b4a29; }
 
+.sourceNotes { border: 1px solid var(--gb-border); border-radius: 12px; background: var(--gb-panel); overflow: hidden; }
+.sourceNotesIntro { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 14px; }
+.sourceNotesIntro > div { display: grid; gap: 3px; }
+.sourceNotesIntro strong { color: var(--gb-gold); font-size: 13px; }
+.sourceNotesIntro span { color: var(--gb-muted); font-size: 12px; line-height: 1.4; }
+.sourceNotesIntro button, .sourceNotesUpgrade { flex: 0 0 auto; min-height: 34px; padding: 6px 11px; border: 1px solid var(--gb-gold); border-radius: 8px; background: transparent; color: var(--gb-gold); font-size: 12px; font-weight: 700; }
+.sourceNotesBody { display: grid; gap: 12px; padding: 0 14px 14px; border-top: 1px solid var(--gb-border); }
+.sourceNotesBody > p { margin: 12px 0 0; color: var(--gb-muted); font-size: 12px; line-height: 1.5; }
+.sourceNotesUpgrade { justify-self: start; }
+.sourceNotesList { display: grid; gap: 10px; padding-top: 12px; max-height: 360px; overflow: auto; }
+.sourceNotesList article { display: grid; gap: 6px; padding: 11px; border-radius: 9px; background: color-mix(in srgb, currentColor 4%, transparent); }
+.sourceNotesList article > strong { font-size: 13px; }
+.sourceNotesList small { color: var(--gb-muted); font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.sourceNotesList ul { display: grid; gap: 4px; margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.4; }
+.sourceNotesList p { margin: 0; font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
+.sourceNotesBody footer { color: var(--gb-muted); font-size: 10px; }
+@media (max-width: 620px) {
+  .sourceNotesIntro { align-items: flex-start; }
+  .sourceNotesIntro button { white-space: nowrap; }
+}
+
 .propose { justify-self: start; min-height: 42px; padding: 9px 18px; border: 1px solid var(--gb-gold); border-radius: 10px; background: var(--gb-gold); color: #15120e; font-size: 14px; font-weight: 600; }
 .propose:disabled { opacity: .45; cursor: not-allowed; }
 
