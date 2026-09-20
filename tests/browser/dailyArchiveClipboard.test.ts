@@ -146,3 +146,62 @@ for (const engine of BROWSER_ENGINES) {
     }
   });
 }
+
+test('an older direct archive URL renders only the Founding Member preview gate', { timeout: 45_000 }, async () => {
+  const engine = BROWSER_ENGINES[0];
+  const browser = await launchBrowser(engine.type);
+  let app: Awaited<ReturnType<typeof startApp>> | undefined;
+  try {
+    app = await startApp();
+    const page = await browser.newPage();
+    await page.route('https://www.googletagmanager.com/**', route => route.abort());
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ user: null }),
+    }));
+    await page.route('**/api/membership/status', route => route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Sign in is required.' }),
+    }));
+    await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
+    await page.route('**/.netlify/functions/star-of-day**', async route => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get('archive') === '1') {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ editions: [] }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: 'archive_access_required',
+          access: 'sign_in',
+          capability: 'fandom_collector',
+          edition: {
+            date: ARCHIVED_DATE,
+            actorName: 'Browser Archive Actor',
+            actorShortNameEn: 'Browser Archive Actor',
+            vibeEmoji: '🧪',
+            vibeLabel: 'Browser Archive Vibe',
+            vibeLabelEn: 'Browser Archive Vibe',
+            previewThumbnails: ['https://images.browser-archive.test/preview.jpg'],
+            access: 'member',
+          },
+        }),
+      });
+    });
+
+    await page.goto(`${app.origin}/vibe-atlas?date=${ARCHIVED_DATE}`, { waitUntil: 'domcontentloaded' });
+    await page.getByRole('heading', { name: /Browser Archive Actor/ }).waitFor();
+    await page.getByText(/Founding Members can unlock the complete nine-card board/).waitFor();
+    assert.equal(await page.locator('.daily-grid').count(), 0);
+    assert.equal(await page.getByLabel('Sign in to check your archive access').count(), 1);
+  } finally {
+    await browser.close();
+    await app?.server.close();
+  }
+});

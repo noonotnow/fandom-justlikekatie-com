@@ -66,6 +66,12 @@ export interface StarOfDayArchiveEntry {
   previewThumbnails?: string[];
   legendaryMisprint?: boolean;
   legendaryMisprintTitle?: string;
+  access?: 'free' | 'member';
+}
+
+export interface ArchiveGate {
+  reason: 'sign_in' | 'upgrade' | 'billing_delay';
+  edition: StarOfDayArchiveEntry;
 }
 
 function proxyUrl(url: string): string {
@@ -128,6 +134,7 @@ export interface UseStarOfDayReturn {
   loadArchive: () => Promise<void>;
   loading: boolean;
   error: string | null;
+  gate: ArchiveGate | null;
 }
 
 export const useStarOfDay = (editionDate: string | null | undefined = null): UseStarOfDayReturn => {
@@ -139,6 +146,7 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [gate, setGate] = useState<ArchiveGate | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -147,6 +155,7 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
     setRawData(null);
     setLoading(true);
     setError(null);
+    setGate(null);
 
     if (editionDate === undefined) {
       setLoading(false);
@@ -157,7 +166,23 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
       try {
         const query = editionDate ? `?date=${encodeURIComponent(editionDate)}` : '';
         const res = await fetch(`/.netlify/functions/star-of-day${query}`);
-        if (!res.ok) throw new Error(`API error: ${res.status}`);
+        if (!res.ok) {
+          const body = await res.json().catch(() => null) as {
+            access?: ArchiveGate['reason'];
+            edition?: StarOfDayArchiveEntry;
+            error?: string;
+          } | null;
+          if (
+            (res.status === 401 || res.status === 403 || res.status === 503)
+            && body?.edition
+            && ['sign_in', 'upgrade', 'billing_delay'].includes(body.access || '')
+          ) {
+            setGate({ reason: body.access as ArchiveGate['reason'], edition: body.edition });
+            setLoading(false);
+            return;
+          }
+          throw new Error(body?.error || `API error: ${res.status}`);
+        }
         if (!res.headers.get('content-type')?.includes('application/json')) {
           throw new Error('Today’s Vibe Atlas data service is unavailable in this preview.');
         }
@@ -240,5 +265,6 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
     loadArchive,
     loading,
     error,
+    gate,
   };
 };

@@ -24,6 +24,14 @@ import {
   manifestPayload,
   materializePublicationManifest,
 } from "./lib/publication-manifest.js";
+import { createPublicAuth } from "./lib/public-auth.js";
+import { createBillingServices } from "./lib/billing.js";
+import {
+  archiveAccessDecision,
+  archiveGateEnabled,
+  freeArchiveDates,
+  publicArchiveEdition,
+} from "./lib/archive-access.js";
 
 // Server-side daily cache for "Star of the Day".
 //
@@ -666,19 +674,28 @@ export async function releaseLock(store, dateString, lock) {
   }
 }
 
-export default async (req, context) => {
+export function createStarOfDayHandler({
+  env = process.env,
+  auth = createPublicAuth({ env, getStore: getBlobStore }),
+  billing = createBillingServices({ env }),
+  getStore = getBlobStore,
+  today = getShanghaiDateString,
+} = {}) {
+  return async (req, context) => {
   if (req.method && req.method !== "GET") {
     return jsonResponse(405, { error: "Method not allowed" });
   }
 
   try {
-    const store = getBlobStore(STORE_NAME, context);
-    const eligibilityStore = getBlobStore(ELIGIBILITY_STORE, context);
-    const todayStr = getShanghaiDateString();
+    const store = getStore(STORE_NAME, context);
+    const eligibilityStore = getStore(ELIGIBILITY_STORE, context);
+    const todayStr = today();
     const url = new URL(req.url || "https://fandom.local/.netlify/functions/star-of-day");
 
     if (url.searchParams.get("archive") === "1") {
-      return jsonResponse(200, await listArchivedEditions(store, todayStr));
+      return jsonResponse(200, await listArchivedEditions(store, todayStr), {
+        "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
+      });
     }
 
     const requestedDate = url.searchParams.get("date");
@@ -697,7 +714,60 @@ export default async (req, context) => {
         if (!archived) {
           return jsonResponse(404, { error: "That Vibe Atlas edition is not available." });
         }
-        return jsonResponse(200, archived);
+        const catalogue = await listArchivedEditions(store, todayStr);
+        const freeDates = freeArchiveDates(catalogue.editions);
+        let session = null;
+        let membership = null;
+        if (!freeDates.has(requestedDate) && archiveGateEnabled(env)) {
+          try {
+            session = await auth.authenticate(req, context);
+          } catch (error) {
+            if (error?.status !== 401) throw error;
+          }
+          if (session) {
+            try {
+              await billing.initialize(context);
+              membership = await billing.repository(context)
+                .membershipForAccount(session.user.accountId);
+            } catch (error) {
+              console.error("[archive-access] membership lookup failed", {
+                date: requestedDate,
+                name: error?.name || "Error",
+              });
+              return jsonResponse(503, {
+                error: "archive_billing_unavailable",
+                access: "billing_delay",
+                edition: publicArchiveEdition(archived),
+              });
+            }
+          }
+        }
+        const decision = archiveAccessDecision({
+          requestedDate,
+          editions: catalogue.editions,
+          session,
+          membership,
+          enforcementEnabled: archiveGateEnabled(env),
+        });
+        if (!decision.allowed) {
+          console.info("[archive-access] full edition denied", {
+            date: requestedDate,
+            reason: decision.reason,
+          });
+          return jsonResponse(decision.reason === "sign_in" ? 401 : 403, {
+            error: "archive_access_required",
+            access: decision.reason,
+            capability: decision.capability,
+            edition: publicArchiveEdition(archived),
+          });
+        }
+        return jsonResponse(200, archived, {
+          "Cache-Control": decision.reason === "active_member"
+            ? "private, no-store"
+            : "public, max-age=300",
+          ...(decision.reason === "active_member" ? { Vary: "Cookie" } : {}),
+          "X-Archive-Access": decision.reason,
+        });
       }
     }
 
@@ -801,7 +871,10 @@ export default async (req, context) => {
   } catch (err) {
     return jsonResponse(500, { error: err.message || "Unknown error", rankedBatches: [] });
   }
-};
+  };
+}
+
+export default createStarOfDayHandler();
 
 function isUsableDate(value) {
   if (!DATE_RE.test(value)) return false;
@@ -844,14 +917,13 @@ async function listArchivedEditions(store, todayStr) {
       }), VERSION)
       : await store.get(`starOfDay:${version}:${date}`, { type: "json" });
     if (!payload || payload.date !== date || !payload.actorName || !payload.vibeLabel) return null;
-    const previewResults = Array.isArray(payload.displayResults) && payload.displayResults.length
-      ? payload.displayResults
-      : (payload.rankedBatches || []).flatMap(batch => batch?.results || []);
     const legendaryMisprint = (payload.rankedBatches || []).some(batch =>
       batch?.intentionalMisprint === true || (batch?.legendary === true && batch?.misprint === true)
     );
     const canonicalMisprintTitle = canonicalLegendaryMisprints.get(`${date}|${payload.actorName}`);
+    const publicEdition = publicArchiveEdition(payload);
     return {
+      ...publicEdition,
       date,
       actorName: payload.actorName,
       actorShortNameEn: payload.actorShortNameEn,
@@ -860,10 +932,7 @@ async function listArchivedEditions(store, todayStr) {
       vibeLabelEn: payload.vibeLabelEn,
       vibeSubtitleEn: payload.vibeSubtitleEn,
       generatedAt: payload.generatedAt,
-      previewThumbnails: [...new Set(previewResults
-        .map(result => result?.thumbnail)
-        .filter(thumbnail => typeof thumbnail === "string" && thumbnail.length > 0))]
-        .slice(0, 9),
+      previewThumbnails: publicEdition.previewThumbnails,
       ...(legendaryMisprint || canonicalMisprintTitle ? { legendaryMisprint: true } : {}),
       ...(canonicalMisprintTitle ? { legendaryMisprintTitle: canonicalMisprintTitle } : {}),
     };
@@ -873,7 +942,11 @@ async function listArchivedEditions(store, todayStr) {
     version: VERSION,
     editions: editions
       .filter(Boolean)
-      .sort((a, b) => b.date.localeCompare(a.date)),
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .map((edition, index) => ({
+        ...edition,
+        access: index < 4 ? "free" : "member",
+      })),
   };
 }
 
@@ -962,12 +1035,13 @@ export async function hasReleaseReadyCohort(
   return false;
 }
 
-function jsonResponse(statusCode, body) {
+function jsonResponse(statusCode, body, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
     status: statusCode,
     headers: {
       "Content-Type": "application/json",
-      "Cache-Control": "no-store"
+      "Cache-Control": "no-store",
+      ...extraHeaders,
     }
   });
 }

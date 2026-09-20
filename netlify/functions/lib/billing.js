@@ -131,6 +131,11 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
     checkout: guarded(async (req, context) => {
       if (req.method !== "POST") return json(405, { error: "Method not allowed." }, { Allow: "POST" });
       sameOrigin(req);
+      const input = await req.json().catch(() => ({}));
+      const returnDate = typeof input?.returnDate === "string"
+        && /^\d{4}-\d{2}-\d{2}$/.test(input.returnDate)
+        ? input.returnDate
+        : null;
       const session = await atStage("auth", () => auth.authenticate(req, context));
       const price = await atStage("price-config", () => {
         const configured = env.FANDOM_STRIPE_MEMBERSHIP_PRICE_ID;
@@ -160,8 +165,12 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
       const checkoutInput = {
         mode: "subscription", customer, line_items: [{ price, quantity: 1 }],
         managed_payments: { enabled: false },
-        success_url: `${origin}/vibe-atlas?view=membership&membership=success`,
-        cancel_url: `${origin}/vibe-atlas?view=membership&membership=cancelled`,
+        success_url: returnDate
+          ? `${origin}/vibe-atlas?date=${encodeURIComponent(returnDate)}&membership=success`
+          : `${origin}/vibe-atlas?view=membership&membership=success`,
+        cancel_url: returnDate
+          ? `${origin}/vibe-atlas?date=${encodeURIComponent(returnDate)}&membership=cancelled`
+          : `${origin}/vibe-atlas?view=membership&membership=cancelled`,
         metadata: { fandom_account_id: session.user.accountId },
         subscription_data: { metadata: { fandom_account_id: session.user.accountId } },
       };

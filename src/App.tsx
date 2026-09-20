@@ -19,7 +19,7 @@ import { useDarkMode } from './hooks/useDarkMode';
 import { useStarOfDay, type StarOfDayArchiveEntry } from './hooks/useStarOfDay';
 import { useWholeCardTier } from './hooks/useWholeCardTier';
 import { consumeMagicLinkFromLocation, requestMagicLink } from './utils/publicAccount';
-import { getMembershipStatus } from './utils/membership';
+import { createMembershipCheckout, getMembershipStatus } from './utils/membership';
 import { Membership } from './components/Membership/Membership';
 import { useIsAdmin } from './hooks/useIsAdmin';
 import {
@@ -37,6 +37,7 @@ import {
   trackCollectionOpened,
   trackDailyArchiveEditionSelected,
   trackDailyArchiveOpened,
+  trackArchiveAccess,
   trackDailyDropCardSave,
   trackDailyDropEngaged,
   trackDailyDropShared,
@@ -128,11 +129,15 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     loadArchive,
     loading,
     error,
+    gate,
   } = useStarOfDay(archivePage && !selectedEditionDate ? undefined : selectedEditionDate);
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
   const [isMember, setIsMember] = useState(false);
   const [membershipResolved, setMembershipResolved] = useState(false);
   const [editionShareNotice, setEditionShareNotice] = useState('');
+  const [archiveGateEmail, setArchiveGateEmail] = useState('');
+  const [archiveGateBusy, setArchiveGateBusy] = useState('');
+  const [archiveGateNotice, setArchiveGateNotice] = useState('');
   const dropEngagement = useRef({
     editionDate: '',
     openedCards: new Set<string>(),
@@ -166,7 +171,27 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           // Recheck the admin session with the freshly-issued cookie so that
           // useIsAdmin transitions to isAdmin=true before the Admin view renders.
           recheckAdmin();
-          setView(destination);
+          const archiveReturnDate = destination.startsWith('archive:')
+            ? destination.slice('archive:'.length)
+            : null;
+          if (
+            archiveReturnDate
+            && isValidVibeAtlasEditionDate(archiveReturnDate)
+          ) {
+            syncVibeAtlasEditionUrl(archiveReturnDate, true);
+            setSelectedEditionDate(archiveReturnDate);
+            setArchiveOpen(true);
+            setView('daily');
+            trackArchiveAccess('restored', archiveReturnDate, 'sign_in');
+          } else {
+            if (
+              destination === 'admin'
+              || destination === 'membership'
+              || destination === 'collection'
+            ) {
+              setView(destination);
+            }
+          }
         }
       })
       .catch(error => {
@@ -215,6 +240,22 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     }, 20_000);
     return () => window.clearTimeout(timer);
   }, [rawData?.date, view]);
+
+  useEffect(() => {
+    if (!gate || !selectedEditionDate) return;
+    trackArchiveAccess('preview_view', selectedEditionDate, gate.reason);
+    trackArchiveAccess('denied', selectedEditionDate, gate.reason);
+  }, [gate, selectedEditionDate]);
+
+  useEffect(() => {
+    if (!rawData?.date || !selectedEditionDate) return;
+    trackArchiveAccess(
+      new URLSearchParams(window.location.search).get('membership') === 'success'
+        ? 'restored'
+        : 'full_use',
+      rawData.date,
+    );
+  }, [rawData?.date, selectedEditionDate]);
 
   useEffect(() => {
     if (view !== 'collection') return;
@@ -420,6 +461,35 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     setLightboxIndex(index);
   };
 
+  const sendArchiveSignIn = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedEditionDate) return;
+    setArchiveGateBusy('sign-in');
+    trackArchiveAccess('sign_in', selectedEditionDate, 'requested');
+    try {
+      setArchiveGateNotice(await requestMagicLink(
+        archiveGateEmail,
+        `archive:${selectedEditionDate}`,
+      ));
+    } catch (error) {
+      setArchiveGateNotice(error instanceof Error ? error.message : 'Could not send the sign-in link.');
+    } finally {
+      setArchiveGateBusy('');
+    }
+  };
+
+  const startArchiveCheckout = async () => {
+    if (!selectedEditionDate) return;
+    setArchiveGateBusy('checkout');
+    trackArchiveAccess('checkout', selectedEditionDate);
+    try {
+      window.location.assign(await createMembershipCheckout(selectedEditionDate));
+    } catch (error) {
+      setArchiveGateNotice(error instanceof Error ? error.message : 'Checkout could not be opened.');
+      setArchiveGateBusy('');
+    }
+  };
+
   /**
    * Render grid items with inline preview rows inserted after the row
    * containing the expanded item.
@@ -593,7 +663,18 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             </div>
           )}
         </section>
-        {meta && (
+        {gate && selectedEditionDate ? (
+          <ArchiveLockedEdition
+            gate={gate}
+            email={archiveGateEmail}
+            busy={archiveGateBusy}
+            notice={archiveGateNotice}
+            onEmailChange={setArchiveGateEmail}
+            onSignIn={sendArchiveSignIn}
+            onCheckout={startArchiveCheckout}
+            onIntent={() => trackArchiveAccess('gated_intent', selectedEditionDate, gate.reason)}
+          />
+        ) : meta && (
           <div className="atlas-edition">
             <div className="atlas-edition__meta">
               <div className="atlas-edition__label">
@@ -645,25 +726,27 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         )}
       </header>
 
-       <div className="daily-grid" id="daily-evidence">
-        <div className="daily-grid__header">
-          <h2>Today’s evidence</h2>
-          <p>Nine cards from today’s star × Vibe Pack.</p>
+       {!gate && (
+         <div className="daily-grid" id="daily-evidence">
+          <div className="daily-grid__header">
+            <h2>Today’s evidence</h2>
+            <p>Nine cards from today’s star × Vibe Pack.</p>
+          </div>
+          {!loading && !error && gridImages.length > 0 && (
+            <button type="button" className="daily-grid__zoom" onClick={() => setDailyGridZoomOpen(true)}>
+              ⛶ View whole grid
+            </button>
+          )}
+          <div className="grid">
+            {loading
+              ? Array.from({ length: 9 }).map((_, i) => <GridItemSkeleton key={i} />)
+              : error
+                ? <div className="col-span-3 text-center py-8 text-gray-500">{error}</div>
+                : renderGridItems()
+            }
+          </div>
         </div>
-        {!loading && !error && gridImages.length > 0 && (
-          <button type="button" className="daily-grid__zoom" onClick={() => setDailyGridZoomOpen(true)}>
-            ⛶ View whole grid
-          </button>
-        )}
-        <div className="grid">
-          {loading
-            ? Array.from({ length: 9 }).map((_, i) => <GridItemSkeleton key={i} />)
-            : error
-              ? <div className="col-span-3 text-center py-8 text-gray-500">{error}</div>
-              : renderGridItems()
-          }
-        </div>
-      </div>
+       )}
 
       {dailyGridZoomOpen && meta && (
         <ArtifactZoomDialog
@@ -745,6 +828,7 @@ function ArchiveEditionButton({
       </span>
       <strong>{edition.vibeEmoji} {edition.actorName}</strong>
       <span>{edition.vibeLabel} · {edition.vibeLabelEn}</span>
+      {edition.access === 'member' && <small>Founding Member archive</small>}
       {isSelected && <b>Viewing</b>}
     </>
   );
@@ -756,6 +840,69 @@ function ArchiveEditionButton({
     <button type="button" className={className} aria-pressed={isSelected} onClick={onSelect}>
       {content}
     </button>
+  );
+}
+
+function ArchiveLockedEdition({
+  gate,
+  email,
+  busy,
+  notice,
+  onEmailChange,
+  onSignIn,
+  onCheckout,
+  onIntent,
+}: {
+  gate: import('./hooks/useStarOfDay').ArchiveGate;
+  email: string;
+  busy: string;
+  notice: string;
+  onEmailChange: (value: string) => void;
+  onSignIn: (event: React.FormEvent) => void;
+  onCheckout: () => void;
+  onIntent: () => void;
+}) {
+  const edition = gate.edition;
+  const billingDelay = gate.reason === 'billing_delay';
+  return (
+    <section className="archive-gate" aria-labelledby="archive-gate-title" onFocus={onIntent}>
+      <div className="archive-gate__preview" aria-hidden="true">
+        {(edition.previewThumbnails ?? []).map((image, index) => (
+          <img key={`${image}-${index}`} src={archivePreviewUrl(image)} alt="" />
+        ))}
+      </div>
+      <div className="archive-gate__copy">
+        <p className="daily-archive__kicker">Founding Member archive</p>
+        <h2 id="archive-gate-title">{edition.vibeEmoji} {edition.actorName}</h2>
+        <p><strong>{edition.vibeLabel}</strong> · {edition.vibeLabelEn}</p>
+        <p>
+          {billingDelay
+            ? 'Your membership status is still being confirmed. Try again shortly or review billing.'
+            : 'This published preview stays open to everyone. Founding Members can unlock the complete nine-card board, save its cards, use it in Grid Builder, and export finished boards.'}
+        </p>
+        {notice && <p className="membership__notice" role="status">{notice}</p>}
+        {gate.reason === 'sign_in' ? (
+          <form className="membership__sign-in" onSubmit={onSignIn}>
+            <label htmlFor="archive-gate-email">Sign in to check your archive access</label>
+            <div>
+              <input
+                id="archive-gate-email"
+                type="email"
+                required
+                value={email}
+                onChange={event => onEmailChange(event.target.value)}
+                placeholder="you@example.com"
+              />
+              <button disabled={Boolean(busy)}>{busy === 'sign-in' ? 'Sending…' : 'Email sign-in link'}</button>
+            </div>
+          </form>
+        ) : (
+          <button type="button" className="archive-gate__checkout" onClick={onCheckout} disabled={Boolean(busy) || billingDelay}>
+            {busy === 'checkout' ? 'Opening checkout…' : 'Become a Founding Member'}
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -832,7 +979,10 @@ function ArchiveEditionCard({
           <span>{edition.vibeLabel}<em>{edition.vibeLabelEn}</em></span>
         </span>
         {edition.vibeSubtitleEn && <q>{edition.vibeSubtitleEn}</q>}
-        <span className="archive-card__open">Open the nine-card board <b aria-hidden="true">↗</b></span>
+        <span className="archive-card__open">
+          {edition.access === 'member' ? 'Preview Founding Member edition' : 'Open the nine-card board'}
+          <b aria-hidden="true">↗</b>
+        </span>
       </span>
     </a>
   );

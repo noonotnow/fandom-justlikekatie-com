@@ -30,12 +30,12 @@ export async function getMembershipStatus(): Promise<MembershipStatus> {
   return { state, isMember: state === 'active', ...(typeof body.renewsAt === 'string' ? { renewsAt: body.renewsAt } : {}) };
 }
 
-export async function createMembershipCheckout(): Promise<string> {
+export async function createMembershipCheckout(returnDate?: string): Promise<string> {
   const body = await readJson(await fetch('/api/membership/checkout', {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
-    body: '{}',
+    body: JSON.stringify(returnDate ? { returnDate } : {}),
   }));
   if (typeof body.url !== 'string' || !body.url) throw new Error('Checkout could not be started.');
   return body.url;

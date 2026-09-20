@@ -482,7 +482,7 @@ test("historical date reads use the existing cache without starting a build", as
 
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), archived);
-  assert.deepEqual(store.stats(), { listCalls: 0, setCalls: 0 });
+  assert.deepEqual(store.stats(), { listCalls: 2, setCalls: 0 });
 });
 
 test("historical date reads preserve legacy v5 editions after the curation upgrade", async () => {
@@ -496,7 +496,7 @@ test("historical date reads preserve legacy v5 editions after the curation upgra
 
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), archived);
-  assert.deepEqual(store.stats(), { listCalls: 0, setCalls: 0 });
+  assert.deepEqual(store.stats(), { listCalls: 2, setCalls: 0 });
 });
 
 test("historical and archive reads prefer the verified publication manifest over transient cache URLs", async () => {

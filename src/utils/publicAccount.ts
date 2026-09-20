@@ -42,16 +42,21 @@ export async function requestMagicLink(email: string, next?: string): Promise<st
  * Returns the destination view to navigate to on success, or `false` if there
  * was no magic link to consume.
  */
-export async function consumeMagicLinkFromLocation(): Promise<'admin' | 'collection' | 'membership' | false> {
+export async function consumeMagicLinkFromLocation(): Promise<
+  'admin' | 'collection' | 'membership' | `archive:${string}` | false
+> {
   if (window.location.pathname !== '/auth/verify') return false;
   const params = new URLSearchParams(window.location.hash.slice(1));
   const token = params.get('token');
   const next = params.get('next');
+  const archiveDate = next?.match(/^archive:(\d{4}-\d{2}-\d{2})$/)?.[1];
   window.history.replaceState(
     {},
     '',
     next === 'plan' || next === 'admin'
       ? '/vibe-atlas?admin=true'
+      : archiveDate
+        ? `/vibe-atlas?date=${encodeURIComponent(archiveDate)}`
       : next === 'membership'
         ? '/vibe-atlas?view=membership'
         : '/vibe-atlas?view=collection',
@@ -60,6 +65,7 @@ export async function consumeMagicLinkFromLocation(): Promise<'admin' | 'collect
   const response = await postJson('/api/auth/verify', { token });
   if (!response.ok) throw new Error((await response.json()).error || 'The sign-in link could not be used.');
   notifyCollection('session-changed');
+  if (archiveDate) return `archive:${archiveDate}`;
   return next === 'plan' || next === 'admin' ? 'admin' : next === 'membership' ? 'membership' : 'collection';
 }
 

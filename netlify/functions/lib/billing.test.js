@@ -52,6 +52,41 @@ test("checkout and portal are bound to the authenticated account", async () => {
   assert.deepEqual(calls[1][1].managed_payments, { enabled: false });
 });
 
+test("archive checkout restores only a validated requested edition", async () => {
+  const inputs = [];
+  const billing = {
+    initialize: async () => {},
+    repository: () => ({
+      customerForAccount: async () => "cus_saved",
+      membershipForAccount: async () => ({ status: "inactive" }),
+    }),
+    stripe: async () => ({
+      customers: { retrieve: async () => ({ id: "cus_saved", deleted: false }) },
+      checkout: { sessions: { create: async input => {
+        inputs.push(input);
+        return { url: "https://checkout.test" };
+      } } },
+    }),
+  };
+  const handlers = createBillingHandlers({
+    auth,
+    billing,
+    env: { FANDOM_STRIPE_MEMBERSHIP_PRICE_ID: "price_real123" },
+  });
+  await handlers.checkout(request("/api/billing/checkout", {
+    body: JSON.stringify({ returnDate: "2026-09-01" }),
+    headers: { "Content-Type": "application/json" },
+  }), {});
+  assert.equal(inputs[0].success_url, "https://example.test/vibe-atlas?date=2026-09-01&membership=success");
+  assert.equal(inputs[0].cancel_url, "https://example.test/vibe-atlas?date=2026-09-01&membership=cancelled");
+
+  await handlers.checkout(request("/api/billing/checkout", {
+    body: JSON.stringify({ returnDate: "https://evil.test/" }),
+    headers: { "Content-Type": "application/json" },
+  }), {});
+  assert.equal(inputs[1].success_url, "https://example.test/vibe-atlas?view=membership&membership=success");
+});
+
 test("checkout retries without a stale customer when Stripe reports a missing resource", async () => {
   const inputs = [];
   const repository = {

@@ -107,6 +107,17 @@ export function trackDailyArchiveEditionSelected(
   });
 }
 
+export function trackArchiveAccess(
+  action: 'preview_view' | 'gated_intent' | 'sign_in' | 'checkout' | 'restored' | 'denied' | 'full_use',
+  editionDate: string,
+  reason?: string,
+): void {
+  trackEvent(`archive_${action}`, {
+    edition_date: editionDate,
+    ...(reason ? { access_reason: reason } : {}),
+  });
+}
+
 export function trackDailyDropViewed(editionDate: string, isArchive: boolean): void {
   trackEvent('daily_drop_viewed', {
     edition_date: editionDate,

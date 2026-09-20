@@ -56,3 +56,12 @@ test('full archive renders visual board plates and preserves genuine legendary m
   assert.match(appSource, /Archive anomaly · Legendary Misprint/);
   assert.match(appSource, /The Star of the Day Archive/);
 });
+
+test('historical member editions render a server-authoritative preview gate', () => {
+  assert.match(hookSource, /gate: ArchiveGate \| null/);
+  assert.match(hookSource, /res\.status === 401 \|\| res\.status === 403 \|\| res\.status === 503/);
+  assert.match(appSource, /function ArchiveLockedEdition/);
+  assert.match(appSource, /Founding Members can unlock the complete nine-card board/);
+  assert.match(appSource, /createMembershipCheckout\(selectedEditionDate\)/);
+  assert.match(appSource, /destination\.startsWith\('archive:'\)/);
+});
