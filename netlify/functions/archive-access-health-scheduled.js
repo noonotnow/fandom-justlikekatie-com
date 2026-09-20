@@ -23,6 +23,7 @@ export function createArchiveAccessHealthScheduledHandler({
         health,
         now: generatedAt,
         notify,
+        logger,
       });
     } catch (error) {
       logger.error("[archive-access] scheduled health notification failed", {

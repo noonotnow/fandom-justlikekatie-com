@@ -398,6 +398,7 @@ test("corrupt-state repair does not overwrite a concurrent valid transition", as
     return originalSetJSON(key, value, options);
   };
   let deliveries = 0;
+  const repairs = [];
 
   const notifications = await notifyArchiveAccessTransitions({
     store: data,
@@ -407,12 +408,81 @@ test("corrupt-state repair does not overwrite a concurrent valid transition", as
     },
     notify: async () => { deliveries += 1; },
     now: new Date("2026-09-20T12:30:00.000Z"),
+    logger: { warn: (...args) => repairs.push(args) },
   });
 
   assert.deepEqual(notifications, []);
   assert.equal(deliveries, 0);
+  assert.deepEqual(repairs, []);
   assert.equal(data.values.get("archive-access:notification-state").signals.billing.notifiedAt,
     "2026-09-20T12:31:00.000Z");
+});
+
+test("malformed notification state emits one bounded repair signal and exposes repair health", async () => {
+  const data = store();
+  const repairedAt = new Date("2026-09-20T12:30:00.000Z");
+  const repairs = [];
+  await data.setJSON("archive-access:notification-state", "{private-corrupt-contents");
+
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health: {
+      recentHour: { billing_delay: 0, authenticated_checks: 1, billingDelayRate: 0 },
+      status: { billing: "normal", deniedAccess: "normal" },
+    },
+    notify: async () => {},
+    now: repairedAt,
+    logger: { warn: (...args) => repairs.push(args) },
+  });
+
+  assert.deepEqual(repairs, [[
+    "[archive-access] notification state repaired",
+    { repairCount: 1, repairedAt: repairedAt.toISOString() },
+  ]]);
+  const handler = createArchiveAccessOperationsHandler({
+    auth: { authenticateAdmin: async () => {} },
+    getStore: () => data,
+    now: () => repairedAt,
+    logger: { warn: () => {}, error: () => {} },
+  });
+  const body = await (await handler(new Request("https://example.test/report"), {})).json();
+  assert.deepEqual(body.notificationDelivery.repair, {
+    count: 1,
+    lastRepairedAt: repairedAt.toISOString(),
+  });
+  assert.equal(JSON.stringify(repairs).includes("private-corrupt-contents"), false);
+});
+
+test("same-status malformed signal is repaired once without recurring reports", async () => {
+  const data = store();
+  const repairedAt = new Date("2026-09-20T12:30:00.000Z");
+  const repairs = [];
+  await data.setJSON("archive-access:notification-state", {
+    signals: { billing: { status: "broken", private: "must-not-be-logged" } },
+  });
+  const options = {
+    store: data,
+    health: {
+      recentHour: { billing_delay: 0, authenticated_checks: 1, billingDelayRate: 0 },
+      status: { billing: "normal", deniedAccess: "normal" },
+    },
+    notify: async () => {},
+    now: repairedAt,
+    logger: { warn: (...args) => repairs.push(args) },
+  };
+
+  await notifyArchiveAccessTransitions(options);
+  await notifyArchiveAccessTransitions(options);
+
+  assert.equal(repairs.length, 1);
+  assert.deepEqual(repairs[0], [
+    "[archive-access] notification state repaired",
+    { repairCount: 1, repairedAt: repairedAt.toISOString() },
+  ]);
+  const state = data.values.get("archive-access:notification-state");
+  assert.deepEqual(state.signals.billing, { status: "normal" });
+  assert.deepEqual(state.repair, { count: 1, lastRepairedAt: repairedAt.toISOString() });
+  assert.equal(JSON.stringify(repairs).includes("must-not-be-logged"), false);
 });
 
 test("cleanup failures do not fail or distort the rolling report", async () => {
@@ -609,6 +679,10 @@ test("notification delivery failure never changes the health response", async ()
     lastSucceededAt: null,
     lastFailedAt: now.toISOString(),
     consecutiveFailures: 1,
+    repair: {
+      count: 0,
+      lastRepairedAt: null,
+    },
   });
   assert.equal(errors.length, 1);
 });
@@ -638,7 +712,8 @@ test("repeated delivery failures remain a bounded summary and success resets the
   assert.equal(failedState.delivery.status, "failure");
   assert.equal(failedState.delivery.consecutiveFailures, 3);
   assert.equal(JSON.stringify(failedState).includes("provider details"), false);
-  assert.equal(Object.keys(failedState).length, 3);
+  assert.equal(Object.keys(failedState).length, 4);
+  assert.deepEqual(failedState.repair, { count: 0, lastRepairedAt: null });
 
   const successAt = new Date(now.getTime() + 3 * 60_000);
   await notifyArchiveAccessTransitions({

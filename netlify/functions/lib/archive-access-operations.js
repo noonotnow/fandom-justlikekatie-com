@@ -120,6 +120,7 @@ export async function notifyArchiveAccessTransitions({
   health,
   notify,
   now = new Date(),
+  logger = console,
 } = {}) {
   if (!store || !health || typeof notify !== "function") return [];
   const notifications = [];
@@ -131,6 +132,7 @@ export async function notifyArchiveAccessTransitions({
       now,
       signal,
       definition,
+      logger,
     });
     if (notification) notifications.push(notification);
   }
@@ -139,7 +141,11 @@ export async function notifyArchiveAccessTransitions({
 
 export async function archiveAccessNotificationDeliveryHealth(store) {
   const entry = await getWithMetadata(store, NOTIFICATION_STATE_KEY);
-  return normalizeNotificationState(entry?.data).delivery;
+  const state = normalizeNotificationState(entry?.data);
+  return {
+    ...state.delivery,
+    repair: state.repair,
+  };
 }
 
 export async function pruneExpiredArchiveAccessChecks(store, date = new Date()) {
@@ -234,6 +240,7 @@ export function createArchiveAccessOperationsHandler({
           health,
           notify,
           now: generatedAt,
+          logger,
         });
       } catch (error) {
         health.notifications = [];
@@ -250,6 +257,10 @@ export function createArchiveAccessOperationsHandler({
           lastSucceededAt: null,
           lastFailedAt: null,
           consecutiveFailures: 0,
+          repair: {
+            count: 0,
+            lastRepairedAt: null,
+          },
         };
         logger.error("[archive-access] notification delivery health unavailable", {
           message: error instanceof Error ? error.message : "Unknown delivery health failure",
@@ -336,6 +347,14 @@ function normalizeNotificationState(value) {
   return {
     updatedAt: typeof root.updatedAt === "string" ? root.updatedAt : null,
     signals: isPlainObject(root.signals) ? root.signals : {},
+    repair: {
+      count: Number.isSafeInteger(root.repair?.count) && root.repair.count > 0
+        ? root.repair.count
+        : 0,
+      lastRepairedAt: Number.isFinite(Date.parse(root.repair?.lastRepairedAt))
+        ? root.repair.lastRepairedAt
+        : null,
+    },
     delivery: {
       status: delivery.status === "success" || delivery.status === "failure"
         ? delivery.status
@@ -363,16 +382,26 @@ function notificationKind(previousStatus, targetStatus) {
   return null;
 }
 
-async function processSignalTransition({ store, health, notify, now, signal, definition }) {
+async function processSignalTransition({ store, health, notify, now, signal, definition, logger }) {
   const targetStatus = health.status?.[signal] || "normal";
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const entry = await getWithMetadata(store, NOTIFICATION_STATE_KEY);
     const state = normalizeNotificationState(entry?.data);
+    const repairRequired = notificationStateNeedsRepair(entry?.data, signal, entry !== null);
     const current = normalizeSignalState(state.signals[signal]);
     if (current.pending === true) {
       const claimAge = now.getTime() - Date.parse(current.claimedAt);
       if (claimAge >= 0 && claimAge < NOTIFICATION_CLAIM_TTL_MS) return null;
     } else if (current.status === targetStatus) {
+      if (repairRequired) {
+        const repaired = recordNotificationStateRepair(
+          updateSignalState(state, signal, current),
+          now,
+        );
+        const write = await conditionalStateWrite(store, entry, repaired);
+        if (write?.modified === false) continue;
+        logNotificationStateRepair(logger, repaired.repair);
+      }
       return null;
     }
     const previousStatus = current.pending === true
@@ -380,16 +409,20 @@ async function processSignalTransition({ store, health, notify, now, signal, def
       : current.status;
     const transitionKind = notificationKind(previousStatus, targetStatus);
     if (!transitionKind) {
-      const next = updateSignalState(state, signal, {
+      let next = updateSignalState(state, signal, {
         status: targetStatus,
         updatedAt: now.toISOString(),
       });
+      if (repairRequired) next = recordNotificationStateRepair(next, now);
       const write = await conditionalStateWrite(store, entry, next);
-      if (write?.modified !== false) return null;
+      if (write?.modified !== false) {
+        if (repairRequired) logNotificationStateRepair(logger, next.repair);
+        return null;
+      }
       continue;
     }
     const claimId = randomUUID();
-    const claimed = updateSignalState(state, signal, {
+    let claimed = updateSignalState(state, signal, {
       pending: true,
       claimId,
       claimedAt: now.toISOString(),
@@ -397,8 +430,10 @@ async function processSignalTransition({ store, health, notify, now, signal, def
       targetStatus,
       transitionKind,
     });
+    if (repairRequired) claimed = recordNotificationStateRepair(claimed, now);
     const claimWrite = await conditionalStateWrite(store, entry, claimed);
     if (claimWrite?.modified === false) continue;
+    if (repairRequired) logNotificationStateRepair(logger, claimed.repair);
     const payload = {
       kind: transitionKind,
       signalCategory: definition.category,
@@ -425,6 +460,55 @@ async function processSignalTransition({ store, health, notify, now, signal, def
     return payload;
   }
   throw new Error("Archive access notification state changed too frequently.");
+}
+
+function notificationStateNeedsRepair(value, signal, entryExists) {
+  if (!entryExists) return false;
+  if (!isPlainObject(value) || !isPlainObject(value.signals)) return true;
+  if (!isValidDeliveryState(value.delivery)) return true;
+  if (!isValidRepairState(value.repair)) return true;
+  return value.signals[signal] !== undefined
+    && normalizeSignalState(value.signals[signal]) !== value.signals[signal];
+}
+
+function isValidDeliveryState(value) {
+  if (value === undefined) return true;
+  if (!isPlainObject(value)) return false;
+  return ["success", "failure", "never_attempted"].includes(value.status)
+    && (value.attemptedAt === null || Number.isFinite(Date.parse(value.attemptedAt)))
+    && (value.lastSucceededAt === null || Number.isFinite(Date.parse(value.lastSucceededAt)))
+    && (value.lastFailedAt === null || Number.isFinite(Date.parse(value.lastFailedAt)))
+    && Number.isSafeInteger(value.consecutiveFailures)
+    && value.consecutiveFailures >= 0;
+}
+
+function isValidRepairState(value) {
+  if (value === undefined) return true;
+  return isPlainObject(value)
+    && Number.isSafeInteger(value.count)
+    && value.count >= 0
+    && (
+      (value.count === 0 && value.lastRepairedAt === null)
+      || (value.count > 0 && Number.isFinite(Date.parse(value.lastRepairedAt)))
+    );
+}
+
+function recordNotificationStateRepair(state, now) {
+  return {
+    ...state,
+    updatedAt: now.toISOString(),
+    repair: {
+      count: Math.min(state.repair.count + 1, Number.MAX_SAFE_INTEGER),
+      lastRepairedAt: now.toISOString(),
+    },
+  };
+}
+
+function logNotificationStateRepair(logger, repair) {
+  logger?.warn?.("[archive-access] notification state repaired", {
+    repairCount: repair.count,
+    repairedAt: repair.lastRepairedAt,
+  });
 }
 
 async function conditionalStateWrite(store, entry, state) {
