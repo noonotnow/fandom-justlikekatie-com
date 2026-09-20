@@ -48,6 +48,40 @@ export async function launchBrowserForServer(
   }
 }
 
+export async function launchBrowserWithServer<
+  ServerResult extends { server: Pick<ViteDevServer, 'close'> },
+>(
+  serverResultPromise: Promise<ServerResult>,
+  browserType: BrowserType = chromium,
+): Promise<[ServerResult, Browser]> {
+  const [serverResult, browserResult] = await Promise.allSettled([
+    serverResultPromise,
+    launchBrowser(browserType),
+  ]);
+
+  if (serverResult.status === 'fulfilled' && browserResult.status === 'fulfilled') {
+    return [serverResult.value, browserResult.value];
+  }
+
+  const startupErrors: unknown[] = [];
+  if (serverResult.status === 'rejected') startupErrors.push(serverResult.reason);
+  if (browserResult.status === 'rejected') startupErrors.push(browserResult.reason);
+
+  const cleanupResults = await Promise.allSettled([
+    serverResult.status === 'fulfilled' ? serverResult.value.server.close() : Promise.resolve(),
+    browserResult.status === 'fulfilled' ? browserResult.value.close() : Promise.resolve(),
+  ]);
+  for (const cleanupResult of cleanupResults) {
+    if (cleanupResult.status === 'rejected') startupErrors.push(cleanupResult.reason);
+  }
+
+  if (startupErrors.length === 1) throw startupErrors[0];
+  throw new AggregateError(
+    startupErrors,
+    'The browser test server and browser did not start together cleanly.',
+  );
+}
+
 export async function closeBrowserAndServer(
   browser: Pick<Browser, 'close'>,
   server: Pick<ViteDevServer, 'close'>,

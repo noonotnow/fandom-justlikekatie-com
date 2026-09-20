@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { type Page } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
-import { launchBrowser } from './browserEngines.ts';
+import { launchBrowserForServer } from './browserEngines.ts';
 
 const ACTOR_ID = 'browser-test-actor';
 const VIBE_KEY = `${ACTOR_ID}:0`;
@@ -1254,7 +1254,7 @@ async function configureCacheDiagnosticNetwork(
 
 test('saved cache proof reopens after refresh without provider searches and stays scoped to its pairing', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { providerSearchRequests, receiptSaveRequests } = await configureCacheDiagnosticNetwork(page);
 
@@ -1335,7 +1335,7 @@ test('historical cache proof keeps its frozen evidence and starts a new current-
     }],
   };
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { providerSearchRequests, receiptSaveRequests } = await configureCacheDiagnosticNetwork(page, {
     initialDiagnostic: historicalDiagnostic,
@@ -1381,7 +1381,7 @@ test('historical cache proof keeps its frozen evidence and starts a new current-
 
 test('a failed cache comparison retries immediately with its active saved reservation', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { providerSearchRequests, receiptSaveRequests } = await configureCacheDiagnosticNetwork(
     page,
@@ -1412,7 +1412,7 @@ test('a failed cache comparison retries immediately with its active saved reserv
 
 test('retrieval repetition stays visibly separate from the downstream rejection funnel and read-only', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   await configureNetwork(page, { retrievalRepetition: true });
 
@@ -1459,7 +1459,7 @@ test('retrieval repetition stays visibly separate from the downstream rejection 
 
 test('retrieval repetition remains visible and read-only after switching to a retained audit', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { auditRequests } = await configureNetwork(page, { retrievalRepetition: true });
 
@@ -1506,7 +1506,7 @@ test('retrieval repetition remains visible and read-only after switching to a re
 
 test('a date-bounded editorial packet download preserves publication join outcomes without mutations', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const {
     auditRequests,
@@ -1667,7 +1667,7 @@ test('a valid vendor JSON editorial packet downloads exactly once without mutati
 
 test('retained-run publication summaries keep outcomes and immutable edition links visible without mutations', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { auditRequests } = await configureNetwork(page, { publicationReview: true });
   const actorAuditRequests: Array<{ method: string; url: URL }> = [];
@@ -1736,7 +1736,7 @@ test('retained-run publication summaries keep outcomes and immutable edition lin
 
 test('failed editorial packet downloads stay useful and retryable without mutations', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const {
     auditRequests,
@@ -1829,7 +1829,7 @@ test('failed editorial packet downloads stay useful and retryable without mutati
 for (const malformedContentType of ['application/json', 'application/vnd.fandom.calibration+json']) {
   test(`malformed ${malformedContentType} editorial packet responses stay retryable without downloads or mutations`, { timeout: 60_000 }, async () => {
     const { server, origin } = await startApp();
-    const browser = await launchBrowser();
+    const browser = await launchBrowserForServer(server);
     const page = await browser.newPage();
     const {
       auditRequests,
@@ -2250,7 +2250,7 @@ async function configureCompleteHeroReviewNetwork(
 
 test('an authenticated image-only review stays completed after read-only history switching', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { auditRequests } = await configureNetwork(page, { visualReview: true });
 
@@ -2344,7 +2344,7 @@ test('an authenticated image-only review stays completed after read-only history
 
 test('a failed image-only judgment stays blinded and ready to retry', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { auditRequests } = await configureNetwork(page, { visualReview: true, failVisualJudgment: true });
 
@@ -2392,7 +2392,7 @@ test('a failed image-only judgment stays blinded and ready to retry', { timeout:
 
 test('a slow image-only judgment ignores a rapid repeated click', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { auditRequests } = await configureNetwork(page, { visualReview: true, slowVisualJudgment: true });
 
@@ -2479,7 +2479,7 @@ async function assertArchivedHistoricalReview(
 
 test('retained and Legacy image-only reviews stay read-only and blinded before returning to the active queue', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { auditRequests } = await configureNetwork(page, { visualReview: true });
 
@@ -2534,7 +2534,7 @@ async function runDirectHistoricalReviewScenario(
   completedCurrentReview: boolean,
 ): Promise<void> {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { auditRequests } = await configureNetwork(page, {
     visualReview: true,
@@ -2603,7 +2603,7 @@ for (const history of archivedReviewHistories) {
 
 test('a direct unfinished retained board review stays frozen and blinded before returning to the current audit', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { auditRequests } = await configureNetwork(page, { unfinishedBoardReview: true });
 
@@ -2644,7 +2644,7 @@ test('a direct unfinished retained board review stays frozen and blinded before 
 
 test('a current Legacy audit keeps only annotation and rescue exceptions actionable', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { auditRequests } = await configureNetwork(page, { currentLegacy: true });
 
@@ -2675,7 +2675,7 @@ test('a current Legacy audit keeps only annotation and rescue exceptions actiona
 
 test('a signed-in operator saves a rescue board to Collection without calibrating it', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const {
     auditRequests,
@@ -3012,7 +3012,7 @@ test('release inventory repair warnings distinguish repeated repairs from one su
 
 test('mixed calibration evidence does not overstate joint bundle support', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
 
   try {
     const selectionPage = await browser.newPage();
@@ -3064,7 +3064,7 @@ test('mixed calibration evidence does not overstate joint bundle support', { tim
 
 test('an exhausted legacy recovery window is explained without ordinary approval controls', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   await configureNetwork(page, { exhaustedLegacyRecovery: true });
 
@@ -3096,7 +3096,7 @@ test('an exhausted legacy recovery window is explained without ordinary approval
 
 test('a retirement evidence handoff preserves the receipt identifier when its source run is gone', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   await configureNetwork(page, { missingRetirementRun: true });
 
@@ -3118,7 +3118,7 @@ test('a retirement evidence handoff preserves the receipt identifier when its so
 
 test('a stale rescue approval keeps the recovery form visible without showing publication success', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { saveRequests, verdictRequests } = await configureCompleteHeroReviewNetwork(page, { staleOnVerdict: true });
 
@@ -3167,7 +3167,7 @@ test('a stale rescue approval keeps the recovery form visible without showing pu
 
 test('a newer current audit keeps the approval draft intact until the operator refreshes', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { saveRequests, verdictRequests } = await configureCompleteHeroReviewNetwork(page, {
     newerRunOnVerdict: true,
@@ -3228,7 +3228,7 @@ test('a newer current audit keeps the approval draft intact until the operator r
 
 test('a newer current audit keeps the rescue-board arrangement intact until the operator refreshes', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { saveRequests } = await configureCompleteHeroReviewNetwork(page, {
     newerRunOnRescueSave: true,
@@ -3299,7 +3299,7 @@ test('a newer current audit keeps the rescue-board arrangement intact until the 
 
 test('an admin can hand off a complete compiled proposal that needs hero review', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const { saveRequests, verdictRequests } = await configureCompleteHeroReviewNetwork(page);
 

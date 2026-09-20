@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createServer, type ViteDevServer } from 'vite';
-import { launchBrowser } from './browserEngines.ts';
+import { launchBrowserForServer } from './browserEngines.ts';
 
 const onePixelGif = Buffer.from(
   'R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==',
@@ -45,7 +45,7 @@ async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
 
 test('a signed-in creator can translate, swap reaction stills, export, and preserve provenance', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   let imageProxyLoads = 0;
   let collectionMediaUploads = 0;

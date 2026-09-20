@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createServer, type ViteDevServer } from 'vite';
-import { launchBrowser } from './browserEngines.ts';
+import { launchBrowserWithServer } from './browserEngines.ts';
 
 async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
   const server = await createServer({
@@ -18,7 +18,7 @@ async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
 }
 
 test('an episode-range share page caps a previously saved later boundary', { timeout: 30_000 }, async () => {
-  const [{ server, origin }, browser] = await Promise.all([startApp(), launchBrowser()]);
+  const [{ server, origin }, browser] = await launchBrowserWithServer(startApp());
   try {
     const page = await browser.newPage();
     await page.goto(origin);

@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createServer, type ViteDevServer } from 'vite';
 import { type Page } from '@playwright/test';
-import { BROWSER_ENGINES, launchBrowser } from './browserEngines.ts';
+import {
+  BROWSER_ENGINES,
+  launchBrowserForServer,
+} from './browserEngines.ts';
 
 const ACCOUNT_ID = 'collection-cleanup-account';
 const GRID_ID = 'pending-unmount-grid';
@@ -127,7 +130,7 @@ async function collectionContents(page: Page): Promise<{
 
 test('Collection commits pending grid and saved-result removals when navigation unmounts it', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   const exportCleanupRequests: string[] = [];
 
@@ -184,7 +187,7 @@ test('Collection commits pending grid and saved-result removals when navigation 
 
 test('Collection shows local records when account sync fails', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
 
   try {
@@ -238,7 +241,7 @@ test('Collection shows local records when account sync fails', { timeout: 60_000
 
 test('Grid Builder keeps saved results but does not unpack saved grids into its source pool', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
 
   try {
@@ -268,7 +271,7 @@ test('Grid Builder keeps saved results but does not unpack saved grids into its 
 
 test('Collection result Misprints teach the curator before preserving the collectible receipt', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
   let correctionRequest: Record<string, unknown> | null = null;
   let correctionRequestCount = 0;
@@ -376,8 +379,8 @@ test('Collection result Misprints teach the curator before preserving the collec
 
 for (const engine of BROWSER_ENGINES) {
   test(`Collection commits a pending removal after the browser page reloads in ${engine.name}`, { timeout: 60_000 }, async () => {
-    const browser = await launchBrowser(engine.type);
     const { server, origin } = await startApp();
+    const browser = await launchBrowserForServer(server, engine.type);
     const page = await browser.newPage();
     const exportCleanupRequests: string[] = [];
 
@@ -431,7 +434,7 @@ for (const engine of BROWSER_ENGINES) {
 
 test('Collection replays a saved-result removal left durable by a closed page', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
-  const browser = await launchBrowser();
+  const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
 
   try {

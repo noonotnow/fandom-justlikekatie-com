@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { createServer, type ViteDevServer } from 'vite';
-import { launchBrowser } from './browserEngines.ts';
+import { launchBrowserWithServer } from './browserEngines.ts';
 
 const JOURNAL_CAPABILITY = 'PrivateJournalCapability';
 
@@ -25,7 +25,7 @@ test('veteran pageviews and events never expose the journal capability', { timeo
   assert.equal(entryHtml.match(/gtag\('config', 'G-FHZJ1T74TG'/g)?.length, 1);
   assert.doesNotMatch(entryHtml, /G-CGWB67360Q|GTM-W7DJ27L5/);
 
-  const [{ server, origin }, browser] = await Promise.all([startApp(), launchBrowser()]);
+  const [{ server, origin }, browser] = await launchBrowserWithServer(startApp());
   try {
     const page = await browser.newPage();
     page.setDefaultTimeout(5_000);

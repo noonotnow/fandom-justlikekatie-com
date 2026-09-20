@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { type Page } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
-import { BROWSER_ENGINES, launchBrowser } from './browserEngines.ts';
+import {
+  BROWSER_ENGINES,
+  launchBrowserWithServer,
+} from './browserEngines.ts';
 
 type AnalyticsCommand = [string, string, Record<string, unknown>];
 
@@ -43,7 +46,7 @@ async function analyticsCommands(page: Page): Promise<AnalyticsCommand[]> {
 
 for (const engine of BROWSER_ENGINES) {
   test(`trope decoder sends bounded GA4 filter and privacy-safe share success events in ${engine.name}`, { timeout: 45_000 }, async () => {
-    const [{ server, origin }, browser] = await Promise.all([startApp(), launchBrowser(engine.type)]);
+    const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
     try {
       const nativePage = await browser.newPage();
       await nativePage.route('https://www.googletagmanager.com/**', route => route.abort());
