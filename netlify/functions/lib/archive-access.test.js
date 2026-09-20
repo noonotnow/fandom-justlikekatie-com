@@ -56,6 +56,56 @@ test("archive access window storage stays fixed-size for a large catalogue", asy
   assert.deepEqual(record.freeArchiveDates, [...dates].sort().reverse().slice(0, 4));
 });
 
+test("simultaneous access-window updates retry a conflict and preserve the four newest dates", async () => {
+  const store = conditionalAccessWindowStore({
+    initial: archiveAccessWindow([
+      "2026-09-19",
+      "2026-09-18",
+      "2026-09-17",
+      "2026-09-16",
+    ]),
+    synchronizeInitialReads: 2,
+  });
+
+  await Promise.all([
+    ensureArchiveAccessWindow(store, ["2026-09-20"], () => "2026-09-20T04:00:00.000Z"),
+    ensureArchiveAccessWindow(store, ["2026-09-21"], () => "2026-09-21T04:00:00.000Z"),
+  ]);
+
+  const window = await store.get(ARCHIVE_ACCESS_WINDOW_KEY, { type: "json" });
+  assert.deepEqual(window.freeArchiveDates, [
+    "2026-09-21",
+    "2026-09-20",
+    "2026-09-19",
+    "2026-09-18",
+  ]);
+  assert.equal(store.stats().conflicts, 1);
+});
+
+test("exhausted access-window conflicts fail without replacing the authoritative window", async () => {
+  const authoritative = archiveAccessWindow([
+    "2026-09-20",
+    "2026-09-19",
+    "2026-09-18",
+    "2026-09-17",
+  ]);
+  const store = conditionalAccessWindowStore({
+    initial: authoritative,
+    rejectAllWrites: true,
+  });
+
+  await assert.rejects(
+    ensureArchiveAccessWindow(store, ["2026-09-21"]),
+    /archive access window could not be updated safely/,
+  );
+
+  assert.equal(store.stats().conflicts, 8);
+  assert.deepEqual(
+    await store.get(ARCHIVE_ACCESS_WINDOW_KEY, { type: "json" }),
+    authoritative,
+  );
+});
+
 test("publication safely merges archive metadata in newest-first order", async () => {
   const store = memoryStore({});
   const edition = date => ({
@@ -297,7 +347,33 @@ function memoryStore(entries) {
   };
 }
 
+function archiveAccessWindow(freeArchiveDates) {
+  return {
+    schemaVersion: 1,
+    accessWindowVersion: 1,
+    kind: "vibe-atlas-archive-access-window",
+    freeArchiveDates,
+    updatedAt: "2026-09-19T04:00:00.000Z",
+  };
+}
+
+function conditionalAccessWindowStore(options = {}) {
+  return conditionalRevisionStore(ARCHIVE_ACCESS_WINDOW_KEY, options);
+}
+
 function conditionalCatalogStore({
+  initial = null,
+  synchronizeInitialReads = 0,
+  rejectAllWrites = false,
+} = {}) {
+  return conditionalRevisionStore(ARCHIVE_CATALOG_KEY, {
+    initial,
+    synchronizeInitialReads,
+    rejectAllWrites,
+  });
+}
+
+function conditionalRevisionStore(key, {
   initial = null,
   synchronizeInitialReads = 0,
   rejectAllWrites = false,
@@ -313,12 +389,12 @@ function conditionalCatalogStore({
 
   return {
     stats: () => ({ conflicts }),
-    async get(key, options) {
-      if (key !== ARCHIVE_CATALOG_KEY) return null;
+    async get(requestedKey, options) {
+      if (requestedKey !== key) return null;
       return options?.type === "json" && value ? structuredClone(value) : value;
     },
-    async getWithMetadata(key) {
-      if (key !== ARCHIVE_CATALOG_KEY) return { data: null };
+    async getWithMetadata(requestedKey) {
+      if (requestedKey !== key) return { data: null };
       const snapshot = {
         data: value ? structuredClone(value) : null,
         ...(revision ? { etag: `revision-${revision}` } : {}),
@@ -330,8 +406,8 @@ function conditionalCatalogStore({
       }
       return snapshot;
     },
-    async setJSON(key, next, options = {}) {
-      assert.equal(key, ARCHIVE_CATALOG_KEY);
+    async setJSON(requestedKey, next, options = {}) {
+      assert.equal(requestedKey, key);
       const matches = options.onlyIfMatch
         ? options.onlyIfMatch === `revision-${revision}`
         : options.onlyIfNew
