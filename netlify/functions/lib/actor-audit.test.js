@@ -5444,6 +5444,15 @@ test("an approved exact-image signal learned from blind reviews can be retired w
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   const originals = new Map();
   const repeatedCandidateId = "blind-review:exact/candidate";
+  const listed = store.list.bind(store);
+  let lagEvidenceListings = false;
+  store.list = async options => {
+    if (lagEvidenceListings && (
+      options?.prefix === auditRunPrefix(pairActor.id, 0)
+      || options?.prefix?.startsWith(`visual-judgments/${pairActor.id}/0/`)
+    )) return { blobs: [] };
+    return listed(options);
+  };
 
   for (const runId of ["run-1", "run-2"]) {
     await handler(request("POST", {
@@ -5463,8 +5472,10 @@ test("an approved exact-image signal learned from blind reviews can be retired w
       })),
     };
     store.records.set(runKey, run);
+    const judgmentReceiptIds = [];
     for (const [index, candidate] of run.calibrationAnalysis.candidates.entries()) {
       const receiptId = `${runId}-retire-blind-${index}`;
+      judgmentReceiptIds.push(receiptId);
       const receipt = {
         receiptId,
         runId,
@@ -5476,6 +5487,12 @@ test("an approved exact-image signal learned from blind reviews can be retired w
       store.records.set(key, receipt);
       originals.set(key, structuredClone(receipt));
     }
+    store.records.set(auditVisualJudgmentIndexKey(pairActor.id, 0, runId), {
+      schemaVersion: 1,
+      runId,
+      receiptIds: judgmentReceiptIds,
+      updatedAt: "2026-09-15T12:00:00.000Z",
+    });
     originals.set(runKey, structuredClone(run));
   }
 
@@ -5518,6 +5535,7 @@ test("an approved exact-image signal learned from blind reviews can be retired w
     [repeatedCandidateId],
   );
 
+  lagEvidenceListings = true;
   const retirementResponse = await handler(request("POST", {
     action: "retire_rescue_signal",
     actorId: pairActor.id,
