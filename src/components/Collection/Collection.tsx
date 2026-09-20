@@ -932,7 +932,7 @@ export const Collection: React.FC<Props> = ({
                       }
                     }}
                   >
-                    {busyKey === `export:${grid.id}` ? 'Rendering…' : 'Export grid'}
+                    {busyKey === `export:${grid.id}` ? 'Rendering…' : 'Share styled card'}
                   </button>
                   {!grid.legendaryMisprint && (
                     <button
@@ -1314,7 +1314,7 @@ function GridPublishingHandoff({ grid }: { grid: GridRecord }) {
   return (
     <div className={styles.publishingHandoff}>
       <button type="button" onClick={() => setExpanded(current => !current)}>
-        {expanded ? 'Close handoff' : 'Handoff for Publishing'}
+        {expanded ? 'Close handoff' : 'Handoff raw grid for publishing'}
       </button>
       {expanded && (
         <div className={styles.publishingHandoffPanel}>
