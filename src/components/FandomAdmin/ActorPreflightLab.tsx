@@ -232,7 +232,12 @@ export const ActorPreflightLab: React.FC = () => {
   async function runCacheDiagnostic() {
     setBusy('cache-diagnostic'); setNotice('');
     try {
-      const retained=visibleCacheDiagnostic;
+      const retained=visibleCacheDiagnostic?.queryContract?.status==='current'
+        && visibleCacheDiagnostic?.comparisons?.some((item:AnyRecord)=>item.normalError||item.bypassedError)
+        && visibleCacheDiagnostic?.comparisonId
+        && Date.parse(visibleCacheDiagnostic?.reservationExpiresAt)>Date.now()
+        ? visibleCacheDiagnostic
+        : null;
       const manifest=retained??(await api({action:'cache_diagnostic_manifest',actorId,vibeKey,scope})).diagnostic;
       const frozenQueries=Array.isArray(manifest?.frozenQueries)?manifest.frozenQueries:[];
       const previous=Array.isArray(retained?.comparisons)?retained.comparisons:[];
@@ -262,7 +267,7 @@ export const ActorPreflightLab: React.FC = () => {
       }));
       const finalized=finalizeCacheDiagnosticComparisons(comparisons);
       const diagnostic={...manifest,schemaVersion:2,comparedAt:new Date().toISOString(),...finalized};
-      const saved=(await api({action:'cache_diagnostic_receipt',actorId,vibeKey,scope,frozenQueries:diagnostic.frozenQueries,comparedAt:diagnostic.comparedAt,comparisons:diagnostic.comparisons})).diagnostic;
+      const saved=(await api({action:'cache_diagnostic_receipt',actorId,vibeKey,scope,comparisonId:diagnostic.comparisonId,reservationExpiresAt:diagnostic.reservationExpiresAt,frozenQueries:diagnostic.frozenQueries,comparedAt:diagnostic.comparedAt,comparisons:diagnostic.comparisons})).diagnostic;
       setCacheDiagnostics(current=>({...current,[scope]:saved}));
       const failedSides=comparisons.reduce((count:number,item:AnyRecord)=>count+Number(Boolean(item.normalError))+Number(Boolean(item.bypassedError)),0);
       setNotice(failedSides
@@ -557,8 +562,9 @@ export const ActorPreflightLab: React.FC = () => {
        <main className={styles.detail}>{!actor?<div className={styles.empty}>No actor profiles returned.</div>:<><section className={`${styles.panel} ${styles.detailPanel}`}><div className={styles.detailHead}><div><p className={styles.eyebrow}>Selected profile</p><h4>{actor.canonicalName}</h4><p>{actor.romanizedName} · aliases: {text(actor.aliases)}</p></div><span className={styles.muted}>Profile v{actor.profileVersion ?? '—'}</span></div><div className={styles.pairingStrip}>{(actor.pairings??[]).map(item=><button className={styles.pairing} data-selected={item.vibeKey===vibeKey} key={item.vibeKey} onClick={()=>{clearHandoff();setVibeKey(item.vibeKey)}}><strong>{text(item.labels) || item.vibeKey}</strong><span className={styles.state} data-state={item.auditState}>{item.auditState==='needs_reapproval' ? 'Needs reapproval' : item.auditState==='calibration_reaudit_required' ? 'Calibration reaudit required' : item.verdict ?? item.auditState ?? 'unreviewed'}</span><small>{item.queryCount ?? 0} queries · {date(item.lastRunAt)}</small></button>)}</div><div className={styles.controls}><button className={`${styles.buttonPrimary} ${currentRunIsLegacy?styles.freshAuditButton:''}`} disabled={!vibeKey||!!busy} onClick={()=>void startAudit(scope)}>{busy ? 'Running evidence pass…' : currentRunIsLegacy ? 'Run fresh audit' : 'Run audit'}</button><select className={styles.select} value={scope} onChange={e=>setScope(e.target.value)} aria-label="Audit scope"><option value="representative">Representative scope</option><option value="full">Full scope</option></select><span className={styles.status}>{pairing?.auditState==='blind_review_pending'?'Calibration pending':pairing?.auditState==='calibration_reaudit_required'?'Calibration reaudit required':pairing?.auditState==='needs_reapproval'?'Fresh audit required':pairing?.eligible===false?'Not eligible for scheduling':'Eligible for review'}</span></div></section>
           <section className={styles.panel} aria-label="Search cache diagnostic">
             <div className={styles.detailHead}><div><p className={styles.eyebrow}>Read-only search proof</p><h4>Normal vs bypass cache comparison</h4><p>Runs the selected frozen query set once normally and once with cache bypass requested. It does not save an audit or change ranking, scoring, eligibility, curation, or publication.</p></div></div>
-            <div className={styles.controls}><button type="button" className={styles.buttonSecondary} disabled={!vibeKey||!!busy} onClick={()=>void runCacheDiagnostic()}>{busy==='cache-diagnostic'?'Comparing cache paths…':visibleCacheDiagnostic?.comparisons?.some((item:AnyRecord)=>item.normalError||item.bypassedError)?'Retry failed searches':'Compare normal vs bypass'}</button><span className={styles.muted}>{scope} scope</span></div>
-            {visibleCacheDiagnostic&&<details open><summary>Comparison receipt · {visibleCacheDiagnostic.comparisons?.filter((item:AnyRecord)=>item.normal&&item.bypassed).length ?? 0} of {visibleCacheDiagnostic.comparisons?.length ?? 0} complete</summary>
+             <div className={styles.controls}><button type="button" className={styles.buttonSecondary} disabled={!vibeKey||!!busy} onClick={()=>void runCacheDiagnostic()}>{busy==='cache-diagnostic'?'Comparing cache paths…':visibleCacheDiagnostic?.queryContract?.status==='historical'?'Run new comparison with current queries':visibleCacheDiagnostic?.comparisons?.some((item:AnyRecord)=>item.normalError||item.bypassedError)?'Retry failed searches':'Compare normal vs bypass'}</button><span className={styles.muted}>{scope} scope</span></div>
+             {visibleCacheDiagnostic&&<details open><summary>Comparison receipt · {visibleCacheDiagnostic.queryContract?.status==='historical'?'Historical query set':'Current query set'} · {visibleCacheDiagnostic.comparisons?.filter((item:AnyRecord)=>item.normal&&item.bypassed).length ?? 0} of {visibleCacheDiagnostic.comparisons?.length ?? 0} complete</summary>
+               {visibleCacheDiagnostic.queryContract?.status==='historical'&&<p className={styles.historicalNotice}>This saved proof used an older frozen query set. Its original queries and evidence remain below. Run a new comparison only when current proof is needed.</p>}
               {(visibleCacheDiagnostic.comparisons??[]).map((item:AnyRecord,index:number)=><div key={`${index}:${item.query}`}>
                 <strong>{index+1}. {item.query}</strong>
                 {item.normalError&&<p className={styles.error} role="status">Normal request failed: {item.normalError}</p>}

@@ -1002,13 +1002,17 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
   };
 }
 
-async function configureCacheDiagnosticNetwork(page: Page): Promise<{
+async function configureCacheDiagnosticNetwork(
+  page: Page,
+  { failFirstRefresh = false }: { failFirstRefresh?: boolean } = {},
+): Promise<{
   providerSearchRequests: AnyRecord[];
   receiptSaveRequests: AnyRecord[];
 }> {
   const providerSearchRequests: AnyRecord[] = [];
   const receiptSaveRequests: AnyRecord[] = [];
   let savedDiagnostic: AnyRecord | null = null;
+  let refreshFailures = 0;
 
   await page.route('**/api/auth/session', route => route.fulfill({
     contentType: 'application/json',
@@ -1072,6 +1076,8 @@ async function configureCacheDiagnosticNetwork(page: Page): Promise<{
             vibeKey: input.vibeKey,
             scope: input.scope,
             frozenQueries: ['browser cache proof query'],
+            comparisonId: 'browser-comparison-id',
+            reservationExpiresAt: '2099-09-20T12:05:00.000Z',
           },
         }),
       });
@@ -1079,6 +1085,14 @@ async function configureCacheDiagnosticNetwork(page: Page): Promise<{
     }
     if (input.action === 'cache_diagnostic_fetch') {
       providerSearchRequests.push(input);
+      if (failFirstRefresh && input.cacheMode === 'refresh' && refreshFailures++ === 0) {
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Temporary refresh search failure.' }),
+        });
+        return;
+      }
       const identity = input.cacheMode === 'refresh' ? 'refresh-image' : 'default-image';
       await route.fulfill({
         contentType: 'application/json',
@@ -1102,6 +1116,14 @@ async function configureCacheDiagnosticNetwork(page: Page): Promise<{
         vibeKey: input.vibeKey,
         scope: input.scope,
         frozenQueries: input.frozenQueries,
+        comparisonId: input.comparisonId,
+        reservationExpiresAt: input.reservationExpiresAt,
+        queryContract: {
+          status: 'current',
+          isCurrent: true,
+          checkedAt: '2026-09-20T12:00:00.000Z',
+          currentQueries: input.frozenQueries,
+        },
         comparedAt: input.comparedAt,
         savedAt: '2026-09-20T12:00:00.000Z',
         comparisons: input.comparisons,
@@ -1129,7 +1151,7 @@ test('saved cache proof reopens after refresh without provider searches and stay
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     const diagnostic = page.getByRole('region', { name: 'Search cache diagnostic' });
     await diagnostic.getByRole('button', { name: 'Compare normal vs bypass', exact: true }).click();
-    await diagnostic.getByText('Comparison receipt · 1 of 1 complete', { exact: true }).waitFor();
+    await diagnostic.getByText('Comparison receipt · Current query set · 1 of 1 complete', { exact: true }).waitFor();
 
     assert.equal(providerSearchRequests.length, 2, 'creating the proof should run one normal and one bypassed provider search');
     assert.deepEqual(providerSearchRequests.map(request => request.cacheMode).sort(), ['default', 'refresh']);
@@ -1139,7 +1161,7 @@ test('saved cache proof reopens after refresh without provider searches and stay
     await page.reload();
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
     const refreshedDiagnostic = page.getByRole('region', { name: 'Search cache diagnostic' });
-    await refreshedDiagnostic.getByText('Comparison receipt · 1 of 1 complete', { exact: true }).waitFor();
+    await refreshedDiagnostic.getByText('Comparison receipt · Current query set · 1 of 1 complete', { exact: true }).waitFor();
     await refreshedDiagnostic.getByText('1. browser cache proof query', { exact: true }).waitFor();
     assert.equal(
       providerSearchRequests.length,
@@ -1149,20 +1171,51 @@ test('saved cache proof reopens after refresh without provider searches and stay
 
     await page.getByLabel('Audit scope').selectOption('representative');
     assert.equal(
-      await refreshedDiagnostic.getByText('Comparison receipt · 1 of 1 complete', { exact: true }).count(),
+      await refreshedDiagnostic.getByText('Comparison receipt · Current query set · 1 of 1 complete', { exact: true }).count(),
       0,
       'a full-scope receipt must not appear under representative scope',
     );
 
     await page.getByLabel('Audit scope').selectOption('full');
-    await refreshedDiagnostic.getByText('Comparison receipt · 1 of 1 complete', { exact: true }).waitFor();
+    await refreshedDiagnostic.getByText('Comparison receipt · Current query set · 1 of 1 complete', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Retired Signal Vibe', exact: false }).click();
     assert.equal(
-      await refreshedDiagnostic.getByText('Comparison receipt · 1 of 1 complete', { exact: true }).count(),
+      await refreshedDiagnostic.getByText('Comparison receipt · Current query set · 1 of 1 complete', { exact: true }).count(),
       0,
       'a receipt from another pairing must not be displayed',
     );
     assert.equal(providerSearchRequests.length, searchesBeforeRefresh, 'switching pairing or scope must not invoke provider searches');
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('a failed cache comparison retries immediately with its active saved reservation', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { providerSearchRequests, receiptSaveRequests } = await configureCacheDiagnosticNetwork(
+    page,
+    { failFirstRefresh: true },
+  );
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    const diagnostic = page.getByRole('region', { name: 'Search cache diagnostic' });
+    await diagnostic.getByRole('button', { name: 'Compare normal vs bypass', exact: true }).click();
+    const retry = diagnostic.getByRole('button', { name: 'Retry failed searches', exact: true });
+    await retry.waitFor();
+    assert.equal(providerSearchRequests.length, 2);
+    assert.equal(receiptSaveRequests.length, 1);
+
+    await retry.click();
+    await diagnostic.getByText('Comparison receipt · Current query set · 1 of 1 complete', { exact: true }).waitFor();
+    assert.equal(providerSearchRequests.length, 3, 'retry should search only the failed cache side');
+    assert.equal(providerSearchRequests[2].cacheMode, 'refresh');
+    assert.equal(providerSearchRequests[2].comparisonId, 'browser-comparison-id');
+    assert.equal(receiptSaveRequests.length, 2);
   } finally {
     await browser.close();
     await server.close();

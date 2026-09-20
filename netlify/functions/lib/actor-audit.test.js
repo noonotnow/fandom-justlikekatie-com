@@ -2589,6 +2589,8 @@ test("cache diagnostic can be assembled from one-search serverless requests", as
 
   assert.equal(manifestResponse.status, 200);
   assert.deepEqual(manifest.frozenQueries, pairActor.vibes[0].queries.slice(0, 3));
+  assert.ok(manifest.comparisonId);
+  assert.ok(Date.parse(manifest.reservationExpiresAt) > 0);
   assert.equal(getSearchCall(), 0);
 
   const normalResponse = await handler(request("POST", {
@@ -2742,6 +2744,8 @@ test("cache diagnostic receipt reopens without searches and overwrites the bound
     vibeKey,
     scope: "representative",
     frozenQueries,
+    comparisonId: "comparison-retry-1",
+    reservationExpiresAt: "2026-09-19T10:05:00.000Z",
     comparedAt: "2026-09-19T10:00:00.000Z",
     comparisons,
   }), {});
@@ -2754,6 +2758,8 @@ test("cache diagnostic receipt reopens without searches and overwrites the bound
     vibeKey,
     scope: "representative",
     frozenQueries,
+    comparisonId: "comparison-retry-2",
+    reservationExpiresAt: "2026-09-19T11:05:00.000Z",
     comparedAt: "2026-09-19T11:00:00.000Z",
     comparisons: comparisons.map(item => ({
       ...item,
@@ -2773,6 +2779,11 @@ test("cache diagnostic receipt reopens without searches and overwrites the bound
   assert.equal(reopened.status, 200);
   assert.equal(getSearchCall(), 0);
   assert.equal(receipt.retention, "latest_per_pairing_and_scope");
+  assert.equal(receipt.comparisonId, "comparison-retry-2");
+  assert.equal(receipt.reservationExpiresAt, "2026-09-19T11:05:00.000Z");
+  assert.equal(receipt.queryContract.status, "current");
+  assert.equal(receipt.queryContract.isCurrent, true);
+  assert.deepEqual(receipt.queryContract.currentQueries, frozenQueries);
   assert.equal(receipt.comparedAt, "2026-09-19T11:00:00.000Z");
   assert.deepEqual(receipt.frozenQueries, frozenQueries);
   assert.equal(receipt.comparisons[0].normal.resultFingerprint, "new-normal-0");
@@ -2789,6 +2800,134 @@ test("cache diagnostic receipt reopens without searches and overwrites the bound
       || key.startsWith("verdicts/")),
     false,
   );
+});
+
+test("a failed cache side can retry from its reopened receipt without losing successful evidence", async () => {
+  let failRefresh = true;
+  const failedQuery = pairActor.vibes[0].queries[0];
+  const { handler, getSearchCall } = harness({
+    searchFailure: (query, options) =>
+      failRefresh && query === failedQuery && options.cacheMode === "refresh",
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const manifestResponse = await handler(request("POST", {
+    action: "cache_diagnostic_manifest",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+  }), {});
+  const manifest = (await manifestResponse.json()).diagnostic;
+  const normalResponse = await handler(request("POST", {
+    action: "cache_diagnostic_fetch",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+    comparisonId: manifest.comparisonId,
+    queryIndex: 0,
+    cacheMode: "default",
+  }), {});
+  const normal = await normalResponse.json();
+  const failedResponse = await handler(request("POST", {
+    action: "cache_diagnostic_fetch",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+    comparisonId: manifest.comparisonId,
+    queryIndex: 0,
+    cacheMode: "refresh",
+  }), {});
+  assert.equal(normalResponse.status, 200);
+  assert.equal(failedResponse.status, 500);
+
+  const comparisons = manifest.frozenQueries.map((query, index) => ({
+    query,
+    normal: index === 0 ? normal.search : null,
+    bypassed: null,
+    normalError: null,
+    bypassedError: index === 0 ? "Search gateway failed for refresh." : null,
+  }));
+  const savedResponse = await handler(request("POST", {
+    action: "cache_diagnostic_receipt",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+    comparisonId: manifest.comparisonId,
+    reservationExpiresAt: manifest.reservationExpiresAt,
+    frozenQueries: manifest.frozenQueries,
+    comparedAt: "2026-08-31T12:00:00.000Z",
+    comparisons,
+  }), {});
+  assert.equal(savedResponse.status, 200);
+  const savedReceipt = (await savedResponse.json()).diagnostic;
+  assert.equal(savedReceipt.queryContract.status, "current");
+  assert.equal(savedReceipt.queryContract.isCurrent, true);
+
+  const reopenedResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const receipt = (await reopenedResponse.json()).cacheDiagnostics.representative;
+  assert.equal(receipt.comparisonId, manifest.comparisonId);
+  assert.equal(receipt.reservationExpiresAt, manifest.reservationExpiresAt);
+  assert.ok(receipt.comparisons[0].normal);
+  assert.equal(receipt.comparisons[0].bypassedError, "Search gateway failed for refresh.");
+
+  const callsBeforeRetry = getSearchCall();
+  failRefresh = false;
+  const retryResponse = await handler(request("POST", {
+    action: "cache_diagnostic_fetch",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+    comparisonId: receipt.comparisonId,
+    queryIndex: 0,
+    cacheMode: "refresh",
+  }), {});
+  const retry = await retryResponse.json();
+
+  assert.equal(retryResponse.status, 200);
+  assert.equal(retry.search.cacheProvenance.bypassRequested, true);
+  assert.equal(getSearchCall(), callsBeforeRetry + 1);
+});
+
+test("reopened cache proof is marked historical when the server-derived query set changes", async () => {
+  const actor = structuredClone(pairActor);
+  const { handler, getSearchCall } = harness({ actorPacks: [actor] });
+  const vibeKey = vibeKeyFor(actor.id, 0);
+  const frozenQueries = actor.vibes[0].queries.slice(0, 3);
+  const comparisons = frozenQueries.map(query => ({
+    query,
+    normal: null,
+    bypassed: null,
+  }));
+
+  const saved = await handler(request("POST", {
+    action: "cache_diagnostic_receipt",
+    actorId: actor.id,
+    vibeKey,
+    scope: "representative",
+    frozenQueries,
+    comparedAt: "2026-09-19T10:00:00.000Z",
+    comparisons,
+  }), {});
+  assert.equal(saved.status, 200);
+
+  actor.vibes[0].queries = ["new current query", ...actor.vibes[0].queries];
+  const reopened = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${actor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const receipt = (await reopened.json()).cacheDiagnostics.representative;
+
+  assert.equal(reopened.status, 200);
+  assert.equal(getSearchCall(), 0);
+  assert.equal(receipt.queryContract.status, "historical");
+  assert.equal(receipt.queryContract.isCurrent, false);
+  assert.deepEqual(receipt.frozenQueries, frozenQueries);
+  assert.deepEqual(receipt.comparisons.map(item => item.query), frozenQueries);
+  assert.deepEqual(receipt.queryContract.currentQueries, actor.vibes[0].queries.slice(0, 3));
 });
 
 test("cache diagnostic redacts signed display URLs and withholds metrics when identity capture is truncated", async () => {

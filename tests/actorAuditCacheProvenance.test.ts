@@ -17,3 +17,12 @@ test('cache comparison receipts cannot remain attributed to a different actor, V
   assert.match(source, /\{visibleCacheDiagnostic&&<details/);
   assert.doesNotMatch(source, /\{cacheDiagnostic&&<details/);
 });
+
+test('failed cache comparisons only reuse a current unexpired reservation', () => {
+  assert.match(source, /queryContract\?\.status==='current'/);
+  assert.match(source, /comparisons\?\.some\(\(item:AnyRecord\)=>item\.normalError\|\|item\.bypassedError\)/);
+  assert.match(source, /visibleCacheDiagnostic\?\.comparisonId/);
+  assert.match(source, /Date\.parse\(visibleCacheDiagnostic\?\.reservationExpiresAt\)>Date\.now\(\)/);
+  assert.match(source, /comparisonId:manifest\.comparisonId/);
+  assert.match(source, /reservationExpiresAt:diagnostic\.reservationExpiresAt/);
+});

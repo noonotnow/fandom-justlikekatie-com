@@ -394,14 +394,33 @@ export function createActorAuditHandler({
           .filter(receipt =>
             receipt.originalStatus === "pending_review"
             && receipt.status === "pending_review");
+        const calibrationProfile = approvedCalibrationProfile(
+          await readRescueCalibrationProfile(store, pair),
+        );
         const cacheDiagnostics = Object.fromEntries((await Promise.all(
-          ["representative", "full"].map(async scope => [
-            scope,
-            await store.get(
+          ["representative", "full"].map(async scope => {
+            const receipt = await store.get(
               cacheDiagnosticReceiptKey(pair.actor.id, pair.vibeIdx, scope),
               { type: "json", consistency: "strong" },
-            ),
-          ]),
+            );
+            if (!receipt) return [scope, null];
+            const currentQueries = searchQueriesFor(
+              pair.actor,
+              pair.vibeIdx,
+              calibrationProfile,
+              { baseLimit: scope === "representative" ? 3 : null },
+            );
+            const isCurrent = JSON.stringify(receipt.frozenQueries) === JSON.stringify(currentQueries);
+            return [scope, {
+              ...receipt,
+              queryContract: {
+                status: isCurrent ? "current" : "historical",
+                isCurrent,
+                checkedAt: now().toISOString(),
+                currentQueries,
+              },
+            }];
+          }),
         )).filter(([, receipt]) => receipt));
         return json(200, {
           ...detailResponse(pair, report),
@@ -659,6 +678,7 @@ export function createActorAuditHandler({
             scope,
             frozenQueries,
             comparisonId: reservation.record.comparisonId,
+            reservationExpiresAt: reservation.record.expiresAt,
           },
         });
       }
@@ -765,6 +785,17 @@ export function createActorAuditHandler({
           vibeKey: pair.vibeKey,
           scope,
           frozenQueries,
+          queryContract: {
+            status: "current",
+            isCurrent: true,
+            checkedAt: now().toISOString(),
+            currentQueries: frozenQueries,
+          },
+          comparisonId: boundedText(input.comparisonId, 160),
+          reservationExpiresAt: typeof input.reservationExpiresAt === "string"
+            && Number.isFinite(Date.parse(input.reservationExpiresAt))
+            ? new Date(input.reservationExpiresAt).toISOString()
+            : null,
           comparedAt: typeof input.comparedAt === "string"
             && Number.isFinite(Date.parse(input.comparedAt))
             ? new Date(input.comparedAt).toISOString()
