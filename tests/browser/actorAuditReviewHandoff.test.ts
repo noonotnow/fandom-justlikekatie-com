@@ -497,7 +497,7 @@ function publicationReviewRun(runId: string, historical = false, includePublicat
   return result;
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, exhaustedLegacyRecovery = false, retrievalRepetition = false, currentLegacy = false } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, exhaustedLegacyRecovery = false, retrievalRepetition = false, currentLegacy = false, publicationIndexRepairHealth = null as AnyRecord | null } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   calibrationExportRequests: URL[];
@@ -725,6 +725,7 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
               schemaVersion: 1,
               timeZone: 'Asia/Shanghai',
               cutoff: '12:00',
+              ...(publicationIndexRepairHealth ? { publicationIndexRepairHealth } : {}),
               releaseReadyPairingCount: 1,
               freshCuratorPairingCount: 1,
               rescueBackupPairingCount: 0,
@@ -2938,6 +2939,70 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
       await currentFirstResult.getByText('Mark Misprint', { exact: true }).count(),
       0,
       'an immutable Misprint should not offer a second correction action',
+    );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('release inventory repair warnings distinguish repeated repairs from one successful bootstrap and stay private', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+
+  try {
+    const repeatedRepairPage = await browser.newPage();
+    await configureNetwork(repeatedRepairPage, {
+      publicationIndexRepairHealth: {
+        warning: true,
+        attemptCount: 3,
+        failedAttemptCount: 0,
+        windowHours: 24,
+      },
+    });
+    await repeatedRepairPage.goto(`${origin}/vibe-atlas?admin=true`);
+    await repeatedRepairPage.getByRole('heading', { name: 'Release Desk', exact: true }).waitFor();
+    await repeatedRepairPage.getByText('Release inventory repair needs attention', { exact: true }).waitFor();
+    assert.equal(
+      await repeatedRepairPage.getByText(
+        '3 rebuilds were needed in the last 24 hours. Inventory remains fail-closed; check Blob listing and historical manifest health.',
+        { exact: true },
+      ).isVisible(),
+      true,
+    );
+
+    const successfulBootstrapPage = await browser.newPage();
+    await configureNetwork(successfulBootstrapPage, {
+      publicationIndexRepairHealth: {
+        warning: false,
+        attemptCount: 1,
+        failedAttemptCount: 0,
+        windowHours: 24,
+      },
+    });
+    await successfulBootstrapPage.goto(`${origin}/vibe-atlas?admin=true`);
+    await successfulBootstrapPage.getByRole('heading', { name: 'Inventory', exact: true }).waitFor();
+    assert.equal(
+      await successfulBootstrapPage.getByText('Release inventory repair needs attention', { exact: true }).count(),
+      0,
+      'one successful bootstrap must not warn operators',
+    );
+
+    const publicPage = await browser.newPage();
+    await configureNetwork(publicPage, {
+      publicationIndexRepairHealth: {
+        warning: true,
+        attemptCount: 3,
+        failedAttemptCount: 0,
+        windowHours: 24,
+      },
+    });
+    await publicPage.goto(`${origin}/vibe-atlas`);
+    await publicPage.getByRole('heading', { name: /Vibe Atlas/ }).first().waitFor();
+    assert.equal(
+      await publicPage.getByText('Release inventory repair needs attention', { exact: true }).count(),
+      0,
+      'repair warning copy must remain private to the operator surface',
     );
   } finally {
     await browser.close();
