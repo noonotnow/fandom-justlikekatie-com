@@ -5386,6 +5386,40 @@ test("production calibration requires repeated aggregate evidence, applies one a
     },
   );
 
+  lagAuthorityListings = false;
+  const approvalId = approval.calibrationProfile.activeApproval.approvalId;
+  const staleRevocationKey =
+    `${auditRescueCalibrationApprovalRevocationPrefix(pairActor.id, 0)}stale-${approvalId}`;
+  await store.setJSON(
+    staleRevocationKey,
+    {
+      status: "revoked",
+      approvalId,
+      actorId: pairActor.id,
+      vibeKey,
+      revokedAt: "2026-09-11T11:00:00.000Z",
+      revokedBy: "stale-listing",
+      reason: "Stale listed state conflicts with the absent canonical revocation.",
+    },
+  );
+  assert.equal(
+    (await store.list({
+      prefix: auditRescueCalibrationApprovalRevocationPrefix(pairActor.id, 0),
+    })).blobs.some(blob => blob.key === staleRevocationKey),
+    true,
+    "fixture must expose the conflicting listed revocation",
+  );
+  const profileWithConflictingRevocation = await handler(
+    request("GET", undefined, `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`),
+    {},
+  );
+  const conflictingProfileBody = await profileWithConflictingRevocation.json();
+  assert.equal(
+    conflictingProfileBody.calibrationProfile.activeApproval.approvalId,
+    approvalId,
+    "operator profile must use the directly read canonical revocation state",
+  );
+
   await handler(request("POST", {
     action: "run", actorId: pairActor.id, vibeKey, scope: "full",
   }), {});
@@ -5413,6 +5447,11 @@ test("production calibration requires repeated aggregate evidence, applies one a
   assert.deepEqual(eligibility.calibrationProfile.positiveCandidateIds, []);
   assert.equal(eligibility.rescueCalibrationApprovalId,
     approval.calibrationProfile.activeApproval.approvalId);
+  assert.equal(
+    (await getEligibility(store, pairActor, 0))?.rescueCalibrationApprovalId,
+    approvalId,
+    "production eligibility must ignore a conflicting listed revocation for the canonical approval",
+  );
 
   const existingCalibrationKey = [...store.records.keys()].find(key =>
     key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0)));

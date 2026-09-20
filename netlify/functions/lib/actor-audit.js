@@ -6399,10 +6399,14 @@ async function readRescueCalibrationProfile(
         canonicalApproval,
       );
     }
-    if (canonicalRevocation
-      && !approvalRevocations.some(receipt => receipt.approvalId === canonicalRevocation.approvalId)) {
-      approvalRevocations.push(canonicalRevocation);
-    }
+    approvalRevocations.splice(
+      0,
+      approvalRevocations.length,
+      ...approvalRevocations.filter(
+        receipt => receipt.approvalId !== canonicalAuthority.approvalId,
+      ),
+      ...(canonicalRevocation ? [canonicalRevocation] : []),
+    );
   }
   const approvedSignalFamily = normalizeCalibrationSignalFamily(
     canonicalApproval?.adjustment?.signalFamily,

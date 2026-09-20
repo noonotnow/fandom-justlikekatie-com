@@ -654,6 +654,7 @@ async function currentRescueCalibrationApproval(
         canonicalApproval,
       );
     }
+    revokedIds.delete(authority.approvalId);
     if (canonicalRevocation?.status === "revoked") revokedIds.add(canonicalRevocation.approvalId);
   }
   return approvals
