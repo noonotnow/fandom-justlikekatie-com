@@ -497,7 +497,7 @@ function publicationReviewRun(runId: string, historical = false, includePublicat
   return result;
 }
 
-async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, exhaustedLegacyRecovery = false, retrievalRepetition = false, currentLegacy = false, publicationIndexRepairHealth = null as AnyRecord | null } = {}): Promise<{
+async function configureNetwork(page: Page, { missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, exhaustedLegacyRecovery = false, retrievalRepetition = false, currentLegacy = false, publicationIndexRepairHealth = null as AnyRecord | null } = {}): Promise<{
   auditRequests: AnyRecord[];
   calibrationRequests: AnyRecord[];
   calibrationExportRequests: URL[];
@@ -958,6 +958,20 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
         });
         return;
       }
+      if (contendVisualJudgmentIndex) {
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: 'The judgment was saved, but its receipt index is busy.',
+            receiptSaved: true,
+            repairAction: 'repair_visual_judgment_index',
+            runId: 'visual-review-current',
+            receiptId: `visual-${input.judgmentToken}`,
+          }),
+        });
+        return;
+      }
       if (slowVisualJudgment) {
         await new Promise(resolve => setTimeout(resolve, 250));
       }
@@ -979,6 +993,25 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify(response),
+      });
+      return;
+    }
+    if (input.action === 'repair_visual_judgment_index' && visualReview) {
+      visualJudgments.push({
+        receiptId: input.receiptId,
+        judgmentToken: String(input.receiptId).replace(/^visual-/, ''),
+        sourceOccurrenceId: String(input.receiptId).replace(/^visual-/, ''),
+        classification: 'core',
+        judgedAt: '2026-09-10T12:00:00.000Z',
+      });
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          repaired: true,
+          runId: input.runId,
+          receiptId: input.receiptId,
+          receiptUnchanged: true,
+        }),
       });
       return;
     }
@@ -2383,6 +2416,58 @@ test('a failed image-only judgment stays blinded and ready to retry', { timeout:
         .filter(request => request.action === 'record_visual_judgment')
         .map(request => ({ judgmentToken: request.judgmentToken, classification: request.classification })),
       [{ judgmentToken: 'visual-token-1', classification: 'core' }],
+    );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('a saved image judgment repairs index contention without repeating classification', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { auditRequests } = await configureNetwork(page, {
+    visualReview: true,
+    contendVisualJudgmentIndex: true,
+  });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('heading', { name: 'Actor preflight lab' }).waitFor();
+
+    const review = page.getByLabel('Blind rejected thumbnail review');
+    await review.getByRole('img', { name: 'Rejected thumbnail for blind visual judgment' }).waitFor();
+    await review.getByRole('button', { name: 'Core', exact: true }).click();
+    await page.getByText(
+      'Blind image judgment saved and its receipt index repaired. Production scoring is unchanged.',
+      { exact: true },
+    ).waitFor();
+    await review.getByText('2/2 · 1 receipt', { exact: true }).waitFor();
+
+    assert.deepEqual(
+      auditRequests
+        .filter(request => request.action === 'record_visual_judgment')
+        .map(request => ({
+          judgmentToken: request.judgmentToken,
+          classification: request.classification,
+        })),
+      [{ judgmentToken: 'visual-token-1', classification: 'core' }],
+    );
+    assert.deepEqual(
+      auditRequests
+        .filter(request => request.action === 'repair_visual_judgment_index')
+        .map(request => ({
+          runId: request.runId,
+          receiptId: request.receiptId,
+          classification: request.classification,
+        })),
+      [{
+        runId: 'visual-review-current',
+        receiptId: 'visual-visual-token-1',
+        classification: undefined,
+      }],
     );
   } finally {
     await browser.close();

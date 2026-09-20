@@ -36,6 +36,8 @@ const downloadCalibrationExport = functionBody('downloadCalibrationExport');
 const markRescueCalibration = functionBody('markRescueCalibration');
 const saveRescueBoard = functionBody('saveRescueBoard');
 const saveRescueReceiptToCollection = functionBody('saveRescueReceiptToCollection');
+
+const saveVisualJudgment = functionBody('saveVisualJudgment');
 const requestedReviewStart = source.indexOf('function RequestedGridReview');
 const requestedReviewEnd = source.indexOf('\nfunction PartialBoards', requestedReviewStart);
 const requestedReview = source.slice(requestedReviewStart, requestedReviewEnd);
@@ -49,6 +51,13 @@ test('a completed actor audit reloads its authoritative saved review', () => {
   assert.ok(runRequest >= 0, 'the audit must first be started');
   assert.ok(detailRequest > runRequest, 'the saved detail must be fetched after the audit completes');
   assert.match(startAudit, /refreshed\.currentRun\?\.runId===startedRunId/);
+});
+
+test('a saved visual judgment repairs its contended index without repeating classification', () => {
+  assert.match(saveVisualJudgment, /receiptSaved===true/);
+  assert.match(saveVisualJudgment, /action:'repair_visual_judgment_index'/);
+  assert.match(saveVisualJudgment, /api\(undefined,\{actorId,vibeKey\}\)/);
+  assert.equal((saveVisualJudgment.match(/action:'record_visual_judgment'/g) ?? []).length, 1);
 });
 
 test('calibration evidence export is a credentialed date-bounded read-only download', () => {

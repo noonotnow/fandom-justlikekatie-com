@@ -95,7 +95,7 @@ const CHALLENGE_REASONS: Array<[string,string]> = [
   ['not_collage_duplicate_or_bts','Not actually a collage, duplicate, or BTS image'],
   ['other_editorial_instinct','Other editorial instinct'],
 ];
-const api = async (body?: AnyRecord, query?: AnyRecord) => { const queryString = query ? `?${new URLSearchParams(Object.entries(query).filter(([,value]) => value !== undefined && value !== '') as [string,string][]).toString()}` : ''; const response = await fetch(`/.netlify/functions/actor-audits${queryString}`, { method: body ? 'POST' : 'GET', headers: body ? {'Content-Type':'application/json'} : undefined, body: body ? JSON.stringify(body) : undefined, credentials:'include' }); const result = await response.json().catch(() => null); if (!response.ok) throw new Error(result?.error || 'Actor audit desk unavailable.'); return result; };
+const api = async (body?: AnyRecord, query?: AnyRecord) => { const queryString = query ? `?${new URLSearchParams(Object.entries(query).filter(([,value]) => value !== undefined && value !== '') as [string,string][]).toString()}` : ''; const response = await fetch(`/.netlify/functions/actor-audits${queryString}`, { method: body ? 'POST' : 'GET', headers: body ? {'Content-Type':'application/json'} : undefined, body: body ? JSON.stringify(body) : undefined, credentials:'include' }); const result = await response.json().catch(() => null); if (!response.ok) throw Object.assign(new Error(result?.error || 'Actor audit desk unavailable.'), {status:response.status,payload:result}); return result; };
 const text = (value: unknown) => Array.isArray(value)
   ? value.map(item => typeof item === 'object' && item ? JSON.stringify(item) : String(item)).join(' · ')
   : typeof value === 'object' && value ? JSON.stringify(value, null, 2) : String(value ?? '—');
@@ -348,8 +348,22 @@ export const ActorPreflightLab: React.FC = () => {
       const next=result.currentRun ?? currentRun;
       setRun(next); setCurrentRun(next); setPriorRuns(result.priorRuns ?? priorRuns);
       setNotice('Blind image judgment saved as a separate immutable receipt. Production scoring is unchanged.');
-    } catch {
-      setNotice('The image judgment was not saved. The same image remains ready—retry your choice.');
+    } catch(e:any) {
+      const repair=e?.payload;
+      if(repair?.receiptSaved===true&&repair?.repairAction==='repair_visual_judgment_index'&&repair?.runId===currentRun.runId&&repair?.receiptId) {
+        try {
+          await api({action:'repair_visual_judgment_index',actorId,vibeKey,runId:repair.runId,receiptId:repair.receiptId});
+          const refreshed=await api(undefined,{actorId,vibeKey});
+          applyRefresh(refreshed);
+          const next=refreshed.currentRun ?? currentRun;
+          setRun(next); setCurrentRun(next); setPriorRuns(refreshed.priorRuns ?? priorRuns);
+          setNotice('Blind image judgment saved and its receipt index repaired. Production scoring is unchanged.');
+        } catch(repairError:any) {
+          setNotice(`The image judgment was saved, but its receipt index still needs repair: ${repairError.message}`);
+        }
+      } else {
+        setNotice('The image judgment was not saved. The same image remains ready—retry your choice.');
+      }
     } finally {
       visualJudgmentsInFlight.current.delete(judgmentToken);
       setBusy('');

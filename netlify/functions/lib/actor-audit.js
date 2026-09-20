@@ -233,6 +233,7 @@ const RUN_SCOPED_MUTATION_LEGACY_WRITES = new Map([
   ["verdict", false],
   ["blind_choice", false],
   ["record_visual_judgment", false],
+  ["repair_visual_judgment_index", true],
   ["blind_reasons", false],
   ["mark_misprint", false],
   ["flag_candidate", true],
@@ -1400,13 +1401,65 @@ export function createActorAuditHandler({
           receipt,
         );
         if (!indexed) {
-          return json(503, { error: "The judgment was saved, but its receipt index is busy. Retry to create a complete receipt." });
+          return json(503, {
+            error: "The judgment was saved, but its receipt index is busy.",
+            receiptSaved: true,
+            repairAction: "repair_visual_judgment_index",
+            runId: report.currentRun.runId,
+            receiptId,
+          });
         }
         const next = await readReport(store, pair);
         return json(200, {
           actor: await actorSummary(store, actorPacks, pair.actor),
           pairing: pairingSummary(pair, next),
           ...detailResponse(pair, next),
+        });
+      }
+
+      if (input.action === "repair_visual_judgment_index") {
+        const runId = boundedText(input.runId, 160);
+        const receiptId = boundedText(input.receiptId, 200);
+        if (!runId || !receiptId || !receiptId.startsWith("visual-")) {
+          return json(400, { error: "A retained audit run and visual judgment receipt are required." });
+        }
+        const run = await readRun(store, pair, runId);
+        if (!run || run.runId !== runId) {
+          return json(404, { error: `Source audit run ${runId} is no longer retained.`, runId });
+        }
+        const receiptKey = auditVisualJudgmentKey(
+          pair.actor.id,
+          pair.vibeIdx,
+          runId,
+          receiptId,
+        );
+        const receipt = await store.get(receiptKey, { type: "json", consistency: "strong" });
+        const source = run.calibrationAnalysis?.candidates?.find(candidate =>
+          candidate?.occurrenceId === receipt?.sourceOccurrenceId);
+        const expectedReceiptId = source?.occurrenceId
+          ? `visual-${visualJudgmentToken(runId, source.occurrenceId)}`
+          : null;
+        if (
+          !receipt
+          || receipt.receiptId !== receiptId
+          || receipt.runId !== runId
+          || expectedReceiptId !== receiptId
+        ) {
+          return json(409, {
+            error: "This receipt identity does not belong to the retained audit run.",
+          });
+        }
+        const indexed = await appendVisualJudgmentIndex(store, pair, runId, receipt);
+        if (!indexed) {
+          return json(503, {
+            error: "The judgment receipt is unchanged, but its receipt index is still busy. Try the repair again.",
+          });
+        }
+        return json(200, {
+          repaired: true,
+          runId,
+          receiptId,
+          receiptUnchanged: true,
         });
       }
 

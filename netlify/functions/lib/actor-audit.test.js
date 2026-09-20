@@ -70,6 +70,7 @@ test("run-scoped mutation policy defaults Legacy audits to read-only", () => {
   });
   assert.equal(legacyAuditMutationPolicy("flag_candidate").legacyWritable, true);
   assert.equal(legacyAuditMutationPolicy("save_rescue_board").legacyWritable, true);
+  assert.equal(legacyAuditMutationPolicy("repair_visual_judgment_index").legacyWritable, true);
 });
 
 test("approval source recovery applies one fail-closed bounded policy", async () => {
@@ -1081,7 +1082,7 @@ test("concurrent visual judgments for different tokens preserve both receipts th
   );
 });
 
-test("visual judgments remain recoverable when receipt index contention exhausts every retry", async () => {
+test("operators can repair a visual judgment index after contention without repeating its classification", async () => {
   const { handler, store } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   const runResponse = await handler(request("POST", {
@@ -1140,7 +1141,11 @@ test("visual judgments remain recoverable when receipt index contention exhausts
   const contendedBody = await contendedResponse.json();
   assert.equal(contendedResponse.status, 503);
   assert.deepEqual(contendedBody, {
-    error: "The judgment was saved, but its receipt index is busy. Retry to create a complete receipt.",
+    error: "The judgment was saved, but its receipt index is busy.",
+    receiptSaved: true,
+    repairAction: "repair_visual_judgment_index",
+    runId: run.runId,
+    receiptId,
   });
   assert.equal(contendedIndexWrites, 8);
   assert.equal(store.records.has(indexKey), false);
@@ -1158,15 +1163,46 @@ test("visual judgments remain recoverable when receipt index contention exhausts
   });
   assert.equal(Number.isNaN(Date.parse(immutableReceipt.judgedAt)), false);
 
+  const priorReceiptId = "visual-prior";
+  store.records.set(indexKey, {
+    schemaVersion: 1,
+    runId: run.runId,
+    receiptIds: [priorReceiptId],
+    updatedAt: "2026-09-01T00:00:00.000Z",
+  });
   store.setJSON = originalSetJSON;
-  const retryResponse = await handler(request("POST", submission), {});
-  const retryBody = await retryResponse.json();
-  assert.equal(retryResponse.status, 200, JSON.stringify(retryBody));
-  assert.deepEqual(store.records.get(indexKey).receiptIds, [receiptId]);
-  assert.deepEqual(
-    retryBody.currentRun.humanVisualJudgments.map(receipt => receipt.receiptId),
-    [receiptId],
-  );
+  const repairResponse = await handler(request("POST", {
+    action: "repair_visual_judgment_index",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: run.runId,
+    receiptId,
+  }), {});
+  const repairBody = await repairResponse.json();
+  assert.equal(repairResponse.status, 200, JSON.stringify(repairBody));
+  assert.deepEqual(repairBody, {
+    repaired: true,
+    runId: run.runId,
+    receiptId,
+    receiptUnchanged: true,
+  });
+  assert.deepEqual(store.records.get(indexKey).receiptIds, [priorReceiptId, receiptId]);
+  assert.deepEqual(store.records.get(receiptKey), immutableReceipt);
+
+  const unrelatedRunId = "unrelated-run";
+  store.records.set(auditRunKey(pairActor.id, 0, unrelatedRunId), {
+    ...structuredClone(run),
+    runId: unrelatedRunId,
+  });
+  const unrelatedResponse = await handler(request("POST", {
+    action: "repair_visual_judgment_index",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: unrelatedRunId,
+    receiptId,
+  }), {});
+  assert.equal(unrelatedResponse.status, 409);
+  assert.deepEqual(store.records.get(indexKey).receiptIds, [priorReceiptId, receiptId]);
   assert.deepEqual(store.records.get(receiptKey), immutableReceipt);
 });
 
