@@ -1086,14 +1086,22 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
 
 async function configureCacheDiagnosticNetwork(
   page: Page,
-  { failFirstRefresh = false }: { failFirstRefresh?: boolean } = {},
+  {
+    failFirstRefresh = false,
+    initialDiagnostic = null,
+    manifestQueries = ['browser cache proof query'],
+  }: {
+    failFirstRefresh?: boolean;
+    initialDiagnostic?: AnyRecord | null;
+    manifestQueries?: string[];
+  } = {},
 ): Promise<{
   providerSearchRequests: AnyRecord[];
   receiptSaveRequests: AnyRecord[];
 }> {
   const providerSearchRequests: AnyRecord[] = [];
   const receiptSaveRequests: AnyRecord[] = [];
-  let savedDiagnostic: AnyRecord | null = null;
+  let savedDiagnostic: AnyRecord | null = initialDiagnostic;
   let refreshFailures = 0;
 
   await page.route('**/api/auth/session', route => route.fulfill({
@@ -1157,7 +1165,7 @@ async function configureCacheDiagnosticNetwork(
             actorId: input.actorId,
             vibeKey: input.vibeKey,
             scope: input.scope,
-            frozenQueries: ['browser cache proof query'],
+            frozenQueries: manifestQueries,
             comparisonId: 'browser-comparison-id',
             reservationExpiresAt: '2099-09-20T12:05:00.000Z',
           },
@@ -1267,6 +1275,82 @@ test('saved cache proof reopens after refresh without provider searches and stay
       'a receipt from another pairing must not be displayed',
     );
     assert.equal(providerSearchRequests.length, searchesBeforeRefresh, 'switching pairing or scope must not invoke provider searches');
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('historical cache proof keeps its frozen evidence and starts a new current-query comparison', { timeout: 60_000 }, async () => {
+  const historicalQuery = 'older frozen cache proof query';
+  const currentQuery = 'current cache proof query';
+  const historicalDiagnostic = {
+    schemaVersion: 2,
+    diagnosticId: 'historical-cache-proof-browser',
+    actorId: ACTOR_ID,
+    vibeKey: VIBE_KEY,
+    scope: 'full',
+    frozenQueries: [historicalQuery],
+    comparisonId: 'historical-comparison-id',
+    queryContract: {
+      status: 'historical',
+      isCurrent: false,
+      checkedAt: '2026-09-20T12:00:00.000Z',
+      currentQueries: [currentQuery],
+    },
+    comparedAt: '2026-09-19T12:00:00.000Z',
+    savedAt: '2026-09-19T12:01:00.000Z',
+    comparisons: [{
+      query: historicalQuery,
+      normal: {
+        resultFingerprint: 'historical-default-fingerprint',
+        resultIdentities: [{ identity: 'historical-default-image', title: 'Historical default image' }],
+      },
+      bypassed: {
+        resultFingerprint: 'historical-refresh-fingerprint',
+        resultIdentities: [{ identity: 'historical-refresh-image', title: 'Historical refresh image' }],
+      },
+    }],
+  };
+  const { server, origin } = await startApp();
+  const browser = await launchBrowser();
+  const page = await browser.newPage();
+  const { providerSearchRequests, receiptSaveRequests } = await configureCacheDiagnosticNetwork(page, {
+    initialDiagnostic: historicalDiagnostic,
+    manifestQueries: [currentQuery],
+  });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByLabel('Audit scope').selectOption('full');
+    const diagnostic = page.getByRole('region', { name: 'Search cache diagnostic' });
+
+    await diagnostic.getByText('Comparison receipt · Historical query set · 1 of 1 complete', { exact: true }).waitFor();
+    assert.equal(
+      await diagnostic.getByText('This saved proof used an older frozen query set. Its original queries and evidence remain below. Run a new comparison only when current proof is needed.', { exact: true }).isVisible(),
+      true,
+    );
+    assert.equal(await diagnostic.getByText(`1. ${historicalQuery}`, { exact: true }).isVisible(), true);
+    assert.equal(await diagnostic.getByText('Historical default image', { exact: false }).isVisible(), true);
+    assert.equal(await diagnostic.getByText('Historical refresh image', { exact: false }).isVisible(), true);
+    assert.equal(providerSearchRequests.length, 0, 'opening historical proof must not repeat its frozen searches');
+
+    const newComparison = diagnostic.getByRole('button', { name: 'Run new comparison with current queries', exact: true });
+    await newComparison.click();
+    await diagnostic.getByText('Comparison receipt · Current query set · 1 of 1 complete', { exact: true }).waitFor();
+
+    assert.deepEqual(
+      providerSearchRequests.map(request => ({ queryIndex: request.queryIndex, cacheMode: request.cacheMode })),
+      [
+        { queryIndex: 0, cacheMode: 'default' },
+        { queryIndex: 0, cacheMode: 'refresh' },
+      ],
+      'the historical action must start both cache paths for the new manifest',
+    );
+    assert.equal(receiptSaveRequests.length, 1);
+    assert.deepEqual(receiptSaveRequests[0].frozenQueries, [currentQuery]);
+    assert.deepEqual(receiptSaveRequests[0].comparisons.map((comparison: AnyRecord) => comparison.query), [currentQuery]);
   } finally {
     await browser.close();
     await server.close();
