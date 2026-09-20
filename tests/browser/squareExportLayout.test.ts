@@ -12,6 +12,13 @@ const FIXTURE_COLORS = [
   '#30638e', '#003d5b', '#7a5195',
   '#ef5675', '#ffa600', '#2f4b7c',
 ];
+const FIXTURE_PUBLISHERS = [
+  'The International Archive of Moonlit Dramatic Arts and Performance',
+  'The Independent Society for Historical Costume and Cinema Preservation',
+  'The Global Journal of Contemporary Screen Culture and Visual Storytelling',
+  'The Museum of East Asian Television History and Production Design',
+  'The Worldwide Federation of Entertainment Photography Collections',
+];
 
 async function startApp() {
   return startViteTestServer();
@@ -42,7 +49,7 @@ test('square PNG exports preserve layout, attribution, MEDIA provenance, and Moo
     });
     await page.goto(origin);
 
-    const result = await page.evaluate(async ({ mediaOrigin, fixtureColors }) => {
+    const result = await page.evaluate(async ({ mediaOrigin, fixtureColors, fixturePublishers }) => {
       const modulePath = '/src/utils/exportCanvas.ts';
       const exports = await import(/* @vite-ignore */ modulePath);
       const deliveryUrls = fixtureColors.map((_, index) => `${mediaOrigin}/fixture-${index}.svg`);
@@ -62,7 +69,7 @@ test('square PNG exports preserve layout, attribution, MEDIA provenance, and Moo
             title: `Fixture ${index + 1}`,
             thumbnail: deliveryUrl,
             link: `https://publisher.example.test/source-${index}`,
-            source: index < 5 ? `Publisher ${index + 1}` : 'Publisher 1',
+            source: index < 5 ? fixturePublishers[index] : fixturePublishers[0],
           })),
           count: 9,
           distinctSources: 5,
@@ -85,10 +92,16 @@ test('square PNG exports preserve layout, attribution, MEDIA provenance, and Moo
       );
 
       const render = async (variant: 'standard' | 'master') => {
-        const textCalls: Array<{ text: string; x: number; y: number; color: string }> = [];
+        const textCalls: Array<{ text: string; x: number; y: number; color: string; width: number }> = [];
         const originalFillText = CanvasRenderingContext2D.prototype.fillText;
         CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
-          textCalls.push({ text: String(text), x, y, color: String(this.fillStyle) });
+          textCalls.push({
+            text: String(text),
+            x,
+            y,
+            color: String(this.fillStyle),
+            width: this.measureText(String(text)).width,
+          });
           return maxWidth === undefined
             ? originalFillText.call(this, text, x, y)
             : originalFillText.call(this, text, x, y, maxWidth);
@@ -131,7 +144,11 @@ test('square PNG exports preserve layout, attribution, MEDIA provenance, and Moo
         manifest,
         deliveryUrls,
       };
-    }, { mediaOrigin: FIXTURE_MEDIA_ORIGIN, fixtureColors: FIXTURE_COLORS });
+    }, {
+      mediaOrigin: FIXTURE_MEDIA_ORIGIN,
+      fixtureColors: FIXTURE_COLORS,
+      fixturePublishers: FIXTURE_PUBLISHERS,
+    });
 
     for (const [variant, rendered, dimension] of [
       ['standard', result.standard, 1080],
@@ -149,10 +166,17 @@ test('square PNG exports preserve layout, attribution, MEDIA provenance, and Moo
       const heading = rendered.textCalls.find(call => call.text === 'Fixture Actor · Moonlit Ink');
       assert.ok(heading && heading.y < dimension * 0.1, `${variant} heading must stay above the tile grid`);
       assert.equal(heading.color, '#9f9bea', `${variant} heading must use the approved Moonlit Ink accent`);
-      const attribution = rendered.textCalls.find(call => call.text.startsWith('Sources: Publisher 1'));
-      assert.ok(attribution, `${variant} must render source attribution`);
-      assert.ok(attribution.y > dimension * 0.9 && attribution.y < dimension, `${variant} attribution must remain visible below the tiles`);
-      assert.equal(attribution.color, '#c9a96e', `${variant} attribution must use the approved Moonlit Ink gold`);
+      const attribution = rendered.textCalls.filter(call =>
+        call.text.startsWith('Sources:') || call.text.includes('Vibe Atlas · sRGB'));
+      assert.equal(attribution.length, 2, `${variant} must wrap five long source credits deterministically`);
+      attribution.forEach((line, index) => {
+        assert.ok(line.y > dimension * 0.9 && line.y < dimension, `${variant} attribution line ${index + 1} must remain below the tiles`);
+        assert.ok(line.x - line.width / 2 >= dimension * 0.026, `${variant} attribution line ${index + 1} must stay inside the left canvas bound`);
+        assert.ok(line.x + line.width / 2 <= dimension * 0.974, `${variant} attribution line ${index + 1} must stay inside the right canvas bound`);
+        assert.equal(line.color, '#c9a96e', `${variant} attribution must use the approved Moonlit Ink gold`);
+      });
+      assert.ok(attribution[1].text.includes('…'), `${variant} must truncate overflowing credits with an ellipsis`);
+      assert.ok(attribution[1].text.endsWith('Vibe Atlas · sRGB'), `${variant} must preserve the export provenance suffix`);
     }
 
     assert.equal(result.manifest.colorProfile, 'sRGB');

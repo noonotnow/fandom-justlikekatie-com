@@ -215,6 +215,46 @@ function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: n
   return lines;
 }
 
+function truncateCanvasText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+): string {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  const ellipsis = '…';
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (ctx.measureText(text.slice(0, mid).trimEnd() + ellipsis).width <= maxWidth) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return text.slice(0, low).trimEnd() + ellipsis;
+}
+
+function sourceCreditLines(
+  ctx: CanvasRenderingContext2D,
+  sourceNames: string[],
+  maxWidth: number,
+): string[] {
+  const suffix = 'Vibe Atlas · sRGB';
+  const text = `${sourceNames.length ? `Sources: ${sourceNames.slice(0, 5).join(' · ')} · ` : ''}${suffix}`;
+  const wrapped = wrapCanvasText(ctx, text, maxWidth);
+  if (wrapped.length <= 2 && wrapped.every(line => ctx.measureText(line).width <= maxWidth)) {
+    return wrapped;
+  }
+  const firstLine = truncateCanvasText(ctx, wrapped[0] || text, maxWidth);
+  const remainder = wrapped.slice(1).join(' ').replace(suffix, '').replace(/[·\s]+$/, '').trim();
+  const suffixWithSeparator = ` · ${suffix}`;
+  const remainderWidth = maxWidth - ctx.measureText(suffixWithSeparator).width;
+  return remainder
+    ? [firstLine, truncateCanvasText(ctx, remainder, remainderWidth) + suffixWithSeparator]
+    : [firstLine];
+}
+
 function drawLetterSpacedText(
   ctx: CanvasRenderingContext2D,
   text: string, cx: number, y: number, spacing: number,
@@ -873,11 +913,13 @@ async function renderSquareGridCanvas(
   const sourceNames = [...new Set(results.map(result => result.source).filter(Boolean))];
   ctx.fillStyle = attribution;
   ctx.font = `400 ${Math.round(contract.width * 0.0105)}px "Inter", sans-serif`;
-  ctx.fillText(
-    `${sourceNames.length ? `Sources: ${sourceNames.slice(0, 5).join(' · ')} · ` : ''}Vibe Atlas · sRGB`,
-    contract.width / 2,
-    contract.height - pad,
-  );
+  const attributionLines = sourceCreditLines(ctx, sourceNames, contract.width - pad * 2);
+  const attributionLineHeight = Math.round(contract.width * 0.014);
+  const attributionBottom = contract.height - pad;
+  attributionLines.forEach((line, index) => {
+    const y = attributionBottom - (attributionLines.length - 1 - index) * attributionLineHeight;
+    ctx.fillText(line, contract.width / 2, y);
+  });
   return canvas;
 }
 
