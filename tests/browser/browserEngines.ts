@@ -14,10 +14,32 @@ import {
 } from 'vite';
 
 export const BROWSER_ENGINES = [
-  { name: 'Chromium', type: chromium },
-  { name: 'Firefox', type: firefox },
-  { name: 'WebKit', type: webkit },
+  { id: 'chromium', name: 'Chromium', type: chromium },
+  { id: 'firefox', name: 'Firefox', type: firefox },
+  { id: 'webkit', name: 'WebKit', type: webkit },
 ] as const;
+
+export type BrowserEngine = (typeof BROWSER_ENGINES)[number];
+
+export function missingBrowserEngines(
+  engines: readonly BrowserEngine[] = BROWSER_ENGINES,
+  executableExists: (path: string) => boolean = existsSync,
+): BrowserEngine[] {
+  return engines.filter(engine => !executableExists(engine.type.executablePath()));
+}
+
+export function assertBrowserEnginesInstalled(
+  engines: readonly BrowserEngine[] = BROWSER_ENGINES,
+  executableExists: (path: string) => boolean = existsSync,
+): void {
+  const missing = missingBrowserEngines(engines, executableExists);
+  if (missing.length === 0) return;
+
+  throw new Error(
+    `Missing Playwright browser binaries: ${missing.map(engine => engine.name).join(', ')}. `
+    + 'Run "npm run browser:install" before running browser tests.',
+  );
+}
 
 export async function startViteTestServer(
   config: InlineConfig = {

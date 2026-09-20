@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Browser, BrowserType } from '@playwright/test';
 import {
+  assertBrowserEnginesInstalled,
+  BROWSER_ENGINES,
   launchBrowserForServer,
   launchBrowserWithServer,
   startViteTestServer,
@@ -15,6 +17,26 @@ function failingBrowserType(launchError: Error): BrowserType {
     },
   } as unknown as BrowserType;
 }
+
+test('browser prerequisite check explains how to install missing engines', () => {
+  const missingPath = BROWSER_ENGINES[1].type.executablePath();
+
+  assert.throws(
+    () => assertBrowserEnginesInstalled(
+      BROWSER_ENGINES,
+      path => path !== missingPath,
+    ),
+    error => {
+      assert.match(String(error), /Missing Playwright browser binaries: Firefox/);
+      assert.match(String(error), /npm run browser:install/);
+      return true;
+    },
+  );
+});
+
+test('browser prerequisite check accepts a complete engine installation', () => {
+  assert.doesNotThrow(() => assertBrowserEnginesInstalled(BROWSER_ENGINES, () => true));
+});
 
 test('sequential browser launch failure closes its listening server', async () => {
   let serverClosed = false;

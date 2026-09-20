@@ -22,6 +22,10 @@
     "test:scripts": "node --test scripts/*.test.js",
     "audit:subscription-products": "node scripts/audit-subscription-products.js",
     "audit:subscription-product-config": "node scripts/audit-subscription-products.js --config-only",
+    "browser:install": "node --import tsx/esm scripts/setup-browser-engines.ts --install",
+    "browser:install:ci": "node --import tsx/esm scripts/setup-browser-engines.ts --install-with-deps",
+    "browser:check": "node --import tsx/esm scripts/setup-browser-engines.ts --check",
+    "pretest:browser": "npm run browser:check",
     "test:browser": "node --import tsx/esm --test --test-concurrency=4 tests/browser/*.test.ts"
   },
   "dependencies": {

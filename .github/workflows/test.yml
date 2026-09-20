@@ -41,7 +41,7 @@ jobs:
         run: npm run check:scheduled-functions-package
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium firefox webkit
+        run: npm run browser:install:ci
 
       - name: Check test imports resolve to committed files
         run: |
