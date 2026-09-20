@@ -802,7 +802,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
                     disabled={Boolean(busy) || !proposalComplete}
                     className={styles.handoffToggle}
                   >
-                    {handoffExpanded ? 'Close handoff' : 'Handoff for Publishing'}
+                    {handoffExpanded ? 'Close handoff' : 'Handoff raw grid for publishing'}
                   </button>
 
                   {handoffExpanded && (

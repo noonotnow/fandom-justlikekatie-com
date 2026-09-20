@@ -5,7 +5,8 @@
 }
 
 .exportButton,
-.downloadButton {
+.downloadButton,
+.handoffButton {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
@@ -27,6 +28,25 @@
   color: #c9a96e;
   border: 1px solid rgba(201, 169, 110, 0.5);
   padding: 0.6rem 1rem;
+}
+
+.handoffButton {
+  order: 3;
+  padding: 0.7rem 1rem;
+  border: 1px solid rgba(201, 109, 84, 0.7);
+  border-radius: 10px;
+  background: rgba(201, 109, 84, 0.14);
+  color: inherit;
+  cursor: pointer;
+}
+
+.handoffButton:hover {
+  background: rgba(201, 109, 84, 0.22);
+}
+
+.handoffButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .downloadButton:hover {
@@ -71,7 +91,7 @@
 }
 
 .autoSaveNote {
-  order: 3;
+  order: 4;
   margin: 0.1rem 0 0;
   padding: 0.4rem 0.65rem;
   border-radius: 999px;
@@ -102,11 +122,16 @@
   .autoSaveNote {
     grid-column: 1 / -1;
   }
+
+  .handoffButton {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .exportButton,
-  .downloadButton {
+  .downloadButton,
+  .handoffButton {
     transition: none;
   }
 }

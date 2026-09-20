@@ -17,6 +17,14 @@ const collectionSource = readFileSync(
   path.join(__dirname, '../src/components/Collection/Collection.tsx'),
   'utf8',
 );
+const exportButtonSource = readFileSync(
+  path.join(__dirname, '../src/components/ExportButton/ExportButton.tsx'),
+  'utf8',
+);
+const exportHookSource = readFileSync(
+  path.join(__dirname, '../src/hooks/useExportCard.ts'),
+  'utf8',
+);
 
 test('prepareShareCard exists and returns objectUrl', () => {
   assert.match(
@@ -117,13 +125,38 @@ test('saved Collection Grids expose the publishing handoff directly', () => {
   );
   assert.match(
     collectionSource,
-    /Handoff for Publishing/,
+    /Handoff raw grid for publishing/,
     'the saved-grid action must use the publishing handoff label',
   );
   assert.match(
     collectionSource,
     /prepareShareCard\(starData,\s*'raw'/,
     'the saved-grid handoff must prepare the unchanged raw grid',
+  );
+});
+
+test('Star of the Day distinguishes styled-card exports from the raw publishing handoff', () => {
+  assert.match(exportButtonSource, /Share styled card/);
+  assert.match(exportButtonSource, /Download styled card/);
+  assert.match(exportButtonSource, /Handoff raw grid for publishing/);
+  assert.match(exportButtonSource, /Only the 3×3 images · no copy or styling/);
+  assert.match(
+    exportHookSource,
+    /prepareShareCard\(data,\s*'raw'/,
+    'the daily publishing handoff must use the untreated raw-grid renderer',
+  );
+  assert.match(
+    exportHookSource,
+    /const shareData: ShareData = \{ files: \[artifact\.file\] \}/,
+    'the daily handoff must share the exact prepared raw-grid file',
+  );
+  assert.doesNotMatch(
+    exportHookSource.slice(
+      exportHookSource.indexOf('const handoffForPublishing'),
+      exportHookSource.indexOf('return {', exportHookSource.indexOf('const handoffForPublishing')),
+    ),
+    /downloadShareCard/,
+    'the publishing handoff must not silently fall back to a styled-card download',
   );
 });
 
