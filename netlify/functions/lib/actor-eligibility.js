@@ -533,6 +533,52 @@ async function readReceipts(store, prefix, timestampField) {
       || left.key.localeCompare(right.key));
 }
 
+export async function resolveRescueCalibrationApprovalAuthority({
+  store,
+  actorId,
+  vibeIdx,
+  listedApprovals = [],
+  listedRevocations = [],
+}) {
+  const authority = await store.get(
+    auditRescueCalibrationAuthorityKey(actorId, vibeIdx),
+    { type: "json", consistency: "strong" },
+  );
+  if (!authority?.approvalId) {
+    return {
+      authority,
+      approvals: [...listedApprovals],
+      revocations: [...listedRevocations],
+      canonicalApproval: null,
+      canonicalRevocation: null,
+    };
+  }
+
+  const [canonicalApproval, canonicalRevocation] = await Promise.all([
+    store.get(
+      auditRescueCalibrationApprovalKey(actorId, vibeIdx, authority.approvalId),
+      { type: "json", consistency: "strong" },
+    ),
+    store.get(
+      auditRescueCalibrationApprovalRevocationKey(actorId, vibeIdx, authority.approvalId),
+      { type: "json", consistency: "strong" },
+    ),
+  ]);
+  return {
+    authority,
+    approvals: [
+      ...listedApprovals.filter(approval => approval.approvalId !== authority.approvalId),
+      ...(canonicalApproval ? [canonicalApproval] : []),
+    ],
+    revocations: [
+      ...listedRevocations.filter(revocation => revocation.approvalId !== authority.approvalId),
+      ...(canonicalRevocation ? [canonicalRevocation] : []),
+    ],
+    canonicalApproval,
+    canonicalRevocation,
+  };
+}
+
 async function currentRescueCalibrationRetirementHash(store, actorId, vibeIdx) {
   const [calibrations, retirements, signalRetirements, blindExclusions] = await Promise.all([
     readReceipts(store, auditRescueCalibrationPrefix(actorId, vibeIdx), "confirmedAt"),
@@ -581,7 +627,7 @@ async function currentRescueCalibrationApproval(
 ) {
   const actorId = actor.id;
   const vibeKey = auditVibeKey(actorId, vibeIdx);
-  const [calibrations, retirements, blindExclusions, blindEvidenceIds, approvals, revocations, authority] = await Promise.all([
+  const [calibrations, retirements, blindExclusions, blindEvidenceIds, listedApprovals, listedRevocations] = await Promise.all([
     readReceipts(store, auditRescueCalibrationPrefix(actorId, vibeIdx), "confirmedAt"),
     readReceipts(store, auditRescueCalibrationRetirementPrefix(actorId, vibeIdx), "retiredAt"),
     readReceipts(store, auditBlindCalibrationExclusionPrefix(actorId, vibeIdx), "excludedAt"),
@@ -592,11 +638,18 @@ async function currentRescueCalibrationApproval(
       auditRescueCalibrationApprovalRevocationPrefix(actorId, vibeIdx),
       "revokedAt",
     ),
-    store.get(
-      auditRescueCalibrationAuthorityKey(actorId, vibeIdx),
-      { type: "json", consistency: "strong" },
-    ),
   ]);
+  const {
+    authority,
+    approvals,
+    revocations,
+  } = await resolveRescueCalibrationApprovalAuthority({
+    store,
+    actorId,
+    vibeIdx,
+    listedApprovals,
+    listedRevocations,
+  });
   const expectedFingerprint = pairingFingerprintFor(actor, vibeIdx);
   const current = calibrations.filter(calibration =>
     calibration.status === "confirmed"
@@ -634,29 +687,6 @@ async function currentRescueCalibrationApproval(
   const revokedIds = new Set(revocations
     .filter(revocation => revocation.status === "revoked")
     .map(revocation => revocation.approvalId));
-  if (authority?.approvalId) {
-    const [canonicalApproval, canonicalRevocation] = await Promise.all([
-      store.get(
-        auditRescueCalibrationApprovalKey(actorId, vibeIdx, authority.approvalId),
-        { type: "json", consistency: "strong" },
-      ),
-      store.get(
-        auditRescueCalibrationApprovalRevocationKey(actorId, vibeIdx, authority.approvalId),
-        { type: "json", consistency: "strong" },
-      ),
-    ]);
-    if (canonicalApproval) {
-      const canonicalApprovalId = canonicalApproval.approvalId;
-      approvals.splice(
-        0,
-        approvals.length,
-        ...approvals.filter(approval => approval.approvalId !== canonicalApprovalId),
-        canonicalApproval,
-      );
-    }
-    revokedIds.delete(authority.approvalId);
-    if (canonicalRevocation?.status === "revoked") revokedIds.add(canonicalRevocation.approvalId);
-  }
   return approvals
     .filter(approval =>
       approval.status === "approved"

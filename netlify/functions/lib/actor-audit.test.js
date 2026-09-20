@@ -39,6 +39,7 @@ import {
   approvalSourceRunIds,
   eligibilityKey,
   getEligibility,
+  resolveRescueCalibrationApprovalAuthority,
   productionReceiptPrefix,
   productionStateKey,
 } from "./actor-eligibility.js";
@@ -124,6 +125,52 @@ test("approval source recovery applies one deterministic bounded policy", async 
       [],
     );
   }
+});
+
+test("approval authority resolution replaces stale listed state with canonical records", async () => {
+  const actorId = "liu-xueyi";
+  const vibeIdx = 0;
+  const approvalId = "approval-1";
+  const authority = { status: "approved", approvalId, aggregateEvidenceHash: "evidence-1" };
+  const canonicalApproval = {
+    status: "approved",
+    approvalId,
+    aggregateEvidenceHash: "evidence-1",
+  };
+  const canonicalRevocation = { status: "revoked", approvalId };
+  const records = new Map([
+    [auditRescueCalibrationAuthorityKey(actorId, vibeIdx), authority],
+    [auditRescueCalibrationApprovalKey(actorId, vibeIdx, approvalId), canonicalApproval],
+  ]);
+  const store = {
+    get: async key => records.get(key) || null,
+  };
+  const staleApproval = { status: "approved", approvalId, aggregateEvidenceHash: "stale" };
+  const staleRevocation = { status: "revoked", approvalId };
+
+  const active = await resolveRescueCalibrationApprovalAuthority({
+    store,
+    actorId,
+    vibeIdx,
+    listedApprovals: [staleApproval],
+    listedRevocations: [staleRevocation],
+  });
+  assert.deepEqual(active.approvals, [canonicalApproval]);
+  assert.deepEqual(active.revocations, []);
+
+  records.set(
+    `${auditRescueCalibrationApprovalRevocationPrefix(actorId, vibeIdx)}${approvalId}`,
+    canonicalRevocation,
+  );
+  const revoked = await resolveRescueCalibrationApprovalAuthority({
+    store,
+    actorId,
+    vibeIdx,
+    listedApprovals: [],
+    listedRevocations: [],
+  });
+  assert.deepEqual(revoked.approvals, [canonicalApproval]);
+  assert.deepEqual(revoked.revocations, [canonicalRevocation]);
 });
 
 const ORIGIN = "https://fandom.example";

@@ -59,6 +59,7 @@ import {
   eligibilityKey,
   isReleaseReady,
   approvalSourceRunIds,
+  resolveRescueCalibrationApprovalAuthority,
   pairingFingerprintFor,
   rescueCalibrationRetirementHash,
   getEligibility,
@@ -6329,7 +6330,7 @@ async function readRescueCalibrationProfile(
       return run ? attachVerdict(store, pair, run) : null;
     }))).filter(Boolean);
   }
-  const [confirmedReceipts, retirementReceipts, listedSignalRetirementReceipts, blindExclusionReceipts, outcomeReceipts, approvalReceipts, approvalRevocations, canonicalAuthority] = await Promise.all([
+  const [confirmedReceipts, retirementReceipts, listedSignalRetirementReceipts, blindExclusionReceipts, outcomeReceipts, listedApprovalReceipts, listedApprovalRevocations] = await Promise.all([
     readReceipts(
       store,
       auditRescueCalibrationPrefix(pair.actor.id, pair.vibeIdx),
@@ -6357,57 +6358,25 @@ async function readRescueCalibrationProfile(
     ),
     readReceipts(store, auditRescueCalibrationApprovalPrefix(pair.actor.id, pair.vibeIdx), "approvedAt"),
     readReceipts(store, auditRescueCalibrationApprovalRevocationPrefix(pair.actor.id, pair.vibeIdx), "revokedAt"),
-    store.get(
-      auditRescueCalibrationAuthorityKey(pair.actor.id, pair.vibeIdx),
-      { type: "json", consistency: "strong" },
-    ),
   ]);
+  const {
+    authority: canonicalAuthority,
+    approvals: approvalReceipts,
+    revocations: approvalRevocations,
+    canonicalApproval,
+  } = await resolveRescueCalibrationApprovalAuthority({
+    store,
+    actorId: pair.actor.id,
+    vibeIdx: pair.vibeIdx,
+    listedApprovals: listedApprovalReceipts,
+    listedRevocations: listedApprovalRevocations,
+  });
   const signalRetirementReceipts = [...listedSignalRetirementReceipts];
   for (const receipt of authoritativeReceipts.signalRetirements || []) {
     if (!signalRetirementReceipts.some(item =>
       item.retirementId === receipt.retirementId)) {
       signalRetirementReceipts.push(receipt);
     }
-  }
-  let canonicalApproval = null;
-  if (canonicalAuthority?.approvalId) {
-    let canonicalRevocation;
-    [canonicalApproval, canonicalRevocation] = await Promise.all([
-      store.get(
-        auditRescueCalibrationApprovalKey(
-          pair.actor.id,
-          pair.vibeIdx,
-          canonicalAuthority.approvalId,
-        ),
-        { type: "json", consistency: "strong" },
-      ),
-      store.get(
-        auditRescueCalibrationApprovalRevocationKey(
-          pair.actor.id,
-          pair.vibeIdx,
-          canonicalAuthority.approvalId,
-        ),
-        { type: "json", consistency: "strong" },
-      ),
-    ]);
-    if (canonicalApproval) {
-      approvalReceipts.splice(
-        0,
-        approvalReceipts.length,
-        ...approvalReceipts.filter(
-          receipt => receipt.approvalId !== canonicalApproval.approvalId,
-        ),
-        canonicalApproval,
-      );
-    }
-    approvalRevocations.splice(
-      0,
-      approvalRevocations.length,
-      ...approvalRevocations.filter(
-        receipt => receipt.approvalId !== canonicalAuthority.approvalId,
-      ),
-      ...(canonicalRevocation ? [canonicalRevocation] : []),
-    );
   }
   const approvedSignalFamily = normalizeCalibrationSignalFamily(
     canonicalApproval?.adjustment?.signalFamily,
