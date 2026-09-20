@@ -14,8 +14,12 @@
     "archetypes-cold-vs-tsundere",
     "archetypes-black-bellied-white-cut-black",
     "archetypes-white-moonlight-cinnabar-mole",
+    "drama-lbfad",
+    "drama-lbfad-relationships",
+    "drama-lbfad-themes",
+    "drama-lbfad-watch-next",
   ]);
-  const contentModes = new Set(["fandom-literacy", "genre-guide", "format-guide", "archetype-guide"]);
+  const contentModes = new Set(["fandom-literacy", "genre-guide", "format-guide", "archetype-guide", "drama-authority"]);
   const sectionIds = new Set([
     "short-answer",
     "genre-grammar",
@@ -81,6 +85,16 @@
     "symbol-toggle",
     "symbol-reset",
   ]);
+
+  const nav = document.querySelector(".site-nav");
+  const dramaGuidePath = "/c-dramas/love-between-fairy-and-devil/";
+  if (nav && !nav.querySelector(`a[href^="${dramaGuidePath}"]`)) {
+    const dramaGuideLink = document.createElement("a");
+    dramaGuideLink.href = dramaGuidePath;
+    dramaGuideLink.append("LBFAD guide");
+    const atlasLink = nav.querySelector('a[href="/vibe-atlas"]');
+    nav.insertBefore(dramaGuideLink, atlasLink);
+  }
 
   const track = (name, data) => {
     if (typeof window.gtag === "function") {
