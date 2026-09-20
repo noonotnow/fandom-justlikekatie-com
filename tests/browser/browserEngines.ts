@@ -5,6 +5,7 @@ import {
   webkit,
   type Browser,
   type BrowserType,
+  type Page,
 } from '@playwright/test';
 import type { ViteDevServer } from 'vite';
 
@@ -44,5 +45,41 @@ export async function launchBrowserForServer(
       );
     }
     throw launchError;
+  }
+}
+
+export async function closeBrowserAndServer(
+  browser: Pick<Browser, 'close'>,
+  server: Pick<ViteDevServer, 'close'>,
+): Promise<void> {
+  const results = await Promise.allSettled([
+    browser.close(),
+    server.close(),
+  ]);
+  const errors = results.flatMap(result => (
+    result.status === 'rejected' ? [result.reason] : []
+  ));
+  if (errors.length > 0) {
+    throw new AggregateError(errors, 'The browser test resources failed to close.');
+  }
+}
+
+export async function launchPageForServer(
+  server: Pick<ViteDevServer, 'close'>,
+  browserType: BrowserType = chromium,
+): Promise<{ browser: Browser; page: Page }> {
+  const browser = await launchBrowserForServer(server, browserType);
+  try {
+    return { browser, page: await browser.newPage() };
+  } catch (pageError) {
+    try {
+      await closeBrowserAndServer(browser, server);
+    } catch (closeError) {
+      throw new AggregateError(
+        [pageError, closeError],
+        'The browser page failed to open and the browser test resources failed to close.',
+      );
+    }
+    throw pageError;
   }
 }

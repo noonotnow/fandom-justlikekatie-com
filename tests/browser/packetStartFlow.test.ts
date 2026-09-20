@@ -4,7 +4,9 @@ import { type Page } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
 import {
   BROWSER_ENGINES,
+  closeBrowserAndServer,
   launchBrowserForServer,
+  launchPageForServer,
 } from './browserEngines.ts';
 
 const ACCOUNT_ID = 'packet-start-account';
@@ -250,8 +252,7 @@ async function mockCollectionMedia(page: Page): Promise<() => number> {
 
 test('Operator Console keeps unverified saved grids disabled', { timeout: 60_000 }, async () => {
     const { server, origin } = await startApp();
-    const browser = await launchBrowserForServer(server);
-    const page = await browser.newPage();
+    const { browser, page } = await launchPageForServer(server);
 
   try {
     await page.route('**/api/auth/session', route => route.fulfill({
@@ -271,16 +272,14 @@ test('Operator Console keeps unverified saved grids disabled', { timeout: 60_000
       true,
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
 for (const browserEngine of BROWSER_ENGINES) {
   test(`Operator Console sends one direct grid source and opens the Workstation draft in ${browserEngine.name}`, { timeout: 60_000 }, async () => {
     const { server, origin } = await startApp();
-    const browser = await launchBrowserForServer(server, browserEngine.type);
-    const page = await browser.newPage();
+    const { browser, page } = await launchPageForServer(server, browserEngine.type);
     let createRequests = 0;
 
     try {
@@ -339,8 +338,7 @@ for (const browserEngine of BROWSER_ENGINES) {
       assert.equal(getMediaUploads(), 0);
       assert.equal(getSyncRequests(), 1);
     } finally {
-      await browser.close();
-      await server.close();
+      await closeBrowserAndServer(browser, server);
     }
   });
 }
@@ -370,8 +368,7 @@ for (const failure of [
 ]) {
   test(`Operator Console keeps results visible after ${failure.name}`, { timeout: 60_000 }, async () => {
     const { server, origin } = await startApp();
-    const browser = await launchBrowserForServer(server);
-    const page = await browser.newPage();
+    const { browser, page } = await launchPageForServer(server);
     let createRequests = 0;
 
     try {
@@ -406,8 +403,7 @@ for (const failure of [
       assert.equal(getSyncRequests(), 1);
       assert.equal(await page.getByLabel('Saved FANDOM grid').inputValue(), GRID_ID);
     } finally {
-      await browser.close();
-      await server.close();
+      await closeBrowserAndServer(browser, server);
     }
   });
 }
@@ -429,4 +425,40 @@ test('failed browser startup closes the listening packet test server', async () 
     launchError,
   );
   assert.equal(server.httpServer?.listening, false);
+});
+
+test('failed page creation closes both packet test resources', async () => {
+  const pageError = new Error('browser page is unavailable');
+  let browserCloseAttempts = 0;
+  let serverCloseAttempts = 0;
+  const server = {
+    close: async () => {
+      serverCloseAttempts += 1;
+    },
+  };
+  const failingBrowserType = {
+    launch: async () => ({
+      newPage: async () => {
+        throw pageError;
+      },
+      close: async () => {
+        browserCloseAttempts += 1;
+        throw new Error('browser close failed');
+      },
+    }),
+  };
+
+  await assert.rejects(
+    launchPageForServer(
+      server,
+      failingBrowserType as Parameters<typeof launchPageForServer>[1],
+    ),
+    error => {
+      assert(error instanceof AggregateError);
+      assert.equal(error.errors[0], pageError);
+      return true;
+    },
+  );
+  assert.equal(browserCloseAttempts, 1);
+  assert.equal(serverCloseAttempts, 1);
 });
