@@ -11,6 +11,7 @@ import { persistGridImagesToMedia } from '../../utils/collectionMedia';
 import { MISPRINT_REASONS } from '../../utils/misprintReasons';
 import { getPublicSession, schedulePublicCollectionSync, syncPublicGrid } from '../../utils/publicAccount';
 import { assembleQueryRepairDiagnostic } from '../../utils/queryRepairDiagnostic';
+import { isBlindReviewEvidenceCandidate } from '../../../netlify/functions/lib/blind-review-candidate.js';
 import styles from './ActorPreflightLab.module.css';
 
 type AnyRecord = Record<string, any>;
@@ -149,7 +150,7 @@ const proxiedImageUrl = (url: string) => url.startsWith('/.netlify/functions/ima
 const visualJudgmentCandidates = (run?: Run|null) => Array.isArray(run?.visualJudgmentQueue)
   ? run.visualJudgmentQueue
   : (run?.calibrationAnalysis?.candidates??EMPTY_RECORDS)
-    .filter((item:AnyRecord)=>(item?.selected===false||item?.dropReason)&&item?.thumbnail&&item?.occurrenceId);
+    .filter(isBlindReviewEvidenceCandidate);
 export const ActorPreflightLab: React.FC = () => {
   const handoff = useMemo(() => {
     const params = new URLSearchParams(window.location.search);

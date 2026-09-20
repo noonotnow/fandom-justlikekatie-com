@@ -98,7 +98,8 @@ import {
 } from "./archive-access.js";
 import {
   blindCalibrationEvidence,
-  requiresBlindCalibrationOccurrenceIdentity,
+  blindReviewCandidateEligibility,
+  isBlindReviewQueueCandidate,
 } from "./blind-calibration-evidence.js";
 
 const MAX_BODY_BYTES = 48 * 1024;
@@ -1367,7 +1368,7 @@ export function createActorAuditHandler({
           ?.find(candidate =>
             candidate?.occurrenceId
             && visualJudgmentToken(report.currentRun.runId, candidate.occurrenceId) === judgmentToken);
-        if (!isVisualJudgmentCandidate(source)) {
+        if (!isBlindReviewQueueCandidate(source)) {
           return json(400, { error: "Choose a reviewable thumbnail retained by this audit occurrence." });
         }
         const receiptId = `visual-${judgmentToken}`;
@@ -4022,7 +4023,7 @@ function summarizeIdentityEvidence(candidates, profile) {
 async function appendRun(store, pair, run) {
   const calibrationCandidates = run?.calibrationAnalysis?.candidates || [];
   const missingOccurrenceIdentityIndex = calibrationCandidates.findIndex(candidate =>
-    requiresBlindCalibrationOccurrenceIdentity(candidate)
+    blindReviewCandidateEligibility(candidate).requiresOccurrenceIdentity
     && (typeof candidate.occurrenceId !== "string" || !candidate.occurrenceId.trim()));
   if (missingOccurrenceIdentityIndex !== -1) {
     const candidate = calibrationCandidates[missingOccurrenceIdentityIndex];
@@ -7611,24 +7612,9 @@ function clientRun(run, pair) {
   };
 }
 
-// The operator queue preserves legacy failed-board behavior: a retained image
-// without selected: true is reviewable, including candidates with no explicit
-// selected flag. Evidence extraction is intentionally narrower and uses
-// requiresBlindCalibrationOccurrenceIdentity, which only admits candidates
-// explicitly rejected by selection state or drop reason.
-function isVisualJudgmentCandidate(candidate) {
-  return Boolean(
-    candidate
-    && (candidate.selected !== true || candidate.dropReason)
-    && candidate.thumbnail
-    && typeof candidate.occurrenceId === "string"
-    && candidate.occurrenceId.trim()
-  );
-}
-
 function visualJudgmentQueue(run) {
   return (run?.calibrationAnalysis?.candidates || [])
-    .filter(isVisualJudgmentCandidate)
+    .filter(isBlindReviewQueueCandidate)
     .map(candidate => ({
       judgmentToken: visualJudgmentToken(run.runId, candidate.occurrenceId),
       thumbnail: candidate.thumbnail,
@@ -7638,7 +7624,7 @@ function visualJudgmentQueue(run) {
 
 function humanProxyComparison(run, receipts = []) {
   const candidates = (run?.calibrationAnalysis?.candidates || [])
-    .filter(isVisualJudgmentCandidate);
+    .filter(isBlindReviewQueueCandidate);
   const receiptsByOccurrence = new Map();
   for (const receipt of receipts) {
     if (!receipt?.sourceOccurrenceId) continue;
@@ -8072,7 +8058,7 @@ function visualJudgmentsComplete(run) {
     .map(receipt => receipt?.sourceOccurrenceId)
     .filter(Boolean));
   return (run?.calibrationAnalysis?.candidates || [])
-    .filter(isVisualJudgmentCandidate)
+    .filter(isBlindReviewQueueCandidate)
     .every(candidate => judged.has(candidate.occurrenceId));
 }
 

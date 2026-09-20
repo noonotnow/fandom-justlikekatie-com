@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { blindCalibrationEvidence } from "./blind-calibration-evidence.js";
+import {
+  blindCalibrationEvidence,
+  blindReviewCandidateEligibility,
+  isBlindReviewEvidenceCandidate,
+  isBlindReviewQueueCandidate,
+} from "./blind-calibration-evidence.js";
 import { BLIND_REVIEW_CANDIDATE_SHAPES } from "./blind-review-candidate-fixtures.js";
 
 const expectedContract = {
@@ -121,5 +127,51 @@ test("blind calibration evidence follows the shared candidate-shape contract", (
   assert.deepEqual(
     evidence.receiptIds,
     judgments.map(judgment => judgment.receiptId).sort(),
+  );
+});
+
+test("shared helpers own every unusual blind-review candidate decision", () => {
+  for (const shape of BLIND_REVIEW_CANDIDATE_SHAPES) {
+    assert.deepEqual(
+      blindReviewCandidateEligibility(shape.candidate),
+      {
+        queued: shape.queued,
+        evidenceEligible: shape.evidenceEligible,
+        requiresOccurrenceIdentity: shape.evidenceEligible
+          || shape.name === "blank occurrence ID",
+      },
+      shape.name,
+    );
+    assert.equal(isBlindReviewQueueCandidate(shape.candidate), shape.queued, shape.name);
+    assert.equal(
+      isBlindReviewEvidenceCandidate(shape.candidate),
+      shape.evidenceEligible,
+      shape.name,
+    );
+  }
+});
+
+test("blind-review consumers do not reinterpret candidate selection fields", async () => {
+  const auditSource = await readFile(new URL("./actor-audit.js", import.meta.url), "utf8");
+  const eligibilitySource = await readFile(
+    new URL("./actor-eligibility.js", import.meta.url),
+    "utf8",
+  );
+  const recoveryUiSource = await readFile(
+    new URL("../../../src/components/FandomAdmin/ActorPreflightLab.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(auditSource, /\.filter\(isBlindReviewQueueCandidate\)/);
+  assert.doesNotMatch(auditSource, /function isVisualJudgmentCandidate/);
+  assert.match(eligibilitySource, /blindCalibrationEvidence\(/);
+  assert.doesNotMatch(
+    eligibilitySource,
+    /calibrationAnalysis\?*\.candidates[\s\S]{0,200}(selected|dropReason)/,
+  );
+  assert.match(recoveryUiSource, /\.filter\(isBlindReviewEvidenceCandidate\)/);
+  assert.doesNotMatch(
+    recoveryUiSource,
+    /calibrationAnalysis\?*\.candidates[\s\S]{0,200}(selected|dropReason)/,
   );
 });
