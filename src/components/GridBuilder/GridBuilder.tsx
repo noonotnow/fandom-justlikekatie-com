@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { dbGetVisibleCardsByScope, dbRemoveGrid, dbSaveGrid, type CardRecord } from '../../utils/collectionDB';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
-import { saveShareCard, buildExportPayload, classifyEditionTier } from '../../utils/exportCanvas';
+import { saveShareCard, prepareShareCard, buildExportPayload, classifyEditionTier } from '../../utils/exportCanvas';
 import { deleteGridExports, gridExportEventFromRecord, logGridExport, uploadExportedCard } from '../../utils/gridExportLog';
 import { logMembershipEvent } from '../../utils/membership';
 import {
@@ -58,6 +58,53 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
   // the proposal.  When the user saves after swapping, the stale record is
   // removed first so only the latest version lives in the store.
   const [priorSavedGridId, setPriorSavedGridId] = useState<string | null>(null);
+  const [handoffState, setHandoffState] = useState<{
+    objectUrl: string;
+    file: File;
+    tier: string;
+    expiresAt: number;
+  } | null>(null);
+  const [handoffExpanded, setHandoffExpanded] = useState(false);
+  const [handoffDestination, setHandoffDestination] = useState<'rednote' | 'weibo' | 'instagram' | 'facebook' | null>('rednote');
+  const [now, setNow] = useState(Date.now());
+  const proposalRef = useRef(proposal);
+  const mountedRef = useRef(true);
+  proposalRef.current = proposal;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!handoffState) return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [handoffState]);
+
+  useEffect(() => {
+    if (!handoffState) return;
+    const remaining = handoffState.expiresAt - Date.now();
+    if (remaining <= 0) {
+      setHandoffState(null);
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      setHandoffState(null);
+      setNotice('Handoff expired. Prepare the current grid again.');
+    }, remaining);
+    return () => window.clearTimeout(timeout);
+  }, [handoffState?.expiresAt]);
+
+  useEffect(() => {
+    const url = handoffState?.objectUrl;
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [handoffState?.objectUrl]);
+
   // Synchronous in-flight lock for exportGrid. React state setters do not
   // update the captured closure value until the next render.
   // setBusy('export') schedules a React update but does not mutate the captured
@@ -126,6 +173,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
   );
   const proposalTargetSize = proposal?.rationale.compositionSize || 9;
   const proposalComplete = Boolean(proposal && proposal.slots.length === proposalTargetSize);
+  const isHandoffExpired = Boolean(handoffState && now >= handoffState.expiresAt);
   const proposalEvidence = useMemo(() => {
     if (!proposal) return null;
     const families = new Set(proposal.slots.map(card => card.familyId));
@@ -147,6 +195,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     setSavedGridId(null);
     setPriorSavedGridId(null);
     setShowSaveNudge(false);
+    setHandoffState(null);
   }
 
   function toggle(key: keyof CollectionLens, value: string) {
@@ -163,6 +212,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     setPriorSavedGridId(null);
     setShowSaveNudge(false);
     setPendingNavAfterSave(false);
+    setHandoffState(null);
   }
 
   function chooseBuilderMode(mode: 'smart' | 'manual') {
@@ -175,6 +225,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     setShowSaveNudge(false);
     setPendingNavAfterSave(false);
     setNotice('');
+    setHandoffState(null);
   }
 
   function chooseEditorialMode(mode: EditorialMode) {
@@ -188,6 +239,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     setShowSaveNudge(false);
     setPendingNavAfterSave(false);
     setNotice('');
+    setHandoffState(null);
   }
 
   function toggleManualCard(card: BuilderCard) {
@@ -213,6 +265,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     setIsGridSaved(false);
     setSavedGridId(null);
     setShowSaveNudge(false);
+    setHandoffState(null);
   }
 
   function swapManualSlots(first: number, second: number) {
@@ -231,6 +284,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     setIsGridSaved(false);
     setSavedGridId(null);
     setShowSaveNudge(false);
+    setHandoffState(null);
   }
 
   function moveManualSlot(index: number, direction: -1 | 1) {
@@ -250,6 +304,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     setIsGridSaved(false);
     setSavedGridId(null);
     setShowSaveNudge(false);
+    setHandoffState(null);
   }
 
   function removeManualSlot(index: number) {
@@ -262,6 +317,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     setIsGridSaved(false);
     setSavedGridId(null);
     setShowSaveNudge(false);
+    setHandoffState(null);
   }
 
   function propose() {
@@ -274,6 +330,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     setPriorSavedGridId(null);
     setShowSaveNudge(false);
     setPendingNavAfterSave(false);
+    setHandoffState(null);
     const targetSize = next.rationale.compositionSize || 9;
     setNotice(next.slots.length < targetSize
       ? editorialMode === 'event'
@@ -311,6 +368,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     setSavedGridId(null);
     setShowSaveNudge(false);
     setPendingNavAfterSave(false);
+    setHandoffState(null);
   }
 
   /** Persist the current grid to the local collection without rendering or sharing. */
@@ -367,7 +425,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
    * Render + share the grid. Does not auto-save — after a successful export
    * the notice area nudges the user to save if they haven't yet.
    */
-  async function exportGrid() {
+  async function exportGrid(action: 'rednote' | 'download_raw' | 'full' = 'full') {
     if (!isMember) {
       setNotice('Premium exports are available with Founding Member.');
       return;
@@ -383,8 +441,12 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     logMembershipEvent('paid_feature_used');
     const wasGridSaved = isGridSaved;
     setBusy('export');
-    setNotice('正在生成分享卡……');
+    setNotice(action === 'rednote' ? '正在准备手递卡……' : '正在生成分享卡……');
     setShowSaveNudge(false);
+
+    let prepared: { objectUrl: string, file: File, fileName: string, tier: string } | null = null;
+    const preparedProposal = proposal;
+
     try {
       const grid = gridRecordFromProposal(proposal.slots, proposal.rationale);
       const starData = starDataFromCollectionGrid(grid);
@@ -392,30 +454,91 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
       // successful export of a SAVED grid.  Fire-and-forget: the upload never
       // blocks the download/share path, and export never saves a grid.
       let renderedBlob: Blob | null = null;
-      const message = await saveShareCard(starData, 'full', (blob) => { renderedBlob = blob; });
+      const variant = action === 'full' ? 'full' : 'raw';
+      prepared = await prepareShareCard(starData, variant, (blob) => { renderedBlob = blob; });
+      if (!mountedRef.current || proposalRef.current !== preparedProposal) {
+        URL.revokeObjectURL(prepared.objectUrl);
+        prepared = null;
+        return;
+      }
       try {
         const tier = classifyEditionTier(buildExportPayload(starData).chosen);
         let persistedExportId: string | undefined;
         if (wasGridSaved && renderedBlob) {
           persistedExportId = crypto.randomUUID();
-          void uploadExportedCard(grid.id, persistedExportId, renderedBlob, 'full', tier);
+          void uploadExportedCard(grid.id, persistedExportId, renderedBlob, variant, tier);
         }
-        logGridExport(gridExportEventFromRecord(grid, 'full', tier, wasGridSaved, persistedExportId));
+        logGridExport(gridExportEventFromRecord(grid, variant, tier, wasGridSaved, persistedExportId));
       } catch (bookkeepingErr) {
         console.warn('Post-export logging failed (export succeeded):', bookkeepingErr);
       }
-      setNotice(message);
+
       if (!wasGridSaved) {
         setShowSaveNudge(true);
         setPendingNavAfterSave(true);
+      }
+
+      if (action === 'download_raw' || action === 'full') {
+        const a = document.createElement('a');
+        a.href = prepared.objectUrl;
+        a.download = prepared.fileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setNotice('PNG 已下载 ✓');
+        // Revoke after a short delay so the download completes
+        const urlToRevoke = prepared.objectUrl;
+        setTimeout(() => URL.revokeObjectURL(urlToRevoke), 4000);
+        if (wasGridSaved) onExported?.();
       } else {
-        onExported?.();
+        setHandoffState({
+          objectUrl: prepared.objectUrl,
+          file: prepared.file,
+          tier: prepared.tier,
+          expiresAt: Date.now() + 120_000,
+        });
+        setNotice('Handoff prepared.');
       }
     } catch (caught) {
+      if (prepared?.objectUrl) URL.revokeObjectURL(prepared.objectUrl);
       setNotice(caught instanceof Error ? caught.message : '分享卡生成失败，再试一次？');
     } finally {
       exportInFlight.current = false;
       setBusy('');
+    }
+  }
+
+  async function shareToDevice() {
+    if (!handoffState) return;
+    if (Date.now() > handoffState.expiresAt) {
+      setNotice('Handoff expired. Please prepare again.');
+      setHandoffState(null);
+      return;
+    }
+
+    const shareData = {
+      files: [handoffState.file],
+      title: 'Vibe Atlas Grid',
+    };
+
+    const canShareFiles = typeof navigator !== 'undefined'
+      && typeof navigator.share === 'function'
+      && typeof navigator.canShare === 'function'
+      && navigator.canShare(shareData);
+
+    if (canShareFiles) {
+      try {
+        await navigator.share(shareData);
+        setNotice('Share request completed. Please verify in RedNote.');
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          setNotice('Share cancelled.');
+        } else {
+          setNotice('Native sharing failed.');
+        }
+      }
+    } else {
+      setNotice('Sharing not supported on this device.');
     }
   }
 
@@ -672,9 +795,66 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
                 </button>
               )}
               {isMember ? (
-                <button type="button" onClick={exportGrid} disabled={Boolean(busy) || !proposalComplete}>
-                  {busy === 'export' ? 'Exporting…' : '📤 Export share card'}
-                </button>
+                <div className={styles.handoffContainer}>
+                  <button
+                    type="button"
+                    onClick={() => setHandoffExpanded(e => !e)}
+                    disabled={Boolean(busy) || !proposalComplete}
+                    className={styles.handoffToggle}
+                  >
+                    {handoffExpanded ? 'Close Publisher' : 'Publish & Share'}
+                  </button>
+
+                  {handoffExpanded && (
+                    <div className={styles.handoffPanel}>
+                      <div className={styles.handoffDestinations}>
+                        <button type="button" onClick={() => setHandoffDestination('rednote')} aria-pressed={handoffDestination === 'rednote'}>RedNote</button>
+                        <button type="button" disabled>Weibo</button>
+                        <button type="button" disabled>Instagram</button>
+                        <button type="button" disabled>Facebook</button>
+                      </div>
+
+                      {handoffDestination === 'rednote' && (
+                        <div className={styles.rednoteFlow}>
+                          {!handoffState ? (
+                             <button type="button" onClick={() => exportGrid('rednote')} disabled={Boolean(busy)}>
+                               {busy === 'export' ? 'Preparing...' : '1. Prepare RedNote Handoff'}
+                             </button>
+                          ) : (
+                             <div className={styles.handoffReady}>
+                               {isHandoffExpired ? (
+                                 <span className={styles.expiredText}>Handoff expired.</span>
+                               ) : (
+                                 <span className={styles.expiryText}>
+                                   Expires in {Math.max(0, Math.floor((handoffState.expiresAt - now) / 1000))}s
+                                 </span>
+                               )}
+                               <div className={styles.handoffActions}>
+                                 <button type="button" onClick={shareToDevice} disabled={isHandoffExpired}>
+                                   2a. Share to Device
+                                 </button>
+                                 <a
+                                   href="https://creator.rednote.com/publish/publish"
+                                   target="_blank"
+                                   rel="noreferrer"
+                                   className={isHandoffExpired ? styles.disabledLink : ''}
+                                   onClick={e => { if (isHandoffExpired) e.preventDefault(); }}
+                                 >
+                                   2b. Open RedNote
+                                 </a>
+                               </div>
+                               <p className={styles.disclaimer}>Browser sharing does not prove RedNote received or published anything.</p>
+                             </div>
+                          )}
+                        </div>
+                      )}
+
+                      <button type="button" className={styles.downloadBtn} onClick={() => exportGrid('download_raw')} disabled={Boolean(busy)}>
+                         {busy === 'export' ? 'Exporting...' : 'Download PNG'}
+                      </button>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <button type="button" onClick={onUpgrade} disabled={Boolean(busy)}>
                   ✦ Upgrade for premium exports
