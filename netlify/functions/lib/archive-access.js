@@ -73,6 +73,11 @@ export async function ensureArchiveAccessWindow(
     if (current
       && freeArchiveDates.length === currentDates.size
       && freeArchiveDates.every(date => currentDates.has(date))) return current;
+    if (current && !currentWithMetadata?.etag) {
+      throw new Error(
+        "The archive access window could not be updated safely because storage did not provide a revision tag.",
+      );
+    }
     const timestamp = now();
     const next = {
       schemaVersion: 1,
@@ -86,7 +91,7 @@ export async function ensureArchiveAccessWindow(
       next,
       currentWithMetadata?.etag
         ? { onlyIfMatch: currentWithMetadata.etag }
-        : current ? {} : { onlyIfNew: true },
+        : { onlyIfNew: true },
     );
     if (write?.modified === false) continue;
     const authoritative = await store.get(ARCHIVE_ACCESS_WINDOW_KEY, {

@@ -114,6 +114,37 @@ test("simultaneous initial access-window updates retry only-if-new and preserve 
   });
 });
 
+test("simultaneous access-window updates without revision tags fail before replacing the authoritative window", async () => {
+  const authoritative = archiveAccessWindow([
+    "2026-09-19",
+    "2026-09-18",
+    "2026-09-17",
+    "2026-09-16",
+  ]);
+  const store = conditionalAccessWindowStore({
+    initial: authoritative,
+    synchronizeInitialReads: 2,
+    omitEtags: true,
+  });
+
+  const results = await Promise.allSettled([
+    ensureArchiveAccessWindow(store, ["2026-09-20"], () => "2026-09-20T04:00:00.000Z"),
+    ensureArchiveAccessWindow(store, ["2026-09-21"], () => "2026-09-21T04:00:00.000Z"),
+  ]);
+
+  assert.ok(results.every(result =>
+    result.status === "rejected"
+    && /storage did not provide a revision tag/.test(result.reason.message)));
+  assert.deepEqual(
+    await store.get(ARCHIVE_ACCESS_WINDOW_KEY, { type: "json" }),
+    authoritative,
+  );
+  assert.deepEqual(store.stats(), {
+    conflicts: 0,
+    onlyIfNewConflicts: 0,
+  });
+});
+
 test("exhausted access-window conflicts fail without replacing the authoritative window", async () => {
   const authoritative = archiveAccessWindow([
     "2026-09-20",
@@ -409,6 +440,7 @@ function conditionalRevisionStore(key, {
   initial = null,
   synchronizeInitialReads = 0,
   rejectAllWrites = false,
+  omitEtags = false,
 } = {}) {
   let value = initial ? structuredClone(initial) : null;
   let revision = initial ? 1 : 0;
@@ -430,7 +462,7 @@ function conditionalRevisionStore(key, {
       if (requestedKey !== key) return { data: null };
       const snapshot = {
         data: value ? structuredClone(value) : null,
-        ...(revision ? { etag: `revision-${revision}` } : {}),
+        ...(revision && !omitEtags ? { etag: `revision-${revision}` } : {}),
       };
       if (initialReadBarrier && initialReads < synchronizeInitialReads) {
         initialReads += 1;
