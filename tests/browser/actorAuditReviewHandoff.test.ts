@@ -1052,7 +1052,7 @@ function publicationReviewRun(runId: string, historical = false, includePublicat
 
 async function configureNetwork(page: Page, 
 {
- missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, partialRetrievalRepetition = false, partialCalibrationProofMetrics = false, currentLegacy = false, publicationIndexRepairHealth = null as AnyRecord | null, auditHistoryDetailDelays = {} as Record<string, number[]>, auditHistoryDetailErrors = {} as Record<string, string[]>, auditHistoryDetailDrops = {} as Record<string, boolean[]>
+ missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, partialRetrievalRepetition = false, partialCalibrationProofMetrics = false, currentLegacy = false, initialActiveRunId = null as string | null, publicationIndexRepairHealth = null as AnyRecord | null, auditHistoryDetailDelays = {} as Record<string, number[]>, auditHistoryDetailErrors = {} as Record<string, string[]>, auditHistoryDetailDrops = {} as Record<string, boolean[]>
 }
  = 
 {
@@ -1085,7 +1085,7 @@ async function configureNetwork(page: Page,
 > 
 {
 
-  let activeRunId: string | null = currentLegacy ? 'current-legacy' : unfinishedBoardReview ? 'board-review-current' : null
+  let activeRunId: string | null = currentLegacy ? 'current-legacy' : unfinishedBoardReview ? 'board-review-current' : initialActiveRunId
 ;
 
   let savedBoard: AnyRecord | undefined
@@ -2122,6 +2122,14 @@ async function configureNetwork(page: Page,
 ;
 
       
+}
+
+      if (initialActiveRunId === 'run-2')
+{
+
+        response.priorRuns = [run('run-1', true)]
+;
+
 }
 
       if (visualReview) 
@@ -10022,6 +10030,76 @@ test('a lost connection returning from Legacy history preserves the retained evi
 
 }
 )
+;
+
+
+test('a lost connection returning from retained history preserves the non-Legacy evidence without writes', {
+  timeout: 60_000,
+}, async () => {
+  const { server, origin } = await startApp()
+  const browser = await launchBrowserForServer(server)
+  const page = await browser.newPage()
+  const { auditRequests } = await configureNetwork(page, {
+    initialActiveRunId: 'run-2',
+    retrievalRepetition: true,
+    auditHistoryDetailDrops: {
+      'run-2': [false, true],
+    },
+  })
+  const auditTraffic: Array<{ method: string; runId: string | null }> = []
+
+  page.on('request', request => {
+    const url = new URL(request.url())
+    if (url.pathname.endsWith('/actor-audits')) {
+      auditTraffic.push({ method: request.method(), runId: url.searchParams.get('runId') })
+    }
+  })
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click()
+    await page.getByRole('heading', { name: 'Audit evidence · run-2', exact: true }).waitFor()
+
+    const runSelect = page.getByLabel('Audit run')
+    await runSelect.selectOption('run-1')
+    await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor()
+
+    const repetition = page
+      .getByRole('region', { name: 'Candidate loss funnel' })
+      .getByRole('region', { name: 'Retrieval repetition' })
+    assert.deepEqual((await repetition.locator('strong').allTextContents()).slice(0, 4), ['7', '6', '5', '2'])
+
+    const failedRequest = page.waitForEvent('requestfailed', request => {
+      const url = new URL(request.url())
+      return url.pathname.endsWith('/actor-audits') && url.searchParams.get('runId') === 'run-2'
+    })
+
+    await runSelect.selectOption('run-2')
+    await failedRequest
+    await page.getByText(
+      'Audit history lost its connection. The evidence currently on screen is safe and unchanged. Retry the history selection when the connection returns; retrying only reads the selected audit.',
+      { exact: true },
+    ).waitFor()
+
+    assert.equal(await page.getByText(/failed to fetch/i).count(), 0)
+    assert.equal(await runSelect.inputValue(), 'run-1')
+    await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor()
+    assert.deepEqual((await repetition.locator('strong').allTextContents()).slice(0, 4), ['7', '6', '5', '2'])
+    assert.deepEqual(
+      auditTraffic.filter(request => request.runId).map(request => request.runId),
+      ['run-2', 'run-1', 'run-2'],
+      'opening retained history and the failed return must use only selected-run detail reads',
+    )
+    assert.equal(
+      auditTraffic.every(request => request.method === 'GET'),
+      true,
+      'a failed return to current must not send an audit mutation request',
+    )
+    assert.deepEqual(auditRequests, [], 'a failed return to current must not run or mutate an audit')
+  } finally {
+    await closeBrowserAndServer(browser, server)
+  }
+})
 ;
 
 
