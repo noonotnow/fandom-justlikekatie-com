@@ -38,34 +38,34 @@ export const ExportButton: React.FC<ExportButtonProps> = ({ rawData, onShareComp
           className={styles.exportButton}
           onClick={handleShare}
           disabled={isExporting || !imagesReady}
-          aria-label="Share styled Fandom card"
+          aria-label="Share Spell Sheet"
         >
-          Share styled card
-          <span className={styles.enHelper}>Includes copy and visual treatment</span>
+          Share Spell Sheet
+          <span className={styles.enHelper}>Finished collectible with copy and visual treatment</span>
         </button>
         <button
           className={styles.downloadButton}
           onClick={handleDownload}
           disabled={isExporting || !imagesReady}
-          aria-label="Download styled Fandom card as PNG"
+          aria-label="Download Spell Sheet as PNG"
         >
-          Download styled card
-          <span className={styles.enHelper}>PNG with copy and visual treatment</span>
+          Download Spell Sheet
+          <span className={styles.enHelper}>Finished collectible PNG</span>
         </button>
         <button
           className={styles.handoffButton}
           onClick={handlePublishingHandoff}
           disabled={isExporting || !imagesReady}
-          aria-label="Handoff raw three-by-three grid for publishing"
+          aria-label="Handoff Publishing Grid"
         >
-          Handoff raw grid for publishing
+          Handoff Publishing Grid
           <span className={styles.enHelper}>Only the 3×3 images · no copy or styling</span>
         </button>
         <p className={styles.autoSaveNote}>
           {isExporting
             ? '正在准备九张原图…… · Preparing all nine images…'
             : imagesReady
-              ? 'Styled card and raw publishing grid are different files. Either action preserves the grid in Collection.'
+              ? 'Spell Sheet and Publishing Grid are different files. Either action preserves the Collection Grid.'
               : '等待九张原图全部加载；不会导出占位图 · Waiting for all nine images; placeholders are blocked'}
         </p>
       </div>

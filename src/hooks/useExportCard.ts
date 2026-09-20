@@ -109,13 +109,13 @@ export function useExportCard(data: StarOfDayData): UseExportCardReturn {
         || typeof navigator.canShare !== 'function'
         || !navigator.canShare(shareData)
       ) {
-        throw new Error('Native file sharing is unavailable here. Use Download styled card instead.');
+        throw new Error('Native file sharing is unavailable here. Use Download Spell Sheet instead.');
       }
       await navigator.share(shareData);
       await dbSaveGrid(grid);
       schedulePublicCollectionSync();
       setToastMessage(
-        'Publishing handoff opened with the raw 3×3 grid · A saved copy is preserved in Collection',
+        'Publishing handoff opened with the Publishing Grid · The editable Collection Grid is preserved',
       );
       return 'shared';
     } catch (err) {
