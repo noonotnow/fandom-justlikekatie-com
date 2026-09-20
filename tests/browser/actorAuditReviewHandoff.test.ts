@@ -386,6 +386,8 @@ function withPartialRetrievalRepetition(result: AnyRecord): AnyRecord {
 
 function legacyRun(runId: string): AnyRecord {
   const result = run(runId, true);
+  result.displayCount = 0;
+  result.queryCount = 0;
   result.auditContract = {
     ...contract(),
     status: 'legacy',
@@ -855,6 +857,8 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
       }
       if (url.searchParams.get('runId') === 'run-1' && ['run-2', 'current-legacy'].includes(activeRunId ?? '')) {
         const retainedRun = run('run-1', true);
+        delete retainedRun.displayCount;
+        delete retainedRun.queryCount;
         if (partialRetrievalRepetition) withPartialRetrievalRepetition(retainedRun);
         else if (retrievalRepetition) withRetrievalRepetition(retainedRun);
         await route.fulfill({
@@ -3526,6 +3530,16 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
     const firstResult = rawResults.locator('article').first();
     await runSelect.selectOption('run-1');
     await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor();
+    assert.equal(
+      await page.getByText('automatically publication-ready cards', { exact: true }).locator('xpath=preceding-sibling::strong[1]').innerText(),
+      'Unavailable',
+      'an omitted historical display total must not look like a measured zero',
+    );
+    assert.equal(
+      await page.getByText('queries audited', { exact: true }).locator('xpath=preceding-sibling::strong[1]').innerText(),
+      'Unavailable',
+      'an omitted historical query total must not be inferred from the retained query array',
+    );
     const historicalRawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
     assert.equal(await historicalRawResults.getAttribute('open'), null, 'the retained summary should be readable while collapsed');
     assert.match(
@@ -3566,6 +3580,16 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
     );
     await runSelect.selectOption('run-legacy');
     await page.getByRole('heading', { name: 'Legacy audit · retained history · run-legacy', exact: true }).waitFor();
+    assert.equal(
+      await page.getByText('automatically publication-ready cards', { exact: true }).locator('xpath=preceding-sibling::strong[1]').innerText(),
+      '0',
+      'a recorded Legacy display total of zero must remain visible',
+    );
+    assert.equal(
+      await page.getByText('queries audited', { exact: true }).locator('xpath=preceding-sibling::strong[1]').innerText(),
+      '0',
+      'a recorded Legacy query total of zero must remain visible',
+    );
     await page.getByText('Fully read-only retained Legacy run.', { exact: false }).waitFor();
     await page.getByText('Read-only Legacy rescue history:', { exact: false }).waitFor();
     assert.equal(
