@@ -6970,23 +6970,32 @@ test("aggregate calibration approves a repeated signal bundle regardless of orde
 
   const requestedSignalValues = [...querySignals].reverse();
   const deterministicSignalValues = [...querySignals].sort();
-  const approvalResponse = await handler(request("POST", {
-    action: "approve_rescue_calibration",
-    actorId: pairActor.id,
-    vibeKey,
-    adjustmentType: "query_ladder",
-    direction: "positive",
-    signalValues: requestedSignalValues,
-  }), {});
-  const approval = await approvalResponse.json();
-  assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
-  assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
-    type: "query_ladder",
-    signalFamily: "queries",
-    direction: "positive",
-    signalValues: deterministicSignalValues,
-  });
-  assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
+  const approvalIdentities = [];
+  for (const signalValues of [requestedSignalValues, deterministicSignalValues]) {
+    const approvalResponse = await handler(request("POST", {
+      action: "approve_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      adjustmentType: "query_ladder",
+      direction: "positive",
+      signalValues,
+    }), {});
+    const approval = await approvalResponse.json();
+    assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+    assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
+      type: "query_ladder",
+      signalFamily: "queries",
+      direction: "positive",
+      signalValues: deterministicSignalValues,
+    });
+    assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
+    approvalIdentities.push({
+      approvalId: approval.calibrationProfile.activeApproval.approvalId,
+      aggregateEvidenceHash:
+        approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
+    });
+  }
+  assert.deepEqual(approvalIdentities[1], approvalIdentities[0]);
 
   await handler(request("POST", {
     action: "run", actorId: pairActor.id, vibeKey, scope: "full",
@@ -7073,6 +7082,7 @@ test("aggregate calibration canonicalizes reordered negative class bundles", asy
   }
 
   const deterministicSignalValues = [...candidateSignals].sort();
+  const approvalIdentities = [];
   for (const requestedSignalValues of [
     candidateSignals,
     [...candidateSignals].reverse(),
@@ -7095,7 +7105,13 @@ test("aggregate calibration canonicalizes reordered negative class bundles", asy
       signalValues: deterministicSignalValues,
     });
     assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
+    approvalIdentities.push({
+      approvalId: approval.calibrationProfile.activeApproval.approvalId,
+      aggregateEvidenceHash:
+        approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
+    });
   }
+  assert.deepEqual(approvalIdentities[1], approvalIdentities[0]);
 
   await handler(request("POST", {
     action: "run", actorId: pairActor.id, vibeKey, scope: "full",
