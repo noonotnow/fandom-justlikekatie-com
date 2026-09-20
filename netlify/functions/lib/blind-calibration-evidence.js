@@ -10,6 +10,14 @@ const CLASS_WEIGHT = new Map([
 
 export const MIN_BLIND_CALIBRATION_SAMPLE = 5;
 
+export function requiresBlindCalibrationOccurrenceIdentity(candidate) {
+  return Boolean(
+    candidate
+    && (candidate.selected === false || candidate.dropReason)
+    && candidate.thumbnail
+  );
+}
+
 function recordHash(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
@@ -35,9 +43,9 @@ export function blindCalibrationEvidence(run, judgments = [], expectedContract =
   }
 
   const candidates = (run?.calibrationAnalysis?.candidates || []).filter(candidate =>
-    (candidate?.selected === false || candidate?.dropReason)
-    && candidate?.thumbnail
-    && candidate?.occurrenceId);
+    requiresBlindCalibrationOccurrenceIdentity(candidate)
+    && typeof candidate.occurrenceId === "string"
+    && candidate.occurrenceId.trim());
   const occurrenceIds = new Set(candidates.map(candidate => candidate.occurrenceId));
   const judgmentsByOccurrence = new Map();
   for (const judgment of judgments) {

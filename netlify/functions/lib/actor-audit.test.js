@@ -268,6 +268,8 @@ function curation({
   unavailableRejected = false,
   duplicateRejected = false,
   duplicateOccurrenceIds = false,
+  blankRequiredOccurrenceId = false,
+  blankOptionalOccurrenceId = false,
   calibrationTransfers = true,
   hiddenSourceTransfer = false,
   onOptions = () => {},
@@ -509,6 +511,16 @@ function curation({
         })),
       };
     }
+    if (blankRequiredOccurrenceId || blankOptionalOccurrenceId) {
+      output.diagnostics.calibrationAnalysis = {
+        candidates: rawCandidates.slice(0, 2).map((candidate, index) => ({
+          ...candidate,
+          occurrenceId: index === 0 ? "   " : `valid-occurrence-${index}`,
+          selected: blankOptionalOccurrenceId || index !== 0,
+          ...(blankRequiredOccurrenceId && index === 0 ? { dropReason: "unusable_image" } : {}),
+        })),
+      };
+    }
     return output;
   };
 }
@@ -521,6 +533,8 @@ function harness({
   unavailableRejected = false,
   duplicateRejected = false,
   duplicateOccurrenceIds = false,
+  blankRequiredOccurrenceId = false,
+  blankOptionalOccurrenceId = false,
   calibrationTransfers = true,
   authorized = true,
   publicAuthorized = true,
@@ -570,6 +584,8 @@ function harness({
     unavailableRejected,
     duplicateRejected,
     duplicateOccurrenceIds,
+    blankRequiredOccurrenceId,
+    blankOptionalOccurrenceId,
     calibrationTransfers,
     hiddenSourceTransfer,
     onOptions: onCurateOptions,
@@ -2559,6 +2575,40 @@ test("audit creation rejects duplicate nonblank occurrence IDs before retaining 
   assert.match(body.error, /repeat occurrence ID "duplicate-occurrence"/i);
   assert.equal(store.records.has(auditRunKey(pairActor.id, 0, "run-1")), false);
   assert.equal(store.records.has(auditHeadKey(pairActor.id, 0)), false);
+});
+
+test("audit creation rejects blank occurrence IDs required for blind review before retaining the run", async () => {
+  const { handler, store } = harness({ blankRequiredOccurrenceId: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+
+  const response = await handler(request("POST", {
+    action: "run",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+  }), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 409);
+  assert.match(body.error, /candidate ".+" is a rejected thumbnail candidate with a blank occurrence ID/i);
+  assert.equal(store.records.has(auditRunKey(pairActor.id, 0, "run-1")), false);
+  assert.equal(store.records.has(auditHeadKey(pairActor.id, 0)), false);
+});
+
+test("audit creation allows blank occurrence IDs on candidates outside blind review", async () => {
+  const { handler, store } = harness({ blankOptionalOccurrenceId: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+
+  const response = await handler(request("POST", {
+    action: "run",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+  }), {});
+
+  assert.equal(response.status, 200);
+  assert.equal(store.records.has(auditRunKey(pairActor.id, 0, "run-1")), true);
+  assert.equal(store.records.has(auditHeadKey(pairActor.id, 0)), true);
 });
 
 test("retrieval diagnostics keep occurrences, exact rung overlap, and incremental unique yield separate from curation", async () => {

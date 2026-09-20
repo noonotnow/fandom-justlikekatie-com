@@ -93,7 +93,10 @@ import {
   releaseCorrectionPublicationLock,
 } from "./publication-manifest.js";
 import { approvedBoardAuthorityKey } from "./approved-board-provenance.js";
-import { blindCalibrationEvidence } from "./blind-calibration-evidence.js";
+import {
+  blindCalibrationEvidence,
+  requiresBlindCalibrationOccurrenceIdentity,
+} from "./blind-calibration-evidence.js";
 
 const MAX_BODY_BYTES = 48 * 1024;
 const MAX_NOTE_LENGTH = 2000;
@@ -3938,8 +3941,23 @@ function summarizeIdentityEvidence(candidates, profile) {
 }
 
 async function appendRun(store, pair, run) {
+  const calibrationCandidates = run?.calibrationAnalysis?.candidates || [];
+  const missingOccurrenceIdentityIndex = calibrationCandidates.findIndex(candidate =>
+    requiresBlindCalibrationOccurrenceIdentity(candidate)
+    && (typeof candidate.occurrenceId !== "string" || !candidate.occurrenceId.trim()));
+  if (missingOccurrenceIdentityIndex !== -1) {
+    const candidate = calibrationCandidates[missingOccurrenceIdentityIndex];
+    const candidateLabel = candidate?.candidateId
+      ? `candidate "${candidate.candidateId}"`
+      : `candidate at calibration index ${missingOccurrenceIdentityIndex}`;
+    const error = new Error(
+      `Audit ${candidateLabel} is a rejected thumbnail candidate with a blank occurrence ID. The retained run was not finalized.`,
+    );
+    error.status = 409;
+    throw error;
+  }
   const seenOccurrenceIds = new Set();
-  const duplicateOccurrenceId = (run?.calibrationAnalysis?.candidates || [])
+  const duplicateOccurrenceId = calibrationCandidates
     .map(candidate => candidate?.occurrenceId)
     .find(occurrenceId => {
       if (typeof occurrenceId !== "string" || !occurrenceId.trim()) return false;
