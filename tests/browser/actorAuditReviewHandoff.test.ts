@@ -3354,7 +3354,7 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
   }
 });
 
-test('release inventory repair warnings distinguish repeated repairs from one successful bootstrap and stay private', { timeout: 60_000 }, async () => {
+test('release inventory repair warnings cover repeated and failed repairs, one successful bootstrap, and stay private', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowserForServer(server);
 
@@ -3379,6 +3379,30 @@ test('release inventory repair warnings distinguish repeated repairs from one su
       true,
     );
 
+    for (const failedAttemptCount of [1, 2]) {
+      const failedRepairPage = await browser.newPage();
+      await configureNetwork(failedRepairPage, {
+        publicationIndexRepairHealth: {
+          warning: true,
+          attemptCount: failedAttemptCount,
+          failedAttemptCount,
+          windowHours: 24,
+        },
+      });
+      await failedRepairPage.goto(`${origin}/vibe-atlas?admin=true`);
+      await failedRepairPage.getByRole('heading', { name: 'Release Desk', exact: true }).waitFor();
+      await failedRepairPage.getByText('Release inventory repair needs attention', { exact: true }).waitFor();
+      assert.equal(
+        await failedRepairPage.getByText(
+          `${failedAttemptCount} repair attempt${failedAttemptCount === 1 ? '' : 's'} did not complete normally. Inventory remains fail-closed; check Blob listing and historical manifest health.`,
+          { exact: true },
+        ).isVisible(),
+        true,
+        `the failed repair warning must retain ${failedAttemptCount === 1 ? 'singular' : 'plural'} count copy and fail-closed guidance`,
+      );
+      await failedRepairPage.close();
+    }
+
     const successfulBootstrapPage = await browser.newPage();
     await configureNetwork(successfulBootstrapPage, {
       publicationIndexRepairHealth: {
@@ -3400,8 +3424,8 @@ test('release inventory repair warnings distinguish repeated repairs from one su
     await configureNetwork(publicPage, {
       publicationIndexRepairHealth: {
         warning: true,
-        attemptCount: 3,
-        failedAttemptCount: 0,
+        attemptCount: 2,
+        failedAttemptCount: 2,
         windowHours: 24,
       },
     });
