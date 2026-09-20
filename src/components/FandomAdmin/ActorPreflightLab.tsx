@@ -593,6 +593,10 @@ export const ActorPreflightLab: React.FC = () => {
     ? VERDICTS.filter(value=>value!=='approved_override'&&(value!=='approved'||savedRescueBoards.length>0))
     : VERDICTS;
   const finalizedPreference = run?.operatorVerdict?.rescuePreference;
+  const queryContractChanges = visibleCacheDiagnostic?.queryContract?.changes;
+  const hasStructuredQueryContractChanges = Array.isArray(queryContractChanges?.added)
+    && Array.isArray(queryContractChanges?.removed)
+    && Array.isArray(queryContractChanges?.reordered);
   if(loading) return <div className={styles.empty}>Loading actor evidence desk…</div>;
   return <section className={styles.lab} aria-labelledby="actor-preflight-title">
     <header className={styles.masthead}><div><p className={styles.eyebrow}>Fandom Vibes / private calibration</p><h3 id="actor-preflight-title">Actor preflight lab</h3><p>Calibrate actor × Vibe Pack pairings against bounded evidence before they enter the Daily Drop rotation.</p></div><div className={styles.runbook}><span>Operator boundary</span><strong>One pairing at a time</strong><span>Every decision leaves a receipt.</span></div></header>
@@ -609,9 +613,13 @@ export const ActorPreflightLab: React.FC = () => {
                   <p className={styles.historicalNotice}>This saved proof used an older frozen query set. Its original queries and evidence remain below. Run a new comparison only when current proof is needed.</p>
                   <div className={styles.queryContractChanges} aria-label="Query contract changes">
                     <strong>What changed</strong>
-                    <p><span>Added</span>{visibleCacheDiagnostic.queryContract?.changes?.added?.length?(visibleCacheDiagnostic.queryContract.changes.added as AnyRecord[]).map(item=>`${item.currentIndex+1}. ${item.query}`).join(' · '):'None'}</p>
-                    <p><span>Removed</span>{visibleCacheDiagnostic.queryContract?.changes?.removed?.length?(visibleCacheDiagnostic.queryContract.changes.removed as AnyRecord[]).map(item=>`${item.frozenIndex+1}. ${item.query}`).join(' · '):'None'}</p>
-                    <p><span>Reordered</span>{visibleCacheDiagnostic.queryContract?.changes?.reordered?.length?(visibleCacheDiagnostic.queryContract.changes.reordered as AnyRecord[]).map(item=>`${item.query} (${item.frozenIndex+1} → ${item.currentIndex+1})`).join(' · '):'None'}</p>
+                     {!hasStructuredQueryContractChanges
+                       ? <p>Change summary unavailable for this older receipt.</p>
+                       : <>
+                         <p><span>Added</span>{queryContractChanges.added.length?(queryContractChanges.added as AnyRecord[]).map(item=>`${item.currentIndex+1}. ${item.query}`).join(' · '):'None'}</p>
+                         <p><span>Removed</span>{queryContractChanges.removed.length?(queryContractChanges.removed as AnyRecord[]).map(item=>`${item.frozenIndex+1}. ${item.query}`).join(' · '):'None'}</p>
+                         <p><span>Reordered</span>{queryContractChanges.reordered.length?(queryContractChanges.reordered as AnyRecord[]).map(item=>`${item.query} (${item.frozenIndex+1} → ${item.currentIndex+1})`).join(' · '):'None'}</p>
+                       </>}
                   </div>
                 </>}
               {(visibleCacheDiagnostic.comparisons??[]).map((item:AnyRecord,index:number)=><div key={`${index}:${item.query}`}>

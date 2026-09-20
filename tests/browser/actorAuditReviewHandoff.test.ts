@@ -1478,6 +1478,63 @@ test('historical cache proof keeps its frozen evidence and starts a new current-
   }
 });
 
+test('legacy historical cache proof marks its query-change summary unavailable without searches or writes', { timeout: 60_000 }, async () => {
+  const frozenQuery = 'legacy frozen cache proof query';
+  const historicalDiagnostic = {
+    schemaVersion: 1,
+    diagnosticId: 'legacy-historical-cache-proof-browser',
+    actorId: ACTOR_ID,
+    vibeKey: VIBE_KEY,
+    scope: 'full',
+    frozenQueries: [frozenQuery],
+    queryContract: {
+      status: 'historical',
+      isCurrent: false,
+      checkedAt: '2026-09-20T12:00:00.000Z',
+      currentQueries: ['current cache proof query'],
+    },
+    comparedAt: '2026-09-18T12:00:00.000Z',
+    savedAt: '2026-09-18T12:01:00.000Z',
+    comparisons: [{
+      query: frozenQuery,
+      normal: {
+        resultFingerprint: 'legacy-default-fingerprint',
+        resultIdentities: [{ identity: 'legacy-default-image', title: 'Legacy default evidence' }],
+      },
+      bypassed: {
+        resultFingerprint: 'legacy-refresh-fingerprint',
+        resultIdentities: [{ identity: 'legacy-refresh-image', title: 'Legacy bypass evidence' }],
+      },
+    }],
+  };
+  const { server, origin } = await startApp();
+  const browser = await launchBrowserForServer(server);
+  const page = await browser.newPage();
+  const { providerSearchRequests, receiptSaveRequests } = await configureCacheDiagnosticNetwork(page, {
+    initialDiagnostic: historicalDiagnostic,
+  });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByLabel('Audit scope').selectOption('full');
+    const diagnostic = page.getByRole('region', { name: 'Search cache diagnostic' });
+
+    await diagnostic.getByText('Comparison receipt · Historical query set · 1 of 1 complete', { exact: true }).waitFor();
+    const queryChanges = diagnostic.locator('[aria-label="Query contract changes"]');
+    await queryChanges.getByText('Change summary unavailable for this older receipt.', { exact: true }).waitFor();
+    assert.equal(await queryChanges.getByText(/^(Added|Removed|Reordered)None$/).count(), 0);
+    assert.equal(await diagnostic.getByText(`1. ${frozenQuery}`, { exact: true }).isVisible(), true);
+    assert.equal(await diagnostic.getByText('Legacy default evidence', { exact: false }).isVisible(), true);
+    assert.equal(await diagnostic.getByText('Legacy bypass evidence', { exact: false }).isVisible(), true);
+    assert.equal(providerSearchRequests.length, 0, 'opening a legacy historical proof must not invoke provider searches');
+    assert.equal(receiptSaveRequests.length, 0, 'opening a legacy historical proof must not create audit or publication writes');
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
 test('a failed cache comparison retries immediately with its active saved reservation', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowserForServer(server);
