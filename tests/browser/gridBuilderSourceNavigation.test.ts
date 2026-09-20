@@ -70,6 +70,15 @@ async function seedSavedCard(page: Page): Promise<void> {
   }, { actor: SAVED_ACTOR });
 }
 
+async function assertClearBuilderState(page: Page, actor: string, count: number): Promise<void> {
+  assert.equal(await page.getByLabel('Proposed Compiled 9-frame set').count(), 0);
+  assert.equal(
+    await page.getByRole('button', { name: new RegExp(`^${actor} ${count}`) }).getAttribute('aria-pressed'),
+    'false',
+    'a cold or reloaded builder must start with a clear actor lens',
+  );
+}
+
 test('Grid Builder keeps Daily Drop and My Collection sources isolated across navigation', { timeout: 60_000 }, async () => {
   const { server, origin } = await startViteTestServer();
   const { browser, page } = await launchPageForServer(server);
@@ -129,6 +138,64 @@ test('Grid Builder keeps Daily Drop and My Collection sources isolated across na
       'false',
       'popstate must restore Daily with a clear lens',
     );
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
+
+test('Grid Builder restores the URL inventory source on cold load and reload', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startViteTestServer();
+  const { browser, page } = await launchPageForServer(server);
+
+  try {
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ user: null }),
+    }));
+    await page.route('**/api/membership/status', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ state: 'inactive', isMember: false, capabilities: [] }),
+    }));
+    await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
+    await page.route('**/.netlify/functions/star-of-day**', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(dailyDropFixture()),
+    }));
+
+    await page.goto(origin);
+    await seedSavedCard(page);
+
+    const dailyUrl = `${origin}/vibe-atlas?view=builder&source=daily`;
+    await page.goto(dailyUrl);
+    await page.getByText('9 Daily Drop images match this lens').waitFor();
+    assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR} 9`) }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR}`) }).count(), 0);
+    await assertClearBuilderState(page, DAILY_ACTOR, 9);
+
+    await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR} 9`) }).click();
+    await page.getByRole('button', { name: 'Propose Compiled 3×3' }).click();
+    await page.getByLabel('Proposed Compiled 9-frame set').waitFor();
+    await page.reload();
+    await page.getByText('9 Daily Drop images match this lens').waitFor();
+    assert.equal(page.url(), dailyUrl);
+    assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR}`) }).count(), 0);
+    await assertClearBuilderState(page, DAILY_ACTOR, 9);
+
+    const collectionUrl = `${origin}/vibe-atlas?view=builder`;
+    await page.goto(collectionUrl);
+    await page.getByText('1 saved result matches this lens').waitFor();
+    assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR} 1`) }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR}`) }).count(), 0);
+    await assertClearBuilderState(page, SAVED_ACTOR, 1);
+
+    await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR} 1`) }).click();
+    await page.getByRole('button', { name: 'Propose Compiled 3×3' }).click();
+    await page.getByLabel('Proposed Compiled 9-frame set').waitFor();
+    await page.reload();
+    await page.getByText('1 saved result matches this lens').waitFor();
+    assert.equal(page.url(), collectionUrl);
+    assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR}`) }).count(), 0);
+    await assertClearBuilderState(page, SAVED_ACTOR, 1);
   } finally {
     await closeBrowserAndServer(browser, server);
   }
