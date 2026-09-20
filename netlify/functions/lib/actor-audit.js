@@ -2710,6 +2710,15 @@ export function createActorAuditHandler({
           if (write?.modified === false) {
             return json(409, { error: "Another operator excluded this example first." });
           }
+          const authoritative = await store.get(exclusionKey, {
+            type: "json",
+            consistency: "strong",
+          });
+          if (!authoritative
+            || recordHash(blindCalibrationExclusionIdentity(authoritative))
+              !== recordHash(blindCalibrationExclusionIdentity(exclusion))) {
+            return json(409, { error: "The immutable blind-review exclusion receipt could not be verified." });
+          }
         }
         const next = await readReport(store, pair);
         return json(200, {
@@ -8101,6 +8110,21 @@ function calibrationSignalRetirementIdentity(receipt) {
     signalValue: receipt?.signalValue,
     reason: receipt?.reason,
     retiredBy: receipt?.retiredBy,
+  };
+}
+
+function blindCalibrationExclusionIdentity(receipt) {
+  return {
+    status: receipt?.status,
+    exclusionId: receipt?.exclusionId,
+    sourceRescueReceiptId: receipt?.sourceRescueReceiptId,
+    sourceRunId: receipt?.sourceRunId,
+    judgmentReceiptId: receipt?.judgmentReceiptId,
+    sourceOccurrenceId: receipt?.sourceOccurrenceId,
+    actorId: receipt?.actorId,
+    vibeKey: receipt?.vibeKey,
+    reason: receipt?.reason,
+    excludedBy: receipt?.excludedBy,
   };
 }
 

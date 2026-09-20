@@ -6351,6 +6351,92 @@ test("one blind-review example can be excluded without rewriting its audit or ju
     && disagreement.status === "excluded"));
 });
 
+test("blind-review exclusion fails closed when its post-write strong read cannot verify the receipt", async () => {
+  for (const verificationFailure of ["missing", "conflicting"]) {
+    const { handler, store } = harness({ freshEvidenceOnRerun: true });
+    const vibeKey = vibeKeyFor(pairActor.id, 0);
+    for (const runId of ["run-1", "run-2"]) {
+      await handler(request("POST", {
+        action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+      }), {});
+      const runKey = auditRunKey(pairActor.id, 0, runId);
+      const run = store.records.get(runKey);
+      run.calibrationAnalysis = {
+        ...(run.calibrationAnalysis || {}),
+        candidates: run.rawResults.slice(0, 5).map((candidate, index) => ({
+          ...candidate,
+          occurrenceId: `${runId}:verify-exclusion:${index}`,
+          query: "verify exclusion repeated query",
+          visualClass: "supporting",
+          selected: false,
+          dropReason: "unusable_image",
+        })),
+      };
+      store.records.set(runKey, run);
+      for (const [index, candidate] of run.calibrationAnalysis.candidates.entries()) {
+        const receiptId = `${runId}-verify-exclusion-${index}`;
+        store.records.set(
+          auditVisualJudgmentKey(pairActor.id, 0, runId, receiptId),
+          {
+            receiptId,
+            runId,
+            sourceOccurrenceId: candidate.occurrenceId,
+            classification: index === 0 ? "core" : "supporting",
+            judgedAt: "2026-09-15T12:00:00.000Z",
+          },
+        );
+      }
+    }
+    const before = await (await handler(request(
+      "GET",
+      undefined,
+      `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+    ), {})).json();
+    const evidence = before.calibrationProfile.evidenceLedger
+      .find(item => item.sourceRunId === "run-1");
+    const item = evidence.blindReviewEvidence.disagreements[0];
+    const protectedRecords = new Map(
+      [...store.records.entries()]
+        .filter(([key]) => key.startsWith("vibeAtlas:actor-audit:run:")
+          || key.startsWith("vibeAtlas:actor-audit:visual-judgment:"))
+        .map(([key, value]) => [key, structuredClone(value)]),
+    );
+    const exclusionKey = auditBlindCalibrationExclusionKey(
+      pairActor.id,
+      0,
+      evidence.sourceRunId,
+      item.judgmentReceiptId,
+    );
+    const originalGet = store.get.bind(store);
+    store.get = async (key, options) => {
+      const value = await originalGet(key, options);
+      if (key !== exclusionKey || !store.records.has(key)) return value;
+      if (verificationFailure === "missing") return null;
+      return { ...value, exclusionId: "conflicting-exclusion-receipt" };
+    };
+
+    const response = await handler(request("POST", {
+      action: "exclude_blind_calibration_item",
+      actorId: pairActor.id,
+      vibeKey,
+      receiptId: evidence.sourceRescueReceiptId,
+      judgmentReceiptId: item.judgmentReceiptId,
+      reason: "Later source review showed this thumbnail was mislabeled.",
+    }), {});
+    const body = await response.json();
+
+    assert.equal(response.status, 409, `${verificationFailure}: ${JSON.stringify(body)}`);
+    assert.equal(
+      body.error,
+      "The immutable blind-review exclusion receipt could not be verified.",
+      verificationFailure,
+    );
+    for (const [key, value] of protectedRecords) {
+      assert.deepEqual(store.records.get(key), value, `${verificationFailure}: ${key}`);
+    }
+  }
+});
+
 test("repeated negative calibration applies only the approved signal and revokes without rewriting evidence", async () => {
   const curateOptions = [];
   const { handler, store } = harness({
