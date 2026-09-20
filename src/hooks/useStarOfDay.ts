@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { GridItemData } from '../types';
+import { publicArchiveRecord } from '../contracts/publicArchiveRecord.js';
 
 export interface StarOfDayResult {
   title: string;
@@ -64,28 +65,11 @@ export interface PublicRecordLinks {
   editionPath: string;
 }
 
-function validPublicRecord(value: unknown): PublicRecordLinks | undefined {
-  if (!value || typeof value !== 'object') return undefined;
-  const record = value as Partial<PublicRecordLinks>;
-  if (
-    typeof record.actorPath !== 'string'
-    || !record.actorPath.startsWith('/vibe-atlas/actors/')
-    || typeof record.editionPath !== 'string'
-    || !record.editionPath.startsWith('/vibe-atlas/editions/')
-  ) {
-    return undefined;
-  }
-  return {
-    actorPath: record.actorPath,
-    editionPath: record.editionPath,
-  };
-}
-
 function projectPublicRecord<T extends { publicRecord?: unknown }>(
   value: T,
 ): Omit<T, 'publicRecord'> & { publicRecord?: PublicRecordLinks } {
   const { publicRecord, ...projected } = value;
-  const validated = validPublicRecord(publicRecord);
+  const validated = publicArchiveRecord(publicRecord);
   return {
     ...projected,
     ...(validated ? { publicRecord: validated } : {}),

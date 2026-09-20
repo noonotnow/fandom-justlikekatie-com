@@ -13,6 +13,7 @@ import {
   updateArchiveCatalog,
 } from "./archive-access.js";
 import { createStarOfDayHandler } from "../star-of-day.js";
+import { publicArchiveRecord } from "../../../src/contracts/publicArchiveRecord.js";
 
 const editions = [
   "2026-09-20",
@@ -219,6 +220,29 @@ test("locked previews omit full board, provider, and premium media fields", () =
     actorPath: "/vibe-atlas/actors/actor/",
     editionPath: "/vibe-atlas/editions/2026-09-01/actor/",
   });
+});
+
+test("server projection and reader normalization share an all-or-nothing public-record contract", () => {
+  const approved = {
+    actorPath: "/vibe-atlas/actors/actor/",
+    editionPath: "/vibe-atlas/editions/2026-09-01/actor/",
+  };
+  assert.deepEqual(publicArchiveRecord(approved), approved);
+
+  for (const publicRecord of [
+    { actorPath: approved.actorPath },
+    { editionPath: approved.editionPath },
+    { actorPath: "/admin/actors/actor", editionPath: approved.editionPath },
+    { actorPath: approved.actorPath, editionPath: "https://example.test/edition" },
+  ]) {
+    assert.equal(publicArchiveRecord(publicRecord), undefined);
+    assert.equal(publicArchiveEdition({
+      date: "2026-09-01",
+      actorName: "Actor",
+      vibeLabel: "Vibe",
+      publicRecord,
+    }).publicRecord, undefined);
+  }
 });
 
 function archivePayload(date) {

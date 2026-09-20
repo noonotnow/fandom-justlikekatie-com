@@ -1,3 +1,5 @@
+import { publicArchiveRecord } from "../../../src/contracts/publicArchiveRecord.js";
+
 export const ARCHIVE_FREE_EDITION_COUNT = 4;
 export const ARCHIVE_ACCESS_WINDOW_VERSION = 1;
 export const ARCHIVE_ACCESS_WINDOW_KEY =
@@ -227,11 +229,7 @@ export function publicArchiveEdition(payload, { isFree = false } = {}) {
   const previewResults = Array.isArray(payload?.displayResults) && payload.displayResults.length
     ? payload.displayResults
     : (payload?.rankedBatches || []).flatMap(batch => batch?.results || []);
-  const publicRecord = payload?.publicRecord;
-  const hasPublicRecord = typeof publicRecord?.actorPath === "string"
-    && publicRecord.actorPath.startsWith("/vibe-atlas/actors/")
-    && typeof publicRecord?.editionPath === "string"
-    && publicRecord.editionPath.startsWith("/vibe-atlas/editions/");
+  const publicRecord = publicArchiveRecord(payload?.publicRecord);
   return {
     date: payload?.date,
     actorName: payload?.actorName,
@@ -246,11 +244,6 @@ export function publicArchiveEdition(payload, { isFree = false } = {}) {
       .filter(thumbnail => typeof thumbnail === "string" && thumbnail.length > 0))]
       .slice(0, 3),
     access: isFree ? "free" : "member",
-    ...(hasPublicRecord ? {
-      publicRecord: {
-        actorPath: publicRecord.actorPath,
-        editionPath: publicRecord.editionPath,
-      },
-    } : {}),
+    ...(publicRecord ? { publicRecord } : {}),
   };
 }
