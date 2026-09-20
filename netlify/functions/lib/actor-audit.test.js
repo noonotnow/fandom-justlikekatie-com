@@ -7600,6 +7600,18 @@ test("aggregate calibration approves a repeated signal bundle regardless of orde
   });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   let querySignals = [];
+  const listed = store.list.bind(store);
+  let reverseEvidenceListings = false;
+  store.list = async options => {
+    const listing = await listed(options);
+    if (
+      reverseEvidenceListings
+      && options?.prefix === auditRescueCalibrationPrefix(pairActor.id, 0)
+    ) {
+      return { ...listing, blobs: [...listing.blobs].reverse() };
+    }
+    return listing;
+  };
 
   for (const runId of ["run-1", "run-2"]) {
     await handler(request("POST", {
@@ -7659,8 +7671,12 @@ test("aggregate calibration approves a repeated signal bundle regardless of orde
 
   const requestedSignalValues = [...querySignals].reverse();
   const deterministicSignalValues = [...querySignals].sort();
-  const approvalIdentities = [];
-  for (const signalValues of [requestedSignalValues, deterministicSignalValues]) {
+  const aggregateSnapshots = [];
+  for (const [listingOrder, signalValues] of [
+    ["forward", requestedSignalValues],
+    ["reversed", deterministicSignalValues],
+  ]) {
+    reverseEvidenceListings = listingOrder === "reversed";
     const approvalResponse = await handler(request("POST", {
       action: "approve_rescue_calibration",
       actorId: pairActor.id,
@@ -7678,25 +7694,25 @@ test("aggregate calibration approves a repeated signal bundle regardless of orde
       signalValues: deterministicSignalValues,
     });
     assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
-    approvalIdentities.push({
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const productionProfile = curateOptions
+      .filter(options => options.calibrationProfile)
+      .at(-1)
+      .calibrationProfile;
+    aggregateSnapshots.push({
       approvalId: approval.calibrationProfile.activeApproval.approvalId,
       aggregateEvidenceHash:
         approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
+      evidenceCount: approval.calibrationProfile.activeApproval.evidenceCount,
+      adjustment: approval.calibrationProfile.activeApproval.adjustment,
+      positiveQueries: approval.calibrationProfile.positiveQueries,
+      productionPositiveQueries: productionProfile.positiveQueries,
     });
   }
-  assert.deepEqual(approvalIdentities[1], approvalIdentities[0]);
-
-  await handler(request("POST", {
-    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
-  }), {});
-  const productionProfile = curateOptions.find(options => options.calibrationProfile)
-    .calibrationProfile;
-  assert.deepEqual(productionProfile.positiveQueries, deterministicSignalValues);
-  assert.deepEqual(productionProfile.negativeQueries ?? [], []);
-  assert.deepEqual(productionProfile.positiveSources ?? [], []);
-  assert.deepEqual(productionProfile.negativeSources ?? [], []);
-  assert.deepEqual(productionProfile.positiveCandidateIds, []);
-  assert.deepEqual(productionProfile.negativeCandidateIds, []);
+  assert.deepEqual(aggregateSnapshots[1], aggregateSnapshots[0]);
+  assert.deepEqual(aggregateSnapshots[0].productionPositiveQueries, deterministicSignalValues);
 });
 
 test("aggregate calibration canonicalizes reordered negative class bundles", async () => {
@@ -7708,6 +7724,18 @@ test("aggregate calibration canonicalizes reordered negative class bundles", asy
   });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   let candidateSignals = [];
+  const listed = store.list.bind(store);
+  let reverseEvidenceListings = false;
+  store.list = async options => {
+    const listing = await listed(options);
+    if (
+      reverseEvidenceListings
+      && options?.prefix === auditRescueCalibrationPrefix(pairActor.id, 0)
+    ) {
+      return { ...listing, blobs: [...listing.blobs].reverse() };
+    }
+    return listing;
+  };
 
   for (const runId of ["run-1", "run-2"]) {
     await handler(request("POST", {
@@ -7771,19 +7799,12 @@ test("aggregate calibration canonicalizes reordered negative class bundles", asy
   }
 
   const deterministicSignalValues = [...candidateSignals].sort();
-  const approvalIdentities = [];
   const aggregateSnapshots = [];
-  for (const [approvalIndex, requestedSignalValues] of [
-    candidateSignals,
-    [...candidateSignals].reverse(),
-  ].entries()) {
-    if (approvalIndex === 1) {
-      const list = store.list.bind(store);
-      store.list = async options => {
-        const listing = await list(options);
-        return { ...listing, blobs: [...listing.blobs].reverse() };
-      };
-    }
+  for (const [listingOrder, requestedSignalValues] of [
+    ["forward", candidateSignals],
+    ["reversed", [...candidateSignals].reverse()],
+  ]) {
+    reverseEvidenceListings = listingOrder === "reversed";
     const approvalResponse = await handler(request("POST", {
       action: "approve_rescue_calibration",
       actorId: pairActor.id,
@@ -7802,27 +7823,28 @@ test("aggregate calibration canonicalizes reordered negative class bundles", asy
       signalValues: deterministicSignalValues,
     });
     assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
-    approvalIdentities.push({
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const productionProfile = curateOptions
+      .filter(options => options.calibrationProfile)
+      .at(-1)
+      .calibrationProfile;
+    aggregateSnapshots.push({
       approvalId: approval.calibrationProfile.activeApproval.approvalId,
       aggregateEvidenceHash:
         approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
-    });
-    aggregateSnapshots.push({
       negativeCandidateIds: approval.calibrationProfile.negativeCandidateIds,
       evidenceCount: approval.calibrationProfile.activeApproval.evidenceCount,
       adjustment: approval.calibrationProfile.activeApproval.adjustment,
+      productionNegativeCandidateIds: productionProfile.negativeCandidateIds,
     });
   }
-  assert.deepEqual(approvalIdentities[1], approvalIdentities[0]);
   assert.deepEqual(aggregateSnapshots[1], aggregateSnapshots[0]);
-
-  await handler(request("POST", {
-    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
-  }), {});
-  const productionProfile = curateOptions.find(options => options.calibrationProfile)
-    .calibrationProfile;
-  assert.deepEqual(productionProfile.negativeCandidateIds, deterministicSignalValues);
-  assert.deepEqual(productionProfile.positiveCandidateIds, []);
+  assert.deepEqual(
+    aggregateSnapshots[0].productionNegativeCandidateIds,
+    deterministicSignalValues,
+  );
 });
 
 test("aggregate calibration canonicalizes reordered negative query-ladder bundles", async () => {
@@ -7834,6 +7856,18 @@ test("aggregate calibration canonicalizes reordered negative query-ladder bundle
   });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   const querySignals = ["negative alpha query", "negative beta query"];
+  const listed = store.list.bind(store);
+  let reverseEvidenceListings = false;
+  store.list = async options => {
+    const listing = await listed(options);
+    if (
+      reverseEvidenceListings
+      && options?.prefix === auditRescueCalibrationPrefix(pairActor.id, 0)
+    ) {
+      return { ...listing, blobs: [...listing.blobs].reverse() };
+    }
+    return listing;
+  };
 
   for (const runId of ["run-1", "run-2"]) {
     await handler(request("POST", {
@@ -7881,11 +7915,12 @@ test("aggregate calibration canonicalizes reordered negative query-ladder bundle
   }
 
   const deterministicSignalValues = [...querySignals].sort();
-  const approvalIdentities = [];
-  for (const requestedSignalValues of [
-    querySignals,
-    [...querySignals].reverse(),
+  const aggregateSnapshots = [];
+  for (const [listingOrder, requestedSignalValues] of [
+    ["forward", querySignals],
+    ["reversed", [...querySignals].reverse()],
   ]) {
+    reverseEvidenceListings = listingOrder === "reversed";
     const approvalResponse = await handler(request("POST", {
       action: "approve_rescue_calibration",
       actorId: pairActor.id,
@@ -7903,21 +7938,28 @@ test("aggregate calibration canonicalizes reordered negative query-ladder bundle
       signalValues: deterministicSignalValues,
     });
     assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
-    approvalIdentities.push({
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const productionProfile = curateOptions
+      .filter(options => options.calibrationProfile)
+      .at(-1)
+      .calibrationProfile;
+    aggregateSnapshots.push({
       approvalId: approval.calibrationProfile.activeApproval.approvalId,
       aggregateEvidenceHash:
         approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
+      evidenceCount: approval.calibrationProfile.activeApproval.evidenceCount,
+      adjustment: approval.calibrationProfile.activeApproval.adjustment,
+      negativeQueries: approval.calibrationProfile.negativeQueries,
+      productionNegativeQueries: productionProfile.negativeQueries,
     });
   }
-  assert.deepEqual(approvalIdentities[1], approvalIdentities[0]);
-
-  await handler(request("POST", {
-    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
-  }), {});
-  const productionProfile = curateOptions.find(options => options.calibrationProfile)
-    .calibrationProfile;
-  assert.deepEqual(productionProfile.negativeQueries, deterministicSignalValues);
-  assert.deepEqual(productionProfile.positiveQueries ?? [], []);
+  assert.deepEqual(aggregateSnapshots[1], aggregateSnapshots[0]);
+  assert.deepEqual(
+    aggregateSnapshots[0].productionNegativeQueries,
+    deterministicSignalValues,
+  );
 });
 
 test("aggregate calibration canonicalizes reordered positive candidate-class bundles", async () => {
