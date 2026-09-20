@@ -611,6 +611,7 @@ function ReleaseInventory({ inventory }: { inventory: AnyRecord }) {
   const recentWindowDays = Number(inventory.recentDailyDropWindowDays ?? 30);
   const unusedCount = Number(inventory.unusedWithinRecentWindowPairingCount ?? 0);
   const unavailableCount = Number(inventory.unavailablePairingCount ?? 0);
+  const repairHealth = inventory.publicationIndexRepairHealth;
   const depthLabel = readyCount === 0
     ? 'No current release-ready pairing'
     : readyCount === 1
@@ -632,6 +633,18 @@ function ReleaseInventory({ inventory }: { inventory: AnyRecord }) {
           <small>Public scheduling behavior is unchanged.</small>
         </div>
       </div>
+
+      {repairHealth?.warning && (
+        <div className={styles.inventoryRepairWarning} role="status">
+          <strong>Release inventory repair needs attention</strong>
+          <span>
+            {repairHealth.failedAttemptCount > 0
+              ? `${repairHealth.failedAttemptCount} repair attempt${repairHealth.failedAttemptCount === 1 ? '' : 's'} did not complete normally`
+              : `${repairHealth.attemptCount} rebuilds were needed in the last ${repairHealth.windowHours} hours`}
+            . Inventory remains fail-closed; check Blob listing and historical manifest health.
+          </span>
+        </div>
+      )}
 
       <div className={styles.inventoryMetrics}>
         <div><strong>{readyCount}</strong><span>release-ready actor × Vibe pairings</span></div>

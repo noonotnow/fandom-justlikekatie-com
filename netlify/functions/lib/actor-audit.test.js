@@ -2104,6 +2104,7 @@ test("release inventory groups current curator approvals by actor pack", async (
   assert.equal(body.releaseInventory.unusedWithinRecentWindowPairingCount, 1);
   assert.equal(body.releaseInventory.actorPacks[0].releaseReadyPairingCount, 1);
   assert.equal(body.releaseInventory.actorPacks[0].pairings[0].releaseSource, "fresh_curator");
+  assert.equal(body.releaseInventory.publicationIndexRepairHealth.warning, false);
 });
 
 test("production readiness appends receipts without mutating the approved audit", async () => {

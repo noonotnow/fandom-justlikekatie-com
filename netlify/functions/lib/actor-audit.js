@@ -86,7 +86,7 @@ import {
   acquireCorrectionPublicationLock,
   publicationJoinReceipt,
   readPublicationManifests,
-  readLatestPublicationDatesByActor,
+  readLatestPublicationDatesByActorWithHealth,
   recordPublicationCorrectionsForMisprint,
   releaseCorrectionPublicationLock,
 } from "./publication-manifest.js";
@@ -4203,17 +4203,19 @@ export async function releaseReadyInventory(
   } = {},
 ) {
   const throughDate = getShanghaiDateString(now());
-  const [recentManifests, latestDailyDropByActor] = await Promise.all([
+  const [recentManifests, publicationIndex] = await Promise.all([
     readRecentDailyDropHistory(
       publicationStore,
       throughDate,
       recentWindowDays,
     ),
-    readLatestPublicationDatesByActor(publicationStore, {
+    readLatestPublicationDatesByActorWithHealth(publicationStore, {
       throughDate,
       actorIds: actorPacks.map(actor => actor.id),
+      now: () => now(),
     }),
   ]);
+  const latestDailyDropByActor = publicationIndex.dates;
   const recentByPairing = new Map();
   const recentByActor = new Map();
   for (const manifest of recentManifests) {
@@ -4310,6 +4312,7 @@ export async function releaseReadyInventory(
     schemaVersion: 1,
     timeZone: "Asia/Shanghai",
     cutoff: "12:00",
+    publicationIndexRepairHealth: publicationIndex.repairHealth,
     releaseReadyPairingCount: pairings.length,
     freshCuratorPairingCount: pairings.filter(pair => pair.freshCurator).length,
     rescueBackupPairingCount: pairings.filter(pair => pair.rescueBackupBoardCount > 0).length,

@@ -19,6 +19,9 @@ export const PUBLICATION_ACTOR_INDEX_KEY =
   `vibeAtlas:grid-manifest-actor-index:${PUBLICATION_ACTOR_INDEX_VERSION}:latest`;
 export const PUBLICATION_MANIFEST_CATALOG_KEY =
   `vibeAtlas:grid-manifest-catalog:${GRID_MANIFEST_VERSION}:dates`;
+export const PUBLICATION_ACTOR_INDEX_REPAIR_KEY =
+  `vibeAtlas:grid-manifest-actor-index-repair:${PUBLICATION_ACTOR_INDEX_VERSION}:latest`;
+const PUBLICATION_ACTOR_INDEX_REPAIR_WINDOW_MS = 24 * 60 * 60 * 1000;
 const REQUIRED_CARD_COUNT = 9;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const PUBLICATION_LOCK_TTL_MS = 10 * 60 * 1000;
@@ -34,6 +37,7 @@ export const gridCorrectionPrefix = date =>
 export const gridCorrectionKey = (date, correctionReceiptId) =>
   `${gridCorrectionPrefix(date)}${encodeURIComponent(correctionReceiptId)}`;
 export const publicationActorIndexKey = () => PUBLICATION_ACTOR_INDEX_KEY;
+export const publicationActorIndexRepairKey = () => PUBLICATION_ACTOR_INDEX_REPAIR_KEY;
 export const publicationManifestCatalogKey = () => PUBLICATION_MANIFEST_CATALOG_KEY;
 
 export async function readPublicationManifests(store) {
@@ -277,21 +281,35 @@ export async function readLatestPublicationDatesByActor(
   store,
   { throughDate = null, actorIds = null } = {},
 ) {
+  const result = await readLatestPublicationDatesByActorWithHealth(store, {
+    throughDate,
+    actorIds,
+  });
+  return result.dates;
+}
+
+export async function readLatestPublicationDatesByActorWithHealth(
+  store,
+  { throughDate = null, actorIds = null, now = () => new Date().toISOString() } = {},
+) {
   const requestedActorIds = actorIds
     ? new Set(actorIds.filter(actorId => typeof actorId === "string"))
     : null;
   let index = null;
+  let repairReason = null;
   try {
     index = await store.get(publicationActorIndexKey(), {
       type: "json",
       consistency: "strong",
     });
   } catch {
+    repairReason = "read_failed";
     // A transient index read failure should not make the private inventory
     // claim that no actor has ever been published.
   }
 
   let stale = !isPublicationActorIndex(index);
+  if (stale && !repairReason) repairReason = index ? "invalid" : "missing";
   if (!stale) {
     try {
       stale = await publicationActorIndexIsStale(
@@ -302,13 +320,24 @@ export async function readLatestPublicationDatesByActor(
       );
     } catch {
       stale = true;
+      repairReason = "verification_failed";
     }
+    if (stale && !repairReason) repairReason = "stale";
   }
   if (stale) {
-    index = await rebuildPublicationActorIndexSafely(store, throughDate);
+    const repair = await rebuildPublicationActorIndexSafely(store, throughDate);
+    index = repair.index;
+    await recordPublicationActorIndexRepair(store, {
+      attemptedAt: asTimestamp(now()),
+      reason: repairReason,
+      outcome: repair.outcome,
+    });
   }
 
-  return publicationDatesFromIndex(index, throughDate, requestedActorIds);
+  return {
+    dates: publicationDatesFromIndex(index, throughDate, requestedActorIds),
+    repairHealth: await readPublicationActorIndexRepairHealth(store, now),
+  };
 }
 
 /**
@@ -366,22 +395,94 @@ export async function rebuildPublicationActorIndex(
 
 async function rebuildPublicationActorIndexSafely(store, throughDate) {
   try {
-    return await rebuildPublicationActorIndex(store, { throughDate });
+    return {
+      index: await rebuildPublicationActorIndex(store, { throughDate }),
+      outcome: "rebuilt",
+    };
   } catch {
     // The inventory can still be correct for this request when the derived
     // write is unavailable. The next request will retry the rebuild.
     try {
       const scan = await readPublicationManifestsForIndex(store, throughDate);
-      return publicationActorIndexFromManifests(
-        scan.manifests,
-        new Date().toISOString(),
-        scan.coverageKeys,
-        throughDate,
-      );
+      return {
+        index: publicationActorIndexFromManifests(
+          scan.manifests,
+          new Date().toISOString(),
+          scan.coverageKeys,
+          throughDate,
+        ),
+        outcome: "fallback_scan",
+      };
     } catch {
       // Missing history is safer than presenting an unverified date.
-      return emptyPublicationActorIndex(new Date().toISOString());
+      return {
+        index: emptyPublicationActorIndex(new Date().toISOString()),
+        outcome: "failed",
+      };
     }
+  }
+}
+
+async function recordPublicationActorIndexRepair(store, event) {
+  try {
+    const current = await store.get(publicationActorIndexRepairKey(), {
+      type: "json",
+      consistency: "strong",
+    });
+    const events = [
+      ...(Array.isArray(current?.events) ? current.events : []),
+      event,
+    ].filter(item => (
+      item
+      && Number.isFinite(Date.parse(item.attemptedAt))
+      && ["missing", "invalid", "stale", "read_failed", "verification_failed"].includes(item.reason)
+      && ["rebuilt", "fallback_scan", "failed"].includes(item.outcome)
+    )).slice(-20);
+    await store.setJSON(publicationActorIndexRepairKey(), {
+      schemaVersion: 1,
+      kind: "vibe-atlas-publication-actor-index-repair-health",
+      updatedAt: event.attemptedAt,
+      events,
+    });
+  } catch {
+    // Repair telemetry is private observability and must not block inventory.
+  }
+}
+
+async function readPublicationActorIndexRepairHealth(store, now) {
+  try {
+    const record = await store.get(publicationActorIndexRepairKey(), {
+      type: "json",
+      consistency: "strong",
+    });
+    const nowAt = Date.parse(asTimestamp(now()));
+    const recentEvents = (Array.isArray(record?.events) ? record.events : [])
+      .filter(event => (
+        Number.isFinite(Date.parse(event?.attemptedAt))
+        && nowAt - Date.parse(event.attemptedAt) <= PUBLICATION_ACTOR_INDEX_REPAIR_WINDOW_MS
+        && nowAt >= Date.parse(event.attemptedAt)
+      ));
+    const lastEvent = recentEvents.at(-1) || null;
+    const failed = recentEvents.filter(event => event.outcome !== "rebuilt").length;
+    return {
+      status: failed > 0 ? "failed" : recentEvents.length >= 2 ? "repeated" : "healthy",
+      warning: failed > 0 || recentEvents.length >= 2,
+      windowHours: 24,
+      attemptCount: recentEvents.length,
+      failedAttemptCount: failed,
+      lastAttemptAt: lastEvent?.attemptedAt || null,
+      lastOutcome: lastEvent?.outcome || null,
+    };
+  } catch {
+    return {
+      status: "healthy",
+      warning: false,
+      windowHours: 24,
+      attemptCount: 0,
+      failedAttemptCount: 0,
+      lastAttemptAt: null,
+      lastOutcome: null,
+    };
   }
 }
 

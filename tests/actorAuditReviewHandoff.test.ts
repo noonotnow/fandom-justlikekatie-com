@@ -142,6 +142,8 @@ test('the Release Desk shows grouped release depth and the Shanghai noon cutoff'
   assert.match(releaseDeskSource, /Last actor Daily Drop/);
   assert.match(releaseDeskSource, /12:00 PM Asia\/Shanghai/);
   assert.match(releaseDeskSource, /inventory\.actorPacks/);
+  assert.match(releaseDeskSource, /Release inventory repair needs attention/);
+  assert.match(releaseDeskSource, /repairHealth\?\.warning/);
   assert.doesNotMatch(source, /ReleaseInventory|releaseInventory/);
 });
 

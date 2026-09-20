@@ -10,11 +10,13 @@ import {
   manifestPayload,
   materializePublicationManifest,
   publicationActorIndexKey,
+  publicationActorIndexRepairKey,
   publicationManifestCatalogKey,
   publicationJoinReceipt,
   readPublicationCorrections,
   recordPublicationCorrectionsForMisprint,
   readLatestPublicationDatesByActor,
+  readLatestPublicationDatesByActorWithHealth,
   rebuildPublicationActorIndex,
 } from "./publication-manifest.js";
 
@@ -571,6 +573,32 @@ test("reads latest actor dates from the index and rebuilds missing or stale data
     store.records.get(publicationActorIndexKey()).actors["actor-a"].manifestId,
     "manifest-actor-a-2026-08-30",
   );
+});
+
+test("actor index repair health stays quiet once and warns on repeated or failed repairs", async () => {
+  const store = memoryStore();
+  const now = () => "2026-08-31T04:00:00.000Z";
+
+  const first = await readLatestPublicationDatesByActorWithHealth(store, { now });
+  assert.equal(first.repairHealth.warning, false);
+  assert.equal(first.repairHealth.attemptCount, 1);
+
+  store.records.delete(publicationActorIndexKey());
+  const repeated = await readLatestPublicationDatesByActorWithHealth(store, { now });
+  assert.equal(repeated.repairHealth.status, "repeated");
+  assert.equal(repeated.repairHealth.warning, true);
+  assert.equal(repeated.repairHealth.attemptCount, 2);
+
+  const originalSetJSON = store.setJSON.bind(store);
+  store.records.delete(publicationActorIndexKey());
+  store.setJSON = async (key, value, options) => {
+    if (key === publicationActorIndexKey()) throw new Error("index write unavailable");
+    return originalSetJSON(key, value, options);
+  };
+  const fallback = await readLatestPublicationDatesByActorWithHealth(store, { now });
+  assert.equal(fallback.repairHealth.status, "failed");
+  assert.equal(fallback.repairHealth.failedAttemptCount, 1);
+  assert.equal(store.records.get(publicationActorIndexRepairKey()).events.at(-1).outcome, "fallback_scan");
 });
 
 test("a later complete listing repairs an older manifest omitted during bootstrap", async () => {

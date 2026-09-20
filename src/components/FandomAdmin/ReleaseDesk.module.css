@@ -51,6 +51,9 @@
 .inventoryHeader h4 { margin:0; font-size:18px; }
 .inventoryHeader p:not(.eyebrow) { max-width:680px; margin:5px 0 0; color:#aeb4b0; font-size:11px; line-height:1.5; }
 .privateInventoryNote { color:#c9a96e!important; }
+.inventoryRepairWarning { display:grid; gap:3px; padding:9px 11px; border-left:2px solid #c98264; background:color-mix(in srgb,#c98264 12%,transparent); }
+.inventoryRepairWarning strong { color:#e5b09a; font-size:10px; letter-spacing:.04em; text-transform:uppercase; }
+.inventoryRepairWarning span { color:#cdb9b0; font-size:9px; line-height:1.45; }
 .cutoff { display:grid; gap:3px; min-width:245px; padding:10px 12px; border-left:2px solid #c9a96e; }
 .cutoff span,.cutoff small { color:#8d928f; font-size:9px; letter-spacing:.05em; text-transform:uppercase; }
 .cutoff strong { color:#e2c88e; font-size:12px; }
