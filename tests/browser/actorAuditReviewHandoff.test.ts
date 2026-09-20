@@ -885,6 +885,7 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
         : visualReview
           ? visualReviewRun(visualJudgments)
           : null;
+      if (currentLegacy && retrievalRepetition && current) withRetrievalRepetition(current);
       const isFreshBlocked = activeRunId === 'run-2' && calibrationConfirmed && revealed;
       const response = responseBody(
         isFreshBlocked ? run('run-2', true, true) : current,
@@ -2887,7 +2888,7 @@ test('a current Legacy audit keeps only annotation and rescue exceptions actiona
   const { server, origin } = await startApp();
   const browser = await launchBrowserForServer(server);
   const page = await browser.newPage();
-  const { auditRequests } = await configureNetwork(page, { currentLegacy: true });
+  const { auditRequests } = await configureNetwork(page, { currentLegacy: true, retrievalRepetition: true });
 
   try {
     await page.goto(`${origin}/vibe-atlas?admin=true`);
@@ -2895,12 +2896,28 @@ test('a current Legacy audit keeps only annotation and rescue exceptions actiona
     await page.getByRole('heading', { name: 'Legacy audit · retained history · current-legacy', exact: true }).waitFor();
     await page.getByText('Still available on this current Legacy head:', { exact: false }).waitFor();
     await page.getByText('Retained rescue-board exception:', { exact: false }).waitFor();
+    const requestsBeforeReceiptReview = structuredClone(auditRequests);
+
+    const repetition = page
+      .getByRole('region', { name: 'Candidate loss funnel' })
+      .getByRole('region', { name: 'Retrieval repetition' });
+    await repetition.getByText('result occurrences', { exact: true }).waitFor();
+    assert.deepEqual((await repetition.locator('strong').allTextContents()).slice(0, 4), ['7', '6', '5', '2']);
+    assert.equal(await repetition.getByText('4 occurrences · 4 unique images · +4 new images', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('3 occurrences · 2 unique images · +1 new images', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('rung 1: 1 exact', { exact: true }).isVisible(), true);
+
+    const overlapReceipt = repetition.locator('details').filter({ hasText: 'Exact overlap receipt' });
+    await overlapReceipt.locator('summary').click();
+    assert.equal(await overlapReceipt.getByText('"exactImageIdentityOverlapCount": 1', { exact: false }).isVisible(), true);
+    assert.equal(await repetition.locator('button, input, select, textarea, form').count(), 0);
 
     const rawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
     assert.match(await rawResults.locator(':scope > summary').innerText(), /Legacy · annotations only/);
     await rawResults.locator(':scope > summary').click();
     const firstResult = rawResults.locator('article').first();
     assert.equal(await firstResult.getByRole('button', { name: 'Pin for board', exact: true }).isEnabled(), true);
+    assert.equal(await firstResult.getByText('Retained annotation exception:', { exact: false }).isVisible(), true);
     assert.equal(await firstResult.locator('details').filter({ hasText: 'Mark Misprint' }).count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Choose nine to save', exact: true }).isDisabled(), true);
     assert.equal(
@@ -2908,6 +2925,11 @@ test('a current Legacy audit keeps only annotation and rescue exceptions actiona
       true,
     );
     assert.equal(auditRequests.filter(request => request.action === 'mark_misprint').length, 0);
+    assert.deepEqual(
+      auditRequests,
+      requestsBeforeReceiptReview,
+      'reading the current Legacy retrieval receipt and exceptions must not run or mutate an audit',
+    );
   } finally {
     await browser.close();
     await server.close();
