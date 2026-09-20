@@ -527,11 +527,26 @@ test("a new occurrence reactivates a previously resolved aggregate", async () =>
     resolvedBy: "operator-1",
   });
   const next = await repository.recordIdentityConflict({ eventCategory: "subscription" });
+  const claim = await repository.claimIdentityConflictNotification({
+    now: new Date(next.lastOccurredAt),
+  });
+  assert.deepEqual(claim.payload, {
+    kind: "stripe_identity_conflict_reactivated",
+    category: "subscription",
+    count: 2,
+    occurredAt: next.lastOccurredAt,
+  });
+  const repeated = await repository.recordIdentityConflict({ eventCategory: "checkout" });
+  assert.equal(await repository.claimIdentityConflictNotification(), null);
+  await repository.settleIdentityConflictNotification({
+    claimId: claim.claimId,
+    delivered: true,
+  });
   const summary = await repository.identityConflictSummary();
   assert.equal(summary.status, "active");
-  assert.equal(summary.count, 2);
+  assert.equal(summary.count, 3);
   assert.equal(summary.firstOccurredAt, reviewed.firstOccurredAt);
-  assert.equal(summary.lastOccurredAt, next.lastOccurredAt);
+  assert.equal(summary.lastOccurredAt, repeated.lastOccurredAt);
   assert.equal(summary.resolutionTimestamp, null);
   await repository.resolveIdentityConflict({
     status: "resolved",
@@ -549,7 +564,70 @@ test("a new occurrence reactivates a previously resolved aggregate", async () =>
     })),
     [
       { status: "acknowledged", throughCount: 1, resolvedBy: "operator-1" },
-      { status: "resolved", throughCount: 2, resolvedBy: "operator-2" },
+      { status: "resolved", throughCount: 3, resolvedBy: "operator-2" },
     ],
   );
+  assert.deepEqual(stored.reactivationNotification, {
+    throughCount: 2,
+    createdAt: next.lastOccurredAt,
+    status: "sent",
+    sentAt: stored.reactivationNotification.sentAt,
+  });
+});
+
+test("concurrent reactivation occurrences claim only one notification cycle", async () => {
+  const { repository } = createRepository();
+  const reviewed = await repository.recordIdentityConflict({ eventCategory: "subscription" });
+  await repository.resolveIdentityConflict({
+    status: "resolved",
+    expectedCount: reviewed.count,
+    expectedLastOccurredAt: reviewed.lastOccurredAt,
+    resolvedBy: "operator-1",
+  });
+
+  await Promise.all([
+    repository.recordIdentityConflict({ eventCategory: "subscription" }),
+    repository.recordIdentityConflict({ eventCategory: "checkout" }),
+    repository.recordIdentityConflict({ eventCategory: "subscription" }),
+  ]);
+  const claims = await Promise.all([
+    repository.claimIdentityConflictNotification(),
+    repository.claimIdentityConflictNotification(),
+    repository.claimIdentityConflictNotification(),
+  ]);
+  assert.equal(claims.filter(Boolean).length, 1);
+  assert.equal((await repository.identityConflictSummary()).count, 4);
+});
+
+test("failed and abandoned notification claims can be retried", async () => {
+  const { repository } = createRepository();
+  const reviewed = await repository.recordIdentityConflict({ eventCategory: "subscription" });
+  await repository.resolveIdentityConflict({
+    status: "resolved",
+    expectedCount: reviewed.count,
+    expectedLastOccurredAt: reviewed.lastOccurredAt,
+    resolvedBy: "operator-1",
+  });
+  await repository.recordIdentityConflict({ eventCategory: "subscription" });
+  const first = await repository.claimIdentityConflictNotification({
+    now: new Date("2026-09-20T12:00:00.000Z"),
+  });
+  await repository.settleIdentityConflictNotification({
+    claimId: first.claimId,
+    delivered: false,
+    now: new Date("2026-09-20T12:01:00.000Z"),
+  });
+  const retry = await repository.claimIdentityConflictNotification({
+    now: new Date("2026-09-20T12:02:00.000Z"),
+  });
+  assert.ok(retry);
+  assert.notEqual(retry.claimId, first.claimId);
+  assert.equal(await repository.claimIdentityConflictNotification({
+    now: new Date("2026-09-20T12:03:00.000Z"),
+  }), null);
+  const recovered = await repository.claimIdentityConflictNotification({
+    now: new Date("2026-09-20T12:08:00.001Z"),
+  });
+  assert.ok(recovered);
+  assert.notEqual(recovered.claimId, retry.claimId);
 });

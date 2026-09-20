@@ -17,6 +17,7 @@ export function createBillingServices({
   poolFactory = config => new pg.Pool(config),
   runStripeMigrations = runMigrations,
   getStore = getBlobStore,
+  notifyIdentityConflict = payload => sendIdentityConflictReactivationNotification({ payload, env }),
   logger = console,
 } = {}) {
   const useBlobBilling = env.NETLIFY === "true"
@@ -91,6 +92,11 @@ export function createBillingServices({
         lastOccurredAt: result.operation.lastOccurredAt,
       });
     }
+    await deliverPendingIdentityConflictNotification({
+      repository: repo,
+      notify: notifyIdentityConflict,
+      logger,
+    });
     await pruneEventReceipts(repo);
   };
   return {
@@ -99,6 +105,73 @@ export function createBillingServices({
     stripe: () => stripeClient({ env }),
     processWebhook,
   };
+}
+
+async function deliverPendingIdentityConflictNotification({ repository, notify, logger }) {
+  let claimed;
+  try {
+    claimed = await repository.claimIdentityConflictNotification?.();
+    if (!claimed) return;
+    await notify(claimed.payload);
+    await repository.settleIdentityConflictNotification({
+      claimId: claimed.claimId,
+      delivered: true,
+    });
+  } catch (error) {
+    if (claimed?.claimId) {
+      try {
+        await repository.settleIdentityConflictNotification({
+          claimId: claimed.claimId,
+          delivered: false,
+        });
+      } catch (settleError) {
+        logger.error("[billing] identity conflict notification claim could not be released", {
+          name: typeof settleError?.name === "string" ? settleError.name : "Error",
+        });
+      }
+    }
+    logger.error("[billing] identity conflict reactivation notification failed", {
+      name: typeof error?.name === "string" ? error.name : "Error",
+    });
+  }
+}
+
+export async function sendIdentityConflictReactivationNotification({
+  payload,
+  env = process.env,
+  fetchImpl = fetch,
+} = {}) {
+  const recipients = String(env.FANDOM_ADMIN_EMAILS || "")
+    .split(",")
+    .map(value => value.trim())
+    .filter(Boolean);
+  if (!env.RESEND_API_KEY || !env.FANDOM_AUTH_FROM_EMAIL || recipients.length === 0) {
+    throw new Error("Billing identity conflict notifications are not configured.");
+  }
+  const title = "Stripe identity conflict reactivated";
+  const response = await fetchImpl("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": `stripe-identity-conflict-reactivation:${payload.count}:${payload.occurredAt}`,
+    },
+    body: JSON.stringify({
+      from: env.FANDOM_AUTH_FROM_EMAIL,
+      to: recipients,
+      subject: `[Fandom operations] ${title}`,
+      text: [
+        title,
+        `Category: ${payload.category}`,
+        `Aggregate count: ${payload.count}`,
+        `Occurred at: ${payload.occurredAt}`,
+        "Review the private Audience evidence before changing account links.",
+      ].join("\n"),
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Billing identity conflict notification delivery failed (${response.status}).`);
+  }
 }
 
 export function createCapabilityChecker({ billing, capability = "fandom_collector", env = process.env }) {

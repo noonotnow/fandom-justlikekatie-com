@@ -1,5 +1,8 @@
+import { randomUUID } from "node:crypto";
+
 const STORE_NAME = "fandom-billing";
 const IDENTITY_CONFLICT_KEY = "operations/stripe-identity-conflict";
+const IDENTITY_NOTIFICATION_CLAIM_TTL_MS = 5 * 60_000;
 export const BILLING_EVENT_RETENTION_DAYS = 30;
 const EVENT_RETENTION_MS = BILLING_EVENT_RETENTION_DAYS * 24 * 60 * 60_000;
 const EVENT_CLEANUP_SCAN_LIMIT = 100;
@@ -138,12 +141,18 @@ export function createBlobBillingRepository({ getStore, context }) {
           consistency: "strong",
         });
         const occurredAt = new Date().toISOString();
+        const previousResolution = validResolution(existing?.data?.resolution);
+        const previousCount = Number(existing?.data?.count || 0);
+        const reactivated = previousResolution
+          && previousResolution.throughCount === previousCount
+          && previousResolution.throughLastOccurredAt === existing?.data?.lastOccurredAt;
+        const count = Math.min(previousCount + 1, Number.MAX_SAFE_INTEGER);
         const record = {
           schemaVersion: 2,
           type: "billing_reconciliation_rejected",
           reason: "stripe_identity_conflict",
           eventCategory: category,
-          count: Math.min(Number(existing?.data?.count || 0) + 1, Number.MAX_SAFE_INTEGER),
+          count,
           firstOccurredAt: existing?.data?.firstOccurredAt || occurredAt,
           lastOccurredAt: occurredAt,
           ...(validResolution(existing?.data?.resolution)
@@ -152,6 +161,17 @@ export function createBlobBillingRepository({ getStore, context }) {
           ...(validResolutionHistory(existing?.data?.resolutionHistory).length
             ? { resolutionHistory: validResolutionHistory(existing.data.resolutionHistory) }
             : {}),
+          ...(reactivated
+            ? {
+              reactivationNotification: {
+                throughCount: count,
+                createdAt: occurredAt,
+                status: "pending",
+              },
+            }
+            : validReactivationNotification(existing?.data?.reactivationNotification)
+              ? { reactivationNotification: existing.data.reactivationNotification }
+              : {}),
         };
         const write = await store().setJSON(
           IDENTITY_CONFLICT_KEY,
@@ -161,6 +181,80 @@ export function createBlobBillingRepository({ getStore, context }) {
         if (write?.modified !== false) return record;
       }
       throw new Error("Billing identity conflict record changed too frequently to update safely.");
+    },
+
+    async claimIdentityConflictNotification({ now = new Date() } = {}) {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const existing = await store().getWithMetadata(IDENTITY_CONFLICT_KEY, {
+          type: "json",
+          consistency: "strong",
+        });
+        const notification = validReactivationNotification(existing?.data?.reactivationNotification);
+        if (!notification || notification.status === "sent") return null;
+        if (notification.status === "claimed") {
+          const claimAge = now.getTime() - Date.parse(notification.claimedAt);
+          if (claimAge >= 0 && claimAge < IDENTITY_NOTIFICATION_CLAIM_TTL_MS) return null;
+        }
+        const claimId = randomUUID();
+        const record = {
+          ...existing.data,
+          reactivationNotification: {
+            throughCount: notification.throughCount,
+            createdAt: notification.createdAt,
+            status: "claimed",
+            claimId,
+            claimedAt: now.toISOString(),
+          },
+        };
+        const write = await store().setJSON(
+          IDENTITY_CONFLICT_KEY,
+          record,
+          { onlyIfMatch: existing.etag },
+        );
+        if (write?.modified !== false) {
+          return {
+            claimId,
+            payload: projectReactivationNotification(record),
+          };
+        }
+      }
+      throw new Error("Billing identity conflict notification changed too frequently to claim safely.");
+    },
+
+    async settleIdentityConflictNotification({ claimId, delivered, now = new Date() }) {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const existing = await store().getWithMetadata(IDENTITY_CONFLICT_KEY, {
+          type: "json",
+          consistency: "strong",
+        });
+        const notification = validReactivationNotification(existing?.data?.reactivationNotification);
+        if (!notification || notification.status !== "claimed" || notification.claimId !== claimId) {
+          return false;
+        }
+        const record = {
+          ...existing.data,
+          reactivationNotification: delivered
+            ? {
+              throughCount: notification.throughCount,
+              createdAt: notification.createdAt,
+              status: "sent",
+              sentAt: now.toISOString(),
+            }
+            : {
+              throughCount: notification.throughCount,
+              createdAt: notification.createdAt,
+              status: "pending",
+              lastFailedAt: now.toISOString(),
+            },
+        };
+        const write = await store().setJSON(
+          IDENTITY_CONFLICT_KEY,
+          record,
+          { onlyIfMatch: existing.etag },
+        );
+        if (write?.modified !== false) return true;
+      }
+      throw new Error("Billing identity conflict notification changed too frequently to settle safely.");
     },
 
     async resolveIdentityConflict({
@@ -359,6 +453,27 @@ function validResolution(value) {
 
 function validResolutionHistory(value) {
   return Array.isArray(value) ? value.filter(item => validResolution(item)) : [];
+}
+
+function validReactivationNotification(value) {
+  const throughCount = Number(value?.throughCount);
+  if (!(value
+    && Number.isSafeInteger(throughCount)
+    && throughCount > 1
+    && validTimestamp(value.createdAt))) return null;
+  if (!["pending", "claimed", "sent"].includes(value.status)) return null;
+  if (value.status === "claimed" && (!value.claimId || !validTimestamp(value.claimedAt))) return null;
+  if (value.status === "sent" && !validTimestamp(value.sentAt)) return null;
+  return value;
+}
+
+function projectReactivationNotification(record) {
+  return {
+    kind: "stripe_identity_conflict_reactivated",
+    category: record.eventCategory,
+    count: record.count,
+    occurredAt: record.lastOccurredAt,
+  };
 }
 
 function projectIdentityConflict(record) {

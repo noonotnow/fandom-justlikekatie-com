@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { createBillingHandlers, createBillingServices, createEntitlementChecker } from "./billing.js";
+import {
+  createBillingHandlers,
+  createBillingServices,
+  createEntitlementChecker,
+  sendIdentityConflictReactivationNotification,
+} from "./billing.js";
 import {
   BILLING_EVENT_RETENTION_DAYS,
   createBillingRepository,
@@ -15,6 +20,37 @@ const request = (path, options = {}) => new Request(`https://example.test${path}
   method: options.method || "POST",
   headers: { Origin: "https://example.test", ...(options.headers || {}) },
   body: options.body,
+});
+
+test("identity conflict reactivation email is admin-only and privacy-safe", async () => {
+  let request;
+  await sendIdentityConflictReactivationNotification({
+    payload: {
+      kind: "stripe_identity_conflict_reactivated",
+      category: "subscription",
+      count: 4,
+      occurredAt: "2026-09-20T12:00:00.000Z",
+      customerId: "cus_private",
+      accountId: "account_private",
+      email: "member@example.test",
+    },
+    env: {
+      RESEND_API_KEY: "test-key",
+      FANDOM_AUTH_FROM_EMAIL: "Fandom <operations@example.test>",
+      FANDOM_ADMIN_EMAILS: "admin-one@example.test, admin-two@example.test",
+    },
+    fetchImpl: async (_url, options) => {
+      request = { ...options, body: JSON.parse(options.body) };
+      return { ok: true };
+    },
+  });
+  assert.deepEqual(request.body.to, ["admin-one@example.test", "admin-two@example.test"]);
+  assert.doesNotMatch(JSON.stringify(request), /cus_private|account_private|member@example\.test/);
+  assert.match(request.body.text, /Aggregate count: 4/);
+  assert.equal(
+    request.headers["Idempotency-Key"],
+    "stripe-identity-conflict-reactivation:4:2026-09-20T12:00:00.000Z",
+  );
 });
 
 test("membership maps only active and trialing subscriptions to entitlement", () => {
@@ -423,4 +459,89 @@ test("blob billing logs identity conflicts without exposing Stripe or account id
     operatorOutput,
     /cus_private|sub_private|account_owner|account_other|private@example\.com|evt_private|private-signature/,
   );
+});
+
+test("processed webhook retries recover reactivation notification delivery failures", async () => {
+  const values = new Map();
+  const versions = new Map();
+  let event;
+  let notificationAttempts = 0;
+  const store = {
+    async get(key) { return values.get(key) || null; },
+    async getWithMetadata(key) {
+      return values.has(key)
+        ? { data: values.get(key), etag: `"${versions.get(key)}"` }
+        : null;
+    },
+    async setJSON(key, value, options = {}) {
+      if (options.onlyIfNew && values.has(key)) return { modified: false };
+      if (options.onlyIfMatch && options.onlyIfMatch !== `"${versions.get(key)}"`) {
+        return { modified: false };
+      }
+      values.set(key, value);
+      versions.set(key, (versions.get(key) || 0) + 1);
+      return { modified: true };
+    },
+    async delete(key) { values.delete(key); },
+    list({ prefix }) {
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield {
+            blobs: [...values.keys()]
+              .filter(key => key.startsWith(prefix))
+              .map(key => ({ key })),
+          };
+        },
+      };
+    },
+  };
+  const billing = createBillingServices({
+    env: {
+      NETLIFY: "true",
+      STRIPE_SECRET_KEY: "sk_test_private",
+      STRIPE_WEBHOOK_SECRET: "whsec_private",
+    },
+    stripeClient: async () => ({
+      webhooks: { constructEvent: () => event },
+      subscriptions: { retrieve: async () => event.data.object },
+    }),
+    getStore: () => store,
+    notifyIdentityConflict: async () => {
+      notificationAttempts += 1;
+      if (notificationAttempts === 1) throw new Error("email unavailable");
+    },
+    logger: { warn() {}, error() {} },
+  });
+  const repository = billing.repository({});
+  await repository.linkCustomer("account_owner", "cus_private");
+  const conflict = await repository.recordIdentityConflict({ eventCategory: "subscription" });
+  await repository.resolveIdentityConflict({
+    status: "acknowledged",
+    expectedCount: conflict.count,
+    expectedLastOccurredAt: conflict.lastOccurredAt,
+    resolvedBy: "operator-1",
+  });
+  event = {
+    id: "evt_reactivation",
+    created: 50,
+    type: "customer.subscription.updated",
+    data: {
+      object: {
+        id: "sub_private",
+        customer: "cus_private",
+        status: "active",
+        metadata: { fandom_account_id: "account_other" },
+      },
+    },
+  };
+
+  await billing.processWebhook(Buffer.from("{}"), "signed", {});
+
+  assert.equal(notificationAttempts, 1);
+  assert.equal(await repository.hasProcessedEvent(event.id), true);
+  assert.equal((await repository.identityConflictSummary()).status, "active");
+  await billing.processWebhook(Buffer.from("{}"), "signed", {});
+  assert.equal(notificationAttempts, 2);
+  await billing.processWebhook(Buffer.from("{}"), "signed", {});
+  assert.equal(notificationAttempts, 2);
 });
