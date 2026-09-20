@@ -11,7 +11,9 @@ export const NON_TRANSACTIONAL_MARKER =
 function executableSql(sql) {
   return sql
     .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/--.*$/gm, " ");
+    .replace(/--.*$/gm, " ")
+    .replace(/'(?:''|[^'])*'/g, " ")
+    .replace(/(\$[a-z0-9_]*\$)[\s\S]*?\1/gi, " ");
 }
 
 function concurrentIndexes(sql, operation) {
@@ -24,6 +26,111 @@ function concurrentIndexes(sql, operation) {
     name: match[1].replaceAll('"', "").toLowerCase(),
     position: match.index,
   }));
+}
+
+function applicationOwned(identifier) {
+  const normalized = identifier.replaceAll('"', "").toLowerCase();
+  return !normalized.includes(".") || normalized.startsWith("public.");
+}
+
+function ordinaryDdlErrors(sql) {
+  const errors = [];
+  const declarativeSql = sql;
+  const objectName = String.raw`((?:"[^"]+"|[a-z_][a-z0-9_$]*)(?:\s*\.\s*(?:"[^"]+"|[a-z_][a-z0-9_$]*))?)`;
+
+  const createPatterns = [
+    {
+      expression: new RegExp(
+        String.raw`\bCREATE\s+TABLE\s+(?!IF\s+NOT\s+EXISTS\b)${objectName}`,
+        "gi",
+      ),
+      label: "CREATE TABLE",
+    },
+    {
+      expression: new RegExp(
+        String.raw`\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?!CONCURRENTLY\b)(?!IF\s+NOT\s+EXISTS\b)${objectName}`,
+        "gi",
+      ),
+      label: "CREATE INDEX",
+    },
+    {
+      expression: new RegExp(
+        String.raw`\bCREATE\s+(?:MATERIALIZED\s+VIEW|SEQUENCE|SCHEMA)\s+(?!IF\s+NOT\s+EXISTS\b)${objectName}`,
+        "gi",
+      ),
+      label: "CREATE",
+    },
+    {
+      expression: new RegExp(
+        String.raw`\bCREATE\s+TYPE\s+${objectName}`,
+        "gi",
+      ),
+      label: "CREATE TYPE",
+    },
+  ];
+
+  for (const { expression, label } of createPatterns) {
+    for (const match of declarativeSql.matchAll(expression)) {
+      if (!applicationOwned(match[1])) continue;
+      const name = match[1].replace(/\s+/g, "");
+      const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const type = label === "CREATE TYPE"
+        ? "TYPE"
+        : label === "CREATE INDEX"
+          ? "INDEX"
+          : null;
+      const hasPriorRepairDrop = type && new RegExp(
+        String.raw`\bDROP\s+${type}\s+IF\s+EXISTS\s+${escapedName}\b`,
+        "i",
+      ).test(declarativeSql.slice(0, match.index));
+      if (!hasPriorRepairDrop) {
+        errors.push(
+          `${label} ${name} needs IF NOT EXISTS, a guarded DO block, or a prior DROP IF EXISTS repair`,
+        );
+      }
+    }
+  }
+
+  const alterTable = new RegExp(
+    String.raw`\bALTER\s+TABLE\s+(?:ONLY\s+)?${objectName}([\s\S]*?);`,
+    "gi",
+  );
+  for (const match of declarativeSql.matchAll(alterTable)) {
+    if (!applicationOwned(match[1])) continue;
+    let changes = match[2];
+    const tableName = match[1].replace(/\s+/g, "");
+    const addConstraint = /\bADD\s+CONSTRAINT\s+("?[^"\s,;()]+"?)/gi;
+    changes = changes.replace(addConstraint, (addition, constraintName, offset) => {
+      const escapedTable = tableName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const escapedConstraint = constraintName.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&",
+      );
+      const precedingSql =
+        declarativeSql.slice(0, match.index) + changes.slice(0, offset);
+      const hasPriorRepairDrop = new RegExp(
+        String.raw`\bALTER\s+TABLE\s+(?:ONLY\s+)?${escapedTable}\s+DROP\s+CONSTRAINT\s+IF\s+EXISTS\s+${escapedConstraint}\b`,
+        "i",
+      ).test(precedingSql);
+      return hasPriorRepairDrop ? " " : addition;
+    });
+    const unsafeChange =
+      /\bADD\s+COLUMN\s+(?!IF\s+NOT\s+EXISTS\b)/i.test(changes) ||
+      /\bADD\s+(?!COLUMN\b|CONSTRAINT\b|IF\s+NOT\s+EXISTS\b)/i.test(changes) ||
+      /\bDROP\s+COLUMN\s+(?!IF\s+EXISTS\b)/i.test(changes) ||
+      /\bDROP\s+(?!COLUMN\b|CONSTRAINT\b|IF\s+EXISTS\b)/i.test(changes) ||
+      /\bADD\s+CONSTRAINT\b/i.test(changes) ||
+      /\bDROP\s+CONSTRAINT\s+(?!IF\s+EXISTS\b)/i.test(changes) ||
+      /\bRENAME\s+(?:COLUMN\s+)?\b/i.test(changes) ||
+      /\bRENAME\s+TO\b/i.test(changes);
+    if (unsafeChange) {
+      errors.push(
+        `ALTER TABLE ${tableName} has a structural change without IF EXISTS/IF NOT EXISTS, a prior repair drop, or a guarded DO block`,
+      );
+    }
+  }
+
+  return errors;
 }
 
 export function validateMigrations(migrations) {
@@ -49,6 +156,9 @@ export function validateMigrations(migrations) {
     }
 
     const sql = executableSql(migration.sql);
+    for (const error of ordinaryDdlErrors(sql)) {
+      errors.push(`${migration.name}: ${error}`);
+    }
     const createdConcurrently = concurrentIndexes(sql, "CREATE");
     if (createdConcurrently.length === 0) return;
 
