@@ -82,6 +82,38 @@ test("simultaneous access-window updates retry a conflict and preserve the four 
   assert.equal(store.stats().conflicts, 1);
 });
 
+test("simultaneous initial access-window updates retry only-if-new and preserve the four newest dates", async () => {
+  const store = conditionalAccessWindowStore({
+    synchronizeInitialReads: 2,
+  });
+
+  await Promise.all([
+    ensureArchiveAccessWindow(
+      store,
+      ["2026-09-20", "2026-09-18", "2026-09-17", "2026-09-16"],
+      () => "2026-09-20T04:00:00.000Z",
+    ),
+    ensureArchiveAccessWindow(
+      store,
+      ["2026-09-21", "2026-09-19", "2026-09-15", "2026-09-14"],
+      () => "2026-09-21T04:00:00.000Z",
+    ),
+  ]);
+
+  const window = await store.get(ARCHIVE_ACCESS_WINDOW_KEY, { type: "json" });
+  assert.deepEqual(window.freeArchiveDates, [
+    "2026-09-21",
+    "2026-09-20",
+    "2026-09-19",
+    "2026-09-18",
+  ]);
+  assert.equal(window.freeArchiveDates.length, ARCHIVE_FREE_EDITION_COUNT);
+  assert.deepEqual(store.stats(), {
+    conflicts: 1,
+    onlyIfNewConflicts: 1,
+  });
+});
+
 test("exhausted access-window conflicts fail without replacing the authoritative window", async () => {
   const authoritative = archiveAccessWindow([
     "2026-09-20",
@@ -386,9 +418,10 @@ function conditionalRevisionStore(key, {
     ? new Promise(resolve => { releaseInitialReads = resolve; })
     : null;
   let conflicts = 0;
+  let onlyIfNewConflicts = 0;
 
   return {
-    stats: () => ({ conflicts }),
+    stats: () => ({ conflicts, onlyIfNewConflicts }),
     async get(requestedKey, options) {
       if (requestedKey !== key) return null;
       return options?.type === "json" && value ? structuredClone(value) : value;
@@ -415,6 +448,7 @@ function conditionalRevisionStore(key, {
           : true;
       if (rejectAllWrites || !matches) {
         conflicts += 1;
+        if (options.onlyIfNew) onlyIfNewConflicts += 1;
         return { modified: false };
       }
       value = structuredClone(next);
