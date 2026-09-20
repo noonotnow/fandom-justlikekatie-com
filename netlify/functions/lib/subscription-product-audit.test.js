@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { auditSubscriptionProducts, classifySubscription } from "./subscription-product-audit.js";
+import {
+  auditSubscriptionProducts,
+  classifySubscription,
+  validateMembershipPriceMappings,
+} from "./subscription-product-audit.js";
 
 const env = {
   FANDOM_STRIPE_MEMBERSHIP_PRICE_ID: "price_collector",
@@ -24,6 +28,56 @@ test("classification never guesses unknown, conflicting, or multi-price products
     ...subscription("four", "price_collector"),
     items: { data: [{ price: { id: "price_collector" } }, { price: { id: "price_creator" } }] },
   }, env).reason, "subscription_must_have_one_identifiable_price");
+});
+
+test("release configuration maps every supported membership product exactly once", () => {
+  const result = validateMembershipPriceMappings(env);
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.configured.map(mapping => mapping.product), [
+    "fandom_collector",
+    "creator_os",
+    "fandom_creator_bridge",
+    "ecosystem_bundle",
+  ]);
+});
+
+test("release configuration rejects missing, duplicate, and conflicting mappings", () => {
+  const missing = validateMembershipPriceMappings({
+    ...env,
+    FANDOM_ECOSYSTEM_BUNDLE_PRICE_ID: "",
+  });
+  assert.equal(missing.valid, false);
+  assert.deepEqual(missing.missing, ["ecosystem_bundle"]);
+
+  const duplicate = validateMembershipPriceMappings({
+    ...env,
+    FANDOM_CREATOR_OS_MEMBERSHIP_PRICE_ID: "price_creator",
+  });
+  assert.equal(duplicate.valid, false);
+  assert.deepEqual(duplicate.duplicate, [{
+    product: "creator_os",
+    envKeys: ["FANDOM_CREATOR_OS_PRICE_ID", "FANDOM_CREATOR_OS_MEMBERSHIP_PRICE_ID"],
+  }]);
+
+  const conflictingAliases = validateMembershipPriceMappings({
+    ...env,
+    FANDOM_FANDOM_CREATOR_BRIDGE_PRICE_ID: "price_other_bridge",
+  });
+  assert.equal(conflictingAliases.valid, false);
+  assert.deepEqual(conflictingAliases.conflicting, [{
+    product: "fandom_creator_bridge",
+    envKeys: ["FANDOM_CREATOR_BRIDGE_PRICE_ID", "FANDOM_FANDOM_CREATOR_BRIDGE_PRICE_ID"],
+  }]);
+
+  const sharedPrice = validateMembershipPriceMappings({
+    ...env,
+    FANDOM_ECOSYSTEM_BUNDLE_PRICE_ID: "price_collector",
+  });
+  assert.equal(sharedPrice.valid, false);
+  assert.deepEqual(sharedPrice.conflicting, [{
+    products: ["fandom_collector", "ecosystem_bundle"],
+    envKeys: ["FANDOM_STRIPE_MEMBERSHIP_PRICE_ID", "FANDOM_ECOSYSTEM_BUNDLE_PRICE_ID"],
+  }]);
 });
 
 test("audit reports safe identifiers and backfills only unambiguous subscriptions", async () => {

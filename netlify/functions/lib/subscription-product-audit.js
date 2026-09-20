@@ -1,6 +1,50 @@
-import { explicitProductForMembership, productForPrice } from "./capabilities.js";
+import {
+  CAPABILITIES,
+  MEMBERSHIP_PRICE_MAPPINGS,
+  explicitProductForMembership,
+  productForPrice,
+} from "./capabilities.js";
 
 const ACTIVE_STATUSES = ["active", "trialing"];
+
+export function validateMembershipPriceMappings(env = process.env) {
+  const configured = MEMBERSHIP_PRICE_MAPPINGS.flatMap(({ product, envKeys }) =>
+    envKeys
+      .filter(envKey => typeof env[envKey] === "string" && env[envKey].trim())
+      .map(envKey => ({ product, envKey, priceId: env[envKey].trim() })));
+  const missing = CAPABILITIES.filter(product =>
+    !configured.some(mapping => mapping.product === product));
+  const duplicate = [];
+  const conflicting = [];
+
+  for (const product of CAPABILITIES) {
+    const mappings = configured.filter(mapping => mapping.product === product);
+    if (mappings.length > 1) {
+      const issue = { product, envKeys: mappings.map(mapping => mapping.envKey) };
+      if (new Set(mappings.map(mapping => mapping.priceId)).size === 1) duplicate.push(issue);
+      else conflicting.push(issue);
+    }
+  }
+
+  for (const priceId of new Set(configured.map(mapping => mapping.priceId))) {
+    const mappings = configured.filter(mapping => mapping.priceId === priceId);
+    const products = [...new Set(mappings.map(mapping => mapping.product))];
+    if (products.length > 1) {
+      conflicting.push({
+        products,
+        envKeys: mappings.map(mapping => mapping.envKey),
+      });
+    }
+  }
+
+  return {
+    valid: missing.length === 0 && duplicate.length === 0 && conflicting.length === 0,
+    configured: configured.map(({ product, envKey }) => ({ product, envKey })),
+    missing,
+    duplicate,
+    conflicting,
+  };
+}
 
 export async function auditSubscriptionProducts({
   stripe,

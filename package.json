@@ -9,7 +9,7 @@
     "prepare:public": "node scripts/generate-public-pages.js",
     "predev": "npm run prepare:public",
     "dev": "vite",
-    "prebuild": "npm run prepare:public",
+    "prebuild": "npm run audit:subscription-product-config && npm run prepare:public",
     "build": "node scripts/check-court-record.js && tsc -b && vite build",
     "preview": "vite preview",
     "lint": "oxlint && node scripts/check-court-record.js",
@@ -20,6 +20,7 @@
     "test:functions": "node --test netlify/functions/lib/*.test.js",
     "test:scripts": "node --test scripts/*.test.js",
     "audit:subscription-products": "node scripts/audit-subscription-products.js",
+    "audit:subscription-product-config": "node scripts/audit-subscription-products.js --config-only",
     "test:browser": "node --import tsx/esm --test --test-concurrency=4 tests/browser/*.test.ts"
   },
   "dependencies": {

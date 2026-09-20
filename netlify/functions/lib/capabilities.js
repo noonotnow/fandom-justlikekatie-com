@@ -5,6 +5,31 @@ export const CAPABILITIES = Object.freeze([
   "ecosystem_bundle",
 ]);
 
+export const MEMBERSHIP_PRICE_MAPPINGS = Object.freeze([
+  Object.freeze({
+    product: "fandom_collector",
+    envKeys: Object.freeze(["FANDOM_STRIPE_MEMBERSHIP_PRICE_ID"]),
+  }),
+  Object.freeze({
+    product: "creator_os",
+    envKeys: Object.freeze([
+      "FANDOM_CREATOR_OS_PRICE_ID",
+      "FANDOM_CREATOR_OS_MEMBERSHIP_PRICE_ID",
+    ]),
+  }),
+  Object.freeze({
+    product: "fandom_creator_bridge",
+    envKeys: Object.freeze([
+      "FANDOM_CREATOR_BRIDGE_PRICE_ID",
+      "FANDOM_FANDOM_CREATOR_BRIDGE_PRICE_ID",
+    ]),
+  }),
+  Object.freeze({
+    product: "ecosystem_bundle",
+    envKeys: Object.freeze(["FANDOM_ECOSYSTEM_BUNDLE_PRICE_ID"]),
+  }),
+]);
+
 const PRODUCT_CAPABILITIES = {
   fandom_collector: ["fandom_collector"],
   collector: ["fandom_collector"],
@@ -43,13 +68,10 @@ function normalize(value) {
 
 export function productForPrice(price, env = process.env) {
   if (!price) return null;
-  if (price === env.FANDOM_STRIPE_MEMBERSHIP_PRICE_ID) return "fandom_collector";
-  if (price === env.FANDOM_CREATOR_OS_PRICE_ID
-    || price === env.FANDOM_CREATOR_OS_MEMBERSHIP_PRICE_ID) return "creator_os";
-  if (price === env.FANDOM_CREATOR_BRIDGE_PRICE_ID
-    || price === env.FANDOM_FANDOM_CREATOR_BRIDGE_PRICE_ID) return "fandom_creator_bridge";
-  if (price === env.FANDOM_ECOSYSTEM_BUNDLE_PRICE_ID) return "ecosystem_bundle";
-  return null;
+  const products = new Set(MEMBERSHIP_PRICE_MAPPINGS
+    .filter(mapping => mapping.envKeys.some(key => env[key] === price))
+    .map(mapping => mapping.product));
+  return products.size === 1 ? [...products][0] : null;
 }
 
 export function explicitProductForMembership(membership, env = process.env) {
