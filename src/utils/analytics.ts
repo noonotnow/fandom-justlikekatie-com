@@ -29,6 +29,7 @@ export interface ArchiveLinkReviewNotificationState {
   readyNotificationSent: boolean;
 }
 export type GridBuilderMode = 'smart' | 'manual';
+export type ArchiveRebuildPlacement = 'edition_detail' | 'archive_card';
 
 interface DailyDropServerEvent {
   event:
@@ -376,6 +377,22 @@ export function trackCollectionOpened(lastSavedEdition?: string): void {
 
 export function trackGridBuilderPreviewOpened(isMember: boolean): void {
   trackEvent('grid_builder_preview_opened', { is_member: isMember });
+}
+
+export function trackArchiveRebuildLaunched(
+  editionDate: string,
+  placement: ArchiveRebuildPlacement,
+): void {
+  trackEvent('archive_rebuild_launched', {
+    edition_date: editionDate,
+    placement,
+  });
+}
+
+export function trackHistoricalGridSaved(editionDate: string): void {
+  trackEvent('historical_grid_saved', {
+    edition_date: editionDate,
+  });
 }
 
 function actorSourceNotesData(isMember: boolean, builderMode: GridBuilderMode): AnalyticsData {

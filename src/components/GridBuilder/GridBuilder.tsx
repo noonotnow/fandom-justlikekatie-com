@@ -24,6 +24,7 @@ import {
   trackActorSourceNotesLoadFailed,
   trackActorSourceNotesLoadSucceeded,
   trackActorSourceNotesOpened,
+  trackHistoricalGridSaved,
 } from '../../utils/analytics';
 import {
   applyLens,
@@ -466,6 +467,9 @@ export const GridBuilder: React.FC<Props> = ({
         setPriorSavedGridId(null);
       }
       await dbSaveGrid(grid);
+      if (sourceKind === 'edition' && sourceEditionDate) {
+        trackHistoricalGridSaved(sourceEditionDate);
+      }
       let syncFailed = false;
       try {
         await onCollectionChanged?.();

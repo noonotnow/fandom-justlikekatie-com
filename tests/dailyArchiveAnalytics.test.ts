@@ -12,6 +12,7 @@ import {
   trackArchivePageView,
   trackArchiveRecordOpened,
   trackArchiveRecordImpression,
+  trackArchiveRebuildLaunched,
   trackArchiveLinkReviewReadiness,
   trackDailyArchiveEditionSelected,
   trackDailyArchiveOpened,
@@ -21,10 +22,73 @@ import {
   trackDailyDropShared,
   trackDailyDropViewed,
   trackGridBuilderPreviewOpened,
+  trackHistoricalGridSaved,
   trackUpgradeStarted,
 } from '../src/utils/analytics.ts';
 
 const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const gridBuilderSource = await readFile(
+  new URL('../src/components/GridBuilder/GridBuilder.tsx', import.meta.url),
+  'utf8',
+);
+
+test('archive rebuild analytics records only placement and edition date', () => {
+  const events: Array<{ name: string; data?: Record<string, string | number | boolean> }> = [];
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      gtag(_command: string, name: string, data?: Record<string, string | number | boolean>) {
+        events.push({ name, data });
+      },
+    },
+  });
+
+  try {
+    trackArchiveRebuildLaunched('2026-08-30', 'edition_detail');
+    trackArchiveRebuildLaunched('2026-08-29', 'archive_card');
+    trackHistoricalGridSaved('2026-08-30');
+
+    assert.deepEqual(events, [
+      {
+        name: 'archive_rebuild_launched',
+        data: { edition_date: '2026-08-30', placement: 'edition_detail' },
+      },
+      {
+        name: 'archive_rebuild_launched',
+        data: { edition_date: '2026-08-29', placement: 'archive_card' },
+      },
+      {
+        name: 'historical_grid_saved',
+        data: { edition_date: '2026-08-30' },
+      },
+    ]);
+  } finally {
+    Reflect.deleteProperty(globalThis, 'window');
+  }
+});
+
+test('archive rebuild instrumentation covers both launches and successful local saves', () => {
+  assert.match(
+    appSource,
+    /openEditionBuilder\(selectedEditionDate, 'edition_detail'\)/,
+  );
+  assert.match(
+    appSource,
+    /trackArchiveRebuildLaunched\(edition\.date, 'archive_card'\)/,
+  );
+
+  const saveIndex = gridBuilderSource.indexOf('await dbSaveGrid(grid);');
+  const analyticsIndex = gridBuilderSource.indexOf('trackHistoricalGridSaved(sourceEditionDate);');
+  assert.ok(saveIndex >= 0, 'historical grids must be persisted');
+  assert.ok(
+    analyticsIndex > saveIndex,
+    'historical-grid save analytics must run only after local persistence succeeds',
+  );
+  assert.match(
+    gridBuilderSource.slice(saveIndex, analyticsIndex),
+    /sourceKind === 'edition' && sourceEditionDate/,
+  );
+});
 
 test('daily archive analytics records only the edition date and latest flag', () => {
   const events: Array<{

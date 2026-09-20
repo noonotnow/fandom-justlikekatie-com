@@ -51,6 +51,7 @@ import {
   trackArchivePageView,
   trackArchiveRecordImpression,
   trackArchiveRecordOpened,
+  trackArchiveRebuildLaunched,
   trackDailyDropCardSave,
   trackDailyDropEngaged,
   trackDailyDropShared,
@@ -58,7 +59,11 @@ import {
   trackGridBuilderPreviewOpened,
   trackUpgradeStarted,
 } from './utils/analytics';
-import type { ArchiveRecordLocation, ArchiveRecordType } from './utils/analytics';
+import type {
+  ArchiveRebuildPlacement,
+  ArchiveRecordLocation,
+  ArchiveRecordType,
+} from './utils/analytics';
 import { PUBLIC_ROUTE_PATHS, publicRouteUrl } from '../shared/public-routes.js';
 
 /** Number of columns in the grid — used to calculate preview row insertion */
@@ -493,8 +498,9 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     if (destination === 'daily') selectEdition(null);
   };
 
-  const openEditionBuilder = (date: string) => {
+  const openEditionBuilder = (date: string, placement: ArchiveRebuildPlacement) => {
     if (!isValidVibeAtlasEditionDate(date)) return;
+    trackArchiveRebuildLaunched(date, placement);
     window.history.pushState({}, '', `/vibe-atlas?view=builder&source=edition&date=${encodeURIComponent(date)}`);
     setArchivePage(false);
     setView('collection');
@@ -782,7 +788,10 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             </div>
             {selectedEditionDate && isValidVibeAtlasEditionDate(selectedEditionDate) && (
               <div className="daily-edition-share">
-                <button type="button" onClick={() => openEditionBuilder(selectedEditionDate)}>
+                <button
+                  type="button"
+                  onClick={() => openEditionBuilder(selectedEditionDate, 'edition_detail')}
+                >
                   Rebuild this edition
                 </button>
                 <button type="button" onClick={copyArchivedEditionLink}>
@@ -1084,7 +1093,12 @@ function ArchiveEditionCard({
         >
           <a href={edition.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'full_archive')}>Actor record</a>
           <a href={edition.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'full_archive')}>Edition record</a>
-          <a href={`/vibe-atlas?view=builder&source=edition&date=${encodeURIComponent(edition.date)}`}>Rebuild this edition</a>
+          <a
+            href={`/vibe-atlas?view=builder&source=edition&date=${encodeURIComponent(edition.date)}`}
+            onClick={() => trackArchiveRebuildLaunched(edition.date, 'archive_card')}
+          >
+            Rebuild this edition
+          </a>
         </VisibleArchiveRecordPlacement>
       )}
     </article>
