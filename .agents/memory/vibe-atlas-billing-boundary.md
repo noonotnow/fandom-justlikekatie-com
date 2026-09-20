@@ -3,7 +3,7 @@ name: Vibe Atlas billing boundary
 description: Product and architecture boundary for the first paid Vibe Atlas membership.
 ---
 
-The first paid offer is one monthly Vibe Atlas Collector subscription. Verified Stripe subscription state is the source of paid entitlement. Free users can complete, rearrange, export, and share a standard 3×3 grid with current/free inputs and local storage. Collector gates historical and actor-pack depth, cross-device persistence, additional saved canvases, approved premium treatments, and eligible Master Exports.
+The first paid offer is one monthly Vibe Atlas Collector subscription. Verified Stripe subscription state is the source of paid entitlement. Free users can browse current and historical editorial records, complete, rearrange, export, and share a standard 3×3 grid with current/free inputs, and save locally. Collector gates the complete historical collectible/source depth and actor-pack utility behind those public records, plus cross-device persistence, additional saved canvases, approved premium treatments, and eligible Master Exports.
 
 PostgreSQL is limited to Stripe-synchronized billing records and the minimal account-to-customer link. Existing authentication, IndexedDB, Blob Collections, packets, content storage, and MemeForge behavior stay on their current systems. MemeForge remains free and shareable.
 
