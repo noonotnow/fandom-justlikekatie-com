@@ -8,6 +8,7 @@ import {
   trackActorSourceNotesOpened,
   trackCollectionOpened,
   trackArchiveRecordOpened,
+  trackArchiveRecordImpression,
   trackArchiveLinkReviewReadiness,
   trackDailyArchiveEditionSelected,
   trackDailyArchiveOpened,
@@ -96,6 +97,44 @@ test('archive record analytics uses one bounded event for record type and locati
       ['location', 'record_type'],
       'record events must not include dates, paths, capability values, or free-form labels',
     );
+  } finally {
+    Reflect.deleteProperty(globalThis, 'window');
+  }
+});
+
+test('archive record impressions expose only location and canonical available record types', () => {
+  const events: Array<{ name: string; data?: Record<string, string | number | boolean> }> = [];
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      gtag(_command: string, name: string, data?: Record<string, string | number | boolean>) {
+        events.push({ name, data });
+      },
+    },
+  });
+
+  try {
+    trackArchiveRecordImpression(['edition', 'actor', 'edition'], 'archive_picker');
+    trackArchiveRecordImpression(['edition'], 'full_archive');
+    trackArchiveRecordImpression([], 'daily');
+
+    assert.deepEqual(events, [
+      {
+        name: 'archive_record_link_impression',
+        data: { location: 'archive_picker', available_record_types: 'actor+edition' },
+      },
+      {
+        name: 'archive_record_link_impression',
+        data: { location: 'full_archive', available_record_types: 'edition' },
+      },
+    ]);
+    for (const event of events) {
+      assert.deepEqual(
+        Object.keys(event.data ?? {}).sort(),
+        ['available_record_types', 'location'],
+        'impressions must not include dates, names, paths, capabilities, accounts, or free-form content',
+      );
+    }
   } finally {
     Reflect.deleteProperty(globalThis, 'window');
   }
@@ -210,6 +249,22 @@ test('every visible archive record-link location is instrumented', () => {
     assert.equal(actorCalls.length, expectedActorLinks, `${location} actor record links`);
     assert.equal(editionCalls.length, expectedEditionLinks, `${location} edition record links`);
   }
+});
+
+test('every archive record-link placement has a visibility impression', () => {
+  for (const [location, expectedPlacements] of [
+    ['daily', 1],
+    ['archive_picker', 1],
+    ['locked_preview', 1],
+    ['full_archive', 2],
+  ] as const) {
+    const placements = appSource.match(
+      new RegExp(`location="${location}"`, 'g'),
+    ) ?? [];
+    assert.equal(placements.length, expectedPlacements, `${location} visible placements`);
+  }
+  assert.match(appSource, /new IntersectionObserver/);
+  assert.match(appSource, /impressedPresentationRef\.current === presentationKey/);
 });
 
 test('archive funnel analytics keeps preview, intent, auth, checkout, restoration, denial, and full use privacy-safe', () => {

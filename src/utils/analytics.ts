@@ -138,6 +138,21 @@ export function trackArchiveRecordOpened(
   });
 }
 
+export function trackArchiveRecordImpression(
+  recordTypes: readonly ArchiveRecordType[],
+  location: ArchiveRecordLocation,
+): void {
+  const availableRecordTypes = (['actor', 'edition'] as const)
+    .filter(recordType => recordTypes.includes(recordType))
+    .join('+');
+  if (!availableRecordTypes) return;
+
+  trackEvent('archive_record_link_impression', {
+    location,
+    available_record_types: availableRecordTypes,
+  });
+}
+
 const ARCHIVE_LINK_REVIEW_USABLE_DAYS = 30;
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 

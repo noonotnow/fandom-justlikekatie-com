@@ -45,6 +45,7 @@ import {
   trackDailyArchiveEditionSelected,
   trackDailyArchiveOpened,
   trackArchiveAccess,
+  trackArchiveRecordImpression,
   trackArchiveRecordOpened,
   trackDailyDropCardSave,
   trackDailyDropEngaged,
@@ -53,10 +54,72 @@ import {
   trackGridBuilderPreviewOpened,
   trackUpgradeStarted,
 } from './utils/analytics';
+import type { ArchiveRecordLocation, ArchiveRecordType } from './utils/analytics';
 
 /** Number of columns in the grid — used to calculate preview row insertion */
 const GRID_COLS = 3;
 const LAST_SAVED_EDITION_KEY = 'fandom_vibe_atlas_last_saved_edition';
+
+function VisibleArchiveRecordPlacement({
+  as: Element,
+  location,
+  recordTypes,
+  presentationKey,
+  className,
+  ariaLabel,
+  href,
+  onClick,
+  children,
+}: {
+  as: 'a' | 'nav' | 'span';
+  location: ArchiveRecordLocation;
+  recordTypes: readonly ArchiveRecordType[];
+  presentationKey: string;
+  className?: string;
+  ariaLabel?: string;
+  href?: string;
+  onClick?: () => void;
+  children: React.ReactNode;
+}) {
+  const elementRef = useRef<HTMLElement | null>(null);
+  const impressedPresentationRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const element = elementRef.current;
+    if (!element || impressedPresentationRef.current === presentationKey) return;
+
+    const recordImpression = () => {
+      if (impressedPresentationRef.current === presentationKey) return;
+      impressedPresentationRef.current = presentationKey;
+      trackArchiveRecordImpression(recordTypes, location);
+    };
+    if (typeof IntersectionObserver === 'undefined') {
+      recordImpression();
+      return;
+    }
+
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        recordImpression();
+        observer.disconnect();
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [location, presentationKey, recordTypes]);
+
+  return (
+    <Element
+      ref={elementRef as never}
+      className={className}
+      aria-label={ariaLabel}
+      href={href}
+      onClick={onClick}
+    >
+      {children}
+    </Element>
+  );
+}
 
 function formatEditionDate(value: string): string {
   const date = new Date(`${value}T00:00:00Z`);
@@ -719,10 +782,17 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
                 {meta.vibeLabelEn} — {meta.vibeSubtitleEn}
               </div>
                 {rawData?.publicRecord && (
-                  <nav className="atlas-edition__records" aria-label="Curated public records">
+                  <VisibleArchiveRecordPlacement
+                    as="nav"
+                    className="atlas-edition__records"
+                    ariaLabel="Curated public records"
+                    location="daily"
+                    recordTypes={['actor', 'edition']}
+                    presentationKey={`daily:${rawData.publicRecord.actorPath}:${rawData.publicRecord.editionPath}`}
+                  >
                     <a href={rawData.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'daily')}>Explore {meta.actorName}’s actor record</a>
                     <a href={rawData.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'daily')}>Read this edition’s permanent record</a>
-                  </nav>
+                  </VisibleArchiveRecordPlacement>
                 )}
               {meta.vibeSupportingCopyEn && (
                 <div className="atlas-edition__supporting-copy">{meta.vibeSupportingCopyEn}</div>
@@ -874,10 +944,16 @@ function ArchiveEditionButton({
         {content}
       </button>
       {edition.publicRecord && (
-        <span className="daily-archive__record-links">
+        <VisibleArchiveRecordPlacement
+          as="span"
+          className="daily-archive__record-links"
+          location="archive_picker"
+          recordTypes={['actor', 'edition']}
+          presentationKey={`archive_picker:${edition.date}`}
+        >
           <a href={edition.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'archive_picker')}>Actor record</a>
           <a href={edition.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'archive_picker')}>Edition record</a>
-        </span>
+        </VisibleArchiveRecordPlacement>
       )}
     </div>
   );
@@ -916,10 +992,17 @@ function ArchiveLockedEdition({
         <h2 id="archive-gate-title">{edition.vibeEmoji} {edition.actorName}</h2>
         <p><strong>{edition.vibeLabel}</strong> · {edition.vibeLabelEn}</p>
         {edition.publicRecord && (
-          <nav className="atlas-edition__records" aria-label="Curated public records">
+          <VisibleArchiveRecordPlacement
+            as="nav"
+            className="atlas-edition__records"
+            ariaLabel="Curated public records"
+            location="locked_preview"
+            recordTypes={['actor', 'edition']}
+            presentationKey={`locked_preview:${edition.date}`}
+          >
             <a href={edition.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'locked_preview')}>Explore {edition.actorName}’s actor record</a>
             <a href={edition.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'locked_preview')}>Read this edition’s permanent record</a>
-          </nav>
+          </VisibleArchiveRecordPlacement>
         )}
         <p>
           {billingDelay
@@ -979,14 +1062,18 @@ function ArchiveEditionCard({
 
   return (
     <article className={className}>
-      <a
+      <VisibleArchiveRecordPlacement
+        as="a"
         className="archive-card__main"
         href={href}
+        location="full_archive"
+        recordTypes={edition.publicRecord ? ['edition'] : []}
+        presentationKey={`full_archive_main:${edition.date}`}
         onClick={() => {
           trackDailyArchiveEditionSelected(edition.date, isLatest);
           if (edition.publicRecord) trackArchiveRecordOpened('edition', 'full_archive');
         }}
-        aria-label={`Open Issue ${issueNumber}, ${formatEditionDate(edition.date)}: ${edition.actorName}, ${edition.vibeLabelEn}`}
+        ariaLabel={`Open Issue ${issueNumber}, ${formatEditionDate(edition.date)}: ${edition.actorName}, ${edition.vibeLabelEn}`}
       >
       <span className="archive-card__plate" aria-hidden="true">
         {images.length > 0 ? (
@@ -1038,12 +1125,19 @@ function ArchiveEditionCard({
           <b aria-hidden="true">↗</b>
         </span>
       </span>
-      </a>
+      </VisibleArchiveRecordPlacement>
       {edition.publicRecord && (
-        <nav className="archive-card__records" aria-label={`Curated records for ${edition.actorName}`}>
+        <VisibleArchiveRecordPlacement
+          as="nav"
+          className="archive-card__records"
+          ariaLabel={`Curated records for ${edition.actorName}`}
+          location="full_archive"
+          recordTypes={['actor', 'edition']}
+          presentationKey={`full_archive_records:${edition.date}`}
+        >
           <a href={edition.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'full_archive')}>Actor record</a>
           <a href={edition.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'full_archive')}>Edition record</a>
-        </nav>
+        </VisibleArchiveRecordPlacement>
       )}
     </article>
   );
