@@ -472,5 +472,84 @@ test("checkout identity conflicts use a distinct bounded operational record", as
     count: 1,
     firstOccurredAt: operation.firstOccurredAt,
     lastOccurredAt: operation.lastOccurredAt,
+    status: "active",
+    resolutionTimestamp: null,
   });
+});
+
+test("resolving an identity conflict retains occurrence history", async () => {
+  const { repository, store } = createRepository();
+  const first = await repository.recordIdentityConflict({ eventCategory: "subscription" });
+  const second = await repository.recordIdentityConflict({ eventCategory: "checkout" });
+  const result = await repository.resolveIdentityConflict({
+    status: "resolved",
+    expectedCount: second.count,
+    expectedLastOccurredAt: second.lastOccurredAt,
+    resolvedBy: "operator-1",
+  });
+  assert.equal(result.outcome, "applied");
+  assert.equal(result.summary.status, "resolved");
+  assert.ok(result.summary.resolutionTimestamp);
+  assert.equal(result.summary.count, 2);
+  assert.equal(result.summary.firstOccurredAt, first.firstOccurredAt);
+  assert.equal(result.summary.lastOccurredAt, second.lastOccurredAt);
+  const stored = await store.get("operations/stripe-identity-conflict");
+  assert.equal(stored.count, 2);
+  assert.equal(stored.firstOccurredAt, first.firstOccurredAt);
+  assert.equal(stored.lastOccurredAt, second.lastOccurredAt);
+  assert.equal(stored.resolution.status, "resolved");
+  assert.doesNotMatch(JSON.stringify(result.summary), /operator-1|resolvedBy/);
+});
+
+test("a concurrent new identity conflict stays active and cannot be resolved by a stale view", async () => {
+  const { repository } = createRepository();
+  const reviewed = await repository.recordIdentityConflict({ eventCategory: "subscription" });
+  await repository.recordIdentityConflict({ eventCategory: "checkout" });
+  const result = await repository.resolveIdentityConflict({
+    status: "acknowledged",
+    expectedCount: reviewed.count,
+    expectedLastOccurredAt: reviewed.lastOccurredAt,
+    resolvedBy: "operator-1",
+  });
+  assert.equal(result.outcome, "changed");
+  assert.equal(result.summary.status, "active");
+  assert.equal(result.summary.count, 2);
+  assert.equal(result.summary.resolutionTimestamp, null);
+});
+
+test("a new occurrence reactivates a previously resolved aggregate", async () => {
+  const { repository, store } = createRepository();
+  const reviewed = await repository.recordIdentityConflict({ eventCategory: "subscription" });
+  await repository.resolveIdentityConflict({
+    status: "acknowledged",
+    expectedCount: reviewed.count,
+    expectedLastOccurredAt: reviewed.lastOccurredAt,
+    resolvedBy: "operator-1",
+  });
+  const next = await repository.recordIdentityConflict({ eventCategory: "subscription" });
+  const summary = await repository.identityConflictSummary();
+  assert.equal(summary.status, "active");
+  assert.equal(summary.count, 2);
+  assert.equal(summary.firstOccurredAt, reviewed.firstOccurredAt);
+  assert.equal(summary.lastOccurredAt, next.lastOccurredAt);
+  assert.equal(summary.resolutionTimestamp, null);
+  await repository.resolveIdentityConflict({
+    status: "resolved",
+    expectedCount: summary.count,
+    expectedLastOccurredAt: summary.lastOccurredAt,
+    resolvedBy: "operator-2",
+  });
+  const stored = await store.get("operations/stripe-identity-conflict");
+  assert.equal(stored.resolutionHistory.length, 2);
+  assert.deepEqual(
+    stored.resolutionHistory.map(receipt => ({
+      status: receipt.status,
+      throughCount: receipt.throughCount,
+      resolvedBy: receipt.resolvedBy,
+    })),
+    [
+      { status: "acknowledged", throughCount: 1, resolvedBy: "operator-1" },
+      { status: "resolved", throughCount: 2, resolvedBy: "operator-2" },
+    ],
+  );
 });

@@ -139,13 +139,19 @@ export function createBlobBillingRepository({ getStore, context }) {
         });
         const occurredAt = new Date().toISOString();
         const record = {
-          schemaVersion: 1,
+          schemaVersion: 2,
           type: "billing_reconciliation_rejected",
           reason: "stripe_identity_conflict",
           eventCategory: category,
           count: Math.min(Number(existing?.data?.count || 0) + 1, Number.MAX_SAFE_INTEGER),
           firstOccurredAt: existing?.data?.firstOccurredAt || occurredAt,
           lastOccurredAt: occurredAt,
+          ...(validResolution(existing?.data?.resolution)
+            ? { resolution: existing.data.resolution }
+            : {}),
+          ...(validResolutionHistory(existing?.data?.resolutionHistory).length
+            ? { resolutionHistory: validResolutionHistory(existing.data.resolutionHistory) }
+            : {}),
         };
         const write = await store().setJSON(
           IDENTITY_CONFLICT_KEY,
@@ -157,30 +163,74 @@ export function createBlobBillingRepository({ getStore, context }) {
       throw new Error("Billing identity conflict record changed too frequently to update safely.");
     },
 
+    async resolveIdentityConflict({
+      status,
+      expectedCount,
+      expectedLastOccurredAt,
+      resolvedBy,
+    }) {
+      if (!["acknowledged", "resolved"].includes(status)) {
+        return { outcome: "invalid" };
+      }
+      const count = Number(expectedCount);
+      if (!Number.isSafeInteger(count) || count < 1 || !validTimestamp(expectedLastOccurredAt)) {
+        return { outcome: "invalid" };
+      }
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const existing = await store().getWithMetadata(IDENTITY_CONFLICT_KEY, {
+          type: "json",
+          consistency: "strong",
+        });
+        if (!existing?.data) return { outcome: "missing", summary: null };
+        if (
+          Number(existing.data.count) !== count
+          || existing.data.lastOccurredAt !== expectedLastOccurredAt
+        ) {
+          return {
+            outcome: "changed",
+            summary: projectIdentityConflict(existing.data),
+          };
+        }
+        const resolvedAt = new Date().toISOString();
+        const record = {
+          ...existing.data,
+          schemaVersion: 2,
+          resolution: {
+            status,
+            resolvedAt,
+            resolvedBy: String(resolvedBy || "admin"),
+            throughCount: count,
+            throughLastOccurredAt: expectedLastOccurredAt,
+          },
+          resolutionHistory: [
+            ...validResolutionHistory(existing.data.resolutionHistory),
+            {
+              status,
+              resolvedAt,
+              resolvedBy: String(resolvedBy || "admin"),
+              throughCount: count,
+              throughLastOccurredAt: expectedLastOccurredAt,
+            },
+          ],
+        };
+        const write = await store().setJSON(
+          IDENTITY_CONFLICT_KEY,
+          record,
+          { onlyIfMatch: existing.etag },
+        );
+        if (write?.modified !== false) {
+          return { outcome: "applied", summary: projectIdentityConflict(record) };
+        }
+      }
+      throw new Error("Billing identity conflict record changed too frequently to resolve safely.");
+    },
+
     async identityConflictSummary() {
       const record = await store().get(IDENTITY_CONFLICT_KEY, {
         type: "json",
         consistency: "strong",
       });
-      if (!record) return null;
-      const count = Number(record.count);
-      const firstOccurredAt = validTimestamp(record.firstOccurredAt);
-      const lastOccurredAt = validTimestamp(record.lastOccurredAt);
-      if (
-        record.reason !== "stripe_identity_conflict"
-        || !["checkout", "subscription"].includes(record.eventCategory)
-        || !Number.isSafeInteger(count)
-        || count < 1
-        || !firstOccurredAt
-        || !lastOccurredAt
-      ) return null;
-      return {
-        reason: "stripe_identity_conflict",
-        category: record.eventCategory,
-        count,
-        firstOccurredAt,
-        lastOccurredAt,
-      };
+      return projectIdentityConflict(record);
     },
 
     async recordSubscription({
@@ -293,6 +343,52 @@ function membershipStatus(stripeStatus) {
 
 function validTimestamp(value) {
   return typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : null;
+}
+
+function validResolution(value) {
+  const throughCount = Number(value?.throughCount);
+  return value
+    && ["acknowledged", "resolved"].includes(value.status)
+    && validTimestamp(value.resolvedAt)
+    && Number.isSafeInteger(throughCount)
+    && throughCount > 0
+    && validTimestamp(value.throughLastOccurredAt)
+    ? value
+    : null;
+}
+
+function validResolutionHistory(value) {
+  return Array.isArray(value) ? value.filter(item => validResolution(item)) : [];
+}
+
+function projectIdentityConflict(record) {
+  if (!record) return null;
+  const count = Number(record.count);
+  const firstOccurredAt = validTimestamp(record.firstOccurredAt);
+  const lastOccurredAt = validTimestamp(record.lastOccurredAt);
+  if (
+    record.reason !== "stripe_identity_conflict"
+    || !["checkout", "subscription"].includes(record.eventCategory)
+    || !Number.isSafeInteger(count)
+    || count < 1
+    || !firstOccurredAt
+    || !lastOccurredAt
+  ) return null;
+  const resolution = validResolution(record.resolution);
+  const currentResolution = resolution
+    && resolution.throughCount === count
+    && resolution.throughLastOccurredAt === lastOccurredAt
+    ? resolution
+    : null;
+  return {
+    reason: "stripe_identity_conflict",
+    category: record.eventCategory,
+    count,
+    firstOccurredAt,
+    lastOccurredAt,
+    status: currentResolution?.status || "active",
+    resolutionTimestamp: currentResolution?.resolvedAt || null,
+  };
 }
 
 async function firstListingPage(blobStore, options) {

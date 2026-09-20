@@ -234,7 +234,12 @@ function EngagementEvidence() {
         Event ratios, not unique-user conversion. These records intentionally contain no anonymous visitor or session identifier.
       </p>
       {archiveHealth && <ArchiveAccessHealth health={archiveHealth} />}
-      {billingOperations && <BillingIdentityConflict conflict={billingOperations.identityConflict} />}
+      {billingOperations && (
+        <BillingIdentityConflict
+          conflict={billingOperations.identityConflict}
+          onUpdated={identityConflict => setBillingOperations({ ...billingOperations, identityConflict })}
+        />
+      )}
 
       <div className={styles.evidenceMetrics}>
         <div><strong>{summary.recordCount ?? 0}</strong><span>Recorded events</span></div>
@@ -272,18 +277,73 @@ function EngagementEvidence() {
   );
 }
 
-function BillingIdentityConflict({ conflict }: { conflict: AnyRecord | null }) {
+function BillingIdentityConflict({
+  conflict,
+  onUpdated,
+}: {
+  conflict: AnyRecord | null;
+  onUpdated: (conflict: AnyRecord | null) => void;
+}) {
+  const [busy, setBusy] = useState('');
+  const [notice, setNotice] = useState('');
+
+  async function updateStatus(status: 'acknowledged' | 'resolved') {
+    if (!conflict || busy) return;
+    setBusy(status);
+    setNotice('');
+    try {
+      const response = await fetch('/.netlify/functions/billing-operations', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'resolve_identity_conflict',
+          status,
+          expectedCount: conflict.count,
+          expectedLastOccurredAt: conflict.lastOccurredAt,
+        }),
+      });
+      const result = await response.json().catch(() => null);
+      if (result?.identityConflict) onUpdated(result.identityConflict);
+      if (!response.ok) throw new Error(result?.error || 'Identity conflict status could not be updated.');
+      setNotice(`Conflict aggregate marked ${status}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Identity conflict status could not be updated.');
+    } finally {
+      setBusy('');
+    }
+  }
+
   return (
-    <section aria-labelledby="billing-identity-conflict-title">
-      <h5 id="billing-identity-conflict-title">Stripe identity conflicts</h5>
+    <section className={styles.identityConflict} aria-labelledby="billing-identity-conflict-title">
+      <div className={styles.identityConflictHeader}>
+        <h5 id="billing-identity-conflict-title">Stripe identity conflicts</h5>
+        {conflict && <strong data-status={conflict.status || 'active'}>{conflict.status || 'active'}</strong>}
+      </div>
       {conflict
-        ? <dl className={styles.qualityInventory}>
+        ? <>
+          <dl className={styles.qualityInventory}>
           <div><dt>Reason</dt><dd>{conflict.reason}</dd></div>
           <div><dt>Category</dt><dd>{conflict.category}</dd></div>
           <div><dt>Count</dt><dd>{conflict.count}</dd></div>
           <div><dt>First occurrence</dt><dd>{formatDeliveryTime(conflict.firstOccurredAt)}</dd></div>
           <div><dt>Last occurrence</dt><dd>{formatDeliveryTime(conflict.lastOccurredAt)}</dd></div>
+          {conflict.resolutionTimestamp && (
+            <div><dt>Resolution timestamp</dt><dd>{formatDeliveryTime(conflict.resolutionTimestamp)}</dd></div>
+          )}
         </dl>
+          {conflict.status === 'active' && (
+            <div className={styles.identityConflictActions}>
+              <button type="button" disabled={Boolean(busy)} onClick={() => void updateStatus('acknowledged')}>
+                {busy === 'acknowledged' ? 'Saving…' : 'Acknowledge'}
+              </button>
+              <button type="button" disabled={Boolean(busy)} onClick={() => void updateStatus('resolved')}>
+                {busy === 'resolved' ? 'Saving…' : 'Mark resolved'}
+              </button>
+            </div>
+          )}
+          {notice && <p className={styles.productionError} role="status">{notice}</p>}
+        </>
         : <p>No Stripe identity conflicts have been recorded.</p>}
     </section>
   );

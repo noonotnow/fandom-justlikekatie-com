@@ -199,3 +199,107 @@ test('square PNG exports preserve layout, attribution, MEDIA provenance, and Moo
     await closeBrowserAndServer(browser, server);
   }
 });
+test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, and attribution', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const { browser, page } = await launchPageForServer(server);
+
+  try {
+    await page.addInitScript({ content: 'globalThis.__name = target => target;' });
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ user: null }),
+    }));
+    await page.route('**/.netlify/functions/image-proxy?*', async route => {
+      const proxiedUrl = new URL(route.request().url()).searchParams.get('url');
+      assert.ok(proxiedUrl, 'the image proxy request must name its source');
+      const index = Number(new URL(proxiedUrl).pathname.match(/fixture-(\d+)\.svg$/)?.[1]);
+      assert.ok(Number.isInteger(index) && index >= 0 && index < 9, `unexpected fixture URL: ${proxiedUrl}`);
+      await route.fulfill({
+        contentType: 'image/svg+xml',
+        headers: { 'access-control-allow-origin': '*' },
+        body: solidSvg(FIXTURE_COLORS[index]),
+      });
+    });
+    await page.goto(origin);
+
+    const rendered = await page.evaluate(async ({ mediaOrigin, fixtureColors }) => {
+      const historyModulePath = '/src/utils/collectionHistoryModel.ts';
+      const collectionModulePath = '/src/utils/collectionDB.ts';
+      const exportModulePath = '/src/utils/exportCanvas.ts';
+      const history = await import(/* @vite-ignore */ historyModulePath);
+      const collection = await import(/* @vite-ignore */ collectionModulePath);
+      const exports = await import(/* @vite-ignore */ exportModulePath);
+      const deliveryUrls = fixtureColors.map((_: string, index: number) => `${mediaOrigin}/fixture-${index}.svg`);
+      const savedAt = '2026-09-20T12:00:00.000Z';
+      const data = {
+        actorId: 'fixture-actor',
+        actorName: 'Fixture Actor',
+        actorShortNameEn: 'Fixture Actor',
+        actorAccentColor: '#9f9bea',
+        vibeEmoji: '🌙',
+        vibeLabel: 'Moonlit Ink',
+        vibeLabelEn: 'Moonlit Ink',
+        vibeSubtitle: 'A saved Collection export fixture',
+        vibeSubtitleEn: 'A saved Collection export fixture',
+        rankedBatches: [{
+          query: 'fixture query',
+          results: deliveryUrls.map((thumbnail: string, index: number) => ({
+            title: `Fixture ${index + 1}`,
+            thumbnail,
+            link: `https://publisher.example.test/source-${index}`,
+            source: `Publisher ${index + 1}`,
+          })),
+          count: 9,
+          distinctSources: 9,
+          provider: 'fixture',
+        }],
+        date: '2026-09-20',
+        presentation: { paletteId: 'moonlit-ink', atmosphereId: 'moonlit-ink' },
+      };
+
+      const savedGrid = history.collectionGridFromStar(data, '/vibe-atlas?view=collection', savedAt);
+      await collection.dbSaveGrid(savedGrid);
+      const restoredGrid = (await collection.dbGetAllGrids())
+        .find((grid: { id: string }) => grid.id === savedGrid.id);
+      if (!restoredGrid) throw new Error('Saved Collection grid was not restored.');
+
+      const textCalls: Array<{ text: string; color: string }> = [];
+      const originalFillText = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
+        textCalls.push({ text: String(text), color: String(this.fillStyle) });
+        return maxWidth === undefined
+          ? originalFillText.call(this, text, x, y)
+          : originalFillText.call(this, text, x, y, maxWidth);
+      };
+      try {
+        const canvas = await exports.renderExportCanvas(
+          history.starDataFromCollectionGrid(restoredGrid),
+          'standard',
+        );
+        const context = canvas.getContext('2d')!;
+        return {
+          width: canvas.width,
+          height: canvas.height,
+          background: Array.from(context.getImageData(1, 1, 1, 1).data),
+          textCalls,
+        };
+      } finally {
+        CanvasRenderingContext2D.prototype.fillText = originalFillText;
+      }
+    }, { mediaOrigin: FIXTURE_MEDIA_ORIGIN, fixtureColors: FIXTURE_COLORS });
+
+    assert.equal(rendered.width, 1080);
+    assert.equal(rendered.height, 1080);
+    assert.deepEqual(rendered.background, [23, 24, 43, 255]);
+    assert.equal(
+      rendered.textCalls.find(call => call.text === 'Fixture Actor · Moonlit Ink')?.color,
+      '#9f9bea',
+      'the restored heading must retain the Moonlit Ink indigo',
+    );
+    const attribution = rendered.textCalls.find(call => call.text.startsWith('Sources: Fixture Actor · Publisher 1'));
+    assert.ok(attribution, 'the restored export must retain saved source attribution');
+    assert.equal(attribution.color, '#c9a96e', 'the restored attribution must retain the Moonlit Ink gold');
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});

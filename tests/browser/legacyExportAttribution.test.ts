@@ -28,7 +28,8 @@ test('portrait and teaser exports bound five long source credits below their gri
     await page.goto(origin);
 
     const rendered = await page.evaluate(async publishers => {
-      const exports = await import(/* @vite-ignore */ '/src/utils/exportCanvas.ts');
+      const exportModulePath = '/src/utils/exportCanvas.ts';
+      const exports = await import(/* @vite-ignore */ exportModulePath);
       const data = {
         actorId: 'fixture-actor',
         actorName: 'Fixture Actor',

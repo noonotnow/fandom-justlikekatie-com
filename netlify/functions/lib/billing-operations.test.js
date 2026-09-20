@@ -41,6 +41,8 @@ test("billing operations returns only the privacy-safe conflict projection", asy
     count: 2,
     firstOccurredAt: "2026-09-20T10:00:00.000Z",
     lastOccurredAt: "2026-09-20T11:00:00.000Z",
+    status: "active",
+    resolutionTimestamp: null,
   };
   const handler = createBillingOperationsHandler({
     auth: { async authenticateAdmin() {} },
@@ -52,6 +54,65 @@ test("billing operations returns only the privacy-safe conflict projection", asy
   assert.deepEqual(body, { identityConflict: safe });
   assert.deepEqual(Object.keys(body.identityConflict).sort(), [
     "category", "count", "firstOccurredAt", "lastOccurredAt", "reason",
+    "resolutionTimestamp", "status",
   ]);
   assert.doesNotMatch(JSON.stringify(body), /customer|account|email|eventId|signature|payload/i);
+});
+
+test("billing operations resolution is admin-only", async () => {
+  let mutated = false;
+  const handler = createBillingOperationsHandler({
+    auth: { async authenticateAdmin() { throw Object.assign(new Error("Forbidden"), { status: 403 }); } },
+    getRepository: () => ({
+      async resolveIdentityConflict() { mutated = true; },
+    }),
+  });
+  const result = await handler(new Request("https://example.test/billing-operations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "resolve_identity_conflict", status: "resolved" }),
+  }), {});
+  assert.equal(result.status, 403);
+  assert.equal(mutated, false);
+});
+
+test("billing operations passes a privacy-safe version-bound resolution", async () => {
+  let received;
+  const summary = {
+    reason: "stripe_identity_conflict",
+    category: "subscription",
+    count: 3,
+    firstOccurredAt: "2026-09-20T10:00:00.000Z",
+    lastOccurredAt: "2026-09-20T12:00:00.000Z",
+    status: "resolved",
+    resolutionTimestamp: "2026-09-20T12:05:00.000Z",
+  };
+  const handler = createBillingOperationsHandler({
+    auth: { async authenticateAdmin() { return { user: { accountId: "operator-1" } }; } },
+    getRepository: () => ({
+      async resolveIdentityConflict(input) {
+        received = input;
+        return { outcome: "applied", summary };
+      },
+    }),
+  });
+  const result = await handler(new Request("https://example.test/billing-operations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "resolve_identity_conflict",
+      status: "resolved",
+      expectedCount: 3,
+      expectedLastOccurredAt: summary.lastOccurredAt,
+      customerId: "must-not-pass",
+    }),
+  }), {});
+  assert.equal(result.status, 200);
+  assert.deepEqual(received, {
+    status: "resolved",
+    expectedCount: 3,
+    expectedLastOccurredAt: summary.lastOccurredAt,
+    resolvedBy: "operator-1",
+  });
+  assert.deepEqual(await result.json(), { identityConflict: summary });
 });

@@ -156,6 +156,14 @@
 .eventInventory > div,.qualityInventory > div { display:flex; justify-content:space-between; gap:16px; padding:7px 0; border-top:1px solid var(--admin-border); }
 .eventInventory dt,.qualityInventory dt { color:#aeb4b0; font-size:9px; overflow-wrap:anywhere; }
 .eventInventory dd,.qualityInventory dd { margin:0; color:#e2c88e; font-size:10px; font-weight:800; }
+.identityConflict { display:grid; gap:10px; padding:13px; border:1px solid var(--admin-border); border-radius:9px; }
+.identityConflictHeader { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.identityConflictHeader h5 { margin:0; font-size:12px; }
+.identityConflictHeader strong { color:#e5b09a; font-size:9px; letter-spacing:.06em; text-transform:uppercase; }
+.identityConflictHeader strong[data-status=acknowledged],.identityConflictHeader strong[data-status=resolved] { color:#9fc2b5; }
+.identityConflictActions { display:flex; flex-wrap:wrap; gap:7px; }
+.identityConflictActions button { padding:7px 10px; border:1px solid #6f8d83; border-radius:6px; background:color-mix(in srgb,#6f8d83 20%,transparent); color:#cce2d8; font:inherit; font-size:9px; font-weight:800; }
+.identityConflictActions button:disabled { cursor:wait; opacity:.58; }
 @media (max-width:760px) {
   .deskHeader,.inventoryHeader,.productionHeader,.receiptsHeader,.workstationHeader,.audienceHeader { align-items:start; flex-direction:column; }
   .deskBoundary,.cutoff { width:100%; box-sizing:border-box; }
