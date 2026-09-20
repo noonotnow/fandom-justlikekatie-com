@@ -927,9 +927,9 @@ export const Collection: React.FC<Props> = ({
                         // Persist the render for this saved grid, fire-and-forget —
                         // the upload never blocks the download/share path.
                         const starData = starDataFromCollectionGrid(grid);
-                        setAccountNotice(await saveShareCard(starData, 'full', (blob) => {
+                        setAccountNotice(await saveShareCard(starData, 'standard', (blob) => {
                           const tier = classifyEditionTier(buildExportPayload(starData).chosen);
-                          void uploadExportedCard(grid.id, crypto.randomUUID(), blob, 'full', tier);
+                          void uploadExportedCard(grid.id, crypto.randomUUID(), blob, 'standard', tier);
                         }));
                       } catch (error) {
                         setAccountNotice(messageFrom(error, 'The grid could not be exported.'));

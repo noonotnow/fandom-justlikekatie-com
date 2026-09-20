@@ -39,6 +39,7 @@ export function collectionGridFromStar(
     actor: data.actorName,
     actorEn: data.actorShortNameEn,
     actorAccentColor: data.actorAccentColor,
+    ...(data.presentation ? { presentation: { ...data.presentation } } : {}),
     vibe: data.vibeLabel,
     vibeEn: data.vibeLabelEn,
     vibeEmoji: data.vibeEmoji,

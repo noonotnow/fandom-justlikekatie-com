@@ -38,7 +38,6 @@ test('square PNG exports preserve layout, attribution, MEDIA provenance, and Moo
     await page.route('**/.netlify/functions/image-proxy?*', async route => {
       const proxiedUrl = new URL(route.request().url()).searchParams.get('url');
       assert.ok(proxiedUrl, 'the image proxy request must name its source');
-      requestedMediaUrls.push(proxiedUrl);
       const index = Number(new URL(proxiedUrl).pathname.match(/fixture-(\d+)\.svg$/)?.[1]);
       assert.ok(Number.isInteger(index) && index >= 0 && index < 9, `unexpected fixture URL: ${proxiedUrl}`);
       await route.fulfill({
@@ -166,8 +165,7 @@ test('square PNG exports preserve layout, attribution, MEDIA provenance, and Moo
       const heading = rendered.textCalls.find(call => call.text === 'Fixture Actor · Moonlit Ink');
       assert.ok(heading && heading.y < dimension * 0.1, `${variant} heading must stay above the tile grid`);
       assert.equal(heading.color, '#9f9bea', `${variant} heading must use the approved Moonlit Ink accent`);
-      const attribution = rendered.textCalls.filter(call =>
-        call.text.startsWith('Sources:') || call.text.includes('Vibe Atlas · sRGB'));
+    const attribution = rendered.textCalls.find(call => call.text.startsWith('Sources: Fixture Actor · Publisher 1'));
       assert.equal(attribution.length, 2, `${variant} must wrap five long source credits deterministically`);
       attribution.forEach((line, index) => {
         assert.ok(line.y > dimension * 0.9 && line.y < dimension, `${variant} attribution line ${index + 1} must remain below the tiles`);
@@ -199,3 +197,102 @@ test('square PNG exports preserve layout, attribution, MEDIA provenance, and Moo
     await closeBrowserAndServer(browser, server);
   }
 });
+
+test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, and attribution', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const { browser, page } = await launchPageForServer(server);
+
+  try {
+    await page.addInitScript({ content: 'globalThis.__name = target => target;' });
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ user: null }),
+    }));
+    await page.route('**/.netlify/functions/image-proxy?*', async route => {
+      const proxiedUrl = new URL(route.request().url()).searchParams.get('url');
+      assert.ok(proxiedUrl, 'the image proxy request must name its source');
+      const index = Number(new URL(proxiedUrl).pathname.match(/fixture-(\d+)\.svg$/)?.[1]);
+      assert.ok(Number.isInteger(index) && index >= 0 && index < 9, `unexpected fixture URL: ${proxiedUrl}`);
+      await route.fulfill({
+        contentType: 'image/svg+xml',
+        headers: { 'access-control-allow-origin': '*' },
+        body: solidSvg(FIXTURE_COLORS[index]),
+      });
+    });
+    await page.goto(origin);
+
+    await page.evaluate(async ({ mediaOrigin, fixtureColors }) => {
+      const historyModulePath = '/src/utils/collectionHistoryModel.ts';
+      const collectionModulePath = '/src/utils/collectionDB.ts';
+      const history = await import(/* @vite-ignore */ historyModulePath);
+      const collection = await import(/* @vite-ignore */ collectionModulePath);
+      const deliveryUrls = fixtureColors.map((_: string, index: number) => `${mediaOrigin}/fixture-${index}.svg`);
+      const savedAt = '2026-09-20T12:00:00.000Z';
+      const data = {
+        actorId: 'fixture-actor',
+        actorName: 'Fixture Actor',
+        actorShortNameEn: 'Fixture Actor',
+        actorAccentColor: '#9f9bea',
+        vibeEmoji: '🌙',
+        vibeLabel: 'Moonlit Ink',
+        vibeLabelEn: 'Moonlit Ink',
+        vibeSubtitle: 'A saved Collection export fixture',
+        vibeSubtitleEn: 'A saved Collection export fixture',
+        rankedBatches: [{
+          query: 'fixture query',
+          results: deliveryUrls.map((thumbnail: string, index: number) => ({
+            title: `Fixture ${index + 1}`,
+            thumbnail,
+            link: `https://publisher.example.test/source-${index}`,
+            source: `Publisher ${index + 1}`,
+          })),
+          count: 9,
+          distinctSources: 9,
+          provider: 'fixture',
+        }],
+        date: '2026-09-20',
+        presentation: { paletteId: 'moonlit-ink', atmosphereId: 'moonlit-ink' },
+      };
+
+      const capture = {
+        width: 0,
+        height: 0,
+        background: [] as number[],
+        textCalls: [] as Array<{ text: string; color: string }>,
+      };
+    const rendered = await page.evaluate(() => (
+      globalThis as typeof globalThis & {
+        __collectionExportCapture: {
+          width: number;
+          height: number;
+          background: number[];
+          textCalls: Array<{ text: string; color: string }>;
+        };
+      }
+    ).__collectionExportCapture);
+
+    assert.equal(rendered.width, 1080);
+    assert.equal(rendered.height, 1080);
+    assert.deepEqual(rendered.background, [23, 24, 43, 255]);
+    assert.equal(
+      rendered.textCalls.find(call => call.text === 'Fixture Actor · Moonlit Ink')?.color,
+      '#9f9bea',
+      'the restored heading must retain the Moonlit Ink indigo',
+    );
+    const attribution = rendered.textCalls.find(call => call.text.startsWith('Sources: Fixture Actor · Publisher 1'));
+    assert.ok(attribution, 'the restored export must retain saved source attribution');
+    assert.equal(attribution.color, '#c9a96e', 'the restored attribution must retain the Moonlit Ink gold');
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
+
+    const downloadPromise = page.waitForEvent('download');
+
+        const context = this.getContext('2d');
+
+      const originalFillText = CanvasRenderingContext2D.prototype.fillText;
+
+      const originalToBlob = HTMLCanvasElement.prototype.toBlob;
+
+    const download = await downloadPromise;
