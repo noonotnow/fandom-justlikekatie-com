@@ -5,23 +5,34 @@ import {
   sendArchiveAccessNotification,
 } from "./lib/archive-access-operations.js";
 
-export default async (_req, context) => {
-  const store = getBlobStore("archive-access-operations", context);
-  const now = new Date();
-  try {
-    const health = await archiveAccessHealth(store, now);
-    await notifyArchiveAccessTransitions({
-      store,
-      health,
-      now,
-      notify: payload => sendArchiveAccessNotification({ payload }),
-    });
-  } catch (error) {
-    console.error("[archive-access] scheduled health notification failed", {
-      message: error instanceof Error ? error.message : "Unknown scheduled failure",
-    });
-  }
-  return new Response(null, { status: 204 });
-};
+export function createArchiveAccessHealthScheduledHandler({
+  getStore = context => getBlobStore("archive-access-operations", context),
+  getHealth = archiveAccessHealth,
+  notifyTransitions = notifyArchiveAccessTransitions,
+  notify = payload => sendArchiveAccessNotification({ payload }),
+  now = () => new Date(),
+  logger = console,
+} = {}) {
+  return async (_req, context) => {
+    try {
+      const store = getStore(context);
+      const generatedAt = now();
+      const health = await getHealth(store, generatedAt);
+      await notifyTransitions({
+        store,
+        health,
+        now: generatedAt,
+        notify,
+      });
+    } catch (error) {
+      logger.error("[archive-access] scheduled health notification failed", {
+        message: error instanceof Error ? error.message : "Unknown scheduled failure",
+      });
+    }
+    return new Response(null, { status: 204 });
+  };
+}
+
+export default createArchiveAccessHealthScheduledHandler();
 
 export const config = { schedule: "@hourly" };

@@ -15,6 +15,10 @@ import {
   recordArchiveAccessCheck,
   sendArchiveAccessNotification,
 } from "./archive-access-operations.js";
+import {
+  config as archiveAccessHealthSchedule,
+  createArchiveAccessHealthScheduledHandler,
+} from "../archive-access-health-scheduled.js";
 
 function store() {
   const values = new Map();
@@ -440,6 +444,57 @@ test("notification delivery failure never changes the health response", async ()
   assert.equal(body.status.billing, "warning");
   assert.deepEqual(body.notifications, []);
   assert.equal(errors.length, 1);
+});
+
+test("scheduled archive health runs hourly through shared transitions and isolates failures", async () => {
+  assert.equal(archiveAccessHealthSchedule.schedule, "@hourly");
+
+  const data = store();
+  const generatedAt = new Date("2026-09-20T12:30:00.000Z");
+  const health = { status: { billing: "warning", deniedAccess: "normal" } };
+  const calls = [];
+  const errors = [];
+  const handler = createArchiveAccessHealthScheduledHandler({
+    getStore: context => {
+      calls.push(["store", context]);
+      return data;
+    },
+    getHealth: async (...args) => {
+      calls.push(["health", ...args]);
+      return health;
+    },
+    notifyTransitions: async options => {
+      calls.push(["transitions", options]);
+      await options.notify({ signalCategory: "billing_delay" });
+    },
+    notify: async () => { throw new Error("delivery unavailable for private account"); },
+    now: () => generatedAt,
+    logger: { error: (...args) => errors.push(args) },
+  });
+  const context = { requestId: "scheduled-test" };
+
+  const deliveryFailure = await handler(new Request("https://example.test/scheduled"), context);
+
+  assert.equal(deliveryFailure.status, 204);
+  assert.deepEqual(calls[0], ["store", context]);
+  assert.deepEqual(calls[1], ["health", data, generatedAt]);
+  assert.equal(calls[2][0], "transitions");
+  assert.equal(calls[2][1].store, data);
+  assert.equal(calls[2][1].health, health);
+  assert.equal(calls[2][1].now, generatedAt);
+  assert.equal(errors.length, 1);
+  assert.equal(await deliveryFailure.text(), "");
+
+  const storageHandler = createArchiveAccessHealthScheduledHandler({
+    getStore: () => data,
+    getHealth: async () => { throw new Error("storage unavailable for private account"); },
+    logger: { error: (...args) => errors.push(args) },
+  });
+  const storageFailure = await storageHandler(new Request("https://example.test/scheduled"), {});
+
+  assert.equal(storageFailure.status, 204);
+  assert.equal(errors.length, 2);
+  assert.equal(await storageFailure.text(), "");
 });
 
 test("notification email contains aggregate operations data only", async () => {
