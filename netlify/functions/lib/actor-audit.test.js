@@ -6771,6 +6771,69 @@ test("diagnostic transfer outcomes are retained per signal and retirement filter
   assert.equal(retired.calibrationProfile.retiredSignalCount, 1);
 });
 
+test("signal retirement fails closed when its post-write strong read cannot verify the receipt", async () => {
+  for (const verificationFailure of ["missing", "conflicting"]) {
+    const { handler, store } = harness({ freshEvidenceOnRerun: true });
+    const vibeKey = vibeKeyFor(pairActor.id, 0);
+    const {
+      evidenceReceiptIds: [rescueReceiptId],
+      signalValue: sourceSignal,
+    } = await approveRepeatedCalibrationEvidence({
+      handler,
+      vibeKey,
+      adjustmentType: "class",
+      signalFamily: "sources",
+      selectCandidates: (rawResults, selectedSource) => {
+        const source = selectedSource || rawResults.at(-1).source;
+        return {
+          candidates: rawResults.filter(candidate => candidate.source === source),
+          selectionValue: source,
+        };
+      },
+    });
+    const protectedRecords = new Map(
+      [...store.records.entries()]
+        .filter(([key]) =>
+          !key.startsWith(auditRescueCalibrationSignalRetirementPrefix(pairActor.id, 0)))
+        .map(([key, value]) => [key, structuredClone(value)]),
+    );
+    const originalGet = store.get.bind(store);
+    store.get = async (key, options) => {
+      const value = await originalGet(key, options);
+      if (!key.startsWith(auditRescueCalibrationSignalRetirementPrefix(pairActor.id, 0))
+        || !store.records.has(key)) {
+        return value;
+      }
+      if (verificationFailure === "missing") return null;
+      return {
+        ...value,
+        retirementId: "conflicting-retirement-receipt",
+      };
+    };
+
+    const response = await handler(request("POST", {
+      action: "retire_rescue_signal",
+      actorId: pairActor.id,
+      vibeKey,
+      receiptId: rescueReceiptId,
+      signalFamily: "source",
+      signalValue: sourceSignal,
+      reason: "This source can no longer be verified as reliable.",
+    }), {});
+    const body = await response.json();
+
+    assert.equal(response.status, 409, `${verificationFailure}: ${JSON.stringify(body)}`);
+    assert.equal(
+      body.error,
+      "The immutable signal retirement receipt could not be verified.",
+      verificationFailure,
+    );
+    for (const [key, value] of protectedRecords) {
+      assert.deepEqual(store.records.get(key), value, `${verificationFailure}: ${key}`);
+    }
+  }
+});
+
 test("calibration remains discoverable and retireable after its source run leaves retained history", async () => {
   const { handler } = harness({ freshEvidenceOnRerun: true });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
