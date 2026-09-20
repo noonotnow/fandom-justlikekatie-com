@@ -82,6 +82,66 @@ test("publication safely merges archive metadata in newest-first order", async (
   );
 });
 
+test("simultaneous publications retry a catalogue conflict and preserve both editions", async () => {
+  const store = conditionalCatalogStore({ synchronizeInitialReads: 2 });
+  const edition = date => ({
+    date,
+    actorName: `Actor ${date}`,
+    vibeLabel: "氛围",
+    previewThumbnails: [],
+    access: "member",
+  });
+
+  await Promise.all([
+    updateArchiveCatalog(store, edition("2026-09-20"), () => "2026-09-20T04:00:00.000Z"),
+    updateArchiveCatalog(store, edition("2026-09-21"), () => "2026-09-21T04:00:00.000Z"),
+  ]);
+
+  const catalog = await store.get(ARCHIVE_CATALOG_KEY, { type: "json" });
+  assert.deepEqual(
+    archiveCatalogEditions(catalog).map(item => item.date),
+    ["2026-09-21", "2026-09-20"],
+  );
+  assert.equal(store.stats().conflicts, 1);
+});
+
+test("exhausted catalogue conflicts fail without replacing the authoritative catalogue", async () => {
+  const authoritative = {
+    schemaVersion: 1,
+    catalogVersion: 1,
+    kind: "vibe-atlas-archive-catalog",
+    editions: [{
+      date: "2026-09-20",
+      actorName: "Authoritative Actor",
+      vibeLabel: "氛围",
+      previewThumbnails: [],
+      access: "member",
+    }],
+    updatedAt: "2026-09-20T04:00:00.000Z",
+  };
+  const store = conditionalCatalogStore({
+    initial: authoritative,
+    rejectAllWrites: true,
+  });
+
+  await assert.rejects(
+    updateArchiveCatalog(store, {
+      date: "2026-09-21",
+      actorName: "Losing Actor",
+      vibeLabel: "氛围",
+      previewThumbnails: [],
+      access: "member",
+    }),
+    /archive catalogue could not be updated safely/,
+  );
+
+  assert.equal(store.stats().conflicts, 8);
+  assert.deepEqual(
+    await store.get(ARCHIVE_CATALOG_KEY, { type: "json" }),
+    authoritative,
+  );
+});
+
 test("publication refuses to merge into invalid archive metadata", async () => {
   const store = memoryStore({
     [ARCHIVE_CATALOG_KEY]: {
@@ -210,6 +270,57 @@ function memoryStore(entries) {
     },
     async setJSON(key, value) { values.set(key, structuredClone(value)); },
     async delete(key) { values.delete(key); },
+  };
+}
+
+function conditionalCatalogStore({
+  initial = null,
+  synchronizeInitialReads = 0,
+  rejectAllWrites = false,
+} = {}) {
+  let value = initial ? structuredClone(initial) : null;
+  let revision = initial ? 1 : 0;
+  let initialReads = 0;
+  let releaseInitialReads;
+  const initialReadBarrier = synchronizeInitialReads > 0
+    ? new Promise(resolve => { releaseInitialReads = resolve; })
+    : null;
+  let conflicts = 0;
+
+  return {
+    stats: () => ({ conflicts }),
+    async get(key, options) {
+      if (key !== ARCHIVE_CATALOG_KEY) return null;
+      return options?.type === "json" && value ? structuredClone(value) : value;
+    },
+    async getWithMetadata(key) {
+      if (key !== ARCHIVE_CATALOG_KEY) return { data: null };
+      const snapshot = {
+        data: value ? structuredClone(value) : null,
+        ...(revision ? { etag: `revision-${revision}` } : {}),
+      };
+      if (initialReadBarrier && initialReads < synchronizeInitialReads) {
+        initialReads += 1;
+        if (initialReads === synchronizeInitialReads) releaseInitialReads();
+        await initialReadBarrier;
+      }
+      return snapshot;
+    },
+    async setJSON(key, next, options = {}) {
+      assert.equal(key, ARCHIVE_CATALOG_KEY);
+      const matches = options.onlyIfMatch
+        ? options.onlyIfMatch === `revision-${revision}`
+        : options.onlyIfNew
+          ? value === null
+          : true;
+      if (rejectAllWrites || !matches) {
+        conflicts += 1;
+        return { modified: false };
+      }
+      value = structuredClone(next);
+      revision += 1;
+      return { modified: true, etag: `revision-${revision}` };
+    },
   };
 }
 
