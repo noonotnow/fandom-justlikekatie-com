@@ -1,5 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { getStore } from "@netlify/blobs";
+import { BlobsServer } from "@netlify/blobs/server";
 import {
   ARCHIVE_ACCESS_RETENTION_DAYS,
   archiveAccessHealth,
@@ -176,6 +181,37 @@ test("retention keeps the exact boundary and cleanup is idempotent", async () =>
 
   assert.equal(data.values.size, 1);
   assert.equal([...data.values.values()][0].timestamp, boundary.toISOString());
+});
+
+test("retention matches Netlify Blobs paginated listing and repeated deletion contracts", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "archive-access-blobs-"));
+  const server = new BlobsServer({ directory });
+  const { address } = await server.start();
+  t.after(async () => {
+    await server.stop();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const data = getStore({
+    edgeURL: address,
+    name: "archive-access-contract",
+    siteID: "test-site",
+    token: "test-token",
+  });
+  const now = new Date("2026-09-20T12:30:00.000Z");
+  const expired = new Date(now.getTime() - (ARCHIVE_ACCESS_RETENTION_DAYS + 1) * 24 * 60 * 60 * 1000);
+  const writes = Array.from({ length: 1_001 }, (_, index) =>
+    data.setJSON(
+      `archive-access:hour:${expired.toISOString().slice(0, 13)}:${expired.getTime()}:${index}`,
+      { timestamp: expired.toISOString(), outcome: "allowed", authenticated: true },
+    ));
+  await Promise.all(writes);
+
+  assert.equal(await pruneExpiredArchiveAccessChecks(data, now), 1_001);
+  assert.equal(await pruneExpiredArchiveAccessChecks(data, now), 0);
+  assert.deepEqual((await data.list()).blobs, []);
+  await assert.doesNotReject(data.delete(
+    `archive-access:hour:${expired.toISOString().slice(0, 13)}:${expired.getTime()}:0`,
+  ));
 });
 
 test("cleanup failures do not fail or distort the rolling report", async () => {
