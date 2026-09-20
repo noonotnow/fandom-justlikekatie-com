@@ -496,10 +496,24 @@ export const ActorPreflightLab: React.FC = () => {
       if (!contentType.includes('application/json') && !contentType.includes('+json')) {
         throw new Error('Editorial packet response was not valid JSON. Retry the download.');
       }
+      let packet:any;
       try {
-        await response.clone().json();
+        packet = await response.clone().json();
       } catch {
         throw new Error('Editorial packet response was not valid JSON. Retry the download.');
+      }
+      if (
+        !packet
+        || typeof packet !== 'object'
+        || Array.isArray(packet)
+        || packet.schemaVersion !== 1
+        || packet.exportMetadata?.readOnly !== true
+        || packet.exportMetadata?.type !== 'date-bounded-curation-calibration-audit'
+        || typeof packet.exportMetadata?.dateRange?.from !== 'string'
+        || typeof packet.exportMetadata?.dateRange?.to !== 'string'
+        || !Array.isArray(packet.runs)
+      ) {
+        throw new Error('Editorial packet response did not contain the expected review data. Retry the download.');
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
