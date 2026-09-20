@@ -320,6 +320,9 @@ function BillingIdentityConflict({
 }) {
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
+  const handlingHistory = Array.isArray(conflict?.handlingHistory)
+    ? conflict.handlingHistory as AnyRecord[]
+    : [];
 
   async function updateStatus(status: 'acknowledged' | 'resolved') {
     if (!conflict || busy) return;
@@ -366,6 +369,20 @@ function BillingIdentityConflict({
             <div><dt>Resolution timestamp</dt><dd>{formatDeliveryTime(conflict.resolutionTimestamp)}</dd></div>
           )}
         </dl>
+          {handlingHistory.length > 0 && (
+            <section className={styles.identityConflictHistory} aria-labelledby="billing-identity-conflict-history-title">
+              <h6 id="billing-identity-conflict-history-title">Handling history</h6>
+              <ol>
+                {handlingHistory.map((receipt, index) => (
+                  <li key={`${String(receipt.timestamp)}-${index}`}>
+                    <strong>{String(receipt.status)}</strong>
+                    <span>{formatDeliveryTime(receipt.timestamp)}</span>
+                    <span>{Number(receipt.coveredOccurrenceCount) || 0} occurrences covered</span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
           {conflict.status === 'active' && (
             <div className={styles.identityConflictActions}>
               <button type="button" disabled={Boolean(busy)} onClick={() => void updateStatus('acknowledged')}>

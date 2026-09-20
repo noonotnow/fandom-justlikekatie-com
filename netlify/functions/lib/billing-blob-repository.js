@@ -286,6 +286,8 @@ export function createBlobBillingRepository({ getStore, context }) {
           };
         }
         const resolvedAt = new Date().toISOString();
+        const existingHistory = validResolutionHistory(existing.data.resolutionHistory);
+        const legacyResolution = validResolution(existing.data.resolution);
         const record = {
           ...existing.data,
           schemaVersion: 2,
@@ -297,7 +299,11 @@ export function createBlobBillingRepository({ getStore, context }) {
             throughLastOccurredAt: expectedLastOccurredAt,
           },
           resolutionHistory: [
-            ...validResolutionHistory(existing.data.resolutionHistory),
+            ...(existingHistory.length
+              ? existingHistory
+              : legacyResolution
+                ? [legacyResolution]
+                : []),
             {
               status,
               resolvedAt,
@@ -495,6 +501,13 @@ function projectIdentityConflict(record) {
     && resolution.throughLastOccurredAt === lastOccurredAt
     ? resolution
     : null;
+  const storedHistory = validResolutionHistory(record.resolutionHistory);
+  const handlingHistory = (storedHistory.length ? storedHistory : resolution ? [resolution] : [])
+    .map(receipt => ({
+      status: receipt.status,
+      timestamp: receipt.resolvedAt,
+      coveredOccurrenceCount: Number(receipt.throughCount),
+    }));
   return {
     reason: "stripe_identity_conflict",
     category: record.eventCategory,
@@ -503,6 +516,7 @@ function projectIdentityConflict(record) {
     lastOccurredAt,
     status: currentResolution?.status || "active",
     resolutionTimestamp: currentResolution?.resolvedAt || null,
+    handlingHistory,
   };
 }
 

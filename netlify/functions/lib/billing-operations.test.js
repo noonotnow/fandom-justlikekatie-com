@@ -50,6 +50,13 @@ test("billing operations returns only the privacy-safe conflict projection", asy
     lastOccurredAt: "2026-09-20T11:00:00.000Z",
     status: "active",
     resolutionTimestamp: null,
+    handlingHistory: [
+      {
+        status: "acknowledged",
+        timestamp: "2026-09-20T10:30:00.000Z",
+        coveredOccurrenceCount: 1,
+      },
+    ],
   };
   const handler = createBillingOperationsHandler({
     auth: { async authenticateAdmin() {} },
@@ -63,10 +70,10 @@ test("billing operations returns only the privacy-safe conflict projection", asy
     receiptIndex: { status: "unavailable", releaseReady: false },
   });
   assert.deepEqual(Object.keys(body.identityConflict).sort(), [
-    "category", "count", "firstOccurredAt", "lastOccurredAt", "reason",
-    "resolutionTimestamp", "status",
+    "category", "count", "firstOccurredAt", "handlingHistory", "lastOccurredAt",
+    "reason", "resolutionTimestamp", "status",
   ]);
-  assert.doesNotMatch(JSON.stringify(body), /customer|account|email|eventId|signature|payload/i);
+  assert.doesNotMatch(JSON.stringify(body), /customer|account|email|eventId|signature|payload|resolvedBy|operator/i);
 });
 
 test("billing operations reports a healthy receipt index as release-ready", async () => {
@@ -151,6 +158,11 @@ test("billing operations passes a privacy-safe version-bound resolution", async 
     lastOccurredAt: "2026-09-20T12:00:00.000Z",
     status: "resolved",
     resolutionTimestamp: "2026-09-20T12:05:00.000Z",
+    handlingHistory: [{
+      status: "resolved",
+      timestamp: "2026-09-20T12:05:00.000Z",
+      coveredOccurrenceCount: 3,
+    }],
   };
   const handler = createBillingOperationsHandler({
     auth: { async authenticateAdmin() { return { user: { accountId: "operator-1" } }; } },

@@ -474,10 +474,11 @@ test("checkout identity conflicts use a distinct bounded operational record", as
     lastOccurredAt: operation.lastOccurredAt,
     status: "active",
     resolutionTimestamp: null,
+    handlingHistory: [],
   });
 });
 
-test("resolving an identity conflict retains occurrence history", async () => {
+test("resolving an identity conflict projects privacy-safe occurrence history", async () => {
   const { repository, store } = createRepository();
   const first = await repository.recordIdentityConflict({ eventCategory: "subscription" });
   const second = await repository.recordIdentityConflict({ eventCategory: "checkout" });
@@ -493,12 +494,17 @@ test("resolving an identity conflict retains occurrence history", async () => {
   assert.equal(result.summary.count, 2);
   assert.equal(result.summary.firstOccurredAt, first.firstOccurredAt);
   assert.equal(result.summary.lastOccurredAt, second.lastOccurredAt);
+  assert.deepEqual(result.summary.handlingHistory, [{
+    status: "resolved",
+    timestamp: result.summary.resolutionTimestamp,
+    coveredOccurrenceCount: 2,
+  }]);
   const stored = await store.get("operations/stripe-identity-conflict");
   assert.equal(stored.count, 2);
   assert.equal(stored.firstOccurredAt, first.firstOccurredAt);
   assert.equal(stored.lastOccurredAt, second.lastOccurredAt);
   assert.equal(stored.resolution.status, "resolved");
-  assert.doesNotMatch(JSON.stringify(result.summary), /operator-1|resolvedBy/);
+  assert.doesNotMatch(JSON.stringify(result.summary), /operator-1|resolvedBy|customer|account/i);
 });
 
 test("a concurrent new identity conflict stays active and cannot be resolved by a stale view", async () => {
@@ -515,6 +521,7 @@ test("a concurrent new identity conflict stays active and cannot be resolved by 
   assert.equal(result.summary.status, "active");
   assert.equal(result.summary.count, 2);
   assert.equal(result.summary.resolutionTimestamp, null);
+  assert.deepEqual(result.summary.handlingHistory, []);
 });
 
 test("a new occurrence reactivates a previously resolved aggregate", async () => {
@@ -548,6 +555,7 @@ test("a new occurrence reactivates a previously resolved aggregate", async () =>
   assert.equal(summary.firstOccurredAt, reviewed.firstOccurredAt);
   assert.equal(summary.lastOccurredAt, repeated.lastOccurredAt);
   assert.equal(summary.resolutionTimestamp, null);
+  assert.equal(summary.handlingHistory.length, 1);
   await repository.resolveIdentityConflict({
     status: "resolved",
     expectedCount: summary.count,
@@ -566,6 +574,17 @@ test("a new occurrence reactivates a previously resolved aggregate", async () =>
       { status: "acknowledged", throughCount: 1, resolvedBy: "operator-1" },
       { status: "resolved", throughCount: 3, resolvedBy: "operator-2" },
     ],
+  );
+  assert.deepEqual((await repository.identityConflictSummary()).handlingHistory.map(receipt => ({
+    status: receipt.status,
+    coveredOccurrenceCount: receipt.coveredOccurrenceCount,
+  })), [
+    { status: "acknowledged", coveredOccurrenceCount: 1 },
+    { status: "resolved", coveredOccurrenceCount: 3 },
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify((await repository.identityConflictSummary()).handlingHistory),
+    /operator-1|operator-2|resolvedBy|customer|account/i,
   );
   assert.deepEqual(stored.reactivationNotification, {
     throughCount: 2,
@@ -630,4 +649,83 @@ test("failed and abandoned notification claims can be retried", async () => {
   });
   assert.ok(recovered);
   assert.notEqual(recovered.claimId, retry.claimId);
+});
+
+test("legacy identity conflict resolutions remain visible without an append-only history", async () => {
+  const { repository, store } = createRepository();
+  await store.setJSON("operations/stripe-identity-conflict", {
+    schemaVersion: 1,
+    type: "billing_reconciliation_rejected",
+    reason: "stripe_identity_conflict",
+    eventCategory: "subscription",
+    count: 4,
+    firstOccurredAt: "2026-09-18T10:00:00.000Z",
+    lastOccurredAt: "2026-09-18T11:00:00.000Z",
+    resolution: {
+      status: "acknowledged",
+      resolvedAt: "2026-09-18T11:05:00.000Z",
+      resolvedBy: "private-operator",
+      throughCount: 4,
+      throughLastOccurredAt: "2026-09-18T11:00:00.000Z",
+    },
+  });
+
+  const summary = await repository.identityConflictSummary();
+  assert.equal(summary.status, "acknowledged");
+  assert.deepEqual(summary.handlingHistory, [{
+    status: "acknowledged",
+    timestamp: "2026-09-18T11:05:00.000Z",
+    coveredOccurrenceCount: 4,
+  }]);
+  assert.doesNotMatch(JSON.stringify(summary), /private-operator|resolvedBy/);
+});
+
+test("handling a reactivated legacy conflict preserves both privacy-safe history entries", async () => {
+  const { repository, store } = createRepository();
+  await store.setJSON("operations/stripe-identity-conflict", {
+    schemaVersion: 1,
+    type: "billing_reconciliation_rejected",
+    reason: "stripe_identity_conflict",
+    eventCategory: "subscription",
+    count: 4,
+    firstOccurredAt: "2026-09-18T10:00:00.000Z",
+    lastOccurredAt: "2026-09-18T11:00:00.000Z",
+    resolution: {
+      status: "acknowledged",
+      resolvedAt: "2026-09-18T11:05:00.000Z",
+      resolvedBy: "private-legacy-operator",
+      throughCount: 4,
+      throughLastOccurredAt: "2026-09-18T11:00:00.000Z",
+    },
+  });
+
+  const reactivated = await repository.recordIdentityConflict({ eventCategory: "checkout" });
+  const result = await repository.resolveIdentityConflict({
+    status: "resolved",
+    expectedCount: reactivated.count,
+    expectedLastOccurredAt: reactivated.lastOccurredAt,
+    resolvedBy: "private-current-operator",
+  });
+
+  assert.equal(result.outcome, "applied");
+  assert.deepEqual(result.summary.handlingHistory.map(receipt => ({
+    status: receipt.status,
+    timestamp: receipt.timestamp,
+    coveredOccurrenceCount: receipt.coveredOccurrenceCount,
+  })), [
+    {
+      status: "acknowledged",
+      timestamp: "2026-09-18T11:05:00.000Z",
+      coveredOccurrenceCount: 4,
+    },
+    {
+      status: "resolved",
+      timestamp: result.summary.resolutionTimestamp,
+      coveredOccurrenceCount: 5,
+    },
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify(result.summary),
+    /private-legacy-operator|private-current-operator|resolvedBy/,
+  );
 });
