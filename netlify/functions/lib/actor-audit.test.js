@@ -1965,7 +1965,10 @@ test("the audit surface is admin-only before any report store is read", async ()
   const { handler, store } = harness({ authorized: false });
   const response = await handler(request(), {});
   assert.equal(response.status, 403);
-  assert.equal(store.records.size, 0);
+  assert.deepEqual(
+    [...store.records.keys()].filter(key => !key.startsWith("diagnostics:cache-comparison:")),
+    [],
+  );
 });
 
 test("the private actor register includes every pairing without exposing reports publicly", async () => {
@@ -2496,7 +2499,10 @@ test("cache diagnostic compares normal and bypassed fetches for one frozen query
   assert.equal(payload.diagnostic.retrievalComparison.bypassed.occurrenceCount, 27);
   assert.equal(payload.diagnostic.retrievalComparison.uniqueYieldDelta, 0);
   assert.equal(getMaxConcurrentSearches(), 3);
-  assert.equal(store.records.size, 0);
+  assert.deepEqual(
+    [...store.records.keys()].filter(key => !key.startsWith("diagnostics:cache-comparison:")),
+    [],
+  );
 });
 
 test("cache diagnostic retains successful query sides and labels the exact failed cache mode", async () => {
@@ -2529,7 +2535,10 @@ test("cache diagnostic retains successful query sides and labels the exact faile
   assert.ok(payload.diagnostic.comparisons[0].normal);
   assert.ok(payload.diagnostic.comparisons[0].bypassed);
   assert.equal(getSearchCall(), 6);
-  assert.equal(store.records.size, 0);
+  assert.deepEqual(
+    [...store.records.keys()].filter(key => !key.startsWith("diagnostics:cache-comparison:")),
+    [],
+  );
 });
 
 test("cache diagnostic measures exact fresh additions and aggregate unique yield without saving evidence", async () => {
@@ -2561,7 +2570,10 @@ test("cache diagnostic measures exact fresh additions and aggregate unique yield
   assert.equal(diagnostic.retrievalComparison.normalOnlyUniqueCount, 27);
   assert.equal(diagnostic.retrievalComparison.sharedUniqueCount, 0);
   assert.equal(diagnostic.retrievalComparison.uniqueYieldDelta, 0);
-  assert.equal(store.records.size, 0);
+  assert.deepEqual(
+    [...store.records.keys()].filter(key => !key.startsWith("diagnostics:cache-comparison:")),
+    [],
+  );
 });
 
 test("cache diagnostic can be assembled from one-search serverless requests", async () => {
@@ -2586,6 +2598,7 @@ test("cache diagnostic can be assembled from one-search serverless requests", as
     scope: "representative",
     queryIndex: 0,
     cacheMode: "default",
+    comparisonId: manifest.comparisonId,
   }), {});
   const bypassedResponse = await handler(request("POST", {
     action: "cache_diagnostic_fetch",
@@ -2594,6 +2607,7 @@ test("cache diagnostic can be assembled from one-search serverless requests", as
     scope: "representative",
     queryIndex: 0,
     cacheMode: "refresh",
+    comparisonId: manifest.comparisonId,
   }), {});
   const normal = await normalResponse.json();
   const bypassed = await bypassedResponse.json();
@@ -2617,7 +2631,87 @@ test("cache diagnostic can be assembled from one-search serverless requests", as
   assert.equal(bypassed.cacheMode, "refresh");
   assert.equal(bypassed.search.cacheProvenance.bypassRequested, true);
   assert.equal(getSearchCall(), 2);
-  assert.equal(store.records.size, 0);
+  assert.equal(store.records.size, 1);
+});
+
+test("identical in-flight cache comparisons are rejected without consuming provider quota", async () => {
+  const { handler, getSearchCall } = harness({ searchDelayMs: 20 });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const manifestBody = {
+    action: "cache_diagnostic_manifest",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+  };
+  const firstManifestResponse = await handler(request("POST", manifestBody), {});
+  const firstManifest = (await firstManifestResponse.json()).diagnostic;
+  const duplicateManifestResponse = await handler(request("POST", manifestBody), {});
+  const duplicateManifest = await duplicateManifestResponse.json();
+
+  assert.equal(firstManifestResponse.status, 200);
+  assert.equal(duplicateManifestResponse.status, 409);
+  assert.match(duplicateManifest.error, /already running/);
+  assert.equal(getSearchCall(), 0);
+
+  const sideBody = {
+    action: "cache_diagnostic_fetch",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+    comparisonId: firstManifest.comparisonId,
+    queryIndex: 0,
+    cacheMode: "default",
+  };
+  const firstSidePromise = handler(request("POST", sideBody), {});
+  await new Promise(resolve => setTimeout(resolve, 5));
+  const duplicateSideResponse = await handler(request("POST", sideBody), {});
+  const firstSideResponse = await firstSidePromise;
+
+  assert.equal(firstSideResponse.status, 200);
+  assert.equal(duplicateSideResponse.status, 409);
+  assert.equal(getSearchCall(), 1);
+});
+
+test("cache comparison coordination keeps different scopes and frozen query identities independent", async () => {
+  const { handler, getSearchCall } = harness({
+    actorPacks: [pairActorWithAlternateVibe],
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const alternateVibeKey = vibeKeyFor(pairActor.id, 1);
+  const representative = await handler(request("POST", {
+    action: "cache_diagnostic_manifest",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+  }), {});
+  const full = await handler(request("POST", {
+    action: "cache_diagnostic_manifest",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "full",
+  }), {});
+  const alternateVibe = await handler(request("POST", {
+    action: "cache_diagnostic_manifest",
+    actorId: pairActor.id,
+    vibeKey: alternateVibeKey,
+    scope: "representative",
+  }), {});
+
+  assert.equal(representative.status, 200);
+  assert.equal(full.status, 200);
+  assert.equal(alternateVibe.status, 200);
+  const representativeDiagnostic = (await representative.json()).diagnostic;
+  const fullDiagnostic = (await full.json()).diagnostic;
+  const alternateVibeDiagnostic = (await alternateVibe.json()).diagnostic;
+  assert.notEqual(
+    representativeDiagnostic.comparisonId,
+    fullDiagnostic.comparisonId,
+  );
+  assert.notEqual(
+    fullDiagnostic.comparisonId,
+    alternateVibeDiagnostic.comparisonId,
+  );
+  assert.equal(getSearchCall(), 0);
 });
 
 test("cache diagnostic receipt reopens without searches and overwrites the bounded pairing scope", async () => {
@@ -2730,7 +2824,10 @@ test("cache diagnostic redacts signed display URLs and withholds metrics when id
   assert.equal(diagnostic.retrievalComparison.normal, null);
   assert.equal(diagnostic.retrievalComparison.bypassed, null);
   assert.equal(diagnostic.retrievalComparison.uniqueYieldDelta, null);
-  assert.equal(store.records.size, 0);
+  assert.deepEqual(
+    [...store.records.keys()].filter(key => !key.startsWith("diagnostics:cache-comparison:")),
+    [],
+  );
 });
 
 test("bounded query-repair experiment exposes only server-derived baseline and approved alternatives", async () => {

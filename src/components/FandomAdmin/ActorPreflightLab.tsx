@@ -240,7 +240,7 @@ export const ActorPreflightLab: React.FC = () => {
         const prior=previous[queryIndex]?.query===query?previous[queryIndex]:{query};
         const fetchSide=async(cacheMode:'default'|'refresh')=>{
           try {
-            const result=await api({action:'cache_diagnostic_fetch',actorId,vibeKey,scope,queryIndex,cacheMode});
+            const result=await api({action:'cache_diagnostic_fetch',actorId,vibeKey,scope,comparisonId:manifest.comparisonId,queryIndex,cacheMode});
             return {search:result.search,error:null};
           } catch(error:any) {
             return {search:null,error:error?.message||'Search request failed.'};

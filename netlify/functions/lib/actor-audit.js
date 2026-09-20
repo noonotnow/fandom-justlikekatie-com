@@ -106,6 +106,8 @@ const MAX_RAW_RESULTS = 36;
 const MAX_IDENTITY_ITEMS = 36;
 const MAX_FEEDBACK_EVENTS = 72;
 const MAX_FEEDBACK_NOTE_LENGTH = 400;
+
+const CACHE_DIAGNOSTIC_RESERVATION_MS = 10 * 60 * 1000;
 const MISPRINT_RECEIPT_CATALOG_KEY = "vibeAtlas:misprint-receipt-catalog:v1";
 const RESCUE_CALIBRATION_VERSION = 1;
 const MIN_REUSABLE_SIGNAL_DELTA = 0.15;
@@ -538,15 +540,52 @@ export function createActorAuditHandler({
           calibrationProfile,
           { baseLimit: scope === "representative" ? 3 : null },
         );
-        const comparisons = await Promise.all(frozenQueries.map(async query => {
+        const reservation = await reserveCacheDiagnosticComparison(
+          store,
+          pair,
+          scope,
+          frozenQueries,
+          now,
+        );
+        if (!reservation.acquired) {
+          return json(409, {
+            error: "An identical cache comparison is already running. Wait for it to finish before starting another.",
+          });
+        }
+        const comparisons = await Promise.all(frozenQueries.map(async (query, queryIndex) => {
           const settleSearch = async cacheMode => {
+            const claim = await claimCacheDiagnosticSide(
+              store,
+              pair,
+              scope,
+              frozenQueries,
+              reservation.record.comparisonId,
+              queryIndex,
+              cacheMode,
+              now,
+            );
+            if (!claim.claimed) {
+              return { status: "rejected", reason: new Error(claim.error) };
+            }
+            let succeeded = false;
             try {
+              const value = await searchOneQuery(query, { debug: true, cacheMode });
+              succeeded = true;
               return {
                 status: "fulfilled",
-                value: await searchOneQuery(query, { debug: true, cacheMode }),
+                value,
               };
             } catch (reason) {
               return { status: "rejected", reason };
+            } finally {
+              await finishCacheDiagnosticSide(
+                store,
+                claim,
+                queryIndex,
+                cacheMode,
+                succeeded,
+                now,
+              );
             }
           };
           const normalResult = await settleSearch("default");
@@ -599,6 +638,18 @@ export function createActorAuditHandler({
           calibrationProfile,
           { baseLimit: scope === "representative" ? 3 : null },
         );
+        const reservation = await reserveCacheDiagnosticComparison(
+          store,
+          pair,
+          scope,
+          frozenQueries,
+          now,
+        );
+        if (!reservation.acquired) {
+          return json(409, {
+            error: "An identical cache comparison is already running. Wait for it to finish before starting another.",
+          });
+        }
         return json(200, {
           diagnostic: {
             schemaVersion: 2,
@@ -607,6 +658,7 @@ export function createActorAuditHandler({
             vibeKey: pair.vibeKey,
             scope,
             frozenQueries,
+            comparisonId: reservation.record.comparisonId,
           },
         });
       }
@@ -635,7 +687,38 @@ export function createActorAuditHandler({
         );
         const query = frozenQueries[queryIndex];
         if (!query) return json(400, { error: "Diagnostic query index is out of range." });
-        const search = await searchOneQuery(query, { debug: true, cacheMode });
+        const comparisonId = boundedText(input.comparisonId, 160);
+        if (!comparisonId) {
+          return json(400, { error: "Diagnostic comparison identifier is required." });
+        }
+        const claim = await claimCacheDiagnosticSide(
+          store,
+          pair,
+          scope,
+          frozenQueries,
+          comparisonId,
+          queryIndex,
+          cacheMode,
+          now,
+        );
+        if (!claim.claimed) {
+          return json(claim.status, { error: claim.error });
+        }
+        let search;
+        let succeeded = false;
+        try {
+          search = await searchOneQuery(query, { debug: true, cacheMode });
+          succeeded = true;
+        } finally {
+          await finishCacheDiagnosticSide(
+            store,
+            claim,
+            queryIndex,
+            cacheMode,
+            succeeded,
+            now,
+          );
+        }
         return json(200, {
           diagnosticOnly: true,
           actorId: pair.actor.id,
@@ -7661,6 +7744,16 @@ function parseScope(value) {
   return value === "representative" || value === "full" ? value : null;
 }
 
+function cacheDiagnosticCoordinationKey(pair, scope, frozenQueries) {
+  const identity = JSON.stringify({
+    version: CACHE_DIAGNOSTIC_COORDINATION_VERSION,
+    actorId: pair.actor.id,
+    vibeKey: pair.vibeKey,
+    scope,
+    frozenQueries,
+  });
+  return `diagnostics:cache-comparison:${createHash("sha256").update(identity).digest("hex")}`;
+}
 function boundedText(value, max) {
   if (value === undefined) return "";
   return typeof value === "string" && value.length <= max ? value.trim() : null;
@@ -7799,6 +7892,14 @@ function approvedCalibrationProfile(profile) {
   };
 }
 
+async function cacheDiagnosticCoordinationEntry(store, key) {
+  if (typeof store.getWithMetadata === "function") {
+    return store.getWithMetadata(key, { type: "json", consistency: "strong" });
+  }
+  const data = await store.get(key, { type: "json", consistency: "strong" });
+  return data ? { data, etag: null } : null;
+}
+
 function boundedCacheProvenance(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return Object.fromEntries(Object.entries(value).slice(0, 24).flatMap(([key, item]) => {
@@ -7809,3 +7910,121 @@ function boundedCacheProvenance(value) {
     return [];
   }));
 }
+
+async function claimCacheDiagnosticSide(
+  store,
+  pair,
+  scope,
+  frozenQueries,
+  comparisonId,
+  queryIndex,
+  cacheMode,
+  now,
+) {
+  const key = cacheDiagnosticCoordinationKey(pair, scope, frozenQueries);
+  const sideKey = `${queryIndex}:${cacheMode}`;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const entry = await cacheDiagnosticCoordinationEntry(store, key);
+    const timestamp = now();
+    if (
+      !entry?.data
+      || entry.data.comparisonId !== comparisonId
+      || Date.parse(entry.data.expiresAt) <= timestamp.getTime()
+    ) {
+      return {
+        claimed: false,
+        status: 409,
+        error: "This cache comparison reservation is no longer active. Start a new comparison.",
+      };
+    }
+    const existingStatus = entry.data.sides?.[sideKey]?.status;
+    if (existingStatus === "running" || existingStatus === "complete") {
+      return {
+        claimed: false,
+        status: 409,
+        error: "This cache comparison request is already running or complete.",
+      };
+    }
+    const record = {
+      ...entry.data,
+      sides: {
+        ...entry.data.sides,
+        [sideKey]: { status: "running", startedAt: timestamp.toISOString() },
+      },
+    };
+    const write = await store.setJSON(
+      key,
+      record,
+      entry.etag ? { onlyIfMatch: entry.etag } : {},
+    );
+    if (write?.modified !== false) return { claimed: true, key, comparisonId };
+  }
+  return {
+    claimed: false,
+    status: 409,
+    error: "This cache comparison request was claimed concurrently. Wait before retrying.",
+  };
+}
+
+async function finishCacheDiagnosticSide(store, claim, queryIndex, cacheMode, succeeded, now) {
+  const sideKey = `${queryIndex}:${cacheMode}`;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const entry = await cacheDiagnosticCoordinationEntry(store, claim.key);
+    if (!entry?.data || entry.data.comparisonId !== claim.comparisonId) return;
+    const timestamp = now();
+    const sides = {
+      ...entry.data.sides,
+      [sideKey]: {
+        status: succeeded ? "complete" : "failed",
+        finishedAt: timestamp.toISOString(),
+      },
+    };
+    const completedSideCount = Object.values(sides)
+      .filter(side => side?.status === "complete").length;
+    const record = {
+      ...entry.data,
+      sides,
+      expiresAt: completedSideCount >= entry.data.expectedSideCount
+        ? timestamp.toISOString()
+        : entry.data.expiresAt,
+    };
+    const write = await store.setJSON(
+      claim.key,
+      record,
+      entry.etag ? { onlyIfMatch: entry.etag } : {},
+    );
+    if (write?.modified !== false) return;
+  }
+}
+
+async function reserveCacheDiagnosticComparison(store, pair, scope, frozenQueries, now) {
+  const key = cacheDiagnosticCoordinationKey(pair, scope, frozenQueries);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const entry = await cacheDiagnosticCoordinationEntry(store, key);
+    const timestamp = now();
+    if (entry?.data && Date.parse(entry.data.expiresAt) > timestamp.getTime()) {
+      return { acquired: false, record: entry.data };
+    }
+    const record = {
+      schemaVersion: CACHE_DIAGNOSTIC_COORDINATION_VERSION,
+      comparisonId: randomUUID(),
+      actorId: pair.actor.id,
+      vibeKey: pair.vibeKey,
+      scope,
+      frozenQueriesHash: createHash("sha256").update(JSON.stringify(frozenQueries)).digest("hex"),
+      expectedSideCount: frozenQueries.length * 2,
+      sides: {},
+      createdAt: timestamp.toISOString(),
+      expiresAt: new Date(timestamp.getTime() + CACHE_DIAGNOSTIC_RESERVATION_MS).toISOString(),
+    };
+    const write = await store.setJSON(
+      key,
+      record,
+      entry?.etag ? { onlyIfMatch: entry.etag } : { onlyIfNew: true },
+    );
+    if (write?.modified !== false) return { acquired: true, key, record };
+  }
+  return { acquired: false, record: null };
+}
+
+const CACHE_DIAGNOSTIC_COORDINATION_VERSION = 1;
