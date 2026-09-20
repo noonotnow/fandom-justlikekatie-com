@@ -276,7 +276,7 @@ test('Operator Console keeps unverified saved grids disabled', { timeout: 60_000
 for (const browserEngine of BROWSER_ENGINES) {
   test(`Operator Console sends one direct grid source and opens the Workstation draft in ${browserEngine.name}`, { timeout: 60_000 }, async () => {
     const { server, origin } = await startApp();
-    const browser = await launchBrowser();
+    const browser = await launchBrowser(browserEngine.type);
     const page = await browser.newPage();
     let createRequests = 0;
 

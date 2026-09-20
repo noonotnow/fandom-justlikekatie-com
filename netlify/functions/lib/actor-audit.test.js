@@ -987,6 +987,95 @@ test("concurrent visual judgments for different tokens preserve both receipts th
   );
 });
 
+test("visual judgments remain recoverable when receipt index contention exhausts every retry", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const runBody = await runResponse.json();
+  const runKey = auditRunKey(pairActor.id, 0, runBody.currentRun.runId);
+  const run = structuredClone(store.records.get(runKey));
+  run.calibrationAnalysis = {
+    classificationBasis: "blind_to_selection_and_publication_outcome_metadata_proxy",
+    candidates: [{
+      candidateId: "candidate-exhausted-index-retries",
+      occurrenceId: "3:4",
+      query: "hidden exhausted retries query",
+      thumbnail: "https://images.example/exhausted-index-retries.jpg",
+      visualClass: "supporting",
+      classificationMethod: "promise_evidence_proxy",
+      selected: false,
+      dropReason: "promise_not_fulfilled",
+    }],
+  };
+  run.strongestEvent = null;
+  store.records.set(runKey, structuredClone(run));
+
+  const pendingResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const pending = await pendingResponse.json();
+  const judgmentToken = pending.currentRun.visualJudgmentQueue
+    .find(item => item.thumbnail.endsWith("/exhausted-index-retries.jpg")).judgmentToken;
+  const receiptId = `visual-${judgmentToken}`;
+  const receiptKey = auditVisualJudgmentKey(pairActor.id, 0, run.runId, receiptId);
+  const indexKey = auditVisualJudgmentIndexKey(pairActor.id, 0, run.runId);
+  const submission = {
+    action: "record_visual_judgment",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: run.runId,
+    judgmentToken,
+    classification: "core",
+  };
+
+  const originalSetJSON = store.setJSON.bind(store);
+  let contendedIndexWrites = 0;
+  store.setJSON = async (key, value, options) => {
+    if (key === indexKey) {
+      contendedIndexWrites += 1;
+      return { modified: false };
+    }
+    return originalSetJSON(key, value, options);
+  };
+
+  const contendedResponse = await handler(request("POST", submission), {});
+  const contendedBody = await contendedResponse.json();
+  assert.equal(contendedResponse.status, 503);
+  assert.deepEqual(contendedBody, {
+    error: "The judgment was saved, but its receipt index is busy. Retry to create a complete receipt.",
+  });
+  assert.equal(contendedIndexWrites, 8);
+  assert.equal(store.records.has(indexKey), false);
+  const immutableReceipt = structuredClone(store.records.get(receiptKey));
+  assert.deepEqual(immutableReceipt, {
+    schemaVersion: 1,
+    receiptId,
+    runId: run.runId,
+    sourceOccurrenceId: "3:4",
+    classification: "core",
+    judgmentMethod: "blind_image_only",
+    judgedAt: immutableReceipt.judgedAt,
+    judgedBy: "operator-1",
+    productionScoringChanged: false,
+  });
+  assert.equal(Number.isNaN(Date.parse(immutableReceipt.judgedAt)), false);
+
+  store.setJSON = originalSetJSON;
+  const retryResponse = await handler(request("POST", submission), {});
+  const retryBody = await retryResponse.json();
+  assert.equal(retryResponse.status, 200, JSON.stringify(retryBody));
+  assert.deepEqual(store.records.get(indexKey).receiptIds, [receiptId]);
+  assert.deepEqual(
+    retryBody.currentRun.humanVisualJudgments.map(receipt => receipt.receiptId),
+    [receiptId],
+  );
+  assert.deepEqual(store.records.get(receiptKey), immutableReceipt);
+});
+
 test("human versus proxy comparison exposes stage and class transitions without masking sampled subgroup disagreement", async () => {
   const { handler, store } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
