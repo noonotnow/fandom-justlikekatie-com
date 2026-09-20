@@ -1947,6 +1947,9 @@ async function configureNetwork(page: Page,
         delete retainedRun.queryCount
 ;
 
+        if (partialRetrievalRepetition) delete retainedRun.rawResults
+;
+
         if (partialRetrievalRepetition) withPartialRetrievalRepetition(retainedRun)
 ;
 
@@ -1980,6 +1983,9 @@ async function configureNetwork(page: Page,
 ;
 
         if (partialCalibrationProofMetrics) withoutCalibrationProofMetrics(requestedLegacyRun)
+;
+
+        if (partialRetrievalRepetition) requestedLegacyRun.rawResults = []
 ;
 
         if (partialRetrievalRepetition) withPartialRetrievalRepetition(requestedLegacyRun)
@@ -4235,6 +4241,26 @@ test('partial retrieval receipts distinguish unavailable counts from recorded ze
 ).waitFor()
 ;
 
+    assert.equal(
+      await page.getByText('displayable retained images',
+{
+ exact: true
+}
+).locator('xpath=preceding-sibling::strong[1]').textContent(),
+      'Unavailable',
+    )
+;
+
+    assert.equal(
+      await page.getByText('retained results',
+{
+ exact: true
+}
+).locator('xpath=preceding-sibling::strong[1]').textContent(),
+      'Unavailable',
+    )
+;
+
     assert.deepEqual((await retainedReceipt.locator('strong').allTextContents()).slice(0, 4), ['7', 'Unavailable', '5', '0'])
 ;
 
@@ -4319,6 +4345,26 @@ test('partial retrieval receipts distinguish unavailable counts from recorded ze
  exact: true 
 }
 ).waitFor()
+;
+
+    assert.equal(
+      await page.getByText('displayable retained images',
+{
+ exact: true
+}
+).locator('xpath=preceding-sibling::strong[1]').textContent(),
+      '0',
+    )
+;
+
+    assert.equal(
+      await page.getByText('retained results',
+{
+ exact: true
+}
+).locator('xpath=preceding-sibling::strong[1]').textContent(),
+      '0',
+    )
 ;
 
     assert.deepEqual((await legacyReceipt.locator('strong').allTextContents()).slice(0, 4), ['7', 'Unavailable', '5', '0'])
