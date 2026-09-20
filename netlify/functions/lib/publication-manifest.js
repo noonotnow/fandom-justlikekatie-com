@@ -591,6 +591,29 @@ async function recordPublicationActorIndexRepair(store, event) {
   }
 }
 
+function isPublicationActorIndexRepairEvent(event) {
+  return Boolean(
+    event
+    && typeof event === "object"
+    && typeof event.attemptedAt === "string"
+    && Number.isFinite(Date.parse(event.attemptedAt))
+    && ["missing", "invalid", "stale", "read_failed", "verification_failed"].includes(event.reason)
+    && ["rebuilt", "fallback_scan", "failed"].includes(event.outcome)
+  );
+}
+
+function unavailablePublicationActorIndexRepairHealth() {
+  return {
+    status: "unavailable",
+    warning: true,
+    windowHours: 24,
+    attemptCount: 0,
+    failedAttemptCount: 0,
+    lastAttemptAt: null,
+    lastOutcome: null,
+  };
+}
+
 async function readPublicationActorIndexRepairHealth(store, now) {
   try {
     const record = await store.get(publicationActorIndexRepairKey(), {
@@ -598,10 +621,20 @@ async function readPublicationActorIndexRepairHealth(store, now) {
       consistency: "strong",
     });
     const nowAt = Date.parse(asTimestamp(now()));
-    const recentEvents = (Array.isArray(record?.events) ? record.events : [])
+    if (!Number.isFinite(nowAt)) {
+      return unavailablePublicationActorIndexRepairHealth();
+    }
+    if (record !== null && record !== undefined && (
+      record?.schemaVersion !== 1
+      || record?.kind !== "vibe-atlas-publication-actor-index-repair-health"
+      || !Array.isArray(record?.events)
+      || !record.events.every(isPublicationActorIndexRepairEvent)
+    )) {
+      return unavailablePublicationActorIndexRepairHealth();
+    }
+    const recentEvents = (record?.events || [])
       .filter(event => (
-        Number.isFinite(Date.parse(event?.attemptedAt))
-        && nowAt - Date.parse(event.attemptedAt) <= PUBLICATION_ACTOR_INDEX_REPAIR_WINDOW_MS
+        nowAt - Date.parse(event.attemptedAt) <= PUBLICATION_ACTOR_INDEX_REPAIR_WINDOW_MS
         && nowAt >= Date.parse(event.attemptedAt)
       ));
     const lastEvent = recentEvents.at(-1) || null;
@@ -616,15 +649,7 @@ async function readPublicationActorIndexRepairHealth(store, now) {
       lastOutcome: lastEvent?.outcome || null,
     };
   } catch {
-    return {
-      status: "healthy",
-      warning: false,
-      windowHours: 24,
-      attemptCount: 0,
-      failedAttemptCount: 0,
-      lastAttemptAt: null,
-      lastOutcome: null,
-    };
+    return unavailablePublicationActorIndexRepairHealth();
   }
 }
 

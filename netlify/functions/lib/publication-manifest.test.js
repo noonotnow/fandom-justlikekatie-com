@@ -698,6 +698,61 @@ test("actor index repair health stays quiet once and warns on repeated or failed
   assert.equal(store.records.get(publicationActorIndexRepairKey()).events.at(-1).outcome, "fallback_scan");
 });
 
+test("actor index repair health is unavailable for malformed stored events", async () => {
+  const now = () => "2026-08-31T04:00:00.000Z";
+  const malformedEvents = [
+    { reason: "missing", outcome: "rebuilt" },
+    { attemptedAt: 42, reason: "missing", outcome: "rebuilt" },
+    { attemptedAt: "not-a-date", reason: "missing", outcome: "rebuilt" },
+    { attemptedAt: "2026-08-31T03:00:00.000Z", reason: "missing" },
+  ];
+
+  for (const event of malformedEvents) {
+    const store = memoryStore();
+    await rebuildPublicationActorIndex(store, { now });
+    await store.setJSON(publicationActorIndexRepairKey(), {
+      schemaVersion: 1,
+      kind: "vibe-atlas-publication-actor-index-repair-health",
+      updatedAt: now(),
+      events: [event],
+    });
+
+    const result = await readLatestPublicationDatesByActorWithHealth(store, { now });
+    assert.deepEqual(result.repairHealth, {
+      status: "unavailable",
+      warning: true,
+      windowHours: 24,
+      attemptCount: 0,
+      failedAttemptCount: 0,
+      lastAttemptAt: null,
+      lastOutcome: null,
+    });
+  }
+});
+
+test("actor index repair health is unavailable for invalid summary inputs", async () => {
+  const store = memoryStore();
+  await rebuildPublicationActorIndex(store);
+  await store.setJSON(publicationActorIndexRepairKey(), {
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health",
+    updatedAt: "2026-08-31T04:00:00.000Z",
+    events: [],
+  });
+
+  const result = await readLatestPublicationDatesByActorWithHealth(store, {
+    now: () => "invalid-window-end",
+  });
+  assert.equal(result.repairHealth.status, "unavailable");
+  assert.equal(result.repairHealth.warning, true);
+  assert.equal(Number.isFinite(result.repairHealth.windowHours), true);
+  assert.equal(result.repairHealth.windowHours >= 0, true);
+  assert.equal(Number.isFinite(result.repairHealth.attemptCount), true);
+  assert.equal(result.repairHealth.attemptCount >= 0, true);
+  assert.equal(Number.isFinite(result.repairHealth.failedAttemptCount), true);
+  assert.equal(result.repairHealth.failedAttemptCount >= 0, true);
+});
+
 test("a later complete listing repairs an older manifest omitted during bootstrap", async () => {
   const store = memoryStore();
   const manifest = storedPublicationManifest("2026-07-01", "actor-a");
