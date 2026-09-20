@@ -13,8 +13,10 @@ const LONG_PUBLISHERS = [
   'The Museum of East Asian Television History and Production Design',
   'The Worldwide Federation of Entertainment Photography Collections',
 ];
+const LONG_ACTOR_NAME = 'The Exceptionally Celebrated International Star of Moonlit Historical Drama';
+const LONG_VIBE_NAME = 'An Impossibly Elaborate Midnight Court Intrigue Beneath Ten Thousand Lanterns';
 
-test('portrait and teaser exports bound five long source credits below their grids', { timeout: 60_000 }, async () => {
+test('portrait and teaser exports bound long source credits and edition details below their grids', { timeout: 60_000 }, async () => {
   const { server, origin } = await startViteTestServer();
   const { browser, page } = await launchPageForServer(server);
 
@@ -27,17 +29,17 @@ test('portrait and teaser exports bound five long source credits below their gri
     }));
     await page.goto(origin);
 
-    const rendered = await page.evaluate(async publishers => {
+    const rendered = await page.evaluate(async ({ publishers, actorName, vibeName }) => {
       const exportModulePath = '/src/utils/exportCanvas.ts';
       const exports = await import(/* @vite-ignore */ exportModulePath);
       const data = {
         actorId: 'fixture-actor',
-        actorName: 'Fixture Actor',
-        actorShortNameEn: 'Fixture Actor',
+        actorName,
+        actorShortNameEn: actorName,
         actorAccentColor: '#9f9bea',
         vibeEmoji: '🌙',
-        vibeLabel: 'Moonlit Ink',
-        vibeLabelEn: 'Moonlit Ink',
+        vibeLabel: vibeName,
+        vibeLabelEn: vibeName,
         vibeSubtitle: 'A browser-rendered export fixture',
         vibeSubtitleEn: 'A browser-rendered export fixture',
         rankedBatches: [{
@@ -79,7 +81,7 @@ test('portrait and teaser exports bound five long source credits below their gri
       };
 
       return { portrait: await render('full'), teaser: await render('teaser') };
-    }, LONG_PUBLISHERS);
+    }, { publishers: LONG_PUBLISHERS, actorName: LONG_ACTOR_NAME, vibeName: LONG_VIBE_NAME });
 
     for (const [variant, canvas, gridBottom, footerTop] of [
       ['portrait', rendered.portrait, 1160, 1254],
@@ -95,6 +97,15 @@ test('portrait and teaser exports bound five long source credits below their gri
         assert.ok(line.x - line.width / 2 >= 0, `${variant} credit line ${index + 1} must stay inside the left canvas edge`);
         assert.ok(line.x + line.width / 2 <= canvas.width, `${variant} credit line ${index + 1} must stay inside the right canvas edge`);
       });
+
+      const editionDetails = canvas.calls.filter(call => call.text.startsWith('2026-09-20 · '));
+      assert.equal(editionDetails.length, 1, `${variant} must draw one edition-details line`);
+      const edition = editionDetails[0];
+      assert.ok(edition.text.endsWith('…'), `${variant} overflowing edition details must end with an ellipsis`);
+      assert.ok(edition.y > credits.at(-1)!.y, `${variant} edition details must remain below source credits`);
+      assert.ok(edition.y < canvas.height - 34, `${variant} edition details must remain above final micro-copy`);
+      assert.ok(edition.x - edition.width / 2 >= 0, `${variant} edition details must stay inside the left canvas edge`);
+      assert.ok(edition.x + edition.width / 2 <= canvas.width, `${variant} edition details must stay inside the right canvas edge`);
     }
   } finally {
     await closeBrowserAndServer(browser, server);

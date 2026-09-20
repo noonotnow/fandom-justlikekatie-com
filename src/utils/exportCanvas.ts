@@ -728,7 +728,7 @@ async function renderFullExportCanvas(payload: ExportPayload): Promise<HTMLCanva
 
   ctx.font = '400 17px "Inter", "Noto Sans SC", sans-serif';
   ctx.fillStyle = colors.textDim;
-  ctx.fillText(editionStamp.text, cx, EXPORT_CARD_H - 68);
+  ctx.fillText(truncateCanvasText(ctx, editionStamp.text, contentW), cx, EXPORT_CARD_H - 68);
 
   ctx.font = '400 15px "Inter", "Noto Sans SC", sans-serif';
   ctx.fillStyle = hexToRgba(colors.textDarker, 0.85);
@@ -875,7 +875,7 @@ async function renderTeaserExportCanvas(payload: ExportPayload): Promise<HTMLCan
 
   ctx.font = '400 15px "Inter", "Noto Sans SC", sans-serif';
   ctx.fillStyle = colors.textDim;
-  ctx.fillText(editionStamp.text, cx, EXPORT_TEASER_H - 60);
+  ctx.fillText(truncateCanvasText(ctx, editionStamp.text, contentW), cx, EXPORT_TEASER_H - 60);
 
   ctx.font = '400 14px "Inter", "Noto Sans SC", sans-serif';
   ctx.fillStyle = hexToRgba(colors.textDarker, 0.85);
