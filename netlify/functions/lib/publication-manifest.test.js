@@ -58,11 +58,16 @@ test("public projections are explicit allowlists with stable canonical paths", (
   assert.equal(directory.length, 1);
   assert.equal(directory[0].path, "/vibe-atlas/actors/liu-xueyi/");
   assert.equal(directory[0].editions[0].path, projection.path);
+  assert.deepEqual(manifestPayload(manifest).publicRecord, {
+    actorPath: "/vibe-atlas/actors/liu-xueyi/",
+    editionPath: "/vibe-atlas/editions/2026-09-03/liu-xueyi/",
+  });
 });
 
 test("public indexability fails closed for incomplete editorial or MEDIA records", () => {
   const manifest = storedPublicationManifest("2026-09-03", "liu-xueyi");
   assert.equal(isIndexablePublicationManifest(manifest), false);
+  assert.equal(manifestPayload(manifest).publicRecord, undefined);
   manifest.vibe.subtitleEn = "A beautiful ache held in perfect stillness.";
   manifest.vibe.supportingCopyEn = "A substantial original editorial context for this approved edition.";
   assert.equal(isIndexablePublicationManifest(manifest), true);
@@ -71,6 +76,7 @@ test("public indexability fails closed for incomplete editorial or MEDIA records
   const malformed = { ...manifest, cards: manifest.cards.slice(0, 8) };
   assert.equal(publicEditionPreview(malformed), null);
   assert.deepEqual(publicActorDirectory([malformed]), []);
+  assert.equal(manifestPayload(manifest), null);
 });
 
 test("publication inventory requires every catalog date to resolve to its exact valid manifest", async () => {

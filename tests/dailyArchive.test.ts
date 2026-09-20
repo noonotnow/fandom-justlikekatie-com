@@ -10,7 +10,8 @@ test('daily archive selection reuses the daily payload renderer and keeps today 
   assert.match(hookSource, /star-of-day\$\{query\}/);
   assert.match(appSource, /useStarOfDay\(archivePage && !selectedEditionDate \? undefined : selectedEditionDate\)/);
   assert.match(appSource, /isVibeAtlasArchiveLocation/);
-  assert.match(appSource, /href=\{`\/vibe-atlas\?date=\$\{encodeURIComponent\(edition\.date\)\}`\}/);
+  assert.match(appSource, /edition\.publicRecord\?\.editionPath/);
+  assert.match(appSource, /`\/vibe-atlas\?date=\$\{encodeURIComponent\(edition\.date\)\}`/);
   assert.match(appSource, /selectedEditionDate \? `Archived card drop/);
   assert.match(appSource, /initialVibeAtlasEditionDate\(window\.location\.search\)/);
   assert.match(appSource, /params\.set\('date', date\)/);
@@ -55,6 +56,17 @@ test('full archive renders visual board plates and preserves genuine legendary m
   assert.match(appSource, /archive\.length - index/);
   assert.match(appSource, /Archive anomaly · Legendary Misprint/);
   assert.match(appSource, /The Star of the Day Archive/);
+});
+
+test('daily and archive previews link only approved canonical public records', () => {
+  assert.match(hookSource, /publicRecord\?: PublicRecordLinks/);
+  assert.match(appSource, /rawData\?\.publicRecord/);
+  assert.match(appSource, /href=\{rawData\.publicRecord\.actorPath\}/);
+  assert.match(appSource, /href=\{rawData\.publicRecord\.editionPath\}/);
+  assert.match(appSource, /edition\.publicRecord &&/);
+  assert.match(appSource, /href=\{edition\.publicRecord\.actorPath\}/);
+  assert.match(appSource, /href=\{edition\.publicRecord\.editionPath\}/);
+  assert.match(appSource, /archive-card__records/);
 });
 
 test('historical member editions render a server-authoritative preview gate', () => {

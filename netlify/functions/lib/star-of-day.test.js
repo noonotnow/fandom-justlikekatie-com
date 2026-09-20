@@ -404,7 +404,8 @@ function publicationManifest(date) {
       subtitle: "",
       subtitleEn: "Born to suffer beautifully.",
       supportingCopy: "",
-      supportingCopyEn: "",
+      supportingCopyEn:
+        "A carefully curated visual record of Liu Xueyi's restrained, moonlit melancholy.",
       generationPrompt: "",
     },
     heroPosition: 4,
@@ -544,6 +545,10 @@ test("historical and archive reads prefer the verified publication manifest over
   assert.ok(payload.displayResults.every(result =>
     result.thumbnail.startsWith("https://media.example/thumbs/")));
   assert.equal(payload.displayResults[4].title, "Manifest frame 4");
+  assert.deepEqual(payload.publicRecord, {
+    actorPath: "/vibe-atlas/actors/liu-xueyi/",
+    editionPath: "/vibe-atlas/editions/2026-08-29/liu-xueyi/",
+  });
 
   const archive = await starOfDay(
     { method: "GET", url: "https://example.test/star-of-day?archive=1" },
@@ -552,6 +557,7 @@ test("historical and archive reads prefer the verified publication manifest over
   const archived = await archive.json();
   assert.equal(archived.editions[0].actorName, "刘学义");
   assert.equal(archived.editions[0].vibeLabelEn, "Professionally Devastated");
+  assert.deepEqual(archived.editions[0].publicRecord, payload.publicRecord);
 });
 
 test("recent Daily Drop history uses the inclusive 30-day calendar window", async () => {

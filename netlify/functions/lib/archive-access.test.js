@@ -93,12 +93,20 @@ test("locked previews omit full board, provider, and premium media fields", () =
     })),
     rankedBatches: [{ provider: "private-provider", results: [] }],
     generationPrompt: "private prompt",
+    publicRecord: {
+      actorPath: "/vibe-atlas/actors/actor/",
+      editionPath: "/vibe-atlas/editions/2026-09-01/actor/",
+    },
   });
   assert.equal(preview.previewThumbnails.length, 3);
   assert.equal("displayResults" in preview, false);
   assert.equal("rankedBatches" in preview, false);
   assert.equal("generationPrompt" in preview, false);
   assert.equal(JSON.stringify(preview).includes("raw.test"), false);
+  assert.deepEqual(preview.publicRecord, {
+    actorPath: "/vibe-atlas/actors/actor/",
+    editionPath: "/vibe-atlas/editions/2026-09-01/actor/",
+  });
 });
 
 function archivePayload(date) {

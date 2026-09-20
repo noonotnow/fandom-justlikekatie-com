@@ -696,6 +696,12 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
               <div className="atlas-edition__subline">
                 {meta.vibeLabelEn} — {meta.vibeSubtitleEn}
               </div>
+                {rawData?.publicRecord && (
+                  <nav className="atlas-edition__records" aria-label="Curated public records">
+                    <a href={rawData.publicRecord.actorPath}>Explore {meta.actorName}’s actor record</a>
+                    <a href={rawData.publicRecord.editionPath}>Read this edition’s permanent record</a>
+                  </nav>
+                )}
               {meta.vibeSupportingCopyEn && (
                 <div className="atlas-edition__supporting-copy">{meta.vibeSupportingCopyEn}</div>
               )}
@@ -844,9 +850,17 @@ function ArchiveEditionButton({
     return <a className={className} href={href} onClick={onSelect}>{content}</a>;
   }
   return (
-    <button type="button" className={className} aria-pressed={isSelected} onClick={onSelect}>
-      {content}
-    </button>
+    <div className="daily-archive__edition-group">
+      <button type="button" className={className} aria-pressed={isSelected} onClick={onSelect}>
+        {content}
+      </button>
+      {edition.publicRecord && (
+        <span className="daily-archive__record-links">
+          <a href={edition.publicRecord.actorPath}>Actor record</a>
+          <a href={edition.publicRecord.editionPath}>Edition record</a>
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -882,6 +896,12 @@ function ArchiveLockedEdition({
         <p className="daily-archive__kicker">Founding Member archive</p>
         <h2 id="archive-gate-title">{edition.vibeEmoji} {edition.actorName}</h2>
         <p><strong>{edition.vibeLabel}</strong> · {edition.vibeLabelEn}</p>
+        {edition.publicRecord && (
+          <nav className="atlas-edition__records" aria-label="Curated public records">
+            <a href={edition.publicRecord.actorPath}>Explore {edition.actorName}’s actor record</a>
+            <a href={edition.publicRecord.editionPath}>Read this edition’s permanent record</a>
+          </nav>
+        )}
         <p>
           {billingDelay
             ? 'Your membership status is still being confirmed. Try again shortly or review billing.'
@@ -935,14 +955,17 @@ function ArchiveEditionCard({
     isLatest ? 'archive-card--latest' : '',
     edition.legendaryMisprint ? 'archive-card--misprint' : '',
   ].filter(Boolean).join(' ');
+  const href = edition.publicRecord?.editionPath
+    ?? `/vibe-atlas?date=${encodeURIComponent(edition.date)}`;
 
   return (
-    <a
-      className={className}
-      href={`/vibe-atlas?date=${encodeURIComponent(edition.date)}`}
-      onClick={() => trackDailyArchiveEditionSelected(edition.date, isLatest)}
-      aria-label={`Open Issue ${issueNumber}, ${formatEditionDate(edition.date)}: ${edition.actorName}, ${edition.vibeLabelEn}`}
-    >
+    <article className={className}>
+      <a
+        className="archive-card__main"
+        href={href}
+        onClick={() => trackDailyArchiveEditionSelected(edition.date, isLatest)}
+        aria-label={`Open Issue ${issueNumber}, ${formatEditionDate(edition.date)}: ${edition.actorName}, ${edition.vibeLabelEn}`}
+      >
       <span className="archive-card__plate" aria-hidden="true">
         {images.length > 0 ? (
           <span className="archive-card__mosaic">
@@ -987,11 +1010,20 @@ function ArchiveEditionCard({
         </span>
         {edition.vibeSubtitleEn && <q>{edition.vibeSubtitleEn}</q>}
         <span className="archive-card__open">
-          {edition.access === 'member' ? 'Preview Founding Member edition' : 'Open the nine-card board'}
+          {edition.publicRecord
+            ? 'Read the permanent edition record'
+            : edition.access === 'member' ? 'Preview Founding Member edition' : 'Open the nine-card board'}
           <b aria-hidden="true">↗</b>
         </span>
       </span>
-    </a>
+      </a>
+      {edition.publicRecord && (
+        <nav className="archive-card__records" aria-label={`Curated records for ${edition.actorName}`}>
+          <a href={edition.publicRecord.actorPath}>Actor record</a>
+          <a href={edition.publicRecord.editionPath}>Edition record</a>
+        </nav>
+      )}
+    </article>
   );
 }
 

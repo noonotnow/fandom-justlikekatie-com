@@ -979,6 +979,7 @@ async function listArchivedEditions(store, todayStr) {
       vibeSubtitleEn: payload.vibeSubtitleEn,
       generatedAt: payload.generatedAt,
       previewThumbnails: publicEdition.previewThumbnails,
+      ...(payload.publicRecord ? { publicRecord: payload.publicRecord } : {}),
       ...(legendaryMisprint || canonicalMisprintTitle ? { legendaryMisprint: true } : {}),
       ...(canonicalMisprintTitle ? { legendaryMisprintTitle: canonicalMisprintTitle } : {}),
     };

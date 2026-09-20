@@ -52,6 +52,12 @@ export interface StarOfDayData {
   stale?: boolean;
   building?: boolean;
   error?: string;
+  publicRecord?: PublicRecordLinks;
+}
+
+export interface PublicRecordLinks {
+  actorPath: string;
+  editionPath: string;
 }
 
 export interface StarOfDayArchiveEntry {
@@ -67,6 +73,7 @@ export interface StarOfDayArchiveEntry {
   legendaryMisprint?: boolean;
   legendaryMisprintTitle?: string;
   access?: 'free' | 'member';
+  publicRecord?: PublicRecordLinks;
 }
 
 export interface ArchiveGate {

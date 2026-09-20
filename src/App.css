@@ -257,6 +257,19 @@
   gap: .38rem;
 }
 
+.atlas-edition__records {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem 1rem;
+  margin-top: .55rem;
+}
+
+.atlas-edition__records a {
+  color: #9b762e;
+  font: 600 .62rem "DM Mono", monospace;
+  text-underline-offset: .2rem;
+}
+
 .atlas-edition__label {
   margin-bottom: .65rem;
   color: #9b762e;
@@ -511,6 +524,29 @@
   flex-direction: column;
   color: #263e40;
   text-decoration: none;
+}
+
+.archive-card__main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  color: inherit;
+  text-decoration: none;
+}
+
+.archive-card__records {
+  display: flex;
+  gap: .8rem;
+  padding-top: .65rem;
+}
+
+.archive-card__records a {
+  color: #9b762e;
+  font: 600 .55rem "DM Mono", monospace;
+  letter-spacing: .06em;
+  text-underline-offset: .18rem;
+  text-transform: uppercase;
 }
 
 .archive-gate {
@@ -839,6 +875,29 @@
   color: #263e40;
   text-align: left;
   text-decoration: none;
+}
+
+.daily-archive__edition-group {
+  display: grid;
+  align-content: start;
+}
+
+.daily-archive__edition-group .daily-archive__edition {
+  width: 100%;
+}
+
+.daily-archive__record-links {
+  display: flex;
+  gap: .7rem;
+  padding: .45rem .85rem .2rem;
+}
+
+.daily-archive__record-links a {
+  color: #9b762e;
+  font: 600 .55rem "DM Mono", monospace;
+  letter-spacing: .04em;
+  text-underline-offset: .18rem;
+  text-transform: uppercase;
 }
 
 .daily-archive__edition:hover,

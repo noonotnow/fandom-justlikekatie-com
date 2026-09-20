@@ -1217,6 +1217,7 @@ async function materializePublicationManifestUnlocked({
 
 export function manifestPayload(manifest, version = "v10") {
   if (!isGridManifest(manifest)) return null;
+  const publicEdition = publicEditionPreview(manifest);
   const displayResults = manifest.cards.map(card => ({
     title: card.title,
     thumbnail: card.media.thumbnailUrl,
@@ -1255,6 +1256,12 @@ export function manifestPayload(manifest, version = "v10") {
     }],
     displayResults,
     generatedAt: manifest.publishedAt,
+    ...(publicEdition ? {
+      publicRecord: {
+        actorPath: publicEdition.actor.path,
+        editionPath: publicEdition.path,
+      },
+    } : {}),
   };
 }
 
