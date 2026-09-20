@@ -466,4 +466,11 @@ test("checkout identity conflicts use a distinct bounded operational record", as
   const operation = await store.get("operations/stripe-identity-conflict");
   assert.equal(operation.eventCategory, "checkout");
   assert.doesNotMatch(JSON.stringify(operation), /cus_shared|private@example\.com|account_other/);
+  assert.deepEqual(await repository.identityConflictSummary(), {
+    reason: "stripe_identity_conflict",
+    category: "checkout",
+    count: 1,
+    firstOccurredAt: operation.firstOccurredAt,
+    lastOccurredAt: operation.lastOccurredAt,
+  });
 });

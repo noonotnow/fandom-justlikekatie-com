@@ -104,7 +104,7 @@ test('Release Desk is the Admin workspace for private inventory', () => {
 });
 
 test('Actor Preflight keeps hero-only failures complete and reviewable', () => {
-  assert.match(actorPreflightSource, /curator proposal cards/);
+  assert.match(actorPreflightSource, /complete proposal cards/);
   assert.match(actorPreflightSource, /automatically publication-ready cards/);
   assert.match(actorPreflightSource, /complete board · Hero review needed/);
   assert.match(actorPreflightSource, /review\?\.board\?\.candidates \?\? retainedProposal\?\.candidates/);
@@ -113,8 +113,8 @@ test('Actor Preflight keeps hero-only failures complete and reviewable', () => {
 
 test('public launchpad copy does not expose internal admin or CREATE architecture', () => {
   assert.match(launchpadSource, /daily C-drama card drop/);
-  assert.match(launchpadSource, /One star, one vibe, nine pieces of evidence/);
-  assert.match(launchpadSource, /Browse today’s drop, save the cards that hit/);
+  assert.match(launchpadSource, /One star\. One vibe\. Nine pieces of evidence/);
+  assert.match(launchpadSource, /Browse today’s drop, save the cards that understand your type/);
   assert.doesNotMatch(launchpadSource, /\badmin\b/i);
   assert.doesNotMatch(launchpadSource, /\bCREATE\b/);
   assert.doesNotMatch(builderSource, /\bCREATE\b/);
@@ -122,14 +122,14 @@ test('public launchpad copy does not expose internal admin or CREATE architectur
 
 test('public Vibe Atlas copy names the daily card-drop promise', () => {
   assert.match(appSource, /A daily C-drama card drop/);
-  assert.match(appSource, /'Vibe Atlas \| A Daily C-Drama Card Drop'/);
+  assert.match(appSource, /'Vibe Atlas \| Daily C-Drama Collectible Cards \| Fandom Vibes'/);
   assert.match(appSource, /One star\. One vibe\. Nine pieces of evidence\./);
-  assert.match(appSource, /iconic characters, looks, and moments/);
+  assert.match(appSource, /one very specific kind of heartthrob energy/);
   assert.match(appSource, /Today's star/);
   assert.match(appSource, /Today's vibe/);
   assert.match(appSource, /<h2>Today’s evidence<\/h2>/);
   assert.match(appSource, /Nine cards from today’s star × Vibe Pack/);
-  assert.match(rootHtml, /Vibe Atlas’s curated daily C-drama card drop/);
+  assert.match(rootHtml, /Vibe Atlas’s curated daily C-drama collectible/);
   assert.match(rootHtml, /browse today’s Vibe Atlas card drop/);
   assert.doesNotMatch(appSource, /worldbuilding instrument|emotional weather/i);
   assert.doesNotMatch(appSource, /Free Daily C-Drama Atmosphere Grid/);

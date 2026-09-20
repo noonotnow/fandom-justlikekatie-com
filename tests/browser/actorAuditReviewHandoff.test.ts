@@ -1816,6 +1816,7 @@ test('a date-bounded editorial packet download preserves publication join outcom
         },
         links: {
           pairing: 'https://fandom.example/?adminView=actor-preflight&runId=legacy-before-publication-matching',
+          editions: [],
         },
       },
       'legacy retained runs must not gain fabricated publication counts, outcomes, or edition links',

@@ -146,7 +146,7 @@ test('exportGrid calls onExported (not nudge) when grid was already saved', () =
 test('saveGrid clears showSaveNudge(false) inside its try block, before the confirmation notice', () => {
   const tryIdx      = saveGridBody.indexOf('try {');
   const nudgeOff    = saveGridBody.indexOf('setShowSaveNudge(false)', tryIdx);
-  const saveNotice  = saveGridBody.indexOf("setNotice('Grid saved to your collection.')", tryIdx);
+  const saveNotice  = saveGridBody.indexOf('setNotice(syncFailed', tryIdx);
   assert.ok(nudgeOff   !== -1, 'saveGrid() must call setShowSaveNudge(false) inside its try block');
   assert.ok(saveNotice !== -1, 'saveGrid() must call setNotice with the save confirmation');
   assert.ok(

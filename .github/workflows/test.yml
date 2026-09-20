@@ -37,6 +37,9 @@ jobs:
       - name: Check TypeScript
         run: npm run check:types
 
+      - name: Verify packaged scheduled functions
+        run: npm run check:scheduled-functions-package
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium firefox webkit
 
