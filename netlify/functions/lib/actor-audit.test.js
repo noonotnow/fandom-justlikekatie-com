@@ -1076,6 +1076,99 @@ test("visual judgments remain recoverable when receipt index contention exhausts
   assert.deepEqual(store.records.get(receiptKey), immutableReceipt);
 });
 
+test("retrying a contended visual judgment preserves receipts already in the index", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const runBody = await runResponse.json();
+  const runKey = auditRunKey(pairActor.id, 0, runBody.currentRun.runId);
+  const run = structuredClone(store.records.get(runKey));
+  run.calibrationAnalysis = {
+    classificationBasis: "blind_to_selection_and_publication_outcome_metadata_proxy",
+    candidates: [{
+      candidateId: "candidate-indexed-before-contention",
+      occurrenceId: "3:4",
+      query: "hidden indexed query",
+      thumbnail: "https://images.example/indexed-before-contention.jpg",
+      visualClass: "supporting",
+      classificationMethod: "promise_evidence_proxy",
+      selected: false,
+      dropReason: "promise_not_fulfilled",
+    }, {
+      candidateId: "candidate-contended-after-index",
+      occurrenceId: "3:5",
+      query: "hidden contended query",
+      thumbnail: "https://images.example/contended-after-index.jpg",
+      visualClass: "irrelevant",
+      classificationMethod: "promise_evidence_proxy",
+      selected: false,
+      dropReason: null,
+    }],
+  };
+  run.strongestEvent = null;
+  store.records.set(runKey, structuredClone(run));
+
+  const pendingResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const pending = await pendingResponse.json();
+  const firstToken = pending.currentRun.visualJudgmentQueue
+    .find(item => item.thumbnail.endsWith("/indexed-before-contention.jpg")).judgmentToken;
+  const secondToken = pending.currentRun.visualJudgmentQueue
+    .find(item => item.thumbnail.endsWith("/contended-after-index.jpg")).judgmentToken;
+  const firstReceiptId = `visual-${firstToken}`;
+  const secondReceiptId = `visual-${secondToken}`;
+  const indexKey = auditVisualJudgmentIndexKey(pairActor.id, 0, run.runId);
+  const submit = (judgmentToken, classification) => handler(request("POST", {
+    action: "record_visual_judgment",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: run.runId,
+    judgmentToken,
+    classification,
+  }), {});
+
+  const firstResponse = await submit(firstToken, "core");
+  assert.equal(firstResponse.status, 200);
+  assert.deepEqual(store.records.get(indexKey).receiptIds, [firstReceiptId]);
+
+  const originalSetJSON = store.setJSON.bind(store);
+  let contendedIndexWrites = 0;
+  store.setJSON = async (key, value, options) => {
+    if (key === indexKey) {
+      contendedIndexWrites += 1;
+      return { modified: false };
+    }
+    return originalSetJSON(key, value, options);
+  };
+
+  const contendedResponse = await submit(secondToken, "irrelevant");
+  assert.equal(contendedResponse.status, 503);
+  assert.equal(contendedIndexWrites, 8);
+  assert.deepEqual(store.records.get(indexKey).receiptIds, [firstReceiptId]);
+
+  const receiptIds = [firstReceiptId, secondReceiptId];
+  for (const receiptId of receiptIds) {
+    assert.equal(store.records.has(
+      auditVisualJudgmentKey(pairActor.id, 0, run.runId, receiptId),
+    ), true);
+  }
+
+  store.setJSON = originalSetJSON;
+  const retryResponse = await submit(secondToken, "irrelevant");
+  const retryBody = await retryResponse.json();
+  assert.equal(retryResponse.status, 200, JSON.stringify(retryBody));
+  assert.deepEqual(store.records.get(indexKey).receiptIds, receiptIds);
+  assert.deepEqual(
+    retryBody.currentRun.humanVisualJudgments.map(receipt => receipt.receiptId).sort(),
+    [...receiptIds].sort(),
+  );
+});
+
 test("human versus proxy comparison exposes stage and class transitions without masking sampled subgroup disagreement", async () => {
   const { handler, store } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
