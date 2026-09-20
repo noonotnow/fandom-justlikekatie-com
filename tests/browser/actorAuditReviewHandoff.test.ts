@@ -3281,10 +3281,16 @@ test('a lost history connection preserves the current Legacy evidence and recove
     const runSelect = page.getByLabel('Audit run');
     await runSelect.selectOption('run-1');
     await failedRequest;
-    await page.getByText(/failed to fetch/i).waitFor();
+    await page.getByText(
+      'Audit history lost its connection. The evidence currently on screen is safe and unchanged. Retry the history selection when the connection returns; retrying only reads the selected audit.',
+      { exact: true },
+    ).waitFor();
+    assert.equal(await page.getByText(/failed to fetch/i).count(), 0);
     assert.equal(await runSelect.inputValue(), 'current-legacy');
     await assertCurrentLegacyEvidence();
 
+    await runSelect.selectOption('run-1');
+    await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor();
     await runSelect.selectOption('run-legacy');
     await page.getByRole('heading', { name: 'Legacy audit · retained history · run-legacy', exact: true }).waitFor();
     await runSelect.selectOption('current-legacy');
@@ -3292,7 +3298,7 @@ test('a lost history connection preserves the current Legacy evidence and recove
 
     assert.deepEqual(
       auditTraffic.filter(request => request.runId).map(request => request.runId),
-      ['current-legacy', 'run-1', 'run-legacy', 'current-legacy'],
+      ['current-legacy', 'run-1', 'run-1', 'run-legacy', 'current-legacy'],
       'the lost detail request and recovery must use only selected-run detail reads',
     );
     assert.equal(

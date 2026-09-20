@@ -569,7 +569,11 @@ export const ActorPreflightLab: React.FC = () => {
         setPriorRuns(items=>items.map(item=>item.runId===detailed.runId?detailed:item));
       }
     } catch(e:any) {
-      if(e?.name!=='AbortError'&&selection===auditHistorySelection.current)setNotice(e.message);
+      if(e?.name!=='AbortError'&&selection===auditHistorySelection.current)setNotice(
+        e?.status
+          ? e.message
+          : 'Audit history lost its connection. The evidence currently on screen is safe and unchanged. Retry the history selection when the connection returns; retrying only reads the selected audit.',
+      );
     } finally {
       if(auditHistoryRequest.current===controller)auditHistoryRequest.current=null;
       if(selection===auditHistorySelection.current)setBusy('');
