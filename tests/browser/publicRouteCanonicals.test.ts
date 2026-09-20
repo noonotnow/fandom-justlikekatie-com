@@ -27,6 +27,13 @@ function assertCanonicalMatchesRoute(hrefs: string[], route: AppRenderedRoute) {
   );
 }
 
+async function canonicalHrefs(page: import('playwright').Page) {
+  await page.locator('link[rel~="canonical"]').first().waitFor({ state: 'attached' });
+  return page.locator('link[rel~="canonical"]').evaluateAll(
+    links => links.map(link => (link as HTMLLinkElement).href),
+  );
+}
+
 test('app-rendered public routes canonically match their registered production URLs', { timeout: 30_000 }, async () => {
   const appRenderedRoutes = PUBLIC_STATIC_ROUTES.filter(
     route => !route.page,
@@ -37,16 +44,42 @@ test('app-rendered public routes canonically match their registered production U
   try {
     const page = await browser.newPage();
     page.setDefaultTimeout(5_000);
+    page.setDefaultNavigationTimeout(10_000);
     await page.route('https://www.googletagmanager.com/**', route => route.abort());
 
     for (const route of appRenderedRoutes) {
       await page.goto(`${origin}${route.path}`, { waitUntil: 'domcontentloaded' });
-      await page.locator('link[rel~="canonical"]').first().waitFor({ state: 'attached' });
-      const hrefs = await page.locator('link[rel~="canonical"]').evaluateAll(
-        links => links.map(link => (link as HTMLLinkElement).href),
-      );
+      const hrefs = await canonicalHrefs(page);
       assertCanonicalMatchesRoute(hrefs, route);
     }
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
+
+test('Daily and Archive UI navigation keeps one registered canonical', { timeout: 30_000 }, async () => {
+  const dailyRoute = PUBLIC_STATIC_ROUTES.find(route => route.path === '/vibe-atlas' && !route.page);
+  const archiveRoute = PUBLIC_STATIC_ROUTES.find(route => route.path === '/vibe-atlas/archive' && !route.page);
+  assert.ok(dailyRoute, 'the registry must include the app-rendered Daily route');
+  assert.ok(archiveRoute, 'the registry must include the app-rendered Archive route');
+
+  const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer());
+  try {
+    const page = await browser.newPage();
+    page.setDefaultTimeout(5_000);
+    page.setDefaultNavigationTimeout(10_000);
+    await page.route('https://www.googletagmanager.com/**', route => route.abort());
+
+    await page.goto(`${origin}${dailyRoute.path}`, { waitUntil: 'domcontentloaded' });
+    assertCanonicalMatchesRoute(await canonicalHrefs(page), dailyRoute);
+
+    await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
+    await page.waitForURL(`${origin}${archiveRoute.path}`);
+    assertCanonicalMatchesRoute(await canonicalHrefs(page), archiveRoute);
+
+    await page.getByRole('button', { name: '今日之星 · Daily' }).click();
+    await page.waitForURL(`${origin}${dailyRoute.path}`);
+    assertCanonicalMatchesRoute(await canonicalHrefs(page), dailyRoute);
   } finally {
     await closeBrowserAndServer(browser, server);
   }
