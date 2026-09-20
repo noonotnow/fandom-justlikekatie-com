@@ -3899,6 +3899,22 @@ function summarizeIdentityEvidence(candidates, profile) {
 }
 
 async function appendRun(store, pair, run) {
+  const seenOccurrenceIds = new Set();
+  const duplicateOccurrenceId = (run?.calibrationAnalysis?.candidates || [])
+    .map(candidate => candidate?.occurrenceId)
+    .find(occurrenceId => {
+      if (typeof occurrenceId !== "string" || !occurrenceId.trim()) return false;
+      if (seenOccurrenceIds.has(occurrenceId)) return true;
+      seenOccurrenceIds.add(occurrenceId);
+      return false;
+    });
+  if (duplicateOccurrenceId) {
+    const error = new Error(
+      `Audit candidates repeat occurrence ID "${duplicateOccurrenceId}". The retained run was not finalized.`,
+    );
+    error.status = 409;
+    throw error;
+  }
   const runWrite = await store.setJSON(
     auditRunKey(pair.actor.id, pair.vibeIdx, run.runId),
     run,

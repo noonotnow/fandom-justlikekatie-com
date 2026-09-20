@@ -216,6 +216,7 @@ function curation({
   hardRejected = false,
   unavailableRejected = false,
   duplicateRejected = false,
+  duplicateOccurrenceIds = false,
   calibrationTransfers = true,
   hiddenSourceTransfer = false,
   onOptions = () => {},
@@ -448,6 +449,15 @@ function curation({
         };
       }
     }
+    if (duplicateOccurrenceIds) {
+      output.diagnostics.calibrationAnalysis = {
+        candidates: rawCandidates.slice(0, 2).map((candidate, index) => ({
+          ...candidate,
+          occurrenceId: "duplicate-occurrence",
+          selected: index === 0,
+        })),
+      };
+    }
     return output;
   };
 }
@@ -459,6 +469,7 @@ function harness({
   hardRejected = false,
   unavailableRejected = false,
   duplicateRejected = false,
+  duplicateOccurrenceIds = false,
   calibrationTransfers = true,
   authorized = true,
   publicAuthorized = true,
@@ -507,6 +518,7 @@ function harness({
     hardRejected,
     unavailableRejected,
     duplicateRejected,
+    duplicateOccurrenceIds,
     calibrationTransfers,
     hiddenSourceTransfer,
     onOptions: onCurateOptions,
@@ -2478,6 +2490,24 @@ test("run, verdict, rerun, and retained-run inspection keep eligibility current"
   ), {});
   assert.equal(priorResponse.status, 200);
   assert.equal((await priorResponse.json()).run.operatorVerdict.verdict, "approved");
+});
+
+test("audit creation rejects duplicate nonblank occurrence IDs before retaining the run", async () => {
+  const { handler, store } = harness({ duplicateOccurrenceIds: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+
+  const response = await handler(request("POST", {
+    action: "run",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+  }), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 409);
+  assert.match(body.error, /repeat occurrence ID "duplicate-occurrence"/i);
+  assert.equal(store.records.has(auditRunKey(pairActor.id, 0, "run-1")), false);
+  assert.equal(store.records.has(auditHeadKey(pairActor.id, 0)), false);
 });
 
 test("retrieval diagnostics keep occurrences, exact rung overlap, and incremental unique yield separate from curation", async () => {
