@@ -323,10 +323,11 @@ test('Collection result Misprints teach the curator before preserving the collec
     await page.getByRole('button', { name: 'Preserve & teach curator' }).click();
     await page.getByText(/Some Other Man™ preserved/).waitFor();
 
-    assert.equal(correctionRequest?.action, 'mark_collection_misprint');
-    assert.equal(correctionRequest?.actorName, 'Card cleanup actor');
-    assert.equal(correctionRequest?.reason, 'wrong_actor');
-    assert.equal(correctionRequest?.actualIdentity, 'Zhang Linghe');
+    const submittedCorrection = correctionRequest as Record<string, unknown> | null;
+    assert.equal(submittedCorrection?.action, 'mark_collection_misprint');
+    assert.equal(submittedCorrection?.actorName, 'Card cleanup actor');
+    assert.equal(submittedCorrection?.reason, 'wrong_actor');
+    assert.equal(submittedCorrection?.actualIdentity, 'Zhang Linghe');
     const stored = await collectionContents(page);
     const card = stored.card as {
       misprint?: {

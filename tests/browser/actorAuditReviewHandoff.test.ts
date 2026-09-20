@@ -635,7 +635,7 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
           return;
         }
         const statuses = ['matched', 'missing', 'ambiguous', 'identity_unavailable'];
-        const runs = statuses.map((status, index) => ({
+        const runs: AnyRecord[] = statuses.map((status, index) => ({
           source: {
             actorId: ACTOR_ID,
             vibeKey: VIBE_KEY,
@@ -682,6 +682,7 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
           },
           links: {
             pairing: 'https://fandom.example/?adminView=actor-preflight&runId=legacy-before-publication-matching',
+            editions: [],
           },
         });
         await route.fulfill({
@@ -1204,7 +1205,9 @@ async function configureCacheDiagnosticNetwork(
         contentType: 'application/json',
         body: JSON.stringify({
           actor: actor('not_run'),
-          pairing: actor('not_run').pairings.find(item => item.vibeKey === url.searchParams.get('vibeKey')),
+          pairing: actor('not_run').pairings.find(
+            (item: { vibeKey: string }) => item.vibeKey === url.searchParams.get('vibeKey'),
+          ),
           currentRun: null,
           priorRuns: [],
           cacheDiagnostics: savedDiagnostic ? { full: savedDiagnostic } : {},
@@ -2543,8 +2546,8 @@ test('a slow image-only judgment ignores a rapid repeated click', { timeout: 60_
     const core = review.getByRole('button', { name: 'Core', exact: true });
     await core.waitFor();
     await core.evaluate(button => {
-      button.click();
-      button.click();
+      (button as HTMLElement).click();
+      (button as HTMLElement).click();
     });
     await review.getByText('2/2 · 1 receipt', { exact: true }).waitFor();
 

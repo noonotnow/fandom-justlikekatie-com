@@ -11,7 +11,7 @@ function failingBrowserType(launchError: Error): BrowserType {
     launch: async () => {
       throw launchError;
     },
-  } as BrowserType;
+  } as unknown as BrowserType;
 }
 
 test('sequential browser launch failure closes its listening server', async () => {

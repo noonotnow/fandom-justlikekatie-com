@@ -420,7 +420,7 @@ test('failed browser startup closes the listening packet test server', async () 
   await assert.rejects(
     launchBrowserForServer(
       server,
-      failingBrowserType as Parameters<typeof launchBrowserForServer>[1],
+      failingBrowserType as unknown as Parameters<typeof launchBrowserForServer>[1],
     ),
     launchError,
   );
@@ -451,7 +451,7 @@ test('failed page creation closes both packet test resources', async () => {
   await assert.rejects(
     launchPageForServer(
       server,
-      failingBrowserType as Parameters<typeof launchPageForServer>[1],
+      failingBrowserType as unknown as Parameters<typeof launchPageForServer>[1],
     ),
     error => {
       assert(error instanceof AggregateError);
