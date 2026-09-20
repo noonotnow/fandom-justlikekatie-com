@@ -255,6 +255,22 @@ function sourceCreditLines(
     : [firstLine];
 }
 
+function legacySourceCreditLines(
+  ctx: CanvasRenderingContext2D,
+  sourceNames: string[],
+  maxWidth: number,
+): string[] {
+  const text = `来源：${sourceNames.slice(0, 5).join(' · ')}`;
+  const wrapped = wrapCanvasText(ctx, text, maxWidth);
+  if (wrapped.length <= 2 && wrapped.every(line => ctx.measureText(line).width <= maxWidth)) {
+    return wrapped;
+  }
+  return [
+    truncateCanvasText(ctx, wrapped[0] || text, maxWidth),
+    truncateCanvasText(ctx, wrapped.slice(1).join(' '), maxWidth),
+  ];
+}
+
 function drawLetterSpacedText(
   ctx: CanvasRenderingContext2D,
   text: string, cx: number, y: number, spacing: number,
@@ -660,7 +676,7 @@ async function renderFullExportCanvas(payload: ExportPayload): Promise<HTMLCanva
   }
 
   // 7. Standard 3×3 or bounded Event 4×3 image composition
-  const footerZoneH = 168;
+  const footerZoneH = 190;
   const gridTop = y + 36;
   const gridBottom = EXPORT_CARD_H - footerZoneH;
   const gridGap = 12;
@@ -695,11 +711,14 @@ async function renderFullExportCanvas(payload: ExportPayload): Promise<HTMLCanva
   results.forEach((r) => {
     if (r.source && !sourceNames.includes(r.source)) sourceNames.push(r.source);
   });
-  const sourcesLineY = EXPORT_CARD_H - footerZoneH + 40;
+  const sourcesLineY = EXPORT_CARD_H - footerZoneH + 30;
   if (sourceNames.length) {
     ctx.font = '400 18px "Inter", "Noto Sans SC", sans-serif';
     ctx.fillStyle = colors.textDarker;
-    ctx.fillText('来源：' + sourceNames.slice(0, 5).join(' · '), cx, sourcesLineY);
+    const sourceLines = legacySourceCreditLines(ctx, sourceNames, contentW);
+    sourceLines.forEach((line, index) => {
+      ctx.fillText(line, cx, sourcesLineY + index * 22);
+    });
   }
 
   // 9. Footer stack
@@ -804,7 +823,7 @@ async function renderTeaserExportCanvas(payload: ExportPayload): Promise<HTMLCan
   }
 
   // 5. Image grid (2×3 or 2×2)
-  const footerZoneH = 150;
+  const footerZoneH = 170;
   const gridTop = y + 34;
   const gridBottom = EXPORT_TEASER_H - footerZoneH;
   const gridGap = 12;
@@ -839,11 +858,14 @@ async function renderTeaserExportCanvas(payload: ExportPayload): Promise<HTMLCan
   results.forEach((r) => {
     if (r.source && !sourceNames.includes(r.source)) sourceNames.push(r.source);
   });
-  const sourcesLineY = EXPORT_TEASER_H - footerZoneH + 36;
+  const sourcesLineY = EXPORT_TEASER_H - footerZoneH + 28;
   if (sourceNames.length) {
     ctx.font = '400 17px "Inter", "Noto Sans SC", sans-serif';
     ctx.fillStyle = colors.textDarker;
-    ctx.fillText('来源：' + sourceNames.slice(0, 5).join(' · '), cx, sourcesLineY);
+    const sourceLines = legacySourceCreditLines(ctx, sourceNames, contentW);
+    sourceLines.forEach((line, index) => {
+      ctx.fillText(line, cx, sourcesLineY + index * 21);
+    });
   }
 
   // 7. Footer stack
