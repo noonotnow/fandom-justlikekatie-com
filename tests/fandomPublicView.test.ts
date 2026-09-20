@@ -74,6 +74,9 @@ test('Release Desk is the Admin workspace for private inventory', () => {
   assert.match(releaseDeskSource, /aria-selected=\{view === 'audience'\}/);
   assert.match(releaseDeskSource, />Audience evidence<small>Actual use \+ data quality/);
   assert.match(releaseDeskSource, /engagement-export\?records=0/);
+  assert.match(releaseDeskSource, /archive-access-operations/);
+  assert.match(releaseDeskSource, />Archive access health</);
+  assert.match(releaseDeskSource, /Normal anonymous preview and sign-in gates are excluded from incident thresholds/);
   assert.match(releaseDeskSource, /Download audit dataset/);
   assert.match(releaseDeskSource, /Event ratios, not unique-user conversion/);
   assert.match(releaseDeskSource, /<h4 id="release-production-title">Production readiness<\/h4>/);

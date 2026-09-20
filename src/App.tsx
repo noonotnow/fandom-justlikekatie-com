@@ -244,7 +244,9 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   useEffect(() => {
     if (!gate || !selectedEditionDate) return;
     trackArchiveAccess('preview_view', selectedEditionDate, gate.reason);
-    trackArchiveAccess('denied', selectedEditionDate, gate.reason);
+    if (gate.reason !== 'sign_in') {
+      trackArchiveAccess('denied', selectedEditionDate, gate.reason);
+    }
   }, [gate, selectedEditionDate]);
 
   useEffect(() => {

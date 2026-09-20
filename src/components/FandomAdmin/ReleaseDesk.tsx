@@ -143,17 +143,28 @@ export const ReleaseDesk: React.FC = () => {
 
 function EngagementEvidence() {
   const [summary, setSummary] = useState<AnyRecord | null>(null);
+  const [archiveHealth, setArchiveHealth] = useState<AnyRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [notice, setNotice] = useState('');
 
   useEffect(() => {
     let live = true;
-    void fetch('/.netlify/functions/engagement-export?records=0', { credentials: 'include' })
-      .then(async response => {
-        const result = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(result?.error || 'Audience evidence unavailable.');
-        if (live) setSummary(result.summary ?? null);
+    void Promise.all([
+      fetch('/.netlify/functions/engagement-export?records=0', { credentials: 'include' }),
+      fetch('/.netlify/functions/archive-access-operations', { credentials: 'include' }),
+    ])
+      .then(async ([engagementResponse, archiveResponse]) => {
+        const [engagementResult, archiveResult] = await Promise.all([
+          engagementResponse.json().catch(() => null),
+          archiveResponse.json().catch(() => null),
+        ]);
+        if (!engagementResponse.ok) throw new Error(engagementResult?.error || 'Audience evidence unavailable.');
+        if (!archiveResponse.ok) throw new Error(archiveResult?.error || 'Archive access health unavailable.');
+        if (live) {
+          setSummary(engagementResult.summary ?? null);
+          setArchiveHealth(archiveResult);
+        }
       })
       .catch(error => {
         if (live) setNotice(error instanceof Error ? error.message : 'Audience evidence could not be loaded.');
@@ -217,6 +228,7 @@ function EngagementEvidence() {
       <p className={styles.measurementBoundary}>
         Event ratios, not unique-user conversion. These records intentionally contain no anonymous visitor or session identifier.
       </p>
+      {archiveHealth && <ArchiveAccessHealth health={archiveHealth} />}
 
       <div className={styles.evidenceMetrics}>
         <div><strong>{summary.recordCount ?? 0}</strong><span>Recorded events</span></div>
@@ -250,6 +262,33 @@ function EngagementEvidence() {
         </section>
       </div>
       {notice && <p className={styles.productionError} role="alert">{notice}</p>}
+    </section>
+  );
+}
+
+function ArchiveAccessHealth({ health }: { health: AnyRecord }) {
+  const recent = health.recentHour ?? {};
+  const status = health.status ?? {};
+  const percentage = (value: unknown) => `${Math.round((Number(value) || 0) * 100)}%`;
+  return (
+    <section aria-labelledby="archive-access-health-title">
+      <h5 id="archive-access-health-title">Archive access health</h5>
+      <p>
+        Authenticated server checks only. Normal anonymous preview and sign-in gates are excluded from incident thresholds.
+      </p>
+      <div className={styles.evidenceMetrics}>
+        <div data-warning={status.billing !== 'normal'}>
+          <strong>{recent.billing_delay ?? 0}</strong><span>Billing delays · {status.billing ?? 'normal'}</span>
+        </div>
+        <div data-warning={status.deniedAccess !== 'normal'}>
+          <strong>{recent.upgrade ?? 0}</strong><span>Denied access · {status.deniedAccess ?? 'normal'}</span>
+        </div>
+        <div><strong>{recent.authenticated_checks ?? 0}</strong><span>Authenticated checks</span></div>
+        <div><strong>{percentage(recent.billingDelayRate)}</strong><span>Billing-delay rate</span></div>
+      </div>
+      <p className={styles.measurementBoundary}>
+        Billing: {health.thresholds?.billingWarning}. Denials: {health.thresholds?.deniedWarning}.
+      </p>
     </section>
   );
 }

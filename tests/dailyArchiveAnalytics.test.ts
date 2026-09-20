@@ -4,6 +4,7 @@ import {
   trackCollectionOpened,
   trackDailyArchiveEditionSelected,
   trackDailyArchiveOpened,
+  trackArchiveAccess,
   trackDailyDropCardSave,
   trackDailyDropEngaged,
   trackDailyDropShared,
@@ -53,6 +54,37 @@ test('daily archive analytics records only the edition date and latest flag', ()
         data: { edition_date: '2026-08-30', is_latest: false },
       },
     ]);
+  } finally {
+    Reflect.deleteProperty(globalThis, 'window');
+  }
+});
+
+test('archive funnel analytics keeps preview, intent, auth, checkout, restoration, denial, and full use privacy-safe', () => {
+  const events: Array<{ name: string; data?: Record<string, string | number | boolean> }> = [];
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      gtag(_command: string, name: string, data?: Record<string, string | number | boolean>) {
+        events.push({ name, data });
+      },
+    },
+  });
+  try {
+    for (const [action, reason] of [
+      ['preview_view', 'sign_in'],
+      ['gated_intent', 'sign_in'],
+      ['sign_in', 'requested'],
+      ['checkout', undefined],
+      ['restored', 'sign_in'],
+      ['denied', 'billing_delay'],
+      ['full_use', undefined],
+    ] as const) trackArchiveAccess(action, '2026-09-01', reason);
+    assert.deepEqual(events.map(event => event.name), [
+      'archive_preview_view', 'archive_gated_intent', 'archive_sign_in',
+      'archive_checkout', 'archive_restored', 'archive_denied', 'archive_full_use',
+    ]);
+    assert.equal(JSON.stringify(events).includes('account'), false);
+    assert.equal(JSON.stringify(events).includes('email'), false);
   } finally {
     Reflect.deleteProperty(globalThis, 'window');
   }

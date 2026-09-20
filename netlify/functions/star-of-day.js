@@ -32,6 +32,7 @@ import {
   freeArchiveDates,
   publicArchiveEdition,
 } from "./lib/archive-access.js";
+import { recordArchiveAccessCheck } from "./lib/archive-access-operations.js";
 
 // Server-side daily cache for "Star of the Day".
 //
@@ -679,7 +680,9 @@ export function createStarOfDayHandler({
   auth = createPublicAuth({ env, getStore: getBlobStore }),
   billing = createBillingServices({ env }),
   getStore = getBlobStore,
+  getDiagnosticsStore = context => getBlobStore("archive-access-operations", context),
   today = getShanghaiDateString,
+  now = () => new Date(),
 } = {}) {
   return async (req, context) => {
   if (req.method && req.method !== "GET") {
@@ -734,6 +737,11 @@ export function createStarOfDayHandler({
                 date: requestedDate,
                 name: error?.name || "Error",
               });
+              await recordArchiveDiagnostic(
+                () => getDiagnosticsStore(context),
+                { outcome: "billing_delay", authenticated: true },
+                now(),
+              );
               return jsonResponse(503, {
                 error: "archive_billing_unavailable",
                 access: "billing_delay",
@@ -754,12 +762,27 @@ export function createStarOfDayHandler({
             date: requestedDate,
             reason: decision.reason,
           });
+          await recordArchiveDiagnostic(
+            () => getDiagnosticsStore(context),
+            {
+              outcome: decision.reason,
+              authenticated: Boolean(session),
+            },
+            now(),
+          );
           return jsonResponse(decision.reason === "sign_in" ? 401 : 403, {
             error: "archive_access_required",
             access: decision.reason,
             capability: decision.capability,
             edition: publicArchiveEdition(archived),
           });
+        }
+        if (session) {
+          await recordArchiveDiagnostic(
+            () => getDiagnosticsStore(context),
+            { outcome: "allowed", authenticated: true },
+            now(),
+          );
         }
         return jsonResponse(200, archived, {
           "Cache-Control": decision.reason === "active_member"
@@ -872,6 +895,17 @@ export function createStarOfDayHandler({
     return jsonResponse(500, { error: err.message || "Unknown error", rankedBatches: [] });
   }
   };
+}
+
+async function recordArchiveDiagnostic(getStore, event, date) {
+  try {
+    await recordArchiveAccessCheck(getStore(), event, date);
+  } catch (error) {
+    console.error("[archive-access] diagnostic write failed", {
+      outcome: event.outcome,
+      name: error?.name || "Error",
+    });
+  }
 }
 
 export default createStarOfDayHandler();

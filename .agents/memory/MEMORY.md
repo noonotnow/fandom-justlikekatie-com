@@ -40,3 +40,4 @@
 - [Publication MEDIA boundary](publication-media-boundary.md) — MEDIA owns immutable image bytes; the date manifest owns the approved nine-card composition and provenance.
 - [Calibration authority boundary](calibration-authority-boundary.md) — repeated diagnostic image evidence is inert until a bounded approval; live eligibility must match current evidence and authority.
 - [SerpAPI diagnostic bypass](serpapi-diagnostic-bypass.md) — HTTP no-cache headers do not bypass SerpAPI’s result cache; explicit diagnostic refreshes require its provider parameter.
+- [Archive access incident signals](archive-access-incident-signals.md) — alert only on aggregate authenticated checks; anonymous previews and sign-in gates are funnel activity, not incidents.
