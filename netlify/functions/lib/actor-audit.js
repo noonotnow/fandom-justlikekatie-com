@@ -2283,7 +2283,7 @@ export function createActorAuditHandler({
         }
         const direction = input.direction === "negative" ? "negative" : input.direction === "positive" ? "positive" : null;
         const signalValues = [...new Set((Array.isArray(input.signalValues) ? input.signalValues : [])
-          .map(normalizeCalibrationSignalValue)
+          .map(value => normalizeCalibrationSignalValue(value, signalFamily))
           .filter(Boolean))]
           .sort()
           .slice(0, 12);
@@ -2445,7 +2445,7 @@ export function createActorAuditHandler({
           return json(400, { error: "A confirmed calibration receipt is required." });
         }
         const signalFamily = normalizeCalibrationSignalFamily(input.signalFamily);
-        const signalValue = normalizeCalibrationSignalValue(input.signalValue);
+        const signalValue = normalizeCalibrationSignalValue(input.signalValue, signalFamily);
         if (!signalFamily || !signalValue) {
           return json(400, {
             error: "Choose a query, source, cluster, or composition signal to retire.",
@@ -5598,8 +5598,10 @@ function normalizeCalibrationSignalFamily(value) {
   return CALIBRATION_SIGNAL_FAMILIES.get(normalized) || null;
 }
 
-function normalizeCalibrationSignalValue(value) {
-  const normalized = signalText(value);
+function normalizeCalibrationSignalValue(value, family) {
+  const normalized = family === "candidateIds"
+    ? String(value || "").trim()
+    : signalText(value);
   return normalized ? normalized.slice(0, 500) : null;
 }
 
@@ -5609,7 +5611,7 @@ function calibrationSignalValues(record, family) {
     ...(record.selectedNine || []),
     ...(record.omittedAlternatives || []),
   ].flatMap(candidate => signalValuesForCandidate(candidate, key))
-    .map(signalText)
+    .map(value => normalizeCalibrationSignalValue(value, key))
     .filter(Boolean))];
 }
 
@@ -6326,7 +6328,7 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
           [...new Set(((family === "candidateIds"
             ? record.signals?.[direction]?.candidateIds
             : record.signals?.reusable?.[family]?.[direction]) || [])
-            .map(normalizeCalibrationSignalValue)
+            .map(value => normalizeCalibrationSignalValue(value, family))
             .filter(value => value && !isRetiredSignal(record, family, value)))],
         ])),
       ]),

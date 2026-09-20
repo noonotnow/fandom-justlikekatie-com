@@ -216,7 +216,7 @@ function curation({
     const rawCandidates = ranked.flatMap(batch => (batch.results || []).map(result => ({
       ...result,
       imageDigest: createHash("sha256").update(result.thumbnail || "").digest("hex"),
-      candidateId: candidateIdForResult({
+      candidateId: result.candidateId || candidateIdForResult({
         ...result,
         batchKey: result.batchKey || batch.query,
       }),
@@ -229,7 +229,7 @@ function curation({
         singleFrameRatio: 1,
       },
       calibration: options.calibrationProfile ? (() => {
-        const candidateId = candidateIdForResult({
+        const candidateId = result.candidateId || candidateIdForResult({
           ...result,
           batchKey: result.batchKey || batch.query,
         });
@@ -5568,12 +5568,15 @@ async function assertSignalRetirementPreservesUnrelatedEvidence({
   prepareEvidenceForApproval,
   signalValueFromSelection = false,
   searchResultCount = 9,
+  searchResultsForQuery = null,
+  assertPunctuatedSignal = false,
 }) {
   const curateOptions = [];
   const { handler, store } = harness({
     freshEvidenceOnRerun: signalFamily !== "candidateIds",
     onCurateOptions: options => curateOptions.push(options),
     searchResultCount,
+    searchResultsForQuery,
   });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   const {
@@ -5596,6 +5599,15 @@ async function assertSignalRetirementPreservesUnrelatedEvidence({
     direction,
     signalValues: [signalValue],
   });
+  if (assertPunctuatedSignal) {
+    assert.match(signalValue, /[:/]/);
+    assert.equal(
+      approval.calibrationProfile.signalInventory.filter(item =>
+        item.directionalSignals?.candidateIds?.[direction]?.includes(signalValue)).length,
+      2,
+      "each reviewed audit must retain the exact punctuated candidate ID",
+    );
+  }
 
   const evidenceBeforeRetirement = new Map(
     [...store.records.entries()]
@@ -5677,6 +5689,13 @@ test("retiring an approved negative query preserves unrelated reusable calibrati
 });
 
 test("retiring an approved negative candidate image preserves unrelated reusable calibration evidence", async () => {
+  const punctuatedResults = query => searchResults(query, 4).map((candidate, index) => ({
+    ...candidate,
+    candidateId: `candidate:${index + 1}/${candidateIdForResult({
+      ...candidate,
+      batchKey: query,
+    })}`,
+  }));
   await assertSignalRetirementPreservesUnrelatedEvidence({
     adjustmentType: "class",
     signalFamily: "candidateIds",
@@ -5685,6 +5704,8 @@ test("retiring an approved negative candidate image preserves unrelated reusable
     direction: "negative",
     signalValueFromSelection: true,
     searchResultCount: 4,
+    searchResultsForQuery: punctuatedResults,
+    assertPunctuatedSignal: true,
     selectCandidates: (rawResults, omittedCandidateId) => {
       const candidateId = omittedCandidateId || rawResults[0].candidateId;
       return {
@@ -5696,6 +5717,13 @@ test("retiring an approved negative candidate image preserves unrelated reusable
 });
 
 test("retiring an approved positive candidate image preserves unrelated reusable calibration evidence", async () => {
+  const punctuatedResults = query => searchResults(query).map((candidate, index) => ({
+    ...candidate,
+    candidateId: `candidate:${index + 1}/${candidateIdForResult({
+      ...candidate,
+      batchKey: query,
+    })}`,
+  }));
   await assertSignalRetirementPreservesUnrelatedEvidence({
     adjustmentType: "class",
     signalFamily: "candidateIds",
@@ -5703,6 +5731,8 @@ test("retiring an approved positive candidate image preserves unrelated reusable
     productionField: "positiveCandidateIds",
     direction: "positive",
     signalValueFromSelection: true,
+    searchResultsForQuery: punctuatedResults,
+    assertPunctuatedSignal: true,
     selectCandidates: (rawResults, selectedCandidateId) => {
       const candidateId = selectedCandidateId || rawResults[0].candidateId;
       const selectedCandidate = rawResults.find(candidate =>
