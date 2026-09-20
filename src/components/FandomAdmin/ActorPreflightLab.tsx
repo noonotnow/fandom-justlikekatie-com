@@ -1006,12 +1006,21 @@ function CalibrationLearningSummary({run}:{run:Run}) {
     }
   }
   if (!ranking && !signals && !proof) return null;
-  const transferSucceeded = proof?.status === 'reproduced_beyond_saved_nine';
-  const transferFailed = proof?.status === 'reaudit_not_yet_reproduced';
-  const effectCount = typeof proof?.beyondExactSavedNineCount === 'number'
+  const validEffectCount = Number.isFinite(proof?.beyondExactSavedNineCount)
+    && Number.isInteger(proof.beyondExactSavedNineCount)
+    && proof.beyondExactSavedNineCount >= 0;
+  const validScoreDelta = Number.isFinite(proof?.scoreDelta);
+  const validReproducedProof = validEffectCount
+    && proof.beyondExactSavedNineCount > 0
+    && validScoreDelta;
+  const transferSucceeded = proof?.status === 'reproduced_beyond_saved_nine'
+    && validReproducedProof;
+  const transferFailed = proof?.status === 'reaudit_not_yet_reproduced'
+    || (proof?.status === 'reproduced_beyond_saved_nine' && !validReproducedProof);
+  const effectCount = validEffectCount
     ? `${proof.beyondExactSavedNineCount} effect${proof.beyondExactSavedNineCount === 1 ? '' : 's'} beyond the exact saved nine`
     : 'Effect count unavailable';
-  const scoreDelta = typeof proof?.scoreDelta === 'number'
+  const scoreDelta = validScoreDelta
     ? `score delta ${proof.scoreDelta.toFixed(3)}`
     : 'score delta unavailable';
   return <section className={styles.calibrationLearning} aria-label="Rescue learning review">

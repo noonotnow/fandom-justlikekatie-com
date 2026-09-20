@@ -5334,10 +5334,29 @@ function normalizeLegacyRunEvidence(run) {
     sourceEvidenceCandidates: (run.curationReceipt.sourceEvidenceCandidates || []).map(enrich),
     dropped: (run.curationReceipt.dropped || []).map(enrich),
   } : run.curationReceipt;
+  const calibrationProof = run.calibrationProof ? {
+    ...run.calibrationProof,
+  } : run.calibrationProof;
+  if (calibrationProof) {
+    if (!Number.isFinite(calibrationProof.beyondExactSavedNineCount)
+      || !Number.isInteger(calibrationProof.beyondExactSavedNineCount)
+      || calibrationProof.beyondExactSavedNineCount < 0) {
+      delete calibrationProof.beyondExactSavedNineCount;
+    }
+    if (!Number.isFinite(calibrationProof.scoreDelta)) {
+      delete calibrationProof.scoreDelta;
+    }
+    if (calibrationProof.ready === true && !calibrationProofMetricsValid(calibrationProof)) {
+      calibrationProof.ready = false;
+      calibrationProof.status = "reaudit_not_yet_reproduced";
+      calibrationProof.summary = "This retained proof has unavailable calibration metrics and cannot establish a transferable result.";
+    }
+  }
   return {
     ...run,
     rawResults,
     curationReceipt,
+    calibrationProof,
     rejections: (run.rejections || []).map(item => item.kind === "image" ? {
       ...enrich(item),
       reason: legacyDuplicateReason(item.reason),
@@ -6819,10 +6838,21 @@ function dailyCalibrationProfile(profile) {
 function calibrationProofFromDiagnostics(profile, diagnostics, materialSufficient) {
   if (!profile || (!profile.evidenceCount && !profile.requiresFreshAudit)) return null;
   const comparison = diagnostics?.comparison || null;
-  const beyondExactSavedNineCount = Number(comparison?.beyondExactSavedNineEffectCount) || 0;
-  const scoreDelta = Number(diagnostics?.scoreDelta) || 0;
+  const rawEffectCount = comparison?.beyondExactSavedNineEffectCount;
+  const beyondExactSavedNineCount = rawEffectCount === undefined
+    ? 0
+    : Number.isFinite(rawEffectCount) && Number.isInteger(rawEffectCount) && rawEffectCount >= 0
+      ? rawEffectCount
+      : undefined;
+  const rawScoreDelta = diagnostics?.scoreDelta;
+  const scoreDelta = rawScoreDelta === undefined
+    ? 0
+    : Number.isFinite(rawScoreDelta)
+      ? rawScoreDelta
+      : undefined;
   const activeEvidenceReady = profile.evidenceCount > 0
     && comparison?.improved === true
+    && Number.isInteger(beyondExactSavedNineCount)
     && beyondExactSavedNineCount > 0;
   const retiredOnlyReady = profile.evidenceCount === 0 && profile.requiresFreshAudit;
   const ready = Boolean(materialSufficient && (activeEvidenceReady || retiredOnlyReady));
@@ -6839,8 +6869,8 @@ function calibrationProofFromDiagnostics(profile, diagnostics, materialSufficien
     retirementHash: profile.retirementHash || null,
     evidenceCount: profile.evidenceCount,
     selectedSignalCount: Number(diagnostics?.selectedSignalCount) || 0,
-    beyondExactSavedNineCount,
-    scoreDelta,
+    ...(beyondExactSavedNineCount === undefined ? {} : { beyondExactSavedNineCount }),
+    ...(scoreDelta === undefined ? {} : { scoreDelta }),
     comparison,
     ready,
     status: ready
@@ -7005,6 +7035,7 @@ function calibrationProofCoversProfile(run, profile) {
   const provedRetiredSignals = [...new Set(run?.calibrationProof?.retiredSignalReceiptIds || [])].sort();
   return Boolean(
     run?.calibrationProof?.ready === true
+    && calibrationProofMetricsValid(run.calibrationProof)
     && run.calibrationProof.calibrationVersion === profile.calibrationVersion
     && JSON.stringify(proved) === JSON.stringify(expected)
     && JSON.stringify(provedRetired) === JSON.stringify(expectedRetired)
@@ -7013,6 +7044,17 @@ function calibrationProofCoversProfile(run, profile) {
   );
 }
 
+function calibrationProofMetricsValid(proof) {
+  if (!proof
+    || !Number.isFinite(proof.beyondExactSavedNineCount)
+    || !Number.isInteger(proof.beyondExactSavedNineCount)
+    || proof.beyondExactSavedNineCount < 0
+    || !Number.isFinite(proof.scoreDelta)) {
+    return false;
+  }
+  return proof.status !== "reproduced_beyond_saved_nine"
+    || proof.beyondExactSavedNineCount > 0;
+}
 function candidateGate(run, candidateId) {
   const raw = (run.rawResults || []).find(item =>
     item.candidateId === candidateId

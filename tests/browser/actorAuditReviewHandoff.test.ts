@@ -835,6 +835,16 @@ function withoutCalibrationProofMetrics(result: AnyRecord): AnyRecord
 
 }
 
+function withMalformedCalibrationProofMetrics(result: AnyRecord): AnyRecord
+{
+  result.calibrationProof.beyondExactSavedNineCount = -1.5;
+  result.calibrationProof.scoreDelta = 'not-a-score';
+  result.calibrationProof.ready = true;
+  result.calibrationProof.status = 'reproduced_beyond_saved_nine';
+  result.calibrationProof.summary = 'Malformed proof must not be trusted.';
+  return result;
+}
+
 
 function legacyRun(runId: string, proof = false): AnyRecord 
 {
@@ -1052,7 +1062,7 @@ function publicationReviewRun(runId: string, historical = false, includePublicat
 
 async function configureNetwork(page: Page, 
 {
- missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, partialRetrievalRepetition = false, partialCalibrationProofMetrics = false, currentLegacy = false, initialActiveRunId = null as string | null, publicationIndexRepairHealth = null as AnyRecord | null, failRepairHealthRecovery = false, auditHistoryDetailDelays = {} as Record<string, number[]>, auditHistoryDetailErrors = {} as Record<string, string[]>, auditHistoryDetailDrops = {} as Record<string, boolean[]>
+ missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, partialRetrievalRepetition = false, partialCalibrationProofMetrics = false, malformedCalibrationProofMetrics = false, currentLegacy = false, initialActiveRunId = null as string | null, publicationIndexRepairHealth = null as AnyRecord | null, failRepairHealthRecovery = false, auditHistoryDetailDelays = {} as Record<string, number[]>, auditHistoryDetailErrors = {} as Record<string, string[]>, auditHistoryDetailDrops = {} as Record<string, boolean[]>
 }
  = 
 {
@@ -1935,10 +1945,15 @@ async function configureNetwork(page: Page,
       if (url.searchParams.get('runId') === 'run-1' && ['run-2', 'current-legacy'].includes(activeRunId ?? '')) 
 {
 
-        const retainedRun = run('run-1', true, partialCalibrationProofMetrics)
+        const retainedRun = run(
+          'run-1',
+          true,
+          partialCalibrationProofMetrics || malformedCalibrationProofMetrics,
+        )
 ;
 
         if (partialCalibrationProofMetrics) withoutCalibrationProofMetrics(retainedRun)
+        if (malformedCalibrationProofMetrics) withMalformedCalibrationProofMetrics(retainedRun)
 ;
 
         delete retainedRun.displayCount
@@ -1979,10 +1994,14 @@ async function configureNetwork(page: Page,
       if (url.searchParams.get('runId') === 'run-legacy') 
 {
 
-        const requestedLegacyRun = legacyRun('run-legacy', partialCalibrationProofMetrics)
+        const requestedLegacyRun = legacyRun(
+          'run-legacy',
+          partialCalibrationProofMetrics || malformedCalibrationProofMetrics,
+        )
 ;
 
         if (partialCalibrationProofMetrics) withoutCalibrationProofMetrics(requestedLegacyRun)
+        if (malformedCalibrationProofMetrics) withMalformedCalibrationProofMetrics(requestedLegacyRun)
 ;
 
         if (partialRetrievalRepetition) requestedLegacyRun.rawResults = []
@@ -4463,7 +4482,7 @@ test('partial retrieval receipts distinguish unavailable counts from recorded ze
 ;
 
 
-test('calibration proof metrics distinguish unavailable history from recorded zeroes without mutations', 
+test('calibration proof metrics reject malformed retained and Legacy history without mutations',
 {
  timeout: 60_000 
 }
@@ -4493,7 +4512,7 @@ test('calibration proof metrics distinguish unavailable history from recorded ze
 }
  = await configureNetwork(page, 
 {
- partialCalibrationProofMetrics: true 
+ malformedCalibrationProofMetrics: true
 }
 )
 ;
@@ -4584,6 +4603,9 @@ test('calibration proof metrics distinguish unavailable history from recorded ze
 ).waitFor()
 ;
 
+    await retainedProof.getByText('Transfer not reproduced', { exact: true }).waitFor()
+;
+
     assert.equal(await retainedProof.locator('button, input, select, textarea, form').count(), 0)
 ;
 
@@ -4610,6 +4632,9 @@ test('calibration proof metrics distinguish unavailable history from recorded ze
  exact: true 
 }
 ).waitFor()
+;
+
+    await legacyProof.getByText('Transfer not reproduced', { exact: true }).waitFor()
 ;
 
     assert.equal(await legacyProof.locator('button, input, select, textarea, form').count(), 0)

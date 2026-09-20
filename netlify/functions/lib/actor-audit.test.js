@@ -8417,6 +8417,46 @@ test("diagnostic evidence beyond the source audit display cap cannot prove trans
   assert.equal(second.currentRun.calibrationProof.beyondExactSavedNineCount, 0);
 });
 
+test("malformed retained calibration proof cannot remain ready through the report API", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const runBody = await runResponse.json();
+  const key = auditRunKey(pairActor.id, 0, runBody.currentRun.runId);
+  const retained = structuredClone(store.records.get(key));
+  retained.profileVersion = "legacy-malformed-proof";
+  retained.calibrationProof = {
+    schemaVersion: 1,
+    calibrationVersion: 1,
+    sourceReceiptIds: ["rescue-1"],
+    retiredReceiptIds: [],
+    retiredSignalReceiptIds: [],
+    retirementHash: null,
+    ready: true,
+    status: "reproduced_beyond_saved_nine",
+    beyondExactSavedNineCount: -1.5,
+    scoreDelta: "not-a-score",
+    summary: "Malformed proof must not be trusted.",
+  };
+  store.records.set(key, structuredClone(retained));
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=${retained.runId}`,
+  ), {});
+  const detail = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(detail.run.calibrationProof.ready, false);
+  assert.equal(detail.run.calibrationProof.status, "reaudit_not_yet_reproduced");
+  assert.equal("beyondExactSavedNineCount" in detail.run.calibrationProof, false);
+  assert.equal("scoreDelta" in detail.run.calibrationProof, false);
+  assert.equal(store.records.get(key).calibrationProof.ready, true);
+});
+
 test("anti-anchor, hero, and candidate-ranking effects alone cannot prove calibration transfer", () => {
   const sourceCandidate = { candidateId: "source-candidate" };
   const newCandidate = { candidateId: "new-candidate" };
