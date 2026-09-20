@@ -1052,7 +1052,7 @@ function publicationReviewRun(runId: string, historical = false, includePublicat
 
 async function configureNetwork(page: Page, 
 {
- missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, partialRetrievalRepetition = false, partialCalibrationProofMetrics = false, currentLegacy = false, initialActiveRunId = null as string | null, publicationIndexRepairHealth = null as AnyRecord | null, auditHistoryDetailDelays = {} as Record<string, number[]>, auditHistoryDetailErrors = {} as Record<string, string[]>, auditHistoryDetailDrops = {} as Record<string, boolean[]>
+ missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, partialRetrievalRepetition = false, partialCalibrationProofMetrics = false, currentLegacy = false, initialActiveRunId = null as string | null, publicationIndexRepairHealth = null as AnyRecord | null, failRepairHealthRecovery = false, auditHistoryDetailDelays = {} as Record<string, number[]>, auditHistoryDetailErrors = {} as Record<string, string[]>, auditHistoryDetailDrops = {} as Record<string, boolean[]>
 }
  = 
 {
@@ -2166,6 +2166,41 @@ async function configureNetwork(page: Page,
 
     auditRequests.push(input)
 ;
+    if (input.action === 'recover_publication_index_repair_health')
+{
+      if (failRepairHealthRecovery)
+{
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Repair health recovery is temporarily unavailable.' }),
+        })
+;
+        return
+;
+}
+      publicationIndexRepairHealth = {
+        status: 'healthy',
+        warning: false,
+        windowHours: 24,
+        attemptCount: 0,
+        failedAttemptCount: 0,
+        lastAttemptAt: null,
+        lastOutcome: null,
+      }
+;
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          recovered: true,
+          preservedEventCount: 0,
+          repairHealth: publicationIndexRepairHealth,
+        }),
+      })
+;
+      return
+;
+}
 
     if (input.action === 'run') 
 {
@@ -11204,6 +11239,90 @@ test('release inventory repair warnings cover repeated and failed repairs, one s
     
 }
 
+
+    const recoverableRepairPage = await browser.newPage()
+;
+    const recoverableNetwork = await configureNetwork(recoverableRepairPage, {
+      publicationIndexRepairHealth: {
+        status: 'unavailable',
+        warning: true,
+        attemptCount: 0,
+        failedAttemptCount: 0,
+        windowHours: 24,
+        lastAttemptAt: null,
+        lastOutcome: null,
+      },
+    })
+;
+    await recoverableRepairPage.goto(`${origin}/vibe-atlas?admin=true`)
+;
+    const recoverButton = recoverableRepairPage.getByRole('button', {
+      name: 'Recover repair health',
+      exact: true,
+    })
+;
+    await recoverButton.waitFor()
+;
+    await recoverButton.click()
+;
+    await recoverableRepairPage.getByText(
+      'Repair health recovered. 0 valid recent repair events preserved.',
+      { exact: true },
+    ).waitFor()
+;
+    assert.equal(
+      await recoverableRepairPage.getByText(
+        'Release inventory repair needs attention',
+        { exact: true },
+      ).count(),
+      0,
+      'successful recovery should refresh inventory and clear the warning',
+    )
+;
+    assert.equal(
+      recoverableNetwork.auditRequests.some(request =>
+        request.action === 'recover_publication_index_repair_health'),
+      true,
+      'the recovery control should invoke the bounded admin action',
+    )
+;
+
+    const failedRecoveryPage = await browser.newPage()
+;
+    await configureNetwork(failedRecoveryPage, {
+      failRepairHealthRecovery: true,
+      publicationIndexRepairHealth: {
+        status: 'unavailable',
+        warning: true,
+        attemptCount: 0,
+        failedAttemptCount: 0,
+        windowHours: 24,
+        lastAttemptAt: null,
+        lastOutcome: null,
+      },
+    })
+;
+    await failedRecoveryPage.goto(`${origin}/vibe-atlas?admin=true`)
+;
+    await failedRecoveryPage.getByRole('button', {
+      name: 'Recover repair health',
+      exact: true,
+    }).click()
+;
+    await failedRecoveryPage.getByText(
+      'Repair health recovery is temporarily unavailable.',
+      { exact: true },
+    ).waitFor()
+;
+    assert.equal(
+      await failedRecoveryPage.getByRole('button', {
+        name: 'Recover repair health',
+        exact: true,
+      }).isEnabled(),
+      true,
+      'failed recovery should leave the control available for a deliberate retry',
+    )
+;
 
     const successfulBootstrapPage = await browser.newPage()
 ;

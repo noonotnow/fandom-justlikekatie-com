@@ -34,6 +34,18 @@ const api = async () => {
   return result;
 };
 
+const recoverPublicationRepairHealth = async () => {
+  const response = await fetch('/.netlify/functions/actor-audits', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'recover_publication_index_repair_health' }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(result?.error || 'Repair health could not be recovered.');
+  return result;
+};
+
 const transitionProduction = async (actorId: string, vibeKey: string, stage: string, status: string, reason: string) => {
   const response = await fetch('/.netlify/functions/actor-audits', {
     method: 'POST',
@@ -70,6 +82,14 @@ export const ReleaseDesk: React.FC = () => {
   const [editions, setEditions] = useState<AnyRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
+
+  const recoverRepairHealth = async () => {
+    const recovery = await recoverPublicationRepairHealth();
+    const refreshed = await api();
+    setInventory(refreshed.releaseInventory ?? null);
+    setProduction(refreshed.productionReadiness ?? null);
+    return recovery;
+  };
 
   useEffect(() => {
     let live = true;
@@ -133,7 +153,7 @@ export const ReleaseDesk: React.FC = () => {
                   )));
                 }}
               />
-              <ReleaseInventory inventory={inventory} />
+              <ReleaseInventory inventory={inventory} onRecoverRepairHealth={recoverRepairHealth} />
             </>
             : <div className={styles.empty}>No release inventory was returned.</div>}
         </>}
@@ -801,7 +821,16 @@ function nextShanghaiNoonLabel(now = new Date()) {
   return `${dateLabel} · 12:00 PM Asia/Shanghai`;
 }
 
-function ReleaseInventory({ inventory }: { inventory: AnyRecord }) {
+function ReleaseInventory({
+  inventory,
+  onRecoverRepairHealth,
+}: {
+  inventory: AnyRecord;
+  onRecoverRepairHealth: () => Promise<AnyRecord>;
+}) {
+  const [recoveringRepairHealth, setRecoveringRepairHealth] = useState(false);
+  const [repairRecoveryNotice, setRepairRecoveryNotice] = useState('');
+  const [repairRecoveryError, setRepairRecoveryError] = useState('');
   const cutoffLabel = useMemo(() => nextShanghaiNoonLabel(), []);
   const actorPacks = (inventory.actorPacks ?? EMPTY_RECORDS) as AnyRecord[];
   const readyCount = Number(inventory.releaseReadyPairingCount ?? 0);
@@ -815,6 +844,25 @@ function ReleaseInventory({ inventory }: { inventory: AnyRecord }) {
     : readyCount === 1
       ? 'One current pairing — concentrated inventory'
       : 'Multiple current pairing options';
+
+  const recoverRepairHealth = async () => {
+    setRecoveringRepairHealth(true);
+    setRepairRecoveryNotice('');
+    setRepairRecoveryError('');
+    try {
+      const recovery = await onRecoverRepairHealth();
+      const preserved = Number(recovery.preservedEventCount ?? 0);
+      setRepairRecoveryNotice(
+        `Repair health recovered. ${preserved} valid recent repair event${preserved === 1 ? '' : 's'} preserved.`,
+      );
+    } catch (error) {
+      setRepairRecoveryError(
+        error instanceof Error ? error.message : 'Repair health could not be recovered.',
+      );
+    } finally {
+      setRecoveringRepairHealth(false);
+    }
+  };
 
   return (
     <section className={styles.inventory} aria-labelledby="release-inventory-title">
@@ -839,8 +887,19 @@ function ReleaseInventory({ inventory }: { inventory: AnyRecord }) {
             {repairWarningDetail}
             . Inventory remains fail-closed; check Blob listing and historical manifest health.
           </span>
+          {repairHealth.status === 'unavailable' && (
+            <button
+              type="button"
+              disabled={recoveringRepairHealth}
+              onClick={() => void recoverRepairHealth()}
+            >
+              {recoveringRepairHealth ? 'Recovering repair health…' : 'Recover repair health'}
+            </button>
+          )}
+          {repairRecoveryError && <span className={styles.repairRecoveryError}>{repairRecoveryError}</span>}
         </div>
       )}
+      {repairRecoveryNotice && <p className={styles.repairRecoveryNotice} role="status">{repairRecoveryNotice}</p>}
 
       <div className={styles.inventoryMetrics}>
         <div><strong>{readyCount}</strong><span>release-ready actor × Vibe pairings</span></div>

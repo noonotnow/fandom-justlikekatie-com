@@ -153,6 +153,11 @@ test('the Release Desk shows grouped release depth and the Shanghai noon cutoff'
   assert.match(releaseDeskSource, /inventory\.actorPacks/);
   assert.match(releaseDeskSource, /Release inventory repair needs attention/);
   assert.match(releaseDeskSource, /repairHealth\?\.warning/);
+  assert.match(releaseDeskSource, /repairHealth\.status === 'unavailable'/);
+  assert.match(releaseDeskSource, /action: 'recover_publication_index_repair_health'/);
+  assert.match(releaseDeskSource, /Recover repair health/);
+  assert.match(releaseDeskSource, /setInventory\(refreshed\.releaseInventory/);
+  assert.match(releaseDeskSource, /Repair health could not be recovered/);
   assert.doesNotMatch(source, /ReleaseInventory|releaseInventory/);
 });
 

@@ -653,6 +653,57 @@ async function readPublicationActorIndexRepairHealth(store, now) {
   }
 }
 
+export async function recoverPublicationActorIndexRepairHealth(
+  store,
+  { now = () => new Date().toISOString() } = {},
+) {
+  const recoveredAt = asTimestamp(now());
+  const recoveredAtMs = Date.parse(recoveredAt);
+  if (!Number.isFinite(recoveredAtMs)) {
+    throw requestError("Repair health could not be recovered with an invalid timestamp.", 503);
+  }
+
+  let current = null;
+  try {
+    current = await store.get(publicationActorIndexRepairKey(), {
+      type: "json",
+      consistency: "strong",
+    });
+  } catch {
+    // An unreadable telemetry record can still be safely reset. This recovery
+    // never reads or writes publication manifests or the actor index.
+  }
+  const events = (Array.isArray(current?.events) ? current.events : [])
+    .filter(isPublicationActorIndexRepairEvent)
+    .filter(event => {
+      const attemptedAt = Date.parse(event.attemptedAt);
+      return attemptedAt <= recoveredAtMs
+        && recoveredAtMs - attemptedAt <= PUBLICATION_ACTOR_INDEX_REPAIR_WINDOW_MS;
+    })
+    .slice(-20);
+  const record = {
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health",
+    updatedAt: recoveredAt,
+    events,
+  };
+
+  try {
+    await store.setJSON(publicationActorIndexRepairKey(), record);
+    const health = await readPublicationActorIndexRepairHealth(store, () => recoveredAt);
+    if (health.status === "unavailable") {
+      throw new Error("Recovered repair health could not be verified.");
+    }
+    return {
+      recovered: true,
+      preservedEventCount: events.length,
+      repairHealth: health,
+    };
+  } catch {
+    throw requestError("Repair health could not be recovered. No publication data was changed.", 503);
+  }
+}
+
 async function updatePublicationActorIndex(store, manifest, now) {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const existingWithMetadata = typeof store.getWithMetadata === "function"

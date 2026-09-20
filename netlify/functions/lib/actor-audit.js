@@ -89,6 +89,7 @@ import {
   publicationJoinReceipt,
   readPublicationManifests,
   readLatestPublicationDatesByActorWithHealth,
+  recoverPublicationActorIndexRepairHealth,
   recordPublicationCorrectionsForMisprint,
   releaseCorrectionPublicationLock,
 } from "./publication-manifest.js";
@@ -482,6 +483,13 @@ export function createActorAuditHandler({
 
       if (req.method !== "POST") {
         return json(405, { error: "Method not allowed." }, { Allow: "GET, POST" });
+      }
+      if (input.action === "recover_publication_index_repair_health") {
+        const recovery = await recoverPublicationActorIndexRepairHealth(
+          getPublicationStore(context),
+          { now: () => now().toISOString() },
+        );
+        return json(200, recovery);
       }
       const pair = resolvePair(actorPacks, input.actorId, input.vibeKey)
         || (["mark_grid_misprint", "mark_collection_misprint"].includes(input.action)

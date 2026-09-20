@@ -58,6 +58,8 @@ import {
   GRID_MANIFEST_VERSION,
   gridCorrectionPrefix,
   gridManifestKey,
+  publicationActorIndexKey,
+  publicationActorIndexRepairKey,
   publicationManifestCatalogKey,
   readPublicationCorrections,
 } from "./publication-manifest.js";
@@ -2398,6 +2400,98 @@ test("release inventory groups current curator approvals by actor pack", async (
   assert.equal(body.releaseInventory.actorPacks[0].releaseReadyPairingCount, 1);
   assert.equal(body.releaseInventory.actorPacks[0].pairings[0].releaseSource, "fresh_curator");
   assert.equal(body.releaseInventory.publicationIndexRepairHealth.warning, false);
+});
+
+test("operators recover malformed repair health while preserving valid recent events only", async () => {
+  const publicationStore = memoryStore();
+  const { handler } = harness({ publicationStore });
+  const initialReleaseDesk = await handler(request(), {});
+  assert.equal(initialReleaseDesk.status, 200);
+  const actorIndex = structuredClone(
+    publicationStore.records.get(publicationActorIndexKey()),
+  );
+  publicationStore.records.set(publicationActorIndexRepairKey(), {
+    schemaVersion: 99,
+    kind: "corrupted",
+    events: [
+      {
+        attemptedAt: "2026-08-31T03:00:00.000Z",
+        reason: "missing",
+        outcome: "rebuilt",
+      },
+      { attemptedAt: "not-a-date", reason: "invalid", outcome: "failed" },
+      {
+        attemptedAt: "2026-08-29T03:00:00.000Z",
+        reason: "stale",
+        outcome: "rebuilt",
+      },
+    ],
+  });
+
+  const response = await handler(request("POST", {
+    action: "recover_publication_index_repair_health",
+  }), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(body));
+  assert.equal(body.recovered, true);
+  assert.equal(body.preservedEventCount, 1);
+  assert.deepEqual(body.repairHealth, {
+    status: "healthy",
+    warning: false,
+    windowHours: 24,
+    attemptCount: 1,
+    failedAttemptCount: 0,
+    lastAttemptAt: "2026-08-31T03:00:00.000Z",
+    lastOutcome: "rebuilt",
+  });
+  assert.deepEqual(publicationStore.records.get(publicationActorIndexKey()), actorIndex);
+
+  const releaseDesk = await handler(request(), {});
+  const releaseBody = await releaseDesk.json();
+  assert.equal(releaseBody.releaseInventory.publicationIndexRepairHealth.status, "healthy");
+});
+
+test("operators can reset unreadable repair health without changing publication data", async () => {
+  const publicationStore = memoryStore();
+  const originalGet = publicationStore.get.bind(publicationStore);
+  let repairHealthReadFailed = false;
+  publicationStore.get = async key => {
+    if (key === publicationActorIndexRepairKey() && !repairHealthReadFailed) {
+      repairHealthReadFailed = true;
+      throw new Error("corrupt JSON");
+    }
+    return originalGet(key);
+  };
+  const { handler } = harness({ publicationStore });
+
+  const response = await handler(request("POST", {
+    action: "recover_publication_index_repair_health",
+  }), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(body));
+  assert.equal(body.preservedEventCount, 0);
+  assert.equal(body.repairHealth.status, "healthy");
+  assert.equal(body.repairHealth.attemptCount, 0);
+});
+
+test("failed repair-health recovery returns an explicit error", async () => {
+  const publicationStore = memoryStore();
+  const originalSetJSON = publicationStore.setJSON.bind(publicationStore);
+  publicationStore.setJSON = async (key, value, options) => {
+    if (key === publicationActorIndexRepairKey()) throw new Error("telemetry write unavailable");
+    return originalSetJSON(key, value, options);
+  };
+  const { handler } = harness({ publicationStore });
+
+  const response = await handler(request("POST", {
+    action: "recover_publication_index_repair_health",
+  }), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 503);
+  assert.equal(body.error, "Repair health could not be recovered. No publication data was changed.");
 });
 
 test("production readiness appends receipts without mutating the approved audit", async () => {
