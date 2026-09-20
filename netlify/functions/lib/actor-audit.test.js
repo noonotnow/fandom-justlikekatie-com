@@ -5829,7 +5829,12 @@ test("an approved exact-image signal learned from blind reviews can be retired w
   const repeatedCandidateId = "blind-review:exact/candidate";
   const listed = store.list.bind(store);
   let lagEvidenceListings = false;
+  let lagSignalRetirementListings = false;
   store.list = async options => {
+    if (lagSignalRetirementListings
+      && options?.prefix === auditRescueCalibrationSignalRetirementPrefix(pairActor.id, 0)) {
+      return { blobs: [] };
+    }
     if (lagEvidenceListings && (
       options?.prefix === auditRunPrefix(pairActor.id, 0)
       || options?.prefix?.startsWith(`visual-judgments/${pairActor.id}/0/`)
@@ -5919,6 +5924,7 @@ test("an approved exact-image signal learned from blind reviews can be retired w
   );
 
   lagEvidenceListings = true;
+  lagSignalRetirementListings = true;
   const retirementResponse = await handler(request("POST", {
     action: "retire_rescue_signal",
     actorId: pairActor.id,
@@ -5932,6 +5938,7 @@ test("an approved exact-image signal learned from blind reviews can be retired w
   assert.equal(retirementResponse.status, 200, JSON.stringify(retired));
   assert.equal(retired.calibrationProfile.activeApproval, null);
   assert.equal(retired.calibrationProfile.retiredSignalCount, 1);
+  assert.equal(await getEligibility(store, pairActor, 0), null);
   for (const [field, signals] of Object.entries(unrelatedSignals)) {
     assert.deepEqual(retired.calibrationProfile[field], signals, field);
   }

@@ -2572,7 +2572,9 @@ export function createActorAuditHandler({
           if (existing.reason !== reason) {
             return json(409, { error: "That signal retirement receipt is immutable." });
           }
-          const next = await readReport(store, pair);
+          const next = await readReport(store, pair, {
+            signalRetirements: [existing],
+          });
           return json(200, {
             actor: await actorSummary(store, actorPacks, pair.actor),
             pairing: pairingSummary(pair, next),
@@ -2609,7 +2611,18 @@ export function createActorAuditHandler({
         if (write?.modified === false) {
           return json(409, { error: "Another operator retired this signal first." });
         }
-        const next = await readReport(store, pair);
+        const authoritative = await store.get(retirementKey, {
+          type: "json",
+          consistency: "strong",
+        });
+        if (!authoritative
+          || recordHash(calibrationSignalRetirementIdentity(authoritative))
+            !== recordHash(calibrationSignalRetirementIdentity(retirement))) {
+          return json(409, { error: "The immutable signal retirement receipt could not be verified." });
+        }
+        const next = await readReport(store, pair, {
+          signalRetirements: [authoritative],
+        });
         return json(200, {
           actor: await actorSummary(store, actorPacks, pair.actor),
           pairing: pairingSummary(pair, next),
@@ -4713,7 +4726,7 @@ function emptyDiagnostics() {
   };
 }
 
-async function readReport(store, pair) {
+async function readReport(store, pair, authoritativeReceipts = {}) {
   const head = await store.get(auditHeadKey(pair.actor.id, pair.vibeIdx), {
     type: "json",
     consistency: "strong",
@@ -4738,7 +4751,12 @@ async function readReport(store, pair) {
     ? [currentRun, ...listedRuns.filter(run => run.runId !== currentRun.runId)]
     : listedRuns;
   const currentVerdict = currentRun?.operatorVerdict || null;
-  const calibrationProfile = await readRescueCalibrationProfile(store, pair, runs);
+  const calibrationProfile = await readRescueCalibrationProfile(
+    store,
+    pair,
+    runs,
+    authoritativeReceipts,
+  );
   return {
     schemaVersion: 1,
     actorId: pair.actor.id,
@@ -6296,7 +6314,12 @@ function blindReviewCalibrationRecord(run, pair) {
   };
 }
 
-async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
+async function readRescueCalibrationProfile(
+  store,
+  pair,
+  reviewedRuns = [],
+  authoritativeReceipts = {},
+) {
   if (!reviewedRuns.length) {
     const listing = await store.list({ prefix: auditRunPrefix(pair.actor.id, pair.vibeIdx) });
     reviewedRuns = (await Promise.all((listing?.blobs || []).map(async blob => {
@@ -6305,7 +6328,7 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
       return run ? attachVerdict(store, pair, run) : null;
     }))).filter(Boolean);
   }
-  const [confirmedReceipts, retirementReceipts, signalRetirementReceipts, blindExclusionReceipts, outcomeReceipts, approvalReceipts, approvalRevocations, canonicalAuthority] = await Promise.all([
+  const [confirmedReceipts, retirementReceipts, listedSignalRetirementReceipts, blindExclusionReceipts, outcomeReceipts, approvalReceipts, approvalRevocations, canonicalAuthority] = await Promise.all([
     readReceipts(
       store,
       auditRescueCalibrationPrefix(pair.actor.id, pair.vibeIdx),
@@ -6338,6 +6361,13 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
       { type: "json", consistency: "strong" },
     ),
   ]);
+  const signalRetirementReceipts = [...listedSignalRetirementReceipts];
+  for (const receipt of authoritativeReceipts.signalRetirements || []) {
+    if (!signalRetirementReceipts.some(item =>
+      item.retirementId === receipt.retirementId)) {
+      signalRetirementReceipts.push(receipt);
+    }
+  }
   let canonicalApproval = null;
   if (canonicalAuthority?.approvalId) {
     let canonicalRevocation;
@@ -6372,6 +6402,33 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
     if (canonicalRevocation
       && !approvalRevocations.some(receipt => receipt.approvalId === canonicalRevocation.approvalId)) {
       approvalRevocations.push(canonicalRevocation);
+    }
+  }
+  const approvedSignalFamily = normalizeCalibrationSignalFamily(
+    canonicalApproval?.adjustment?.signalFamily,
+  );
+  const approvedSignalValues = (canonicalApproval?.adjustment?.signalValues || [])
+    .map(value => normalizeCalibrationSignalValue(value, approvedSignalFamily))
+    .filter(Boolean);
+  if (approvedSignalFamily && approvedSignalValues.length) {
+    const authoritativeSignalRetirements = (await Promise.all(
+      (canonicalApproval.evidenceReceiptIds || []).flatMap(receiptId =>
+        approvedSignalValues.map(signalValue => store.get(
+          auditRescueCalibrationSignalRetirementKey(
+            pair.actor.id,
+            pair.vibeIdx,
+            receiptId,
+            CALIBRATION_SIGNAL_LABELS[approvedSignalFamily],
+            signalValue,
+          ),
+          { type: "json", consistency: "strong" },
+        ))),
+    )).filter(Boolean);
+    for (const receipt of authoritativeSignalRetirements) {
+      if (!signalRetirementReceipts.some(item =>
+        item.retirementId === receipt.retirementId)) {
+        signalRetirementReceipts.push(receipt);
+      }
     }
   }
   const recoverableSourceRunIds = await approvalSourceRunIds({
@@ -8050,6 +8107,20 @@ function calibrationApprovalRevocationIdentity(receipt) {
   };
 }
 
+function calibrationSignalRetirementIdentity(receipt) {
+  return {
+    status: receipt?.status,
+    retirementId: receipt?.retirementId,
+    sourceRescueReceiptId: receipt?.sourceRescueReceiptId,
+    sourceRunId: receipt?.sourceRunId,
+    actorId: receipt?.actorId,
+    vibeKey: receipt?.vibeKey,
+    signalFamily: receipt?.signalFamily,
+    signalValue: receipt?.signalValue,
+    reason: receipt?.reason,
+    retiredBy: receipt?.retiredBy,
+  };
+}
 export async function writeCalibrationAuthority(store, pair, next) {
   const key = auditRescueCalibrationAuthorityKey(pair.actor.id, pair.vibeIdx);
   const current = await store.getWithMetadata(key, {
