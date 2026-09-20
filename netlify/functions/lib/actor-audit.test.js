@@ -1446,6 +1446,7 @@ test("date-bounded calibration export generates explicit publication join outcom
     scope: "full",
     startedAt: "2026-08-10T12:00:00.000Z",
     completedAt: "2026-08-10T12:01:00.000Z",
+    publicationJoinSupported: true,
     rawResults: [
       {
         provisionalCandidateId: "occurrence-matched",
@@ -1464,7 +1465,18 @@ test("date-bounded calibration export generates explicit publication join outcom
       },
     ],
   };
+  const legacyRun = {
+    runId: "run-before-publication-matching",
+    scope: "full",
+    startedAt: "2026-08-09T12:00:00.000Z",
+    completedAt: "2026-08-09T12:01:00.000Z",
+    rawResults: [{ candidateId: "legacy-candidate" }],
+  };
   store.records.set(auditRunKey(pairActor.id, 0, run.runId), structuredClone(run));
+  store.records.set(
+    auditRunKey(pairActor.id, 0, legacyRun.runId),
+    structuredClone(legacyRun),
+  );
 
   const firstManifest = publicationManifest("2026-08-11");
   firstManifest.cards[0] = {
@@ -1504,7 +1516,7 @@ test("date-bounded calibration export generates explicit publication join outcom
   const payload = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(payload.runs.length, 1);
+  assert.equal(payload.runs.length, 2);
   const receipt = payload.runs[0].publicationJoinReceipt;
   assert.equal(receipt.kind, "vibe-atlas-audit-publication-join");
   assert.equal(receipt.readOnly, true);
@@ -1541,6 +1553,12 @@ test("date-bounded calibration export generates explicit publication join outcom
       ["2026-08-12", "manifest-2026-08-12"],
     ],
   );
+  assert.deepEqual(payload.runs[0].links.editions, [
+    { date: "2026-08-11", url: `${ORIGIN}/vibe-atlas?date=2026-08-11` },
+    { date: "2026-08-12", url: `${ORIGIN}/vibe-atlas?date=2026-08-12` },
+  ]);
+  assert.equal("publicationJoinReceipt" in payload.runs[1], false);
+  assert.equal("editions" in payload.runs[1].links, false);
   assert.equal(getSearchCall(), 0);
   assert.deepEqual([...store.records.entries()], auditBefore);
   assert.deepEqual([...publicationStore.records.entries()], publicationBefore);

@@ -3034,6 +3034,7 @@ export async function runPreflight(
   const run = {
     runId: createRunId(),
     schemaVersion: 1,
+    publicationJoinSupported: true,
     profileVersion: IDENTITY_PROFILE_VERSION,
     ...profileVersions,
     curationVersion: curationReceipt.curationVersion ?? curationReceipt.version ?? null,
@@ -4671,18 +4672,29 @@ async function dateBoundedCalibrationAuditExport(
     }
     const humanVisualJudgments = await readVisualJudgments(store, pair, run.runId);
     const item = calibrationAuditExport(run, pair, humanVisualJudgments);
-    item.publicationJoinReceipt = publicationJoinReceipt(
-      run,
-      pair,
-      publicationInventory.manifests,
-    );
-    const editions = retainedEditionDates(run);
+    const publicationJoinSupported = run.publicationJoinSupported === true;
+    if (publicationJoinSupported) {
+      item.publicationJoinReceipt = publicationJoinReceipt(
+        run,
+        pair,
+        publicationInventory.manifests,
+      );
+    }
+    const editions = [...new Set([
+      ...retainedEditionDates(run),
+      ...(publicationJoinSupported
+        ? item.publicationJoinReceipt.occurrences.flatMap(occurrence =>
+          occurrence.matches.map(match => match.publicationDate))
+        : []),
+    ])].sort();
     item.links = {
       pairing: `${origin}/?adminView=actor-preflight&actorId=${encodeURIComponent(pair.actor.id)}&vibeKey=${encodeURIComponent(pair.vibeKey)}&runId=${encodeURIComponent(run.runId)}`,
-      editions: editions.map(date => ({
-        date,
-        url: `${origin}/vibe-atlas?date=${encodeURIComponent(date)}`,
-      })),
+      ...(editions.length ? {
+        editions: editions.map(date => ({
+          date,
+          url: `${origin}/vibe-atlas?date=${encodeURIComponent(date)}`,
+        })),
+      } : {}),
     };
     if (!editions.length) {
       item.exportMetadata.missingFields.push("links.editions");

@@ -554,6 +554,55 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
           return;
         }
         const statuses = ['matched', 'missing', 'ambiguous', 'identity_unavailable'];
+        const runs = statuses.map((status, index) => ({
+          source: {
+            actorId: ACTOR_ID,
+            vibeKey: VIBE_KEY,
+            runId: `publication-join-${status}`,
+          },
+          publicationJoinReceipt: {
+            kind: 'vibe-atlas-audit-publication-join',
+            counts: {
+              matched: status === 'matched' ? 1 : 0,
+              missing: status === 'missing' ? 1 : 0,
+              ambiguous: status === 'ambiguous' ? 1 : 0,
+              identity_unavailable: status === 'identity_unavailable' ? 1 : 0,
+            },
+            occurrences: [{
+              auditOccurrenceId: `occurrence-${index + 1}`,
+              status,
+              matches: status === 'matched'
+                ? [{ publicationDate: '2026-09-03', manifestId: 'manifest-matched' }]
+                : status === 'ambiguous'
+                  ? [
+                    { publicationDate: '2026-09-03', manifestId: 'manifest-ambiguous-1' },
+                    { publicationDate: '2026-09-04', manifestId: 'manifest-ambiguous-2' },
+                  ]
+                  : [],
+            }],
+          },
+          links: {
+            pairing: `https://fandom.example/?adminView=actor-preflight&runId=publication-join-${status}`,
+            editions: status === 'matched'
+              ? [{ date: '2026-09-03', url: 'https://fandom.example/vibe-atlas?date=2026-09-03' }]
+              : status === 'ambiguous'
+                ? [
+                  { date: '2026-09-03', url: 'https://fandom.example/vibe-atlas?date=2026-09-03' },
+                  { date: '2026-09-04', url: 'https://fandom.example/vibe-atlas?date=2026-09-04' },
+                ]
+                : [],
+          },
+        }));
+        runs.unshift({
+          source: {
+            actorId: ACTOR_ID,
+            vibeKey: VIBE_KEY,
+            runId: 'legacy-before-publication-matching',
+          },
+          links: {
+            pairing: 'https://fandom.example/?adminView=actor-preflight&runId=legacy-before-publication-matching',
+          },
+        });
         await route.fulfill({
           contentType: 'application/json',
           headers: {
@@ -565,36 +614,9 @@ async function configureNetwork(page: Page, { missingRetirementRun = false, visu
               readOnly: true,
               type: 'date-bounded-curation-calibration-audit',
               dateRange: { from: '2026-09-01', to: '2026-09-10', dayCount: 10 },
-              runCount: statuses.length,
+              runCount: runs.length,
             },
-            runs: statuses.map((status, index) => ({
-              source: {
-                actorId: ACTOR_ID,
-                vibeKey: VIBE_KEY,
-                runId: `publication-join-${status}`,
-              },
-              publicationJoinReceipt: {
-                kind: 'vibe-atlas-audit-publication-join',
-                counts: {
-                  matched: status === 'matched' ? 1 : 0,
-                  missing: status === 'missing' ? 1 : 0,
-                  ambiguous: status === 'ambiguous' ? 1 : 0,
-                  identity_unavailable: status === 'identity_unavailable' ? 1 : 0,
-                },
-                occurrences: [{
-                  auditOccurrenceId: `occurrence-${index + 1}`,
-                  status,
-                  matches: status === 'matched'
-                    ? [{ publicationDate: '2026-09-03', manifestId: 'manifest-matched' }]
-                    : status === 'ambiguous'
-                      ? [
-                        { publicationDate: '2026-09-03', manifestId: 'manifest-ambiguous-1' },
-                        { publicationDate: '2026-09-04', manifestId: 'manifest-ambiguous-2' },
-                      ]
-                      : [],
-                }],
-              },
-            })),
+            runs,
           }),
         });
         return;
@@ -1028,19 +1050,42 @@ test('a date-bounded editorial packet download preserves publication join outcom
     );
     assert.equal(payload.exportMetadata.readOnly, true);
     assert.deepEqual(
-      payload.runs.map((runItem: AnyRecord) => runItem.publicationJoinReceipt.occurrences[0].status),
+      payload.runs
+        .filter((runItem: AnyRecord) => runItem.publicationJoinReceipt)
+        .map((runItem: AnyRecord) => runItem.publicationJoinReceipt.occurrences[0].status),
       ['matched', 'missing', 'ambiguous', 'identity_unavailable'],
       'the downloaded contract must preserve every publication join outcome explicitly',
     );
+    assert.deepEqual(
+      payload.runs[0],
+      {
+        source: {
+          actorId: ACTOR_ID,
+          vibeKey: VIBE_KEY,
+          runId: 'legacy-before-publication-matching',
+        },
+        links: {
+          pairing: 'https://fandom.example/?adminView=actor-preflight&runId=legacy-before-publication-matching',
+        },
+      },
+      'legacy retained runs must not gain fabricated publication counts, outcomes, or edition links',
+    );
     assert.ok(
-      payload.runs.every((runItem: AnyRecord) =>
+      payload.runs.slice(1).every((runItem: AnyRecord) =>
         runItem.publicationJoinReceipt.kind === 'vibe-atlas-audit-publication-join'),
       'publication joins must remain separate receipts on each exported run',
     );
-    assert.equal(payload.runs[0].publicationJoinReceipt.occurrences[0].matches.length, 1);
-    assert.equal(payload.runs[1].publicationJoinReceipt.occurrences[0].matches.length, 0);
-    assert.equal(payload.runs[2].publicationJoinReceipt.occurrences[0].matches.length, 2);
-    assert.equal(payload.runs[3].publicationJoinReceipt.occurrences[0].matches.length, 0);
+    assert.equal(payload.runs[1].publicationJoinReceipt.occurrences[0].matches.length, 1);
+    assert.equal(payload.runs[2].publicationJoinReceipt.occurrences[0].matches.length, 0);
+    assert.equal(payload.runs[3].publicationJoinReceipt.occurrences[0].matches.length, 2);
+    assert.equal(payload.runs[4].publicationJoinReceipt.occurrences[0].matches.length, 0);
+    assert.deepEqual(payload.runs[1].links.editions, [
+      { date: '2026-09-03', url: 'https://fandom.example/vibe-atlas?date=2026-09-03' },
+    ]);
+    assert.deepEqual(payload.runs[3].links.editions, [
+      { date: '2026-09-03', url: 'https://fandom.example/vibe-atlas?date=2026-09-03' },
+      { date: '2026-09-04', url: 'https://fandom.example/vibe-atlas?date=2026-09-04' },
+    ]);
     await page.getByText(
       'Read-only cross-audit editorial review, retained evidence, and publication receipts downloaded. No audit was rerun or changed.',
       { exact: true },
