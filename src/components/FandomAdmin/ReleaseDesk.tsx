@@ -8,6 +8,7 @@ import {
   classifyGridProvenance,
   type ClassifiedBoardProvenance,
 } from '../../utils/approvedBoardProvenance';
+import { ReceiptIndexHealth } from './ReceiptIndexHealth';
 import styles from './ReleaseDesk.module.css';
 
 type AnyRecord = Record<string, any>;
@@ -256,7 +257,13 @@ function EngagementEvidence() {
       {archiveHealth && <ArchiveAccessHealth health={archiveHealth} />}
       {billingOperations && (
         <>
-          <ReceiptIndexHealth health={billingOperations.receiptIndex} />
+          <ReceiptIndexHealth
+            health={billingOperations.receiptIndex}
+            classes={{
+              container: styles.identityConflict,
+              header: styles.identityConflictHeader,
+            }}
+          />
           <BillingIdentityConflict
             conflict={billingOperations.identityConflict}
             onUpdated={identityConflict => setBillingOperations({ ...billingOperations, identityConflict })}
@@ -296,37 +303,6 @@ function EngagementEvidence() {
         </section>
       </div>
       {notice && <p className={styles.productionError} role="alert">{notice}</p>}
-    </section>
-  );
-}
-
-function ReceiptIndexHealth({ health }: { health: AnyRecord | null }) {
-  const status = typeof health?.status === 'string' ? health.status : 'unavailable';
-  const labels: Record<string, string> = {
-    release_ready: 'Release-ready',
-    missing: 'Missing',
-    invalid: 'Invalid',
-    not_ready: 'Not ready',
-    unavailable: 'Unavailable',
-  };
-  const messages: Record<string, string> = {
-    release_ready: 'The processed-receipt retention index is valid and ready.',
-    missing: 'The processed-receipt retention index is missing. Do not consider this release complete.',
-    invalid: 'The processed-receipt retention index is invalid. The concurrent migration must be retried.',
-    not_ready: 'The processed-receipt retention index is not ready. The concurrent migration did not finish.',
-    unavailable: 'Receipt index readiness could not be checked because the production database is unavailable.',
-  };
-  return (
-    <section className={styles.identityConflict} aria-labelledby="receipt-index-health-title">
-      <div className={styles.identityConflictHeader}>
-        <h5 id="receipt-index-health-title">Processed receipt retention</h5>
-        <strong data-status={health?.releaseReady ? 'resolved' : 'active'}>
-          {labels[status] ?? 'Unavailable'}
-        </strong>
-      </div>
-      <p role={health?.releaseReady ? undefined : 'alert'}>
-        {messages[status] ?? messages.unavailable}
-      </p>
     </section>
   );
 }

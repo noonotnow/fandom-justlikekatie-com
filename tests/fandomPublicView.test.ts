@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { ReceiptIndexHealth } from '../src/components/FandomAdmin/ReceiptIndexHealth';
 
 const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const adminSource = await readFile(
@@ -13,6 +16,10 @@ const actorPreflightSource = await readFile(
 );
 const releaseDeskSource = await readFile(
   new URL('../src/components/FandomAdmin/ReleaseDesk.tsx', import.meta.url),
+  'utf8',
+);
+const receiptIndexHealthSource = await readFile(
+  new URL('../src/components/FandomAdmin/ReceiptIndexHealth.tsx', import.meta.url),
   'utf8',
 );
 const collectionSource = await readFile(
@@ -76,8 +83,8 @@ test('Release Desk is the Admin workspace for private inventory', () => {
   assert.match(releaseDeskSource, /engagement-export\?records=0/);
   assert.match(releaseDeskSource, /archive-access-operations/);
   assert.match(releaseDeskSource, /billing-operations/);
-  assert.match(releaseDeskSource, /Processed receipt retention/);
-  assert.match(releaseDeskSource, /Do not consider this release complete/);
+  assert.match(receiptIndexHealthSource, /Processed receipt retention/);
+  assert.match(receiptIndexHealthSource, /Do not consider this release complete/);
   assert.match(releaseDeskSource, />Archive access health</);
   assert.match(releaseDeskSource, />Stripe identity conflicts</);
   assert.match(releaseDeskSource, /No Stripe identity conflicts have been recorded/);
@@ -107,6 +114,52 @@ test('Release Desk is the Admin workspace for private inventory', () => {
   assert.match(privateGate, /<FandomAdmin initialView="release-desk" \/>/);
   assert.doesNotMatch(appSource, /<span>Release Desk<\/span>/);
 });
+
+test('receipt-index readiness renders a clearly healthy release-ready state', () => {
+  const markup = renderToStaticMarkup(createElement(ReceiptIndexHealth, {
+    health: { status: 'release_ready', releaseReady: true },
+  }));
+
+  assert.match(markup, />Release-ready<\/strong>/);
+  assert.match(markup, /data-status="resolved"/);
+  assert.match(markup, /The processed-receipt retention index is valid and ready\./);
+  assert.doesNotMatch(markup, /role="alert"/);
+});
+
+for (const state of [
+  {
+    status: 'missing',
+    label: 'Missing',
+    message: 'The processed-receipt retention index is missing. Do not consider this release complete.',
+  },
+  {
+    status: 'invalid',
+    label: 'Invalid',
+    message: 'The processed-receipt retention index is invalid. The concurrent migration must be retried.',
+  },
+  {
+    status: 'not_ready',
+    label: 'Not ready',
+    message: 'The processed-receipt retention index is not ready. The concurrent migration did not finish.',
+  },
+  {
+    status: 'unavailable',
+    label: 'Unavailable',
+    message: 'Receipt index readiness could not be checked because the production database is unavailable.',
+  },
+]) {
+  test(`receipt-index readiness renders ${state.status} as a blocking alert`, () => {
+    const markup = renderToStaticMarkup(createElement(ReceiptIndexHealth, {
+      health: { status: state.status, releaseReady: false },
+    }));
+
+    assert.match(markup, new RegExp(`>${state.label}</strong>`));
+    assert.match(markup, /data-status="active"/);
+    assert.match(markup, /role="alert"/);
+    assert.ok(markup.includes(state.message));
+    assert.doesNotMatch(markup, />Release-ready<\/strong>|data-status="resolved"/);
+  });
+}
 
 test('Actor Preflight keeps hero-only failures complete and reviewable', () => {
   assert.match(actorPreflightSource, /complete proposal cards/);
