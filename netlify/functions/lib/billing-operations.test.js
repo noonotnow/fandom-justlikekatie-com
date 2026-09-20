@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createBillingOperationsHandler } from "./billing-operations.js";
+import {
+  createBillingOperationsHandler,
+  createReceiptIndexHealthCheck,
+  PROCESSED_RECEIPT_RETENTION_INDEX,
+} from "./billing-operations.js";
 
 test("billing operations is admin-only", async () => {
   const handler = createBillingOperationsHandler({
@@ -31,7 +35,10 @@ test("billing operations returns an explicit empty state", async () => {
 
   const result = await handler(new Request("https://example.test/billing-operations"), {});
   assert.equal(result.status, 200);
-  assert.deepEqual(await result.json(), { identityConflict: null });
+  assert.deepEqual(await result.json(), {
+    identityConflict: null,
+    receiptIndex: { status: "unavailable", releaseReady: false },
+  });
 });
 
 test("billing operations returns only the privacy-safe conflict projection", async () => {
@@ -51,12 +58,70 @@ test("billing operations returns only the privacy-safe conflict projection", asy
 
   const result = await handler(new Request("https://example.test/billing-operations"), {});
   const body = await result.json();
-  assert.deepEqual(body, { identityConflict: safe });
+  assert.deepEqual(body, {
+    identityConflict: safe,
+    receiptIndex: { status: "unavailable", releaseReady: false },
+  });
   assert.deepEqual(Object.keys(body.identityConflict).sort(), [
     "category", "count", "firstOccurredAt", "lastOccurredAt", "reason",
     "resolutionTimestamp", "status",
   ]);
   assert.doesNotMatch(JSON.stringify(body), /customer|account|email|eventId|signature|payload/i);
+});
+
+test("billing operations reports a healthy receipt index as release-ready", async () => {
+  const handler = createBillingOperationsHandler({
+    auth: { async authenticateAdmin() {} },
+    getRepository: () => ({ async identityConflictSummary() { return null; } }),
+    getReceiptIndexHealth: async () => ({ status: "release_ready", releaseReady: true }),
+  });
+
+  const result = await handler(new Request("https://example.test/billing-operations"), {});
+  assert.equal(result.status, 200);
+  assert.deepEqual((await result.json()).receiptIndex, {
+    status: "release_ready",
+    releaseReady: true,
+  });
+});
+
+test("billing operations reports an unavailable probe without hiding other operations", async () => {
+  const handler = createBillingOperationsHandler({
+    auth: { async authenticateAdmin() {} },
+    getRepository: () => ({ async identityConflictSummary() { return null; } }),
+    getReceiptIndexHealth: async () => { throw new Error("private database details"); },
+  });
+
+  const result = await handler(new Request("https://example.test/billing-operations"), {});
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), {
+    identityConflict: null,
+    receiptIndex: { status: "unavailable", releaseReady: false },
+  });
+});
+
+test("receipt index health reads pg_index without reading billing data", async () => {
+  const cases = [
+    [[], { status: "missing", releaseReady: false }],
+    [[{ indisvalid: false, indisready: false }], { status: "invalid", releaseReady: false }],
+    [[{ indisvalid: true, indisready: false }], { status: "not_ready", releaseReady: false }],
+    [[{ indisvalid: true, indisready: true }], { status: "release_ready", releaseReady: true }],
+  ];
+
+  for (const [rows, expected] of cases) {
+    let statement;
+    let parameters;
+    const check = createReceiptIndexHealthCheck({
+      query: async (sql, values) => {
+        statement = sql;
+        parameters = values;
+        return { rows };
+      },
+    });
+    assert.deepEqual(await check(), expected);
+    assert.match(statement, /FROM pg_index/);
+    assert.doesNotMatch(statement, /FROM public\.fandom_billing_events(?:\s|$)/);
+    assert.deepEqual(parameters, [PROCESSED_RECEIPT_RETENTION_INDEX]);
+  }
 });
 
 test("billing operations resolution is admin-only", async () => {

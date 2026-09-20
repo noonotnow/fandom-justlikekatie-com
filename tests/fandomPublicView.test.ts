@@ -76,6 +76,8 @@ test('Release Desk is the Admin workspace for private inventory', () => {
   assert.match(releaseDeskSource, /engagement-export\?records=0/);
   assert.match(releaseDeskSource, /archive-access-operations/);
   assert.match(releaseDeskSource, /billing-operations/);
+  assert.match(releaseDeskSource, /Processed receipt retention/);
+  assert.match(releaseDeskSource, /Do not consider this release complete/);
   assert.match(releaseDeskSource, />Archive access health</);
   assert.match(releaseDeskSource, />Stripe identity conflicts</);
   assert.match(releaseDeskSource, /No Stripe identity conflicts have been recorded/);
