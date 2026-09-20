@@ -3103,6 +3103,86 @@ test('a current Legacy retrieval receipt survives refresh and history switching 
   }
 });
 
+test('a failed history detail load preserves the current Legacy retrieval receipt without writes', { timeout: 60_000 }, async () => {
+  const historyError = 'The retained audit detail is temporarily unavailable.';
+  const { server, origin } = await startApp();
+  const browser = await launchBrowserForServer(server);
+  const page = await browser.newPage();
+  const { auditRequests } = await configureNetwork(page, {
+    currentLegacy: true,
+    retrievalRepetition: true,
+    auditHistoryDetailErrors: {
+      'run-1': [historyError],
+    },
+  });
+  const auditTraffic: Array<{ method: string; runId: string | null }> = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/actor-audits')) {
+      auditTraffic.push({ method: request.method(), runId: url.searchParams.get('runId') });
+    }
+  });
+
+  async function assertCurrentLegacyReceipt(): Promise<void> {
+    await page.getByRole('heading', { name: 'Legacy audit · retained history · current-legacy', exact: true }).waitFor();
+    await page.getByText('Still available on this current Legacy head:', { exact: false }).waitFor();
+    await page.getByText('Retained rescue-board exception:', { exact: false }).waitFor();
+    const repetition = page
+      .getByRole('region', { name: 'Candidate loss funnel' })
+      .getByRole('region', { name: 'Retrieval repetition' });
+    assert.deepEqual((await repetition.locator('strong').allTextContents()).slice(0, 4), ['7', '6', '5', '2']);
+    assert.equal(await repetition.getByText('4 occurrences · 4 unique images · +4 new images', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('3 occurrences · 2 unique images · +1 new images', { exact: true }).isVisible(), true);
+    assert.equal(await repetition.getByText('rung 1: 1 exact', { exact: true }).isVisible(), true);
+    const overlapReceipt = repetition.locator('details').filter({ hasText: 'Exact overlap receipt' });
+    await overlapReceipt.evaluate((element: HTMLDetailsElement) => {
+      element.open = true;
+    });
+    assert.equal(await overlapReceipt.getByText('"exactImageIdentityOverlapCount": 1', { exact: false }).isVisible(), true);
+
+    const rawResults = page.locator('summary').filter({ hasText: /^Bounded raw results/ }).locator('..');
+    await rawResults.evaluate((element: HTMLDetailsElement) => {
+      element.open = true;
+    });
+    const firstResult = rawResults.locator('article').first();
+    assert.equal(await firstResult.getByRole('button', { name: 'Pin for board', exact: true }).isEnabled(), true);
+    assert.equal(await firstResult.getByText('Retained annotation exception:', { exact: false }).isVisible(), true);
+    assert.equal(await page.getByRole('button', { name: 'Choose nine to save', exact: true }).isDisabled(), true);
+  }
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await assertCurrentLegacyReceipt();
+
+    const runSelect = page.getByLabel('Audit run');
+    await runSelect.selectOption('run-1');
+    await page.getByText(historyError, { exact: true }).waitFor();
+    assert.equal(await runSelect.inputValue(), 'current-legacy');
+    await assertCurrentLegacyReceipt();
+
+    await runSelect.selectOption('run-legacy');
+    await page.getByRole('heading', { name: 'Legacy audit · retained history · run-legacy', exact: true }).waitFor();
+    await runSelect.selectOption('current-legacy');
+    await assertCurrentLegacyReceipt();
+
+    assert.deepEqual(
+      auditTraffic.filter(request => request.runId).map(request => request.runId),
+      ['current-legacy', 'run-1', 'run-legacy', 'current-legacy'],
+      'the failed detail and return to current must use only selected-run detail reads',
+    );
+    assert.equal(
+      auditTraffic.every(request => request.method === 'GET'),
+      true,
+      'a failed history detail load and recovery must not send an audit mutation request',
+    );
+    assert.deepEqual(auditRequests, [], 'a failed history detail load and recovery must not run or mutate an audit');
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
 test('a signed-in operator saves a rescue board to Collection without calibrating it', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const browser = await launchBrowserForServer(server);
