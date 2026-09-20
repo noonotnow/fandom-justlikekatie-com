@@ -645,9 +645,14 @@ async function currentRescueCalibrationApproval(
         { type: "json", consistency: "strong" },
       ),
     ]);
-    if (canonicalApproval
-      && !approvals.some(approval => approval.approvalId === canonicalApproval.approvalId)) {
-      approvals.push(canonicalApproval);
+    if (canonicalApproval) {
+      const canonicalApprovalId = canonicalApproval.approvalId;
+      approvals.splice(
+        0,
+        approvals.length,
+        ...approvals.filter(approval => approval.approvalId !== canonicalApprovalId),
+        canonicalApproval,
+      );
     }
     if (canonicalRevocation?.status === "revoked") revokedIds.add(canonicalRevocation.approvalId);
   }

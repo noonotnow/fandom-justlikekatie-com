@@ -5616,6 +5616,24 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
     approval.calibrationProfile.activeApproval.sourceRunIds,
     ["run-1", "run-2"],
   );
+  const approvalKey = auditRescueCalibrationApprovalKey(
+    pairActor.id,
+    0,
+    approval.calibrationProfile.activeApproval.approvalId,
+  );
+  const conflictingApprovalKey =
+    `${auditRescueCalibrationApprovalPrefix(pairActor.id, 0)}conflicting-listed-copy`;
+  const newerConflictingApprovalKey =
+    `${auditRescueCalibrationApprovalPrefix(pairActor.id, 0)}newer-conflicting-listed-copy`;
+  store.records.set(conflictingApprovalKey, {
+    ...structuredClone(store.records.get(approvalKey)),
+    sourceRunIds: ["conflicting-listed-run"],
+  });
+  store.records.set(newerConflictingApprovalKey, {
+    ...structuredClone(store.records.get(approvalKey)),
+    approvedAt: "2099-09-20T12:00:00.000Z",
+    sourceRunIds: ["newer-conflicting-listed-run"],
+  });
   lagRetainedRunListings = true;
   const laggedProfileResponse = await handler(request(
     "GET",
@@ -5629,12 +5647,13 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
     laggedProfile.calibrationProfile.activeApproval.approvalId,
     approval.calibrationProfile.activeApproval.approvalId,
   );
-
-  const approvalKey = auditRescueCalibrationApprovalKey(
-    pairActor.id,
-    0,
-    approval.calibrationProfile.activeApproval.approvalId,
+  assert.deepEqual(
+    laggedProfile.calibrationProfile.activeApproval.sourceRunIds,
+    ["run-1", "run-2"],
+    "operator recovery must trust the directly read canonical approval",
   );
+  store.records.delete(conflictingApprovalKey);
+  store.records.delete(newerConflictingApprovalKey);
   const legacyApproval = structuredClone(store.records.get(approvalKey));
   delete legacyApproval.sourceRunIds;
   store.records.set(approvalKey, legacyApproval);
@@ -5681,6 +5700,15 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
   );
   store.records.set(malformedRunKey, validRun);
   assert.ok(await getEligibility(store, pairActor, 0));
+  store.records.set(conflictingApprovalKey, {
+    ...structuredClone(store.records.get(approvalKey)),
+    sourceRunIds: ["conflicting-listed-run"],
+  });
+  store.records.set(newerConflictingApprovalKey, {
+    ...structuredClone(store.records.get(approvalKey)),
+    approvedAt: "2099-09-20T12:00:00.000Z",
+    sourceRunIds: ["newer-conflicting-listed-run"],
+  });
   lagVisualJudgmentListings = true;
   lagRetainedRunListings = true;
   for (let reread = 0; reread < 2; reread += 1) {
@@ -5695,6 +5723,8 @@ test("repeated complete blind-review mistakes map to an exact approvable signal 
       savedEligibility.rescueCalibrationApprovalEvidenceHash,
     );
   }
+  store.records.delete(conflictingApprovalKey);
+  store.records.delete(newerConflictingApprovalKey);
   const legacyProfileResponse = await handler(request(
     "GET",
     undefined,

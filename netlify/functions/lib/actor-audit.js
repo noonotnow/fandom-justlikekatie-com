@@ -6359,9 +6359,15 @@ async function readRescueCalibrationProfile(store, pair, reviewedRuns = []) {
         { type: "json", consistency: "strong" },
       ),
     ]);
-    if (canonicalApproval
-      && !approvalReceipts.some(receipt => receipt.approvalId === canonicalApproval.approvalId)) {
-      approvalReceipts.push(canonicalApproval);
+    if (canonicalApproval) {
+      approvalReceipts.splice(
+        0,
+        approvalReceipts.length,
+        ...approvalReceipts.filter(
+          receipt => receipt.approvalId !== canonicalApproval.approvalId,
+        ),
+        canonicalApproval,
+      );
     }
     if (canonicalRevocation
       && !approvalRevocations.some(receipt => receipt.approvalId === canonicalRevocation.approvalId)) {
