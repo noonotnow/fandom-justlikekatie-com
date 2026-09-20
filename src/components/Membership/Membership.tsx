@@ -4,6 +4,7 @@ import {
   createMembershipCheckout,
   createMembershipPortal,
   getMembershipStatus,
+  hasCollectorCapability,
   logMembershipEvent,
   type MembershipStatus,
 } from '../../utils/membership';
@@ -28,7 +29,7 @@ export function Membership({ onStatusChange }: Props) {
       const membership = await getMembershipStatus();
       setStatus(membership);
       onStatusChange?.(membership);
-      if (membership.isMember) logMembershipEvent('membership_activated');
+      if (hasCollectorCapability(membership)) logMembershipEvent('membership_activated');
     }).catch(error => setNotice(error instanceof Error ? error.message : 'Account status could not be checked.'));
   }, []);
 
@@ -63,19 +64,20 @@ export function Membership({ onStatusChange }: Props) {
       : returnState === 'payment_problem'
         ? 'We couldn’t confirm payment. Please review your billing details and try again.'
         : '';
+  const hasCollectorAccess = hasCollectorCapability(status);
 
   return (
     <main className="membership">
       <header className="membership__hero">
         <h1>Keep what moves you.<br /><em>Make it unmistakably yours.</em></h1>
-        <p>Browse and save freely. A free account keeps your Collection with you. Membership unlocks the tools that turn those finds into finished worlds and helps shape what the Atlas explores next.</p>
+        <p>Browse and save freely on this device. Collector access syncs your Collection and unlocks the tools that turn those finds into finished worlds.</p>
       </header>
       {(returnNotice || notice) && <p className="membership__notice" role="status">{returnNotice || notice}</p>}
       <section className="membership__journey" aria-label="How Vibe Atlas grows with you">
         <article>
           <span>Remember</span>
           <h2>Your Collection follows you.</h2>
-          <p>Sign in free to preserve saved cards and grids across devices.</p>
+          <p>Local saves stay on this device. Collector access syncs saved cards and grids across devices.</p>
         </article>
         <article>
           <span>Create</span>
@@ -92,18 +94,18 @@ export function Membership({ onStatusChange }: Props) {
         <article>
           <p className="membership__label">Free account</p>
           <h2>Remember every find</h2>
-          <ul><li>Daily browsing and sharing</li><li>Local saves without an account</li><li>Full Collection sync after sign-in</li></ul>
+          <ul><li>Daily browsing and sharing</li><li>Local saves without an account</li><li>Collection sync with Collector access</li></ul>
         </article>
         <article className="membership__featured">
           <p className="membership__label">Founding Member</p>
           <h2>$9 <small>/ month</small></h2>
-          <ul><li>Turn saved cards into Grid Builder worlds</li><li>Export finished boards designed to be shared</li><li>Teach your curator and influence what comes next</li></ul>
+          <ul><li>Collector access for cloud Collection sync</li><li>Turn saved cards into Grid Builder worlds and export finished boards</li><li>Teach your curator and influence what comes next</li></ul>
           {!user ? (
             <form onSubmit={sendLink} className="membership__sign-in">
               <label htmlFor="membership-email">Sign in to join</label>
               <div><input id="membership-email" type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" /><button disabled={busy === 'link'}>{busy === 'link' ? 'Sending…' : 'Email sign-in link'}</button></div>
             </form>
-          ) : status?.isMember ? (
+          ) : hasCollectorAccess ? (
             <div className="membership__member"><strong>Founding Member</strong><span>Signed in as {user.email}</span><button onClick={() => void openBilling('portal')} disabled={Boolean(busy)}>{busy === 'portal' ? 'Opening…' : 'Manage membership'}</button></div>
           ) : status?.state === 'past_due' ? (
             <div className="membership__join"><span>Signed in as {user.email}</span><b>Payment needs attention.</b><button onClick={() => void openBilling('portal')} disabled={Boolean(busy)}>{busy === 'portal' ? 'Opening…' : 'Review billing'}</button></div>

@@ -62,7 +62,7 @@ const SUPPORTED_MEME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 interface Props {
   scope?: 'vibe-atlas' | 'middle-earth';
   initialType?: 'grids' | 'results' | 'builder';
-  isMember?: boolean;
+  hasCollectorAccess?: boolean;
   onUpgrade?: () => void;
   onTypeChange?: (type: 'grids' | 'results' | 'builder') => void;
 }
@@ -111,11 +111,16 @@ async function correctLegendaryGridEvidence(grid: GridRecord): Promise<number> {
 export const Collection: React.FC<Props> = ({
   scope = 'vibe-atlas',
   initialType = 'grids',
-  isMember = false,
+  hasCollectorAccess = false,
   onUpgrade,
   onTypeChange,
 }) => {
   const isMiddleEarth = scope === 'middle-earth';
+  // Local IndexedDB saves remain available to every account. Only the explicit
+  // Collector entitlement may touch the cloud collection APIs.
+  const canSyncCloud = hasCollectorAccess;
+  const canSyncCloudRef = useRef(canSyncCloud);
+  canSyncCloudRef.current = canSyncCloud;
   const [cards, setCards] = useState<CardRecord[]>([]);
   const [grids, setGrids] = useState<GridRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -162,10 +167,10 @@ export const Collection: React.FC<Props> = ({
         accountIdRef.current = session?.accountId;
         setUser(session);
         let shouldSync = false;
-        if (session) {
+        if (session && canSyncCloud) {
           const decided = await hasMergeDecision(session.accountId);
           setNeedsMergeChoice(!decided);
-          shouldSync = decided && await shouldSyncCollection(session.accountId);
+          shouldSync = canSyncCloud && decided && await shouldSyncCollection(session.accountId);
         } else {
           setNeedsMergeChoice(false);
         }
@@ -177,7 +182,7 @@ export const Collection: React.FC<Props> = ({
         await loadCollection(session?.accountId);
         setLoading(false);
 
-        if (session && shouldSync) {
+        if (session && canSyncCloud && shouldSync) {
           try {
             await syncPublicCollection(session);
             await loadCollection(session.accountId);
@@ -193,7 +198,7 @@ export const Collection: React.FC<Props> = ({
         // records are already gone locally, so this queue is the only path left
         // to finish deleting their server-side export blobs.  Runs after session
         // resolution so only the matching account's queue entries are retried.
-        void retryPendingExportCleanups(session?.accountId);
+        if (canSyncCloud) void retryPendingExportCleanups(session?.accountId);
       } catch (error) {
         // Session lookup itself may fail while IndexedDB remains healthy. Keep
         // anonymous/device-owned saves visible and report the account problem.
@@ -224,13 +229,15 @@ export const Collection: React.FC<Props> = ({
       channel?.close();
       window.removeEventListener('storage', handleStorage);
     };
-  }, [scope]);
+  }, [scope, canSyncCloud]);
 
   async function recoverPendingRemoval() {
     const stored = readPendingRemoval();
     if (!stored) return;
     try {
-      await persistRemoval(stored.pending, stored.accountId ?? accountIdRef.current);
+      if (canSyncCloud) {
+        await persistRemoval(stored.pending, stored.accountId ?? accountIdRef.current);
+      }
       forgetPendingRemoval(stored.pending.token);
     } catch (error) {
       setAccountNotice(messageFrom(error, 'The item could not be removed.'));
@@ -241,6 +248,7 @@ export const Collection: React.FC<Props> = ({
     const pending = pendingRemovalRef.current;
     if (!pending) return;
     window.clearTimeout(pending.timeoutId);
+    if (!canSyncCloudRef.current) return;
     void persistRemoval(pending, accountIdRef.current).then(() => {
       forgetPendingRemoval(pending.token);
     }).catch(error => {
@@ -254,7 +262,7 @@ export const Collection: React.FC<Props> = ({
     pendingRemovalRef.current = null;
     setPendingRemoval(null);
     try {
-      await persistRemoval(pending, accountIdRef.current);
+      if (canSyncCloud) await persistRemoval(pending, accountIdRef.current);
       forgetPendingRemoval(pending.token);
     } catch (error) {
       if (pending.kind === 'grid') {
@@ -306,10 +314,15 @@ export const Collection: React.FC<Props> = ({
 
   async function handleMerge(merge: boolean) {
     if (!user) return;
+    if (!canSyncCloud) {
+      setNeedsMergeChoice(false);
+      setAccountNotice('Your local saves remain on this device. Collector access is required for cloud sync.');
+      return;
+    }
     try {
       await setDeviceMerge(user.accountId, merge);
       setNeedsMergeChoice(false);
-      if (merge) await syncPublicCollection(user);
+      if (merge && canSyncCloud) await syncPublicCollection(user);
       await loadCollection(user.accountId);
       setAccountNotice(merge ? 'This device is now synced.' : 'This device’s local saves will stay separate.');
     } catch (error) {
@@ -378,7 +391,7 @@ export const Collection: React.FC<Props> = ({
         contentKind: targetScope === 'middle-earth' ? 'middle-earth-meme' : undefined,
       });
       await loadCollection(user?.accountId);
-      schedulePublicCollectionSync();
+      if (canSyncCloud) schedulePublicCollectionSync();
       setAccountNotice(
         targetScope === 'middle-earth'
           ? 'Saved result moved to the Middle-earth Collection.'
@@ -396,7 +409,7 @@ export const Collection: React.FC<Props> = ({
     try {
       await dbSaveGrid(markGridAsLegendaryMisprint(grid));
       await loadCollection(user?.accountId);
-      schedulePublicCollectionSync();
+      if (canSyncCloud) schedulePublicCollectionSync();
       setFilterActor(MISPRINT_FILTER);
       try {
         const correctedCount = await correctLegendaryGridEvidence(grid);
@@ -478,7 +491,7 @@ export const Collection: React.FC<Props> = ({
         }, new Date(payload.misprint.markedAt)),
       });
       await loadCollection(user?.accountId);
-      schedulePublicCollectionSync();
+      if (canSyncCloud) schedulePublicCollectionSync();
       setFilterActor(MISPRINT_FILTER);
       setMisprintDrafts(current => {
         const next = { ...current };
@@ -515,7 +528,7 @@ export const Collection: React.FC<Props> = ({
         legendaryMisprint: createLegendaryMisprint(card, identity),
       });
       await loadCollection(user?.accountId);
-      schedulePublicCollectionSync();
+      if (canSyncCloud) schedulePublicCollectionSync();
       setFilterActor(MISPRINT_FILTER);
       setAccountNotice('Promoted to Legendary Misprint. Its correction remains negative evidence for the curator.');
     } catch (error) {
@@ -531,7 +544,7 @@ export const Collection: React.FC<Props> = ({
     try {
       await dbSaveCard({ ...card, savedAt: new Date().toISOString(), legendaryMisprint: undefined });
       await loadCollection(user?.accountId);
-      schedulePublicCollectionSync();
+      if (canSyncCloud) schedulePublicCollectionSync();
       setAccountNotice('Legendary promotion removed. The result remains a Misprint.');
     } catch (error) {
       setAccountNotice(messageFrom(error, 'The Legendary promotion could not be removed.'));
@@ -657,7 +670,7 @@ export const Collection: React.FC<Props> = ({
       });
       await loadCollection(user?.accountId);
 
-      if (user && await shouldSyncCollection(user.accountId)) {
+      if (canSyncCloud && user && await shouldSyncCollection(user.accountId)) {
         try {
           await syncPublicCollection(user);
           await loadCollection(user.accountId);
@@ -666,7 +679,7 @@ export const Collection: React.FC<Props> = ({
           setAccountNotice(`“${file.name}” is saved on this device, but MEDIA sync failed: ${messageFrom(error, 'try again after reconnecting')}`);
         }
       } else {
-        schedulePublicCollectionSync();
+        if (canSyncCloud) schedulePublicCollectionSync();
         setAccountNotice(`“${file.name}” is saved in this Collection. Sign in and merge this device to register it in MEDIA.`);
       }
     } catch (error) {
@@ -807,7 +820,7 @@ export const Collection: React.FC<Props> = ({
         </div>
       )}
 
-      {activeType === 'builder' && !isMember ? (
+      {activeType === 'builder' && !hasCollectorAccess ? (
         <section className={styles.upgradeGate}>
           <span>✦ Founding Member</span>
           <h3>Build a new world from your saved finds.</h3>
@@ -817,7 +830,7 @@ export const Collection: React.FC<Props> = ({
       ) : activeType === 'builder' ? (
         <GridBuilder
           accountId={user?.accountId}
-          isMember={isMember}
+          hasCollectorAccess={hasCollectorAccess}
           onUpgrade={onUpgrade}
           onExported={() => {
             setActiveType('grids');

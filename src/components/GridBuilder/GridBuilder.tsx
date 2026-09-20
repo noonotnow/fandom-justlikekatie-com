@@ -25,8 +25,8 @@ interface Props {
   accountId?: string;
   /** Called after a successful export so the parent can navigate to the Grids tab. */
   onExported?: () => void;
-  /** Premium export is a membership capability; server enforcement remains authoritative. */
-  isMember?: boolean;
+  /** Collector entitlement; server enforcement remains authoritative. */
+  hasCollectorAccess?: boolean;
   onUpgrade?: () => void;
 }
 
@@ -34,7 +34,7 @@ interface Props {
  * Vibe Atlas Grid Builder — the core studio workflow. Saved collection →
  * lens → editorial contract → proposed set → slot swaps → save and export.
  */
-export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember = false, onUpgrade }) => {
+export const GridBuilder: React.FC<Props> = ({ accountId, onExported, hasCollectorAccess = false, onUpgrade }) => {
   const [pool, setPool] = useState<BuilderCard[] | null>(null);
   const [sourceRecords, setSourceRecords] = useState<{ cards: CardRecord[] } | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -368,7 +368,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
    * the notice area nudges the user to save if they haven't yet.
    */
   async function exportGrid() {
-    if (!isMember) {
+    if (!hasCollectorAccess) {
       setNotice('Premium exports are available with Founding Member.');
       return;
     }
@@ -671,7 +671,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
                   {busy === 'remove' ? 'Removing…' : 'Remove from collection'}
                 </button>
               )}
-              {isMember ? (
+              {hasCollectorAccess ? (
                 <button type="button" onClick={exportGrid} disabled={Boolean(busy) || !proposalComplete}>
                   {busy === 'export' ? 'Exporting…' : '📤 Export share card'}
                 </button>

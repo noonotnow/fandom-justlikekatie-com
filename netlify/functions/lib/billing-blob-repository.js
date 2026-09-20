@@ -43,6 +43,10 @@ export function createBlobBillingRepository({ getStore, context }) {
       status,
       currentPeriodEnd,
       cancelAtPeriodEnd,
+      metadata = {},
+      capabilities = null,
+      priceId = null,
+      product = null,
       eventCreated = 0,
     }) {
       if (!accountId || !customerId || !subscriptionId) return;
@@ -60,6 +64,10 @@ export function createBlobBillingRepository({ getStore, context }) {
         status: status || "inactive",
         currentPeriodEnd: currentPeriodEnd || null,
         cancelAtPeriodEnd: Boolean(cancelAtPeriodEnd),
+        metadata,
+        capabilities,
+        priceId,
+        product,
         eventCreated,
         updatedAt: new Date().toISOString(),
       });
@@ -75,12 +83,17 @@ export function createBlobBillingRepository({ getStore, context }) {
         type: "json",
         consistency: "strong",
       });
-      return {
+      const membership = {
         status: membershipStatus(subscription?.status),
         stripeStatus: subscription?.status || null,
         currentPeriodEnd: subscription?.currentPeriodEnd || null,
         cancelAtPeriodEnd: Boolean(subscription?.cancelAtPeriodEnd),
       };
+      if (subscription?.metadata && Object.keys(subscription.metadata).length) membership.metadata = subscription.metadata;
+      if (subscription?.capabilities) membership.capabilities = subscription.capabilities;
+      if (subscription?.priceId) membership.priceId = subscription.priceId;
+      if (subscription?.product) membership.product = subscription.product;
+      return membership;
     },
   };
 }

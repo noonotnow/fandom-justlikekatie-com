@@ -19,7 +19,12 @@ import { useDarkMode } from './hooks/useDarkMode';
 import { useStarOfDay, type StarOfDayArchiveEntry } from './hooks/useStarOfDay';
 import { useWholeCardTier } from './hooks/useWholeCardTier';
 import { consumeMagicLinkFromLocation, requestMagicLink } from './utils/publicAccount';
-import { createMembershipCheckout, getMembershipStatus } from './utils/membership';
+import {
+  createMembershipCheckout,
+  getMembershipStatus,
+  hasCollectorCapability,
+  type MembershipCapability,
+} from './utils/membership';
 import { Membership } from './components/Membership/Membership';
 import { useIsAdmin } from './hooks/useIsAdmin';
 import {
@@ -132,7 +137,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     gate,
   } = useStarOfDay(archivePage && !selectedEditionDate ? undefined : selectedEditionDate);
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
-  const [isMember, setIsMember] = useState(false);
+  const [membershipCapabilities, setMembershipCapabilities] = useState<MembershipCapability[]>([]);
   const [membershipResolved, setMembershipResolved] = useState(false);
   const [editionShareNotice, setEditionShareNotice] = useState('');
   const [archiveGateEmail, setArchiveGateEmail] = useState('');
@@ -154,9 +159,9 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     setMembershipResolved(false);
     try {
       const status = await getMembershipStatus();
-      setIsMember(status.isMember);
+      setMembershipCapabilities(status.capabilities ?? []);
     } catch {
-      setIsMember(false);
+      setMembershipCapabilities([]);
     } finally {
       setMembershipResolved(true);
     }
@@ -275,9 +280,9 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       && view === 'collection'
       && collectionTab === 'builder'
     ) {
-      trackGridBuilderPreviewOpened(isMember);
+      trackGridBuilderPreviewOpened(hasCollectorCapability({ capabilities: membershipCapabilities }));
     }
-  }, [collectionTab, isMember, membershipResolved, view]);
+  }, [collectionTab, membershipCapabilities, membershipResolved, view]);
 
   useEffect(() => {
     const privateView = window.location.pathname === '/auth/verify'
@@ -786,7 +791,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         <Collection
           key={collectionTab}
           initialType={collectionTab}
-          isMember={isMember}
+          hasCollectorAccess={hasCollectorCapability({ capabilities: membershipCapabilities })}
           onUpgrade={() => {
             trackUpgradeStarted('grid_builder');
             navigateAtlas('membership');
@@ -795,7 +800,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         />
       ) : view === 'membership' ? (
         <Membership onStatusChange={status => {
-          setIsMember(status.isMember);
+          setMembershipCapabilities(status.capabilities ?? []);
           setMembershipResolved(true);
         }} />
       ) : adminLoading ? (

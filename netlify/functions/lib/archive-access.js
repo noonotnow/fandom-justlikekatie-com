@@ -102,6 +102,7 @@ export function archiveAccessDecision({
   session = null,
   membership = null,
   enforcementEnabled = true,
+  capabilities = null,
 }) {
   const publicDates = freeDates instanceof Set ? freeDates : freeArchiveDates(editions);
   if (!enforcementEnabled || publicDates.has(requestedDate)) {
@@ -110,7 +111,8 @@ export function archiveAccessDecision({
   if (!session) {
     return { allowed: false, reason: "sign_in", capability: "fandom_collector" };
   }
-  if (membership?.status === "active") {
+  if (membership?.status === "active"
+    && (capabilities == null || capabilities.includes("fandom_collector"))) {
     return { allowed: true, reason: "active_member", capability: "fandom_collector" };
   }
   if (membership?.status === "past_due" || membership?.status === "incomplete") {

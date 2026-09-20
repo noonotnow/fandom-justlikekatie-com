@@ -6,6 +6,7 @@ import { applyBlobBillingEvent } from "./billing-blob-webhook.js";
 import { getBlobStore } from "./blob-store.js";
 import { getStripeCredentials, getStripeSync, getUncachableStripeClient } from "./stripe-client.js";
 import { json } from "./public-auth.js";
+import { capabilitiesForMembership, hasCapability } from "./capabilities.js";
 
 let initialized;
 
@@ -64,18 +65,23 @@ export function createBillingServices({
   };
 }
 
-export function createEntitlementChecker({ billing }) {
+export function createCapabilityChecker({ billing, capability = "fandom_collector", env = process.env }) {
   return async (session, context) => {
     await billing.initialize(context);
     const membership = await billing.repository(context).membershipForAccount(session.user.accountId);
-    if (membership.status !== "active") {
-      const error = new Error("An active membership is required.");
+    const allowed = Array.isArray(capability)
+      ? capability.some(item => hasCapability(membership, item, env))
+      : hasCapability(membership, capability, env);
+    if (!allowed) {
+      const error = new Error(`The ${capability} capability is required.`);
       error.status = 403;
       throw error;
     }
     return membership;
   };
 }
+
+export const createEntitlementChecker = options => createCapabilityChecker(options);
 
 export function createBillingHandlers({ auth, billing, env = process.env }) {
   const sameOrigin = req => {
@@ -125,6 +131,7 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
       return json(200, {
         state: membership.status,
         isMember: membership.status === "active",
+        capabilities: capabilitiesForMembership(membership, env),
         ...(membership.currentPeriodEnd ? { renewsAt: membership.currentPeriodEnd } : {}),
       });
     }),
@@ -171,8 +178,18 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
         cancel_url: returnDate
           ? `${origin}/vibe-atlas?date=${encodeURIComponent(returnDate)}&membership=cancelled`
           : `${origin}/vibe-atlas?view=membership&membership=cancelled`,
-        metadata: { fandom_account_id: session.user.accountId },
-        subscription_data: { metadata: { fandom_account_id: session.user.accountId } },
+        metadata: {
+          fandom_account_id: session.user.accountId,
+          capability: "fandom_collector",
+          product: "fandom_collector",
+        },
+        subscription_data: {
+          metadata: {
+            fandom_account_id: session.user.accountId,
+            capability: "fandom_collector",
+            product: "fandom_collector",
+          },
+        },
       };
       let checkout;
       try {

@@ -1,9 +1,16 @@
 export type MembershipState = 'inactive' | 'active' | 'past_due' | 'cancelled';
+export type MembershipCapability =
+  | 'fandom_collector'
+  | 'creator_os'
+  | 'fandom_creator_bridge'
+  | 'ecosystem_bundle';
 
 /** Deliberately small, payment-detail-free shape returned by the billing API. */
 export interface MembershipStatus {
   state: MembershipState;
   isMember: boolean;
+  /** Explicit product entitlements. This is intentionally independent of billing state. */
+  capabilities?: MembershipCapability[];
   renewsAt?: string;
 }
 
@@ -12,6 +19,7 @@ interface MembershipResponse {
   state?: string;
   renewsAt?: string;
   url?: string;
+  capabilities?: unknown;
 }
 
 async function readJson(response: Response): Promise<MembershipResponse> {
@@ -27,8 +35,47 @@ export async function getMembershipStatus(): Promise<MembershipStatus> {
     || body.state === 'cancelled'
     ? body.state
     : 'inactive';
-  return { state, isMember: state === 'active', ...(typeof body.renewsAt === 'string' ? { renewsAt: body.renewsAt } : {}) };
+  const capabilities = parseMembershipCapabilities(body.capabilities);
+  return {
+    state,
+    isMember: state === 'active',
+    ...(capabilities.length > 0 ? { capabilities } : {}),
+    ...(typeof body.renewsAt === 'string' ? { renewsAt: body.renewsAt } : {}),
+  };
 }
+
+export function parseMembershipCapabilities(value: unknown): MembershipCapability[] {
+  if (!Array.isArray(value)) return [];
+  const known: MembershipCapability[] = [
+    'fandom_collector',
+    'creator_os',
+    'fandom_creator_bridge',
+    'ecosystem_bundle',
+  ];
+  return known.filter(capability => value.includes(capability));
+}
+
+/** Return true only when the explicit Collector entitlement is present. */
+export function hasCollectorCapability(status: Pick<MembershipStatus, 'capabilities'> | null | undefined): boolean {
+  const capabilities = status?.capabilities ?? [];
+  return capabilities.includes('fandom_collector') || capabilities.includes('ecosystem_bundle');
+}
+
+/** Return true only when a Creator-side product can hand off to Creator OS. */
+export function hasCreatorOsHandoffCapability(
+  status: Pick<MembershipStatus, 'capabilities'> | null | undefined,
+): boolean {
+  const capabilities = status?.capabilities ?? [];
+  return capabilities.includes('creator_os')
+    || capabilities.includes('fandom_creator_bridge')
+    || capabilities.includes('ecosystem_bundle');
+}
+
+// Short aliases for feature callers that do not need to know the billing shape.
+export const canUseCollectorFeatures = hasCollectorCapability;
+export const canUseCreatorOsHandoff = hasCreatorOsHandoffCapability;
+export const hasCollectorAccess = hasCollectorCapability;
+export const hasCreatorOsHandoffAccess = hasCreatorOsHandoffCapability;
 
 export async function createMembershipCheckout(returnDate?: string): Promise<string> {
   const body = await readJson(await fetch('/api/membership/checkout', {

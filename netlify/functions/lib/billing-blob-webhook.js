@@ -24,6 +24,16 @@ export async function applyBlobBillingEvent({ event, repository }) {
     status: event.type === "customer.subscription.deleted" ? "canceled" : object.status,
     currentPeriodEnd,
     cancelAtPeriodEnd: object.cancel_at_period_end,
+    metadata: capabilityMetadata(object.metadata),
+    capabilities: object.metadata?.capabilities || object.metadata?.products || null,
+    priceId: object.items?.data?.[0]?.price?.id || object.plan?.id || null,
+    product: object.items?.data?.[0]?.price?.product || null,
     eventCreated: event.created,
   });
+}
+
+function capabilityMetadata(metadata) {
+  if (!metadata || typeof metadata !== "object") return {};
+  return Object.fromEntries(Object.entries(metadata).filter(([key]) =>
+    ["capabilities", "products", "product", "product_name", "price_id", "priceId"].includes(key)));
 }

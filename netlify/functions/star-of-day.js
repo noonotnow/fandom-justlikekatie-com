@@ -35,6 +35,7 @@ import {
   publicArchiveEdition,
 } from "./lib/archive-access.js";
 import { recordArchiveAccessCheck } from "./lib/archive-access-operations.js";
+import { capabilitiesForMembership } from "./lib/capabilities.js";
 
 // Server-side daily cache for "Star of the Day".
 //
@@ -764,6 +765,7 @@ export function createStarOfDayHandler({
           freeDates,
           session,
           membership,
+          capabilities: capabilitiesForMembership(membership, env),
           enforcementEnabled: archiveGateEnabled(env),
         });
         if (!decision.allowed) {

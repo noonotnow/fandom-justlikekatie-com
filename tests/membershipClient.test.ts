@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createMembershipCheckout, getMembershipStatus } from '../src/utils/membership.ts';
+import {
+  canUseCollectorFeatures,
+  canUseCreatorOsHandoff,
+  createMembershipCheckout,
+  getMembershipStatus,
+  parseMembershipCapabilities,
+} from '../src/utils/membership.ts';
 
 test('membership client exposes only a safe active entitlement', async () => {
   const originalFetch = globalThis.fetch;
@@ -35,17 +41,39 @@ test('membership checkout uses the authenticated checkout endpoint', async () =>
   }
 });
 
-test('free accounts own cloud sync while premium creation remains membership-gated', async () => {
+test('explicit capability matrix never derives paid access from billing state', () => {
+  const matrix = [
+    { capabilities: [], collector: false, handoff: false },
+    { capabilities: ['fandom_collector'], collector: true, handoff: false },
+    { capabilities: ['creator_os'], collector: false, handoff: true },
+    { capabilities: ['fandom_creator_bridge'], collector: false, handoff: true },
+    { capabilities: ['ecosystem_bundle'], collector: true, handoff: true },
+  ] as const;
+
+  for (const row of matrix) {
+    const capabilities = parseMembershipCapabilities(row.capabilities);
+    assert.equal(canUseCollectorFeatures({ capabilities }), row.collector);
+    assert.equal(canUseCreatorOsHandoff({ capabilities }), row.handoff);
+  }
+
+  assert.deepEqual(parseMembershipCapabilities(['creator_os', 'unknown', null]), ['creator_os']);
+  assert.equal(canUseCollectorFeatures({ capabilities: ['creator_os'] }), false);
+  assert.equal(canUseCreatorOsHandoff({ capabilities: ['fandom_collector'] }), false);
+});
+
+test('Collector capability gates cloud sync and premium creation', async () => {
   const [collectionSource, membershipSource, syncFunction] = await Promise.all([
     readFile(new URL('../src/components/Collection/Collection.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/Membership/Membership.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../netlify/functions/collection-sync.js', import.meta.url), 'utf8'),
   ]);
 
-  assert.match(collectionSource, /shouldSync = decided && await shouldSyncCollection/);
-  assert.match(collectionSource, /activeType === 'builder' && !isMember/);
+  assert.match(collectionSource, /shouldSync = canSyncCloud && decided && await shouldSyncCollection/);
+  assert.match(collectionSource, /activeType === 'builder' && !hasCollectorAccess/);
   assert.doesNotMatch(collectionSource, /Cloud sync is available with Founding Member/);
-  assert.match(membershipSource, /Full Collection sync after sign-in/);
+  assert.match(membershipSource, /Collection sync with Collector access/);
+  assert.match(collectionSource, /if \(canSyncCloud\) schedulePublicCollectionSync/);
+  assert.match(collectionSource, /if \(canSyncCloud\) await persistRemoval/);
   assert.doesNotMatch(membershipSource, /Cloud Collection sync across devices/);
   assert.doesNotMatch(syncFunction, /createEntitlementChecker|requireMembership/);
 });

@@ -80,10 +80,12 @@ class UpstreamError extends Error {
 export function createPlanHandoffHandler({
   fetchImpl = fetch,
   env = process.env,
+  auth = null,
+  requireCapability = null,
   uploadTimeoutMs = DEFAULT_UPLOAD_TIMEOUT_MS,
   planTimeoutMs = DEFAULT_PLAN_TIMEOUT_MS,
 } = {}) {
-  return async function planHandoff(req) {
+  return async function planHandoff(req, context) {
     if (req.method !== "POST") {
       return jsonResponse(405, { error: "Method not allowed" }, { Allow: "POST" });
     }
@@ -91,6 +93,10 @@ export function createPlanHandoffHandler({
     try {
       validateSameOrigin(req);
       validateRequestEnvelope(req);
+      if (auth) {
+        const session = await auth.authenticate(req, context);
+        if (requireCapability) await requireCapability(session, context);
+      }
 
       const form = await readMultipartForm(req);
       const png = form.get("file");
@@ -127,8 +133,8 @@ export function createPlanHandoffHandler({
         ...(registeredDraft.mediaError ? { mediaError: registeredDraft.mediaError } : {}),
       });
     } catch (error) {
-      if (error instanceof RequestError || error instanceof UpstreamError) {
-        return jsonResponse(error.status, { error: error.message });
+      if (error instanceof RequestError || error instanceof UpstreamError || Number.isInteger(error?.status)) {
+        return jsonResponse(error.status || 403, { error: error.message });
       }
       console.error("[plan-handoff] unexpected error", error);
       return jsonResponse(500, { error: "Internal server error" });
