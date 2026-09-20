@@ -3312,6 +3312,71 @@ test('a lost history connection preserves the current Legacy evidence and recove
   }
 });
 
+test('a lost connection returning from Legacy history preserves the retained evidence without writes', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const browser = await launchBrowserForServer(server);
+  const page = await browser.newPage();
+  const { auditRequests } = await configureNetwork(page, {
+    currentLegacy: true,
+    retrievalRepetition: true,
+    auditHistoryDetailDrops: {
+      'current-legacy': [false, true],
+    },
+  });
+  const auditTraffic: Array<{ method: string; runId: string | null }> = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/actor-audits')) {
+      auditTraffic.push({ method: request.method(), runId: url.searchParams.get('runId') });
+    }
+  });
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    await page.getByRole('heading', { name: 'Legacy audit · retained history · current-legacy', exact: true }).waitFor();
+
+    const runSelect = page.getByLabel('Audit run');
+    await runSelect.selectOption('run-legacy');
+    await page.getByRole('heading', { name: 'Legacy audit · retained history · run-legacy', exact: true }).waitFor();
+
+    const repetition = page
+      .getByRole('region', { name: 'Candidate loss funnel' })
+      .getByRole('region', { name: 'Retrieval repetition' });
+    assert.deepEqual((await repetition.locator('strong').allTextContents()).slice(0, 4), ['7', '6', '5', '2']);
+
+    const failedRequest = page.waitForEvent('requestfailed', request => {
+      const url = new URL(request.url());
+      return url.pathname.endsWith('/actor-audits') && url.searchParams.get('runId') === 'current-legacy';
+    });
+    await runSelect.selectOption('current-legacy');
+    await failedRequest;
+    await page.getByText(
+      'Audit history lost its connection. The evidence currently on screen is safe and unchanged. Retry the history selection when the connection returns; retrying only reads the selected audit.',
+      { exact: true },
+    ).waitFor();
+    assert.equal(await page.getByText(/failed to fetch/i).count(), 0);
+
+    assert.equal(await runSelect.inputValue(), 'run-legacy');
+    await page.getByRole('heading', { name: 'Legacy audit · retained history · run-legacy', exact: true }).waitFor();
+    assert.deepEqual((await repetition.locator('strong').allTextContents()).slice(0, 4), ['7', '6', '5', '2']);
+
+    assert.deepEqual(
+      auditTraffic.filter(request => request.runId).map(request => request.runId),
+      ['current-legacy', 'run-legacy', 'current-legacy'],
+      'opening retained history and the failed return must use only selected-run detail reads',
+    );
+    assert.equal(
+      auditTraffic.every(request => request.method === 'GET'),
+      true,
+      'a failed return to current must not send an audit mutation request',
+    );
+    assert.deepEqual(auditRequests, [], 'a failed return to current must not run or mutate an audit');
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
+
 test('a signed-in operator saves a rescue board to Collection without calibrating it', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const { browser, page } = await launchPageForServer(server);
