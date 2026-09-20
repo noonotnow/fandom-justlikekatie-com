@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { type Page } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
-import { BROWSER_ENGINES, launchBrowser } from './browserEngines.ts';
+import {
+  BROWSER_ENGINES,
+  launchBrowserForServer,
+} from './browserEngines.ts';
 
 const ACCOUNT_ID = 'packet-start-account';
 const GRID_ID = 'packet-start-grid';
@@ -247,7 +250,7 @@ async function mockCollectionMedia(page: Page): Promise<() => number> {
 
 test('Operator Console keeps unverified saved grids disabled', { timeout: 60_000 }, async () => {
     const { server, origin } = await startApp();
-    const browser = await launchBrowser();
+    const browser = await launchBrowserForServer(server);
     const page = await browser.newPage();
 
   try {
@@ -276,7 +279,7 @@ test('Operator Console keeps unverified saved grids disabled', { timeout: 60_000
 for (const browserEngine of BROWSER_ENGINES) {
   test(`Operator Console sends one direct grid source and opens the Workstation draft in ${browserEngine.name}`, { timeout: 60_000 }, async () => {
     const { server, origin } = await startApp();
-    const browser = await launchBrowser(browserEngine.type);
+    const browser = await launchBrowserForServer(server, browserEngine.type);
     const page = await browser.newPage();
     let createRequests = 0;
 
@@ -367,7 +370,7 @@ for (const failure of [
 ]) {
   test(`Operator Console keeps results visible after ${failure.name}`, { timeout: 60_000 }, async () => {
     const { server, origin } = await startApp();
-    const browser = await launchBrowser();
+    const browser = await launchBrowserForServer(server);
     const page = await browser.newPage();
     let createRequests = 0;
 
@@ -408,3 +411,22 @@ for (const failure of [
     }
   });
 }
+
+test('failed browser startup closes the listening packet test server', async () => {
+  const { server } = await startApp();
+  const launchError = new Error('browser binary is unavailable');
+  const failingBrowserType = {
+    launch: async () => {
+      throw launchError;
+    },
+  };
+
+  await assert.rejects(
+    launchBrowserForServer(
+      server,
+      failingBrowserType as Parameters<typeof launchBrowserForServer>[1],
+    ),
+    launchError,
+  );
+  assert.equal(server.httpServer?.listening, false);
+});

@@ -6,6 +6,7 @@ import {
   type Browser,
   type BrowserType,
 } from '@playwright/test';
+import type { ViteDevServer } from 'vite';
 
 export const BROWSER_ENGINES = [
   { name: 'Chromium', type: chromium },
@@ -24,5 +25,24 @@ export async function launchBrowser(browserType: BrowserType = chromium): Promis
       .find(existsSync);
     if (!executablePath) throw defaultLaunchError;
     return chromium.launch({ executablePath, args: ['--no-sandbox'] });
+  }
+}
+
+export async function launchBrowserForServer(
+  server: Pick<ViteDevServer, 'close'>,
+  browserType: BrowserType = chromium,
+): Promise<Browser> {
+  try {
+    return await launchBrowser(browserType);
+  } catch (launchError) {
+    try {
+      await server.close();
+    } catch (closeError) {
+      throw new AggregateError(
+        [launchError, closeError],
+        'The browser failed to launch and the browser test server failed to close.',
+      );
+    }
+    throw launchError;
   }
 }
