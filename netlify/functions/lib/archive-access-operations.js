@@ -146,13 +146,37 @@ export async function notifyArchiveAccessTransitions({
 }
 
 export async function archiveAccessNotificationDeliveryHealth(store, now = new Date()) {
-  const entry = await getWithMetadata(store, NOTIFICATION_STATE_KEY);
-  const state = normalizeNotificationState(entry?.data);
-  const repairWarningEntry = await getWithMetadata(store, NOTIFICATION_REPAIR_STATE_KEY);
-  const repairWarningState = normalizeRepairWarningState(
-    repairWarningEntry?.data,
-    now.getTime() - REPAIR_WARNING_WINDOW_MS,
-  );
+  const [notificationResult, repairWarningResult] = await Promise.allSettled([
+    getWithMetadata(store, NOTIFICATION_STATE_KEY),
+    getWithMetadata(store, NOTIFICATION_REPAIR_STATE_KEY),
+  ]);
+  const notificationAvailable = notificationResult.status === "fulfilled";
+  const repairWarningAvailable = repairWarningResult.status === "fulfilled";
+  const state = notificationAvailable
+    ? normalizeNotificationState(notificationResult.value?.data)
+    : {
+      delivery: {
+        status: "unavailable",
+        attemptedAt: null,
+        lastSucceededAt: null,
+        lastFailedAt: null,
+        consecutiveFailures: 0,
+      },
+      repair: { count: 0, lastRepairedAt: null },
+    };
+  const repairWarningState = repairWarningAvailable
+    ? normalizeRepairWarningState(
+      repairWarningResult.value?.data,
+      now.getTime() - REPAIR_WARNING_WINDOW_MS,
+    )
+    : {
+      timestamps: [],
+      warnedAt: null,
+      delivery: {
+        ...emptyRepairWarningDeliveryState(),
+        status: "unavailable",
+      },
+    };
   return {
     ...state.delivery,
     repair: state.repair,

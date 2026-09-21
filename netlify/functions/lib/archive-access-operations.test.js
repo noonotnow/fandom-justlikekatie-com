@@ -854,6 +854,80 @@ test("notification delivery health exposes only the active repair window aggrega
   assert.equal(JSON.stringify(health).includes("warnedAt"), false);
 });
 
+test("notification delivery read failures preserve aggregate repair-window health", async () => {
+  const data = store();
+  const now = new Date("2026-09-20T12:30:00.000Z");
+  await data.setJSON("archive-access:notification-repairs", {
+    timestamps: [
+      "2026-09-20T08:00:00.000Z",
+      "2026-09-20T10:00:00.000Z",
+    ],
+    warnedAt: "2026-09-20T10:00:00.000Z",
+    warningClaim: {
+      claimId: "private-claim-id",
+      claimedAt: "2026-09-20T10:00:00.000Z",
+    },
+  });
+  const originalGetWithMetadata = data.getWithMetadata;
+  data.getWithMetadata = async key => {
+    if (key === "archive-access:notification-state") {
+      throw new Error("private delivery-state failure");
+    }
+    return originalGetWithMetadata(key);
+  };
+
+  const health = await archiveAccessNotificationDeliveryHealth(data, now);
+
+  assert.equal(health.status, "unavailable");
+  assert.deepEqual(health.repairWindow, {
+    active: true,
+    count: 2,
+    firstRepairedAt: "2026-09-20T08:00:00.000Z",
+    lastRepairedAt: "2026-09-20T10:00:00.000Z",
+    warningSent: true,
+  });
+  assert.equal(JSON.stringify(health).includes("private-claim-id"), false);
+  assert.equal(JSON.stringify(health).includes("private delivery-state failure"), false);
+});
+
+test("repair-ledger read failures preserve notification delivery health", async () => {
+  const data = store();
+  await data.setJSON("archive-access:notification-state", {
+    delivery: {
+      status: "failure",
+      attemptedAt: "2026-09-20T12:00:00.000Z",
+      lastSucceededAt: "2026-09-20T10:00:00.000Z",
+      lastFailedAt: "2026-09-20T12:00:00.000Z",
+      consecutiveFailures: 2,
+    },
+    repair: {
+      count: 4,
+      lastRepairedAt: "2026-09-20T11:00:00.000Z",
+    },
+  });
+  const originalGetWithMetadata = data.getWithMetadata;
+  data.getWithMetadata = async key => {
+    if (key === "archive-access:notification-repairs") {
+      throw new Error("private repair-ledger failure");
+    }
+    return originalGetWithMetadata(key);
+  };
+
+  const health = await archiveAccessNotificationDeliveryHealth(
+    data,
+    new Date("2026-09-20T12:30:00.000Z"),
+  );
+
+  assert.equal(health.status, "failure");
+  assert.equal(health.consecutiveFailures, 2);
+  assert.deepEqual(health.repair, {
+    count: 4,
+    lastRepairedAt: "2026-09-20T11:00:00.000Z",
+  });
+  assert.equal(health.repairWarning.status, "unavailable");
+  assert.equal(JSON.stringify(health).includes("private repair-ledger failure"), false);
+});
+
 test("notification delivery health reports an inactive repair window after expiry", async () => {
   const data = store();
   await data.setJSON("archive-access:notification-repairs", {
