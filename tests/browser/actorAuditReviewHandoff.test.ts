@@ -4326,6 +4326,37 @@ test('partial retrieval receipts distinguish unavailable counts from recorded ze
     assert.deepEqual((await retainedReceipt.locator('strong').allTextContents()).slice(0, 4), ['7', 'Unavailable', '5', '0'])
 ;
 
+    const retainedRawResults = page.locator('details').filter(
+{
+ has: page.locator('summary').filter({ hasText: /^Bounded raw results/ })
+}
+)
+;
+
+    assert.match(
+      await retainedRawResults.locator(':scope > summary').innerText(),
+      /Bounded raw results Retained · frozen read-only · Unavailable/,
+      'an omitted retained evidence section must be labeled unavailable before expansion',
+    )
+;
+
+    await retainedRawResults.locator(':scope > summary').click()
+;
+
+    assert.equal(
+      await retainedRawResults.getByText('Unavailable — this evidence was not recorded for this audit.', { exact: true }).isVisible(),
+      true,
+      'an expanded omitted retained evidence section must explain that the evidence was unavailable',
+    )
+;
+
+    assert.equal(
+      await retainedRawResults.locator('button, input, select, textarea, form').count(),
+      0,
+      'expanded unavailable retained evidence must remain read-only',
+    )
+;
+
     assert.equal(await retainedReceipt.getByText('Unavailable occurrences · 0 unique images · +4 new images', 
 {
  exact: true 
@@ -4430,6 +4461,44 @@ test('partial retrieval receipts distinguish unavailable counts from recorded ze
 ;
 
     assert.deepEqual((await legacyReceipt.locator('strong').allTextContents()).slice(0, 4), ['7', 'Unavailable', '5', '0'])
+;
+
+    const legacyRawResults = page.locator('details').filter(
+{
+ has: page.locator('summary').filter({ hasText: /^Bounded raw results/ })
+}
+)
+;
+
+    assert.match(
+      await legacyRawResults.locator(':scope > summary').innerText(),
+      /Bounded raw results Legacy · frozen read-only · 0 records/,
+      'a recorded empty Legacy evidence section must remain visible as zero records',
+    )
+;
+
+    await legacyRawResults.locator(':scope > summary').click()
+;
+
+    assert.equal(
+      await legacyRawResults.getByText('0 records were recorded for this audit.', { exact: true }).isVisible(),
+      true,
+      'an expanded recorded-empty Legacy evidence section must preserve the recorded zero count',
+    )
+;
+
+    assert.equal(
+      await legacyRawResults.getByText('Unavailable — this evidence was not recorded for this audit.', { exact: true }).count(),
+      0,
+      'a recorded empty Legacy evidence section must not be labeled unavailable',
+    )
+;
+
+    assert.equal(
+      await legacyRawResults.locator('button, input, select, textarea, form').count(),
+      0,
+      'expanded recorded-empty Legacy evidence must remain read-only',
+    )
 ;
 
     assert.equal(await legacyReceipt.getByText('Unavailable occurrences · 0 unique images · +4 new images', 
