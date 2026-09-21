@@ -3,6 +3,10 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 const SCRIPT = new URL("./audit-subscription-products.js", import.meta.url);
+const FAKE_STRIPE_REGISTER = new URL(
+  "./test-fixtures/register-fake-stripe.js",
+  import.meta.url,
+);
 const PRICE_ENV_KEYS = [
   "FANDOM_STRIPE_MEMBERSHIP_PRICE_ID",
   "FANDOM_CREATOR_OS_PRICE_ID",
@@ -20,6 +24,28 @@ function runAudit(env = {}) {
     {
       encoding: "utf8",
       env: { ...cleanEnv, ...env },
+    },
+  );
+}
+
+function runLiveAudit(args = [], env = {}) {
+  const cleanEnv = { ...process.env };
+  for (const key of PRICE_ENV_KEYS) delete cleanEnv[key];
+
+  return spawnSync(
+    process.execPath,
+    ["--import", FAKE_STRIPE_REGISTER.pathname, SCRIPT.pathname, ...args],
+    {
+      encoding: "utf8",
+      env: {
+        ...cleanEnv,
+        STRIPE_SECRET_KEY: "sk_test_local",
+        FANDOM_STRIPE_MEMBERSHIP_PRICE_ID: "price_collector",
+        FANDOM_CREATOR_OS_PRICE_ID: "price_creator",
+        FANDOM_CREATOR_BRIDGE_PRICE_ID: "price_bridge",
+        FANDOM_ECOSYSTEM_BUNDLE_PRICE_ID: "price_bundle",
+        ...env,
+      },
     },
   );
 }
@@ -98,4 +124,52 @@ test("configuration reports contain only reachable mapping fields", () => {
     ["envKey", "product"],
   );
   assert.doesNotMatch(result.stdout, /price_private_value/);
+});
+
+test("live audit exits 2 and reports ambiguous subscriptions", () => {
+  const result = runLiveAudit([], { FAKE_STRIPE_SCENARIO: "ambiguous" });
+
+  assert.equal(result.status, 2, result.stderr);
+  assert.equal(result.stderr, "");
+  const report = JSON.parse(result.stdout);
+  assert.equal(typeof report.auditedAt, "string");
+  delete report.auditedAt;
+  assert.deepEqual(report, {
+    apply: false,
+    activeSubscriptions: 1,
+    identified: 0,
+    updated: 0,
+    ambiguous: [{
+      subscriptionId: "sub_ambiguous",
+      status: "active",
+      reason: "unconfigured_price",
+      priceIds: ["price_unknown"],
+    }],
+  });
+});
+
+test("live audit exits 0 with the clean report shape", () => {
+  const result = runLiveAudit();
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stderr, "");
+  const report = JSON.parse(result.stdout);
+  assert.match(report.auditedAt, /^\d{4}-\d{2}-\d{2}T/);
+  delete report.auditedAt;
+  assert.deepEqual(report, {
+    apply: false,
+    activeSubscriptions: 1,
+    identified: 1,
+    updated: 0,
+    ambiguous: [],
+  });
+});
+
+test("live audit forwards apply mode", () => {
+  const result = runLiveAudit(["--apply"]);
+
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.apply, true);
+  assert.equal(report.updated, 1);
 });
