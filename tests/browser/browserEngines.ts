@@ -102,11 +102,30 @@ export async function assertBrowserEnginesLaunchable(
   const failures: Array<{ engine: BrowserEngine; error: unknown }> = [];
 
   for (const engine of engines) {
+    let browser: Browser | undefined;
     try {
-      const browser = await launch(engine);
-      await browser.close();
+      browser = await launch(engine);
+      const page = await browser.newPage();
+      await page.setContent(`<main data-browser-engine="${engine.id}">${engine.name}</main>`);
+      const renderedEngine = await page.locator('[data-browser-engine]').textContent();
+      if (renderedEngine !== engine.name) {
+        throw new Error(
+          `page operation returned ${JSON.stringify(renderedEngine)} instead of ${JSON.stringify(engine.name)}`,
+        );
+      }
     } catch (error) {
       failures.push({ engine, error });
+    } finally {
+      if (browser) {
+        try {
+          await browser.close();
+        } catch (error) {
+          failures.push({
+            engine,
+            error: new Error(`browser cleanup failed: ${String(error)}`),
+          });
+        }
+      }
     }
   }
 
@@ -116,7 +135,7 @@ export async function assertBrowserEnginesLaunchable(
     .map(({ engine, error }) => `${engine.name}: ${String(error)}`)
     .join('\n\n');
   throw new Error(
-    `Playwright browser binaries are installed but cannot launch: ${
+    `Playwright browser smoke check failed: ${
       failures.map(({ engine }) => engine.name).join(', ')
     }.\n`
     + 'In Replit, ensure .replit declares the required native browser libraries, then reload the environment. '

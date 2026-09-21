@@ -33,5 +33,7 @@ if (mode === '--install' || mode === '--install-with-deps') {
 assertBrowserEnginesInstalled();
 await assertBrowserEnginesLaunchable();
 console.log(
-  `Playwright browser engines ready: ${BROWSER_ENGINES.map(engine => engine.name).join(', ')}`,
+  `Playwright browser engine smoke check passed: ${
+    BROWSER_ENGINES.map(engine => engine.name).join(', ')
+  }`,
 );

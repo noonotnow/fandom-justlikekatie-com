@@ -41,9 +41,7 @@ test('browser prerequisite check accepts a complete engine installation', () => 
 });
 
 test('browser prerequisite check distinguishes missing host libraries', async () => {
-  const launchError = new Error(
-    'error while loading shared libraries: libgtk-4.so.1: cannot open shared object file',
-  );
+  const launchError = new Error('browser binary is unavailable');
 
   await assert.rejects(
     assertBrowserEnginesLaunchable(
@@ -51,7 +49,7 @@ test('browser prerequisite check distinguishes missing host libraries', async ()
       async () => { throw launchError; },
     ),
     error => {
-      assert.match(String(error), /binaries are installed but cannot launch: WebKit/);
+      assert.match(String(error), /browser smoke check failed: WebKit/);
       assert.match(String(error), /\.replit declares the required native browser libraries/);
       assert.match(String(error), /browser:install:ci/);
       assert.match(String(error), /libgtk-4\.so\.1/);
@@ -62,6 +60,8 @@ test('browser prerequisite check distinguishes missing host libraries', async ()
 
 test('browser prerequisite launch check accepts launchable engines', async () => {
   let closeCount = 0;
+
+  const operatedEngines: string[] = [];
   await assert.doesNotReject(assertBrowserEnginesLaunchable(
     BROWSER_ENGINES,
     async () => ({
