@@ -13,6 +13,7 @@ export const RECEIPT_INDEX_NOTIFICATION_STATE_KEY =
   "billing-operations:receipt-index-notification-state";
 const RECEIPT_INDEX_STATUSES = new Set(["release_ready", "missing", "invalid", "not_ready"]);
 const NOTIFICATION_CLAIM_TTL_MS = 15 * 60 * 1000;
+const NOTIFICATION_DELIVERY_FAILURE_THRESHOLD = 3;
 
 export function createReceiptIndexHealthCheck({ query }) {
   return async () => {
@@ -82,6 +83,7 @@ export async function notifyReceiptIndexTransition({
   health,
   notify,
   now = new Date(),
+  logger = console,
 }) {
   const targetStatus = RECEIPT_INDEX_STATUSES.has(health?.status) ? health.status : null;
   if (!targetStatus) return null;
@@ -119,6 +121,7 @@ export async function notifyReceiptIndexTransition({
       previousStatus,
       targetStatus,
       kind,
+      delivery: current.delivery,
     };
     const claimed = await writeReceiptIndexState(store, entry, claim);
     if (claimed?.modified === false) continue;
@@ -130,16 +133,29 @@ export async function notifyReceiptIndexTransition({
     try {
       await notify(payload);
     } catch (error) {
+      const delivery = updateReceiptIndexDeliveryState(current.delivery, "failure", now);
       await settleReceiptIndexClaim(store, claimId, {
         status: previousStatus,
         updatedAt: now.toISOString(),
+        delivery,
       });
+      if (
+        delivery.consecutiveFailures >= NOTIFICATION_DELIVERY_FAILURE_THRESHOLD
+        && delivery.escalatedAt === now.toISOString()
+      ) {
+        logger?.error?.("[billing-operations] receipt index notification delivery repeatedly failed", {
+          channelStatus: "failure",
+          consecutiveFailures: delivery.consecutiveFailures,
+          lastFailedAt: delivery.lastFailedAt,
+        });
+      }
       throw error;
     }
     await settleReceiptIndexClaim(store, claimId, {
       status: targetStatus,
       notifiedAt: now.toISOString(),
       updatedAt: now.toISOString(),
+      delivery: updateReceiptIndexDeliveryState(current.delivery, "success", now),
     });
     return payload;
   }
@@ -147,15 +163,71 @@ export async function notifyReceiptIndexTransition({
 }
 
 function normalizeReceiptIndexNotificationState(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { delivery: emptyReceiptIndexDeliveryState() };
+  }
+  const delivery = normalizeReceiptIndexDeliveryState(value.delivery);
   if (
     value.pending === true
     && typeof value.claimId === "string"
     && Number.isFinite(Date.parse(value.claimedAt))
     && RECEIPT_INDEX_STATUSES.has(value.previousStatus)
     && RECEIPT_INDEX_STATUSES.has(value.targetStatus)
-  ) return value;
-  return RECEIPT_INDEX_STATUSES.has(value.status) ? value : {};
+  ) return { ...value, delivery };
+  return RECEIPT_INDEX_STATUSES.has(value.status)
+    ? { ...value, delivery }
+    : { delivery };
+}
+
+function emptyReceiptIndexDeliveryState() {
+  return {
+    status: "never_attempted",
+    attemptedAt: null,
+    lastSucceededAt: null,
+    lastFailedAt: null,
+    consecutiveFailures: 0,
+    escalatedAt: null,
+  };
+}
+
+function normalizeReceiptIndexDeliveryState(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return emptyReceiptIndexDeliveryState();
+  }
+  return {
+    status: value.status === "success" || value.status === "failure"
+      ? value.status
+      : "never_attempted",
+    attemptedAt: Number.isFinite(Date.parse(value.attemptedAt)) ? value.attemptedAt : null,
+    lastSucceededAt: Number.isFinite(Date.parse(value.lastSucceededAt))
+      ? value.lastSucceededAt
+      : null,
+    lastFailedAt: Number.isFinite(Date.parse(value.lastFailedAt)) ? value.lastFailedAt : null,
+    consecutiveFailures: Number.isSafeInteger(value.consecutiveFailures)
+      && value.consecutiveFailures > 0
+      ? value.consecutiveFailures
+      : 0,
+    escalatedAt: Number.isFinite(Date.parse(value.escalatedAt)) ? value.escalatedAt : null,
+  };
+}
+
+function updateReceiptIndexDeliveryState(value, outcome, now) {
+  const previous = normalizeReceiptIndexDeliveryState(value);
+  const attemptedAt = now.toISOString();
+  const failed = outcome === "failure";
+  const consecutiveFailures = failed
+    ? Math.min(previous.consecutiveFailures + 1, Number.MAX_SAFE_INTEGER)
+    : 0;
+  return {
+    status: failed ? "failure" : "success",
+    attemptedAt,
+    lastSucceededAt: failed ? previous.lastSucceededAt : attemptedAt,
+    lastFailedAt: failed ? attemptedAt : previous.lastFailedAt,
+    consecutiveFailures,
+    escalatedAt: failed && consecutiveFailures >= NOTIFICATION_DELIVERY_FAILURE_THRESHOLD
+      ? previous.escalatedAt || attemptedAt
+      : null,
+  };
 }
 
 async function settleReceiptIndexClaim(store, claimId, state) {

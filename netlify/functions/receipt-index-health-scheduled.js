@@ -34,6 +34,7 @@ export function createReceiptIndexHealthScheduledHandler({
         health: await getHealth(context),
         notify,
         now: observedAt,
+         logger,
       });
     } catch (error) {
       logger.error("[billing-operations] scheduled receipt index notification failed", {

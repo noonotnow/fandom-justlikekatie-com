@@ -229,6 +229,80 @@ test("failed receipt index delivery remains retryable without storing failure de
   );
 });
 
+test("repeated receipt index delivery failures emit one bounded channel-health signal", async () => {
+  const store = notificationStore();
+  const escalations = [];
+  await notifyReceiptIndexTransition({
+    store,
+    health: { status: "release_ready" },
+    notify: async () => {},
+    now: new Date("2026-09-20T12:00:00.000Z"),
+  });
+
+  for (let hour = 13; hour <= 16; hour += 1) {
+    await assert.rejects(notifyReceiptIndexTransition({
+      store,
+      health: { status: "missing" },
+      notify: async () => { throw new Error("private provider failure"); },
+      now: new Date(`2026-09-20T${hour}:00:00.000Z`),
+      logger: { error: (...args) => escalations.push(args) },
+    }));
+  }
+
+  const state = store.values.get(RECEIPT_INDEX_NOTIFICATION_STATE_KEY);
+  assert.equal(state.status, "release_ready");
+  assert.deepEqual(state.delivery, {
+    status: "failure",
+    attemptedAt: "2026-09-20T16:00:00.000Z",
+    lastSucceededAt: null,
+    lastFailedAt: "2026-09-20T16:00:00.000Z",
+    consecutiveFailures: 4,
+    escalatedAt: "2026-09-20T15:00:00.000Z",
+  });
+  assert.equal(escalations.length, 1);
+  assert.deepEqual(escalations[0], [
+    "[billing-operations] receipt index notification delivery repeatedly failed",
+    {
+      channelStatus: "failure",
+      consecutiveFailures: 3,
+      lastFailedAt: "2026-09-20T15:00:00.000Z",
+    },
+  ]);
+  assert.doesNotMatch(JSON.stringify(state), /private provider failure|resend|configuration/i);
+});
+
+test("successful receipt index delivery clears the channel failure streak", async () => {
+  const store = notificationStore();
+  await notifyReceiptIndexTransition({
+    store,
+    health: { status: "release_ready" },
+    notify: async () => {},
+    now: new Date("2026-09-20T12:00:00.000Z"),
+  });
+  for (const hour of [13, 14]) {
+    await assert.rejects(notifyReceiptIndexTransition({
+      store,
+      health: { status: "invalid" },
+      notify: async () => { throw new Error("provider unavailable"); },
+      now: new Date(`2026-09-20T${hour}:00:00.000Z`),
+    }));
+  }
+  await notifyReceiptIndexTransition({
+    store,
+    health: { status: "invalid" },
+    notify: async () => {},
+    now: new Date("2026-09-20T15:00:00.000Z"),
+  });
+
+  const state = store.values.get(RECEIPT_INDEX_NOTIFICATION_STATE_KEY);
+  assert.equal(state.status, "invalid");
+  assert.equal(state.delivery.status, "success");
+  assert.equal(state.delivery.consecutiveFailures, 0);
+  assert.equal(state.delivery.lastSucceededAt, "2026-09-20T15:00:00.000Z");
+  assert.equal(state.delivery.lastFailedAt, "2026-09-20T14:00:00.000Z");
+  assert.equal(state.delivery.escalatedAt, null);
+});
+
 test("scheduled receipt index health runs hourly and isolates private failures", async () => {
   assert.deepEqual(receiptIndexSchedule, { schedule: "@hourly" });
   const calls = [];
