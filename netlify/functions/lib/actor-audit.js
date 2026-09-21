@@ -117,6 +117,7 @@ const MAX_RAW_RESULTS = 36;
 const MAX_IDENTITY_ITEMS = 36;
 const MAX_FEEDBACK_EVENTS = 72;
 const MAX_FEEDBACK_NOTE_LENGTH = 400;
+const MAX_REPAIR_HEALTH_RECOVERY_REASON_LENGTH = 400;
 
 const CACHE_DIAGNOSTIC_RESERVATION_MS = 10 * 60 * 1000;
 const MISPRINT_RECEIPT_CATALOG_KEY = "vibeAtlas:misprint-receipt-catalog:v1";
@@ -485,9 +486,19 @@ export function createActorAuditHandler({
         return json(405, { error: "Method not allowed." }, { Allow: "GET, POST" });
       }
       if (input.action === "recover_publication_index_repair_health") {
+        const reason = boundedText(input.reason, MAX_REPAIR_HEALTH_RECOVERY_REASON_LENGTH);
+        if (reason === null) {
+          return json(400, {
+            error: `Recovery reason must be at most ${MAX_REPAIR_HEALTH_RECOVERY_REASON_LENGTH} characters.`,
+          });
+        }
         const recovery = await recoverPublicationActorIndexRepairHealth(
           getPublicationStore(context),
-          { now: () => now().toISOString() },
+          {
+            now: () => now().toISOString(),
+            operator: operator.user.accountId,
+            reason,
+          },
         );
         return json(200, recovery);
       }

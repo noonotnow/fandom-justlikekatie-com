@@ -25,6 +25,9 @@ export const PUBLICATION_MANIFEST_CATALOG_KEY =
   `vibeAtlas:grid-manifest-catalog:${GRID_MANIFEST_VERSION}:dates`;
 export const PUBLICATION_ACTOR_INDEX_REPAIR_KEY =
   `vibeAtlas:grid-manifest-actor-index-repair:${PUBLICATION_ACTOR_INDEX_VERSION}:latest`;
+
+export const PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX =
+  `vibeAtlas:grid-manifest-actor-index-repair-recovery:${PUBLICATION_ACTOR_INDEX_VERSION}:`;
 const PUBLICATION_ACTOR_INDEX_REPAIR_WINDOW_MS = 24 * 60 * 60 * 1000;
 const REQUIRED_CARD_COUNT = 9;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -42,6 +45,9 @@ export const gridCorrectionKey = (date, correctionReceiptId) =>
   `${gridCorrectionPrefix(date)}${encodeURIComponent(correctionReceiptId)}`;
 export const publicationActorIndexKey = () => PUBLICATION_ACTOR_INDEX_KEY;
 export const publicationActorIndexRepairKey = () => PUBLICATION_ACTOR_INDEX_REPAIR_KEY;
+
+export const publicationActorIndexRepairRecoveryKey = receiptId =>
+  `${PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX}${encodeURIComponent(receiptId)}`;
 export const publicationManifestCatalogKey = () => PUBLICATION_MANIFEST_CATALOG_KEY;
 
 export const PUBLIC_VIBE_ATLAS_ORIGIN = "https://fandom.justlikekatie.com";
@@ -656,7 +662,12 @@ async function readPublicationActorIndexRepairHealth(store, now) {
 
 export async function recoverPublicationActorIndexRepairHealth(
   store,
-  { now = () => new Date().toISOString() } = {},
+  {
+    now = () => new Date().toISOString(),
+    operator,
+    reason = "",
+    createReceiptId = () => randomUUID(),
+  } = {},
 ) {
   const recoveredAt = asTimestamp(now());
   const recoveredAtMs = Date.parse(recoveredAt);
@@ -688,8 +699,31 @@ export async function recoverPublicationActorIndexRepairHealth(
     updatedAt: recoveredAt,
     events,
   };
+  const receiptId = `repair-health-recovery-${createReceiptId()}`;
+  const receipt = {
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health-recovery",
+    status: "authorized",
+    receiptId,
+    recoveredAt,
+    recoveredBy: operator,
+    preservedEventCount: events.length,
+    reason: reason || null,
+    targetRepairHealth: {
+      updatedAt: record.updatedAt,
+      eventCount: record.events.length,
+    },
+  };
 
   try {
+    const receiptWrite = await store.setJSON(
+      publicationActorIndexRepairRecoveryKey(receiptId),
+      receipt,
+      { onlyIfNew: true },
+    );
+    if (receiptWrite?.modified === false) {
+      throw new Error("Repair-health recovery receipt already exists.");
+    }
     await store.setJSON(publicationActorIndexRepairKey(), record);
     const health = await readPublicationActorIndexRepairHealth(store, () => recoveredAt);
     if (health.status === "unavailable") {
@@ -698,6 +732,7 @@ export async function recoverPublicationActorIndexRepairHealth(
     return {
       recovered: true,
       preservedEventCount: events.length,
+      receiptId,
       repairHealth: health,
     };
   } catch {

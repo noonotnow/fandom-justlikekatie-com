@@ -60,7 +60,10 @@ import {
   gridManifestKey,
   publicationActorIndexKey,
   publicationActorIndexRepairKey,
+  publicationActorIndexRepairRecoveryKey,
+  PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX,
   publicationManifestCatalogKey,
+  recoverPublicationActorIndexRepairHealth,
   readPublicationCorrections,
 } from "./publication-manifest.js";
 import { BLIND_REVIEW_CANDIDATE_SHAPES } from "./blind-review-candidate-fixtures.js";
@@ -2514,12 +2517,14 @@ test("operators recover malformed repair health while preserving valid recent ev
 
   const response = await handler(request("POST", {
     action: "recover_publication_index_repair_health",
+    reason: "Reset malformed telemetry after operator review.",
   }), {});
   const body = await response.json();
 
   assert.equal(response.status, 200, JSON.stringify(body));
   assert.equal(body.recovered, true);
   assert.equal(body.preservedEventCount, 1);
+  assert.match(body.receiptId, /^repair-health-recovery-/);
   assert.deepEqual(body.repairHealth, {
     status: "healthy",
     warning: false,
@@ -2530,6 +2535,23 @@ test("operators recover malformed repair health while preserving valid recent ev
     lastOutcome: "rebuilt",
   });
   assert.deepEqual(publicationStore.records.get(publicationActorIndexKey()), actorIndex);
+  const recoveryReceipts = [...publicationStore.records.entries()]
+    .filter(([key]) => key.startsWith(PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX));
+  assert.equal(recoveryReceipts.length, 1);
+  assert.deepEqual(recoveryReceipts[0][1], {
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health-recovery",
+    status: "authorized",
+    receiptId: body.receiptId,
+    recoveredAt: "2026-08-31T12:00:03.000Z",
+    recoveredBy: "operator-1",
+    preservedEventCount: 1,
+    reason: "Reset malformed telemetry after operator review.",
+    targetRepairHealth: {
+      updatedAt: "2026-08-31T12:00:03.000Z",
+      eventCount: 1,
+    },
+  });
 
   const releaseDesk = await handler(request(), {});
   const releaseBody = await releaseDesk.json();
@@ -2576,6 +2598,115 @@ test("failed repair-health recovery returns an explicit error", async () => {
 
   assert.equal(response.status, 503);
   assert.equal(body.error, "Repair health could not be recovered. No publication data was changed.");
+  assert.equal(publicationStore.records.has(publicationActorIndexRepairKey()), false);
+  const receipts = [...publicationStore.records.entries()]
+    .filter(([key]) => key.startsWith(PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX));
+  assert.equal(receipts.length, 1);
+  assert.equal(receipts[0][1].status, "authorized");
+});
+
+test("receipt-write failure leaves publication manifests and actor index unchanged", async () => {
+  const publicationStore = memoryStore();
+  const { handler } = harness({ publicationStore });
+  const initialReleaseDesk = await handler(request(), {});
+  assert.equal(initialReleaseDesk.status, 200);
+  const manifest = publicationManifest("2026-08-30");
+  publicationStore.records.set(gridManifestKey(manifest.publicationDate), manifest);
+  const actorIndex = structuredClone(
+    publicationStore.records.get(publicationActorIndexKey()),
+  );
+  const repairHealth = {
+    schemaVersion: 99,
+    kind: "corrupted",
+    events: [],
+  };
+  publicationStore.records.set(publicationActorIndexRepairKey(), repairHealth);
+  const originalSetJSON = publicationStore.setJSON.bind(publicationStore);
+  publicationStore.setJSON = async (key, value, options) => {
+    if (key.startsWith(PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX)) {
+      throw new Error("receipt store unavailable");
+    }
+    return originalSetJSON(key, value, options);
+  };
+
+  const response = await handler(request("POST", {
+    action: "recover_publication_index_repair_health",
+    reason: "Operator-requested reset.",
+  }), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 503);
+  assert.equal(body.error, "Repair health could not be recovered. No publication data was changed.");
+  assert.deepEqual(
+    publicationStore.records.get(gridManifestKey(manifest.publicationDate)),
+    manifest,
+  );
+  assert.deepEqual(publicationStore.records.get(publicationActorIndexKey()), actorIndex);
+  assert.deepEqual(
+    publicationStore.records.get(publicationActorIndexRepairKey()),
+    repairHealth,
+  );
+  assert.equal(
+    [...publicationStore.records.keys()]
+      .some(key => key.startsWith(PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX)),
+    false,
+  );
+});
+
+test("a conflicting recovery receipt prevents the repair-health reset", async () => {
+  const publicationStore = memoryStore();
+  const receiptId = "repair-health-recovery-fixed";
+  const existingReceipt = {
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health-recovery",
+    status: "authorized",
+    receiptId,
+  };
+  const repairHealth = {
+    schemaVersion: 99,
+    kind: "corrupted",
+    events: [],
+  };
+  publicationStore.records.set(
+    publicationActorIndexRepairRecoveryKey(receiptId),
+    existingReceipt,
+  );
+  publicationStore.records.set(publicationActorIndexRepairKey(), repairHealth);
+
+  await assert.rejects(
+    recoverPublicationActorIndexRepairHealth(publicationStore, {
+      now: () => "2026-08-31T12:00:00.000Z",
+      operator: "operator-1",
+      createReceiptId: () => "fixed",
+    }),
+    error => (
+      error.status === 503
+      && error.message === "Repair health could not be recovered. No publication data was changed."
+    ),
+  );
+  assert.deepEqual(
+    publicationStore.records.get(publicationActorIndexRepairKey()),
+    repairHealth,
+  );
+  assert.deepEqual(
+    publicationStore.records.get(publicationActorIndexRepairRecoveryKey(receiptId)),
+    existingReceipt,
+  );
+});
+
+test("repair-health recovery rejects an overlong reason before writing", async () => {
+  const publicationStore = memoryStore();
+  const { handler } = harness({ publicationStore });
+
+  const response = await handler(request("POST", {
+    action: "recover_publication_index_repair_health",
+    reason: "x".repeat(401),
+  }), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(body.error, "Recovery reason must be at most 400 characters.");
+  assert.equal(publicationStore.records.size, 0);
 });
 
 test("production readiness appends receipts without mutating the approved audit", async () => {
