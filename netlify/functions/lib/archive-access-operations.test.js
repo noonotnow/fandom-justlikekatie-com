@@ -333,7 +333,10 @@ test("notification state repairs malformed and invalid blobs through conditional
   assert.equal(typeof first.data, "object");
   assert.ok(metadataReads.length >= 2);
   assert.ok(metadataReads.every(read =>
-    read.key === "archive-access:notification-state"
+    [
+      "archive-access:notification-state",
+      "archive-access:notification-repairs",
+    ].includes(read.key)
     && read.options?.consistency === "strong"));
   assert.ok(metadataReads.some(read =>
     read.method === "getWithMetadata" && read.options?.type === "text"));
@@ -483,6 +486,173 @@ test("same-status malformed signal is repaired once without recurring reports", 
   assert.deepEqual(state.signals.billing, { status: "normal" });
   assert.deepEqual(state.repair, { count: 1, lastRepairedAt: repairedAt.toISOString() });
   assert.equal(JSON.stringify(repairs).includes("must-not-be-logged"), false);
+});
+
+test("three repairs in one day produce one aggregate privacy-safe warning", async () => {
+  const data = store();
+  const sent = [];
+  const start = new Date("2026-09-20T08:00:00.000Z");
+  const health = {
+    recentHour: { billing_delay: 0, authenticated_checks: 1, billingDelayRate: 0 },
+    status: { billing: "normal", deniedAccess: "normal" },
+  };
+
+  for (let index = 0; index < 3; index += 1) {
+    await data.setJSON("archive-access:notification-state", {
+      signals: { billing: { status: "broken", private: `secret-${index}` } },
+    });
+    await notifyArchiveAccessTransitions({
+      store: data,
+      health,
+      notify: async payload => sent.push(payload),
+      now: new Date(start.getTime() + index * 60 * 60 * 1000),
+      logger: { warn: () => {} },
+    });
+  }
+
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health,
+    notify: async payload => sent.push(payload),
+    now: new Date(start.getTime() + 4 * 60 * 60 * 1000),
+  });
+
+  assert.deepEqual(sent, [{
+    kind: "repair_warning",
+    repairCount: 3,
+    windowStartedAt: start.toISOString(),
+    lastRepairedAt: new Date(start.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+    windowHours: 24,
+  }]);
+  assert.equal(JSON.stringify(sent).includes("secret-"), false);
+});
+
+test("isolated repairs outside the warning window do not notify", async () => {
+  const data = store();
+  const sent = [];
+  const health = {
+    recentHour: { billing_delay: 0, authenticated_checks: 1, billingDelayRate: 0 },
+    status: { billing: "normal", deniedAccess: "normal" },
+  };
+  const times = [
+    "2026-09-18T08:00:00.000Z",
+    "2026-09-19T09:00:00.000Z",
+    "2026-09-20T10:00:00.000Z",
+  ];
+
+  for (const timestamp of times) {
+    await data.setJSON("archive-access:notification-state", "{broken");
+    await notifyArchiveAccessTransitions({
+      store: data,
+      health,
+      notify: async payload => sent.push(payload),
+      now: new Date(timestamp),
+      logger: { warn: () => {} },
+    });
+  }
+
+  assert.deepEqual(sent, []);
+});
+
+test("conditional repair retries record one repair and cannot trigger a warning", async () => {
+  const data = store();
+  await data.setJSON("archive-access:notification-state", "{broken");
+  const originalSetJSON = data.setJSON;
+  let rejectedRepairWrite = false;
+  data.setJSON = async (key, value, options) => {
+    if (key === "archive-access:notification-state" && options.onlyIfMatch && !rejectedRepairWrite) {
+      rejectedRepairWrite = true;
+      return { modified: false };
+    }
+    return originalSetJSON(key, value, options);
+  };
+  const sent = [];
+
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health: {
+      recentHour: { billing_delay: 0, authenticated_checks: 1, billingDelayRate: 0 },
+      status: { billing: "normal", deniedAccess: "normal" },
+    },
+    notify: async payload => sent.push(payload),
+    now: new Date("2026-09-20T12:30:00.000Z"),
+    logger: { warn: () => {} },
+  });
+
+  assert.equal(rejectedRepairWrite, true);
+  assert.deepEqual(sent, []);
+  assert.equal(data.values.get("archive-access:notification-repairs").timestamps.length, 1);
+});
+
+test("concurrent repair warning evaluations deliver only once", async () => {
+  const data = store();
+  const timestamps = [
+    "2026-09-20T08:00:00.000Z",
+    "2026-09-20T09:00:00.000Z",
+    "2026-09-20T10:00:00.000Z",
+  ];
+  await data.setJSON("archive-access:notification-repairs", { timestamps, warnedAt: null });
+  const health = { status: { billing: "normal", deniedAccess: "normal" } };
+  let release;
+  const deliveryPending = new Promise(resolve => { release = resolve; });
+  let deliveries = 0;
+  const notify = async () => {
+    deliveries += 1;
+    await deliveryPending;
+  };
+
+  const first = notifyArchiveAccessTransitions({
+    store: data,
+    health,
+    notify,
+    now: new Date("2026-09-20T10:30:00.000Z"),
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  const second = await notifyArchiveAccessTransitions({
+    store: data,
+    health,
+    notify,
+    now: new Date("2026-09-20T10:30:00.000Z"),
+  });
+  release();
+  const firstResult = await first;
+
+  assert.equal(deliveries, 1);
+  assert.deepEqual(second, []);
+  assert.equal(firstResult[0].kind, "repair_warning");
+});
+
+test("repair warnings re-arm after the previous repair window expires", async () => {
+  const data = store();
+  const sent = [];
+  const health = { status: { billing: "normal", deniedAccess: "normal" } };
+  const firstWindow = [
+    "2026-09-18T08:00:00.000Z",
+    "2026-09-18T09:00:00.000Z",
+    "2026-09-18T10:00:00.000Z",
+  ];
+  await data.setJSON("archive-access:notification-repairs", {
+    timestamps: firstWindow,
+    warnedAt: firstWindow.at(-1),
+  });
+
+  for (const timestamp of [
+    "2026-09-20T08:00:00.000Z",
+    "2026-09-20T09:00:00.000Z",
+    "2026-09-20T10:00:00.000Z",
+  ]) {
+    await data.setJSON("archive-access:notification-state", "{broken");
+    await notifyArchiveAccessTransitions({
+      store: data,
+      health,
+      notify: async payload => sent.push(payload),
+      now: new Date(timestamp),
+      logger: { warn: () => {} },
+    });
+  }
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].windowStartedAt, "2026-09-20T08:00:00.000Z");
 });
 
 test("cleanup failures do not fail or distort the rolling report", async () => {
@@ -867,4 +1037,32 @@ test("notification email contains aggregate operations data only", async () => {
   assert.match(message.text, /Count: 4/);
   assert.match(message.text, /Rate: 40%/);
   assert.doesNotMatch(message.text, /customer|account|session|email|url/i);
+});
+
+test("repair warning email contains only aggregate count and timestamps", async () => {
+  let request;
+  await sendArchiveAccessNotification({
+    payload: {
+      kind: "repair_warning",
+      repairCount: 3,
+      windowStartedAt: "2026-09-20T08:00:00.000Z",
+      lastRepairedAt: "2026-09-20T10:00:00.000Z",
+      windowHours: 24,
+    },
+    env: {
+      RESEND_API_KEY: "test-key",
+      FANDOM_AUTH_FROM_EMAIL: "Fandom <ops@example.test>",
+      FANDOM_ADMIN_EMAILS: "admin@example.test",
+    },
+    fetchImpl: async (...args) => {
+      request = args;
+      return new Response(null, { status: 202 });
+    },
+  });
+
+  const message = JSON.parse(request[1].body);
+  assert.match(message.text, /Repair count: 3/);
+  assert.match(message.text, /Window started: 2026-09-20T08:00:00.000Z/);
+  assert.match(message.text, /Last repaired: 2026-09-20T10:00:00.000Z/);
+  assert.doesNotMatch(message.text, /contents|customer|account|session|url/i);
 });

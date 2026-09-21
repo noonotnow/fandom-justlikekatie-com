@@ -3,6 +3,9 @@ import { randomUUID } from "node:crypto";
 const BUCKET_PREFIX = "archive-access:hour:";
 
 const NOTIFICATION_STATE_KEY = "archive-access:notification-state";
+const NOTIFICATION_REPAIR_STATE_KEY = "archive-access:notification-repairs";
+const REPAIR_WARNING_THRESHOLD = 3;
+const REPAIR_WARNING_WINDOW_MS = 24 * 60 * 60 * 1000;
 const OUTCOMES = new Set(["sign_in", "upgrade", "billing_delay", "allowed"]);
 
 const SIGNALS = {
@@ -136,6 +139,8 @@ export async function notifyArchiveAccessTransitions({
     });
     if (notification) notifications.push(notification);
   }
+  const repairWarning = await processRepairWarning({ store, notify, now });
+  if (repairWarning) notifications.push(repairWarning);
   return notifications;
 }
 
@@ -294,6 +299,31 @@ export async function sendArchiveAccessNotification({
   if (!env.RESEND_API_KEY || !env.FANDOM_AUTH_FROM_EMAIL || recipients.length === 0) {
     throw new Error("Archive access notifications are not configured.");
   }
+  if (payload.kind === "repair_warning") {
+    const title = "WARNING: archive notification state repeatedly repaired";
+    const lines = [
+      title,
+      `Repair count: ${payload.repairCount}`,
+      `Window started: ${payload.windowStartedAt}`,
+      `Last repaired: ${payload.lastRepairedAt}`,
+      `Window: ${payload.windowHours} hours`,
+    ];
+    const response = await fetchImpl("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: env.FANDOM_AUTH_FROM_EMAIL,
+        to: recipients,
+        subject: `[Fandom operations] ${title}`,
+        text: lines.join("\n"),
+      }),
+    });
+    if (!response.ok) throw new Error(`Archive access notification delivery failed (${response.status}).`);
+    return;
+  }
   const percent = `${Math.round(payload.rate * 100)}%`;
   const title = payload.kind === "resolved"
     ? `Resolved: archive ${payload.signalCategory}`
@@ -400,6 +430,7 @@ async function processSignalTransition({ store, health, notify, now, signal, def
         );
         const write = await conditionalStateWrite(store, entry, repaired);
         if (write?.modified === false) continue;
+        await recordNotificationRepair(store, now);
         logNotificationStateRepair(logger, repaired.repair);
       }
       return null;
@@ -416,7 +447,10 @@ async function processSignalTransition({ store, health, notify, now, signal, def
       if (repairRequired) next = recordNotificationStateRepair(next, now);
       const write = await conditionalStateWrite(store, entry, next);
       if (write?.modified !== false) {
-        if (repairRequired) logNotificationStateRepair(logger, next.repair);
+        if (repairRequired) {
+          await recordNotificationRepair(store, now);
+          logNotificationStateRepair(logger, next.repair);
+        }
         return null;
       }
       continue;
@@ -433,7 +467,10 @@ async function processSignalTransition({ store, health, notify, now, signal, def
     if (repairRequired) claimed = recordNotificationStateRepair(claimed, now);
     const claimWrite = await conditionalStateWrite(store, entry, claimed);
     if (claimWrite?.modified === false) continue;
-    if (repairRequired) logNotificationStateRepair(logger, claimed.repair);
+    if (repairRequired) {
+      await recordNotificationRepair(store, now);
+      logNotificationStateRepair(logger, claimed.repair);
+    }
     const payload = {
       kind: transitionKind,
       signalCategory: definition.category,
@@ -511,10 +548,104 @@ function logNotificationStateRepair(logger, repair) {
   });
 }
 
+async function recordNotificationRepair(store, now) {
+  const cutoff = now.getTime() - REPAIR_WARNING_WINDOW_MS;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const entry = await getWithMetadata(store, NOTIFICATION_REPAIR_STATE_KEY);
+    const state = normalizeRepairWarningState(entry?.data, cutoff);
+    const timestamps = [...state.timestamps, now.toISOString()]
+      .slice(-REPAIR_WARNING_THRESHOLD);
+    const write = await conditionalWrite(
+      store,
+      NOTIFICATION_REPAIR_STATE_KEY,
+      entry,
+      { ...state, timestamps },
+    );
+    if (write?.modified !== false) return;
+  }
+  throw new Error("Archive access repair history changed too frequently.");
+}
+
+async function processRepairWarning({ store, notify, now }) {
+  const cutoff = now.getTime() - REPAIR_WARNING_WINDOW_MS;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const entry = await getWithMetadata(store, NOTIFICATION_REPAIR_STATE_KEY);
+    if (!entry) return null;
+    const state = normalizeRepairWarningState(entry.data, cutoff);
+    if (state.timestamps.length < REPAIR_WARNING_THRESHOLD || state.warnedAt) return null;
+    if (state.warningClaim) {
+      const claimAge = now.getTime() - Date.parse(state.warningClaim.claimedAt);
+      if (claimAge >= 0 && claimAge < NOTIFICATION_CLAIM_TTL_MS) return null;
+    }
+    const claimId = randomUUID();
+    const claimed = { ...state, warningClaim: { claimId, claimedAt: now.toISOString() } };
+    const claimWrite = await conditionalWrite(
+      store,
+      NOTIFICATION_REPAIR_STATE_KEY,
+      entry,
+      claimed,
+    );
+    if (claimWrite?.modified === false) continue;
+    const payload = {
+      kind: "repair_warning",
+      repairCount: state.timestamps.length,
+      windowStartedAt: state.timestamps[0],
+      lastRepairedAt: state.timestamps.at(-1),
+      windowHours: REPAIR_WARNING_WINDOW_MS / (60 * 60 * 1000),
+    };
+    try {
+      await notify(payload);
+    } catch (error) {
+      await settleRepairWarningClaim(store, claimId, null);
+      throw error;
+    }
+    await settleRepairWarningClaim(store, claimId, now.toISOString());
+    return payload;
+  }
+  throw new Error("Archive access repair warning state changed too frequently.");
+}
+
+async function settleRepairWarningClaim(store, claimId, warnedAt) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const entry = await getWithMetadata(store, NOTIFICATION_REPAIR_STATE_KEY);
+    const state = normalizeRepairWarningState(entry?.data, Number.NEGATIVE_INFINITY);
+    if (state.warningClaim?.claimId !== claimId) return;
+    const next = { timestamps: state.timestamps, warnedAt };
+    const write = await conditionalWrite(store, NOTIFICATION_REPAIR_STATE_KEY, entry, next);
+    if (write?.modified !== false) return;
+  }
+  throw new Error("Archive access repair warning claim could not be settled.");
+}
+
+function normalizeRepairWarningState(value, cutoff) {
+  const root = isPlainObject(value) ? value : {};
+  const timestamps = Array.isArray(root.timestamps)
+    ? root.timestamps
+      .filter(timestamp => Number.isFinite(Date.parse(timestamp)) && Date.parse(timestamp) >= cutoff)
+      .sort()
+      .slice(-REPAIR_WARNING_THRESHOLD)
+    : [];
+  const warnedAtTimestamp = Date.parse(root.warnedAt);
+  const warnedAt = Number.isFinite(warnedAtTimestamp)
+    && timestamps.some(timestamp => Date.parse(timestamp) <= warnedAtTimestamp)
+    ? root.warnedAt
+    : null;
+  const warningClaim = isPlainObject(root.warningClaim)
+    && typeof root.warningClaim.claimId === "string"
+    && Number.isFinite(Date.parse(root.warningClaim.claimedAt))
+    ? root.warningClaim
+    : null;
+  return { timestamps, warnedAt, ...(warningClaim ? { warningClaim } : {}) };
+}
+
 async function conditionalStateWrite(store, entry, state) {
+  return conditionalWrite(store, NOTIFICATION_STATE_KEY, entry, state);
+}
+
+async function conditionalWrite(store, key, entry, value) {
   return store.setJSON(
-    NOTIFICATION_STATE_KEY,
-    state,
+    key,
+    value,
     entry?.etag ? { onlyIfMatch: entry.etag } : { onlyIfNew: true },
   );
 }
