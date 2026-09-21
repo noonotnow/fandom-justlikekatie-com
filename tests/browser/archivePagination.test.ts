@@ -40,7 +40,8 @@ test('archive pagination appends unique editions and preserves the global count'
     await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
 
     let firstPageRoute: Route | undefined;
-    let secondPageRoute: Route | undefined;
+    let secondPageAttempts = 0;
+    let retryRoute: Route | undefined;
     await page.route('**/.netlify/functions/star-of-day?*', route => {
       const url = new URL(route.request().url());
       if (url.searchParams.get('archive') !== '1') {
@@ -48,7 +49,16 @@ test('archive pagination appends unique editions and preserves the global count'
         return;
       }
       if (url.searchParams.get('cursor') === 'page-2') {
-        secondPageRoute = route;
+        secondPageAttempts += 1;
+        if (secondPageAttempts === 1) {
+          void route.fulfill({
+            status: 503,
+            contentType: 'application/json',
+            body: JSON.stringify({ error: 'Temporarily unavailable' }),
+          });
+        } else {
+          retryRoute = route;
+        }
       } else {
         firstPageRoute = route;
       }
@@ -80,12 +90,24 @@ test('archive pagination appends unique editions and preserves the global count'
     );
 
     await page.getByRole('button', { name: 'Load more editions' }).click();
+    await page.getByRole('alert').getByText('Couldn’t load more editions. Try again.').waitFor();
+    assert.deepEqual(
+      await page.locator('.archive-card time').evaluateAll(
+        times => times.map(time => time.getAttribute('datetime')),
+      ),
+      ['2026-09-20', '2026-09-19'],
+      'a failed next page must leave the loaded editions visible',
+    );
+    assert.equal(secondPageAttempts, 1, 'loading more should request the next cursor once');
+
+    await page.getByRole('button', { name: 'Retry loading editions' }).click();
     const loadingButton = page.getByRole('button', { name: 'Loading editions…' });
     await loadingButton.waitFor();
-    assert.equal(await loadingButton.isDisabled(), true, 'load more should be disabled while the next page loads');
-    assert.ok(secondPageRoute, 'loading more should request the next cursor');
+    assert.equal(await loadingButton.isDisabled(), true, 'load more should be disabled while the retry loads');
+    assert.equal(secondPageAttempts, 2, 'retry should request the same cursor again');
+    assert.ok(retryRoute, 'retrying should expose the next page response');
 
-    await secondPageRoute.fulfill({
+    await retryRoute.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
         editions: [

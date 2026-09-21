@@ -1152,7 +1152,7 @@ function ArchivePage({
         </div>
         {archiveLoading && archive.length === 0 ? (
           <p className="daily-archive__status">Loading published editions…</p>
-        ) : archiveError ? (
+        ) : archiveError && archive.length === 0 ? (
           <p className="daily-archive__status daily-archive__status--error" role="alert">{archiveError}</p>
         ) : archive.length === 0 ? (
           <p className="daily-archive__status">No published editions are available yet.</p>
@@ -1169,14 +1169,21 @@ function ArchivePage({
               ))}
             </div>
             {archiveHasMore && (
-              <button
-                type="button"
-                className="daily-archive__today"
-                disabled={archiveLoading}
-                onClick={() => void loadMoreArchive()}
-              >
-                {archiveLoading ? 'Loading editions…' : 'Load more editions'}
-              </button>
+              <>
+                {archiveError && (
+                  <p className="daily-archive__status daily-archive__status--error" role="alert">
+                    Couldn’t load more editions. Try again.
+                  </p>
+                )}
+                <button
+                  type="button"
+                  className="daily-archive__today"
+                  disabled={archiveLoading}
+                  onClick={() => void loadMoreArchive()}
+                >
+                  {archiveLoading ? 'Loading editions…' : archiveError ? 'Retry loading editions' : 'Load more editions'}
+                </button>
+              </>
             )}
           </>
         )}
