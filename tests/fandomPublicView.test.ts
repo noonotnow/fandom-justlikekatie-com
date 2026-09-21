@@ -50,6 +50,17 @@ const [guideHtml, gettingStartedHtml, glossaryHtml, tropeDecoderHtml, fandomGame
   readFile(new URL('../public/c-drama-fandom/trope-decoder/index.html', import.meta.url), 'utf8'),
   readFile(new URL('../public/c-drama-fandom/fandom-games/index.html', import.meta.url), 'utf8'),
 ]);
+const foundationalGlossaryHtml = await Promise.all([
+  'xianxia',
+  'jianghu',
+  'cultivation',
+  'cp',
+].map(term => readFile(new URL(`../public/c-drama-fandom/glossary/${term}/index.html`, import.meta.url), 'utf8')));
+const comparisonGlossaryHtml = await Promise.all([
+  'wuxia-vs-xianxia-vs-xuanhuan',
+  'historical-vs-costume-drama',
+  'duanju-microdrama-vertical-drama',
+].map(term => readFile(new URL(`../public/c-drama-fandom/glossary/${term}/index.html`, import.meta.url), 'utf8')));
 const previewRoot = new URL('../public/c-drama-fandom/fandom-games/previews/', import.meta.url);
 const previewDirectories = (await readdir(previewRoot, { withFileTypes: true }))
   .filter(entry => entry.isDirectory());
@@ -282,11 +293,32 @@ test('Actor Preflight keeps hero-only failures complete and reviewable', () => {
 
 test('public launchpad copy does not expose internal admin or CREATE architecture', () => {
   assert.match(launchpadSource, /daily C-drama card drop/);
-  assert.match(launchpadSource, /One star\. One vibe\. Nine pieces of evidence/);
-  assert.match(launchpadSource, /Browse today’s drop, save the cards that understand your type/);
+  assert.match(launchpadSource, /One star[.,] one vibe[.,] nine pieces of evidence/i);
+  assert.match(launchpadSource, /Browse today’s drop, save the cards (?:that understand your type|that hit)/);
   assert.doesNotMatch(launchpadSource, /\badmin\b/i);
   assert.doesNotMatch(launchpadSource, /\bCREATE\b/);
   assert.doesNotMatch(builderSource, /\bCREATE\b/);
+});
+
+test('the launchpad and guide present C-drama fandom as the editorial path into Vibe Atlas', () => {
+  assert.match(launchpadSource, /Editorial front door \/ C-drama fandom/);
+  assert.match(launchpadSource, /Understand the fandom/);
+  assert.match(launchpadSource, /href="\/c-drama-fandom\/getting-started\/"/);
+  assert.match(launchpadSource, /href="\/c-drama-fandom\/glossary\/"/);
+  assert.match(launchpadSource, /href="\/c-drama-fandom\/archetypes\/"/);
+  assert.match(launchpadSource, /href="\/c-drama-fandom\/watch-journal\/"/);
+
+  for (const silo of [
+    'Fandom literacy',
+    'Genre literacy',
+    'Archetype literacy',
+    'Drama authority',
+    'Veteran journal',
+  ]) {
+    assert.match(guideHtml, new RegExp(silo));
+  }
+  assert.match(guideHtml, /From understanding to collecting/);
+  assert.match(guideHtml, /Take what you notice into Vibe Atlas/);
 });
 
 test('public Vibe Atlas copy names the daily card-drop promise', () => {
@@ -294,6 +326,7 @@ test('public Vibe Atlas copy names the daily card-drop promise', () => {
   assert.match(appSource, /'Vibe Atlas \| Daily C-Drama Collectible Cards \| Fandom Vibes'/);
   assert.match(appSource, /One star\. One vibe\. Nine pieces of evidence\./);
   assert.match(appSource, /one very specific kind of heartthrob energy/);
+  assert.match(appSource, /nine collectible pieces of evidence/);
   assert.match(appSource, /Today's star/);
   assert.match(appSource, /Today's vibe/);
   assert.match(appSource, /<h2>Today’s evidence<\/h2>/);
@@ -356,4 +389,44 @@ test('the glossary separates shared fandom language from Fandom Vibes collecting
   assert.match(glossaryHtml, /less centered on immortality and supernatural cultivation than xianxia/);
   assert.match(glossaryHtml, /when official subtitled releases exist in your region, support them/);
   assert.match(glossaryHtml, /This living glossary favors clear context over claims of one universal fandom usage/);
+});
+
+test('foundational glossary guides include examples, source notes, review dates, and cluster links', () => {
+  for (const html of foundationalGlossaryHtml) {
+    assert.match(html, /Last editorial review:/);
+    assert.match(html, /Reviewed September 15, 2026/);
+    assert.match(html, /href="\/c-drama-fandom\/archetypes\/"/);
+    assert.match(html, /data-atlas-continuation/);
+    assert.match(html, /"dateModified": "2026-09-15"/);
+  }
+
+  assert.match(foundationalGlossaryHtml[0], /Love Between Fairy and Devil/);
+  assert.match(foundationalGlossaryHtml[1], /Mysterious Lotus Casebook/);
+  assert.match(foundationalGlossaryHtml[2], /The Untamed/);
+  assert.match(foundationalGlossaryHtml[3], /Orchid and Dongfang Qingcang/);
+});
+
+test('comparison glossary guides provide accessible distinctions, examples, FAQs, and crawl metadata', () => {
+  const routes = [
+    'wuxia-vs-xianxia-vs-xuanhuan',
+    'historical-vs-costume-drama',
+    'duanju-microdrama-vertical-drama',
+  ];
+
+  comparisonGlossaryHtml.forEach((html, index) => {
+    assert.match(html, /<strong>Short answer:<\/strong>|The shortest useful distinction/);
+    assert.match(html, /class="comparison-table" role="region"[^>]+tabindex="0"/);
+    assert.match(html, /"@type": "FAQPage"/);
+    assert.match(html, /data-section-id="common-questions"/);
+    assert.match(html, /data-section-id="drama-examples"/);
+    assert.match(html, /"dateModified": "2026-09-15"/);
+    assert.match(html, new RegExp(`<link rel="canonical" href="https://fandom\\.justlikekatie\\.com/c-drama-fandom/glossary/${routes[index]}/">`));
+    assert.match(html, /googletagmanager\.com\/gtag\/js\?id=G-FHZJ1T74TG/);
+    assert.match(html, /href="\/vibe-atlas" data-atlas-continuation/);
+  });
+
+  assert.match(comparisonGlossaryHtml[0], /Mysterious Lotus Casebook/);
+  assert.match(comparisonGlossaryHtml[1], /The Longest Day in Chang’an/);
+  assert.match(comparisonGlossaryHtml[2], /A Familiar Stranger/);
+  assert.match(foundationalGlossaryHtml[0], /href="\/c-drama-fandom\/glossary\/wuxia-vs-xianxia-vs-xuanhuan\/"/);
 });

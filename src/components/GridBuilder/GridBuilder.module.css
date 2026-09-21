@@ -127,9 +127,30 @@
 .evidence dd { margin: 0; overflow-wrap: anywhere; }
 .rationale pre { margin: 0; white-space: pre-wrap; font-family: inherit; font-size: 12.5px; line-height: 1.55; color: inherit; }
 .actions { display: grid; gap: 8px; }
-.actions button { min-height: 42px; border: 1px solid var(--gb-border); border-radius: 10px; background: transparent; color: inherit; font-size: 13px; }
-.actions button:first-child { background: var(--gb-gold); border-color: var(--gb-gold); color: #15120e; font-weight: 600; }
-.actions button:disabled { opacity: .45; cursor: not-allowed; }
+.actions > button, .handoffToggle { min-height: 42px; border: 1px solid var(--gb-border); border-radius: 10px; background: transparent; color: inherit; font-size: 13px; width: 100%; cursor: pointer; }
+.actions > button:first-child { background: var(--gb-gold); border-color: var(--gb-gold); color: #15120e; font-weight: 600; }
+.actions > button:disabled, .handoffToggle:disabled, .handoffPanel button:disabled { opacity: .45; cursor: not-allowed; }
+
+.handoffContainer { display: grid; gap: 8px; }
+.handoffPanel { display: grid; gap: 12px; padding: 12px; border: 1px solid var(--gb-border); border-radius: 10px; background: color-mix(in srgb, var(--gb-panel) 50%, transparent); }
+.handoffPanel button { cursor: pointer; }
+.handoffDestinations { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+.handoffDestinations button { padding: 6px 12px; border: 1px solid var(--gb-border); border-radius: 999px; background: transparent; color: var(--gb-muted); font-size: 12px; white-space: nowrap; }
+.handoffDestinations button[aria-pressed="true"] { background: var(--gb-gold); color: #15120e; border-color: var(--gb-gold); font-weight: 600; }
+.handoffDestinations button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.rednoteFlow { display: grid; gap: 8px; padding: 12px; border-radius: 8px; background: color-mix(in srgb, currentColor 3%, transparent); }
+.rednoteFlow > button { width: 100%; min-height: 38px; border: 1px solid var(--gb-gold); border-radius: 8px; background: transparent; color: var(--gb-gold); font-weight: 600; font-size: 13px; }
+.handoffReady { display: grid; gap: 10px; font-size: 13px; text-align: center; }
+.expiryText { color: var(--gb-gold); font-weight: 600; font-size: 12px; }
+.expiredText { color: #ef4444; font-weight: 600; font-size: 12px; }
+.handoffActions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.handoffActions button, .handoffActions a { display: inline-flex; align-items: center; justify-content: center; padding: 8px; border: 1px solid var(--gb-border); border-radius: 8px; background: var(--gb-panel); color: inherit; text-decoration: none; font-size: 12px; font-weight: 600; }
+.handoffActions button:disabled { opacity: 0.5; cursor: not-allowed; }
+.disabledLink { opacity: 0.5; pointer-events: none; }
+.disclaimer { margin: 0; font-size: 11px; color: var(--gb-muted); line-height: 1.4; text-align: left; }
+.downloadBtn { background: transparent; border: 1px dashed var(--gb-border); color: var(--gb-muted); font-size: 12px; min-height: 36px; border-radius: 8px; width: 100%; }
+.downloadBtn:hover:not(:disabled) { border-color: var(--gb-gold); color: var(--gb-gold); }
 
 .empty, .loading { display: grid; place-items: center; gap: 6px; min-height: 180px; border: 1px dashed var(--gb-border); border-radius: 12px; color: var(--gb-muted); text-align: center; padding: 24px; }
 .loading { grid-auto-flow: column; }

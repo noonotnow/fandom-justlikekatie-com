@@ -547,7 +547,7 @@ export function buildExportFilename(
   const tierTag = (tier && tier !== 'standard') ? ('_' + tier) : '';
   const suffix = variant === 'teaser' ? '_teaser'
     : variant === 'standard' ? '_standard'
-      : variant === 'master' ? '_master' : '';
+      : variant === 'master' ? '_master' : variant === 'raw' ? '_raw' : '';
   const boardTag = boardShortId ? '_' + actorFilenameSlug(boardShortId).slice(0, 16) : '';
   return 'vibe-guide_' + dateStr + '_' + slug + (vibeSlug ? '_' + vibeSlug : '')
     + boardTag + tierTag + '_ep' + nn + suffix + '.png';
@@ -955,7 +955,7 @@ async function renderTeaserExportCanvas(payload: ExportPayload): Promise<HTMLCan
 
 // ── Public API ─────────────────────────────────────────────────────
 
-export type ExportVariant = 'full' | 'teaser' | 'standard' | 'master';
+export type ExportVariant = 'full' | 'teaser' | 'standard' | 'master' | 'raw';
 
 async function renderSquareGridCanvas(
   payload: ExportPayload,
@@ -1011,6 +1011,22 @@ async function renderSquareGridCanvas(
   return canvas;
 }
 
+
+async function renderRawExportCanvas(payload: ExportPayload): Promise<HTMLCanvasElement> {
+  const allResults = payload.chosen?.results ?? [];
+  const cols = allResults.length >= 12 ? 4 : 3;
+  const rows = 3;
+  const results = allResults.slice(0, cols * rows);
+  if (results.length < 9) throw new Error('This approved board is not complete yet. A share card requires at least nine images.');
+  const images = await Promise.all(results.map(r => loadProxiedImage(r.thumbnail)));
+  if (images.some(image => !image)) throw new Error('The share card could not load every approved image. Nothing was exported.');
+  const tileSize = 360;
+  const canvas = document.createElement('canvas'); canvas.width = cols * tileSize; canvas.height = rows * tileSize;
+  const ctx = canvas.getContext('2d')!;
+  results.forEach((_, index) => drawCoverImageRounded(ctx, images[index]!, (index % cols) * tileSize, (index / cols | 0) * tileSize, tileSize, tileSize, 0));
+  return canvas;
+}
+
 export async function renderExportCanvas(
   data: StarOfDayData,
   variant: ExportVariant = 'full',
@@ -1018,6 +1034,7 @@ export async function renderExportCanvas(
   const payload = buildExportPayload(data);
   if (variant === 'standard') return renderSquareGridCanvas(payload, EXPORT_CONTRACTS.standard);
   if (variant === 'master') return renderSquareGridCanvas(payload, EXPORT_CONTRACTS.master);
+  if (variant === 'raw') return renderRawExportCanvas(payload);
   return variant === 'teaser'
     ? renderTeaserExportCanvas(payload)
     : renderFullExportCanvas(payload);
@@ -1091,6 +1108,17 @@ function tierMessage(tier: string): string {
   if (tier === 'legendary') return '已导出传说级错版 · Legendary export';
   if (tier === 'legendary-misprint') return '已导出传说错版 · Intentional Legendary Misprint exported';
   return '分享卡已导出 ✓';
+}
+
+
+export async function prepareShareCard(
+  data: StarOfDayData,
+  variant: ExportVariant = 'full',
+  onBlob?: (blob: Blob) => void,
+): Promise<{ objectUrl: string; file: File; fileName: string; tier: string }> {
+  const { artifact, tier } = await createAndLogExport(data, variant);
+  notifyExportBlob(onBlob, artifact.blob);
+  return { objectUrl: URL.createObjectURL(artifact.blob), file: artifact.file, fileName: artifact.fileName, tier };
 }
 
 export async function exportShareCard(

@@ -1,4 +1,5 @@
 export type MembershipState = 'inactive' | 'active' | 'past_due' | 'cancelled';
+export type CreatorOsInterestStep = 'interest' | 'caption' | 'plan' | 'publish' | 'performance';
 export type MembershipCapability =
   | 'fandom_collector'
   | 'creator_os'
@@ -119,5 +120,17 @@ export function logMembershipEvent(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ event, batchKey: 'vibe-atlas-membership' }),
+  }).catch(() => {});
+}
+
+export function logCreatorOsInterest(step: CreatorOsInterestStep): void {
+  void fetch('/.netlify/functions/log-engagement', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      event: 'click',
+      batchKey: 'vibe-atlas-membership',
+      imageUrl: `creator-os-interest:${step}`,
+    }),
   }).catch(() => {});
 }

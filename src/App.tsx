@@ -38,6 +38,7 @@ import {
   initialVibeAtlasView,
   isValidVibeAtlasEditionDate,
   isVibeAtlasArchiveLocation,
+  isPublishingHandoffPreview,
   resolveFandomProductRoute,
 } from './utils/fandomRoutes';
 import { buildDailyDropPool } from './utils/gridBuilder';
@@ -222,6 +223,8 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
   const [membershipCapabilities, setMembershipCapabilities] = useState<MembershipCapability[]>([]);
   const [membershipStatus, setMembershipStatus] = useState<MembershipStatus | null>(null);
+  const canUsePremiumTools = hasCollectorCapability({ capabilities: membershipCapabilities })
+    || isPublishingHandoffPreview(window.location.hostname, window.location.search);
   const [membershipResolved, setMembershipResolved] = useState(false);
   const [editionShareNotice, setEditionShareNotice] = useState('');
   const [archiveGateEmail, setArchiveGateEmail] = useState('');
@@ -890,7 +893,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         <Collection
           key={collectionTab}
           initialType={collectionTab}
-          hasCollectorAccess={hasCollectorCapability({ capabilities: membershipCapabilities })}
+          hasCollectorAccess={canUsePremiumTools}
           builderSourceKind={builderSource}
           builderSourcePool={builderSource === 'collection' ? [] : dailyBuilderPool}
           builderSourceEditionDate={builderSource === 'edition' ? activeEditionDate ?? undefined : undefined}

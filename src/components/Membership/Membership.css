@@ -1,0 +1,90 @@
+.membership__rollout {
+  margin: -0.7rem 0 1.5rem;
+  color: #77807b;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.membership__research {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 2.5rem;
+  padding: clamp(1.4rem, 4vw, 2.4rem);
+  border: 1px solid rgba(36, 45, 52, 0.16);
+  border-left: 4px solid #d3ae62;
+  background: rgba(211, 174, 98, 0.08);
+}
+
+.membership__research h2 {
+  margin: 0;
+  color: #263e40;
+  font: 600 clamp(1.7rem, 3vw, 2.4rem) "Fraunces", serif;
+  letter-spacing: -0.04em;
+}
+
+.membership__research > p:not(.membership__label),
+.membership__research-steps {
+  max-width: 70ch;
+  margin: 0;
+  color: #596560;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.membership__research > button {
+  justify-self: start;
+}
+
+.membership__research > small {
+  color: #77807b;
+  font-size: 0.7rem;
+}
+
+.membership__research-steps {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.membership__research-steps > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.membership__research-steps button {
+  border: 1px solid rgba(36, 62, 64, 0.28);
+  background: transparent;
+  color: #263e40;
+}
+
+.membership__research-thanks {
+  padding: 0.8rem 1rem;
+  border: 1px solid rgba(179, 95, 73, 0.26);
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.dark .membership__rollout,
+.dark .membership__research > p:not(.membership__label),
+.dark .membership__research-steps,
+.dark .membership__research > small {
+  color: #b3b7b1;
+}
+
+.dark .membership__research {
+  border-color: rgba(236, 231, 221, 0.2);
+  border-left-color: #e0c171;
+  background: rgba(211, 174, 98, 0.06);
+}
+
+.dark .membership__research h2 {
+  color: #d6e3dd;
+}
+
+.dark .membership__research-steps button {
+  border-color: rgba(236, 231, 221, 0.3);
+  color: #f2e9dc;
+}
+
+.dark .membership__research-thanks {
+  background: rgba(255, 255, 255, 0.04);
+}

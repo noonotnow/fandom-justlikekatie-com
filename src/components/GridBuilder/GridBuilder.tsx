@@ -13,6 +13,7 @@ import {
   buildMasterExportManifest,
   classifyEditionTier,
   saveShareCard,
+  prepareShareCard,
   type ExportManifest,
   type ExportProvenanceAsset,
 } from '../../utils/exportCanvas';
@@ -125,6 +126,25 @@ export const GridBuilder: React.FC<Props> = ({
   // the proposal.  When the user saves after swapping, the stale record is
   // removed first so only the latest version lives in the store.
   const [priorSavedGridId, setPriorSavedGridId] = useState<string | null>(null);
+  const [handoffState, setHandoffState] = useState<{ objectUrl: string; file: File; tier: string; expiresAt: number } | null>(null);
+  const [handoffExpanded, setHandoffExpanded] = useState(false);
+  const [handoffDestination, setHandoffDestination] = useState<'rednote' | 'weibo' | 'instagram' | 'facebook' | null>('rednote');
+  const [now, setNow] = useState(Date.now());
+  const proposalRef = useRef(proposal);
+  const mountedRef = useRef(true);
+  proposalRef.current = proposal;
+
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
+  useEffect(() => { if (!handoffState) return; const interval = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(interval); }, [handoffState]);
+  useEffect(() => {
+    if (!handoffState) return;
+    const remaining = handoffState.expiresAt - Date.now();
+    if (remaining <= 0) { setHandoffState(null); return; }
+    const timeout = window.setTimeout(() => { setHandoffState(null); setNotice('Handoff expired. Prepare the current grid again.'); }, remaining);
+    return () => window.clearTimeout(timeout);
+  }, [handoffState?.expiresAt]);
+  useEffect(() => { const url = handoffState?.objectUrl; return () => { if (url) URL.revokeObjectURL(url); }; }, [handoffState?.objectUrl]);
+  const isHandoffExpired = Boolean(handoffState && now >= handoffState.expiresAt);
   // Synchronous in-flight lock for exportGrid. React state setters do not
   // update the captured closure value until the next render.
   // setBusy('export') schedules a React update but does not mutate the captured
@@ -520,7 +540,7 @@ export const GridBuilder: React.FC<Props> = ({
    * Render + share the grid. Does not auto-save — after a successful export
    * the notice area nudges the user to save if they haven't yet.
    */
-  async function exportGrid() {
+  async function exportGrid(action: 'rednote' | 'download_raw' | 'full' = 'full') {
     if (!proposal || !proposalComplete || busy) return;
     // Synchronous re-entrant guard: setBusy schedules a React update but does
     // not mutate the captured closure value until the next render.  A second
@@ -531,6 +551,7 @@ export const GridBuilder: React.FC<Props> = ({
     exportInFlight.current = true;
     logMembershipEvent('paid_feature_used');
     const wasGridSaved = isGridSaved;
+    let prepared: { objectUrl: string; file: File; fileName: string; tier: string } | null = null;
     setBusy('export');
     setNotice('正在生成分享卡……');
     setShowSaveNudge(false);
@@ -566,6 +587,20 @@ export const GridBuilder: React.FC<Props> = ({
       // blocks the download/share path, and export never saves a grid.
       let renderedBlob: Blob | null = null;
       const exportVariant = hasCollectorAccess ? 'master' : 'standard';
+      if (action === 'rednote') {
+        const preparedProposal = proposal;
+        prepared = await prepareShareCard(starData, 'raw', blob => { renderedBlob = blob; });
+        if (!mountedRef.current || proposalRef.current !== preparedProposal) { URL.revokeObjectURL(prepared.objectUrl); return; }
+        setHandoffState({ objectUrl: prepared.objectUrl, file: prepared.file, tier: prepared.tier, expiresAt: Date.now() + 120_000 });
+        setNotice('Handoff prepared.');
+        return;
+      }
+      if (action === 'download_raw') {
+        prepared = await prepareShareCard(starData, 'raw', blob => { renderedBlob = blob; });
+        const anchor = document.createElement('a'); anchor.href = prepared.objectUrl; anchor.download = prepared.fileName; document.body.appendChild(anchor); anchor.click(); anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(prepared!.objectUrl), 4000);
+        setNotice('PNG 已下载 ✓'); return;
+      }
       const message = await saveShareCard(starData, exportVariant, (blob) => { renderedBlob = blob; });
       try {
         const tier = classifyEditionTier(buildExportPayload(starData).chosen);
@@ -593,11 +628,22 @@ export const GridBuilder: React.FC<Props> = ({
         onExported?.();
       }
     } catch (caught) {
+      if (prepared?.objectUrl) URL.revokeObjectURL(prepared.objectUrl);
       setNotice(caught instanceof Error ? caught.message : '分享卡生成失败，再试一次？');
     } finally {
       exportInFlight.current = false;
       setBusy('');
     }
+  }
+
+  async function shareToDevice() {
+    if (!handoffState) return;
+    if (Date.now() > handoffState.expiresAt) { setHandoffState(null); setNotice('Handoff expired. Please prepare again.'); return; }
+    const shareData = { files: [handoffState.file], title: 'Vibe Atlas Grid' };
+    const canShareFiles = typeof navigator !== 'undefined' && typeof navigator.share === 'function' && typeof navigator.canShare === 'function' && navigator.canShare(shareData);
+    if (!canShareFiles) { setNotice('Sharing not supported on this device.'); return; }
+    try { await navigator.share(shareData); setNotice('Share request completed. Please verify in RedNote.'); }
+    catch (error) { setNotice(error instanceof DOMException && error.name === 'AbortError' ? 'Share cancelled.' : 'Native sharing failed.'); }
   }
 
   if (loadError) return <div className={styles.notice} role="alert">{loadError}</div>;
@@ -958,7 +1004,15 @@ export const GridBuilder: React.FC<Props> = ({
                   {busy === 'remove' ? 'Removing…' : 'Remove from collection'}
                 </button>
               )}
-              <button type="button" onClick={exportGrid} disabled={Boolean(busy) || !proposalComplete}>
+              <div className={styles.handoffContainer}>
+          <button type="button" onClick={() => setHandoffExpanded(value => !value)} disabled={Boolean(busy) || !proposalComplete} className={styles.handoffToggle}>{handoffExpanded ? 'Close handoff' : 'Handoff Publishing Grid'}</button>
+          {handoffExpanded && <div className={styles.handoffPanel}>
+            <div className={styles.handoffDestinations}><button type="button" onClick={() => setHandoffDestination('rednote')} aria-pressed={handoffDestination === 'rednote'}>RedNote</button><button type="button" disabled>Weibo</button><button type="button" disabled>Instagram</button><button type="button" disabled>Facebook</button></div>
+            {!handoffState ? <button type="button" onClick={() => exportGrid('rednote')} disabled={Boolean(busy)}>{busy === 'export' ? 'Preparing...' : '1. Prepare RedNote Handoff'}</button> : <div className={styles.handoffReady}>{isHandoffExpired ? <span className={styles.expiredText}>Handoff expired.</span> : <span className={styles.expiryText}>Expires in {Math.max(0, Math.floor((handoffState.expiresAt - now) / 1000))}s</span>}<div className={styles.handoffActions}><button type="button" onClick={shareToDevice} disabled={isHandoffExpired}>2a. Share to Device</button><a href="https://creator.rednote.com/publish/publish" target="_blank" rel="noreferrer" className={isHandoffExpired ? styles.disabledLink : ''} onClick={event => { if (isHandoffExpired) event.preventDefault(); }}>2b. Open RedNote</a></div><p className={styles.disclaimer}>Browser sharing does not prove RedNote received or published anything.</p></div>}
+            <button type="button" className={styles.downloadBtn} onClick={() => exportGrid('download_raw')} disabled={Boolean(busy)}>Download PNG</button>
+          </div>}
+        </div>
+        <button type="button" onClick={() => exportGrid()} disabled={Boolean(busy) || !proposalComplete}>
                 {busy === 'export' ? 'Exporting…' : `📤 Export ${hasCollectorAccess ? 'master' : 'square'} PNG`}
               </button>
               {!hasCollectorAccess && onUpgrade && (

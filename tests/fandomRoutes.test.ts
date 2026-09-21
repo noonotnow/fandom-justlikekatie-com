@@ -7,6 +7,7 @@ import {
   initialVibeAtlasEditionDate,
   initialVibeAtlasView,
   isAdminEntryLocation,
+  isPublishingHandoffPreview,
   isVibeAtlasArchiveLocation,
   isValidVibeAtlasEditionDate,
   resolveFandomProductRoute,
@@ -68,6 +69,28 @@ test('grid builder links keep Daily Drop and validated edition inventory separat
   assert.equal(initialGridBuilderSource('?view=builder'), 'collection');
   assert.equal(initialGridBuilderSource('?view=builder&source=unknown'), 'collection');
   assert.equal(initialGridBuilderSource('?view=collection&source=daily'), 'collection');
+});
+
+test('publishing handoff preview access is explicit and limited to this Netlify deploy preview', () => {
+  assert.equal(
+    isPublishingHandoffPreview(
+      'deploy-preview-74--earnest-gecko-17eb0c.netlify.app',
+      '?view=builder&handoff-preview=1',
+    ),
+    true,
+  );
+  assert.equal(
+    isPublishingHandoffPreview('fandom.justlikekatie.com', '?handoff-preview=1'),
+    false,
+  );
+  assert.equal(
+    isPublishingHandoffPreview('deploy-preview-74--earnest-gecko-17eb0c.netlify.app', '?view=builder'),
+    false,
+  );
+  assert.equal(
+    isPublishingHandoffPreview('deploy-preview-74--evil-example.netlify.app', '?handoff-preview=1'),
+    false,
+  );
 });
 
 test('the archive has a dedicated public route', () => {

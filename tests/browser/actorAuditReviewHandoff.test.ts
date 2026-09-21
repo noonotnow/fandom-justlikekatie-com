@@ -11111,7 +11111,11 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
       'a revealed Legacy result must hide all image mutation controls',
     )
 ;
-
+    assert.equal(
+      await legacyFirstResult.getByText('Mark Misprint', { exact: true }).count(),
+      0,
+      'a revealed Legacy result must hide Misprint correction controls',
+    );
     assert.equal(
       misprintRequests.length,
       0,

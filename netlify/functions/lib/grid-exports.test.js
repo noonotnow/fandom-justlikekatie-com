@@ -182,6 +182,22 @@ test("upload stores the PNG keyed by account, grid, and export event", async () 
   assert.equal(index[0].exportedAt, "2026-08-17T12:00:00.000Z");
 });
 
+test("raw-grid uploads retain their distinct export identity", async () => {
+  const { handlers, store } = makeHandlers({ accountId: "usr_a" });
+  const res = await handlers.handler(uploadReq({ variant: "raw" }), {});
+  assert.equal(res.status, 200);
+
+  const index = JSON.parse(store.db.get(`exports/usr_a/${GRID_ID}/index.json`));
+  assert.equal(index[0].variant, "raw");
+});
+
+test("unsupported export variants are rejected instead of becoming treated cards", async () => {
+  const { handlers } = makeHandlers();
+  const res = await handlers.handler(uploadReq({ variant: "unknown" }), {});
+  assert.equal(res.status, 400);
+  assert.deepEqual(await res.json(), { error: "Invalid export variant." });
+});
+
 test("re-uploading the same exportId does not duplicate the index entry", async () => {
   const { handlers, store } = makeHandlers();
   await handlers.handler(uploadReq(), {});

@@ -133,7 +133,7 @@ async function handleUpload(
   const exportId = url.searchParams.get("exportId") || "";
   if (!EXPORT_ID_RE.test(exportId)) return json(400, { error: "Invalid exportId." });
   const requestedVariant = url.searchParams.get("variant");
-  const variant = ["teaser", "standard", "master"].includes(requestedVariant)
+  const variant = ["teaser", "standard", "master", "raw"].includes(requestedVariant)
     ? requestedVariant : "full";
   const tier = sanitizeTier(url.searchParams.get("tier"));
 
