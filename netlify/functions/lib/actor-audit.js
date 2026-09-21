@@ -7716,6 +7716,9 @@ function parseChallengeReasons(value) {
 function clientRun(run, pair) {
   if (!run) return null;
   const auditContract = auditContractFor(run, pair);
+  const evidenceUnavailableReasons = normalizedEvidenceUnavailableReasons(
+    run.evidenceUnavailableReasons,
+  );
   const review = run.blindReview || {
     status: comparableBoards(run) ? "pending" : "unavailable",
     presentationOrder: presentationOrderFor(run.runId),
@@ -7723,7 +7726,11 @@ function clientRun(run, pair) {
   };
   const visualPending = auditContract.isCurrent && !visualJudgmentsComplete(run);
   if (!visualPending && (auditContract.isLegacy || review.choice || review.status === "unavailable")) {
-    return { ...run, auditContract };
+    return {
+      ...run,
+      ...(evidenceUnavailableReasons ? { evidenceUnavailableReasons } : {}),
+      auditContract,
+    };
   }
   return {
     runId: run.runId,
@@ -7749,8 +7756,20 @@ function clientRun(run, pair) {
     blindReview: visualPending ? { status: "visual_judgment_pending" } : review,
     actorId: pair.actor.id,
     vibeKey: pair.vibeKey,
+    ...(evidenceUnavailableReasons ? { evidenceUnavailableReasons } : {}),
     auditContract,
   };
+}
+
+function normalizedEvidenceUnavailableReasons(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const entries = Object.entries(value)
+    .filter(([field, reason]) =>
+      /^[A-Za-z][A-Za-z0-9]{0,79}$/.test(field)
+      && typeof reason === "string"
+      && reason.trim().length > 0)
+    .map(([field, reason]) => [field, reason.trim().slice(0, 500)]);
+  return entries.length ? Object.fromEntries(entries) : null;
 }
 
 function visualJudgmentQueue(run) {

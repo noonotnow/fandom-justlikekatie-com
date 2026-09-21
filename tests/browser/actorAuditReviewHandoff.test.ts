@@ -2003,7 +2003,13 @@ async function configureNetwork(page: Page,
         delete retainedRun.queryCount
 ;
 
-        if (partialRetrievalRepetition) delete retainedRun.rawResults
+        if (partialRetrievalRepetition) {
+          delete retainedRun.rawResults
+          delete retainedRun.detectedEvents
+          retainedRun.evidenceUnavailableReasons = {
+            rawResults: 'Raw result bodies were intentionally excluded from this retained receipt.',
+          }
+        }
 ;
 
         if (partialRetrievalRepetition) withPartialRetrievalRepetition(retainedRun)
@@ -4385,9 +4391,9 @@ test('partial retrieval receipts distinguish unavailable counts from recorded ze
 ;
 
     assert.equal(
-      await retainedRawResults.getByText('Unavailable — this evidence was not recorded for this audit.', { exact: true }).isVisible(),
+      await retainedRawResults.getByText('Unavailable — Raw result bodies were intentionally excluded from this retained receipt.', { exact: true }).isVisible(),
       true,
-      'an expanded omitted retained evidence section must explain that the evidence was unavailable',
+      'an expanded omitted retained evidence section must show its retained server reason',
     )
 ;
 
@@ -4395,6 +4401,30 @@ test('partial retrieval receipts distinguish unavailable counts from recorded ze
       await retainedRawResults.locator('button, input, select, textarea, form').count(),
       0,
       'expanded unavailable retained evidence must remain read-only',
+    )
+;
+
+    const retainedDetectedEvents = page.locator('details').filter(
+{
+ has: page.locator('summary').filter({ hasText: /^Detected event families/ })
+}
+)
+;
+
+    await retainedDetectedEvents.locator(':scope > summary').click()
+;
+
+    assert.equal(
+      await retainedDetectedEvents.getByText('Unavailable — this evidence was not recorded for this audit.', { exact: true }).isVisible(),
+      true,
+      'an older omitted evidence section without a retained reason must keep the neutral unavailable message',
+    )
+;
+
+    assert.equal(
+      await retainedDetectedEvents.locator('button, input, select, textarea, form').count(),
+      0,
+      'expanded neutral unavailable retained evidence must remain read-only',
     )
 ;
 
