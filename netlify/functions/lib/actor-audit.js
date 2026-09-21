@@ -7899,12 +7899,18 @@ async function readCanonicalReceipt(store, key, prefix, timestampField) {
 
 async function readReceipts(store, prefix, timestampField) {
   const [listing, catalog] = await Promise.all([
-    store.list({ prefix }),
+    store.list({ prefix, paginate: true }),
     store.get(MISPRINT_RECEIPT_CATALOG_KEY, { type: "json", consistency: "strong" }),
   ]);
-  const keys = new Set((listing?.blobs || [])
-    .map(blob => blob?.key)
-    .filter(key => typeof key === "string"));
+  const keys = new Set();
+  const pages = listing?.[Symbol.asyncIterator]
+    ? listing
+    : [listing];
+  for await (const page of pages) {
+    for (const blob of page?.blobs || []) {
+      if (typeof blob?.key === "string") keys.add(blob.key);
+    }
+  }
   if (isMisprintReceiptCatalog(catalog)) {
     for (const key of catalog.keys) {
       if (key.startsWith(prefix)) keys.add(key);

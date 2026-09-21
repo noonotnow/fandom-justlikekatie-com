@@ -8110,6 +8110,71 @@ test("aggregate calibration canonicalizes reordered positive candidate-class bun
   assert.deepEqual(aggregateSnapshots[1], aggregateSnapshots[0]);
 });
 
+test("aggregate calibration remains complete across reordered receipt listing pages", async () => {
+  const runScenario = async ({ paginated }) => {
+    const curateOptions = [];
+    const { handler, store } = harness({
+      freshEvidenceOnRerun: true,
+      onCurateOptions: options => curateOptions.push(options),
+    });
+    const vibeKey = vibeKeyFor(pairActor.id, 0);
+    const repeatedEvidence = await approveRepeatedCalibrationEvidence({
+      handler,
+      vibeKey,
+      adjustmentType: "class",
+      signalFamily: "sources",
+      selectCandidates: rawResults => {
+        const bySource = rawResults.reduce((groups, candidate) => {
+          groups[candidate.source] = [...(groups[candidate.source] || []), candidate];
+          return groups;
+        }, {});
+        const [source, candidates] = Object.entries(bySource)
+          .find(([, items]) => items.length >= 9);
+        return { candidates, selectionValue: source };
+      },
+      beforeApproval: async ({ evidenceReceiptIds }) => {
+        if (!paginated) return;
+        const listed = store.list.bind(store);
+        const evidencePrefix = auditRescueCalibrationPrefix(pairActor.id, 0);
+        const evidenceKeys = evidenceReceiptIds.map(receiptId => `${evidencePrefix}${receiptId}`);
+        store.list = options => {
+          if (options?.prefix !== evidencePrefix) return listed(options);
+          return (async function* pages() {
+            yield { blobs: [{ key: evidenceKeys[1] }] };
+            yield { blobs: [{ key: evidenceKeys[0] }] };
+          }());
+        };
+      },
+    });
+    const activeApproval = repeatedEvidence.approval.calibrationProfile.activeApproval;
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const productionProfile = curateOptions
+      .filter(options => options.calibrationProfile)
+      .at(-1)
+      .calibrationProfile;
+    return {
+      approvalId: activeApproval.approvalId,
+      aggregateEvidenceHash: activeApproval.aggregateEvidenceHash,
+      evidenceCount: activeApproval.evidenceCount,
+      adjustment: activeApproval.adjustment,
+      productionCalibration: {
+        positiveSources: productionProfile.positiveSources,
+        approvalId: productionProfile.approvalReceipt.approvalId,
+        aggregateEvidenceHash: productionProfile.approvalReceipt.aggregateEvidenceHash,
+        evidenceCount: productionProfile.evidenceCount,
+      },
+    };
+  };
+
+  const unpaginated = await runScenario({ paginated: false });
+  const paginated = await runScenario({ paginated: true });
+
+  assert.equal(paginated.evidenceCount, 2);
+  assert.deepEqual(paginated, unpaginated);
+});
+
 for (const {
   signalFamily,
   signalKey,
