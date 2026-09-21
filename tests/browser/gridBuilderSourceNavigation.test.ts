@@ -138,6 +138,17 @@ test('Grid Builder keeps Daily Drop and My Collection sources isolated across na
       'false',
       'popstate must restore Daily with a clear lens',
     );
+
+    await page.goForward();
+    await page.getByText('1 saved result matches this lens').waitFor();
+    assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR} 1`) }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR}`) }).count(), 0);
+    assert.equal(await page.getByLabel('Proposed Compiled 9-frame set').count(), 0, 'Forward must not restore the Collection proposal');
+    assert.equal(
+      await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR} 1`) }).getAttribute('aria-pressed'),
+      'false',
+      'Forward must restore Collection with a clear lens',
+    );
   } finally {
     await closeBrowserAndServer(browser, server);
   }

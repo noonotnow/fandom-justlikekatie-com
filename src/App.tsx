@@ -899,6 +899,8 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             navigateAtlas('membership');
           }}
           onTypeChange={(type) => {
+            const viewParam = type === 'grids' ? 'collection' : type;
+            window.history.replaceState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=${viewParam}`);
             setCollectionTab(type);
             if (type === 'builder') setBuilderSource('collection');
           }}
