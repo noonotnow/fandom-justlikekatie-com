@@ -15,6 +15,18 @@ export default class FakeStripe {
     this.subscriptions = {
       list: ({ status }) => {
         if (status !== "active") return [];
+        if (process.env.FAKE_STRIPE_SCENARIO === "authentication_failure") {
+          throw Object.assign(new Error(`Invalid key: ${secretKey}`), {
+            type: "StripeAuthenticationError",
+            statusCode: 401,
+          });
+        }
+        if (process.env.FAKE_STRIPE_SCENARIO === "connection_timeout") {
+          throw Object.assign(new Error(`Timed out using ${secretKey}`), {
+            type: "StripeConnectionError",
+            code: "ETIMEDOUT",
+          });
+        }
         if (process.env.FAKE_STRIPE_SCENARIO === "ambiguous") {
           return [subscription("sub_ambiguous", "price_unknown")];
         }

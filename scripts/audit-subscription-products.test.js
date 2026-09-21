@@ -173,3 +173,31 @@ test("live audit forwards apply mode", () => {
   assert.equal(report.apply, true);
   assert.equal(report.updated, 1);
 });
+
+test("live audit reports Stripe authentication failures without secrets", () => {
+  const result = runLiveAudit([], {
+    FAKE_STRIPE_SCENARIO: "authentication_failure",
+  });
+
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, "");
+  assert.equal(
+    result.stderr,
+    "Stripe authentication failed. Verify the configured secret key and Stripe account, then retry the audit.\n",
+  );
+  assert.doesNotMatch(result.stderr, /sk_test_local|Invalid key|StripeAuthenticationError/);
+});
+
+test("live audit distinguishes transient Stripe connection failures", () => {
+  const result = runLiveAudit([], {
+    FAKE_STRIPE_SCENARIO: "connection_timeout",
+  });
+
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, "");
+  assert.equal(
+    result.stderr,
+    "Stripe connection failed. Check network access and Stripe service status, then retry the audit.\n",
+  );
+  assert.doesNotMatch(result.stderr, /sk_test_local|Timed out|ETIMEDOUT|StripeConnectionError/);
+});
