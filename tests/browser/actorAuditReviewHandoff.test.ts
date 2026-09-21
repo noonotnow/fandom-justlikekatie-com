@@ -33,6 +33,11 @@ import
  from './browserEngines.ts'
 ;
 
+import {
+  calibrationAuditExport,
+} from '../../netlify/functions/lib/actor-audit.js'
+;
+
 
 const ACTOR_ID = 'browser-test-actor'
 ;
@@ -1062,7 +1067,7 @@ function publicationReviewRun(runId: string, historical = false, includePublicat
 
 async function configureNetwork(page: Page, 
 {
- missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, partialRetrievalRepetition = false, partialCalibrationProofMetrics = false, malformedCalibrationProofMetrics = false, currentLegacy = false, initialActiveRunId = null as string | null, publicationIndexRepairHealth = null as AnyRecord | null, failRepairHealthRecovery = false, auditHistoryDetailDelays = {} as Record<string, number[]>, auditHistoryDetailErrors = {} as Record<string, string[]>, auditHistoryDetailDrops = {} as Record<string, boolean[]>
+ missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', useSanitizedCalibrationExport = false, failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, partialRetrievalRepetition = false, partialCalibrationProofMetrics = false, malformedCalibrationProofMetrics = false, currentLegacy = false, initialActiveRunId = null as string | null, publicationIndexRepairHealth = null as AnyRecord | null, failRepairHealthRecovery = false, auditHistoryDetailDelays = {} as Record<string, number[]>, auditHistoryDetailErrors = {} as Record<string, string[]>, auditHistoryDetailDrops = {} as Record<string, boolean[]>
 }
  = 
 {
@@ -1464,6 +1469,42 @@ async function configureNetwork(page: Page,
 
         
 }
+
+        if (useSanitizedCalibrationExport)
+        {
+          const pair = {
+            actor: { id: ACTOR_ID },
+            vibeKey: VIBE_KEY,
+          };
+          const retained = run('retained-malformed-effect', true, true);
+          retained.calibrationProof.beyondExactSavedNineCount = -1.5;
+          retained.calibrationProof.scoreDelta = 0;
+          const legacy = legacyRun('legacy-malformed-delta', true);
+          legacy.calibrationProof.beyondExactSavedNineCount = 0;
+          legacy.calibrationProof.scoreDelta = 'not-a-score';
+          const runs = [
+            calibrationAuditExport(retained, pair),
+            calibrationAuditExport(legacy, pair),
+          ];
+
+          await route.fulfill({
+            contentType: calibrationExportContentType,
+            headers: {
+              'Content-Disposition': 'attachment; filename="actor-calibration-2026-09-01-2026-09-10.json"',
+            },
+            body: JSON.stringify({
+              schemaVersion: 1,
+              exportMetadata: {
+                readOnly: true,
+                type: 'date-bounded-curation-calibration-audit',
+                dateRange: { from: '2026-09-01', to: '2026-09-10', dayCount: 10 },
+                runCount: runs.length,
+              },
+              runs,
+            }),
+          });
+          return;
+        }
 
         const statuses = ['matched', 'missing', 'ambiguous', 'identity_unavailable']
 ;
@@ -5369,6 +5410,62 @@ test('a date-bounded editorial packet download preserves publication join outcom
 }
 )
 ;
+
+test('downloaded review packets sanitize malformed retained and Legacy calibration metrics', {
+  timeout: 60_000,
+}, async () => {
+  const { server, origin } = await startApp();
+  const { browser, page } = await launchPageForServer(server);
+
+  try {
+    await configureNetwork(page, { useSanitizedCalibrationExport: true });
+    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', {
+      name: 'Actor Preflight Lab',
+      exact: true,
+    }).click();
+
+    const exportPanel = page.getByLabel('Read-only calibration export');
+    await exportPanel.getByLabel('From').fill('2026-09-01');
+    await exportPanel.getByLabel('To').fill('2026-09-10');
+
+    const downloadPromise = page.waitForEvent('download');
+    await exportPanel.getByRole('button', {
+      name: 'Download editorial review packet',
+      exact: true,
+    }).click();
+    const download = await downloadPromise;
+    const downloadPath = await download.path();
+    assert.ok(downloadPath, 'the browser should retain the sanitized editorial packet');
+
+    const payload = JSON.parse(await readFile(downloadPath, 'utf8')) as AnyRecord;
+    const retained = payload.runs.find(
+      (item: AnyRecord) => item.run.runId === 'retained-malformed-effect',
+    );
+    const legacy = payload.runs.find(
+      (item: AnyRecord) => item.run.runId === 'legacy-malformed-delta',
+    );
+
+    assert.equal('beyondExactSavedNineCount' in retained.run.calibrationProof, false);
+    assert.equal(retained.run.calibrationProof.scoreDelta, 0);
+    assert.deepEqual(
+      retained.exportMetadata.missingFields.filter(
+        (path: string) => path.startsWith('run.calibrationProof.'),
+      ),
+      ['run.calibrationProof.beyondExactSavedNineCount'],
+    );
+    assert.equal(legacy.run.calibrationProof.beyondExactSavedNineCount, 0);
+    assert.equal('scoreDelta' in legacy.run.calibrationProof, false);
+    assert.deepEqual(
+      legacy.exportMetadata.missingFields.filter(
+        (path: string) => path.startsWith('run.calibrationProof.'),
+      ),
+      ['run.calibrationProof.scoreDelta'],
+    );
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
 
 
 for (const 

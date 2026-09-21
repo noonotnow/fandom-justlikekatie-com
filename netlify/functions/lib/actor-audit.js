@@ -4912,7 +4912,7 @@ async function attachVerdict(store, pair, run) {
 // This is deliberately a projection rather than a serialization of the client
 // run.  Calibration exports are an evidence record: they must not acquire
 // operator-only UI state or accidentally become a second publication format.
-function calibrationAuditExport(run, pair, humanVisualJudgments = []) {
+export function calibrationAuditExport(run, pair, humanVisualJudgments = []) {
   const fields = [
     "scope", "startedAt", "completedAt", "provider", "queryRuns", "rawResults",
     "ranking", "rankedResults", "identityEvidence", "promise", "promiseEvidence",
