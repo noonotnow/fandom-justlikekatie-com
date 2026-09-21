@@ -6,6 +6,7 @@ const NOTIFICATION_STATE_KEY = "archive-access:notification-state";
 const NOTIFICATION_REPAIR_STATE_KEY = "archive-access:notification-repairs";
 const REPAIR_WARNING_THRESHOLD = 3;
 const REPAIR_WARNING_WINDOW_MS = 24 * 60 * 60 * 1000;
+const REPAIR_WARNING_DELIVERY_FAILURE_THRESHOLD = 3;
 const OUTCOMES = new Set(["sign_in", "upgrade", "billing_delay", "allowed"]);
 
 const SIGNALS = {
@@ -139,7 +140,7 @@ export async function notifyArchiveAccessTransitions({
     });
     if (notification) notifications.push(notification);
   }
-  const repairWarning = await processRepairWarning({ store, notify, now });
+  const repairWarning = await processRepairWarning({ store, notify, now, logger });
   if (repairWarning) notifications.push(repairWarning);
   return notifications;
 }
@@ -147,9 +148,15 @@ export async function notifyArchiveAccessTransitions({
 export async function archiveAccessNotificationDeliveryHealth(store) {
   const entry = await getWithMetadata(store, NOTIFICATION_STATE_KEY);
   const state = normalizeNotificationState(entry?.data);
+  const repairEntry = await getWithMetadata(store, NOTIFICATION_REPAIR_STATE_KEY);
+  const repairWarning = normalizeRepairWarningState(
+    repairEntry?.data,
+    Number.NEGATIVE_INFINITY,
+  );
   return {
     ...state.delivery,
     repair: state.repair,
+    repairWarning: repairWarning.delivery,
   };
 }
 
@@ -266,6 +273,7 @@ export function createArchiveAccessOperationsHandler({
             count: 0,
             lastRepairedAt: null,
           },
+          repairWarning: emptyRepairWarningDeliveryState(),
         };
         logger.error("[archive-access] notification delivery health unavailable", {
           message: error instanceof Error ? error.message : "Unknown delivery health failure",
@@ -566,7 +574,7 @@ async function recordNotificationRepair(store, now) {
   throw new Error("Archive access repair history changed too frequently.");
 }
 
-async function processRepairWarning({ store, notify, now }) {
+async function processRepairWarning({ store, notify, now, logger }) {
   const cutoff = now.getTime() - REPAIR_WARNING_WINDOW_MS;
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const entry = await getWithMetadata(store, NOTIFICATION_REPAIR_STATE_KEY);
@@ -596,23 +604,33 @@ async function processRepairWarning({ store, notify, now }) {
     try {
       await notify(payload);
     } catch (error) {
-      await settleRepairWarningClaim(store, claimId, null);
+      const delivery = await settleRepairWarningClaim(store, claimId, null, "failure", now);
+      if (
+        delivery?.consecutiveFailures >= REPAIR_WARNING_DELIVERY_FAILURE_THRESHOLD
+        && delivery.escalatedAt === now.toISOString()
+      ) {
+        logger?.error?.("[archive-access] repair warning delivery repeatedly failed", {
+          consecutiveFailures: delivery.consecutiveFailures,
+          lastFailedAt: delivery.lastFailedAt,
+        });
+      }
       throw error;
     }
-    await settleRepairWarningClaim(store, claimId, now.toISOString());
+    await settleRepairWarningClaim(store, claimId, now.toISOString(), "success", now);
     return payload;
   }
   throw new Error("Archive access repair warning state changed too frequently.");
 }
 
-async function settleRepairWarningClaim(store, claimId, warnedAt) {
+async function settleRepairWarningClaim(store, claimId, warnedAt, outcome, now) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const entry = await getWithMetadata(store, NOTIFICATION_REPAIR_STATE_KEY);
     const state = normalizeRepairWarningState(entry?.data, Number.NEGATIVE_INFINITY);
     if (state.warningClaim?.claimId !== claimId) return;
-    const next = { timestamps: state.timestamps, warnedAt };
+    const delivery = updateRepairWarningDeliveryState(state.delivery, outcome, now);
+    const next = { timestamps: state.timestamps, warnedAt, delivery };
     const write = await conditionalWrite(store, NOTIFICATION_REPAIR_STATE_KEY, entry, next);
-    if (write?.modified !== false) return;
+    if (write?.modified !== false) return delivery;
   }
   throw new Error("Archive access repair warning claim could not be settled.");
 }
@@ -635,7 +653,57 @@ function normalizeRepairWarningState(value, cutoff) {
     && Number.isFinite(Date.parse(root.warningClaim.claimedAt))
     ? root.warningClaim
     : null;
-  return { timestamps, warnedAt, ...(warningClaim ? { warningClaim } : {}) };
+  const delivery = normalizeRepairWarningDeliveryState(root.delivery);
+  return { timestamps, warnedAt, delivery, ...(warningClaim ? { warningClaim } : {}) };
+}
+
+function emptyRepairWarningDeliveryState() {
+  return {
+    status: "never_attempted",
+    attemptedAt: null,
+    lastSucceededAt: null,
+    lastFailedAt: null,
+    consecutiveFailures: 0,
+    escalatedAt: null,
+  };
+}
+
+function normalizeRepairWarningDeliveryState(value) {
+  if (!isPlainObject(value)) return emptyRepairWarningDeliveryState();
+  return {
+    status: value.status === "success" || value.status === "failure"
+      ? value.status
+      : "never_attempted",
+    attemptedAt: Number.isFinite(Date.parse(value.attemptedAt)) ? value.attemptedAt : null,
+    lastSucceededAt: Number.isFinite(Date.parse(value.lastSucceededAt))
+      ? value.lastSucceededAt
+      : null,
+    lastFailedAt: Number.isFinite(Date.parse(value.lastFailedAt)) ? value.lastFailedAt : null,
+    consecutiveFailures: Number.isSafeInteger(value.consecutiveFailures)
+      && value.consecutiveFailures > 0
+      ? value.consecutiveFailures
+      : 0,
+    escalatedAt: Number.isFinite(Date.parse(value.escalatedAt)) ? value.escalatedAt : null,
+  };
+}
+
+function updateRepairWarningDeliveryState(value, outcome, now) {
+  const previous = normalizeRepairWarningDeliveryState(value);
+  const attemptedAt = now.toISOString();
+  const failed = outcome === "failure";
+  const consecutiveFailures = failed
+    ? Math.min(previous.consecutiveFailures + 1, Number.MAX_SAFE_INTEGER)
+    : 0;
+  return {
+    status: failed ? "failure" : "success",
+    attemptedAt,
+    lastSucceededAt: failed ? previous.lastSucceededAt : attemptedAt,
+    lastFailedAt: failed ? attemptedAt : previous.lastFailedAt,
+    consecutiveFailures,
+    escalatedAt: failed && consecutiveFailures >= REPAIR_WARNING_DELIVERY_FAILURE_THRESHOLD
+      ? previous.escalatedAt || attemptedAt
+      : null,
+  };
 }
 
 async function conditionalStateWrite(store, entry, state) {

@@ -622,6 +622,93 @@ test("concurrent repair warning evaluations deliver only once", async () => {
   assert.equal(firstResult[0].kind, "repair_warning");
 });
 
+test("repair warning delivery failures expose a bounded deduplicated health signal", async () => {
+  const data = store();
+  const timestamps = [
+    "2026-09-20T08:00:00.000Z",
+    "2026-09-20T09:00:00.000Z",
+    "2026-09-20T10:00:00.000Z",
+  ];
+  await data.setJSON("archive-access:notification-repairs", { timestamps, warnedAt: null });
+  const health = { status: { billing: "normal", deniedAccess: "normal" } };
+  const escalations = [];
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await assert.rejects(notifyArchiveAccessTransitions({
+      store: data,
+      health,
+      notify: async () => { throw new Error(`private provider failure ${attempt}`); },
+      now: new Date(`2026-09-20T1${attempt}:30:00.000Z`),
+      logger: { error: (...args) => escalations.push(args) },
+    }));
+  }
+
+  const handler = createArchiveAccessOperationsHandler({
+    auth: { authenticateAdmin: async () => {} },
+    getStore: () => data,
+    now: () => new Date("2026-09-20T14:00:00.000Z"),
+    notify: async () => { throw new Error("private provider failure on health read"); },
+    logger: { error: () => {} },
+  });
+  const body = await (await handler(new Request("https://example.test/report"), {})).json();
+
+  assert.equal(escalations.length, 1);
+  assert.deepEqual(escalations[0], [
+    "[archive-access] repair warning delivery repeatedly failed",
+    {
+      consecutiveFailures: 3,
+      lastFailedAt: "2026-09-20T12:30:00.000Z",
+    },
+  ]);
+  assert.deepEqual(body.notificationDelivery.repairWarning, {
+    status: "failure",
+    attemptedAt: "2026-09-20T14:00:00.000Z",
+    lastSucceededAt: null,
+    lastFailedAt: "2026-09-20T14:00:00.000Z",
+    consecutiveFailures: 5,
+    escalatedAt: "2026-09-20T12:30:00.000Z",
+  });
+  assert.equal(JSON.stringify(data.values.get("archive-access:notification-repairs"))
+    .includes("private provider"), false);
+});
+
+test("successful repair warning delivery resets its failure streak and re-arms escalation", async () => {
+  const data = store();
+  const timestamps = [
+    "2026-09-20T08:00:00.000Z",
+    "2026-09-20T09:00:00.000Z",
+    "2026-09-20T10:00:00.000Z",
+  ];
+  await data.setJSON("archive-access:notification-repairs", {
+    timestamps,
+    warnedAt: null,
+    delivery: {
+      status: "failure",
+      attemptedAt: "2026-09-20T12:30:00.000Z",
+      lastSucceededAt: null,
+      lastFailedAt: "2026-09-20T12:30:00.000Z",
+      consecutiveFailures: 3,
+      escalatedAt: "2026-09-20T12:30:00.000Z",
+    },
+  });
+
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health: { status: { billing: "normal", deniedAccess: "normal" } },
+    notify: async () => {},
+    now: new Date("2026-09-20T13:30:00.000Z"),
+  });
+
+  assert.deepEqual(data.values.get("archive-access:notification-repairs").delivery, {
+    status: "success",
+    attemptedAt: "2026-09-20T13:30:00.000Z",
+    lastSucceededAt: "2026-09-20T13:30:00.000Z",
+    lastFailedAt: "2026-09-20T12:30:00.000Z",
+    consecutiveFailures: 0,
+    escalatedAt: null,
+  });
+});
+
 test("repair warnings re-arm after the previous repair window expires", async () => {
   const data = store();
   const sent = [];
@@ -852,6 +939,14 @@ test("notification delivery failure never changes the health response", async ()
     repair: {
       count: 0,
       lastRepairedAt: null,
+    },
+    repairWarning: {
+      status: "never_attempted",
+      attemptedAt: null,
+      lastSucceededAt: null,
+      lastFailedAt: null,
+      consecutiveFailures: 0,
+      escalatedAt: null,
     },
   });
   assert.equal(errors.length, 1);
