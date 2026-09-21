@@ -200,3 +200,44 @@ test('Grid Builder restores the URL inventory source on cold load and reload', {
     await closeBrowserAndServer(browser, server);
   }
 });
+
+test('Grid Builder falls back to Collection inventory for malformed source links', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startViteTestServer();
+  const { browser, page } = await launchPageForServer(server);
+
+  try {
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ user: null }),
+    }));
+    await page.route('**/api/membership/status', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ state: 'inactive', isMember: false, capabilities: [] }),
+    }));
+    await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
+    await page.route('**/.netlify/functions/star-of-day**', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(dailyDropFixture()),
+    }));
+
+    await page.goto(origin);
+    await seedSavedCard(page);
+
+    for (const malformedUrl of [
+      `${origin}/vibe-atlas?view=builder&source=unknown`,
+      `${origin}/vibe-atlas?view=builder&source=edition&date=2026-02-29`,
+    ]) {
+      await page.goto(malformedUrl);
+      await page.getByText('1 saved result matches this lens').waitFor();
+      assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR} 1`) }).count(), 1);
+      assert.equal(
+        await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR}`) }).count(),
+        0,
+        'a malformed Builder source must not expose Daily Drop or edition inventory',
+      );
+      await assertClearBuilderState(page, SAVED_ACTOR, 1);
+    }
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
