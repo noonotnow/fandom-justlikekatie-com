@@ -145,18 +145,25 @@ export async function notifyArchiveAccessTransitions({
   return notifications;
 }
 
-export async function archiveAccessNotificationDeliveryHealth(store) {
+export async function archiveAccessNotificationDeliveryHealth(store, now = new Date()) {
   const entry = await getWithMetadata(store, NOTIFICATION_STATE_KEY);
   const state = normalizeNotificationState(entry?.data);
-  const repairEntry = await getWithMetadata(store, NOTIFICATION_REPAIR_STATE_KEY);
-  const repairWarning = normalizeRepairWarningState(
-    repairEntry?.data,
-    Number.NEGATIVE_INFINITY,
+  const repairWarningEntry = await getWithMetadata(store, NOTIFICATION_REPAIR_STATE_KEY);
+  const repairWarningState = normalizeRepairWarningState(
+    repairWarningEntry?.data,
+    now.getTime() - REPAIR_WARNING_WINDOW_MS,
   );
   return {
     ...state.delivery,
     repair: state.repair,
-    repairWarning: repairWarning.delivery,
+    repairWarning: repairWarningState.delivery,
+    repairWindow: {
+      active: repairWarningState.timestamps.length > 0,
+      count: repairWarningState.timestamps.length,
+      firstRepairedAt: repairWarningState.timestamps[0] || null,
+      lastRepairedAt: repairWarningState.timestamps.at(-1) || null,
+      warningSent: repairWarningState.warnedAt !== null,
+    },
   };
 }
 
@@ -261,7 +268,7 @@ export function createArchiveAccessOperationsHandler({
         });
       }
       try {
-        health.notificationDelivery = await archiveAccessNotificationDeliveryHealth(store);
+        health.notificationDelivery = await archiveAccessNotificationDeliveryHealth(store, generatedAt);
       } catch (error) {
         health.notificationDelivery = {
           status: "unavailable",
@@ -274,6 +281,13 @@ export function createArchiveAccessOperationsHandler({
             lastRepairedAt: null,
           },
           repairWarning: emptyRepairWarningDeliveryState(),
+          repairWindow: {
+            active: false,
+            count: 0,
+            firstRepairedAt: null,
+            lastRepairedAt: null,
+            warningSent: false,
+          },
         };
         logger.error("[archive-access] notification delivery health unavailable", {
           message: error instanceof Error ? error.message : "Unknown delivery health failure",

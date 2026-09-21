@@ -12,6 +12,7 @@ import {
 import {
   ARCHIVE_ACCESS_RETENTION_DAYS,
   archiveAccessHealth,
+  archiveAccessNotificationDeliveryHealth,
   createArchiveAccessOperationsHandler,
   createArchiveAccessRetentionHandler,
   notifyArchiveAccessTransitions,
@@ -742,6 +743,62 @@ test("repair warnings re-arm after the previous repair window expires", async ()
   assert.equal(sent[0].windowStartedAt, "2026-09-20T08:00:00.000Z");
 });
 
+test("notification delivery health exposes only the active repair window aggregate", async () => {
+  const data = store();
+  const now = new Date("2026-09-20T12:30:00.000Z");
+  await data.setJSON("archive-access:notification-repairs", {
+    timestamps: [
+      "2026-09-19T11:00:00.000Z",
+      "2026-09-19T13:00:00.000Z",
+      "2026-09-20T08:00:00.000Z",
+      "2026-09-20T10:00:00.000Z",
+    ],
+    warnedAt: "2026-09-20T10:00:00.000Z",
+    warningClaim: {
+      claimId: "private-claim-id",
+      claimedAt: "2026-09-20T10:00:00.000Z",
+    },
+  });
+
+  const health = await archiveAccessNotificationDeliveryHealth(data, now);
+
+  assert.deepEqual(health.repairWindow, {
+    active: true,
+    count: 3,
+    firstRepairedAt: "2026-09-19T13:00:00.000Z",
+    lastRepairedAt: "2026-09-20T10:00:00.000Z",
+    warningSent: true,
+  });
+  assert.equal(JSON.stringify(health).includes("private-claim-id"), false);
+  assert.equal(JSON.stringify(health).includes("warningClaim"), false);
+  assert.equal(JSON.stringify(health).includes("warnedAt"), false);
+});
+
+test("notification delivery health reports an inactive repair window after expiry", async () => {
+  const data = store();
+  await data.setJSON("archive-access:notification-repairs", {
+    timestamps: [
+      "2026-09-18T08:00:00.000Z",
+      "2026-09-18T09:00:00.000Z",
+      "2026-09-18T10:00:00.000Z",
+    ],
+    warnedAt: "2026-09-18T10:00:00.000Z",
+  });
+
+  const health = await archiveAccessNotificationDeliveryHealth(
+    data,
+    new Date("2026-09-20T12:30:00.000Z"),
+  );
+
+  assert.deepEqual(health.repairWindow, {
+    active: false,
+    count: 0,
+    firstRepairedAt: null,
+    lastRepairedAt: null,
+    warningSent: false,
+  });
+});
+
 test("cleanup failures do not fail or distort the rolling report", async () => {
   const data = paginatedStore(2);
   const now = new Date("2026-09-20T12:30:00.000Z");
@@ -947,6 +1004,13 @@ test("notification delivery failure never changes the health response", async ()
       lastFailedAt: null,
       consecutiveFailures: 0,
       escalatedAt: null,
+    },
+    repairWindow: {
+      active: false,
+      count: 0,
+      firstRepairedAt: null,
+      lastRepairedAt: null,
+      warningSent: false,
     },
   });
   assert.equal(errors.length, 1);
