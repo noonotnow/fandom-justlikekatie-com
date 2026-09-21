@@ -12,6 +12,7 @@ export const PROCESSED_RECEIPT_RETENTION_INDEX =
 export const RECEIPT_INDEX_NOTIFICATION_STATE_KEY =
   "billing-operations:receipt-index-notification-state";
 const RECEIPT_INDEX_STATUSES = new Set(["release_ready", "missing", "invalid", "not_ready"]);
+const NOTIFICATION_DELIVERY_STATUSES = new Set(["not_attempted", "pending", "delivered", "failed"]);
 const NOTIFICATION_CLAIM_TTL_MS = 15 * 60 * 1000;
 const NOTIFICATION_DELIVERY_FAILURE_THRESHOLD = 3;
 
@@ -108,6 +109,9 @@ export async function notifyReceiptIndexTransition({
     if (!kind) {
       const write = await writeReceiptIndexState(store, entry, {
         status: targetStatus,
+        lastAttemptAt: current.lastAttemptAt,
+        deliveryStatus: current.deliveryStatus,
+        lastDeliveredAt: current.lastDeliveredAt || current.notifiedAt,
         updatedAt: now.toISOString(),
       });
       if (write?.modified !== false) return null;
@@ -118,6 +122,9 @@ export async function notifyReceiptIndexTransition({
       pending: true,
       claimId,
       claimedAt: now.toISOString(),
+      lastAttemptAt: now.toISOString(),
+      deliveryStatus: "pending",
+      lastDeliveredAt: current.lastDeliveredAt,
       previousStatus,
       targetStatus,
       kind,
@@ -136,6 +143,9 @@ export async function notifyReceiptIndexTransition({
       const delivery = updateReceiptIndexDeliveryState(current.delivery, "failure", now);
       await settleReceiptIndexClaim(store, claimId, {
         status: previousStatus,
+        lastAttemptAt: now.toISOString(),
+        deliveryStatus: "failed",
+        lastDeliveredAt: current.lastDeliveredAt,
         updatedAt: now.toISOString(),
         delivery,
       });
@@ -154,6 +164,9 @@ export async function notifyReceiptIndexTransition({
     await settleReceiptIndexClaim(store, claimId, {
       status: targetStatus,
       notifiedAt: now.toISOString(),
+      lastAttemptAt: now.toISOString(),
+      deliveryStatus: "delivered",
+      lastDeliveredAt: now.toISOString(),
       updatedAt: now.toISOString(),
       delivery: updateReceiptIndexDeliveryState(current.delivery, "success", now),
     });
@@ -230,6 +243,30 @@ function updateReceiptIndexDeliveryState(value, outcome, now) {
   };
 }
 
+export async function getReceiptIndexNotificationHealth(store) {
+  const entry = await store.getWithMetadata(
+    RECEIPT_INDEX_NOTIFICATION_STATE_KEY,
+    { type: "json", consistency: "strong" },
+  );
+  const state = normalizeReceiptIndexNotificationState(entry?.data);
+  const deliveryStatus = state.pending
+    ? "pending"
+    : NOTIFICATION_DELIVERY_STATUSES.has(state.deliveryStatus)
+      ? state.deliveryStatus
+      : Number.isFinite(Date.parse(state.notifiedAt))
+        ? "delivered"
+        : "not_attempted";
+  return {
+    status: deliveryStatus,
+    lastAttemptAt: safeTimestamp(state.lastAttemptAt || (state.pending ? state.claimedAt : null)),
+    lastDeliveredAt: safeTimestamp(state.lastDeliveredAt || state.notifiedAt),
+  };
+}
+
+function safeTimestamp(value) {
+  return Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
+}
+
 async function settleReceiptIndexClaim(store, claimId, state) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const entry = await store.getWithMetadata(
@@ -251,7 +288,12 @@ function writeReceiptIndexState(store, entry, state) {
   );
 }
 
-export function createBillingOperationsHandler({ auth, getRepository, getReceiptIndexHealth }) {
+export function createBillingOperationsHandler({
+  auth,
+  getRepository,
+  getReceiptIndexHealth,
+  getReceiptIndexNotificationHealth,
+}) {
   return async (req, context) => {
     if (req.method && !["GET", "POST"].includes(req.method)) {
       return response(405, { error: "Method not allowed" });
@@ -295,9 +337,26 @@ export function createBillingOperationsHandler({ auth, getRepository, getReceipt
           receiptIndex = { status: "unavailable", releaseReady: false };
         }
       }
+      let receiptIndexNotifications = {
+        status: "unavailable",
+        lastAttemptAt: null,
+        lastDeliveredAt: null,
+      };
+      if (getReceiptIndexNotificationHealth) {
+        try {
+          receiptIndexNotifications = await getReceiptIndexNotificationHealth(context);
+        } catch {
+          receiptIndexNotifications = {
+            status: "unavailable",
+            lastAttemptAt: null,
+            lastDeliveredAt: null,
+          };
+        }
+      }
       return response(200, {
         identityConflict: await repository.identityConflictSummary(),
         receiptIndex,
+        receiptIndexNotifications,
       });
     } catch (error) {
       return response(error?.status || 500, {

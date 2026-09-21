@@ -93,6 +93,8 @@ test('Release Desk is the Admin workspace for private inventory', () => {
   assert.match(audienceEvidenceReceiptIndexSource, /billing-operations/);
   assert.match(receiptIndexHealthSource, /Processed receipt retention/);
   assert.match(receiptIndexHealthSource, /Do not consider this release complete/);
+  assert.match(receiptIndexHealthSource, /Notification delivery/);
+  assert.match(receiptIndexHealthSource, /Scheduled index alerts/);
   assert.match(releaseDeskSource, />Archive access health</);
   assert.match(releaseDeskSource, />Stripe identity conflicts</);
   assert.match(releaseDeskSource, /No Stripe identity conflicts have been recorded/);
@@ -126,18 +128,50 @@ test('Release Desk is the Admin workspace for private inventory', () => {
 test('receipt-index readiness renders a clearly healthy release-ready state', () => {
   const markup = renderToStaticMarkup(createElement(ReceiptIndexHealth, {
     health: { status: 'release_ready', releaseReady: true },
+    notifications: {
+      status: 'delivered',
+      lastAttemptAt: '2026-09-20T13:00:00.000Z',
+      lastDeliveredAt: '2026-09-20T13:00:00.000Z',
+    },
   }));
 
   assert.match(markup, />Release-ready<\/strong>/);
   assert.match(markup, /data-status="resolved"/);
   assert.match(markup, /The processed-receipt retention index is valid and ready\./);
   assert.doesNotMatch(markup, /role="alert"/);
+  assert.match(markup, /Notification delivery/);
+  assert.match(markup, />Delivered<\/strong>/);
+  assert.match(markup, /The most recent scheduled notification was delivered/);
+});
+
+test('receipt-index notification delivery failure is separate from healthy index readiness', () => {
+  const markup = renderToStaticMarkup(createElement(ReceiptIndexHealth, {
+    health: { status: 'release_ready', releaseReady: true },
+    notifications: {
+      status: 'failed',
+      lastAttemptAt: '2026-09-20T13:00:00.000Z',
+      lastDeliveredAt: '2026-09-20T12:00:00.000Z',
+    },
+  }));
+
+  assert.match(markup, /Index readiness/);
+  assert.match(markup, />Release-ready<\/strong>/);
+  assert.match(markup, /Notification delivery/);
+  assert.match(markup, />Delivery failed<\/strong>/);
+  assert.match(markup, /role="alert"/);
+  assert.match(markup, /Last attempt:/);
+  assert.match(markup, /Last delivered:/);
 });
 
 test('Release Desk Audience evidence renders billing receipt-index warnings and release-ready health', async () => {
   const originalFetch = globalThis.fetch;
   const originalActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
   let receiptIndex = { status: 'missing', releaseReady: false };
+  const receiptIndexNotifications = {
+    status: 'delivered',
+    lastAttemptAt: '2026-09-20T13:00:00.000Z',
+    lastDeliveredAt: '2026-09-20T13:00:00.000Z',
+  };
   globalThis.fetch = (async input => {
     const url = String(input);
     if (url.includes('actor-audits')) {
@@ -153,7 +187,7 @@ test('Release Desk Audience evidence renders billing receipt-index warnings and 
       return Response.json({ status: {} });
     }
     if (url.includes('billing-operations')) {
-      return Response.json({ receiptIndex, identityConflict: null });
+      return Response.json({ receiptIndex, receiptIndexNotifications, identityConflict: null });
     }
     return Response.json({ error: 'Unexpected request' }, { status: 404 });
   }) as typeof fetch;

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   createBillingOperationsHandler,
   createReceiptIndexHealthCheck,
+  getReceiptIndexNotificationHealth,
   notifyReceiptIndexTransition,
   PROCESSED_RECEIPT_RETENTION_INDEX,
   RECEIPT_INDEX_NOTIFICATION_STATE_KEY,
@@ -67,6 +68,11 @@ test("billing operations returns an explicit empty state", async () => {
   assert.deepEqual(await result.json(), {
     identityConflict: null,
     receiptIndex: { status: "unavailable", releaseReady: false },
+    receiptIndexNotifications: {
+      status: "unavailable",
+      lastAttemptAt: null,
+      lastDeliveredAt: null,
+    },
   });
 });
 
@@ -97,6 +103,11 @@ test("billing operations returns only the privacy-safe conflict projection", asy
   assert.deepEqual(body, {
     identityConflict: safe,
     receiptIndex: { status: "unavailable", releaseReady: false },
+    receiptIndexNotifications: {
+      status: "unavailable",
+      lastAttemptAt: null,
+      lastDeliveredAt: null,
+    },
   });
   assert.deepEqual(Object.keys(body.identityConflict).sort(), [
     "category", "count", "firstOccurredAt", "handlingHistory", "lastOccurredAt",
@@ -132,7 +143,43 @@ test("billing operations reports an unavailable probe without hiding other opera
   assert.deepEqual(await result.json(), {
     identityConflict: null,
     receiptIndex: { status: "unavailable", releaseReady: false },
+    receiptIndexNotifications: {
+      status: "unavailable",
+      lastAttemptAt: null,
+      lastDeliveredAt: null,
+    },
   });
+});
+
+test("billing operations exposes only bounded receipt-index notification delivery health", async () => {
+  const store = notificationStore();
+  store.values.set(RECEIPT_INDEX_NOTIFICATION_STATE_KEY, {
+    status: "release_ready",
+    deliveryStatus: "failed",
+    lastAttemptAt: "2026-09-20T13:00:00.000Z",
+    lastDeliveredAt: "2026-09-20T12:00:00.000Z",
+    recipient: "must-not-pass@example.test",
+    providerResponse: "private failure",
+    database: "private connection",
+    billingRecord: "private receipt",
+  });
+  const handler = createBillingOperationsHandler({
+    auth: { async authenticateAdmin() {} },
+    getRepository: () => ({ async identityConflictSummary() { return null; } }),
+    getReceiptIndexNotificationHealth: () => getReceiptIndexNotificationHealth(store),
+  });
+
+  const result = await handler(new Request("https://example.test/billing-operations"), {});
+  const body = await result.json();
+  assert.deepEqual(body.receiptIndexNotifications, {
+    status: "failed",
+    lastAttemptAt: "2026-09-20T13:00:00.000Z",
+    lastDeliveredAt: "2026-09-20T12:00:00.000Z",
+  });
+  assert.doesNotMatch(
+    JSON.stringify(body.receiptIndexNotifications),
+    /recipient|provider|database|billingRecord|private|example\.test/i,
+  );
 });
 
 test("receipt index health reads pg_index without reading billing data", async () => {
@@ -193,6 +240,11 @@ test("receipt index notifications are transition-bounded and represent recovery"
     { kind: "resolved", status: "release_ready", observedAt: times[4] },
   ]);
   assert.equal(store.values.get(RECEIPT_INDEX_NOTIFICATION_STATE_KEY).status, "release_ready");
+  assert.deepEqual(await getReceiptIndexNotificationHealth(store), {
+    status: "delivered",
+    lastAttemptAt: times[4],
+    lastDeliveredAt: times[4],
+  });
 });
 
 test("an initially unhealthy receipt index establishes a baseline without alerting", async () => {
@@ -223,6 +275,11 @@ test("failed receipt index delivery remains retryable without storing failure de
     now: new Date("2026-09-20T13:00:00.000Z"),
   }));
   assert.equal(store.values.get(RECEIPT_INDEX_NOTIFICATION_STATE_KEY).status, "release_ready");
+  assert.deepEqual(await getReceiptIndexNotificationHealth(store), {
+    status: "failed",
+    lastAttemptAt: "2026-09-20T13:00:00.000Z",
+    lastDeliveredAt: null,
+  });
   assert.doesNotMatch(
     JSON.stringify(store.values.get(RECEIPT_INDEX_NOTIFICATION_STATE_KEY)),
     /private provider failure/,

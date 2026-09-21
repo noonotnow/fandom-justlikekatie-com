@@ -38,5 +38,9 @@ export const AudienceEvidenceReceiptIndex: React.FC<{
     header?: string;
   };
 }> = ({ billingOperations, classes }) => (
-  <ReceiptIndexHealth health={billingOperations.receiptIndex} classes={classes} />
+  <ReceiptIndexHealth
+    health={billingOperations.receiptIndex}
+    notifications={billingOperations.receiptIndexNotifications}
+    classes={classes}
+  />
 );
