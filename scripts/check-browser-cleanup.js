@@ -302,6 +302,55 @@ function cleanupPaths(scope, owned) {
     }));
   }
 
+  function runExpression(expression, states) {
+    if (!expression || states.length === 0) return states;
+
+    const resource = closedResource(expression);
+    if (resource && owned.has(resource.name)) {
+      return appendEvents(states, expression);
+    }
+
+    if (
+      ts.isParenthesizedExpression(expression)
+      || ts.isAsExpression(expression)
+      || ts.isAwaitExpression(expression)
+    ) {
+      return runExpression(expression.expression, states);
+    }
+
+    if (ts.isConditionalExpression(expression)) {
+      const afterCondition = runExpression(expression.condition, states);
+      return [
+        ...runExpression(expression.whenTrue, afterCondition),
+        ...runExpression(expression.whenFalse, afterCondition),
+      ];
+    }
+
+    if (ts.isBinaryExpression(expression)) {
+      const afterLeft = runExpression(expression.left, states);
+      if (
+        expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+        || expression.operatorToken.kind === ts.SyntaxKind.BarBarToken
+        || expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
+      ) {
+        return [
+          ...afterLeft,
+          ...runExpression(expression.right, afterLeft),
+        ];
+      }
+      return runExpression(expression.right, afterLeft);
+    }
+
+    const children = [];
+    ts.forEachChild(expression, child => {
+      if (!ts.isFunctionLike(child)) children.push(child);
+    });
+    return children.reduce(
+      (current, child) => runExpression(child, current),
+      states,
+    );
+  }
+
   function runStatements(statements, states) {
     return statements.reduce((current, statement) => {
       const active = current.filter(state => state.control === 'normal');
@@ -319,7 +368,7 @@ function cleanupPaths(scope, owned) {
   }
 
   function runSwitch(statement, states) {
-    const afterExpression = appendEvents(states, statement.expression);
+    const afterExpression = runExpression(statement.expression, states);
     const clauses = statement.caseBlock.clauses;
     const starts = clauses.map((_, index) => index);
     if (!clauses.some(ts.isDefaultClause)) starts.push(clauses.length);
@@ -350,7 +399,7 @@ function cleanupPaths(scope, owned) {
     for (let iteration = 0; iteration < 2; iteration += 1) {
       if (entries.length === 0) break;
       const checked = (!isDo || iteration > 0) && condition
-        ? appendEvents(entries, condition)
+        ? runExpression(condition, entries)
         : entries;
       const bodyResults = runStatement(statement.statement, checked);
       exits.push(...withNormalControl(
@@ -368,8 +417,8 @@ function cleanupPaths(scope, owned) {
         )),
         ['continue'],
       );
-      if (incrementor) entries = appendEvents(entries, incrementor);
-      if (condition) exits.push(...appendEvents(entries, condition));
+      if (incrementor) entries = runExpression(incrementor, entries);
+      if (condition) exits.push(...runExpression(condition, entries));
     }
 
     return [...exits, ...entries, ...stopped];
@@ -379,8 +428,15 @@ function cleanupPaths(scope, owned) {
     if (states.length === 0) return states;
     if (ts.isBlock(statement)) return runStatements(statement.statements, states);
 
+    if (ts.isVariableStatement(statement)) {
+      return statement.declarationList.declarations.reduce(
+        (current, declaration) => runExpression(declaration.initializer, current),
+        states,
+      );
+    }
+
     if (ts.isIfStatement(statement)) {
-      const afterCondition = appendEvents(states, statement.expression);
+      const afterCondition = runExpression(statement.expression, states);
       const whenTrue = runStatement(statement.thenStatement, afterCondition);
       const whenFalse = statement.elseStatement
         ? runStatement(statement.elseStatement, afterCondition)
@@ -409,7 +465,7 @@ function cleanupPaths(scope, owned) {
     }
 
     if (ts.isReturnStatement(statement) || ts.isThrowStatement(statement)) {
-      return appendEvents(states, statement.expression ?? statement)
+      return runExpression(statement.expression, states)
         .map(state => ({
           ...state,
           control: ts.isReturnStatement(statement) ? 'return' : 'throw',
@@ -438,6 +494,10 @@ function cleanupPaths(scope, owned) {
       });
     }
 
+    if (ts.isExpressionStatement(statement)) {
+      return runExpression(statement.expression, states);
+    }
+
     return appendEvents(states, statement);
   }
 
@@ -446,5 +506,5 @@ function cleanupPaths(scope, owned) {
   }
   return scope.body && ts.isBlock(scope.body)
     ? runStatements(scope.body.statements, initial)
-    : appendEvents(initial, scope.body ?? scope);
+    : runExpression(scope.body ?? scope, initial);
 }

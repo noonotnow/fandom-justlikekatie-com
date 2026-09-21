@@ -117,6 +117,96 @@ test('accepts browser and server cleanup in mutually exclusive branches', () => 
   `), []);
 });
 
+test('accepts browser and server cleanup in ternary branches', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    browserStarted
+      ? await browser.close()
+      : await server.close();
+  `), []);
+});
+
+test('accepts ternary cleanup branches nested in another expression', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    recordCleanup(
+      browserStarted
+        ? await browser.close()
+        : await server.close(),
+    );
+  `), []);
+});
+
+test('accepts ternary cleanup branches in a variable initializer', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    const cleanupResult = browserStarted
+      ? await browser.close()
+      : await server.close();
+  `), []);
+});
+
+test('accepts ternary cleanup branches in an if condition', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    if (
+      browserStarted
+        ? await browser.close()
+        : await server.close()
+    ) {
+      recordCleanup();
+    }
+  `), []);
+});
+
+test('accepts cleanup guarded by a short-circuit expression', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    browserStarted && await browser.close();
+  `), []);
+});
+
+test('rejects sequential cleanup inside a ternary branch', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    browserStarted
+      ? (await browser.close(), await server.close())
+      : logStartupFailure();
+  `);
+
+  assert.equal(violations.length, 1);
+});
+
+test('rejects sequential cleanup in a variable initializer branch', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    const cleanupResult = browserStarted
+      ? (await browser.close(), await server.close())
+      : logStartupFailure();
+  `);
+
+  assert.equal(violations.length, 1);
+});
+
+test('rejects sequential cleanup in a short-circuit path', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    browserStarted
+      && await browser.close()
+      && await server.close();
+  `);
+
+  assert.equal(violations.length, 1);
+});
+
 test('rejects cleanup that remains sequential after mutually exclusive branches', () => {
   const violations = findUnsafeBrowserCleanup(`
     const { server } = await startViteTestServer();
