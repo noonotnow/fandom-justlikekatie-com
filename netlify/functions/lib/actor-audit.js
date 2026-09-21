@@ -2673,8 +2673,33 @@ export function createActorAuditHandler({
         const existing = exclusionKey
           ? await store.get(exclusionKey, { type: "json", consistency: "strong" })
           : null;
+        const disagreement = evidence?.blindReviewEvidence?.disagreements?.find(item =>
+          item.judgmentReceiptId === input.judgmentReceiptId);
         if (existing) {
-          if (existing.reason !== reason) {
+          const judgment = await store.get(
+            auditVisualJudgmentKey(
+              pair.actor.id,
+              pair.vibeIdx,
+              sourceRunId,
+              input.judgmentReceiptId,
+            ),
+            { type: "json", consistency: "strong" },
+          );
+          const requestedExclusion = {
+            status: "excluded",
+            sourceRescueReceiptId: input.receiptId,
+            sourceRunId,
+            judgmentReceiptId: input.judgmentReceiptId,
+            sourceOccurrenceId: judgment?.sourceOccurrenceId,
+            actorId: pair.actor.id,
+            vibeKey: pair.vibeKey,
+            reason,
+            excludedBy: operator.user.accountId,
+          };
+          requestedExclusion.exclusionId = blindCalibrationExclusionId(requestedExclusion);
+          if (!judgment
+            || recordHash(blindCalibrationExclusionIdentity(existing))
+              !== recordHash(blindCalibrationExclusionIdentity(requestedExclusion))) {
             return json(409, { error: "That blind-review exclusion receipt is immutable." });
           }
           const next = await readReport(store, pair);
@@ -2684,17 +2709,11 @@ export function createActorAuditHandler({
             ...detailResponse(pair, next),
           });
         }
-        const disagreement = evidence?.blindReviewEvidence?.disagreements?.find(item =>
-          item.judgmentReceiptId === input.judgmentReceiptId
-          && item.status !== "excluded");
-        if (!disagreement || !sourceRunId || !exclusionKey) {
+        if (!disagreement || disagreement.status === "excluded" || !sourceRunId || !exclusionKey) {
           return json(404, { error: "That active blind-review evidence item was not found." });
         }
         {
-          const exclusion = {
-            schemaVersion: 1,
-            exclusionVersion: 1,
-            exclusionId: createFeedbackId(),
+          const exclusionIdentity = {
             status: "excluded",
             sourceRescueReceiptId: input.receiptId,
             sourceRunId,
@@ -2703,8 +2722,14 @@ export function createActorAuditHandler({
             actorId: pair.actor.id,
             vibeKey: pair.vibeKey,
             reason,
-            excludedAt: now().toISOString(),
             excludedBy: operator.user.accountId,
+          };
+          const exclusion = {
+            schemaVersion: 1,
+            exclusionVersion: 1,
+            ...exclusionIdentity,
+            exclusionId: blindCalibrationExclusionId(exclusionIdentity),
+            excludedAt: now().toISOString(),
           };
           const write = await store.setJSON(exclusionKey, exclusion, { onlyIfNew: true });
           if (write?.modified === false) {
@@ -8168,6 +8193,20 @@ function blindCalibrationExclusionIdentity(receipt) {
     reason: receipt?.reason,
     excludedBy: receipt?.excludedBy,
   };
+}
+
+function blindCalibrationExclusionId(receipt) {
+  return `blind-exclusion-${recordHash({
+    status: receipt?.status,
+    sourceRescueReceiptId: receipt?.sourceRescueReceiptId,
+    sourceRunId: receipt?.sourceRunId,
+    judgmentReceiptId: receipt?.judgmentReceiptId,
+    sourceOccurrenceId: receipt?.sourceOccurrenceId,
+    actorId: receipt?.actorId,
+    vibeKey: receipt?.vibeKey,
+    reason: receipt?.reason,
+    excludedBy: receipt?.excludedBy,
+  }).slice(0, 24)}`;
 }
 
 function calibrationRetirementIdentity(receipt) {

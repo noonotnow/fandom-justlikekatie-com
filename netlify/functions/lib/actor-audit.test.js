@@ -6307,6 +6307,40 @@ test("one blind-review example can be excluded without rewriting its audit or ju
   assert.notEqual(exclusionReceipt.sourceRescueReceiptId, changedSyntheticReceipt);
   for (const [key, value] of originals) assert.deepEqual(store.records.get(key), value);
 
+  for (const [field, conflictingValue] of [
+    ["status", "active"],
+    ["sourceRescueReceiptId", changedSyntheticReceipt],
+    ["sourceRunId", "run-conflicting"],
+    ["judgmentReceiptId", "judgment-conflicting"],
+    ["sourceOccurrenceId", "occurrence-conflicting"],
+    ["actorId", "actor-conflicting"],
+    ["vibeKey", "vibe-conflicting"],
+    ["exclusionId", "exclusion-conflicting"],
+    ["excludedBy", "operator-conflicting"],
+  ]) {
+    store.records.set(exclusionKey, { ...exclusionReceipt, [field]: conflictingValue });
+    const protectedRecords = new Map(
+      [...store.records.entries()].map(([key, value]) => [key, structuredClone(value)]),
+    );
+    const conflictResponse = await handler(request("POST", {
+      action: "exclude_blind_calibration_item", actorId: pairActor.id, vibeKey,
+      receiptId: evidence.sourceRescueReceiptId, runId: evidence.sourceRunId,
+      judgmentReceiptId: item.judgmentReceiptId,
+      reason: "Later source review showed this thumbnail was mislabeled.",
+    }), {});
+    const conflict = await conflictResponse.json();
+    assert.equal(conflictResponse.status, 409, `${field}: ${JSON.stringify(conflict)}`);
+    assert.equal(
+      conflict.error,
+      "That blind-review exclusion receipt is immutable.",
+      field,
+    );
+    for (const [key, value] of protectedRecords) {
+      assert.deepEqual(store.records.get(key), value, `${field}: ${key}`);
+    }
+  }
+  store.records.set(exclusionKey, exclusionReceipt);
+
   const runKey = auditRunKey(pairActor.id, 0, evidence.sourceRunId);
   const appendedRun = store.records.get(runKey);
   const appendedCandidate = {
