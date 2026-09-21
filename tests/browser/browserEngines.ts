@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   chromium,
@@ -30,28 +30,45 @@ if (isReplitNix) {
   process.env.PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS ??= '1';
 }
 
-function replitNixLibraryPath(): string {
+export function replitNixLibraryPath(
+  runtimePath = process.env.REPLIT_LD_LIBRARY_PATH,
+  pathExists: (path: string) => boolean = existsSync,
+): string {
+  const declaredRuntimeDirectories = runtimePath?.split(':').filter(Boolean) ?? [];
+  const requiredRuntimeFiles = [
+    {
+      name: 'gst_all_1.gst-libav',
+      matches: declaredRuntimeDirectories.some(directory => (
+        pathExists(join(directory, 'gstreamer-1.0', 'libgstlibav.so'))
+      )),
+    },
+    {
+      name: 'libjpeg8',
+      matches: declaredRuntimeDirectories.some(directory => (
+        pathExists(join(directory, 'libjpeg.so.8'))
+      )),
+    },
+  ];
+  const missingPackages = requiredRuntimeFiles
+    .filter(requirement => !requirement.matches)
+    .map(requirement => requirement.name);
+  if (missingPackages.length > 0) {
+    throw new Error(
+      `Missing declared WebKit runtime paths for: ${missingPackages.join(', ')}. `
+      + 'Ensure .replit declares these Nix packages, then reload the Replit environment.',
+    );
+  }
+
   const nixLibraryDirectories = [...(process.env.NIX_LDFLAGS?.matchAll(/(?:^|\s)-L(\S+)/g) ?? [])]
     .flatMap(match => [match[1], join(match[1], 'gstreamer-1.0')])
-    .filter(existsSync);
+    .filter(pathExists);
   const compilerLibraryDirectory = dirname(
     execFileSync('gcc', ['-print-file-name=libatomic.so.1'], { encoding: 'utf8' }).trim(),
   );
-  const nixStoreEntries = readdirSync('/nix/store');
-  const gstreamerPluginDirectories = nixStoreEntries
-    .filter(entry => entry.includes('-gst-libav-'))
-    .map(entry => join('/nix/store', entry, 'lib', 'gstreamer-1.0'))
-    .filter(existsSync);
-  const jpeg8Directories = nixStoreEntries
-    .filter(entry => entry.includes('-libjpeg-turbo-'))
-    .map(entry => join('/nix/store', entry, 'lib'))
-    .filter(directory => existsSync(join(directory, 'libjpeg.so.8')));
-  const supplementalDirectories = [...gstreamerPluginDirectories, ...jpeg8Directories]
-    .filter(existsSync);
   return [
     ...nixLibraryDirectories,
     compilerLibraryDirectory,
-    ...supplementalDirectories,
+    ...declaredRuntimeDirectories,
     process.env.LD_LIBRARY_PATH,
   ]
     .filter((path): path is string => Boolean(path))

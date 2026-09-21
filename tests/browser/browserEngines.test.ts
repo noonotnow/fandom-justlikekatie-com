@@ -7,6 +7,7 @@ import {
   BROWSER_ENGINES,
   launchBrowserForServer,
   launchBrowserWithServer,
+  replitNixLibraryPath,
   startViteTestServer,
 } from './browserEngines.ts';
 import type { ViteDevServer } from 'vite';
@@ -68,6 +69,32 @@ test('browser prerequisite launch check accepts launchable engines', async () =>
     } as Browser),
   ));
   assert.equal(closeCount, BROWSER_ENGINES.length);
+});
+
+test('Replit WebKit runtime uses explicitly supplied declared package paths', () => {
+  const runtimePath = '/nix/gst/lib:/nix/jpeg/lib';
+  const availablePaths = new Set([
+    '/nix/gst/lib/gstreamer-1.0/libgstlibav.so',
+    '/nix/jpeg/lib/libjpeg.so.8',
+  ]);
+
+  const resolved = replitNixLibraryPath(runtimePath, path => availablePaths.has(path));
+
+  assert.match(resolved, /\/nix\/gst\/lib/);
+  assert.match(resolved, /\/nix\/jpeg\/lib/);
+});
+
+test('Replit WebKit runtime reports missing declared package paths', () => {
+  assert.throws(
+    () => replitNixLibraryPath('/nix/unrelated/lib', () => false),
+    error => {
+      assert.match(String(error), /Missing declared WebKit runtime paths/);
+      assert.match(String(error), /gst_all_1\.gst-libav/);
+      assert.match(String(error), /libjpeg8/);
+      assert.match(String(error), /reload the Replit environment/);
+      return true;
+    },
+  );
 });
 
 test('sequential browser launch failure closes its listening server', async () => {
