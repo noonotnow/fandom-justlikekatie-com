@@ -163,6 +163,62 @@ test('rejects cleanup through aliases of assigned resources', () => {
   assert.equal(violations[0].server, 'serverAlias');
 });
 
+test('rejects cleanup through ternary aliases when resource paths agree', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const primaryBrowser = await launch();
+    const backupBrowser = await launch();
+    const renderer = preferPrimary ? primaryBrowser : backupBrowser;
+    const daemon = await createServer();
+    await renderer.close();
+    await daemon.close();
+  `);
+
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].browser, 'renderer');
+  assert.equal(violations[0].server, 'daemon');
+});
+
+test('rejects cleanup through logical-OR aliases with one resource-bearing path', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const daemon = await createServer();
+    const serverAlias = cachedServer || daemon;
+    const renderer = await launch();
+    await serverAlias.close();
+    await renderer.close();
+  `);
+
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].browser, 'renderer');
+  assert.equal(violations[0].server, 'serverAlias');
+});
+
+test('rejects cleanup through nullish-coalescing aliases', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const primaryBrowser = await launch();
+    const fallbackBrowser = await launch();
+    const renderer = primaryBrowser ?? fallbackBrowser;
+    const daemon = await createServer();
+    await renderer.close();
+    await daemon.close();
+  `);
+
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].browser, 'renderer');
+  assert.equal(violations[0].server, 'daemon');
+});
+
+test('does not classify mixed browser and server aliases as either resource', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const renderer = await launch();
+    const daemon = await createServer();
+    const ambiguous = useBrowser ? renderer : daemon;
+    const page = await existingBrowser.newPage();
+    const pageOrAmbiguous = page || ambiguous;
+    await pageOrAmbiguous.close();
+    await daemon.close();
+  `), []);
+});
+
 test('accepts a page alias as page-only cleanup', () => {
   assert.deepEqual(findUnsafeBrowserCleanup(`
     const { server } = await startViteTestServer();

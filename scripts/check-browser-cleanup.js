@@ -120,6 +120,33 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
       if (name) owned.set(name, kind);
     }
 
+    function resourceKinds(value) {
+      const expression = unwrappedInitializer(value);
+      if (ts.isIdentifier(expression)) {
+        const kind = owned.get(expression.text);
+        return kind ? new Set([kind]) : new Set();
+      }
+      if (ts.isConditionalExpression(expression)) {
+        return new Set([
+          ...resourceKinds(expression.whenTrue),
+          ...resourceKinds(expression.whenFalse),
+        ]);
+      }
+      if (
+        ts.isBinaryExpression(expression)
+        && (
+          expression.operatorToken.kind === ts.SyntaxKind.BarBarToken
+          || expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
+        )
+      ) {
+        return new Set([
+          ...resourceKinds(expression.left),
+          ...resourceKinds(expression.right),
+        ]);
+      }
+      return new Set();
+    }
+
     function recordAssignment(target, value) {
       const initializer = unwrappedInitializer(value);
       const factory = calledName(initializer);
@@ -129,15 +156,13 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
       );
       if (recognizedFactory) {
         markFactoryResult(target, factory, markBinding);
-      } else if (ts.isIdentifier(target) && ts.isIdentifier(initializer)) {
-        const kind = owned.get(initializer.text);
-        if (kind) {
-          markBinding(target.text, kind);
+      } else if (ts.isIdentifier(target)) {
+        const kinds = resourceKinds(initializer);
+        if (kinds.size === 1) {
+          markBinding(target.text, kinds.values().next().value);
         } else {
           owned.delete(target.text);
         }
-      } else if (ts.isIdentifier(target)) {
-        owned.delete(target.text);
       }
     }
 
