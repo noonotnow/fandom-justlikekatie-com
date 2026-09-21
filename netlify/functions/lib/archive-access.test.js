@@ -4,6 +4,8 @@ import {
   ARCHIVE_ACCESS_WINDOW_KEY,
   ARCHIVE_CATALOG_KEY,
   ARCHIVE_CATALOG_EDITION_PREFIX,
+  ARCHIVE_CATALOG_INDEX_KEY,
+  ARCHIVE_CATALOG_YEAR_PREFIX,
   ARCHIVE_FREE_EDITION_COUNT,
   ARCHIVE_SAFE_UPDATE_UNAVAILABLE,
   archiveAccessDecision,
@@ -439,6 +441,73 @@ test("same-edition updates without revision tags signal lost safe-update support
     conflicts: 0,
     onlyIfNewConflicts: 0,
   });
+});
+
+test("archive index maintenance without revision tags signals the affected resource and preserves it", async t => {
+  const cases = [
+    {
+      name: "year bucket",
+      date: "2026-09-20",
+      key: `${ARCHIVE_CATALOG_YEAR_PREFIX}2026`,
+      authoritative: {
+        schemaVersion: 1,
+        catalogVersion: 2,
+        kind: "vibe-atlas-archive-catalog-year",
+        year: "2026",
+        dates: ["2026-09-19"],
+      },
+    },
+    {
+      name: "top-level index",
+      date: "2026-09-20",
+      key: ARCHIVE_CATALOG_INDEX_KEY,
+      authoritative: {
+        schemaVersion: 1,
+        catalogVersion: 2,
+        kind: "vibe-atlas-archive-catalog-index",
+        years: ["2025"],
+      },
+    },
+  ];
+
+  for (const fixture of cases) {
+    await t.test(fixture.name, async subtest => {
+      const store = memoryStore({ [fixture.key]: fixture.authoritative });
+      const getWithMetadata = store.getWithMetadata;
+      store.getWithMetadata = async (key, options) => {
+        const result = await getWithMetadata(key, options);
+        if (key !== fixture.key) return result;
+        const { etag: _etag, ...withoutEtag } = result;
+        return withoutEtag;
+      };
+      const signals = [];
+      subtest.mock.method(console, "error", (...args) => signals.push(args));
+
+      await assert.rejects(
+        updateArchiveCatalog(store, {
+          date: fixture.date,
+          actorName: "New Actor",
+          vibeLabel: "氛围",
+        }),
+        error => error.code === ARCHIVE_SAFE_UPDATE_UNAVAILABLE
+          && /storage did not provide a revision tag/.test(error.message),
+      );
+
+      assert.deepEqual(signals, [[
+        "[archive-publication] safe-update support unavailable",
+        {
+          code: ARCHIVE_SAFE_UPDATE_UNAVAILABLE,
+          resource: "archive catalogue index",
+          key: fixture.key,
+        },
+      ]]);
+      assert.deepEqual(
+        await store.get(fixture.key, { type: "json", consistency: "strong" }),
+        fixture.authoritative,
+      );
+      assert.equal(store.stats().writtenKeys.includes(fixture.key), false);
+    });
+  }
 });
 
 test("exhausted same-edition conflicts preserve the authoritative metadata", async () => {
