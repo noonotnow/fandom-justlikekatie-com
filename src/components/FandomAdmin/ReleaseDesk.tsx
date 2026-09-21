@@ -390,6 +390,7 @@ function BillingIdentityConflict({
 function ArchiveAccessHealth({ health }: { health: AnyRecord }) {
   const recent = health.recentHour ?? {};
   const status = health.status ?? {};
+  const compatibility = health.storageCompatibility ?? {};
   const notifications = (health.notifications ?? []) as AnyRecord[];
   const delivery = health.notificationDelivery ?? {};
   const percentage = (value: unknown) => `${Math.round((Number(value) || 0) * 100)}%`;
@@ -406,12 +407,27 @@ function ArchiveAccessHealth({ health }: { health: AnyRecord }) {
         <div data-warning={status.deniedAccess !== 'normal'}>
           <strong>{recent.upgrade ?? 0}</strong><span>Denied access · {status.deniedAccess ?? 'normal'}</span>
         </div>
+        <div data-warning={status.storageCompatibility !== 'normal'}>
+          <strong>{compatibility.consecutiveFailures ?? 0}</strong>
+          <span>Safe-update failures · {status.storageCompatibility ?? 'normal'}</span>
+        </div>
         <div><strong>{recent.authenticated_checks ?? 0}</strong><span>Authenticated checks</span></div>
         <div><strong>{percentage(recent.billingDelayRate)}</strong><span>Billing-delay rate</span></div>
       </div>
       <p className={styles.measurementBoundary}>
-        Billing: {health.thresholds?.billingWarning}. Denials: {health.thresholds?.deniedWarning}.
+        Billing: {health.thresholds?.billingWarning}. Denials: {health.thresholds?.deniedWarning}. Storage: {health.thresholds?.storageCompatibilityWarning}.
       </p>
+      {compatibility.affectedResource && (
+        <p
+          className={styles.measurementBoundary}
+          role={status.storageCompatibility === 'normal' ? 'status' : 'alert'}
+        >
+          Archive storage {status.storageCompatibility === 'normal' ? 'recovered' : 'affected'}: {compatibility.affectedResource}
+          {status.storageCompatibility === 'normal' && compatibility.recoveredAt
+            ? ` · recovered ${formatDeliveryTime(compatibility.recoveredAt)}`
+            : ''}.
+        </p>
+      )}
       {notifications.length > 0 && (
         <p className={styles.measurementBoundary} role="status">
           Operator notification sent for {notifications.map(item => `${item.signalCategory} ${item.status}`).join(', ')}.

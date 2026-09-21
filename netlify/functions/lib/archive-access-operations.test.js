@@ -18,6 +18,7 @@ import {
   notifyArchiveAccessTransitions,
   pruneExpiredArchiveAccessChecks,
   recordArchiveAccessCheck,
+  recordArchiveRepairAttempt,
   sendArchiveAccessNotification,
 } from "./archive-access-operations.js";
 import {
@@ -172,6 +173,154 @@ test("recent-hour alerts recover after the failed checks leave the trailing wind
   assert.equal(health.recentHour.billing_delay, 0);
   assert.equal(health.recentHour.authenticated_checks, 10);
   assert.equal(health.status.billing, "normal");
+});
+
+test("repeated safe-update failures alert once per incident and recovery resolves it", async () => {
+  const data = store();
+  const sent = [];
+  const resource = "vibeAtlas:archive-catalog:v2:edition:2026-09-20";
+  const operatorId = "operator-1";
+  const times = [
+    "2026-09-20T10:00:00.000Z",
+    "2026-09-20T10:05:00.000Z",
+    "2026-09-20T10:10:00.000Z",
+  ];
+
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health: await archiveAccessHealth(data, new Date("2026-09-20T09:00:00.000Z")),
+    notify: async payload => sent.push(payload),
+    now: new Date("2026-09-20T09:00:00.000Z"),
+  });
+  for (const attemptedAt of times) {
+    await recordArchiveRepairAttempt(data, {
+      operatorId,
+      attemptedAt,
+      scanned: 1,
+      errorClassification: "safe_update_unavailable",
+      affectedResource: resource,
+    });
+  }
+
+  const incidentHealth = await archiveAccessHealth(
+    data,
+    new Date("2026-09-20T10:15:00.000Z"),
+  );
+  assert.deepEqual(incidentHealth.storageCompatibility, {
+    status: "warning",
+    consecutiveFailures: 3,
+    affectedResource: resource,
+    lastFailedAt: times.at(-1),
+    recoveredAt: null,
+  });
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health: incidentHealth,
+    notify: async payload => sent.push(payload),
+    now: new Date("2026-09-20T10:15:00.000Z"),
+  });
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health: incidentHealth,
+    notify: async payload => sent.push(payload),
+    now: new Date("2026-09-20T10:20:00.000Z"),
+  });
+
+  await recordArchiveRepairAttempt(data, {
+    operatorId,
+    attemptedAt: "2026-09-20T10:22:00.000Z",
+    scanned: 1,
+    errorClassification: "safe_update_unavailable",
+    affectedResource: "vibeAtlas:archive-catalog:v2:index",
+  });
+  const interleavedFailureHealth = await archiveAccessHealth(
+    data,
+    new Date("2026-09-20T10:23:00.000Z"),
+  );
+  assert.equal(interleavedFailureHealth.storageCompatibility.status, "warning");
+  assert.equal(interleavedFailureHealth.storageCompatibility.affectedResource, resource);
+  assert.equal(interleavedFailureHealth.storageCompatibility.recoveredAt, null);
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health: interleavedFailureHealth,
+    notify: async payload => sent.push(payload),
+    now: new Date("2026-09-20T10:23:00.000Z"),
+  });
+
+  await recordArchiveRepairAttempt(data, {
+    operatorId,
+    attemptedAt: "2026-09-20T10:25:00.000Z",
+    scanned: 1,
+  });
+  const recoveredHealth = await archiveAccessHealth(
+    data,
+    new Date("2026-09-20T10:30:00.000Z"),
+  );
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health: recoveredHealth,
+    notify: async payload => sent.push(payload),
+    now: new Date("2026-09-20T10:30:00.000Z"),
+  });
+
+  assert.deepEqual(sent.map(payload => ({
+    kind: payload.kind,
+    signalCategory: payload.signalCategory,
+    affectedResource: payload.affectedResource,
+  })), [
+    {
+      kind: "incident",
+      signalCategory: "storage_compatibility",
+      affectedResource: resource,
+    },
+    {
+      kind: "resolved",
+      signalCategory: "storage_compatibility",
+      affectedResource: resource,
+    },
+  ]);
+  assert.equal(recoveredHealth.storageCompatibility.status, "normal");
+  assert.equal(recoveredHealth.storageCompatibility.recoveredAt, "2026-09-20T10:25:00.000Z");
+
+  const secondResource = "vibeAtlas:archive-catalog:v2:index";
+  for (const attemptedAt of [
+    "2026-09-20T10:35:00.000Z",
+    "2026-09-20T10:40:00.000Z",
+    "2026-09-20T10:45:00.000Z",
+  ]) {
+    await recordArchiveRepairAttempt(data, {
+      operatorId,
+      attemptedAt,
+      scanned: 1,
+      errorClassification: "safe_update_unavailable",
+      affectedResource: secondResource,
+    });
+  }
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health: await archiveAccessHealth(data, new Date("2026-09-20T10:50:00.000Z")),
+    notify: async payload => sent.push(payload),
+    now: new Date("2026-09-20T10:50:00.000Z"),
+  });
+  await recordArchiveRepairAttempt(data, {
+    operatorId,
+    attemptedAt: "2026-09-20T10:55:00.000Z",
+    scanned: 1,
+  });
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health: await archiveAccessHealth(data, new Date("2026-09-20T11:00:00.000Z")),
+    notify: async payload => sent.push(payload),
+    now: new Date("2026-09-20T11:00:00.000Z"),
+  });
+
+  assert.deepEqual(sent.slice(2).map(payload => ({
+    kind: payload.kind,
+    affectedResource: payload.affectedResource,
+  })), [
+    { kind: "incident", affectedResource: secondResource },
+    { kind: "resolved", affectedResource: secondResource },
+  ]);
 });
 
 test("retention cleanup paginates high-volume records without changing the rolling report", async () => {

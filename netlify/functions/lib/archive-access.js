@@ -667,6 +667,8 @@ function archiveSafeUpdateUnavailable({ resource, key }) {
     `The ${resource} could not be updated safely because storage did not provide a revision tag.`,
   );
   error.code = ARCHIVE_SAFE_UPDATE_UNAVAILABLE;
+  error.archiveResource = resource;
+  error.archiveResourceKey = key;
   return error;
 }
 

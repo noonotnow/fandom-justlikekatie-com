@@ -804,6 +804,7 @@ export function createStarOfDayHandler({
             ? error.reconciliationScanned
             : 0,
           errorClassification: archiveRepairErrorClassification(error),
+          affectedResource: error?.archiveResourceKey || error?.archiveResource,
         });
         console.error("[archive-catalogue] reconciliation failed", {
           classification: archiveRepairErrorClassification(error),

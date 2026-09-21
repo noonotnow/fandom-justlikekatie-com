@@ -10,6 +10,7 @@ const NOTIFICATION_REPAIR_STATE_KEY = "archive-access:notification-repairs";
 const REPAIR_WARNING_THRESHOLD = 3;
 const REPAIR_WARNING_WINDOW_MS = 24 * 60 * 60 * 1000;
 const REPAIR_WARNING_DELIVERY_FAILURE_THRESHOLD = 3;
+const COMPATIBILITY_WARNING_THRESHOLD = 3;
 const OUTCOMES = new Set(["sign_in", "upgrade", "billing_delay", "allowed"]);
 
 const SIGNALS = {
@@ -22,6 +23,11 @@ const SIGNALS = {
     category: "authenticated_denial",
     countKey: "upgrade",
     rateKey: "deniedAccessRate",
+  },
+  storageCompatibility: {
+    category: "storage_compatibility",
+    countKey: "storageCompatibilityFailures",
+    rateKey: "storageCompatibilityFailureRate",
   },
 };
 export const ARCHIVE_ACCESS_RETENTION_DAYS = 7;
@@ -60,6 +66,7 @@ export async function recordArchiveRepairAttempt(store, {
   repairedDates = [],
   nextCursor = null,
   errorClassification = null,
+  affectedResource = null,
 } = {}) {
   if (!store || typeof operatorId !== "string" || operatorId.length < 1 || operatorId.length > 256) {
     throw new Error("The archive repair operator is invalid.");
@@ -82,6 +89,12 @@ export async function recordArchiveRepairAttempt(store, {
     outcome: errorClassification ? "failed" : (safeDates.length ? "repaired" : "no_op"),
     ...(nextCursor ? { nextCursor } : {}),
     ...(errorClassification ? { errorClassification } : {}),
+    ...(errorClassification === "safe_update_unavailable"
+      && typeof affectedResource === "string"
+      && affectedResource.length > 0
+      && affectedResource.length <= 512
+      ? { affectedResource }
+      : {}),
   };
   await store.setJSON(
     `${ARCHIVE_REPAIR_RECEIPT_PREFIX}${String(
@@ -162,6 +175,24 @@ export async function archiveAccessHealth(store, date = new Date(), hours = 24) 
     : recentTotals.upgrade >= 10 && denialRate >= 0.4
       ? "warning"
       : "normal";
+  const repairHistory = await listArchiveRepairHistory(store);
+  const latestRepair = repairHistory[0] || null;
+  const activeFailures = compatibilityFailuresUntilSuccess(repairHistory);
+  const activeFailureCounts = countCompatibilityFailures(activeFailures);
+  const affectedResource = activeFailures.find(receipt =>
+    activeFailureCounts.get(receipt.affectedResource) >= COMPATIBILITY_WARNING_THRESHOLD
+  )?.affectedResource || null;
+  const recoveredFailures = latestRepair?.outcome !== "failed"
+    ? compatibilityFailuresUntilSuccess(repairHistory.slice(1))
+    : [];
+  const recoveredFailureCounts = countCompatibilityFailures(recoveredFailures);
+  const recoveredResource = recoveredFailures.find(receipt =>
+    recoveredFailureCounts.get(receipt.affectedResource) >= COMPATIBILITY_WARNING_THRESHOLD
+  )?.affectedResource || null;
+  const storageCompatibilityStatus = affectedResource ? "warning" : "normal";
+  const affectedFailures = affectedResource
+    ? activeFailures.filter(receipt => receipt.affectedResource === affectedResource)
+    : [];
   const report = {
     generatedAt: date.toISOString(),
     windowHours: hours,
@@ -170,23 +201,57 @@ export async function archiveAccessHealth(store, date = new Date(), hours = 24) 
       ...recentTotals,
       billingDelayRate: billingRate,
       deniedAccessRate: denialRate,
+      storageCompatibilityFailures: affectedFailures.length,
+      storageCompatibilityFailureRate: affectedFailures.length ? 1 : 0,
+    },
+    storageCompatibility: {
+      status: storageCompatibilityStatus,
+      consecutiveFailures: affectedFailures.length,
+      affectedResource: affectedResource || recoveredResource,
+      lastFailedAt: affectedFailures[0]?.attemptedAt || null,
+      recoveredAt: storageCompatibilityStatus === "normal"
+        && latestRepair?.outcome !== "failed"
+        ? latestRepair?.attemptedAt || null
+        : null,
     },
     status: {
       billing: billingStatus,
       deniedAccess: denialStatus,
       consecutiveBillingHours,
+      storageCompatibility: storageCompatibilityStatus,
     },
     thresholds: {
       billingWarning: "3+ billing delays and 20%+ of authenticated checks in one hour, or any billing delay in 2 consecutive hours",
       billingCritical: "5+ billing delays and 50%+ of authenticated checks in one hour",
       deniedWarning: "10+ upgrade denials and 40%+ of authenticated checks in one hour",
       deniedCritical: "25+ upgrade denials and 60%+ of authenticated checks in one hour",
+      storageCompatibilityWarning: `${COMPATIBILITY_WARNING_THRESHOLD} consecutive safe-update failures for the same archive resource`,
       anonymousPreviewsExcluded: true,
     },
     buckets,
   };
   await deleteExpiredBlobs(store, expiredKeys);
   return report;
+}
+
+function compatibilityFailuresUntilSuccess(receipts) {
+  const failures = [];
+  for (const receipt of receipts) {
+    if (receipt.outcome !== "failed") break;
+    if (receipt.errorClassification === "safe_update_unavailable"
+      && typeof receipt.affectedResource === "string") {
+      failures.push(receipt);
+    }
+  }
+  return failures;
+}
+
+function countCompatibilityFailures(receipts) {
+  const counts = new Map();
+  for (const receipt of receipts) {
+    counts.set(receipt.affectedResource, (counts.get(receipt.affectedResource) || 0) + 1);
+  }
+  return counts;
 }
 
 export async function notifyArchiveAccessTransitions({
@@ -452,6 +517,9 @@ export async function sendArchiveAccessNotification({
     `Authenticated checks: ${payload.authenticatedChecks}`,
     `Rate: ${percent}`,
     `Window: ${payload.windowMinutes} minutes`,
+    ...(payload.signalCategory === "storage_compatibility"
+      ? [`Affected resource: ${payload.affectedResource || "unknown"}`]
+      : []),
   ];
   const response = await fetchImpl("https://api.resend.com/emails", {
     method: "POST",
@@ -579,6 +647,11 @@ async function processSignalTransition({ store, health, notify, now, signal, def
       previousStatus,
       targetStatus,
       transitionKind,
+      ...(signal === "storageCompatibility"
+        ? { affectedResource: current.affectedResource
+          || health.storageCompatibility?.affectedResource
+          || null }
+        : {}),
     });
     if (repairRequired) claimed = recordNotificationStateRepair(claimed, now);
     const claimWrite = await conditionalStateWrite(store, entry, claimed);
@@ -595,6 +668,11 @@ async function processSignalTransition({ store, health, notify, now, signal, def
       authenticatedChecks: Number(health.recentHour?.authenticated_checks) || 0,
       rate: Number(health.recentHour?.[definition.rateKey]) || 0,
       windowMinutes: 60,
+      ...(signal === "storageCompatibility"
+        ? { affectedResource: transitionKind === "resolved"
+          ? current.affectedResource || health.storageCompatibility?.affectedResource || null
+          : health.storageCompatibility?.affectedResource || null }
+        : {}),
     };
     try {
       await notify(payload);
@@ -602,6 +680,9 @@ async function processSignalTransition({ store, health, notify, now, signal, def
       await settleClaim(store, signal, claimId, {
         status: previousStatus,
         updatedAt: now.toISOString(),
+        ...(signal === "storageCompatibility"
+          ? { affectedResource: current.affectedResource || null }
+          : {}),
       }, "failure");
       throw error;
     }
@@ -609,6 +690,9 @@ async function processSignalTransition({ store, health, notify, now, signal, def
       status: targetStatus,
       notifiedAt: now.toISOString(),
       updatedAt: now.toISOString(),
+      ...(signal === "storageCompatibility" && targetStatus !== "normal"
+        ? { affectedResource: health.storageCompatibility?.affectedResource || null }
+        : {}),
     }, "success");
     return payload;
   }
