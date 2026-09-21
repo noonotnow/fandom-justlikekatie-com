@@ -41,7 +41,9 @@ test('browser prerequisite check accepts a complete engine installation', () => 
 });
 
 test('browser prerequisite check distinguishes missing host libraries', async () => {
-  const launchError = new Error('browser binary is unavailable');
+  const launchError = new Error(
+    'error while loading shared libraries: libgtk-4.so.1: cannot open shared object file',
+  );
 
   await assert.rejects(
     assertBrowserEnginesLaunchable(
@@ -64,10 +66,19 @@ test('browser prerequisite launch check accepts launchable engines', async () =>
   const operatedEngines: string[] = [];
   await assert.doesNotReject(assertBrowserEnginesLaunchable(
     BROWSER_ENGINES,
-    async () => ({
+    async engine => ({
+      newPage: async () => ({
+        setContent: async () => {
+          operatedEngines.push(engine.id);
+        },
+        locator: () => ({
+          textContent: async () => engine.name,
+        }),
+      }),
       close: async () => { closeCount += 1; },
-    } as Browser),
+    } as unknown as Browser),
   ));
+  assert.deepEqual(operatedEngines, BROWSER_ENGINES.map(engine => engine.id));
   assert.equal(closeCount, BROWSER_ENGINES.length);
 });
 

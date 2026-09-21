@@ -30,14 +30,23 @@ function bindingIdentifier(binding) {
   return binding && ts.isIdentifier(binding.name) ? binding.name.text : null;
 }
 
+function resourcePath(node) {
+  if (ts.isIdentifier(node)) return node.text;
+  if (ts.isPropertyAccessExpression(node)) {
+    const parent = resourcePath(node.expression);
+    return parent ? `${parent}.${node.name.text}` : null;
+  }
+  return null;
+}
 function assignmentIdentifier(node) {
   return ts.isIdentifier(node) ? node.text : null;
 }
 
 function markFactoryResult(target, factory, markBinding) {
-  if (ts.isIdentifier(target)) {
-    if (BROWSER_FACTORIES.test(factory)) markBinding(target.text, 'browser');
-    if (SERVER_FACTORIES.test(factory)) markBinding(target.text, 'server');
+  const targetPath = resourcePath(target);
+  if (targetPath) {
+    if (BROWSER_FACTORIES.test(factory)) markBinding(targetPath, 'browser');
+    if (SERVER_FACTORIES.test(factory)) markBinding(targetPath, 'server');
     return;
   }
 
@@ -83,8 +92,9 @@ function closedResource(node) {
   }
 
   const receiver = node.expression.expression.expression;
-  return ts.isIdentifier(receiver)
-    ? { name: receiver.text, node }
+  const name = resourcePath(receiver);
+  return name
+    ? { name, node }
     : null;
 }
 
@@ -117,13 +127,24 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
   function inspectScope(scope) {
     const owned = new Map();
     function markBinding(name, kind) {
-      if (name) owned.set(name, kind);
+      if (!name) return;
+      clearBinding(name);
+      owned.set(name, kind);
+    }
+
+    function clearBinding(name) {
+      for (const ownedName of owned.keys()) {
+        if (ownedName === name || ownedName.startsWith(`${name}.`)) {
+          owned.delete(ownedName);
+        }
+      }
     }
 
     function resourceKinds(value) {
       const expression = unwrappedInitializer(value);
-      if (ts.isIdentifier(expression)) {
-        const kind = owned.get(expression.text);
+      const path = resourcePath(expression);
+      if (path) {
+        const kind = owned.get(path);
         return kind ? new Set([kind]) : new Set();
       }
       if (ts.isConditionalExpression(expression)) {
@@ -156,12 +177,14 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
       );
       if (recognizedFactory) {
         markFactoryResult(target, factory, markBinding);
-      } else if (ts.isIdentifier(target)) {
+      } else {
+        const targetPath = resourcePath(target);
+        if (!targetPath) return;
         const kinds = resourceKinds(initializer);
         if (kinds.size === 1) {
-          markBinding(target.text, kinds.values().next().value);
+          markBinding(targetPath, kinds.values().next().value);
         } else {
-          owned.delete(target.text);
+          clearBinding(targetPath);
         }
       }
     }

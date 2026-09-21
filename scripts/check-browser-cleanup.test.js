@@ -315,6 +315,72 @@ test('rejects cleanup that can continue from try into catch', () => {
   assert.equal(violations.length, 1);
 });
 
+test('rejects cleanup through object properties holding assigned resources', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const resources = {};
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    resources.runtime = {};
+    resources.runtime.browser = browser;
+    resources.runtime.server = server;
+    await resources.runtime.browser.close();
+    await resources.runtime.server.close();
+  `);
+
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].browser, 'resources.runtime.browser');
+  assert.equal(violations[0].server, 'resources.runtime.server');
+});
+
+test('rejects cleanup when factories assign directly to object properties', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const resources = {};
+    resources.server = await createServer();
+    resources.browser = await launch();
+    await resources.server.close();
+    await resources.browser.close();
+  `);
+
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].browser, 'resources.browser');
+  assert.equal(violations[0].server, 'resources.server');
+});
+
+test('accepts cleanup after a tracked property is reassigned', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const resources = {};
+    const { server } = await startViteTestServer();
+    resources.browser = await launchBrowserForServer(server);
+    resources.browser = await resources.browser.newPage();
+    await resources.browser.close();
+    await server.close();
+  `), []);
+});
+
+test('accepts cleanup after a tracked property parent is reassigned', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const resources = { runtime: {} };
+    const { server } = await startViteTestServer();
+    resources.runtime.browser = await launchBrowserForServer(server);
+    resources.runtime = {
+      browser: await existingBrowser.newPage(),
+    };
+    await resources.runtime.browser.close();
+    await server.close();
+  `), []);
+});
+
+test('accepts page properties as page-only cleanup', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const resources = {};
+    const { server } = await startViteTestServer();
+    const page = await existingBrowser.newPage();
+    resources.page = page;
+    await resources.page.close();
+    await server.close();
+  `), []);
+});
+
 test('current browser fixtures use safe cleanup', () => {
   assert.deepEqual(checkBrowserCleanupFiles(), []);
 });
