@@ -138,7 +138,7 @@ jobs:
         if: steps.netlify_cli.outputs.upgrade == 'true' || inputs.verification_only
         uses: peter-evans/create-pull-request@v7
         with:
-          token: ${{ secrets.GITHUB_PAT }}
+          token: ${{ secrets.REPO_ADMIN_PAT }}
           add-paths: |
             package.json
             .github/netlify-cli-proposal-verification.md

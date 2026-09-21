@@ -90,6 +90,10 @@ test("Netlify compatibility workflow preserves the reviewed proposal contract", 
   assert.match(proposalStep, /^        uses: peter-evans\/create-pull-request@v7$/m);
   assert.match(
     proposalStep,
+    /^          token: \$\{\{ secrets\.REPO_ADMIN_PAT \}\}$/m,
+  );
+  assert.match(
+    proposalStep,
     /title: "\$\{\{ inputs\.verification_only && '\[Verification only\] ' \|\| '' \}\}\[Netlify CLI\] Upgrade release pin to/,
   );
   assert.match(
