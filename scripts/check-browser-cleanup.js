@@ -36,6 +36,12 @@ function resourcePath(node) {
     const parent = resourcePath(node.expression);
     return parent ? `${parent}.${node.name.text}` : null;
   }
+  if (ts.isElementAccessExpression(node)) {
+    const parent = resourcePath(node.expression);
+    const index = unwrappedInitializer(node.argumentExpression);
+    if (!parent || !ts.isNumericLiteral(index)) return null;
+    return `${parent}[${index.text}]`;
+  }
   return null;
 }
 function assignmentIdentifier(node) {
@@ -134,7 +140,11 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
 
     function clearBinding(name) {
       for (const ownedName of owned.keys()) {
-        if (ownedName === name || ownedName.startsWith(`${name}.`)) {
+        if (
+          ownedName === name
+          || ownedName.startsWith(`${name}.`)
+          || ownedName.startsWith(`${name}[`)
+        ) {
           owned.delete(ownedName);
         }
       }
@@ -206,6 +216,20 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
               propertyValue,
             );
           }
+          return;
+        }
+        if (ts.isArrayLiteralExpression(initializer)) {
+          clearBinding(targetPath);
+          initializer.elements.forEach((element, index) => {
+            if (ts.isOmittedExpression(element) || ts.isSpreadElement(element)) return;
+            recordAssignment(
+              ts.factory.createElementAccessExpression(
+                target,
+                ts.factory.createNumericLiteral(index),
+              ),
+              element,
+            );
+          });
           return;
         }
         const kinds = resourceKinds(initializer);

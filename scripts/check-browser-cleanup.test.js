@@ -602,6 +602,55 @@ test('accepts unrelated page properties in object literals', () => {
   `), []);
 });
 
+test('rejects cleanup through array-literal elements holding resources', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    const resources = [browser, server];
+    await resources[0].close();
+    await resources[1].close();
+  `);
+
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].browser, 'resources[0]');
+  assert.equal(violations[0].server, 'resources[1]');
+});
+
+test('rejects cleanup through array indexes assigned after initialization', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const resources = [];
+    resources[0] = await createServer();
+    resources[1] = await launch();
+    await resources[0].close();
+    await resources[1].close();
+  `);
+
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].browser, 'resources[1]');
+  assert.equal(violations[0].server, 'resources[0]');
+});
+
+test('accepts cleanup after a tracked array index is reassigned', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    const resources = [browser, server];
+    resources[0] = await browser.newPage();
+    await resources[0].close();
+    await resources[1].close();
+  `), []);
+});
+
+test('accepts unrelated page elements in array literals', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const page = await existingBrowser.newPage();
+    const resources = [page];
+    await resources[0].close();
+    await server.close();
+  `), []);
+});
+
 test('current browser fixtures use safe cleanup', () => {
   assert.deepEqual(checkBrowserCleanupFiles(), []);
 });
