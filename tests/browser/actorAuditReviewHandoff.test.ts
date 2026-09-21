@@ -10102,8 +10102,11 @@ test('a lost connection returning from retained history preserves the non-Legacy
   const { auditRequests } = await configureNetwork(page, {
     initialActiveRunId: 'run-2',
     retrievalRepetition: true,
+    auditHistoryDetailDelays: {
+      'run-2': [0, 0, 500],
+    },
     auditHistoryDetailDrops: {
-      'run-2': [false, true],
+      'run-2': [false, true, false],
     },
   })
   const auditTraffic: Array<{ method: string; runId: string | null }> = []
@@ -10156,6 +10159,35 @@ test('a lost connection returning from retained history preserves the non-Legacy
       'a failed return to current must not send an audit mutation request',
     )
     assert.deepEqual(auditRequests, [], 'a failed return to current must not run or mutate an audit')
+
+    const recoveredRequest = page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return url.pathname.endsWith('/actor-audits') && url.searchParams.get('runId') === 'run-2'
+    })
+
+    await runSelect.selectOption('run-2')
+    assert.equal(await runSelect.inputValue(), 'run-1', 'the selector must remain on retained history while the retry is pending')
+    await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor()
+    assert.deepEqual(
+      (await repetition.locator('strong').allTextContents()).slice(0, 4),
+      ['7', '6', '5', '2'],
+      'retained evidence must remain intact until the successful retry response arrives',
+    )
+
+    await recoveredRequest
+    await page.getByRole('heading', { name: 'Audit evidence · run-2', exact: true }).waitFor()
+    assert.equal(await runSelect.inputValue(), 'run-2', 'the selector must align with the restored current audit')
+    assert.deepEqual(
+      auditTraffic.filter(request => request.runId).map(request => request.runId),
+      ['run-2', 'run-1', 'run-2', 'run-2'],
+      'the recovery retry must add only another selected-run detail read',
+    )
+    assert.equal(
+      auditTraffic.every(request => request.method === 'GET'),
+      true,
+      'every retained-history retry must use GET',
+    )
+    assert.deepEqual(auditRequests, [], 'returning to current after recovery must not run or mutate an audit')
   } finally {
     await closeBrowserAndServer(browser, server)
   }
