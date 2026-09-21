@@ -1,4 +1,7 @@
-import { publicArchiveRecord } from "../../../src/contracts/publicArchiveRecord.js";
+import {
+  publicArchiveRecord,
+  publicArchiveRecordDiagnostic,
+} from "../../../src/contracts/publicArchiveRecord.js";
 
 export const ARCHIVE_FREE_EDITION_COUNT = 4;
 export const ARCHIVE_ACCESS_WINDOW_VERSION = 1;
@@ -475,4 +478,8 @@ export function publicArchiveEdition(payload, { isFree = false } = {}) {
     access: isFree ? "free" : "member",
     ...(publicRecord ? { publicRecord } : {}),
   };
+}
+
+export function archiveReaderLinkDiagnostic(payload) {
+  return publicArchiveRecordDiagnostic(payload?.publicRecord);
 }

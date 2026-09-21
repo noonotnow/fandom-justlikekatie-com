@@ -725,6 +725,7 @@ function PublicationReceipts({
             <div>
               <strong>{formatEditionDate(edition.publicationDate)}</strong>
               <span>{edition.actor?.name} · {edition.vibe?.label}</span>
+              <ReaderLinkDiagnostic diagnostic={edition.readerLinks} />
             </div>
             <div className={styles.receiptChannels}>
               {['rednote', 'weibo', 'instagram'].map(receiptChannel => {
@@ -776,6 +777,17 @@ function PublicationReceipts({
       {notice && <p className={styles.receiptNotice} role="status">{notice}</p>}
     </section>
   );
+}
+
+function ReaderLinkDiagnostic({ diagnostic }: { diagnostic?: AnyRecord }) {
+  const messages: Record<string, string> = {
+    missing_metadata: 'Reader links missing: this archive record has no public-record metadata.',
+    malformed_actor_path: 'Reader links rejected: the actor path is malformed.',
+    malformed_edition_path: 'Reader links rejected: the edition path is malformed or does not match the actor.',
+  };
+  const message = diagnostic?.status ? messages[diagnostic.status] : '';
+  if (!message) return null;
+  return <span className={styles.readerLinkWarning} role="status">{message}</span>;
 }
 function nextShanghaiNoonLabel(now = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {

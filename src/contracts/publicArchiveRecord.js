@@ -8,6 +8,13 @@ const EDITION_RECORD_PATH = new RegExp(
   `^${PUBLIC_ROUTE_PATHS.vibeAtlasEditions}/(\\d{4}-\\d{2}-\\d{2})/(${RECORD_IDENTIFIER})/?$`,
 );
 
+export const PUBLIC_ARCHIVE_RECORD_DIAGNOSTIC = Object.freeze({
+  VALID: "valid",
+  MISSING_METADATA: "missing_metadata",
+  MALFORMED_ACTOR_PATH: "malformed_actor_path",
+  MALFORMED_EDITION_PATH: "malformed_edition_path",
+});
+
 function isCalendarDate(value) {
   const date = new Date(`${value}T00:00:00.000Z`);
   return !Number.isNaN(date.valueOf())
@@ -19,21 +26,37 @@ function isCalendarDate(value) {
  * missing or outside the approved reader routes.
  */
 export function publicArchiveRecord(value) {
-  if (!value || typeof value !== "object") return undefined;
-  const actorMatch = typeof value.actorPath === "string"
-    ? ACTOR_RECORD_PATH.exec(value.actorPath)
-    : null;
-  const editionMatch = typeof value.editionPath === "string"
-    ? EDITION_RECORD_PATH.exec(value.editionPath)
-    : null;
-  if (!actorMatch
-    || !editionMatch
-    || !isCalendarDate(editionMatch[1])
-    || editionMatch[2] !== actorMatch[1]) {
-    return undefined;
-  }
+  const diagnostic = publicArchiveRecordDiagnostic(value);
+  if (diagnostic.status !== PUBLIC_ARCHIVE_RECORD_DIAGNOSTIC.VALID) return undefined;
   return {
     actorPath: value.actorPath,
     editionPath: value.editionPath,
   };
+}
+
+/**
+ * Explains why a public-record path pair was rejected without returning either
+ * untrusted path. Safe for operator diagnostics.
+ */
+export function publicArchiveRecordDiagnostic(value) {
+  if (!value || typeof value !== "object"
+    || typeof value.actorPath !== "string"
+    || typeof value.editionPath !== "string") {
+    return { status: PUBLIC_ARCHIVE_RECORD_DIAGNOSTIC.MISSING_METADATA };
+  }
+  const actorMatch = typeof value.actorPath === "string"
+    ? ACTOR_RECORD_PATH.exec(value.actorPath)
+    : null;
+  if (!actorMatch) {
+    return { status: PUBLIC_ARCHIVE_RECORD_DIAGNOSTIC.MALFORMED_ACTOR_PATH };
+  }
+  const editionMatch = typeof value.editionPath === "string"
+    ? EDITION_RECORD_PATH.exec(value.editionPath)
+    : null;
+  if (!editionMatch
+    || !isCalendarDate(editionMatch[1])
+    || editionMatch[2] !== actorMatch[1]) {
+    return { status: PUBLIC_ARCHIVE_RECORD_DIAGNOSTIC.MALFORMED_EDITION_PATH };
+  }
+  return { status: PUBLIC_ARCHIVE_RECORD_DIAGNOSTIC.VALID };
 }

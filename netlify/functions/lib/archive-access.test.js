@@ -7,6 +7,7 @@ import {
   ARCHIVE_FREE_EDITION_COUNT,
   archiveAccessDecision,
   archiveAccessWindowDates,
+  archiveReaderLinkDiagnostic,
   ensureArchiveAccessWindow,
   freeArchiveDates,
   listArchiveCatalogEditions,
@@ -606,6 +607,43 @@ test("server projection and reader normalization share an all-or-nothing public-
       publicRecord,
     }).publicRecord, undefined);
   }
+});
+
+test("operator reader-link diagnostics distinguish missing, actor, and edition metadata failures", () => {
+  assert.deepEqual(archiveReaderLinkDiagnostic({
+    publicRecord: {
+      actorPath: "/vibe-atlas/actors/actor/",
+      editionPath: "/vibe-atlas/editions/2026-09-01/actor/",
+    },
+  }), { status: "valid" });
+  assert.deepEqual(archiveReaderLinkDiagnostic({}), { status: "missing_metadata" });
+  assert.deepEqual(archiveReaderLinkDiagnostic({
+    publicRecord: {
+      actorPath: "/admin/actors/actor",
+      editionPath: "/vibe-atlas/editions/2026-09-01/actor/",
+    },
+  }), { status: "malformed_actor_path" });
+  assert.deepEqual(archiveReaderLinkDiagnostic({
+    publicRecord: {
+      actorPath: "/vibe-atlas/actors/actor/",
+      editionPath: "javascript:alert(1)",
+    },
+  }), { status: "malformed_edition_path" });
+  assert.deepEqual(archiveReaderLinkDiagnostic({
+    publicRecord: {
+      actorPath: "/vibe-atlas/actors/actor/",
+      editionPath: "/vibe-atlas/editions/2026-09-01/other-actor/",
+    },
+  }), { status: "malformed_edition_path" });
+  assert.equal(
+    JSON.stringify(archiveReaderLinkDiagnostic({
+      publicRecord: {
+        actorPath: "javascript:alert(1)",
+        editionPath: "https://unsafe.example/edition",
+      },
+    })).includes("javascript:"),
+    false,
+  );
 });
 
 function archivePayload(date) {
