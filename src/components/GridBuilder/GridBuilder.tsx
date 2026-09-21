@@ -542,6 +542,10 @@ export const GridBuilder: React.FC<Props> = ({
     }
   }
 
+  function navigateAfterExport() {
+    onExported?.();
+  }
+
   /**
    * Render + share the grid. Does not auto-save — after a successful export
    * the notice area nudges the user to save if they haven't yet.
@@ -593,19 +597,26 @@ export const GridBuilder: React.FC<Props> = ({
       // blocks the download/share path, and export never saves a grid.
       let renderedBlob: Blob | null = null;
       const exportVariant = hasCollectorAccess ? 'master' : 'standard';
-      if (action === 'rednote') {
+      if (action === 'download_raw' || action === 'full') {
+        if (action === 'download_raw') {
+          prepared = await prepareShareCard(starData, 'raw', blob => { renderedBlob = blob; });
+          const anchor = document.createElement('a'); anchor.href = prepared.objectUrl; anchor.download = prepared.fileName; document.body.appendChild(anchor); anchor.click(); anchor.remove();
+          setTimeout(() => URL.revokeObjectURL(prepared!.objectUrl), 4000);
+          setNotice('PNG 已下载 ✓');
+          if (wasGridSaved) onExported?.();
+          else {
+            setShowSaveNudge(true);
+            setPendingNavAfterSave(true);
+          }
+          return;
+        }
+      } else {
         const preparedProposal = proposal;
         prepared = await prepareShareCard(starData, 'raw', blob => { renderedBlob = blob; });
         if (!mountedRef.current || proposalRef.current !== preparedProposal) { URL.revokeObjectURL(prepared.objectUrl); return; }
         setHandoffState({ objectUrl: prepared.objectUrl, file: prepared.file, tier: prepared.tier, expiresAt: Date.now() + 120_000 });
         setNotice('Handoff prepared.');
         return;
-      }
-      if (action === 'download_raw') {
-        prepared = await prepareShareCard(starData, 'raw', blob => { renderedBlob = blob; });
-        const anchor = document.createElement('a'); anchor.href = prepared.objectUrl; anchor.download = prepared.fileName; document.body.appendChild(anchor); anchor.click(); anchor.remove();
-        setTimeout(() => URL.revokeObjectURL(prepared!.objectUrl), 4000);
-        setNotice('PNG 已下载 ✓'); return;
       }
       const message = await saveShareCard(starData, exportVariant, (blob) => { renderedBlob = blob; });
       try {
@@ -633,7 +644,7 @@ export const GridBuilder: React.FC<Props> = ({
         setShowSaveNudge(true);
         setPendingNavAfterSave(true);
       } else {
-        onExported?.();
+        navigateAfterExport();
       }
     } catch (caught) {
       if (prepared?.objectUrl) URL.revokeObjectURL(prepared.objectUrl);
