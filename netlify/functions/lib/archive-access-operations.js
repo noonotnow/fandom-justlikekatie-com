@@ -766,7 +766,12 @@ async function getWithMetadata(store, key) {
     const entry = await store.getWithMetadata(key, { type: "text", consistency: "strong" });
     if (!entry) return null;
     const decoded = { ...entry, data: parseNotificationState(entry.data) };
-    if (entry.etag || typeof store.list !== "function") return decoded;
+    if (entry.etag) return decoded;
+    if (typeof store.getMetadata === "function") {
+      const metadata = await store.getMetadata(key, { consistency: "strong" });
+      if (metadata?.etag) return { ...decoded, etag: metadata.etag };
+    }
+    if (typeof store.list !== "function") return decoded;
     const listing = await store.list({ prefix: key });
     const blob = listing?.blobs?.find(candidate => candidate.key === key);
     return { ...decoded, etag: blob?.etag };

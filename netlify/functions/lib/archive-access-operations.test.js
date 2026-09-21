@@ -673,6 +673,86 @@ test("repair warning delivery failures expose a bounded deduplicated health sign
     .includes("private provider"), false);
 });
 
+test("repair warning failure tracking survives real Netlify Blob contention", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "archive-access-repair-warning-blobs-"));
+  const server = new BlobsServer({ directory });
+  const { address } = await server.start();
+  t.after(async () => {
+    await server.stop();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const data = getStore({
+    edgeURL: address,
+    uncachedEdgeURL: address,
+    name: "archive-access-repair-warning-contract",
+    siteID: "test-site",
+    token: "test-token",
+  });
+  const timestamps = [
+    "2026-09-20T08:00:00.000Z",
+    "2026-09-20T09:00:00.000Z",
+    "2026-09-20T10:00:00.000Z",
+  ];
+  await data.setJSON("archive-access:notification-repairs", { timestamps, warnedAt: null });
+  const health = { status: { billing: "normal", deniedAccess: "normal" } };
+  const escalations = [];
+  let deliveries = 0;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const now = new Date(`2026-09-20T1${attempt}:30:00.000Z`);
+    let deliveryStarted;
+    let releaseDelivery;
+    const started = new Promise(resolve => { deliveryStarted = resolve; });
+    const release = new Promise(resolve => { releaseDelivery = resolve; });
+    const options = {
+      store: data,
+      health,
+      notify: async () => {
+        deliveries += 1;
+        deliveryStarted();
+        await release;
+        throw new Error(`private provider failure ${attempt}`);
+      },
+      now,
+      logger: { error: (...args) => escalations.push(args) },
+    };
+    const activeDelivery = notifyArchiveAccessTransitions(options);
+    await started;
+    const contenders = Array.from(
+      { length: 7 },
+      () => notifyArchiveAccessTransitions(options),
+    );
+    const competingResults = await Promise.all(contenders);
+    releaseDelivery();
+    const deliveryResult = await Promise.allSettled([activeDelivery]);
+
+    assert.equal(deliveryResult[0].status, "rejected");
+    assert.ok(competingResults.every(result => result.length === 0));
+  }
+
+  const stored = (await data.getWithMetadata(
+    "archive-access:notification-repairs",
+    { type: "json", consistency: "strong" },
+  )).data;
+  const deliveryHealth = await archiveAccessNotificationDeliveryHealth(
+    data,
+    new Date("2026-09-20T14:00:00.000Z"),
+  );
+
+  assert.equal(deliveries, 4);
+  assert.equal(stored.delivery.consecutiveFailures, 4);
+  assert.equal(deliveryHealth.repairWarning.consecutiveFailures, 4);
+  assert.equal(deliveryHealth.repairWarning.escalatedAt, "2026-09-20T12:30:00.000Z");
+  assert.deepEqual(escalations, [[
+    "[archive-access] repair warning delivery repeatedly failed",
+    {
+      consecutiveFailures: 3,
+      lastFailedAt: "2026-09-20T12:30:00.000Z",
+    },
+  ]]);
+  assert.equal(JSON.stringify(stored).includes("private provider"), false);
+});
+
 test("successful repair warning delivery resets its failure streak and re-arms escalation", async () => {
   const data = store();
   const timestamps = [
