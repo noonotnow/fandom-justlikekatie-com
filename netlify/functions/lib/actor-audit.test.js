@@ -1760,6 +1760,90 @@ test("private calibration export does not synthesize legacy evidence or mix in c
   assert.match(payload.exportMetadata.limitations[0], /raw selected immutable run/);
 });
 
+test("private calibration export marks malformed retained proof metrics unavailable without rewriting the run", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const run = {
+    runId: "retained-malformed-proof",
+    startedAt: "2026-08-01T12:00:00.000Z",
+    calibrationProof: {
+      ready: true,
+      status: "reproduced_beyond_saved_nine",
+      beyondExactSavedNineCount: -1.5,
+      scoreDelta: "not-a-score",
+    },
+  };
+  const key = auditRunKey(pairActor.id, 0, run.runId);
+  store.records.set(key, structuredClone(run));
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    `?export=calibration&actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=${run.runId}`,
+  ), {});
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal("beyondExactSavedNineCount" in payload.run.calibrationProof, false);
+  assert.equal("scoreDelta" in payload.run.calibrationProof, false);
+  assert.ok(payload.exportMetadata.missingFields.includes(
+    "run.calibrationProof.beyondExactSavedNineCount",
+  ));
+  assert.ok(payload.exportMetadata.missingFields.includes(
+    "run.calibrationProof.scoreDelta",
+  ));
+  assert.deepEqual(store.records.get(key), run);
+});
+
+test("date-bounded calibration export omits malformed Legacy proof metrics and retains valid zeroes", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const malformed = {
+    runId: "legacy-malformed-export-proof",
+    profileVersion: "legacy",
+    startedAt: "2026-08-10T12:00:00.000Z",
+    calibrationProof: {
+      beyondExactSavedNineCount: Number.POSITIVE_INFINITY,
+      scoreDelta: Number.NaN,
+    },
+  };
+  const valid = {
+    runId: "retained-valid-export-proof",
+    startedAt: "2026-08-11T12:00:00.000Z",
+    calibrationProof: {
+      beyondExactSavedNineCount: 0,
+      scoreDelta: 0,
+    },
+  };
+  store.records.set(auditRunKey(pairActor.id, 0, malformed.runId), structuredClone(malformed));
+  store.records.set(auditRunKey(pairActor.id, 0, valid.runId), structuredClone(valid));
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    "?export=calibration&from=2026-08-01&to=2026-08-31",
+  ), {});
+  const payload = await response.json();
+  const malformedExport = payload.runs.find(item => item.run.runId === malformed.runId);
+  const validExport = payload.runs.find(item => item.run.runId === valid.runId);
+
+  assert.equal(response.status, 200);
+  assert.equal("beyondExactSavedNineCount" in malformedExport.run.calibrationProof, false);
+  assert.equal("scoreDelta" in malformedExport.run.calibrationProof, false);
+  assert.ok(malformedExport.exportMetadata.missingFields.includes(
+    "run.calibrationProof.beyondExactSavedNineCount",
+  ));
+  assert.ok(malformedExport.exportMetadata.missingFields.includes(
+    "run.calibrationProof.scoreDelta",
+  ));
+  assert.equal(validExport.run.calibrationProof.beyondExactSavedNineCount, 0);
+  assert.equal(validExport.run.calibrationProof.scoreDelta, 0);
+  assert.deepEqual(
+    store.records.get(auditRunKey(pairActor.id, 0, malformed.runId)),
+    malformed,
+  );
+});
+
 test("date-bounded calibration export includes only retained runs in range and never searches or writes", async () => {
   const { handler, store, getSearchCall } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);

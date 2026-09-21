@@ -4909,6 +4909,23 @@ function calibrationAuditExport(run, pair, humanVisualJudgments = []) {
   const missingFields = fields
     .filter(field => !Object.prototype.hasOwnProperty.call(run, field) || run[field] === null)
     .map(field => `run.${field}`);
+  if (projectedRun.calibrationProof) {
+    projectedRun.calibrationProof = { ...projectedRun.calibrationProof };
+    const effectCount = projectedRun.calibrationProof.beyondExactSavedNineCount;
+    if (effectCount !== undefined && (
+      !Number.isFinite(effectCount)
+      || !Number.isInteger(effectCount)
+      || effectCount < 0
+    )) {
+      delete projectedRun.calibrationProof.beyondExactSavedNineCount;
+      missingFields.push("run.calibrationProof.beyondExactSavedNineCount");
+    }
+    const scoreDelta = projectedRun.calibrationProof.scoreDelta;
+    if (scoreDelta !== undefined && !Number.isFinite(scoreDelta)) {
+      delete projectedRun.calibrationProof.scoreDelta;
+      missingFields.push("run.calibrationProof.scoreDelta");
+    }
+  }
   const exportMetadata = {
     readOnly: true,
     type: "curation-calibration-audit",
