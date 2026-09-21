@@ -180,6 +180,33 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
       } else {
         const targetPath = resourcePath(target);
         if (!targetPath) return;
+        if (ts.isObjectLiteralExpression(initializer)) {
+          clearBinding(targetPath);
+          for (const property of initializer.properties) {
+            if (
+              !ts.isPropertyAssignment(property)
+              && !ts.isShorthandPropertyAssignment(property)
+            ) {
+              continue;
+            }
+            const propertyName = property.name;
+            if (
+              !ts.isIdentifier(propertyName)
+              && !ts.isStringLiteral(propertyName)
+              && !ts.isNumericLiteral(propertyName)
+            ) {
+              continue;
+            }
+            const propertyValue = ts.isShorthandPropertyAssignment(property)
+              ? property.name
+              : property.initializer;
+            recordAssignment(
+              ts.factory.createPropertyAccessExpression(target, propertyName.text),
+              propertyValue,
+            );
+          }
+          return;
+        }
         const kinds = resourceKinds(initializer);
         if (kinds.size === 1) {
           markBinding(targetPath, kinds.values().next().value);

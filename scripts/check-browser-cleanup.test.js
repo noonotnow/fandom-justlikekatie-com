@@ -332,6 +332,37 @@ test('rejects cleanup through object properties holding assigned resources', () 
   assert.equal(violations[0].server, 'resources.runtime.server');
 });
 
+test('rejects cleanup through object-literal shorthand properties', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    const resources = { browser, server };
+    await resources.browser.close();
+    await resources.server.close();
+  `);
+
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].browser, 'resources.browser');
+  assert.equal(violations[0].server, 'resources.server');
+});
+
+test('retains resource kinds for renamed object-literal properties', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    const resources = {
+      renderer: browser,
+      daemon: server,
+    };
+    await resources.daemon.close();
+    await resources.renderer.close();
+  `);
+
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].browser, 'resources.renderer');
+  assert.equal(violations[0].server, 'resources.daemon');
+});
+
 test('rejects cleanup when factories assign directly to object properties', () => {
   const violations = findUnsafeBrowserCleanup(`
     const resources = {};
@@ -376,6 +407,16 @@ test('accepts page properties as page-only cleanup', () => {
     const { server } = await startViteTestServer();
     const page = await existingBrowser.newPage();
     resources.page = page;
+    await resources.page.close();
+    await server.close();
+  `), []);
+});
+
+test('accepts unrelated page properties in object literals', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const page = await existingBrowser.newPage();
+    const resources = { page };
     await resources.page.close();
     await server.close();
   `), []);
