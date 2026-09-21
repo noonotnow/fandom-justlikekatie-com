@@ -53,7 +53,7 @@ test('the response layer excludes private query views but not the public daily r
 
 test('private raw HTML responses carry X-Robots-Tag before JavaScript runs', async () => {
   const response = await seoIndexing(
-    new Request(`${PUBLIC_ORIGIN}${PUBLIC_ROUTE_PATHS.vibeAtlas}`),
+    new Request(`${PUBLIC_ORIGIN}${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=collection`),
     { next: async () => new Response(indexHtml, { headers: { 'content-type': 'text/html' } }) },
   );
 

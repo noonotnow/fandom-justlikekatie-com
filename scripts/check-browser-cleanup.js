@@ -30,53 +30,46 @@ function bindingIdentifier(binding) {
   return binding && ts.isIdentifier(binding.name) ? binding.name.text : null;
 }
 
-function collectOwnedResources(scope) {
-  const owned = new Map();
+function assignmentIdentifier(node) {
+  return ts.isIdentifier(node) ? node.text : null;
+}
 
-  function markBinding(name, kind) {
-    if (name) owned.set(name, kind);
+function markFactoryResult(target, factory, markBinding) {
+  if (ts.isIdentifier(target)) {
+    if (BROWSER_FACTORIES.test(factory)) markBinding(target.text, 'browser');
+    if (SERVER_FACTORIES.test(factory)) markBinding(target.text, 'server');
+    return;
   }
 
-  function collect(node) {
-    if (node !== scope && ts.isFunctionLike(node)) return;
-    if (ts.isVariableDeclaration(node) && node.initializer) {
-      const initializer = unwrappedInitializer(node.initializer);
-      const factory = calledName(initializer);
-
-      if (ts.isIdentifier(node.name)) {
-        if (factory && BROWSER_FACTORIES.test(factory)) markBinding(node.name.text, 'browser');
-        if (factory && SERVER_FACTORIES.test(factory)) markBinding(node.name.text, 'server');
-      } else if (factory && ts.isObjectBindingPattern(node.name)) {
-        for (const element of node.name.elements) {
-          const property = element.propertyName?.getText() ?? element.name.getText();
-          if (property === 'browser') markBinding(bindingIdentifier(element), 'browser');
-          if (property === 'server') markBinding(bindingIdentifier(element), 'server');
-        }
-      } else if (
-        factory === 'launchBrowserWithServer'
-        && ts.isArrayBindingPattern(node.name)
-      ) {
-        const serverResult = node.name.elements[0];
-        const browserResult = node.name.elements[1];
-        if (serverResult && ts.isBindingElement(serverResult)) {
-          if (ts.isObjectBindingPattern(serverResult.name)) {
-            for (const element of serverResult.name.elements) {
-              const property = element.propertyName?.getText() ?? element.name.getText();
-              if (property === 'server') markBinding(bindingIdentifier(element), 'server');
-            }
-          } else {
-            markBinding(bindingIdentifier(serverResult), 'server');
-          }
-        }
-        if (browserResult && ts.isBindingElement(browserResult)) {
-          markBinding(bindingIdentifier(browserResult), 'browser');
-        }
-      }
+  if (ts.isObjectBindingPattern(target) || ts.isObjectLiteralExpression(target)) {
+    for (const element of target.elements ?? target.properties) {
+      const property = element.propertyName?.getText() ?? element.name?.getText();
+      const name = ts.isBindingElement(element)
+        ? bindingIdentifier(element)
+        : assignmentIdentifier(element.initializer ?? element.name);
+      if (property === 'browser') markBinding(name, 'browser');
+      if (property === 'server') markBinding(name, 'server');
     }
-    ts.forEachChild(node, collect);
+    return;
   }
-  collect(scope);
-  return owned;
+
+  if (
+    factory === 'launchBrowserWithServer'
+    && (ts.isArrayBindingPattern(target) || ts.isArrayLiteralExpression(target))
+  ) {
+    const [serverResult, browserResult] = target.elements;
+    const serverTarget = ts.isBindingElement(serverResult) ? serverResult.name : serverResult;
+    const browserTarget = ts.isBindingElement(browserResult) ? browserResult.name : browserResult;
+    if (
+      serverTarget
+      && (ts.isObjectBindingPattern(serverTarget) || ts.isObjectLiteralExpression(serverTarget))
+    ) {
+      markFactoryResult(serverTarget, factory, markBinding);
+    } else {
+      markBinding(assignmentIdentifier(serverTarget), 'server');
+    }
+    markBinding(assignmentIdentifier(browserTarget), 'browser');
+  }
 }
 
 function closedResource(node) {
@@ -106,14 +99,44 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
   const violations = [];
 
   function inspectScope(scope) {
-    const owned = collectOwnedResources(scope);
-    if (![...owned.values()].includes('browser') || ![...owned.values()].includes('server')) {
-      return;
+    const owned = new Map();
+    const closes = [];
+    function markBinding(name, kind) {
+      if (name) owned.set(name, kind);
     }
 
-    const closes = [];
+    function recordAssignment(target, value) {
+      const initializer = unwrappedInitializer(value);
+      const factory = calledName(initializer);
+      const recognizedFactory = factory && (
+        BROWSER_FACTORIES.test(factory)
+        || SERVER_FACTORIES.test(factory)
+      );
+      if (recognizedFactory) {
+        markFactoryResult(target, factory, markBinding);
+      } else if (ts.isIdentifier(target) && ts.isIdentifier(initializer)) {
+        const kind = owned.get(initializer.text);
+        if (kind) {
+          markBinding(target.text, kind);
+        } else {
+          owned.delete(target.text);
+        }
+      } else if (ts.isIdentifier(target)) {
+        owned.delete(target.text);
+      }
+    }
+
     function collect(node) {
       if (node !== scope && ts.isFunctionLike(node)) return;
+      if (ts.isVariableDeclaration(node) && node.initializer) {
+        recordAssignment(node.name, node.initializer);
+      } else if (
+        ts.isBinaryExpression(node)
+        && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      ) {
+        recordAssignment(node.left, node.right);
+      }
+
       const resource = closedResource(node);
       if (resource && owned.has(resource.name)) {
         closes.push({ ...resource, kind: owned.get(resource.name) });

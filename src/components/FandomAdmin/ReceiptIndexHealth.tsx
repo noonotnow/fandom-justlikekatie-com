@@ -1,4 +1,4 @@
-import React, { type FC } from 'react';
+import React from 'react';
 
 type ReceiptIndexHealthValue = {
   status?: unknown;
@@ -26,7 +26,7 @@ const messages: Record<string, string> = {
   unavailable: 'Receipt index readiness could not be checked because the production database is unavailable.',
 };
 
-export const ReceiptIndexHealth: FC<{
+export const ReceiptIndexHealth: React.FC<{
   health: ReceiptIndexHealthValue;
   classes?: ReceiptIndexHealthClasses;
 }> = ({ health, classes }) => {

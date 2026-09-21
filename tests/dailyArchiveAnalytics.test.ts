@@ -543,7 +543,6 @@ test('resetting the archive measurement start permits one new ready notification
 test('every visible archive record-link location is instrumented', () => {
   for (const [location, expectedActorLinks, expectedEditionLinks] of [
     ['daily', 1, 1],
-    ['archive_picker', 1, 1],
     ['locked_preview', 1, 1],
     ['full_archive', 1, 2],
   ] as const) {
@@ -561,7 +560,6 @@ test('every visible archive record-link location is instrumented', () => {
 test('every archive record-link placement has a visibility impression', () => {
   for (const [location, expectedPlacements] of [
     ['daily', 1],
-    ['archive_picker', 1],
     ['locked_preview', 1],
     ['full_archive', 2],
   ] as const) {

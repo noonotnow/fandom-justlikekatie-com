@@ -240,7 +240,7 @@ export function historicalEditionHref(grid: Pick<GridRecord, 'sourceProvenance'>
     || !provenance.editionDate
     || !/^\d{4}-\d{2}-\d{2}$/u.test(provenance.editionDate)
   ) return undefined;
-  return `/vibe-atlas?date=${encodeURIComponent(provenance.editionDate)}`;
+  return `${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(provenance.editionDate)}`;
 }
 
 export function markGridAsLegendaryMisprint(

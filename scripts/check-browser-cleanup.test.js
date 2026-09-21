@@ -77,6 +77,86 @@ test('accepts page-only sequential cleanup when a server is owned', () => {
   `), []);
 });
 
+test('rejects cleanup of browser and server acquired through later assignments', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    let daemon;
+    let renderer;
+    ({ server: daemon } = await startViteTestServer());
+    renderer = await chromium.launch();
+    await renderer.close();
+    await daemon.close();
+  `);
+
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].browser, 'renderer');
+  assert.equal(violations[0].server, 'daemon');
+});
+
+test('rejects cleanup after shorthand destructuring assignment', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    let server;
+    ({ server } = await startViteTestServer());
+    let browser;
+    browser = await launchBrowserForServer(server);
+    await browser.close();
+    await server.close();
+  `);
+
+  assert.equal(violations.length, 1);
+});
+
+test('rejects cleanup after assigned array destructuring with renamed resources', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    let daemon;
+    let renderer;
+    [{ server: daemon }, renderer] = await launchBrowserWithServer(startViteTestServer());
+    await renderer.close();
+    await daemon.close();
+  `);
+
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].browser, 'renderer');
+  assert.equal(violations[0].server, 'daemon');
+});
+
+test('rejects cleanup through aliases of assigned resources', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    let daemon;
+    daemon = await createServer();
+    const serverAlias = daemon;
+    const renderer = await launch();
+    let browserAlias;
+    browserAlias = renderer;
+    await serverAlias.close();
+    await browserAlias.close();
+  `);
+
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].browser, 'browserAlias');
+  assert.equal(violations[0].server, 'serverAlias');
+});
+
+test('accepts a page alias as page-only cleanup', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const page = await existingBrowser.newPage();
+    let tab;
+    tab = page;
+    await tab.close();
+    await server.close();
+  `), []);
+});
+
+test('accepts cleanup after a tracked name is reassigned to a page', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    let resource = await launchBrowserForServer(server);
+    resource = await resource.newPage();
+    await resource.close();
+    await server.close();
+  `), []);
+});
+
 test('current browser fixtures use safe cleanup', () => {
   assert.deepEqual(checkBrowserCleanupFiles(), []);
 });
