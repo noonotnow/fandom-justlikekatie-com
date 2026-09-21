@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import seoIndexing, { shouldNoindexUrl } from '../netlify/edge-functions/seo-indexing.js';
-import { PUBLIC_ORIGIN, PUBLIC_ROUTE_PATHS, publicRouteUrl } from '../shared/public-routes.js';
+import {
+  PUBLIC_ORIGIN,
+  PUBLIC_ROUTE_PATHS,
+  VIBE_ATLAS_NETLIFY_ROUTES,
+  publicRouteUrl,
+} from '../shared/public-routes.js';
 import { injectLaunchpadCanonical } from '../vite.config.js';
 import { readFile, readdir } from 'node:fs/promises';
 
@@ -10,6 +15,15 @@ const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'ut
 const netlifyConfig = await readFile(new URL('../netlify.toml', import.meta.url), 'utf8');
 const robots = await readFile(new URL('../public/robots.txt', import.meta.url), 'utf8');
 const sitemap = await readFile(new URL('../public/sitemap.xml', import.meta.url), 'utf8');
+
+function netlifyBlocks(section: string) {
+  return [...netlifyConfig.matchAll(
+    new RegExp(`\\[\\[${section}\\]\\]\\s*([\\s\\S]*?)(?=\\n\\[\\[|$)`, 'g'),
+  )].map(([, body]) => Object.fromEntries(
+    [...body.matchAll(/^\s*(\w+)\s*=\s*(?:"([^"]*)"|(\d+|true|false))\s*$/gm)]
+      .map(([, key, quoted, bare]) => [key, quoted ?? bare]),
+  ));
+}
 
 const srcRouteSources = await Promise.all(
   (await readdir(new URL('../src/', import.meta.url), { recursive: true }))
@@ -90,13 +104,39 @@ test('the public daily HTML remains indexable and advertises its own route', asy
   assert.match(await readFile(new URL('../netlify/edge-functions/seo-indexing.js', import.meta.url), 'utf8'), /PUBLIC_ROUTE_PATHS\.vibeAtlasActors/);
 });
 
-test('Netlify applies the response rule to each SPA studio entry point', () => {
-  assert.match(netlifyConfig, /function = "seo-indexing"/);
-  assert.match(netlifyConfig, /path = "\/vibe-atlas"/);
-  assert.match(netlifyConfig, /path = "\/auth\/\*"/);
-  assert.match(netlifyConfig, /path = "\/memeforge\/middle-earth"/);
-  assert.match(netlifyConfig, /from = "\/vibe-atlas\/actors\/\*"/);
-  assert.match(netlifyConfig, /from = "\/vibe-atlas\/editions\/\*"/);
+test('Netlify route bindings match the shared Vibe Atlas public-route registry', () => {
+  const edgePaths = netlifyBlocks('edge_functions')
+    .filter(({ function: functionName }) => functionName === 'seo-indexing')
+    .map(({ path }) => path);
+  const publicRecordRedirects = netlifyBlocks('redirects')
+    .filter(({ to }) => to === '/.netlify/functions/public-records')
+    .map(({ from, status, force }) => ({ from, status, force }));
+
+  for (const path of VIBE_ATLAS_NETLIFY_ROUTES.seoIndexing) {
+    assert.equal(
+      edgePaths.filter(candidate => candidate === path).length,
+      1,
+      `Netlify must bind seo-indexing exactly once to ${path}`,
+    );
+  }
+  assert.deepEqual(
+    publicRecordRedirects,
+    VIBE_ATLAS_NETLIFY_ROUTES.publicRecords.map(from => ({
+      from,
+      status: '200',
+      force: 'true',
+    })),
+  );
+});
+
+test('Netlify still applies indexing protection to the other SPA entry points', () => {
+  const edgePaths = netlifyBlocks('edge_functions')
+    .filter(({ function: functionName }) => functionName === 'seo-indexing')
+    .map(({ path }) => path);
+
+  assert.ok(edgePaths.includes('/auth/*'));
+  assert.ok(edgePaths.includes('/memeforge/middle-earth'));
+  assert.ok(edgePaths.includes('/memeforge/middle-earth/*'));
   assert.match(netlifyConfig, /from = "\/sitemap\.xml"/);
 });
 

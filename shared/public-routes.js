@@ -9,6 +9,17 @@ export const PUBLIC_ROUTE_PATHS = Object.freeze({
   vibeAtlasVeteranJournal: "/vibe-atlas/veteran-journal",
 });
 
+export const VIBE_ATLAS_NETLIFY_ROUTES = Object.freeze({
+  seoIndexing: Object.freeze([
+    PUBLIC_ROUTE_PATHS.vibeAtlas,
+    `${PUBLIC_ROUTE_PATHS.vibeAtlas}/*`,
+  ]),
+  publicRecords: Object.freeze([
+    `${PUBLIC_ROUTE_PATHS.vibeAtlasActors}/*`,
+    `${PUBLIC_ROUTE_PATHS.vibeAtlasEditions}/*`,
+  ]),
+});
+
 const editorial = (path, priority = "0.8") => ({
   path,
   changefreq: "monthly",
