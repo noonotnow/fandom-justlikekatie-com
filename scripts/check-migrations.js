@@ -33,6 +33,118 @@ function applicationOwned(identifier) {
   return !normalized.includes(".") || normalized.startsWith("public.");
 }
 
+function compactIdentifier(identifier) {
+  return identifier.replace(/\s+/g, "");
+}
+
+function escapeExpression(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function matchingParenthesis(sql, openingPosition) {
+  let depth = 0;
+  for (let position = openingPosition; position < sql.length; position += 1) {
+    if (sql[position] === "(") depth += 1;
+    if (sql[position] !== ")") continue;
+    depth -= 1;
+    if (depth === 0) return position;
+  }
+  return -1;
+}
+
+function splitArguments(signature) {
+  const argumentsList = [];
+  let depth = 0;
+  let start = 0;
+  for (let position = 0; position < signature.length; position += 1) {
+    if (signature[position] === "(") depth += 1;
+    if (signature[position] === ")") depth -= 1;
+    if (signature[position] !== "," || depth !== 0) continue;
+    argumentsList.push(signature.slice(start, position));
+    start = position + 1;
+  }
+  argumentsList.push(signature.slice(start));
+  return argumentsList;
+}
+
+function routineIdentity(signature, declaration) {
+  const multiwordTypeStarts = new Set([
+    "bit",
+    "character",
+    "double",
+    "national",
+    "time",
+    "timestamp",
+  ]);
+  return splitArguments(signature)
+    .map(argument => argument
+      .replace(/\s+(?:DEFAULT\b|=)[\s\S]*$/i, "")
+      .trim())
+    .filter(Boolean)
+    .map(argument => {
+      const modeMatch = /^(INOUT|IN|OUT|VARIADIC)\s+/i.exec(argument);
+      const mode = modeMatch?.[1].toUpperCase();
+      let identityArgument = modeMatch
+        ? argument.slice(modeMatch[0].length).trim()
+        : argument;
+      if (mode === "OUT") return null;
+
+      if (declaration) {
+        const tokens = identityArgument.split(/\s+/);
+        const firstToken = tokens[0].replaceAll('"', "").toLowerCase();
+        if (
+          tokens.length > 1 &&
+          !multiwordTypeStarts.has(firstToken)
+        ) {
+          identityArgument = tokens.slice(1).join(" ");
+        }
+      }
+
+      const normalizedType = identityArgument
+        .replace(/\s+/g, " ")
+        .replace(/\s*([()[\],.])\s*/g, "$1")
+        .toLowerCase();
+      return mode === "INOUT" || mode === "VARIADIC"
+        ? `${mode.toLowerCase()} ${normalizedType}`
+        : normalizedType;
+    })
+    .filter(Boolean)
+    .join(",");
+}
+
+function routines(sql, operation) {
+  const objectName = String.raw`((?:"[^"]+"|[a-z_][a-z0-9_$]*)(?:\s*\.\s*(?:"[^"]+"|[a-z_][a-z0-9_$]*))?)`;
+  const expression = operation === "CREATE"
+    ? new RegExp(
+      String.raw`\bCREATE\s+(OR\s+REPLACE\s+)?(FUNCTION|PROCEDURE)\s+${objectName}\s*\(`,
+      "gi",
+    )
+    : new RegExp(
+      String.raw`\bDROP\s+(FUNCTION|PROCEDURE)\s+IF\s+EXISTS\s+${objectName}\s*\(`,
+      "gi",
+    );
+  const matches = [];
+  for (const match of sql.matchAll(expression)) {
+    const closingPosition = matchingParenthesis(
+      sql,
+      match.index + match[0].length - 1,
+    );
+    if (closingPosition === -1) continue;
+    const create = operation === "CREATE";
+    matches.push({
+      kind: match[create ? 2 : 1].toUpperCase(),
+      name: compactIdentifier(match[create ? 3 : 2]),
+      identity: routineIdentity(
+        sql.slice(match.index + match[0].length, closingPosition),
+        create,
+      ),
+      orReplace: create && Boolean(match[1]),
+      position: match.index,
+    });
+  }
+  return matches;
+}
+
 function ordinaryDdlErrors(sql) {
   const errors = [];
   const declarativeSql = sql;
@@ -72,8 +184,8 @@ function ordinaryDdlErrors(sql) {
   for (const { expression, label } of createPatterns) {
     for (const match of declarativeSql.matchAll(expression)) {
       if (!applicationOwned(match[1])) continue;
-      const name = match[1].replace(/\s+/g, "");
-      const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const name = compactIdentifier(match[1]);
+      const escapedName = escapeExpression(name);
       const type = label === "CREATE TYPE"
         ? "TYPE"
         : label === "CREATE INDEX"
@@ -91,6 +203,78 @@ function ordinaryDdlErrors(sql) {
     }
   }
 
+  const droppedRoutines = routines(declarativeSql, "DROP");
+  for (const routine of routines(declarativeSql, "CREATE")) {
+    if (!applicationOwned(routine.name) || routine.orReplace) continue;
+    const hasPriorRepairDrop = droppedRoutines.some(drop =>
+      drop.kind === routine.kind &&
+      drop.name.toLowerCase() === routine.name.toLowerCase() &&
+      drop.identity === routine.identity &&
+      drop.position < routine.position
+    );
+    if (!hasPriorRepairDrop) {
+      errors.push(
+        `CREATE ${routine.kind} ${routine.name}(${routine.identity}) needs OR REPLACE, a guarded DO block, or a prior matching DROP ${routine.kind} IF EXISTS repair`,
+      );
+    }
+  }
+
+  const createView = new RegExp(
+    String.raw`\bCREATE\s+(?!OR\s+REPLACE\s+)(?:(?:TEMP|TEMPORARY)\s+)?(?:RECURSIVE\s+)?VIEW\s+${objectName}`,
+    "gi",
+  );
+  for (const match of declarativeSql.matchAll(createView)) {
+    if (!applicationOwned(match[1])) continue;
+    const name = compactIdentifier(match[1]);
+    const hasPriorRepairDrop = new RegExp(
+      String.raw`\bDROP\s+VIEW\s+IF\s+EXISTS\s+${escapeExpression(name)}(?:\s+(?:CASCADE|RESTRICT))?\s*;`,
+      "i",
+    ).test(declarativeSql.slice(0, match.index));
+    if (!hasPriorRepairDrop) {
+      errors.push(
+        `CREATE VIEW ${name} needs OR REPLACE, a guarded DO block, or a prior matching DROP VIEW IF EXISTS repair`,
+      );
+    }
+  }
+
+  const createTrigger = new RegExp(
+    String.raw`\bCREATE\s+(?:CONSTRAINT\s+)?TRIGGER\s+((?:"[^"]+"|[a-z_][a-z0-9_$]*))[\s\S]*?\bON\s+${objectName}`,
+    "gi",
+  );
+  for (const match of declarativeSql.matchAll(createTrigger)) {
+    if (!applicationOwned(match[2])) continue;
+    const triggerName = compactIdentifier(match[1]);
+    const tableName = compactIdentifier(match[2]);
+    const hasPriorRepairDrop = new RegExp(
+      String.raw`\bDROP\s+TRIGGER\s+IF\s+EXISTS\s+${escapeExpression(triggerName)}\s+ON\s+${escapeExpression(tableName)}(?:\s+(?:CASCADE|RESTRICT))?\s*;`,
+      "i",
+    ).test(declarativeSql.slice(0, match.index));
+    if (!hasPriorRepairDrop) {
+      errors.push(
+        `CREATE TRIGGER ${triggerName} ON ${tableName} needs a guarded DO block or a prior matching DROP TRIGGER IF EXISTS repair`,
+      );
+    }
+  }
+
+  const createPolicy = new RegExp(
+    String.raw`\bCREATE\s+POLICY\s+((?:"[^"]+"|[a-z_][a-z0-9_$]*))\s+ON\s+${objectName}`,
+    "gi",
+  );
+  for (const match of declarativeSql.matchAll(createPolicy)) {
+    if (!applicationOwned(match[2])) continue;
+    const policyName = compactIdentifier(match[1]);
+    const tableName = compactIdentifier(match[2]);
+    const hasPriorRepairDrop = new RegExp(
+      String.raw`\bDROP\s+POLICY\s+IF\s+EXISTS\s+${escapeExpression(policyName)}\s+ON\s+${escapeExpression(tableName)}(?:\s+(?:CASCADE|RESTRICT))?\s*;`,
+      "i",
+    ).test(declarativeSql.slice(0, match.index));
+    if (!hasPriorRepairDrop) {
+      errors.push(
+        `CREATE POLICY ${policyName} ON ${tableName} needs a guarded DO block or a prior matching DROP POLICY IF EXISTS repair`,
+      );
+    }
+  }
+
   const alterTable = new RegExp(
     String.raw`\bALTER\s+TABLE\s+(?:ONLY\s+)?${objectName}([\s\S]*?);`,
     "gi",
@@ -98,7 +282,7 @@ function ordinaryDdlErrors(sql) {
   for (const match of declarativeSql.matchAll(alterTable)) {
     if (!applicationOwned(match[1])) continue;
     let changes = match[2];
-    const tableName = match[1].replace(/\s+/g, "");
+    const tableName = compactIdentifier(match[1]);
     const addConstraint = /\bADD\s+CONSTRAINT\s+("?[^"\s,;()]+"?)/gi;
     changes = changes.replace(addConstraint, (addition, constraintName, offset) => {
       const escapedTable = tableName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -220,3 +220,160 @@ ALTER TABLE accounts ALTER COLUMN id SET DEFAULT 'pending';`,
     ]),
   );
 });
+
+test("rejects advanced DDL that fails when an interrupted migration retries", () => {
+  assert.throws(
+    () =>
+      validateMigrations([
+        {
+          name: "001_advanced_objects.sql",
+          sql: `CREATE FUNCTION public.account_slug(account_id TEXT)
+RETURNS TEXT LANGUAGE SQL AS 'SELECT account_id';
+CREATE VIEW public.active_accounts AS SELECT id FROM accounts;
+CREATE TRIGGER accounts_updated BEFORE UPDATE ON public.accounts
+FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+CREATE POLICY accounts_owner ON public.accounts USING (owner_id = current_user);`,
+        },
+      ]),
+    error => {
+      assert.match(error.message, /CREATE FUNCTION public\.account_slug/);
+      assert.match(error.message, /CREATE VIEW public\.active_accounts/);
+      assert.match(
+        error.message,
+        /CREATE TRIGGER accounts_updated ON public\.accounts/,
+      );
+      assert.match(
+        error.message,
+        /CREATE POLICY accounts_owner ON public\.accounts/,
+      );
+      return true;
+    },
+  );
+});
+
+test("accepts retry-safe advanced DDL forms", () => {
+  assert.doesNotThrow(() =>
+    validateMigrations([
+      {
+        name: "001_advanced_objects.sql",
+        sql: `CREATE OR REPLACE FUNCTION public.account_slug(account_id TEXT)
+RETURNS TEXT LANGUAGE SQL AS 'SELECT account_id';
+CREATE OR REPLACE VIEW public.active_accounts AS SELECT id FROM accounts;
+DROP FUNCTION IF EXISTS public.legacy_slug(TEXT);
+CREATE FUNCTION public.legacy_slug(TEXT)
+RETURNS TEXT LANGUAGE SQL AS 'SELECT $1';
+DROP TRIGGER IF EXISTS accounts_updated ON public.accounts;
+CREATE TRIGGER accounts_updated BEFORE UPDATE ON public.accounts
+FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+DROP POLICY IF EXISTS accounts_owner ON public.accounts;
+CREATE POLICY accounts_owner ON public.accounts USING (owner_id = current_user);
+DROP VIEW IF EXISTS public.account_summary;
+CREATE VIEW public.account_summary AS SELECT count(*) FROM accounts;
+DROP FUNCTION IF EXISTS public.named_slug(TEXT);
+CREATE FUNCTION public.named_slug(account_id TEXT)
+RETURNS TEXT LANGUAGE SQL AS 'SELECT account_id';
+DO $migration$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policy WHERE polname = 'account_reader') THEN
+    CREATE POLICY account_reader ON public.accounts USING (true);
+  END IF;
+END
+$migration$;`,
+      },
+    ]),
+  );
+});
+
+test("recognizes modified ordinary view declarations", () => {
+  assert.throws(
+    () =>
+      validateMigrations([
+        {
+          name: "001_advanced_objects.sql",
+          sql: `CREATE RECURSIVE VIEW public.account_tree(id) AS SELECT id FROM accounts;
+CREATE TEMP VIEW public.pending_accounts AS SELECT id FROM accounts;
+CREATE TEMPORARY RECURSIVE VIEW public.pending_tree(id) AS SELECT id FROM accounts;`,
+        },
+      ]),
+    error => {
+      assert.match(error.message, /CREATE VIEW public\.account_tree/);
+      assert.match(error.message, /CREATE VIEW public\.pending_accounts/);
+      assert.match(error.message, /CREATE VIEW public\.pending_tree/);
+      return true;
+    },
+  );
+
+  assert.doesNotThrow(() =>
+    validateMigrations([
+      {
+        name: "001_advanced_objects.sql",
+        sql: `CREATE OR REPLACE RECURSIVE VIEW public.account_tree(id) AS SELECT id FROM accounts;
+CREATE OR REPLACE TEMP VIEW public.pending_accounts AS SELECT id FROM accounts;`,
+      },
+    ]),
+  );
+});
+
+test("requires advanced repair drops to match the created object", () => {
+  assert.throws(
+    () =>
+      validateMigrations([
+        {
+          name: "001_advanced_objects.sql",
+          sql: `DROP TRIGGER IF EXISTS other_trigger ON public.accounts;
+CREATE TRIGGER accounts_updated BEFORE UPDATE ON public.accounts
+FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+DROP POLICY IF EXISTS accounts_owner ON public.other_accounts;
+CREATE POLICY accounts_owner ON public.accounts USING (true);`,
+        },
+      ]),
+    error => {
+      assert.match(error.message, /CREATE TRIGGER accounts_updated/);
+      assert.match(error.message, /CREATE POLICY accounts_owner/);
+      return true;
+    },
+  );
+});
+
+test("requires routine repair drops to match the created routine kind", () => {
+  assert.throws(
+    () =>
+      validateMigrations([
+        {
+          name: "001_advanced_objects.sql",
+          sql: `DROP PROCEDURE IF EXISTS public.refresh_account();
+CREATE FUNCTION public.refresh_account()
+RETURNS trigger LANGUAGE SQL AS 'SELECT NULL';
+DROP FUNCTION IF EXISTS public.sync_account();
+CREATE PROCEDURE public.sync_account()
+LANGUAGE SQL AS 'SELECT NULL';`,
+        },
+      ]),
+    error => {
+      assert.match(
+        error.message,
+        /CREATE FUNCTION public\.refresh_account\(\) needs/,
+      );
+      assert.match(
+        error.message,
+        /CREATE PROCEDURE public\.sync_account\(\) needs/,
+      );
+      return true;
+    },
+  );
+});
+
+test("ignores advanced objects owned by an external schema", () => {
+  assert.doesNotThrow(() =>
+    validateMigrations([
+      {
+        name: "001_external_objects.sql",
+        sql: `CREATE FUNCTION stripe.refresh_account() RETURNS trigger LANGUAGE SQL AS 'SELECT NULL';
+CREATE VIEW stripe.account_summary AS SELECT 1;
+CREATE TRIGGER account_sync AFTER UPDATE ON stripe.accounts
+FOR EACH ROW EXECUTE FUNCTION stripe.sync_account();
+CREATE POLICY account_reader ON stripe.accounts USING (true);`,
+      },
+    ]),
+  );
+});
