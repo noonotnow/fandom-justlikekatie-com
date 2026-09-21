@@ -48,6 +48,23 @@ function assignmentIdentifier(node) {
   return ts.isIdentifier(node) ? node.text : null;
 }
 
+function staticPropertyName(node) {
+  if (
+    ts.isIdentifier(node)
+    || ts.isStringLiteral(node)
+    || ts.isNumericLiteral(node)
+  ) {
+    return node.text;
+  }
+  if (
+    ts.isComputedPropertyName(node)
+    && (ts.isStringLiteral(node.expression) || ts.isNumericLiteral(node.expression))
+  ) {
+    return node.expression.text;
+  }
+  return null;
+}
+
 function markFactoryResult(target, factory, markBinding) {
   const targetPath = resourcePath(target);
   if (targetPath) {
@@ -132,10 +149,21 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
 
   function inspectScope(scope) {
     const owned = new Map();
+    const knownProperties = new Map();
+    function registerProperty(path) {
+      const separator = path.lastIndexOf('.');
+      if (separator < 0) return;
+      const parent = path.slice(0, separator);
+      const property = path.slice(separator + 1);
+      if (!knownProperties.has(parent)) knownProperties.set(parent, new Set());
+      knownProperties.get(parent).add(property);
+    }
+
     function markBinding(name, kind) {
       if (!name) return;
       clearBinding(name);
       owned.set(name, kind);
+      registerProperty(name);
     }
 
     function clearBinding(name) {
@@ -146,6 +174,14 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
           || ownedName.startsWith(`${name}[`)
         ) {
           owned.delete(ownedName);
+        }
+      }
+    }
+
+    function clearKnownProperties(name) {
+      for (const knownName of knownProperties.keys()) {
+        if (knownName === name || knownName.startsWith(`${name}.`)) {
+          knownProperties.delete(knownName);
         }
       }
     }
@@ -182,6 +218,78 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
       return new Set();
     }
 
+    function spreadOwnedProperties(target, source) {
+      const targetPath = resourcePath(target);
+      const initializer = unwrappedInitializer(source);
+      if (!targetPath) return;
+      if (ts.isObjectLiteralExpression(initializer)) {
+        applyObjectLiteral(target, initializer, false);
+        return;
+      }
+
+      const sourcePath = resourcePath(initializer);
+      if (!sourcePath) return;
+
+      const properties = knownProperties.get(sourcePath);
+      if (!properties) return;
+
+      const transferred = [];
+      for (const property of properties) {
+        const sourceProperty = `${sourcePath}.${property}`;
+        const targetProperty = `${targetPath}.${property}`;
+        clearBinding(targetProperty);
+        clearKnownProperties(targetProperty);
+        for (const [ownedPath, kind] of owned) {
+          if (ownedPath === sourceProperty || ownedPath.startsWith(`${sourceProperty}.`)) {
+            transferred.push([
+              `${targetProperty}${ownedPath.slice(sourceProperty.length)}`,
+              kind,
+            ]);
+          }
+        }
+      }
+      for (const [ownedPath, kind] of transferred) {
+        markBinding(ownedPath, kind);
+      }
+      knownProperties.set(targetPath, new Set([
+        ...(knownProperties.get(targetPath) ?? []),
+        ...properties,
+      ]));
+    }
+
+    function applyObjectLiteral(target, initializer, reset) {
+      const targetPath = resourcePath(target);
+      if (!targetPath) return;
+      if (!knownProperties.has(targetPath)) knownProperties.set(targetPath, new Set());
+      if (reset) {
+        clearBinding(targetPath);
+        clearKnownProperties(targetPath);
+        knownProperties.set(targetPath, new Set());
+      }
+      for (const property of initializer.properties) {
+        if (ts.isSpreadAssignment(property)) {
+          spreadOwnedProperties(target, property.expression);
+          continue;
+        }
+        if (
+          !ts.isPropertyAssignment(property)
+          && !ts.isShorthandPropertyAssignment(property)
+        ) {
+          continue;
+        }
+        const propertyName = staticPropertyName(property.name);
+        if (propertyName === null) continue;
+        knownProperties.get(targetPath)?.add(propertyName);
+        const propertyValue = ts.isShorthandPropertyAssignment(property)
+          ? property.name
+          : property.initializer;
+        recordAssignment(
+          ts.factory.createPropertyAccessExpression(target, propertyName),
+          propertyValue,
+        );
+      }
+    }
+
     function recordAssignment(target, value) {
       const initializer = unwrappedInitializer(value);
       const factory = calledName(initializer);
@@ -194,31 +302,9 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
       } else {
         const targetPath = resourcePath(target);
         if (!targetPath) return;
+        registerProperty(targetPath);
         if (ts.isObjectLiteralExpression(initializer)) {
-          clearBinding(targetPath);
-          for (const property of initializer.properties) {
-            if (
-              !ts.isPropertyAssignment(property)
-              && !ts.isShorthandPropertyAssignment(property)
-            ) {
-              continue;
-            }
-            const propertyName = property.name;
-            if (
-              !ts.isIdentifier(propertyName)
-              && !ts.isStringLiteral(propertyName)
-              && !ts.isNumericLiteral(propertyName)
-            ) {
-              continue;
-            }
-            const propertyValue = ts.isShorthandPropertyAssignment(property)
-              ? property.name
-              : property.initializer;
-            recordAssignment(
-              ts.factory.createPropertyAccessExpression(target, propertyName.text),
-              propertyValue,
-            );
-          }
+          applyObjectLiteral(target, initializer, true);
           return;
         }
         if (ts.isArrayLiteralExpression(initializer)) {
@@ -240,6 +326,7 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
           markBinding(targetPath, kinds.values().next().value);
         } else {
           clearBinding(targetPath);
+          clearKnownProperties(targetPath);
         }
       }
     }

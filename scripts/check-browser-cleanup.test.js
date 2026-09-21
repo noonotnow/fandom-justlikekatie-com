@@ -623,6 +623,88 @@ test('retains resource kinds for renamed object-literal properties', () => {
   assert.equal(violations[0].server, 'resources.daemon');
 });
 
+test('rejects cleanup through resources copied by object spread', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    const acquired = { browser, server };
+    const resources = { label: 'fixture', ...acquired };
+    await resources.browser.close();
+    await resources.server.close();
+  `);
+
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].browser, 'resources.browser');
+  assert.equal(violations[0].server, 'resources.server');
+});
+
+test('rejects cleanup through an inline object-literal spread', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    const resources = { ...{ browser, server } };
+    await resources.browser.close();
+    await resources.server.close();
+  `);
+
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].browser, 'resources.browser');
+  assert.equal(violations[0].server, 'resources.server');
+});
+
+test('accepts explicit properties after spread that override resource ownership', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    const acquired = { browser, server };
+    const resources = {
+      ...acquired,
+      browser: await existingBrowser.newPage(),
+    };
+    await resources.browser.close();
+    await resources.server.close();
+  `), []);
+});
+
+test('accepts later spreads that override resource ownership', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    const acquired = { browser, server };
+    const replacements = {
+      browser: await existingBrowser.newPage(),
+    };
+    const resources = { ...acquired, ...replacements };
+    await resources.browser.close();
+    await resources.server.close();
+  `), []);
+});
+
+test('accepts static computed properties after spread that override ownership', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    const acquired = { browser, server };
+    const resources = {
+      ...acquired,
+      ['browser']: await existingBrowser.newPage(),
+    };
+    await resources.browser.close();
+    await resources.server.close();
+  `), []);
+});
+
+test('accepts object spreads without tracked resource properties', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const page = await existingBrowser.newPage();
+    const metadata = { title: 'fixture', page };
+    const resources = { ...metadata, retries: 2 };
+    await resources.page.close();
+    await server.close();
+  `), []);
+});
+
 test('rejects cleanup when factories assign directly to object properties', () => {
   const violations = findUnsafeBrowserCleanup(`
     const resources = {};
