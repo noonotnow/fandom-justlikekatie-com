@@ -652,6 +652,38 @@ test('rejects cleanup that can continue from try into catch', () => {
   assert.equal(violations.length, 1);
 });
 
+test('accepts cleanup alternatives separated by try success and failure', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    async function stopFixture() {
+      const { server } = await startViteTestServer();
+      const browser = await launchBrowserForServer(server);
+      try {
+        await prepareBrowserShutdown();
+      } catch {
+        await browser.close();
+        return;
+      }
+      await server.close();
+    }
+  `), []);
+});
+
+test('rejects sequential cleanup when an attempted try close reaches catch', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    try {
+      await browser.close();
+    } catch {
+      await server.close();
+    }
+  `);
+
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].browser, 'browser');
+  assert.equal(violations[0].server, 'server');
+});
+
 test('rejects cleanup through object properties holding assigned resources', () => {
   const violations = findUnsafeBrowserCleanup(`
     const resources = {};

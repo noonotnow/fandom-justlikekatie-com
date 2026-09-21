@@ -458,7 +458,11 @@ function cleanupPaths(scope, owned) {
 
     const resource = closedResource(expression);
     if (resource && owned.has(resource.name)) {
-      return appendEvents(states, expression);
+      const attempted = appendEvents(states, expression);
+      return [
+        ...attempted,
+        ...attempted.map(state => ({ ...state, control: 'throw' })),
+      ];
     }
 
     if (
@@ -490,6 +494,18 @@ function cleanupPaths(scope, owned) {
         ];
       }
       return runExpression(expression.right, afterLeft);
+    }
+
+    if (ts.isCallExpression(expression)) {
+      const children = [expression.expression, ...expression.arguments];
+      const completed = children.reduce(
+        (current, child) => runExpression(child, current),
+        states,
+      );
+      return [
+        ...completed,
+        ...completed.map(state => ({ ...state, control: 'throw' })),
+      ];
     }
 
     const children = [];
@@ -663,19 +679,25 @@ function cleanupPaths(scope, owned) {
       return runExpression(statement.expression, states)
         .map(state => ({
           ...state,
-          control: ts.isReturnStatement(statement) ? 'return' : 'throw',
+          control: state.control === 'normal'
+            ? (ts.isReturnStatement(statement) ? 'return' : 'throw')
+            : state.control,
         }));
     }
 
     if (ts.isTryStatement(statement)) {
       const attempted = runStatement(statement.tryBlock, states);
+      const completed = attempted.filter(state => state.control !== 'throw');
+      const thrown = attempted.filter(state => state.control === 'throw');
       const recovered = statement.catchClause
         ? runStatement(
           statement.catchClause.block,
-          attempted.map(state => ({ ...state, control: 'normal' })),
+          thrown.map(state => ({ ...state, control: 'normal' })),
         )
         : [];
-      const paths = [...attempted, ...recovered];
+      const paths = statement.catchClause
+        ? [...completed, ...recovered]
+        : attempted;
       if (!statement.finallyBlock) return paths;
       return paths.flatMap(state => {
         const results = runStatement(
