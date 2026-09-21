@@ -1,20 +1,30 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { PUBLIC_ROUTE_PATHS, publicRouteUrl } from './shared/public-routes.js'
+import { PUBLIC_ORIGIN, PUBLIC_ROUTE_PATHS, publicRouteUrl } from './shared/public-routes.js'
 
 const launchpadCanonicalPlaceholder = '%PUBLIC_LAUNCHPAD_CANONICAL%'
+const launchpadOgUrlPlaceholder = '%PUBLIC_LAUNCHPAD_OG_URL%'
+const launchpadOgImagePlaceholder = '%PUBLIC_LAUNCHPAD_OG_IMAGE%'
+const launchpadOgImagePath = '/assets/c-drama-fandom/lg01-master-og.jpg'
 
 export function injectLaunchpadCanonical(html: string) {
-  const occurrences = html.split(launchpadCanonicalPlaceholder).length - 1
-  if (occurrences !== 1) {
-    throw new Error(
-      `Expected exactly one ${launchpadCanonicalPlaceholder} placeholder in index.html; found ${occurrences}`,
-    )
+  const replacements = new Map([
+    [launchpadCanonicalPlaceholder, publicRouteUrl(PUBLIC_ROUTE_PATHS.launchpad)],
+    [launchpadOgUrlPlaceholder, publicRouteUrl(PUBLIC_ROUTE_PATHS.launchpad)],
+    [launchpadOgImagePlaceholder, `${PUBLIC_ORIGIN}${launchpadOgImagePath}`],
+  ])
+
+  let transformedHtml = html
+  for (const [placeholder, value] of replacements) {
+    const occurrences = transformedHtml.split(placeholder).length - 1
+    if (occurrences !== 1) {
+      throw new Error(
+        `Expected exactly one ${placeholder} placeholder in index.html; found ${occurrences}`,
+      )
+    }
+    transformedHtml = transformedHtml.replace(placeholder, value)
   }
-  return html.replace(
-    launchpadCanonicalPlaceholder,
-    publicRouteUrl(PUBLIC_ROUTE_PATHS.launchpad),
-  )
+  return transformedHtml
 }
 
 const editorialRouteFiles = new Map([

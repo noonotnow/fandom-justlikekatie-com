@@ -17,18 +17,32 @@ const srcRouteSources = await Promise.all(
     .map(path => readFile(new URL(`../src/${path}`, import.meta.url), 'utf8')),
 );
 
-test('the launchpad canonical is injected from the shared public route before React runs', () => {
+test('the launchpad canonical and social URLs are injected from the shared public routes before React runs', () => {
   const builtHtml = injectLaunchpadCanonical(indexHtml);
   const expectedCanonical = publicRouteUrl(PUBLIC_ROUTE_PATHS.launchpad);
+  const expectedImage = `${PUBLIC_ORIGIN}/assets/c-drama-fandom/lg01-master-og.jpg`;
 
   assert.match(
     indexHtml,
     /<link rel="canonical" href="%PUBLIC_LAUNCHPAD_CANONICAL%" \/>/,
   );
-  assert.doesNotMatch(indexHtml, /<link rel="canonical" href="https?:\/\//);
+  assert.match(indexHtml, /<meta property="og:url" content="%PUBLIC_LAUNCHPAD_OG_URL%" \/>/);
+  assert.match(indexHtml, /<meta property="og:image" content="%PUBLIC_LAUNCHPAD_OG_IMAGE%" \/>/);
+  assert.doesNotMatch(
+    indexHtml,
+    /<(?:link rel="canonical"|meta property="og:(?:url|image)") [^>]*(?:href|content)="https?:\/\//,
+  );
   assert.match(
     builtHtml,
     new RegExp(`<link rel="canonical" href="${expectedCanonical}" />`),
+  );
+  assert.match(
+    builtHtml,
+    new RegExp(`<meta property="og:url" content="${expectedCanonical}" />`),
+  );
+  assert.match(
+    builtHtml,
+    new RegExp(`<meta property="og:image" content="${expectedImage}" />`),
   );
   assert.throws(
     () => injectLaunchpadCanonical(builtHtml),
