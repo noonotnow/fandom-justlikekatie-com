@@ -30,6 +30,7 @@ import {
 import { Membership } from './components/Membership/Membership';
 import { useIsAdmin } from './hooks/useIsAdmin';
 import {
+  hasMalformedGridBuilderSource,
   hasInvalidVibeAtlasEditionDate,
   initialCollectionType,
   initialGridBuilderSource,
@@ -326,6 +327,11 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   }, []);
 
   useEffect(() => {
+    if (!hasMalformedGridBuilderSource(window.location.search)) return;
+    window.history.replaceState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder`);
+  }, []);
+
+  useEffect(() => {
     void refreshMembership();
   }, [refreshMembership]);
 
@@ -514,6 +520,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
 
   useEffect(() => {
     const restoreUrlState = () => {
+      const malformedBuilderSource = hasMalformedGridBuilderSource(window.location.search);
       const restoredView = initialVibeAtlasView(window.location.search);
       const restoredArchivePage = isVibeAtlasArchiveLocation(window.location.pathname);
       const invalidEditionDate = hasInvalidVibeAtlasEditionDate(window.location.search);
@@ -531,6 +538,9 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         ? initialVibeAtlasEditionDate(window.location.search)
         : null;
       setSelectedEditionDate(restoredEditionDate);
+      if (malformedBuilderSource) {
+        window.history.replaceState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder`);
+      }
       if (restoredView === 'daily' && !restoredArchivePage && invalidEditionDate) {
         syncVibeAtlasEditionUrl(null, true);
         openArchivePicker();

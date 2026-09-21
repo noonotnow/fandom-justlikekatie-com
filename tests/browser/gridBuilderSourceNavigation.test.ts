@@ -238,8 +238,13 @@ test('Grid Builder falls back to Collection inventory for malformed source links
       `${origin}/vibe-atlas?view=builder&source=unknown`,
       `${origin}/vibe-atlas?view=builder&source=edition&date=2026-02-29`,
     ]) {
+      const dailyUrl = `${origin}/vibe-atlas?view=builder&source=daily`;
+      const collectionUrl = `${origin}/vibe-atlas?view=builder`;
+      await page.goto(dailyUrl);
+      await page.getByText('9 Daily Drop images match this lens').waitFor();
       await page.goto(malformedUrl);
       await page.getByText('1 saved result matches this lens').waitFor();
+      assert.equal(page.url(), collectionUrl, 'a malformed Builder link must visibly self-correct');
       assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR} 1`) }).count(), 1);
       assert.equal(
         await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR}`) }).count(),
@@ -247,6 +252,18 @@ test('Grid Builder falls back to Collection inventory for malformed source links
         'a malformed Builder source must not expose Daily Drop or edition inventory',
       );
       await assertClearBuilderState(page, SAVED_ACTOR, 1);
+
+      await page.goBack();
+      await page.getByText('9 Daily Drop images match this lens').waitFor();
+      assert.equal(page.url(), dailyUrl);
+      assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR} 9`) }).count(), 1);
+      assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR}`) }).count(), 0);
+
+      await page.goForward();
+      await page.getByText('1 saved result matches this lens').waitFor();
+      assert.equal(page.url(), collectionUrl);
+      assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR} 1`) }).count(), 1);
+      assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR}`) }).count(), 0);
     }
   } finally {
     await closeBrowserAndServer(browser, server);

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  hasMalformedGridBuilderSource,
   hasInvalidVibeAtlasEditionDate,
   initialCollectionType,
   initialGridBuilderSource,
@@ -69,6 +70,13 @@ test('grid builder links keep Daily Drop and validated edition inventory separat
   assert.equal(initialGridBuilderSource('?view=builder'), 'collection');
   assert.equal(initialGridBuilderSource('?view=builder&source=unknown'), 'collection');
   assert.equal(initialGridBuilderSource('?view=collection&source=daily'), 'collection');
+  assert.equal(hasMalformedGridBuilderSource('?view=builder&source=unknown'), true);
+  assert.equal(hasMalformedGridBuilderSource('?view=builder&source=edition&date=2026-02-29'), true);
+  assert.equal(hasMalformedGridBuilderSource('?view=builder&source=edition&date=2026-09-19'), false);
+  assert.equal(hasMalformedGridBuilderSource('?view=builder&source=daily'), false);
+  assert.equal(hasMalformedGridBuilderSource('?view=builder&source=collection'), false);
+  assert.equal(hasMalformedGridBuilderSource('?view=builder'), false);
+  assert.equal(hasMalformedGridBuilderSource('?view=collection&source=unknown'), false);
 });
 
 test('publishing handoff preview access is explicit and limited to this Netlify deploy preview', () => {

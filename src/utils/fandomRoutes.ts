@@ -61,6 +61,14 @@ export function isPublishingHandoffPreview(hostname: string, search: string): bo
 
 export type GridBuilderSource = 'collection' | 'daily' | 'edition';
 
+export function hasMalformedGridBuilderSource(search: string): boolean {
+  const params = new URLSearchParams(search);
+  if (params.get('view') !== 'builder') return false;
+  const source = params.get('source');
+  if (source === null || source === 'collection' || source === 'daily') return false;
+  return source !== 'edition' || !isValidVibeAtlasEditionDate(params.get('date') || '');
+}
+
 export function initialGridBuilderSource(search: string): GridBuilderSource {
   const params = new URLSearchParams(search);
   if (params.get('view') !== 'builder') return 'collection';
