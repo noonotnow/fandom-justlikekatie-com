@@ -105,6 +105,33 @@ test('rejects cleanup after shorthand destructuring assignment', () => {
   assert.equal(violations.length, 1);
 });
 
+test('accepts browser and server cleanup in mutually exclusive branches', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    if (browserStarted) {
+      await browser.close();
+    } else {
+      await server.close();
+    }
+  `), []);
+});
+
+test('rejects cleanup that remains sequential after mutually exclusive branches', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    if (browserStarted) {
+      await browser.close();
+    } else {
+      logStartupFailure();
+    }
+    await server.close();
+  `);
+
+  assert.equal(violations.length, 1);
+});
+
 test('rejects cleanup after assigned array destructuring with renamed resources', () => {
   const violations = findUnsafeBrowserCleanup(`
     let daemon;
@@ -155,6 +182,81 @@ test('accepts cleanup after a tracked name is reassigned to a page', () => {
     await resource.close();
     await server.close();
   `), []);
+});
+
+test('rejects either sequential order across alternative paths', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    if (browserStarted) {
+      await browser.close();
+      await server.close();
+    } else {
+      await server.close();
+      await browser.close();
+    }
+  `);
+
+  assert.equal(violations.length, 1);
+});
+
+test('keeps nested mutually exclusive cleanup paths separate', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    if (resourceStarted) {
+      if (browserStarted) {
+        await browser.close();
+      } else {
+        await server.close();
+      }
+    }
+  `), []);
+});
+
+test('accepts cleanup paths separated by an early return', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    async function stopFixture() {
+      const { server } = await startViteTestServer();
+      const browser = await launchBrowserForServer(server);
+      if (browserStarted) {
+        await browser.close();
+        return;
+      }
+      await server.close();
+    }
+  `), []);
+});
+
+test('rejects sequential cleanup before an early return', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    async function stopFixture() {
+      const { server } = await startViteTestServer();
+      const browser = await launchBrowserForServer(server);
+      if (browserStarted) {
+        await browser.close();
+        await server.close();
+        return;
+      }
+      await server.close();
+    }
+  `);
+
+  assert.equal(violations.length, 1);
+});
+
+test('rejects cleanup that can continue from try into catch', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    try {
+      await browser.close();
+    } catch {
+      await server.close();
+    }
+  `);
+
+  assert.equal(violations.length, 1);
 });
 
 test('current browser fixtures use safe cleanup', () => {

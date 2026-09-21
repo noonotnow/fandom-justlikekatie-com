@@ -88,6 +88,22 @@ function closedResource(node) {
     : null;
 }
 
+function collectCloseEvents(node, owned) {
+  const events = [];
+
+  function collect(current) {
+    if (current !== node && ts.isFunctionLike(current)) return;
+    const resource = closedResource(current);
+    if (resource && owned.has(resource.name)) {
+      events.push({ ...resource, kind: owned.get(resource.name) });
+      return;
+    }
+    ts.forEachChild(current, collect);
+  }
+
+  collect(node);
+  return events;
+}
 export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
   const sourceFile = ts.createSourceFile(
     fileName,
@@ -100,7 +116,6 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
 
   function inspectScope(scope) {
     const owned = new Map();
-    const closes = [];
     function markBinding(name, kind) {
       if (name) owned.set(name, kind);
     }
@@ -137,30 +152,32 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
         recordAssignment(node.left, node.right);
       }
 
-      const resource = closedResource(node);
-      if (resource && owned.has(resource.name)) {
-        closes.push({ ...resource, kind: owned.get(resource.name) });
-      }
       ts.forEachChild(node, collect);
     }
     collect(scope);
 
-    for (let index = 0; index < closes.length; index += 1) {
-      const first = closes[index];
-      const second = closes
-        .slice(index + 1)
-        .find(close => close.kind !== first.kind);
-      if (!second) continue;
+    if (![...owned.values()].includes('browser') || ![...owned.values()].includes('server')) {
+      return;
+    }
 
-      const browserClose = first.kind === 'browser' ? first : second;
-      const serverClose = first.kind === 'server' ? first : second;
-      const position = sourceFile.getLineAndCharacterOfPosition(first.node.getStart());
-      violations.push({
-        line: position.line + 1,
-        browser: browserClose.name,
-        server: serverClose.name,
-      });
-      break;
+    for (const path of cleanupPaths(scope, owned)) {
+      for (let index = 0; index < path.closes.length; index += 1) {
+        const first = path.closes[index];
+        const second = path.closes
+          .slice(index + 1)
+          .find(close => close.kind !== first.kind);
+        if (!second) continue;
+
+        const browserClose = first.kind === 'browser' ? first : second;
+        const serverClose = first.kind === 'server' ? first : second;
+        const position = sourceFile.getLineAndCharacterOfPosition(first.node.getStart());
+        violations.push({
+          line: position.line + 1,
+          browser: browserClose.name,
+          server: serverClose.name,
+        });
+        return;
+      }
     }
   }
 
@@ -196,3 +213,74 @@ function main() {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();
+
+function cleanupPaths(scope, owned) {
+  const initial = [{ closes: [], abrupt: false }];
+
+  function appendEvents(states, node) {
+    const events = collectCloseEvents(node, owned);
+    if (events.length === 0) return states;
+    return states.map(state => ({
+      ...state,
+      closes: [...state.closes, ...events],
+    }));
+  }
+
+  function runStatements(statements, states) {
+    return statements.reduce((current, statement) => {
+      const active = current.filter(state => !state.abrupt);
+      const abrupt = current.filter(state => state.abrupt);
+      return [...abrupt, ...runStatement(statement, active)];
+    }, states);
+  }
+
+  function runStatement(statement, states) {
+    if (states.length === 0) return states;
+    if (ts.isBlock(statement)) return runStatements(statement.statements, states);
+
+    if (ts.isIfStatement(statement)) {
+      const afterCondition = appendEvents(states, statement.expression);
+      const whenTrue = runStatement(statement.thenStatement, afterCondition);
+      const whenFalse = statement.elseStatement
+        ? runStatement(statement.elseStatement, afterCondition)
+        : afterCondition;
+      return [...whenTrue, ...whenFalse];
+    }
+
+    if (ts.isReturnStatement(statement) || ts.isThrowStatement(statement)) {
+      return appendEvents(states, statement.expression ?? statement)
+        .map(state => ({ ...state, abrupt: true }));
+    }
+
+    if (ts.isTryStatement(statement)) {
+      const attempted = runStatement(statement.tryBlock, states);
+      const recovered = statement.catchClause
+        ? runStatement(
+          statement.catchClause.block,
+          attempted.map(state => ({ ...state, abrupt: false })),
+        )
+        : [];
+      const paths = [...attempted, ...recovered];
+      if (!statement.finallyBlock) return paths;
+      return paths.flatMap(state => {
+        const results = runStatement(
+          statement.finallyBlock,
+          [{ ...state, abrupt: false }],
+        );
+        return results.map(result => ({
+          ...result,
+          abrupt: state.abrupt || result.abrupt,
+        }));
+      });
+    }
+
+    return appendEvents(states, statement);
+  }
+
+  if (ts.isSourceFile(scope) || ts.isBlock(scope)) {
+    return runStatements(scope.statements, initial);
+  }
+  return scope.body && ts.isBlock(scope.body)
+    ? runStatements(scope.body.statements, initial)
+    : appendEvents(initial, scope.body ?? scope);
+}
