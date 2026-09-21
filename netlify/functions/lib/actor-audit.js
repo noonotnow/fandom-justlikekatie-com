@@ -87,6 +87,7 @@ import { getShanghaiDateString } from "./date-seed.js";
 import {
   acquireCorrectionPublicationLock,
   publicationJoinReceipt,
+  listPublicationActorIndexRepairRecoveryReceipts,
   readPublicationManifests,
   readLatestPublicationDatesByActorWithHealth,
   recoverPublicationActorIndexRepairHealth,
@@ -295,6 +296,24 @@ export function createActorAuditHandler({
       const store = getStore(ELIGIBILITY_STORE, context);
       const url = new URL(req.url);
       const requestedExport = url.searchParams.get("export");
+      const requestedHistory = url.searchParams.get("history");
+      if (requestedHistory === "repair-health-recoveries") {
+        if (req.method !== "GET") {
+          return json(405, {
+            error: "Repair-health recovery history is read-only and GET-only.",
+          }, { Allow: "GET" });
+        }
+        const rawLimit = url.searchParams.get("limit");
+        const limit = rawLimit === null ? 25 : Number(rawLimit);
+        const history = await listPublicationActorIndexRepairRecoveryReceipts(
+          getPublicationStore(context),
+          { limit },
+        );
+        return json(200, {
+          schemaVersion: 1,
+          ...history,
+        });
+      }
       if (requestedExport === "calibration" || requestedExport === "calibration-audit") {
         if (req.method !== "GET") {
           return json(405, { error: "Calibration audit export is read-only and GET-only." }, { Allow: "GET" });

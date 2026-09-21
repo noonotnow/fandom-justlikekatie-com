@@ -60,9 +60,11 @@ import {
   gridManifestKey,
   publicationActorIndexKey,
   publicationActorIndexRepairKey,
+  publicationActorIndexRepairRecoveryCatalogKey,
   publicationActorIndexRepairRecoveryKey,
   PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX,
   publicationManifestCatalogKey,
+  listPublicationActorIndexRepairRecoveryReceipts,
   recoverPublicationActorIndexRepairHealth,
   readPublicationCorrections,
 } from "./publication-manifest.js";
@@ -2552,10 +2554,204 @@ test("operators recover malformed repair health while preserving valid recent ev
       eventCount: 1,
     },
   });
+  assert.deepEqual(
+    publicationStore.records.get(publicationActorIndexRepairRecoveryCatalogKey()),
+    {
+      schemaVersion: 1,
+      kind: "vibe-atlas-publication-actor-index-repair-health-recovery-catalog",
+      updatedAt: "2026-08-31T12:00:03.000Z",
+      receipts: [recoveryReceipts[0][1]],
+    },
+  );
 
   const releaseDesk = await handler(request(), {});
   const releaseBody = await releaseDesk.json();
   assert.equal(releaseBody.releaseInventory.publicationIndexRepairHealth.status, "healthy");
+});
+
+test("operators can review bounded repair-health recovery history newest first", async () => {
+  const publicationStore = memoryStore();
+  const receipts = [
+    ["repair-health-recovery-middle", "2026-08-30T12:00:00.000Z", "operator-2", 2, null],
+    ["repair-health-recovery-newest", "2026-08-31T12:00:00.000Z", "operator-3", 3, "Incident review."],
+    ["repair-health-recovery-oldest", "2026-08-29T12:00:00.000Z", "operator-1", 1, "Malformed telemetry."],
+  ].map(([receiptId, recoveredAt, recoveredBy, preservedEventCount, reason]) => ({
+      schemaVersion: 1,
+      kind: "vibe-atlas-publication-actor-index-repair-health-recovery",
+      status: "authorized",
+      receiptId,
+      recoveredAt,
+      recoveredBy,
+      preservedEventCount,
+      reason,
+    }));
+  publicationStore.records.set(publicationActorIndexRepairRecoveryCatalogKey(), {
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health-recovery-catalog",
+    updatedAt: "2026-08-31T12:00:00.000Z",
+    receipts: [receipts[1], receipts[0], receipts[2]],
+  });
+  const { handler } = harness({ publicationStore });
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    "?history=repair-health-recoveries&limit=2",
+  ), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(body));
+  assert.deepEqual(body, {
+    schemaVersion: 1,
+    receipts: [
+      {
+        receiptId: "repair-health-recovery-newest",
+        recoveredAt: "2026-08-31T12:00:00.000Z",
+        recoveredBy: "operator-3",
+        preservedEventCount: 3,
+        reason: "Incident review.",
+      },
+      {
+        receiptId: "repair-health-recovery-middle",
+        recoveredAt: "2026-08-30T12:00:00.000Z",
+        recoveredBy: "operator-2",
+        preservedEventCount: 2,
+        reason: null,
+      },
+    ],
+    retainedReceiptCount: 3,
+    historyLimit: 100,
+  });
+});
+
+test("repair-health recovery history backfills preexisting immutable receipts once", async () => {
+  const publicationStore = memoryStore();
+  const receipts = Array.from({ length: 105 }, (_, index) => ({
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health-recovery",
+    status: "authorized",
+    receiptId: `repair-health-recovery-${String(index).padStart(3, "0")}`,
+    recoveredAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
+    recoveredBy: `operator-${index}`,
+    preservedEventCount: index,
+    reason: index % 2 ? null : `Reason ${index}`,
+  }));
+  for (const receipt of receipts) {
+    await publicationStore.setJSON(
+      publicationActorIndexRepairRecoveryKey(receipt.receiptId),
+      receipt,
+    );
+  }
+  const originalList = publicationStore.list.bind(publicationStore);
+  let listCalls = 0;
+  publicationStore.list = async options => {
+    listCalls += 1;
+    assert.deepEqual(options, {
+      prefix: PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX,
+      paginate: false,
+    });
+    return originalList(options);
+  };
+  const { handler } = harness({ publicationStore });
+
+  const firstResponse = await handler(request(
+    "GET",
+    undefined,
+    "?history=repair-health-recoveries&limit=2",
+  ), {});
+  const first = await firstResponse.json();
+  assert.equal(firstResponse.status, 200, JSON.stringify(first));
+  assert.deepEqual(
+    first.receipts.map(receipt => receipt.receiptId),
+    ["repair-health-recovery-104", "repair-health-recovery-103"],
+  );
+  assert.equal(first.retainedReceiptCount, 100);
+  assert.equal(listCalls, 1);
+  const oldestRetained = publicationStore.records
+    .get(publicationActorIndexRepairRecoveryCatalogKey())
+    .receipts.at(-1);
+  assert.equal(oldestRetained.receiptId, "repair-health-recovery-005");
+
+  const secondResponse = await handler(request(
+    "GET",
+    undefined,
+    "?history=repair-health-recoveries&limit=1",
+  ), {});
+  assert.equal(secondResponse.status, 200);
+  assert.equal(listCalls, 1);
+});
+
+test("repair-health recovery history stays admin-only and read-only", async () => {
+  const deniedPublicationStore = memoryStore();
+  const denied = harness({
+    authorized: false,
+    publicationStore: deniedPublicationStore,
+  });
+  const deniedResponse = await denied.handler(request(
+    "GET",
+    undefined,
+    "?history=repair-health-recoveries",
+  ), {});
+  assert.equal(deniedResponse.status, 403);
+  assert.equal(deniedPublicationStore.records.size, 0);
+
+  const allowedPublicationStore = memoryStore();
+  const allowed = harness({ publicationStore: allowedPublicationStore });
+  const postResponse = await allowed.handler(request("POST", {
+    action: "ignored",
+  }, "?history=repair-health-recoveries"), {});
+  const postBody = await postResponse.json();
+  assert.equal(postResponse.status, 405);
+  assert.match(postBody.error, /read-only and GET-only/i);
+  assert.equal(allowedPublicationStore.records.size, 0);
+});
+
+test("repair-health recovery history rejects unbounded limits", async () => {
+  const publicationStore = memoryStore();
+  await assert.rejects(
+    listPublicationActorIndexRepairRecoveryReceipts(publicationStore, { limit: 101 }),
+    error => error.status === 400 && /limit is invalid/i.test(error.message),
+  );
+});
+
+test("repair-health recovery history retains only the newest one hundred receipts", async () => {
+  const publicationStore = memoryStore();
+  const receipts = Array.from({ length: 100 }, (_, index) => ({
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health-recovery",
+    status: "authorized",
+    receiptId: `repair-health-recovery-${String(index).padStart(3, "0")}`,
+    recoveredAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
+    recoveredBy: "operator-1",
+    preservedEventCount: index,
+    reason: null,
+  })).reverse();
+  await publicationStore.setJSON(publicationActorIndexRepairRecoveryCatalogKey(), {
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health-recovery-catalog",
+    updatedAt: receipts[0].recoveredAt,
+    receipts,
+  });
+
+  await recoverPublicationActorIndexRepairHealth(publicationStore, {
+    now: () => "2026-08-31T12:00:00.000Z",
+    operator: "operator-2",
+    reason: "Newest reset.",
+    createReceiptId: () => "newest",
+  });
+
+  const catalog = publicationStore.records.get(
+    publicationActorIndexRepairRecoveryCatalogKey(),
+  );
+  assert.equal(catalog.receipts.length, 100);
+  assert.equal(catalog.receipts[0].receiptId, "repair-health-recovery-newest");
+  assert.equal(catalog.receipts[0].reason, "Newest reset.");
+  assert.equal(catalog.receipts.at(-1).receiptId, "repair-health-recovery-001");
+  assert.equal(
+    catalog.receipts.some(receipt =>
+      receipt.receiptId === "repair-health-recovery-000"),
+    false,
+  );
 });
 
 test("operators can reset unreadable repair health without changing publication data", async () => {

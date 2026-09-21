@@ -31,7 +31,10 @@ export const PUBLICATION_ACTOR_INDEX_REPAIR_KEY =
 
 export const PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX =
   `vibeAtlas:grid-manifest-actor-index-repair-recovery:${PUBLICATION_ACTOR_INDEX_VERSION}:`;
+export const PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_CATALOG_KEY =
+  `vibeAtlas:grid-manifest-actor-index-repair-recovery-catalog:${PUBLICATION_ACTOR_INDEX_VERSION}:latest`;
 const PUBLICATION_ACTOR_INDEX_REPAIR_WINDOW_MS = 24 * 60 * 60 * 1000;
+const PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_HISTORY_LIMIT = 100;
 const REQUIRED_CARD_COUNT = 9;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const PUBLICATION_LOCK_TTL_MS = 10 * 60 * 1000;
@@ -51,6 +54,8 @@ export const publicationActorIndexRepairKey = () => PUBLICATION_ACTOR_INDEX_REPA
 
 export const publicationActorIndexRepairRecoveryKey = receiptId =>
   `${PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX}${encodeURIComponent(receiptId)}`;
+export const publicationActorIndexRepairRecoveryCatalogKey = () =>
+  PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_CATALOG_KEY;
 export const publicationManifestCatalogKey = () => PUBLICATION_MANIFEST_CATALOG_KEY;
 
 export const PUBLIC_VIBE_ATLAS_ORIGIN = "https://fandom.justlikekatie.com";
@@ -811,6 +816,7 @@ export async function recoverPublicationActorIndexRepairHealth(
     if (receiptWrite?.modified === false) {
       throw new Error("Repair-health recovery receipt already exists.");
     }
+    await appendPublicationActorIndexRepairRecoveryCatalog(store, receipt);
     await store.setJSON(publicationActorIndexRepairKey(), record);
     const health = await readPublicationActorIndexRepairHealth(store, () => recoveredAt);
     if (health.status === "unavailable") {
@@ -825,6 +831,137 @@ export async function recoverPublicationActorIndexRepairHealth(
   } catch {
     throw requestError("Repair health could not be recovered. No publication data was changed.", 503);
   }
+}
+
+function isPublicationActorIndexRepairRecoveryReceipt(receipt) {
+  return receipt?.schemaVersion === 1
+    && receipt.kind === "vibe-atlas-publication-actor-index-repair-health-recovery"
+    && receipt.status === "authorized"
+    && typeof receipt.receiptId === "string"
+    && typeof receipt.recoveredAt === "string"
+    && Number.isFinite(Date.parse(receipt.recoveredAt))
+    && typeof receipt.recoveredBy === "string"
+    && Number.isSafeInteger(receipt.preservedEventCount)
+    && receipt.preservedEventCount >= 0
+    && (receipt.reason === null || typeof receipt.reason === "string");
+}
+
+function repairRecoveryHistoryItem(receipt) {
+  return {
+    receiptId: receipt.receiptId,
+    recoveredAt: receipt.recoveredAt,
+    recoveredBy: receipt.recoveredBy,
+    preservedEventCount: receipt.preservedEventCount,
+    reason: receipt.reason,
+  };
+}
+
+function isPublicationActorIndexRepairRecoveryCatalog(catalog) {
+  return catalog?.schemaVersion === 1
+    && catalog.kind === "vibe-atlas-publication-actor-index-repair-health-recovery-catalog"
+    && Array.isArray(catalog.receipts)
+    && catalog.receipts.length <= PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_HISTORY_LIMIT
+    && catalog.receipts.every(isPublicationActorIndexRepairRecoveryReceipt);
+}
+
+async function appendPublicationActorIndexRepairRecoveryCatalog(store, receipt) {
+  const key = publicationActorIndexRepairRecoveryCatalogKey();
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const current = typeof store.getWithMetadata === "function"
+      ? await store.getWithMetadata(key, { type: "json", consistency: "strong" })
+      : null;
+    const catalog = current?.data;
+    if (catalog && !isPublicationActorIndexRepairRecoveryCatalog(catalog)) {
+      throw new Error("Repair-health recovery history is invalid.");
+    }
+    const receipts = [
+      receipt,
+      ...(catalog?.receipts || []).filter(item => item.receiptId !== receipt.receiptId),
+    ]
+      .sort((left, right) =>
+        right.recoveredAt.localeCompare(left.recoveredAt)
+        || right.receiptId.localeCompare(left.receiptId))
+      .slice(0, PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_HISTORY_LIMIT);
+    const next = {
+      schemaVersion: 1,
+      kind: "vibe-atlas-publication-actor-index-repair-health-recovery-catalog",
+      updatedAt: receipt.recoveredAt,
+      receipts,
+    };
+    const write = await store.setJSON(key, next, current?.etag
+      ? { onlyIfMatch: current.etag }
+      : { onlyIfNew: true });
+    if (write?.modified !== false) return;
+  }
+  throw new Error("Repair-health recovery history changed concurrently.");
+}
+
+async function initializePublicationActorIndexRepairRecoveryCatalog(store) {
+  const listing = await store.list({
+    prefix: PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX,
+    paginate: false,
+  });
+  const keys = (listing?.blobs || [])
+    .map(blob => blob?.key)
+    .filter(key =>
+      typeof key === "string"
+      && key.startsWith(PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX));
+  const receipts = (await Promise.all(keys.map(key => store.get(key, {
+    type: "json",
+    consistency: "strong",
+  }))))
+    .filter(isPublicationActorIndexRepairRecoveryReceipt)
+    .sort((left, right) =>
+      right.recoveredAt.localeCompare(left.recoveredAt)
+      || right.receiptId.localeCompare(left.receiptId))
+    .slice(0, PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_HISTORY_LIMIT);
+  const catalog = {
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health-recovery-catalog",
+    updatedAt: receipts[0]?.recoveredAt || new Date(0).toISOString(),
+    receipts,
+  };
+  const write = await store.setJSON(
+    publicationActorIndexRepairRecoveryCatalogKey(),
+    catalog,
+    { onlyIfNew: true },
+  );
+  if (write?.modified !== false) return catalog;
+  const authoritative = await store.get(
+    publicationActorIndexRepairRecoveryCatalogKey(),
+    { type: "json", consistency: "strong" },
+  );
+  if (!isPublicationActorIndexRepairRecoveryCatalog(authoritative)) {
+    throw requestError("Repair-health recovery history is unavailable.", 503);
+  }
+  return authoritative;
+}
+
+export async function listPublicationActorIndexRepairRecoveryReceipts(
+  store,
+  { limit = 25 } = {},
+) {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw requestError("The repair-health recovery history limit is invalid.", 400);
+  }
+  let catalog = await store.get(publicationActorIndexRepairRecoveryCatalogKey(), {
+    type: "json",
+    consistency: "strong",
+  });
+  if (!catalog) {
+    catalog = await initializePublicationActorIndexRepairRecoveryCatalog(store);
+  }
+  if (catalog && !isPublicationActorIndexRepairRecoveryCatalog(catalog)) {
+    throw requestError("Repair-health recovery history is unavailable.", 503);
+  }
+  const receipts = (catalog?.receipts || [])
+    .slice(0, limit)
+    .map(repairRecoveryHistoryItem);
+  return {
+    receipts,
+    retainedReceiptCount: catalog?.receipts.length || 0,
+    historyLimit: PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_HISTORY_LIMIT,
+  };
 }
 
 async function updatePublicationActorIndex(store, manifest, now) {
