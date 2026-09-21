@@ -1069,6 +1069,7 @@ function ArchiveEditionCard({
             <b>{edition.legendaryMisprintTitle ?? 'Preserved retrieval anomaly'}</b>
           </span>
         )}
+        {edition.legendaryMisprintCopy && <q>{edition.legendaryMisprintCopy}</q>}
         <span className="archive-card__meta">
           <time dateTime={edition.date}>{formatEditionDate(edition.date)}</time>
           <span>{isLatest ? 'Latest edition' : 'Published edition'}</span>

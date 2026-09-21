@@ -34,6 +34,7 @@ import {
   ARCHIVE_CATALOG_KEY,
   archiveCatalogEditions,
   archiveEditionMetadata,
+  enrichCanonicalLegendaryMisprint,
   archiveGateEnabled,
   ensureArchiveAccessWindow,
   listArchiveCatalogEditions,
@@ -1152,7 +1153,7 @@ async function listArchivedEditions(
   return {
     version: VERSION,
     editions: page.map(edition => ({
-      ...edition,
+      ...enrichCanonicalLegendaryMisprint(edition),
       access: freeDates.has(edition.date) ? "free" : "member",
     })),
     page: {

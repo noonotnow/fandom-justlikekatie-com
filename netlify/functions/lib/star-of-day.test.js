@@ -548,6 +548,10 @@ test("archive preserves the Dylan Wangtermelon edition as a named legendary misp
   const body = await response.json();
   assert.equal(body.editions[0].legendaryMisprint, true);
   assert.equal(body.editions[0].legendaryMisprintTitle, "The Dylan Wangtermelon incident");
+  assert.equal(
+    body.editions[0].legendaryMisprintCopy,
+    "The Vibe Pack was asked for Dylan Wang: Variety Show Chaos, examined the evidence, and returned biblically accurate watermelon man.",
+  );
 });
 
 test("archive reads use precomputed metadata without listing or loading historical payloads", async () => {

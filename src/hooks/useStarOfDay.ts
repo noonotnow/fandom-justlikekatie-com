@@ -88,6 +88,7 @@ export interface StarOfDayArchiveEntry {
   previewThumbnails?: string[];
   legendaryMisprint?: boolean;
   legendaryMisprintTitle?: string;
+  legendaryMisprintCopy?: string;
   access?: 'free' | 'member';
   publicRecord?: PublicRecordLinks;
 }

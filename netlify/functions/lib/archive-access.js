@@ -572,23 +572,36 @@ export async function updateArchiveCatalog(
   throw new Error("The archive catalogue edition could not be updated safely.");
 }
 
+const canonicalLegendaryMisprints = new Map([
+  ["2026-08-04|王鹤棣", {
+    title: "The Dylan Wangtermelon incident",
+    copy: "The Vibe Pack was asked for Dylan Wang: Variety Show Chaos, examined the evidence, and returned biblically accurate watermelon man.",
+  }],
+]);
+
+export function enrichCanonicalLegendaryMisprint(edition) {
+  const canonical = canonicalLegendaryMisprints.get(`${edition?.date}|${edition?.actorName}`);
+  return canonical
+    ? {
+      ...edition,
+      legendaryMisprint: true,
+      legendaryMisprintTitle: canonical.title,
+      legendaryMisprintCopy: canonical.copy,
+    }
+    : edition;
+}
+
 export function archiveEditionMetadata(payload) {
-  const canonicalLegendaryMisprints = new Map([
-    ["2026-08-04|王鹤棣", "The Dylan Wangtermelon incident"],
-  ]);
   if (!payload?.date || !payload?.actorName || !payload?.vibeLabel) return null;
   const legendaryMisprint = (payload.rankedBatches || []).some(batch =>
     batch?.intentionalMisprint === true || (batch?.legendary === true && batch?.misprint === true)
   );
-  const canonicalMisprintTitle =
-    canonicalLegendaryMisprints.get(`${payload.date}|${payload.actorName}`);
   const publicEdition = publicArchiveEdition(payload);
-  return {
+  return enrichCanonicalLegendaryMisprint({
     ...publicEdition,
     ...(payload.publicRecord ? { publicRecord: publicEdition.publicRecord } : {}),
-    ...(legendaryMisprint || canonicalMisprintTitle ? { legendaryMisprint: true } : {}),
-    ...(canonicalMisprintTitle ? { legendaryMisprintTitle: canonicalMisprintTitle } : {}),
-  };
+    ...(legendaryMisprint ? { legendaryMisprint: true } : {}),
+  });
 }
 
 export function archiveAccessDecision({
