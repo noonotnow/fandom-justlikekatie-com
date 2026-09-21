@@ -83,6 +83,8 @@ const POLL_MAX_WAIT_MS = 12000;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const ARCHIVE_PAGE_SIZE = 24;
 export const ARCHIVE_MAX_PAGE_SIZE = 100;
+export const ARCHIVE_CATALOG_MIGRATION_MARKER_KEY =
+  "archiveCatalog:v2:legacy-migration-complete";
 
 function cacheKeyFor(dateString) {
   return `starOfDay:${VERSION}:${dateString}`;
@@ -1107,12 +1109,27 @@ async function listArchivedEditions(
     limit,
     throughDate: todayStr,
   });
-  if (!catalogPage.total && !legacyEditions) {
+  const migrationMarker = await store.get(ARCHIVE_CATALOG_MIGRATION_MARKER_KEY, {
+    type: "json",
+    consistency: "strong",
+  });
+  const migrationComplete = migrationMarker?.schemaVersion === 1
+    && migrationMarker?.catalogVersion === 2;
+  if (!migrationComplete && !legacyEditions) {
     await migrateArchiveCatalog(store, todayStr);
+    await store.setJSON(ARCHIVE_CATALOG_MIGRATION_MARKER_KEY, {
+      schemaVersion: 1,
+      catalogVersion: 2,
+    });
     catalogPage = await listArchiveCatalogPage(store, {
       cursor,
       limit,
       throughDate: todayStr,
+    });
+  } else if (!migrationComplete && legacyEditions) {
+    await store.setJSON(ARCHIVE_CATALOG_MIGRATION_MARKER_KEY, {
+      schemaVersion: 1,
+      catalogVersion: 2,
     });
   }
   const existingAccessWindow = await store.get(ARCHIVE_ACCESS_WINDOW_KEY, {

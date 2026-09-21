@@ -10,6 +10,7 @@ import starOfDay, {
   selectRotatingReleasePair,
   releaseLock,
   tryAcquireLock,
+  ARCHIVE_CATALOG_MIGRATION_MARKER_KEY,
 } from "../star-of-day.js";
 import {
   auditHeadKey,
@@ -100,6 +101,10 @@ function archiveCatalogEntries(editions) {
     editions.filter(edition => edition.date.startsWith(`${year}-`)).length,
   ]));
   return {
+    [ARCHIVE_CATALOG_MIGRATION_MARKER_KEY]: {
+      schemaVersion: 1,
+      catalogVersion: 2,
+    },
     [ARCHIVE_CATALOG_INDEX_KEY]: {
       schemaVersion: 1,
       catalogVersion: 2,
@@ -571,6 +576,63 @@ test("archive reads use precomputed metadata without listing or loading historic
 
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).editions, [{ ...metadata, access: "free" }]);
+  assert.deepEqual(store.stats(), { listCalls: 0, setCalls: 0 });
+});
+
+test("partial v2 archive catalogues recover legacy editions once and record completion", async () => {
+  const indexedDate = "2026-08-30";
+  const recoveredDate = "2026-08-29";
+  const indexed = {
+    date: indexedDate,
+    actorName: "Indexed Actor",
+    vibeLabel: "夜色",
+    previewThumbnails: [],
+    access: "member",
+  };
+  const entries = archiveCatalogEntries([indexed]);
+  delete entries[ARCHIVE_CATALOG_MIGRATION_MARKER_KEY];
+  entries[`starOfDay:v6:${recoveredDate}`] = archivePayload(recoveredDate);
+  entries[ARCHIVE_ACCESS_WINDOW_KEY] = archiveAccessWindow(indexedDate, recoveredDate);
+  const store = makeStore(entries);
+
+  const response = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1" },
+    contextFor(store),
+  );
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.page.total, 2);
+  assert.deepEqual(body.editions.map(edition => edition.date), [indexedDate, recoveredDate]);
+  assert.deepEqual(
+    await store.get(ARCHIVE_CATALOG_MIGRATION_MARKER_KEY, { type: "json" }),
+    { schemaVersion: 1, catalogVersion: 2 },
+  );
+  assert.equal(store.stats().listCalls, 2);
+});
+
+test("marker-present bounded archive reads do not list historical payloads", async () => {
+  const date = "2026-08-30";
+  const metadata = {
+    date,
+    actorName: "Actor 2026-08-30",
+    vibeLabel: "夜色",
+    previewThumbnails: [],
+    access: "member",
+  };
+  const store = makeStore({
+    ...archiveCatalogEntries([metadata]),
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(date),
+    [`starOfDay:v6:${date}`]: archivePayload(date),
+  });
+
+  const response = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1" },
+    contextFor(store),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).page.total, 1);
   assert.deepEqual(store.stats(), { listCalls: 0, setCalls: 0 });
 });
 
