@@ -235,6 +235,27 @@ function truncateCanvasText(
   return text.slice(0, low).trimEnd() + ellipsis;
 }
 
+function boundedCreditLines(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  trailingText = '',
+): string[] {
+  const wrapped = wrapCanvasText(ctx, text, maxWidth);
+  if (wrapped.length <= 2 && wrapped.every(line => ctx.measureText(line).width <= maxWidth)) {
+    return wrapped;
+  }
+  const firstLine = truncateCanvasText(ctx, wrapped[0] || text, maxWidth);
+  const remainder = wrapped.slice(1).join(' ')
+    .replace(trailingText, '')
+    .replace(/[·\s]+$/, '')
+    .trim();
+  if (!remainder) return [firstLine];
+  const suffix = trailingText ? ` · ${trailingText}` : '';
+  const remainderWidth = maxWidth - ctx.measureText(suffix).width;
+  return [firstLine, truncateCanvasText(ctx, remainder, remainderWidth) + suffix];
+}
+
 function sourceCreditLines(
   ctx: CanvasRenderingContext2D,
   sourceNames: string[],
@@ -242,17 +263,7 @@ function sourceCreditLines(
 ): string[] {
   const suffix = 'Vibe Atlas · sRGB';
   const text = `${sourceNames.length ? `Sources: ${sourceNames.slice(0, 5).join(' · ')} · ` : ''}${suffix}`;
-  const wrapped = wrapCanvasText(ctx, text, maxWidth);
-  if (wrapped.length <= 2 && wrapped.every(line => ctx.measureText(line).width <= maxWidth)) {
-    return wrapped;
-  }
-  const firstLine = truncateCanvasText(ctx, wrapped[0] || text, maxWidth);
-  const remainder = wrapped.slice(1).join(' ').replace(suffix, '').replace(/[·\s]+$/, '').trim();
-  const suffixWithSeparator = ` · ${suffix}`;
-  const remainderWidth = maxWidth - ctx.measureText(suffixWithSeparator).width;
-  return remainder
-    ? [firstLine, truncateCanvasText(ctx, remainder, remainderWidth) + suffixWithSeparator]
-    : [firstLine];
+  return boundedCreditLines(ctx, text, maxWidth, suffix);
 }
 
 function legacySourceCreditLines(
@@ -261,14 +272,19 @@ function legacySourceCreditLines(
   maxWidth: number,
 ): string[] {
   const text = `来源：${sourceNames.slice(0, 5).join(' · ')}`;
-  const wrapped = wrapCanvasText(ctx, text, maxWidth);
-  if (wrapped.length <= 2 && wrapped.every(line => ctx.measureText(line).width <= maxWidth)) {
-    return wrapped;
-  }
-  return [
-    truncateCanvasText(ctx, wrapped[0] || text, maxWidth),
-    truncateCanvasText(ctx, wrapped.slice(1).join(' '), maxWidth),
-  ];
+  return boundedCreditLines(ctx, text, maxWidth);
+}
+
+function drawSourceCreditLines(
+  ctx: CanvasRenderingContext2D,
+  lines: string[],
+  centerX: number,
+  firstBaseline: number,
+  lineHeight: number,
+): void {
+  lines.forEach((line, index) => {
+    ctx.fillText(line, centerX, firstBaseline + index * lineHeight);
+  });
 }
 
 type LegacyFooterVariant = 'portrait' | 'teaser';
@@ -331,9 +347,9 @@ function drawLegacyFooter(
     ctx.font = layout.sourceFont;
     ctx.fillStyle = colors.textDarker;
     const sourceLines = legacySourceCreditLines(ctx, sourceNames, contentWidth);
-    sourceLines.forEach((line, index) => {
-      ctx.fillText(line, centerX, footerTop + layout.sourceTop + index * layout.sourceLineHeight);
-    });
+    drawSourceCreditLines(
+      ctx, sourceLines, centerX, footerTop + layout.sourceTop, layout.sourceLineHeight,
+    );
   }
 
   ctx.font = layout.brandFont;
@@ -988,10 +1004,10 @@ async function renderSquareGridCanvas(
   const attributionLines = sourceCreditLines(ctx, sourceNames, contract.width - pad * 2);
   const attributionLineHeight = Math.round(contract.width * 0.014);
   const attributionBottom = contract.height - pad;
-  attributionLines.forEach((line, index) => {
-    const y = attributionBottom - (attributionLines.length - 1 - index) * attributionLineHeight;
-    ctx.fillText(line, contract.width / 2, y);
-  });
+  const attributionTop = attributionBottom - (attributionLines.length - 1) * attributionLineHeight;
+  drawSourceCreditLines(
+    ctx, attributionLines, contract.width / 2, attributionTop, attributionLineHeight,
+  );
   return canvas;
 }
 

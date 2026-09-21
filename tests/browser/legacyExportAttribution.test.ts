@@ -16,7 +16,7 @@ const LONG_PUBLISHERS = [
 const LONG_ACTOR_NAME = 'The Exceptionally Celebrated International Star of Moonlit Historical Drama';
 const LONG_VIBE_NAME = 'An Impossibly Elaborate Midnight Court Intrigue Beneath Ten Thousand Lanterns';
 
-test('portrait and teaser exports bound long source credits and edition details below their grids', { timeout: 60_000 }, async () => {
+test('every export size bounds long source credits below its grid', { timeout: 60_000 }, async () => {
   const { server, origin } = await startViteTestServer();
   const { browser, page } = await launchPageForServer(server);
 
@@ -57,7 +57,7 @@ test('portrait and teaser exports bound long source credits and edition details 
         date: '2026-09-20',
       };
 
-      const render = async (variant: 'full' | 'teaser') => {
+      const render = async (variant: 'full' | 'teaser' | 'standard' | 'master') => {
         const calls: Array<{ text: string; x: number; y: number; width: number; color: string; font: string }> = [];
         const originalFillText = CanvasRenderingContext2D.prototype.fillText;
         CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
@@ -81,7 +81,12 @@ test('portrait and teaser exports bound long source credits and edition details 
         }
       };
 
-      return { portrait: await render('full'), teaser: await render('teaser') };
+      return {
+        portrait: await render('full'),
+        teaser: await render('teaser'),
+        standard: await render('standard'),
+        master: await render('master'),
+      };
     }, { publishers: LONG_PUBLISHERS, actorName: LONG_ACTOR_NAME, vibeName: LONG_VIBE_NAME });
 
     for (const [variant, canvas, expected] of [
@@ -147,6 +152,31 @@ test('portrait and teaser exports bound long source credits and edition details 
       assert.ok(edition.y < microCopy.y, `${variant} edition details must remain above final micro-copy`);
       assert.ok(microCopy.x - microCopy.width / 2 >= 0, `${variant} micro-copy must stay inside the left canvas edge`);
       assert.ok(microCopy.x + microCopy.width / 2 <= canvas.width, `${variant} micro-copy must stay inside the right canvas edge`);
+    }
+
+    for (const [variant, canvas, expected] of [
+      ['standard', rendered.standard, {
+        gridBottom: 1024.08,
+        creditYs: [1037, 1052],
+        creditFont: '11px Inter, sans-serif',
+      }],
+      ['master', rendered.master, {
+        gridBottom: 2048.16,
+        creditYs: [2074, 2104],
+        creditFont: '23px Inter, sans-serif',
+      }],
+    ] as const) {
+      const credits = canvas.calls.filter(call => call.text.startsWith('Sources:') || call.text.endsWith('Vibe Atlas · sRGB'));
+      assert.equal(credits.length, 2, `${variant} credits must wrap to exactly two lines`);
+      assert.deepEqual(credits.map(call => call.y), expected.creditYs, `${variant} must preserve source-credit spacing`);
+      assert.ok(credits.every(call => call.font === expected.creditFont), `${variant} must preserve source-credit typography`);
+      assert.ok(credits[1].text.includes('… · Vibe Atlas · sRGB'), `${variant} overflowing credits must retain the attribution suffix`);
+      credits.forEach((line, index) => {
+        assert.ok(line.y > expected.gridBottom, `${variant} credit line ${index + 1} must remain below the tile grid`);
+        assert.ok(line.y <= canvas.height, `${variant} credit line ${index + 1} must stay inside the canvas bottom`);
+        assert.ok(line.x - line.width / 2 >= 0, `${variant} credit line ${index + 1} must stay inside the left canvas edge`);
+        assert.ok(line.x + line.width / 2 <= canvas.width, `${variant} credit line ${index + 1} must stay inside the right canvas edge`);
+      });
     }
   } finally {
     await closeBrowserAndServer(browser, server);
