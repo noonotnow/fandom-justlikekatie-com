@@ -100,12 +100,12 @@ export function Membership({ status }: Props) {
         <article>
           <p className="membership__label">Free</p>
           <h2>Catch today’s vibe</h2>
-          <ul><li>Today’s complete card drop</li><li>Recent free editions</li><li>Individual card saves and a basic Canvas</li><li>Standard share export</li><li>Full Collection sync after sign-in</li></ul>
+          <ul><li>Today’s complete card drop</li><li>Recent free editions</li><li>Individual card saves and a basic Canvas</li><li>Standard share export</li></ul>
         </article>
         <article className="membership__featured">
           <p className="membership__label">Vibe Atlas Collector</p>
           <h2>$9 <small>/ month</small></h2>
-          <ul><li>Complete historical edition archive</li><li>Expanded actor and vibe collections</li><li>Premium Canvas layouts and treatments</li><li>Persistent grids and saved versions</li><li>Collector-quality exports</li><li>Early access to new Fandom studio features</li></ul>
+          <ul><li>Complete historical edition archive</li><li>Expanded actor and vibe collections</li><li>Collection sync with Collector access</li><li>Premium Canvas layouts and treatments</li><li>Persistent grids and saved versions</li><li>Collector-quality exports</li><li>Early access to new Fandom studio features</li></ul>
           <p className="membership__rollout">Archive and Canvas access will expand in stages. Founding members keep access as these benefits roll out.</p>
           {!user ? (
             <form onSubmit={sendLink} className="membership__sign-in">
