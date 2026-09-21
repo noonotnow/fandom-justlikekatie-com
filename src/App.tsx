@@ -420,8 +420,8 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   }, [archivePage, view]);
 
   useEffect(() => {
-    if (archivePage && !archive.length && !archiveLoading) void loadArchive();
-  }, [archivePage, archive.length, archiveLoading, loadArchive]);
+    if (archivePage && !archive.length && !archiveLoading && !archiveError) void loadArchive();
+  }, [archiveError, archivePage, archive.length, archiveLoading, loadArchive]);
 
   useEffect(() => {
     setEditionShareNotice('');
@@ -719,6 +719,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           archiveError={archiveError}
           archiveHasMore={archiveHasMore}
           archiveTotal={archiveTotal}
+          loadArchive={loadArchive}
           loadMoreArchive={loadMoreArchive}
         />
       ) : view === 'daily' ? (
@@ -1111,6 +1112,7 @@ function ArchivePage({
   archiveError,
   archiveHasMore,
   archiveTotal,
+  loadArchive,
   loadMoreArchive,
 }: {
   archive: StarOfDayArchiveEntry[];
@@ -1118,6 +1120,7 @@ function ArchivePage({
   archiveError: string | null;
   archiveHasMore: boolean;
   archiveTotal: number | null;
+  loadArchive: () => Promise<void>;
   loadMoreArchive: () => Promise<void>;
 }) {
   const yearCount = new Set(archive.map(edition => edition.date.slice(0, 4))).size;
@@ -1153,7 +1156,18 @@ function ArchivePage({
         {archiveLoading && archive.length === 0 ? (
           <p className="daily-archive__status">Loading published editions…</p>
         ) : archiveError && archive.length === 0 ? (
-          <p className="daily-archive__status daily-archive__status--error" role="alert">{archiveError}</p>
+          <>
+            <p className="daily-archive__status daily-archive__status--error" role="alert">
+              Couldn’t load the archive. Try again.
+            </p>
+            <button
+              type="button"
+              className="daily-archive__today"
+              onClick={() => void loadArchive()}
+            >
+              Retry loading the archive
+            </button>
+          </>
         ) : archive.length === 0 ? (
           <p className="daily-archive__status">No published editions are available yet.</p>
         ) : (

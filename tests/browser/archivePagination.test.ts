@@ -20,6 +20,80 @@ function edition(date: string, actorName: string) {
   };
 }
 
+test('archive retries its first page after an empty-state failure', { timeout: 30_000 }, async () => {
+  const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer());
+  try {
+    const page = await browser.newPage();
+    page.setDefaultTimeout(5_000);
+    page.setDefaultNavigationTimeout(20_000);
+
+    await page.route('https://www.googletagmanager.com/**', route => route.abort());
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ user: null }),
+    }));
+    await page.route('**/api/membership/status', route => route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Sign in is required.' }),
+    }));
+    await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
+
+    let archiveAttempts = 0;
+    let allowArchiveSuccess = false;
+    await page.route('**/.netlify/functions/star-of-day?*', route => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get('archive') !== '1') {
+        void route.abort();
+        return;
+      }
+      archiveAttempts += 1;
+      if (!allowArchiveSuccess) {
+        void route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Temporarily unavailable' }),
+        });
+        return;
+      }
+      void route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          editions: [
+            edition('2026-09-20', 'First Actor'),
+            edition('2026-09-19', 'Second Actor'),
+          ],
+          page: { nextCursor: null, hasMore: false, total: 2 },
+        }),
+      });
+    });
+
+    await page.goto(`${origin}/vibe-atlas/archive`, { waitUntil: 'domcontentloaded' });
+
+    await page.getByRole('alert').getByText('Couldn’t load the archive. Try again.').waitFor();
+    const failedAttempts = archiveAttempts;
+
+    allowArchiveSuccess = true;
+    await page.getByRole('button', { name: 'Retry loading the archive' }).click();
+    await page.locator('.archive-card time[datetime="2026-09-19"]').waitFor();
+
+    assert.equal(
+      archiveAttempts,
+      failedAttempts + 1,
+      'retry should request the first archive page again',
+    );
+    assert.deepEqual(
+      await page.locator('.archive-card time').evaluateAll(
+        times => times.map(time => time.getAttribute('datetime')),
+      ),
+      ['2026-09-20', '2026-09-19'],
+      'a successful retry should render the first page of editions',
+    );
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
+
 test('archive pagination appends unique editions and preserves the global count', { timeout: 30_000 }, async () => {
   const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer());
   try {
