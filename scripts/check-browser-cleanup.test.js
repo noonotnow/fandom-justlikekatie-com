@@ -192,6 +192,23 @@ test('rejects cleanup through logical-OR aliases with one resource-bearing path'
   assert.equal(violations[0].server, 'serverAlias');
 });
 
+test('rejects cleanup through logical-AND aliases when resource paths agree', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const primaryBrowser = await launch();
+    const backupBrowser = await launch();
+    const renderer = browserStarted && (preferPrimary ? primaryBrowser : backupBrowser);
+    const primaryServer = await createServer();
+    const backupServer = await createServer();
+    const daemon = serverStarted && (preferPrimary ? primaryServer : backupServer);
+    await renderer.close();
+    await daemon.close();
+  `);
+
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].browser, 'renderer');
+  assert.equal(violations[0].server, 'daemon');
+});
+
 test('rejects cleanup through nullish-coalescing aliases', () => {
   const violations = findUnsafeBrowserCleanup(`
     const primaryBrowser = await launch();
@@ -205,6 +222,17 @@ test('rejects cleanup through nullish-coalescing aliases', () => {
   assert.equal(violations.length, 1);
   assert.equal(violations[0].browser, 'renderer');
   assert.equal(violations[0].server, 'daemon');
+});
+
+test('does not classify mixed logical-AND aliases as either resource', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const renderer = await launch();
+    const daemon = await createServer();
+    const ambiguous = renderer && daemon;
+    const page = await existingBrowser.newPage();
+    await ambiguous.close();
+    await page.close();
+  `), []);
 });
 
 test('does not classify mixed browser and server aliases as either resource', () => {

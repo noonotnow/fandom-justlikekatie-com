@@ -157,6 +157,7 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
         ts.isBinaryExpression(expression)
         && (
           expression.operatorToken.kind === ts.SyntaxKind.BarBarToken
+          || expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
           || expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
         )
       ) {
