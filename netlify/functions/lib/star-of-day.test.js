@@ -129,6 +129,23 @@ function archiveCatalogEntries(editions) {
   };
 }
 
+function multiDecadeArchiveEditions() {
+  const dates = [];
+  for (let year = 2026; year >= 1996; year -= 1) {
+    const suffixes = year === 2026
+      ? ["09-20", "06-30", "01-01"]
+      : ["12-31", "06-30", "01-01"];
+    dates.push(...suffixes.map(suffix => `${year}-${suffix}`));
+  }
+  return dates.map(date => ({
+    date,
+    actorName: `Actor ${date}`,
+    actorShortNameEn: `Actor ${date}`,
+    vibeLabel: "Night",
+    access: "member",
+  }));
+}
+
 test("the daily build lock admits only one concurrent builder", async () => {
   const store = makeStore();
   const [first, second] = await Promise.all([
@@ -680,6 +697,135 @@ test("archive pages load only the year buckets and edition records needed for th
   assert.equal(reads.includes(`${ARCHIVE_CATALOG_YEAR_PREFIX}2025`), false);
   assert.equal(reads.includes(`${ARCHIVE_CATALOG_YEAR_PREFIX}2024`), false);
   assert.equal(reads.includes(`${ARCHIVE_CATALOG_EDITION_PREFIX}2026-09-19`), false);
+});
+
+test("multi-decade archive pages read only the buckets and editions needed at each cursor", async () => {
+  const editions = multiDecadeArchiveEditions();
+  const base = makeStore({
+    ...archiveCatalogEntries(editions),
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(...editions.map(item => item.date)),
+  });
+  const reads = [];
+  const store = {
+    ...base,
+    async get(key, options) {
+      reads.push(key);
+      return base.get(key, options);
+    },
+  };
+
+  const first = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1&limit=2" },
+    contextFor(store),
+  );
+  const firstBody = await first.json();
+  assert.deepEqual(firstBody.editions.map(edition => [edition.date, edition.access]), [
+    ["2026-09-20", "free"],
+    ["2026-06-30", "free"],
+  ]);
+  assert.deepEqual(firstBody.page, {
+    limit: 2,
+    nextCursor: "2026-06-30",
+    hasMore: true,
+    total: editions.length,
+  });
+  assert.deepEqual(
+    reads.filter(key => key.startsWith(ARCHIVE_CATALOG_YEAR_PREFIX)),
+    [`${ARCHIVE_CATALOG_YEAR_PREFIX}2026`],
+  );
+  assert.deepEqual(
+    reads.filter(key => key.startsWith(ARCHIVE_CATALOG_EDITION_PREFIX)),
+    [
+      `${ARCHIVE_CATALOG_EDITION_PREFIX}2026-09-20`,
+      `${ARCHIVE_CATALOG_EDITION_PREFIX}2026-06-30`,
+    ],
+  );
+
+  reads.length = 0;
+  const deep = await starOfDay(
+    {
+      method: "GET",
+      url: "https://example.test/star-of-day?archive=1&limit=2&cursor=2006-07-01",
+    },
+    contextFor(store),
+  );
+  const deepBody = await deep.json();
+  assert.deepEqual(deepBody.editions.map(edition => [edition.date, edition.access]), [
+    ["2006-06-30", "member"],
+    ["2006-01-01", "member"],
+  ]);
+  assert.deepEqual(deepBody.page, {
+    limit: 2,
+    nextCursor: "2006-01-01",
+    hasMore: true,
+    total: editions.length,
+  });
+  assert.deepEqual(
+    reads.filter(key => key.startsWith(ARCHIVE_CATALOG_YEAR_PREFIX)),
+    [
+      `${ARCHIVE_CATALOG_YEAR_PREFIX}2026`,
+      `${ARCHIVE_CATALOG_YEAR_PREFIX}2006`,
+      `${ARCHIVE_CATALOG_YEAR_PREFIX}2005`,
+    ],
+  );
+  assert.deepEqual(
+    reads.filter(key => key.startsWith(ARCHIVE_CATALOG_EDITION_PREFIX)),
+    [
+      `${ARCHIVE_CATALOG_EDITION_PREFIX}2006-06-30`,
+      `${ARCHIVE_CATALOG_EDITION_PREFIX}2006-01-01`,
+    ],
+  );
+  assert.deepEqual(base.stats(), { listCalls: 0, setCalls: 0 });
+});
+
+test("multi-decade legacy indexes upgrade once before returning to bounded page reads", async () => {
+  const editions = multiDecadeArchiveEditions();
+  const entries = archiveCatalogEntries(editions);
+  delete entries[ARCHIVE_CATALOG_INDEX_KEY].yearCounts;
+  delete entries[ARCHIVE_CATALOG_INDEX_KEY].total;
+  const base = makeStore({
+    ...entries,
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(...editions.map(item => item.date)),
+  });
+  const reads = [];
+  const store = {
+    ...base,
+    async get(key, options) {
+      reads.push(key);
+      return base.get(key, options);
+    },
+  };
+
+  const upgrade = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1&limit=2" },
+    contextFor(store),
+  );
+  const upgradeBody = await upgrade.json();
+  assert.equal(upgradeBody.page.total, editions.length);
+  assert.deepEqual(upgradeBody.editions.map(edition => edition.date), [
+    "2026-09-20",
+    "2026-06-30",
+  ]);
+  assert.deepEqual(
+    new Set(reads.filter(key => key.startsWith(ARCHIVE_CATALOG_YEAR_PREFIX))),
+    new Set(entries[ARCHIVE_CATALOG_INDEX_KEY].years.map(
+      year => `${ARCHIVE_CATALOG_YEAR_PREFIX}${year}`,
+    )),
+  );
+  assert.equal(base.stats().setCalls, 1);
+
+  reads.length = 0;
+  const steadyState = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1&limit=2" },
+    contextFor(store),
+  );
+  const steadyStateBody = await steadyState.json();
+  assert.equal(steadyStateBody.page.total, editions.length);
+  assert.deepEqual(
+    reads.filter(key => key.startsWith(ARCHIVE_CATALOG_YEAR_PREFIX)),
+    [`${ARCHIVE_CATALOG_YEAR_PREFIX}2026`],
+  );
+  assert.equal(base.stats().setCalls, 1);
 });
 
 test("archive totals remain global when a cursor moves into an older year", async () => {
