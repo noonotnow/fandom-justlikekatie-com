@@ -38,6 +38,10 @@ test("Netlify compatibility workflow preserves the reviewed proposal contract", 
     /verification_only:\n        description: "Exercise the review-PR path even when the release pin is current"/,
   );
   assert.match(job, /^    permissions:\n      contents: write\n      pull-requests: write$/m);
+  assert.match(
+    job,
+    /^      - name: Set up pnpm\n        uses: pnpm\/action-setup@v4$/m,
+  );
 
   const resolveStep = workflowStep(job, "Resolve Netlify CLI versions");
   assert.match(resolveStep, /echo "candidate=\$candidate" >> "\$GITHUB_OUTPUT"/);
