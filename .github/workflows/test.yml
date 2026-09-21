@@ -8,6 +8,12 @@ on:
   schedule:
     - cron: "17 9 * * 1"
   workflow_dispatch:
+    inputs:
+      verification_only:
+        description: "Exercise the review-PR path even when the release pin is current"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -116,18 +122,31 @@ jobs:
         if: steps.netlify_cli.outputs.upgrade == 'true'
         run: node scripts/update-netlify-cli-pin.js "${{ steps.netlify_cli.outputs.candidate }}"
 
+      - name: Prepare verification-only proposal receipt
+        if: inputs.verification_only
+        run: |
+          cat > .github/netlify-cli-proposal-verification.md <<EOF
+          # Netlify CLI proposal verification
+
+          This verification-only proposal exercised the review pull-request path with tested candidate \`netlify-cli@${{ steps.netlify_cli.outputs.candidate }}\`.
+          EOF
+
       - name: Create or refresh Netlify CLI upgrade proposal
-        if: steps.netlify_cli.outputs.upgrade == 'true'
+        if: steps.netlify_cli.outputs.upgrade == 'true' || inputs.verification_only
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.GITHUB_PAT }}
-          add-paths: package.json
+          add-paths: |
+            package.json
+            .github/netlify-cli-proposal-verification.md
           base: main
           branch: automation/netlify-cli-pin
-          commit-message: "chore: update Netlify CLI release pin to ${{ steps.netlify_cli.outputs.candidate }}"
-          title: "[Netlify CLI] Upgrade release pin to ${{ steps.netlify_cli.outputs.candidate }}"
+          commit-message: "${{ inputs.verification_only && 'test: verify Netlify CLI proposal for' || 'chore: update Netlify CLI release pin to' }} ${{ steps.netlify_cli.outputs.candidate }}"
+          title: "${{ inputs.verification_only && '[Verification only] ' || '' }}[Netlify CLI] Upgrade release pin to ${{ steps.netlify_cli.outputs.candidate }}"
           body: |
             ## Reviewed Netlify CLI upgrade candidate
+
+            ${{ inputs.verification_only && '> **Verification only:** This temporary proposal exercises the review pull-request path and must not be merged.' || '' }}
 
             The scheduled-functions compatibility workflow tested:
 

@@ -33,6 +33,10 @@ test("Netlify compatibility workflow preserves the reviewed proposal contract", 
     job,
     /^    if: github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'$/m,
   );
+  assert.match(
+    workflow,
+    /verification_only:\n        description: "Exercise the review-PR path even when the release pin is current"/,
+  );
   assert.match(job, /^    permissions:\n      contents: write\n      pull-requests: write$/m);
 
   const resolveStep = workflowStep(job, "Resolve Netlify CLI versions");
@@ -61,22 +65,40 @@ test("Netlify compatibility workflow preserves the reviewed proposal contract", 
     /update-netlify-cli-pin\.js "\$\{\{ steps\.netlify_cli\.outputs\.candidate \}\}"/,
   );
 
+  const verificationStep = workflowStep(
+    job,
+    "Prepare verification-only proposal receipt",
+  );
+  assert.match(verificationStep, /^        if: inputs\.verification_only$/m);
+  assert.match(
+    verificationStep,
+    /tested candidate \\`netlify-cli@\$\{\{ steps\.netlify_cli\.outputs\.candidate \}\}\\`/,
+  );
+
   const proposalStep = workflowStep(
     job,
     "Create or refresh Netlify CLI upgrade proposal",
   );
   assert.match(
     proposalStep,
-    /^        if: steps\.netlify_cli\.outputs\.upgrade == 'true'$/m,
+    /^        if: steps\.netlify_cli\.outputs\.upgrade == 'true' \|\| inputs\.verification_only$/m,
   );
   assert.match(proposalStep, /^        uses: peter-evans\/create-pull-request@v7$/m);
   assert.match(
     proposalStep,
-    /commit-message: "chore: update Netlify CLI release pin to \$\{\{ steps\.netlify_cli\.outputs\.candidate \}\}"/,
+    /title: "\$\{\{ inputs\.verification_only && '\[Verification only\] ' \|\| '' \}\}\[Netlify CLI\] Upgrade release pin to/,
   );
   assert.match(
     proposalStep,
-    /title: "\[Netlify CLI\] Upgrade release pin to \$\{\{ steps\.netlify_cli\.outputs\.candidate \}\}"/,
+    /> \*\*Verification only:\*\* This temporary proposal exercises the review pull-request path and must not be merged\./,
+  );
+  assert.match(
+    proposalStep,
+    /commit-message: "\$\{\{ inputs\.verification_only && 'test: verify Netlify CLI proposal for' \|\| 'chore: update Netlify CLI release pin to' \}\} \$\{\{ steps\.netlify_cli\.outputs\.candidate \}\}"/,
+  );
+  assert.match(
+    proposalStep,
+    /title: "\$\{\{ inputs\.verification_only && '\[Verification only\] ' \|\| '' \}\}\[Netlify CLI\] Upgrade release pin to \$\{\{ steps\.netlify_cli\.outputs\.candidate \}\}"/,
   );
   assert.match(
     proposalStep,
