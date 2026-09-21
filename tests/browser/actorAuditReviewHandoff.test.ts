@@ -10263,6 +10263,101 @@ test('a lost connection returning from retained history preserves the non-Legacy
 })
 ;
 
+test('a temporary server error returning from retained history recovers without writes', {
+  timeout: 60_000,
+}, async () => {
+  const historyError = 'The current audit is temporarily unavailable.'
+  const { server, origin } = await startApp()
+  const browser = await launchBrowserForServer(server)
+  const page = await browser.newPage()
+  const { auditRequests } = await configureNetwork(page, {
+    initialActiveRunId: 'run-2',
+    retrievalRepetition: true,
+    auditHistoryDetailDelays: {
+      'run-2': [0, 0, 500],
+    },
+    auditHistoryDetailErrors: {
+      'run-2': ['', historyError],
+    },
+  })
+  const auditTraffic: Array<{ method: string; runId: string | null }> = []
+
+  page.on('request', request => {
+    const url = new URL(request.url())
+    if (url.pathname.endsWith('/actor-audits')) {
+      auditTraffic.push({ method: request.method(), runId: url.searchParams.get('runId') })
+    }
+  })
+
+  try {
+    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click()
+    await page.getByRole('heading', { name: 'Audit evidence · run-2', exact: true }).waitFor()
+
+    const runSelect = page.getByLabel('Audit run')
+    await runSelect.selectOption('run-1')
+    await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor()
+
+    const repetition = page
+      .getByRole('region', { name: 'Candidate loss funnel' })
+      .getByRole('region', { name: 'Retrieval repetition' })
+    assert.deepEqual((await repetition.locator('strong').allTextContents()).slice(0, 4), ['7', '6', '5', '2'])
+
+    const failedResponse = page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return response.status() === 503
+        && url.pathname.endsWith('/actor-audits')
+        && url.searchParams.get('runId') === 'run-2'
+    })
+
+    await runSelect.selectOption('run-2')
+    await failedResponse
+    await page.getByText(historyError, { exact: true }).waitFor()
+
+    assert.equal(await runSelect.inputValue(), 'run-1')
+    await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor()
+    assert.deepEqual(
+      (await repetition.locator('strong').allTextContents()).slice(0, 4),
+      ['7', '6', '5', '2'],
+      'retained evidence must remain aligned with the selector after the server error',
+    )
+
+    const recoveredResponse = page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return response.status() === 200
+        && url.pathname.endsWith('/actor-audits')
+        && url.searchParams.get('runId') === 'run-2'
+    })
+
+    await runSelect.selectOption('run-2')
+    assert.equal(await runSelect.inputValue(), 'run-1', 'the selector must remain on retained history while the retry is pending')
+    await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor()
+    assert.deepEqual(
+      (await repetition.locator('strong').allTextContents()).slice(0, 4),
+      ['7', '6', '5', '2'],
+      'retained evidence must remain intact until the successful retry response arrives',
+    )
+
+    await recoveredResponse
+    await page.getByRole('heading', { name: 'Audit evidence · run-2', exact: true }).waitFor()
+    assert.equal(await runSelect.inputValue(), 'run-2', 'the selector must align with the restored current audit')
+    assert.deepEqual(
+      auditTraffic.filter(request => request.runId).map(request => request.runId),
+      ['run-2', 'run-1', 'run-2', 'run-2'],
+      'the failed return and recovery retry must use only selected-run detail reads',
+    )
+    assert.equal(
+      auditTraffic.every(request => request.method === 'GET'),
+      true,
+      'both return attempts must use GET',
+    )
+    assert.deepEqual(auditRequests, [], 'returning to current after a server recovery must not run or mutate an audit')
+  } finally {
+    await closeBrowserAndServer(browser, server)
+  }
+})
+;
+
 
 test('a signed-in operator saves a rescue board to Collection without calibrating it', 
 {
