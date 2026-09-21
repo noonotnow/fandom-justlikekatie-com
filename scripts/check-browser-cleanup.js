@@ -535,7 +535,7 @@ function cleanupPaths(scope, owned) {
     });
   }
 
-  function runLoop(statement, states) {
+  function runLoop(statement, states, labels = []) {
     const isDo = ts.isDoStatement(statement);
     const condition = ts.isForStatement(statement)
       ? statement.condition
@@ -554,25 +554,57 @@ function cleanupPaths(scope, owned) {
         : entries;
       const bodyResults = runStatement(statement.statement, checked);
       exits.push(...withNormalControl(
-        bodyResults.filter(state => state.control === 'break'),
-        ['break'],
+        bodyResults.filter(state => (
+          state.control === 'break'
+          || labels.some(label => state.control === `break:${label}`)
+        )),
+        ['break', ...labels.map(label => `break:${label}`)],
       ));
       stopped.push(...bodyResults.filter(state => (
         state.control !== 'normal'
         && state.control !== 'continue'
         && state.control !== 'break'
+        && !labels.some(label => (
+          state.control === `continue:${label}`
+          || state.control === `break:${label}`
+        ))
       )));
       entries = withNormalControl(
         bodyResults.filter(state => (
-          state.control === 'normal' || state.control === 'continue'
+          state.control === 'normal'
+          || state.control === 'continue'
+          || labels.some(label => state.control === `continue:${label}`)
         )),
-        ['continue'],
+        ['continue', ...labels.map(label => `continue:${label}`)],
       );
       if (incrementor) entries = runExpression(incrementor, entries);
       if (condition) exits.push(...runExpression(condition, entries));
     }
 
     return [...exits, ...entries, ...stopped];
+  }
+
+  function runLabeledStatement(statement, states, labels = []) {
+    const label = statement.label.text;
+    const allLabels = [...labels, label];
+    const body = statement.statement;
+    let results;
+
+    if (ts.isLabeledStatement(body)) {
+      results = runLabeledStatement(body, states, allLabels);
+    } else if (
+      ts.isForStatement(body)
+      || ts.isForInStatement(body)
+      || ts.isForOfStatement(body)
+      || ts.isWhileStatement(body)
+      || ts.isDoStatement(body)
+    ) {
+      results = runLoop(body, states, allLabels);
+    } else {
+      results = runStatement(body, states);
+    }
+
+    return withNormalControl(results, allLabels.map(name => `break:${name}`));
   }
 
   function runStatement(statement, states) {
@@ -597,6 +629,10 @@ function cleanupPaths(scope, owned) {
 
     if (ts.isSwitchStatement(statement)) return runSwitch(statement, states);
 
+    if (ts.isLabeledStatement(statement)) {
+      return runLabeledStatement(statement, states);
+    }
+
     if (
       ts.isForStatement(statement)
       || ts.isForInStatement(statement)
@@ -608,11 +644,19 @@ function cleanupPaths(scope, owned) {
     }
 
     if (ts.isBreakStatement(statement)) {
-      return states.map(state => ({ ...state, control: 'break' }));
+      const label = statement.label?.text;
+      return states.map(state => ({
+        ...state,
+        control: label ? `break:${label}` : 'break',
+      }));
     }
 
     if (ts.isContinueStatement(statement)) {
-      return states.map(state => ({ ...state, control: 'continue' }));
+      const label = statement.label?.text;
+      return states.map(state => ({
+        ...state,
+        control: label ? `continue:${label}` : 'continue',
+      }));
     }
 
     if (ts.isReturnStatement(statement) || ts.isThrowStatement(statement)) {

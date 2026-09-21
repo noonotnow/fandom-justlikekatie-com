@@ -530,6 +530,83 @@ test('accepts loop cleanup paths separated by break', () => {
   `), []);
 });
 
+test('accepts cleanup skipped by a labeled break past a nested switch', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    cleanup: while (resourceToClose) {
+      switch (resourceToClose) {
+        case 'browser':
+          await browser.close();
+          break cleanup;
+        default:
+          await server.close();
+          break cleanup;
+      }
+      await server.close();
+    }
+  `), []);
+});
+
+test('rejects sequential cleanup after a labeled break exits its named inner loop', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    cleanup: while (resourceToClose) {
+      switch (resourceToClose) {
+        case 'browser':
+          await browser.close();
+          break cleanup;
+        default:
+          break;
+      }
+    }
+    await server.close();
+  `);
+
+  assert.equal(violations.length, 1);
+});
+
+test('rejects cleanup across iterations after continue resumes a labeled outer loop', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    cleanup: for (const resource of resources) {
+      for (const attempt of attempts) {
+        switch (resource) {
+          case 'browser':
+            await browser.close();
+            continue cleanup;
+          default:
+            await server.close();
+            break cleanup;
+        }
+      }
+    }
+  `);
+
+  assert.equal(violations.length, 1);
+});
+
+test('accepts mutually exclusive cleanup when labeled continue skips the outer remainder', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    cleanup: for (const resource of ['browser']) {
+      do {
+        switch (resource) {
+          case 'browser':
+            await browser.close();
+            continue cleanup;
+          default:
+            break cleanup;
+        }
+      } while (shouldRetry);
+      await server.close();
+    }
+  `), []);
+});
+
 test('accepts cleanup paths separated by an early return', () => {
   assert.deepEqual(findUnsafeBrowserCleanup(`
     async function stopFixture() {
