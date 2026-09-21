@@ -9,6 +9,9 @@ on:
     - cron: "17 9 * * 1"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
@@ -73,9 +76,14 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -86,14 +94,51 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Report current supported Netlify CLI
-        run: npx --yes netlify-cli@latest --version
+      - name: Resolve Netlify CLI versions
+        id: netlify_cli
+        run: |
+          pinned="$(node scripts/update-netlify-cli-pin.js --current)"
+          candidate="$(npm view netlify-cli version)"
+          node scripts/update-netlify-cli-pin.js --check-candidate "$candidate"
+          echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
+          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+          echo "upgrade=$(node scripts/update-netlify-cli-pin.js --is-newer "$candidate")" >> "$GITHUB_OUTPUT"
 
-      - name: Verify current Netlify packaging contract
+      - name: Verify candidate Netlify packaging contract
+        env:
+          NETLIFY_CLI_VERSION: ${{ steps.netlify_cli.outputs.candidate }}
         run: npm run check:scheduled-functions-package:compat
 
-      - name: Explain the pinning decision
+      - name: Prepare reviewed pin upgrade
+        if: steps.netlify_cli.outputs.upgrade == 'true'
+        run: node scripts/update-netlify-cli-pin.js "${{ steps.netlify_cli.outputs.candidate }}"
+
+      - name: Create or refresh Netlify CLI upgrade proposal
+        if: steps.netlify_cli.outputs.upgrade == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_PAT }}
+          add-paths: package.json
+          base: main
+          branch: automation/netlify-cli-pin
+          commit-message: "chore: update Netlify CLI release pin to ${{ steps.netlify_cli.outputs.candidate }}"
+          title: "[Netlify CLI] Upgrade release pin to ${{ steps.netlify_cli.outputs.candidate }}"
+          body: |
+            ## Reviewed Netlify CLI upgrade candidate
+
+            The scheduled-functions compatibility workflow tested:
+
+            - Release pin: `${{ steps.netlify_cli.outputs.pinned }}`
+            - Upgrade candidate: `${{ steps.netlify_cli.outputs.candidate }}`
+
+            `netlify-cli@${{ steps.netlify_cli.outputs.candidate }}` generated the scheduled-functions manifest successfully, and `scripts/check-scheduled-functions-package.js` confirmed that every required maintenance job retained its expected cadence.
+
+            This pull request only proposes the deterministic release-pin change. It does not merge automatically; normal review and required checks still apply.
+          delete-branch: true
+
+      - name: Summarize the pinning decision
         if: always()
         run: |
-          echo "The required release check remains pinned to netlify-cli@27.8.0."
-          echo "When this compatibility check passes on a newer CLI, update that pin in a reviewed change and confirm the generated .netlify/functions/manifest.json remains compatible."
+          echo "The required release check remains pinned to netlify-cli@${{ steps.netlify_cli.outputs.pinned }} on the checked-out branch."
+          echo "Compatibility candidate: netlify-cli@${{ steps.netlify_cli.outputs.candidate }}."
+          echo "A newer passing candidate is proposed through a pull request; it is never merged automatically."
