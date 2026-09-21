@@ -205,6 +205,66 @@ test("publication writes only the current edition and lists metadata newest-firs
   assert.equal(await store.get(ARCHIVE_CATALOG_KEY, { type: "json" }), null);
 });
 
+test("archive writes accept valid public reader links and reject malformed paths before storage", async () => {
+  const validBase = {
+    date: "2026-09-20",
+    actorName: "Actor",
+    vibeLabel: "氛围",
+    previewThumbnails: [],
+    access: "member",
+  };
+  for (const [date, editionPath] of [
+    ["2026-09-20", "/vibe-atlas/editions/2026-09-20/"],
+    ["2026-09-21", "/vibe-atlas/editions/2026-09-21/actor/"],
+  ]) {
+    const store = memoryStore({});
+    await updateArchiveCatalog(store, {
+      ...validBase,
+      date,
+      publicRecord: {
+        actorPath: "/vibe-atlas/actors/actor/",
+        editionPath,
+      },
+    });
+    assert.equal(
+      (await store.get(`${ARCHIVE_CATALOG_EDITION_PREFIX}${date}`, { type: "json" }))
+        .publicRecord.editionPath,
+      editionPath,
+    );
+  }
+
+  for (const [publicRecord, message] of [
+    [{
+      actorPath: "/admin/actors/actor",
+      editionPath: "/vibe-atlas/editions/2026-09-20/actor/",
+    }, /actorPath must match/],
+    [{
+      actorPath: "/vibe-atlas/actors/actor/",
+      editionPath: "/vibe-atlas/editions/not-a-date/actor/",
+    }, /editionPath must match/],
+    [{
+      actorPath: "/vibe-atlas/actors/actor/",
+      editionPath: "/vibe-atlas/editions/2026-09-20/other/",
+    }, /editionPath actor must match/],
+    [{
+      actorPath: "/vibe-atlas/actors/other/",
+      editionPath: "/vibe-atlas/editions/2026-09-19/other/",
+    }, /editionPath date must match/],
+    [{
+      actorPath: "/vibe-atlas/actors/other/",
+      editionPath: "/vibe-atlas/editions/2026-09-20/other/",
+    }, /actorPath actor must match/],
+    [null, /must include valid actorPath and editionPath/],
+  ]) {
+    const store = memoryStore({});
+    await assert.rejects(
+      updateArchiveCatalog(store, { ...validBase, publicRecord }),
+      message,
+    );
+    assert.deepEqual(store.stats().writtenKeys, []);
+  }
+});
+
 test("simultaneous publications use independent keys and preserve both editions", async () => {
   const store = memoryStore({});
   const edition = date => ({
@@ -567,6 +627,14 @@ test("server projection and reader normalization share an all-or-nothing public-
   const approvedRecords = [
     {
       actorPath: "/vibe-atlas/actors/actor",
+      editionPath: "/vibe-atlas/editions/2026-09-01",
+    },
+    {
+      actorPath: "/vibe-atlas/actors/actor/",
+      editionPath: "/vibe-atlas/editions/2026-09-01/",
+    },
+    {
+      actorPath: "/vibe-atlas/actors/actor",
       editionPath: "/vibe-atlas/editions/2026-09-01/actor",
     },
     {
@@ -590,7 +658,7 @@ test("server projection and reader normalization share an all-or-nothing public-
     { actorPath: "/vibe-atlas/actors/actor?preview=1", editionPath: approved.editionPath },
     { actorPath: "/vibe-atlas/actors/actor#preview", editionPath: approved.editionPath },
     { actorPath: approved.actorPath, editionPath: "/vibe-atlas/editions/" },
-    { actorPath: approved.actorPath, editionPath: "/vibe-atlas/editions/2026-09-01" },
+    { actorPath: approved.actorPath, editionPath: "/vibe-atlas/editions/2026-09-01/other-actor" },
     { actorPath: approved.actorPath, editionPath: "/vibe-atlas/editions//2026-09-01" },
     { actorPath: approved.actorPath, editionPath: "/vibe-atlas/editions/../actors/actor" },
     { actorPath: approved.actorPath, editionPath: "/vibe-atlas/editions/2026-09-01/other-actor" },

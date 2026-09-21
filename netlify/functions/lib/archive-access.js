@@ -1,4 +1,5 @@
 import {
+  assertPublicArchiveRecord,
   publicArchiveRecord,
   publicArchiveRecordDiagnostic,
 } from "../../../src/contracts/publicArchiveRecord.js";
@@ -138,14 +139,29 @@ function isArchiveCatalog(value) {
 }
 
 function isArchiveCatalogEdition(edition) {
-  return isArchiveCatalog({
+  if (!isArchiveCatalog({
     schemaVersion: 1,
     catalogVersion: ARCHIVE_CATALOG_VERSION,
     kind: "vibe-atlas-archive-catalog",
     editions: [edition],
-  });
+  })) return false;
+  if (!Object.hasOwn(edition, "publicRecord")) return true;
+  try {
+    assertArchiveEditionPublicRecord(edition);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
+function archiveActorSlug(edition) {
+  return String(edition?.actorShortNameEn || edition?.actorName || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "actor";
+}
 export function archiveCatalogEditionKey(date) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "")) {
     throw new Error("The archive catalogue date is invalid.");
@@ -412,6 +428,9 @@ export async function updateArchiveCatalog(
   edition,
   _now = () => new Date().toISOString(),
 ) {
+  if (edition && Object.hasOwn(edition, "publicRecord")) {
+    assertArchiveEditionPublicRecord(edition);
+  }
   if (!isArchiveCatalogEdition(edition)) {
     throw new Error("The archive catalogue edition is invalid.");
   }
@@ -530,6 +549,13 @@ export function publicArchiveEdition(payload, { isFree = false } = {}) {
 
 export function archiveReaderLinkDiagnostic(payload) {
   return publicArchiveRecordDiagnostic(payload?.publicRecord);
+}
+
+function assertArchiveEditionPublicRecord(edition) {
+  return assertPublicArchiveRecord(edition.publicRecord, {
+    expectedDate: edition.date,
+    expectedActorSlug: archiveActorSlug(edition),
+  });
 }
 
 export async function listArchiveCatalogPage(

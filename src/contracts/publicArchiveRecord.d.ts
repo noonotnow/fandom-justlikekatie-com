@@ -9,3 +9,10 @@ export interface PublicArchiveRecord {
 }
 
 export function publicArchiveRecord(value: unknown): PublicArchiveRecord | undefined;
+export function assertPublicArchiveRecord(
+  value: unknown,
+  expected?: {
+    expectedDate?: string | null;
+    expectedActorSlug?: string | null;
+  },
+): PublicArchiveRecord;

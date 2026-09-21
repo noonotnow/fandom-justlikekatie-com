@@ -10,6 +10,7 @@ import {
 import {
   ensureArchiveAccessWindow,
 } from "./archive-access.js";
+import { assertPublicArchiveRecord } from "../../../src/contracts/publicArchiveRecord.js";
 
 export const GRID_MANIFEST_VERSION = "v1";
 export const GRID_MANIFEST_PREFIX = `vibeAtlas:grid-manifest:${GRID_MANIFEST_VERSION}:`;
@@ -1267,6 +1268,13 @@ async function materializePublicationManifestUnlocked({
       ...provenance,
       sourceCandidateIds: cards.map(card => card.candidateId),
     },
+    publicRecord: assertPublicArchiveRecord({
+      actorPath: publicActorPath(actor),
+      editionPath: `${PUBLIC_EDITION_PATH}/${date}/${publicActorSlug(actor)}/`,
+    }, {
+      expectedDate: date,
+      expectedActorSlug: publicActorSlug(actor),
+    }),
     cards,
   };
   if (typeof validateBeforeCommit === "function") {
@@ -1442,6 +1450,16 @@ export function isGridManifest(value) {
     || value.provenance.sourceCandidateIds.length !== REQUIRED_CARD_COUNT
     || value.provenance.sourceCandidateIds.some((candidateId, position) =>
       candidateId !== value.cards[position]?.candidateId)) return false;
+  if (Object.hasOwn(value, "publicRecord")) {
+    try {
+      assertPublicArchiveRecord(value.publicRecord, {
+        expectedDate: value.publicationDate,
+        expectedActorSlug: publicActorSlug(value.actor),
+      });
+    } catch {
+      return false;
+    }
+  }
   return value.cards.every((card, position) => isValidPublicationAsset(
     card,
     position,

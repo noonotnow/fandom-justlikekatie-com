@@ -409,6 +409,10 @@ test("materializes an immutable nine-card MEDIA manifest and reuses it idempoten
   assert.equal(first.manifest.boardHash, boardHash(input.board));
   assert.equal(first.manifest.cards.length, 9);
   assert.equal(first.manifest.heroPosition, 4);
+  assert.deepEqual(first.manifest.publicRecord, {
+    actorPath: "/vibe-atlas/actors/liu-xueyi/",
+    editionPath: "/vibe-atlas/editions/2026-09-03/liu-xueyi/",
+  });
   assert.deepEqual(first.manifest.cards.map(card => card.position), [0, 1, 2, 3, 4, 5, 6, 7, 8]);
   assert.ok(first.manifest.cards.every(card => card.media.association.type === "publication"));
   assert.ok(first.payload.displayResults.every(result => result.thumbnail.startsWith("https://media.example/thumbs/")));
@@ -432,6 +436,27 @@ test("materializes an immutable nine-card MEDIA manifest and reuses it idempoten
   });
   assert.equal(second.manifest.manifestId, first.manifest.manifestId);
   assert.deepEqual(media.stats(), { sourceCalls: 9, mediaCalls: 9 });
+});
+
+test("publication manifests reject malformed stored public reader links", () => {
+  const valid = storedPublicationManifest("2026-09-03", "liu-xueyi");
+  valid.publicRecord = {
+    actorPath: "/vibe-atlas/actors/liu-xueyi/",
+    editionPath: "/vibe-atlas/editions/2026-09-03/liu-xueyi/",
+  };
+  assert.equal(isGridManifest(valid), true);
+
+  valid.publicRecord.editionPath = "/vibe-atlas/editions/2026-09-03/other-actor/";
+  assert.equal(isGridManifest(valid), false);
+
+  valid.publicRecord = {
+    actorPath: "/vibe-atlas/actors/other-actor/",
+    editionPath: "/vibe-atlas/editions/2026-09-04/other-actor/",
+  };
+  assert.equal(isGridManifest(valid), false);
+
+  valid.publicRecord = null;
+  assert.equal(isGridManifest(valid), false);
 });
 
 test("publication revalidates eligibility inside the shared correction lock", async () => {

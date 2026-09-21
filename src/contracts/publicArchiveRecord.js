@@ -5,7 +5,7 @@ const ACTOR_RECORD_PATH = new RegExp(
   `^${PUBLIC_ROUTE_PATHS.vibeAtlasActors}/(${RECORD_IDENTIFIER})/?$`,
 );
 const EDITION_RECORD_PATH = new RegExp(
-  `^${PUBLIC_ROUTE_PATHS.vibeAtlasEditions}/(\\d{4}-\\d{2}-\\d{2})/(${RECORD_IDENTIFIER})/?$`,
+  `^${PUBLIC_ROUTE_PATHS.vibeAtlasEditions}/(\\d{4}-\\d{2}-\\d{2})(?:/(${RECORD_IDENTIFIER}))?/?$`,
 );
 
 export const PUBLIC_ARCHIVE_RECORD_DIAGNOSTIC = Object.freeze({
@@ -34,6 +34,44 @@ export function publicArchiveRecord(value) {
   };
 }
 
+export function assertPublicArchiveRecord(value, {
+  expectedDate = null,
+  expectedActorSlug = null,
+} = {}) {
+  if (!value || typeof value !== "object") {
+    throw new Error("Public record must include valid actorPath and editionPath reader links.");
+  }
+  const actorMatch = typeof value.actorPath === "string"
+    ? ACTOR_RECORD_PATH.exec(value.actorPath)
+    : null;
+  if (!actorMatch) {
+    throw new Error(
+      `Public record actorPath must match ${PUBLIC_ROUTE_PATHS.vibeAtlasActors}/<actor>.`,
+    );
+  }
+  const editionMatch = typeof value.editionPath === "string"
+    ? EDITION_RECORD_PATH.exec(value.editionPath)
+    : null;
+  if (!editionMatch || !isCalendarDate(editionMatch[1])) {
+    throw new Error(
+      `Public record editionPath must match ${PUBLIC_ROUTE_PATHS.vibeAtlasEditions}/YYYY-MM-DD or ${PUBLIC_ROUTE_PATHS.vibeAtlasEditions}/YYYY-MM-DD/<actor>.`,
+    );
+  }
+  if (editionMatch[2] && editionMatch[2] !== actorMatch[1]) {
+    throw new Error("Public record editionPath actor must match actorPath.");
+  }
+  if (expectedDate && editionMatch[1] !== expectedDate) {
+    throw new Error(`Public record editionPath date must match ${expectedDate}.`);
+  }
+  if (expectedActorSlug && actorMatch[1] !== expectedActorSlug) {
+    throw new Error(`Public record actorPath actor must match ${expectedActorSlug}.`);
+  }
+  return {
+    actorPath: value.actorPath,
+    editionPath: value.editionPath,
+  };
+}
+
 /**
  * Explains why a public-record path pair was rejected without returning either
  * untrusted path. Safe for operator diagnostics.
@@ -55,7 +93,7 @@ export function publicArchiveRecordDiagnostic(value) {
     : null;
   if (!editionMatch
     || !isCalendarDate(editionMatch[1])
-    || editionMatch[2] !== actorMatch[1]) {
+    || (editionMatch[2] && editionMatch[2] !== actorMatch[1])) {
     return { status: PUBLIC_ARCHIVE_RECORD_DIAGNOSTIC.MALFORMED_EDITION_PATH };
   }
   return { status: PUBLIC_ARCHIVE_RECORD_DIAGNOSTIC.VALID };
