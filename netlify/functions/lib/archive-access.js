@@ -336,45 +336,52 @@ export async function reconcileArchiveCatalogIndexes(
     dates.push(date);
     date = previousCalendarDate(date);
   }
-  const records = (await Promise.all(dates.map(async candidateDate => {
-    const key = archiveCatalogEditionKey(candidateDate);
-    const edition = await store.get(key, { type: "json", consistency: "strong" });
-    if (!edition) return null;
-    if (!isArchiveCatalogEdition(edition) || edition.date !== candidateDate) {
-      throw new Error("The archive catalogue edition is invalid.");
-    }
-    return { date: candidateDate, edition };
-  }))).filter(Boolean);
-
-  const index = await store.get(
-    ARCHIVE_CATALOG_INDEX_KEY,
-    { type: "json", consistency: "strong" },
-  );
-  if (index && !isArchiveCatalogIndex(index)) {
-    throw new Error("The archive catalogue index is invalid.");
-  }
-  const years = new Map();
-  await Promise.all([...new Set(records.map(record => record.date.slice(0, 4)))]
-    .map(async year => {
-      const bucket = await store.get(
-        `${ARCHIVE_CATALOG_YEAR_PREFIX}${year}`,
-        { type: "json", consistency: "strong" },
-      );
-      if (bucket && !isArchiveCatalogYear(bucket, year)) {
-        throw new Error("The archive catalogue year is invalid.");
+  let records;
+  let missingDates;
+  try {
+    records = (await Promise.all(dates.map(async candidateDate => {
+      const key = archiveCatalogEditionKey(candidateDate);
+      const edition = await store.get(key, { type: "json", consistency: "strong" });
+      if (!edition) return null;
+      if (!isArchiveCatalogEdition(edition) || edition.date !== candidateDate) {
+        throw new Error("The archive catalogue edition is invalid.");
       }
-      years.set(year, bucket);
-    }));
-  const missingDates = records
-    .map(record => record.date)
-    .filter(date => {
-      const year = date.slice(0, 4);
-      return !index?.years.includes(year) || !years.get(year)?.dates.includes(date);
-    })
-    .sort()
-    .reverse();
+      return { date: candidateDate, edition };
+    }))).filter(Boolean);
 
-  await ensureArchiveCatalogDates(store, records.map(record => record.date));
+    const index = await store.get(
+      ARCHIVE_CATALOG_INDEX_KEY,
+      { type: "json", consistency: "strong" },
+    );
+    if (index && !isArchiveCatalogIndex(index)) {
+      throw new Error("The archive catalogue index is invalid.");
+    }
+    const years = new Map();
+    await Promise.all([...new Set(records.map(record => record.date.slice(0, 4)))]
+      .map(async year => {
+        const bucket = await store.get(
+          `${ARCHIVE_CATALOG_YEAR_PREFIX}${year}`,
+          { type: "json", consistency: "strong" },
+        );
+        if (bucket && !isArchiveCatalogYear(bucket, year)) {
+          throw new Error("The archive catalogue year is invalid.");
+        }
+        years.set(year, bucket);
+      }));
+    missingDates = records
+      .map(record => record.date)
+      .filter(candidateDate => {
+        const year = candidateDate.slice(0, 4);
+        return !index?.years.includes(year) || !years.get(year)?.dates.includes(candidateDate);
+      })
+      .sort()
+      .reverse();
+
+    await ensureArchiveCatalogDates(store, records.map(record => record.date));
+  } catch (error) {
+    error.reconciliationScanned = dates.length;
+    throw error;
+  }
   return {
     scanned: dates.length,
     verified: records.length,

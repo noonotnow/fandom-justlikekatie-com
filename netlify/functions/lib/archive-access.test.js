@@ -543,6 +543,7 @@ test("the operator repair endpoint requires admin access and reports repaired da
   const publication = memoryStore({
     [`${ARCHIVE_CATALOG_EDITION_PREFIX}${hidden.date}`]: hidden,
   });
+  const diagnostics = memoryStore({});
   let adminChecks = 0;
   const handler = createStarOfDayHandler({
     auth: {
@@ -552,7 +553,9 @@ test("the operator repair endpoint requires admin access and reports repaired da
       },
     },
     getStore: () => publication,
+    getDiagnosticsStore: () => diagnostics,
     today: () => "2026-09-20",
+    now: () => new Date("2026-09-20T12:00:00.000Z"),
   });
 
   const response = await handler(
@@ -568,6 +571,130 @@ test("the operator repair endpoint requires admin access and reports repaired da
   assert.deepEqual(reconciliation.missingDates, ["2026-09-19"]);
   assert.equal(reconciliation.repaired, 1);
   assert.match(reconciliation.nextCursor, /^\d{4}-\d{2}-\d{2}$/);
+
+  const historyResponse = await handler(
+    new Request("https://example.test/star-of-day?archiveRepairHistory=1"),
+    {},
+  );
+  assert.equal(historyResponse.status, 200);
+  const [receipt] = (await historyResponse.json()).history;
+  assert.deepEqual(receipt, {
+    schemaVersion: 1,
+    kind: "vibe-atlas-archive-repair-receipt",
+    attemptedAt: "2026-09-20T12:00:00.000Z",
+    operatorId: "admin-1",
+    scanned: 100,
+    repairedDates: ["2026-09-19"],
+    repaired: 1,
+    outcome: "repaired",
+    nextCursor: reconciliation.nextCursor,
+  });
+});
+
+test("repeated no-op archive repairs create distinct bounded receipts", async () => {
+  const publication = memoryStore({});
+  const diagnostics = memoryStore({});
+  let clock = 0;
+  const handler = createStarOfDayHandler({
+    auth: { authenticateAdmin: async () => ({ user: { accountId: "admin-1" } }) },
+    getStore: () => publication,
+    getDiagnosticsStore: () => diagnostics,
+    today: () => "2026-01-01",
+    now: () => new Date(Date.UTC(2026, 0, 1, 0, 0, clock++)),
+  });
+  for (let index = 0; index < 55; index += 1) {
+    assert.equal((await handler(
+      new Request("https://example.test/star-of-day?archiveRepair=1"),
+      {},
+    )).status, 200);
+  }
+  const response = await handler(
+    new Request("https://example.test/star-of-day?archiveRepairHistory=1"),
+    {},
+  );
+  const history = (await response.json()).history;
+  assert.equal(history.length, 50);
+  assert.ok(history.every(receipt =>
+    receipt.outcome === "no_op"
+    && receipt.scanned === 1
+    && receipt.repaired === 0
+    && receipt.repairedDates.length === 0));
+  assert.equal(new Set(history.map(receipt => receipt.attemptedAt)).size, 50);
+});
+
+test("failed archive repairs record only a safe classification", async () => {
+  const publication = memoryStore({
+    [`${ARCHIVE_CATALOG_EDITION_PREFIX}2026-09-20`]: {
+      date: "2026-09-19",
+      actorName: "Invalid",
+      vibeLabel: "Invalid",
+      sessionToken: "must-not-survive",
+    },
+  });
+  const diagnostics = memoryStore({});
+  const handler = createStarOfDayHandler({
+    auth: { authenticateAdmin: async () => ({ user: { accountId: "admin-1" } }) },
+    getStore: () => publication,
+    getDiagnosticsStore: () => diagnostics,
+    today: () => "2026-09-20",
+    now: () => new Date("2026-09-20T12:00:00.000Z"),
+  });
+  const failed = await handler(
+    new Request("https://example.test/star-of-day?archiveRepair=1"),
+    {},
+  );
+  assert.equal(failed.status, 500);
+  assert.deepEqual(await failed.json(), { error: "Archive repair failed." });
+  const history = await handler(
+    new Request("https://example.test/star-of-day?archiveRepairHistory=1"),
+    {},
+  );
+  const [receipt] = (await history.json()).history;
+  assert.equal(receipt.outcome, "failed");
+  assert.equal(receipt.errorClassification, "invalid_archive_data");
+  assert.equal(receipt.scanned, 100);
+  assert.doesNotMatch(JSON.stringify(receipt), /session|token|must-not-survive/i);
+});
+
+test("a successful repair receipt write failure never creates false failed-repair evidence", async () => {
+  const hidden = {
+    date: "2026-09-20",
+    actorName: "Recovered Actor",
+    vibeLabel: "Recovered",
+  };
+  const publication = memoryStore({
+    [`${ARCHIVE_CATALOG_EDITION_PREFIX}${hidden.date}`]: hidden,
+  });
+  const diagnostics = memoryStore({});
+  const failingDiagnostics = {
+    ...diagnostics,
+    setJSON: async () => {
+      throw new Error("ambiguous receipt storage timeout with private session details");
+    },
+  };
+  const handler = createStarOfDayHandler({
+    auth: { authenticateAdmin: async () => ({ user: { accountId: "admin-1" } }) },
+    getStore: () => publication,
+    getDiagnosticsStore: () => failingDiagnostics,
+    today: () => "2026-09-20",
+    now: () => new Date("2026-09-20T12:00:00.000Z"),
+  });
+  const response = await handler(
+    new Request("https://example.test/star-of-day?archiveRepair=1"),
+    {},
+  );
+  assert.equal(response.status, 500);
+  assert.deepEqual(await response.json(), {
+    error: "Archive repair completed, but its receipt could not be confirmed.",
+  });
+  assert.deepEqual(
+    (await diagnostics.list({ prefix: "archive-repair:receipt:" })).blobs,
+    [],
+  );
+  assert.deepEqual(
+    (await listArchiveCatalogEditions(publication)).map(edition => edition.date),
+    ["2026-09-20"],
+  );
 });
 
 test("the operator repair endpoint fails closed when admin authentication fails", async () => {
@@ -586,6 +713,11 @@ test("the operator repair endpoint fails closed when admin authentication fails"
   assert.deepEqual(await response.json(), {
     error: "Admin access is required.",
   });
+  const history = await handler(
+    new Request("https://example.test/star-of-day?archiveRepairHistory=1"),
+    {},
+  );
+  assert.equal(history.status, 403);
 });
 
 test("archive policy distinguishes anonymous, free, active, billing-delay, and inactive access", () => {

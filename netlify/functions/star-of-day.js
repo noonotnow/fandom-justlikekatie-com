@@ -41,7 +41,12 @@ import {
   reconcileArchiveCatalogIndexes,
   updateArchiveCatalog,
 } from "./lib/archive-access.js";
-import { recordArchiveAccessCheck } from "./lib/archive-access-operations.js";
+import {
+  archiveRepairErrorClassification,
+  listArchiveRepairHistory,
+  recordArchiveAccessCheck,
+  recordArchiveRepairAttempt,
+} from "./lib/archive-access-operations.js";
 import { capabilitiesForMembership } from "./lib/capabilities.js";
 
 // Server-side daily cache for "Star of the Day".
@@ -715,22 +720,80 @@ export function createStarOfDayHandler({
     const todayStr = today();
     const url = new URL(req.url || "https://fandom.local/.netlify/functions/star-of-day");
 
-    if (url.searchParams.get("archiveRepair") === "1") {
+    if (url.searchParams.get("archiveRepair") === "1"
+      || url.searchParams.get("archiveRepairHistory") === "1") {
+      let admin;
       try {
-        await auth.authenticateAdmin(req, context);
+        admin = await auth.authenticateAdmin(req, context);
       } catch (error) {
         return jsonResponse(error?.status === 403 ? 403 : 401, {
           error: error?.message || "Admin access is required.",
         }, { "Cache-Control": "private, no-store" });
       }
+      const diagnosticsStore = getDiagnosticsStore(context);
+      if (url.searchParams.get("archiveRepairHistory") === "1") {
+        const history = await listArchiveRepairHistory(diagnosticsStore);
+        return jsonResponse(200, { history }, {
+          "Cache-Control": "private, no-store",
+          Vary: "Cookie",
+        });
+      }
       const cursor = url.searchParams.get("repairCursor");
       if (cursor !== null && (cursor.length < 1 || cursor.length > 512)) {
-        return jsonResponse(400, { error: "Invalid archive repair cursor." });
+        await recordArchiveRepairAttempt(diagnosticsStore, {
+          operatorId: admin?.user?.accountId || admin?.accountId,
+          attemptedAt: now(),
+          scanned: 0,
+          errorClassification: "invalid_request",
+        });
+        return jsonResponse(400, { error: "Invalid archive repair cursor." }, {
+          "Cache-Control": "private, no-store",
+          Vary: "Cookie",
+        });
       }
-      const reconciliation = await reconcileArchiveCatalogIndexes(store, {
-        throughDate: todayStr,
-        ...(cursor ? { cursor } : {}),
-      });
+      const attemptedAt = now();
+      let reconciliation;
+      try {
+        reconciliation = await reconcileArchiveCatalogIndexes(store, {
+          throughDate: todayStr,
+          ...(cursor ? { cursor } : {}),
+        });
+      } catch (error) {
+        await recordArchiveRepairAttempt(diagnosticsStore, {
+          operatorId: admin?.user?.accountId || admin?.accountId,
+          attemptedAt,
+          scanned: Number.isSafeInteger(error?.reconciliationScanned)
+            ? error.reconciliationScanned
+            : 0,
+          errorClassification: archiveRepairErrorClassification(error),
+        });
+        console.error("[archive-catalogue] reconciliation failed", {
+          classification: archiveRepairErrorClassification(error),
+        });
+        return jsonResponse(500, { error: "Archive repair failed." }, {
+          "Cache-Control": "private, no-store",
+          Vary: "Cookie",
+        });
+      }
+      try {
+        await recordArchiveRepairAttempt(diagnosticsStore, {
+          operatorId: admin?.user?.accountId || admin?.accountId,
+          attemptedAt,
+          scanned: reconciliation.scanned,
+          repairedDates: reconciliation.missingDates,
+          nextCursor: reconciliation.nextCursor,
+        });
+      } catch {
+        console.error("[archive-catalogue] reconciliation receipt unavailable", {
+          outcome: reconciliation.repaired > 0 ? "repaired" : "no_op",
+        });
+        return jsonResponse(500, {
+          error: "Archive repair completed, but its receipt could not be confirmed.",
+        }, {
+          "Cache-Control": "private, no-store",
+          Vary: "Cookie",
+        });
+      }
       console.info("[archive-catalogue] reconciliation completed", {
         scanned: reconciliation.scanned,
         repaired: reconciliation.repaired,

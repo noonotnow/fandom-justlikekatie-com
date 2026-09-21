@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 const BUCKET_PREFIX = "archive-access:hour:";
+const ARCHIVE_REPAIR_RECEIPT_PREFIX = "archive-repair:receipt:";
+const ARCHIVE_REPAIR_REVERSE_EPOCH = Number.MAX_SAFE_INTEGER;
+export const ARCHIVE_REPAIR_HISTORY_LIMIT = 50;
 
 const NOTIFICATION_STATE_KEY = "archive-access:notification-state";
 const NOTIFICATION_REPAIR_STATE_KEY = "archive-access:notification-repairs";
@@ -41,6 +44,73 @@ export async function recordArchiveAccessCheck(store, event, date = new Date()) 
     },
     { onlyIfNew: true },
   );
+}
+
+export function archiveRepairErrorClassification(error) {
+  if (error?.code === "ARCHIVE_SAFE_UPDATE_UNAVAILABLE") return "safe_update_unavailable";
+  if (/cursor|limit/i.test(String(error?.message || ""))) return "invalid_request";
+  if (/invalid/i.test(String(error?.message || ""))) return "invalid_archive_data";
+  return "storage_failure";
+}
+
+export async function recordArchiveRepairAttempt(store, {
+  operatorId,
+  attemptedAt,
+  scanned,
+  repairedDates = [],
+  nextCursor = null,
+  errorClassification = null,
+} = {}) {
+  if (!store || typeof operatorId !== "string" || operatorId.length < 1 || operatorId.length > 256) {
+    throw new Error("The archive repair operator is invalid.");
+  }
+  const timestamp = attemptedAt instanceof Date ? attemptedAt : new Date(attemptedAt);
+  if (!Number.isFinite(timestamp.getTime()) || !Number.isSafeInteger(scanned) || scanned < 0) {
+    throw new Error("The archive repair receipt is invalid.");
+  }
+  const safeDates = [...new Set(repairedDates)]
+    .filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date))
+    .slice(0, 100);
+  const receipt = {
+    schemaVersion: 1,
+    kind: "vibe-atlas-archive-repair-receipt",
+    attemptedAt: timestamp.toISOString(),
+    operatorId,
+    scanned,
+    repairedDates: safeDates,
+    repaired: safeDates.length,
+    outcome: errorClassification ? "failed" : (safeDates.length ? "repaired" : "no_op"),
+    ...(nextCursor ? { nextCursor } : {}),
+    ...(errorClassification ? { errorClassification } : {}),
+  };
+  await store.setJSON(
+    `${ARCHIVE_REPAIR_RECEIPT_PREFIX}${String(
+      ARCHIVE_REPAIR_REVERSE_EPOCH - timestamp.getTime(),
+    ).padStart(16, "0")}:${randomUUID()}`,
+    receipt,
+    { onlyIfNew: true },
+  );
+  return receipt;
+}
+
+export async function listArchiveRepairHistory(store, limit = ARCHIVE_REPAIR_HISTORY_LIMIT) {
+  const safeLimit = Number.isSafeInteger(limit) && limit > 0
+    ? Math.min(limit, ARCHIVE_REPAIR_HISTORY_LIMIT)
+    : ARCHIVE_REPAIR_HISTORY_LIMIT;
+  const listing = await store.list({ prefix: ARCHIVE_REPAIR_RECEIPT_PREFIX });
+  const keys = (listing?.blobs || [])
+    .map(blob => blob?.key)
+    .filter(key => typeof key === "string")
+    .sort()
+    .slice(0, safeLimit);
+  const receipts = await Promise.all(keys.map(key =>
+    store.get(key, { type: "json", consistency: "strong" })));
+  return receipts.filter(receipt =>
+    receipt?.kind === "vibe-atlas-archive-repair-receipt"
+    && Number.isFinite(Date.parse(receipt.attemptedAt))
+    && typeof receipt.operatorId === "string"
+    && Number.isSafeInteger(receipt.scanned)
+    && ["repaired", "no_op", "failed"].includes(receipt.outcome));
 }
 
 export async function archiveAccessHealth(store, date = new Date(), hours = 24) {
