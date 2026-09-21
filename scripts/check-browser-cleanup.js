@@ -152,6 +152,9 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
 
     function resourceKinds(value) {
       const expression = unwrappedInitializer(value);
+      const factory = calledName(expression);
+      if (factory && BROWSER_FACTORIES.test(factory)) return new Set(['browser']);
+      if (factory && SERVER_FACTORIES.test(factory)) return new Set(['server']);
       const path = resourcePath(expression);
       if (path) {
         const kind = owned.get(path);
@@ -241,6 +244,34 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
       }
     }
 
+    function recordLogicalAssignment(target, value, operator) {
+      const targetPath = resourcePath(target);
+      if (!targetPath) return;
+      const targetKinds = resourceKinds(target);
+      if (
+        targetKinds.size === 1
+        && (
+          operator === ts.SyntaxKind.BarBarEqualsToken
+          || operator === ts.SyntaxKind.QuestionQuestionEqualsToken
+        )
+      ) {
+        markBinding(targetPath, targetKinds.values().next().value);
+        return;
+      }
+      const kinds = new Set([
+        ...(operator === ts.SyntaxKind.AmpersandAmpersandEqualsToken
+          && targetKinds.size === 1
+          ? []
+          : targetKinds),
+        ...resourceKinds(value),
+      ]);
+      if (kinds.size === 1) {
+        markBinding(targetPath, kinds.values().next().value);
+      } else {
+        clearBinding(targetPath);
+      }
+    }
+
     function collect(node) {
       if (node !== scope && ts.isFunctionLike(node)) return;
       if (ts.isVariableDeclaration(node) && node.initializer) {
@@ -250,6 +281,15 @@ export function findUnsafeBrowserCleanup(source, fileName = 'browser.test.ts') {
         && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
       ) {
         recordAssignment(node.left, node.right);
+      } else if (
+        ts.isBinaryExpression(node)
+        && (
+          node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandEqualsToken
+          || node.operatorToken.kind === ts.SyntaxKind.BarBarEqualsToken
+          || node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionEqualsToken
+        )
+      ) {
+        recordLogicalAssignment(node.left, node.right, node.operatorToken.kind);
       }
 
       ts.forEachChild(node, collect);

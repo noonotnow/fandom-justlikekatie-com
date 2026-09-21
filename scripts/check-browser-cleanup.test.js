@@ -314,6 +314,86 @@ test('rejects cleanup through nullish-coalescing aliases', () => {
   assert.equal(violations[0].server, 'daemon');
 });
 
+test('rejects cleanup through logical-assignment aliases', () => {
+  for (const operator of ['&&=', '||=', '??=']) {
+    const violations = findUnsafeBrowserCleanup(`
+      const renderer = await launch();
+      let browserAlias = renderer;
+      browserAlias ${operator} renderer;
+      const daemon = await createServer();
+      let serverAlias;
+      serverAlias ${operator} daemon;
+      await browserAlias.close();
+      await serverAlias.close();
+    `);
+
+    assert.equal(violations.length, 1, operator);
+    assert.equal(violations[0].browser, 'browserAlias', operator);
+    assert.equal(violations[0].server, 'serverAlias', operator);
+  }
+});
+
+test('rejects cleanup through logical assignments from resource factories', () => {
+  for (const operator of ['&&=', '||=', '??=']) {
+    const violations = findUnsafeBrowserCleanup(`
+      let renderer;
+      renderer ${operator} await launch();
+      let daemon;
+      daemon ${operator} await createServer();
+      await renderer.close();
+      await daemon.close();
+    `);
+
+    assert.equal(violations.length, 1, operator);
+    assert.equal(violations[0].browser, 'renderer', operator);
+    assert.equal(violations[0].server, 'daemon', operator);
+  }
+});
+
+test('retains known resource aliases through OR and nullish assignments', () => {
+  for (const operator of ['||=', '??=']) {
+    const violations = findUnsafeBrowserCleanup(`
+      const renderer = await launch();
+      const daemon = await createServer();
+      let browserAlias = renderer;
+      browserAlias ${operator} daemon;
+      await browserAlias.close();
+      await daemon.close();
+    `);
+
+    assert.equal(violations.length, 1, operator);
+    assert.equal(violations[0].browser, 'browserAlias', operator);
+    assert.equal(violations[0].server, 'daemon', operator);
+  }
+});
+
+test('uses the assigned resource kind for AND assignment of known resources', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const renderer = await launch();
+    const daemon = await createServer();
+    let serverAlias = renderer;
+    serverAlias &&= daemon;
+    await serverAlias.close();
+    await renderer.close();
+  `);
+
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].browser, 'renderer');
+  assert.equal(violations[0].server, 'serverAlias');
+});
+
+test('does not classify logical assignments with ambiguous resource paths', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const renderer = await launch();
+    const daemon = await createServer();
+    let ambiguous = useBrowser ? renderer : daemon;
+    ambiguous ||= useBrowser ? renderer : daemon;
+    const page = await existingBrowser.newPage();
+    await ambiguous.close();
+    await page.close();
+  `), []);
+});
+
 test('does not classify mixed logical-AND aliases as either resource', () => {
   assert.deepEqual(findUnsafeBrowserCleanup(`
     const renderer = await launch();
