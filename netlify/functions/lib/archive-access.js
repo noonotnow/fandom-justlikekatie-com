@@ -18,6 +18,8 @@ export const ARCHIVE_CATALOG_INDEX_KEY =
   `vibeAtlas:archive-catalog:v${ARCHIVE_CATALOG_EDITION_VERSION}:index`;
 export const ARCHIVE_CATALOG_YEAR_PREFIX =
   `vibeAtlas:archive-catalog:v${ARCHIVE_CATALOG_EDITION_VERSION}:year:`;
+
+export const ARCHIVE_SAFE_UPDATE_UNAVAILABLE = "ARCHIVE_SAFE_UPDATE_UNAVAILABLE";
 export const ARCHIVE_RECONCILIATION_LIMIT = 100;
 export const ARCHIVE_RECONCILIATION_START_DATE = "2026-01-01";
 
@@ -87,9 +89,10 @@ export async function ensureArchiveAccessWindow(
       && freeArchiveDates.length === currentDates.size
       && freeArchiveDates.every(date => currentDates.has(date))) return current;
     if (current && !currentWithMetadata?.etag) {
-      throw new Error(
-        "The archive access window could not be updated safely because storage did not provide a revision tag.",
-      );
+      throw archiveSafeUpdateUnavailable({
+        resource: "archive access window",
+        key: ARCHIVE_ACCESS_WINDOW_KEY,
+      });
     }
     const timestamp = now();
     const next = {
@@ -212,9 +215,10 @@ async function ensureArchiveCatalogList(store, key, currentIsValid, createNext) 
     const next = createNext(current);
     if (current && JSON.stringify(current) === JSON.stringify(next)) return current;
     if (current && !withMetadata?.etag) {
-      throw new Error(
-        "The archive catalogue index could not be updated safely because storage did not provide a revision tag.",
-      );
+      throw archiveSafeUpdateUnavailable({
+        resource: "archive catalogue index",
+        key,
+      });
     }
     const write = await store.setJSON(
       key,
@@ -454,9 +458,10 @@ export async function updateArchiveCatalog(
       return current;
     }
     if (current && !currentWithMetadata?.etag) {
-      throw new Error(
-        "The archive catalogue edition could not be updated safely because storage did not provide a revision tag.",
-      );
+      throw archiveSafeUpdateUnavailable({
+        resource: "archive catalogue edition",
+        key,
+      });
     }
     const write = await store.setJSON(
       key,
@@ -549,6 +554,19 @@ export function publicArchiveEdition(payload, { isFree = false } = {}) {
 
 export function archiveReaderLinkDiagnostic(payload) {
   return publicArchiveRecordDiagnostic(payload?.publicRecord);
+}
+
+function archiveSafeUpdateUnavailable({ resource, key }) {
+  console.error("[archive-publication] safe-update support unavailable", {
+    code: ARCHIVE_SAFE_UPDATE_UNAVAILABLE,
+    resource,
+    key,
+  });
+  const error = new Error(
+    `The ${resource} could not be updated safely because storage did not provide a revision tag.`,
+  );
+  error.code = ARCHIVE_SAFE_UPDATE_UNAVAILABLE;
+  return error;
 }
 
 function assertArchiveEditionPublicRecord(edition) {

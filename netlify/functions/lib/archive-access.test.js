@@ -5,6 +5,7 @@ import {
   ARCHIVE_CATALOG_KEY,
   ARCHIVE_CATALOG_EDITION_PREFIX,
   ARCHIVE_FREE_EDITION_COUNT,
+  ARCHIVE_SAFE_UPDATE_UNAVAILABLE,
   archiveAccessDecision,
   archiveAccessWindowDates,
   archiveReaderLinkDiagnostic,
@@ -286,7 +287,7 @@ test("simultaneous publications use independent keys and preserve both editions"
   );
 });
 
-test("simultaneous same-edition updates without revision tags preserve authoritative metadata", async () => {
+test("same-edition updates without revision tags signal lost safe-update support and preserve authoritative metadata", async t => {
   const authoritative = {
     date: "2026-09-20",
     actorName: "Authoritative Actor",
@@ -300,6 +301,8 @@ test("simultaneous same-edition updates without revision tags preserve authorita
     synchronizeInitialReads: 2,
     omitEtags: true,
   });
+  const signals = [];
+  t.mock.method(console, "error", (...args) => signals.push(args));
 
   const results = await Promise.allSettled([
     updateArchiveCatalog(store, { ...authoritative, actorName: "First Actor" }),
@@ -308,7 +311,26 @@ test("simultaneous same-edition updates without revision tags preserve authorita
 
   assert.ok(results.every(result =>
     result.status === "rejected"
+    && result.reason.code === ARCHIVE_SAFE_UPDATE_UNAVAILABLE
     && /storage did not provide a revision tag/.test(result.reason.message)));
+  assert.deepEqual(signals, [
+    [
+      "[archive-publication] safe-update support unavailable",
+      {
+        code: ARCHIVE_SAFE_UPDATE_UNAVAILABLE,
+        resource: "archive catalogue edition",
+        key: `${ARCHIVE_CATALOG_EDITION_PREFIX}${authoritative.date}`,
+      },
+    ],
+    [
+      "[archive-publication] safe-update support unavailable",
+      {
+        code: ARCHIVE_SAFE_UPDATE_UNAVAILABLE,
+        resource: "archive catalogue edition",
+        key: `${ARCHIVE_CATALOG_EDITION_PREFIX}${authoritative.date}`,
+      },
+    ],
+  ]);
   assert.deepEqual(
     await store.get(
       `${ARCHIVE_CATALOG_EDITION_PREFIX}${authoritative.date}`,
