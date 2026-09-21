@@ -13,7 +13,7 @@ import {
 import { dbSaveGrid } from '../utils/collectionDB';
 import { collectionGridFromStar } from '../utils/collectionHistory';
 import { schedulePublicCollectionSync } from '../utils/publicAccount';
-import { uploadExportedCard } from '../utils/gridExportLog';
+import { notifyGridExportPersisted, uploadExportedCard } from '../utils/gridExportLog';
 
 export interface UseExportCardReturn {
   exportCard: (
@@ -61,7 +61,10 @@ export function useExportCard(data: StarOfDayData): UseExportCardReturn {
         // Fire-and-forget: upload the rendered PNG for durable server-side storage so
         // the card appears in the Collection "Past exports" list like any other export.
         const tier = classifyEditionTier(buildExportPayload(data).chosen);
-        void uploadExportedCard(grid.id, crypto.randomUUID(), blob, variant, tier);
+        void uploadExportedCard(grid.id, crypto.randomUUID(), blob, variant, tier)
+          .then((persisted) => {
+            if (persisted) notifyGridExportPersisted(grid.id);
+          });
       };
       const exportResult = action === 'download'
         ? {

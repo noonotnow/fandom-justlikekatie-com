@@ -47,10 +47,13 @@ import {
 import {
   exportDownloadUrl,
   fetchExportHistory,
+  GRID_EXPORT_PERSISTED_EVENT,
   gridExportEventFromRecord,
   logGridExport,
+  notifyGridExportPersisted,
   retryPendingExportCleanups,
   uploadExportedCard,
+  type GridExportPersistedEventDetail,
   type PersistedExportEntry,
 } from '../../utils/gridExportLog';
 import { ArtifactZoomDialog } from '../ArtifactZoomDialog/ArtifactZoomDialog';
@@ -256,6 +259,19 @@ export const Collection: React.FC<Props> = ({
       window.removeEventListener('storage', handleStorage);
     };
   }, [scope, canSyncCloud]);
+
+  useEffect(() => {
+    const handleExportPersisted = (event: Event) => {
+      const gridId = (event as CustomEvent<GridExportPersistedEventDetail>).detail?.gridId;
+      if (!gridId) return;
+      setExportHistoryRevisions(current => ({
+        ...current,
+        [gridId]: (current[gridId] || 0) + 1,
+      }));
+    };
+    window.addEventListener(GRID_EXPORT_PERSISTED_EVENT, handleExportPersisted);
+    return () => window.removeEventListener(GRID_EXPORT_PERSISTED_EVENT, handleExportPersisted);
+  }, []);
 
   async function recoverPendingRemoval() {
     const stored = readPendingRemoval();
@@ -694,11 +710,7 @@ export const Collection: React.FC<Props> = ({
         if (renderedBlob && persistedExportId) {
           void uploadExportedCard(grid.id, persistedExportId, renderedBlob, variant, tier, manifest)
             .then((persisted) => {
-              if (!persisted) return;
-              setExportHistoryRevisions(current => ({
-                ...current,
-                [grid.id]: (current[grid.id] || 0) + 1,
-              }));
+              if (persisted) notifyGridExportPersisted(grid.id);
             });
         }
         logGridExport(gridExportEventFromRecord(grid, variant, tier, true, persistedExportId));

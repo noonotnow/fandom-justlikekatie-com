@@ -17,7 +17,13 @@ import {
   type ExportManifest,
   type ExportProvenanceAsset,
 } from '../../utils/exportCanvas';
-import { deleteGridExports, gridExportEventFromRecord, logGridExport, uploadExportedCard } from '../../utils/gridExportLog';
+import {
+  deleteGridExports,
+  gridExportEventFromRecord,
+  logGridExport,
+  notifyGridExportPersisted,
+  uploadExportedCard,
+} from '../../utils/gridExportLog';
 import { logMembershipEvent } from '../../utils/membership';
 import { collectorBenefits, type CollectorPalette } from '../../utils/collectorBenefits';
 import { isVerifiedMediaReference } from '../../utils/mediaReference';
@@ -614,7 +620,9 @@ export const GridBuilder: React.FC<Props> = ({
             exportVariant,
             tier,
             exportManifest,
-          );
+          ).then((persisted) => {
+            if (persisted) notifyGridExportPersisted(grid.id);
+          });
         }
         logGridExport(gridExportEventFromRecord(grid, exportVariant, tier, wasGridSaved, persistedExportId));
       } catch (bookkeepingErr) {

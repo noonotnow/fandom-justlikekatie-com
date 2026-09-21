@@ -1,6 +1,21 @@
 import type { ExportManifest, ExportVariant } from './exportCanvas';
 import type { GridRecord } from './collectionDB';
 
+export const GRID_EXPORT_PERSISTED_EVENT = 'fandom-grid-export-persisted';
+
+export interface GridExportPersistedEventDetail {
+  gridId: string;
+}
+
+/** Notify an open Collection that one saved grid's export history changed. */
+export function notifyGridExportPersisted(gridId: string): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent<GridExportPersistedEventDetail>(
+    GRID_EXPORT_PERSISTED_EVENT,
+    { detail: { gridId } },
+  ));
+}
+
 /**
  * Fire-and-forget logging of a full 3×3 grid export (the main share card),
  * as opposed to single-card engagement. Captures the grid artifact itself:
