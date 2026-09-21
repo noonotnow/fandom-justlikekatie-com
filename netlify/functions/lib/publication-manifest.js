@@ -10,7 +10,10 @@ import {
 import {
   ensureArchiveAccessWindow,
 } from "./archive-access.js";
-import { assertPublicArchiveRecord } from "../../../src/contracts/publicArchiveRecord.js";
+import {
+  assertPublicArchiveRecord,
+  publicArchiveRecordDiagnostic,
+} from "../../../src/contracts/publicArchiveRecord.js";
 
 export const GRID_MANIFEST_VERSION = "v1";
 export const GRID_MANIFEST_PREFIX = `vibeAtlas:grid-manifest:${GRID_MANIFEST_VERSION}:`;
@@ -212,6 +215,90 @@ export async function readPublicationManifests(store) {
       manifestCount: validManifests.length,
       complete: catalogCoverageComplete,
     },
+  };
+}
+
+export async function repairPublicationManifestPublicRecords(
+  store,
+  { cursor = null, limit = 100 } = {},
+) {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error("The publication reader-link repair limit is invalid.");
+  }
+  const catalog = await store.get(publicationManifestCatalogKey(), {
+    type: "json",
+    consistency: "strong",
+  });
+  const keys = [...new Set([
+    ...(isPublicationManifestCatalog(catalog) ? catalog.dates.map(gridManifestKey) : []),
+    ...await readPublicationManifestKeys(store),
+  ])].sort().reverse();
+  const page = keys.filter(key => !cursor || key < cursor).slice(0, limit);
+  const invalid = [];
+  let repaired = 0;
+  for (const key of page) {
+    let completed = false;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const withMetadata = typeof store.getWithMetadata === "function"
+        ? await store.getWithMetadata(key, { type: "json", consistency: "strong" })
+        : null;
+      const manifest = withMetadata?.data ?? await store.get(
+        key,
+        { type: "json", consistency: "strong" },
+      );
+      if (!manifest) {
+        completed = true;
+        break;
+      }
+      const metadata = structuredClone(manifest);
+      delete metadata.publicRecord;
+      if (!isGridManifest(metadata)) {
+        invalid.push({ key, status: "invalid_manifest", repaired: false });
+        completed = true;
+        break;
+      }
+      const expectedActorSlug = publicActorSlug(manifest.actor);
+      const diagnostic = publicArchiveRecordDiagnostic(manifest.publicRecord, {
+        expectedDate: manifest.publicationDate,
+        expectedActorSlug,
+      });
+      if (diagnostic.status === "valid") {
+        completed = true;
+        break;
+      }
+      const next = {
+        ...manifest,
+        publicRecord: {
+          actorPath: `${PUBLIC_ACTOR_PATH}/${expectedActorSlug}/`,
+          editionPath: `${PUBLIC_EDITION_PATH}/${manifest.publicationDate}/${expectedActorSlug}/`,
+        },
+      };
+      if (manifest && !withMetadata?.etag) {
+        throw new Error("The publication reader links could not be repaired safely because storage did not provide a revision tag.");
+      }
+      const write = await store.setJSON(key, next, { onlyIfMatch: withMetadata.etag });
+      if (write?.modified === false) continue;
+      const authoritative = await store.get(key, { type: "json", consistency: "strong" });
+      if (!isGridManifest(authoritative)
+        || JSON.stringify(authoritative.publicRecord) !== JSON.stringify(next.publicRecord)) {
+        throw new Error("The publication reader-link repair could not be verified.");
+      }
+      invalid.push({ key, status: diagnostic.status, repaired: true });
+      repaired += 1;
+      completed = true;
+      break;
+    }
+    if (!completed) {
+      throw new Error("The publication reader links could not be repaired safely after repeated conflicts.");
+    }
+  }
+  return {
+    scanned: page.length,
+    invalid,
+    repaired,
+    nextCursor: keys.filter(key => !cursor || key < cursor).length > page.length
+      ? page.at(-1)
+      : null,
   };
 }
 

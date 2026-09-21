@@ -13,6 +13,8 @@ export const PUBLIC_ARCHIVE_RECORD_DIAGNOSTIC = Object.freeze({
   MISSING_METADATA: "missing_metadata",
   MALFORMED_ACTOR_PATH: "malformed_actor_path",
   MALFORMED_EDITION_PATH: "malformed_edition_path",
+  ACTOR_MISMATCH: "actor_mismatch",
+  DATE_MISMATCH: "date_mismatch",
 });
 
 function isCalendarDate(value) {
@@ -76,7 +78,10 @@ export function assertPublicArchiveRecord(value, {
  * Explains why a public-record path pair was rejected without returning either
  * untrusted path. Safe for operator diagnostics.
  */
-export function publicArchiveRecordDiagnostic(value) {
+export function publicArchiveRecordDiagnostic(value, {
+  expectedDate = null,
+  expectedActorSlug = null,
+} = {}) {
   if (!value || typeof value !== "object"
     || typeof value.actorPath !== "string"
     || typeof value.editionPath !== "string") {
@@ -95,6 +100,12 @@ export function publicArchiveRecordDiagnostic(value) {
     || !isCalendarDate(editionMatch[1])
     || (editionMatch[2] && editionMatch[2] !== actorMatch[1])) {
     return { status: PUBLIC_ARCHIVE_RECORD_DIAGNOSTIC.MALFORMED_EDITION_PATH };
+  }
+  if (expectedActorSlug && actorMatch[1] !== expectedActorSlug) {
+    return { status: PUBLIC_ARCHIVE_RECORD_DIAGNOSTIC.ACTOR_MISMATCH };
+  }
+  if (expectedDate && editionMatch[1] !== expectedDate) {
+    return { status: PUBLIC_ARCHIVE_RECORD_DIAGNOSTIC.DATE_MISMATCH };
   }
   return { status: PUBLIC_ARCHIVE_RECORD_DIAGNOSTIC.VALID };
 }

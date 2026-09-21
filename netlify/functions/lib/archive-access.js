@@ -391,6 +391,87 @@ export async function reconcileArchiveCatalogIndexes(
   };
 }
 
+export async function repairArchiveCatalogPublicRecords(
+  store,
+  { throughDate, cursor = null, limit = ARCHIVE_RECONCILIATION_LIMIT } = {},
+) {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > ARCHIVE_RECONCILIATION_LIMIT) {
+    throw new Error("The archive reader-link repair limit is invalid.");
+  }
+  const firstDate = cursor || throughDate;
+  if (!isCalendarDate(firstDate) || !isCalendarDate(throughDate) || firstDate > throughDate) {
+    throw new Error("The archive reader-link repair cursor is invalid.");
+  }
+  const invalid = [];
+  let scanned = 0;
+  let repaired = 0;
+  let date = firstDate;
+  while (scanned < limit && date >= ARCHIVE_RECONCILIATION_START_DATE) {
+    const key = archiveCatalogEditionKey(date);
+    let completed = false;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const withMetadata = typeof store.getWithMetadata === "function"
+        ? await store.getWithMetadata(key, { type: "json", consistency: "strong" })
+        : null;
+      const edition = withMetadata?.data ?? await store.get(
+        key,
+        { type: "json", consistency: "strong" },
+      );
+      if (!edition) {
+        completed = true;
+        break;
+      }
+      const metadata = structuredClone(edition);
+      delete metadata.publicRecord;
+      if (!isArchiveCatalogEdition(metadata) || metadata.date !== date) {
+        invalid.push({ date, status: "invalid_edition", repaired: false });
+        completed = true;
+        break;
+      }
+      const expectedActorSlug = archiveActorSlug(edition);
+      const diagnostic = publicArchiveRecordDiagnostic(edition.publicRecord, {
+        expectedDate: edition.date,
+        expectedActorSlug,
+      });
+      if (diagnostic.status === "valid") {
+        completed = true;
+        break;
+      }
+      const next = {
+        ...edition,
+        publicRecord: {
+          actorPath: `/vibe-atlas/actors/${expectedActorSlug}/`,
+          editionPath: `/vibe-atlas/editions/${edition.date}/${expectedActorSlug}/`,
+        },
+      };
+      if (!withMetadata?.etag) {
+        throw archiveSafeUpdateUnavailable({ resource: "archive catalogue edition", key });
+      }
+      const write = await store.setJSON(key, next, { onlyIfMatch: withMetadata.etag });
+      if (write?.modified === false) continue;
+      const authoritative = await store.get(key, { type: "json", consistency: "strong" });
+      if (!isArchiveCatalogEdition(authoritative)
+        || JSON.stringify(authoritative.publicRecord) !== JSON.stringify(next.publicRecord)) {
+        throw new Error("The archive reader-link repair could not be verified.");
+      }
+      invalid.push({ date, status: diagnostic.status, repaired: true });
+      repaired += 1;
+      completed = true;
+      break;
+    }
+    if (!completed) {
+      throw new Error("The archive reader links could not be repaired safely after repeated conflicts.");
+    }
+    scanned += 1;
+    date = previousCalendarDate(date);
+  }
+  return {
+    scanned,
+    invalid,
+    repaired,
+    nextCursor: date >= ARCHIVE_RECONCILIATION_START_DATE ? date : null,
+  };
+}
 function isCalendarDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) return false;
   const parsed = new Date(`${value}T00:00:00Z`);

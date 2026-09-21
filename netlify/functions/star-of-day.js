@@ -23,6 +23,7 @@ import {
   gridManifestKey,
   manifestPayload,
   materializePublicationManifest,
+  repairPublicationManifestPublicRecords,
 } from "./lib/publication-manifest.js";
 import { createPublicAuth } from "./lib/public-auth.js";
 import { createBillingServices } from "./lib/billing.js";
@@ -39,6 +40,7 @@ import {
   listArchiveCatalogPage,
   publicArchiveEdition,
   reconcileArchiveCatalogIndexes,
+  repairArchiveCatalogPublicRecords,
   updateArchiveCatalog,
 } from "./lib/archive-access.js";
 import {
@@ -706,6 +708,8 @@ export function createStarOfDayHandler({
   billing = createBillingServices({ env }),
   getStore = getBlobStore,
   getDiagnosticsStore = context => getBlobStore("archive-access-operations", context),
+  repairArchiveLinks = repairArchiveCatalogPublicRecords,
+  repairPublicationLinks = repairPublicationManifestPublicRecords,
   today = getShanghaiDateString,
   now = () => new Date(),
 } = {}) {
@@ -719,6 +723,37 @@ export function createStarOfDayHandler({
     const eligibilityStore = getStore(ELIGIBILITY_STORE, context);
     const todayStr = today();
     const url = new URL(req.url || "https://fandom.local/.netlify/functions/star-of-day");
+
+    if (url.searchParams.get("readerLinkRepair") === "1") {
+      try {
+        await auth.authenticateAdmin(req, context);
+      } catch (error) {
+        return jsonResponse(error?.status === 403 ? 403 : 401, {
+          error: error?.message || "Admin access is required.",
+        }, { "Cache-Control": "private, no-store" });
+      }
+      const archiveCursor = url.searchParams.get("archiveRepairCursor");
+      const publicationCursor = url.searchParams.get("publicationRepairCursor");
+      if ((archiveCursor && !/^\d{4}-\d{2}-\d{2}$/.test(archiveCursor))
+        || (publicationCursor && publicationCursor.length > 512)) {
+        return jsonResponse(400, { error: "Invalid reader-link repair cursor." });
+      }
+      const [archive, publications] = await Promise.all([
+        repairArchiveLinks(store, {
+          throughDate: todayStr,
+          ...(archiveCursor ? { cursor: archiveCursor } : {}),
+        }),
+        repairPublicationLinks(store, {
+          ...(publicationCursor ? { cursor: publicationCursor } : {}),
+        }),
+      ]);
+      return jsonResponse(200, {
+        readerLinkRepair: { archive, publications },
+      }, {
+        "Cache-Control": "private, no-store",
+        Vary: "Cookie",
+      });
+    }
 
     if (url.searchParams.get("archiveRepair") === "1"
       || url.searchParams.get("archiveRepairHistory") === "1") {

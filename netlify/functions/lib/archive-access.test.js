@@ -14,6 +14,7 @@ import {
   listArchiveCatalogEditions,
   publicArchiveEdition,
   reconcileArchiveCatalogIndexes,
+  repairArchiveCatalogPublicRecords,
   updateArchiveCatalog,
 } from "./archive-access.js";
 import { createStarOfDayHandler } from "../star-of-day.js";
@@ -264,6 +265,102 @@ test("archive writes accept valid public reader links and reject malformed paths
     );
     assert.deepEqual(store.stats().writtenKeys, []);
   }
+});
+
+test("archive reader-link repair fixes malformed actor and edition paths without changing metadata", async () => {
+  const records = Object.fromEntries([
+    ["2026-09-20", {
+      actorPath: "/admin/actor",
+      editionPath: "/vibe-atlas/editions/2026-09-20/actor/",
+    }],
+    ["2026-09-19", {
+      actorPath: "/vibe-atlas/actors/actor/",
+      editionPath: "/vibe-atlas/editions/not-a-date/actor/",
+    }],
+    ["2026-09-18", {
+      actorPath: "/vibe-atlas/actors/other/",
+      editionPath: "/vibe-atlas/editions/2026-09-18/other/",
+    }],
+  ].map(([date, publicRecord]) => [
+    `${ARCHIVE_CATALOG_EDITION_PREFIX}${date}`,
+    {
+      date,
+      actorName: "Actor",
+      vibeLabel: "氛围",
+      previewThumbnails: ["https://images.example/original.jpg"],
+      access: "member",
+      publicRecord,
+    },
+  ]));
+  const store = memoryStore(records);
+  const first = await repairArchiveCatalogPublicRecords(store, {
+    throughDate: "2026-09-20",
+    limit: 3,
+  });
+  assert.equal(first.repaired, 3);
+  assert.deepEqual(first.invalid.map(item => item.status), [
+    "malformed_actor_path", "malformed_edition_path", "actor_mismatch",
+  ]);
+  const repaired = await store.get(
+    `${ARCHIVE_CATALOG_EDITION_PREFIX}2026-09-18`,
+    { type: "json" },
+  );
+  assert.deepEqual(repaired.previewThumbnails, ["https://images.example/original.jpg"]);
+  const second = await repairArchiveCatalogPublicRecords(store, {
+    throughDate: "2026-09-20",
+    limit: 3,
+  });
+  assert.equal(second.repaired, 0);
+  assert.deepEqual(second.invalid, []);
+});
+
+test("archive reader-link repair does not skip a record after exhausted conflicts", async () => {
+  const date = "2026-09-20";
+  const original = {
+    date,
+    actorName: "Actor",
+    vibeLabel: "氛围",
+    publicRecord: {
+      actorPath: "/admin/actor",
+      editionPath: `/vibe-atlas/editions/${date}/actor/`,
+    },
+  };
+  const store = conditionalCatalogStore({
+    date,
+    initial: original,
+    rejectAllWrites: true,
+  });
+  await assert.rejects(
+    repairArchiveCatalogPublicRecords(store, { throughDate: date, limit: 1 }),
+    /after repeated conflicts/,
+  );
+  assert.equal(store.stats().conflicts, 8);
+  assert.deepEqual(
+    await store.get(`${ARCHIVE_CATALOG_EDITION_PREFIX}${date}`, { type: "json" }),
+    original,
+  );
+});
+
+test("archive reader-link repair refuses an unguarded historical overwrite", async () => {
+  const date = "2026-09-20";
+  const store = conditionalCatalogStore({
+    date,
+    omitEtags: true,
+    initial: {
+      date,
+      actorName: "Actor",
+      vibeLabel: "氛围",
+      publicRecord: {
+        actorPath: "/admin/actor",
+        editionPath: `/vibe-atlas/editions/${date}/actor/`,
+      },
+    },
+  });
+  await assert.rejects(
+    repairArchiveCatalogPublicRecords(store, { throughDate: date, limit: 1 }),
+    error => error.code === ARCHIVE_SAFE_UPDATE_UNAVAILABLE,
+  );
+  assert.equal(store.stats().conflicts, 0);
 });
 
 test("simultaneous publications use independent keys and preserve both editions", async () => {
@@ -695,6 +792,39 @@ test("a successful repair receipt write failure never creates false failed-repai
     (await listArchiveCatalogEditions(publication)).map(edition => edition.date),
     ["2026-09-20"],
   );
+});
+
+test("the authenticated operator flow runs both bounded reader-link repairs and returns cursors", async () => {
+  const calls = [];
+  const handler = createStarOfDayHandler({
+    auth: {
+      authenticateAdmin: async () => ({ user: { accountId: "admin-1" } }),
+    },
+    getStore: () => memoryStore({}),
+    today: () => "2026-09-20",
+    repairArchiveLinks: async (_store, options) => {
+      calls.push(["archive", options]);
+      return { scanned: 100, repaired: 1, nextCursor: "2026-06-12" };
+    },
+    repairPublicationLinks: async (_store, options) => {
+      calls.push(["publications", options]);
+      return { scanned: 100, repaired: 2, nextCursor: "manifest-cursor" };
+    },
+  });
+  const response = await handler(new Request(
+    "https://example.test/star-of-day?readerLinkRepair=1"
+      + "&archiveRepairCursor=2026-09-19&publicationRepairCursor=manifest-key",
+  ), {});
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.deepEqual(calls, [
+    ["archive", { throughDate: "2026-09-20", cursor: "2026-09-19" }],
+    ["publications", { cursor: "manifest-key" }],
+  ]);
+  assert.deepEqual((await response.json()).readerLinkRepair, {
+    archive: { scanned: 100, repaired: 1, nextCursor: "2026-06-12" },
+    publications: { scanned: 100, repaired: 2, nextCursor: "manifest-cursor" },
+  });
 });
 
 test("the operator repair endpoint fails closed when admin authentication fails", async () => {

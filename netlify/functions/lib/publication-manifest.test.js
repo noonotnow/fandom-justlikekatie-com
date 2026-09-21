@@ -25,6 +25,7 @@ import {
   readLatestPublicationDatesByActor,
   readLatestPublicationDatesByActorWithHealth,
   rebuildPublicationActorIndex,
+  repairPublicationManifestPublicRecords,
 } from "./publication-manifest.js";
 
 test("public projections are explicit allowlists with stable canonical paths", () => {
@@ -457,6 +458,60 @@ test("publication manifests reject malformed stored public reader links", () => 
 
   valid.publicRecord = null;
   assert.equal(isGridManifest(valid), false);
+});
+
+test("publication reader-link repair fixes malformed paths and actor mismatches idempotently", async () => {
+  const store = memoryStore();
+  store.getWithMetadata = async key => ({
+    data: await store.get(key),
+    etag: "test-revision",
+  });
+  for (const [date, publicRecord] of [
+    ["2026-09-03", {
+      actorPath: "/admin/actors/liu-xueyi/",
+      editionPath: "/vibe-atlas/editions/2026-09-03/liu-xueyi/",
+    }],
+    ["2026-09-02", {
+      actorPath: "/vibe-atlas/actors/other/",
+      editionPath: "/vibe-atlas/editions/2026-09-02/other/",
+    }],
+  ]) {
+    const manifest = storedPublicationManifest(date, "liu-xueyi");
+    manifest.publicRecord = publicRecord;
+    await store.setJSON(gridManifestKey(date), manifest);
+  }
+  const first = await repairPublicationManifestPublicRecords(store);
+  assert.equal(first.repaired, 2);
+  assert.deepEqual(first.invalid.map(item => item.status), [
+    "malformed_actor_path", "actor_mismatch",
+  ]);
+  const second = await repairPublicationManifestPublicRecords(store);
+  assert.equal(second.repaired, 0);
+  assert.deepEqual(second.invalid, []);
+});
+
+test("publication reader-link repair fails after repeated conflicts without reporting success", async () => {
+  const store = memoryStore();
+  const manifest = storedPublicationManifest("2026-09-03", "liu-xueyi");
+  manifest.publicRecord = {
+    actorPath: "/admin/actors/liu-xueyi/",
+    editionPath: "/vibe-atlas/editions/2026-09-03/liu-xueyi/",
+  };
+  await store.setJSON(gridManifestKey(manifest.publicationDate), manifest);
+  store.getWithMetadata = async key => ({
+    data: await store.get(key),
+    etag: "test-revision",
+  });
+  let conflicts = 0;
+  store.setJSON = async () => {
+    conflicts += 1;
+    return { modified: false };
+  };
+  await assert.rejects(
+    repairPublicationManifestPublicRecords(store),
+    /after repeated conflicts/,
+  );
+  assert.equal(conflicts, 8);
 });
 
 test("publication revalidates eligibility inside the shared correction lock", async () => {
