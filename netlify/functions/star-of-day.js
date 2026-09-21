@@ -36,6 +36,7 @@ import {
   archiveGateEnabled,
   ensureArchiveAccessWindow,
   listArchiveCatalogEditions,
+  listArchiveCatalogPage,
   publicArchiveEdition,
   reconcileArchiveCatalogIndexes,
   updateArchiveCatalog,
@@ -1003,19 +1004,36 @@ async function listArchivedEditions(
     await Promise.all(legacyEditions.map(edition => updateArchiveCatalog(store, edition)));
     if (typeof store.delete === "function") await store.delete(ARCHIVE_CATALOG_KEY);
   }
-  let editions = await listArchiveCatalogEditions(store);
-  if (!editions.length && !legacyEditions) editions = await migrateArchiveCatalog(store, todayStr);
-  const visible = editions.filter(edition => edition.date <= todayStr);
+  let catalogPage = await listArchiveCatalogPage(store, {
+    cursor,
+    limit,
+    throughDate: todayStr,
+  });
+  if (!catalogPage.total && !legacyEditions) {
+    await migrateArchiveCatalog(store, todayStr);
+    catalogPage = await listArchiveCatalogPage(store, {
+      cursor,
+      limit,
+      throughDate: todayStr,
+    });
+  }
+  const existingAccessWindow = await store.get(ARCHIVE_ACCESS_WINDOW_KEY, {
+    type: "json",
+    consistency: "strong",
+  });
+  const accessWindowSeed = existingAccessWindow
+    ? catalogPage.editions
+    : (await listArchiveCatalogPage(store, {
+      limit: 4,
+      throughDate: todayStr,
+    })).editions;
   const accessWindow = await ensureArchiveAccessWindow(
     store,
-    visible.map(edition => edition.date),
+    accessWindowSeed.map(edition => edition.date),
   );
   const freeDates = archiveAccessWindowDates(accessWindow);
-  const eligible = cursor
-    ? visible.filter(edition => edition.date < cursor)
-    : visible;
-  const page = eligible.slice(0, limit);
-  const hasMore = eligible.length > page.length;
+  const page = catalogPage.editions;
+  const hasMore = catalogPage.hasMore;
   return {
     version: VERSION,
     editions: page.map(edition => ({
@@ -1026,7 +1044,7 @@ async function listArchivedEditions(
       limit,
       nextCursor: hasMore ? page.at(-1)?.date || null : null,
       hasMore,
-      total: visible.length,
+      total: catalogPage.total,
     },
   };
 }

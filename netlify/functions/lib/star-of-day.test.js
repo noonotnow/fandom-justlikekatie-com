@@ -95,12 +95,18 @@ function makeStore(entries = {}) {
 
 function archiveCatalogEntries(editions) {
   const years = [...new Set(editions.map(edition => edition.date.slice(0, 4)))].sort().reverse();
+  const yearCounts = Object.fromEntries(years.map(year => [
+    year,
+    editions.filter(edition => edition.date.startsWith(`${year}-`)).length,
+  ]));
   return {
     [ARCHIVE_CATALOG_INDEX_KEY]: {
       schemaVersion: 1,
       catalogVersion: 2,
       kind: "vibe-atlas-archive-catalog-index",
       years,
+      yearCounts,
+      total: editions.length,
     },
     ...Object.fromEntries(years.map(year => [
       `${ARCHIVE_CATALOG_YEAR_PREFIX}${year}`,
@@ -634,6 +640,72 @@ test("archive pages stay newest-first and keep global free badges across boundar
     ["2026-09-15", "member"],
   ]);
   assert.equal(secondBody.page.nextCursor, "2026-09-15");
+  assert.equal(secondBody.page.total, 7);
+});
+
+test("archive pages load only the year buckets and edition records needed for the page", async () => {
+  const editions = [
+    "2026-09-20",
+    "2026-09-19",
+    "2025-12-31",
+    "2024-12-31",
+  ].map(date => ({
+    date,
+    actorName: `Actor ${date}`,
+    vibeLabel: "Night",
+    access: "member",
+  }));
+  const base = makeStore({
+    ...archiveCatalogEntries(editions),
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(...editions.map(item => item.date)),
+  });
+  const reads = [];
+  const store = {
+    ...base,
+    async get(key, options) {
+      reads.push(key);
+      return base.get(key, options);
+    },
+  };
+
+  const response = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1&limit=1" },
+    contextFor(store),
+  );
+  const body = await response.json();
+
+  assert.equal(body.page.total, 4);
+  assert.equal(body.page.hasMore, true);
+  assert.deepEqual(body.editions.map(edition => edition.date), ["2026-09-20"]);
+  assert.equal(reads.includes(`${ARCHIVE_CATALOG_YEAR_PREFIX}2025`), false);
+  assert.equal(reads.includes(`${ARCHIVE_CATALOG_YEAR_PREFIX}2024`), false);
+  assert.equal(reads.includes(`${ARCHIVE_CATALOG_EDITION_PREFIX}2026-09-19`), false);
+});
+
+test("archive totals remain global when a cursor moves into an older year", async () => {
+  const editions = ["2026-01-02", "2026-01-01", "2025-12-31", "2024-12-31"].map(date => ({
+    date,
+    actorName: `Actor ${date}`,
+    vibeLabel: "Night",
+    access: "member",
+  }));
+  const store = makeStore({
+    ...archiveCatalogEntries(editions),
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(...editions.map(item => item.date)),
+  });
+
+  const response = await starOfDay(
+    {
+      method: "GET",
+      url: "https://example.test/star-of-day?archive=1&limit=1&cursor=2026-01-01",
+    },
+    contextFor(store),
+  );
+  const body = await response.json();
+
+  assert.deepEqual(body.editions.map(edition => edition.date), ["2025-12-31"]);
+  assert.equal(body.page.total, 4);
+  assert.equal(body.page.hasMore, true);
 });
 
 test("archive cursors do not shift when a newer edition publishes", async () => {

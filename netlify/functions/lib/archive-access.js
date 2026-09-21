@@ -160,7 +160,13 @@ function isArchiveCatalogIndex(value) {
     && Array.isArray(value?.years)
     && value.years.every((year, index, years) =>
       /^\d{4}$/.test(year)
-      && (index === 0 || years[index - 1].localeCompare(year) > 0));
+      && (index === 0 || years[index - 1].localeCompare(year) > 0))
+    && (value.yearCounts === undefined
+      || (value.yearCounts
+        && value.years.every(year => Number.isSafeInteger(value.yearCounts[year])
+          && value.yearCounts[year] >= 0)
+        && Object.keys(value.yearCounts).every(year => value.years.includes(year))
+        && value.total === value.years.reduce((sum, year) => sum + value.yearCounts[year], 0)));
 }
 
 function isArchiveCatalogYear(value, year) {
@@ -209,12 +215,13 @@ async function ensureArchiveCatalogList(store, key, currentIsValid, createNext) 
 
 async function ensureArchiveCatalogDates(store, dates) {
   const datesByYear = new Map();
+  const countsByYear = new Map();
   for (const date of dates) {
     const year = date.slice(0, 4);
     datesByYear.set(year, [...(datesByYear.get(year) || []), date]);
   }
   for (const [year, yearDates] of datesByYear) {
-    await ensureArchiveCatalogList(
+    const bucket = await ensureArchiveCatalogList(
       store,
       `${ARCHIVE_CATALOG_YEAR_PREFIX}${year}`,
       value => isArchiveCatalogYear(value, year),
@@ -226,22 +233,63 @@ async function ensureArchiveCatalogDates(store, dates) {
         dates: [...new Set([...yearDates, ...(current?.dates || [])])].sort().reverse(),
       }),
     );
+    countsByYear.set(year, bucket.dates.length);
   }
   await ensureArchiveCatalogList(
     store,
     ARCHIVE_CATALOG_INDEX_KEY,
     isArchiveCatalogIndex,
-    current => ({
-      schemaVersion: 1,
-      catalogVersion: ARCHIVE_CATALOG_EDITION_VERSION,
-      kind: "vibe-atlas-archive-catalog-index",
-      years: [...new Set([...datesByYear.keys(), ...(current?.years || [])])].sort().reverse(),
-    }),
+    current => {
+      const years = [...new Set([...datesByYear.keys(), ...(current?.years || [])])]
+        .sort()
+        .reverse();
+      const yearCounts = current?.yearCounts
+        ? {
+          ...current.yearCounts,
+          ...Object.fromEntries(countsByYear),
+        }
+        : null;
+      return {
+        schemaVersion: 1,
+        catalogVersion: ARCHIVE_CATALOG_EDITION_VERSION,
+        kind: "vibe-atlas-archive-catalog-index",
+        years,
+        ...(yearCounts ? {
+          yearCounts,
+          total: years.reduce((sum, year) => sum + yearCounts[year], 0),
+        } : {}),
+      };
+    },
   );
 }
 
 async function ensureArchiveCatalogDate(store, date) {
   await ensureArchiveCatalogDates(store, [date]);
+}
+
+async function archiveCatalogIndexWithCounts(store, index) {
+  if (index.yearCounts) return index;
+  const buckets = await Promise.all(index.years.map(async year => {
+    const bucket = await store.get(
+      `${ARCHIVE_CATALOG_YEAR_PREFIX}${year}`,
+      { type: "json", consistency: "strong" },
+    );
+    if (!isArchiveCatalogYear(bucket, year)) {
+      throw new Error("The archive catalogue year is invalid.");
+    }
+    return bucket;
+  }));
+  const yearCounts = Object.fromEntries(buckets.map(bucket => [bucket.year, bucket.dates.length]));
+  return ensureArchiveCatalogList(
+    store,
+    ARCHIVE_CATALOG_INDEX_KEY,
+    isArchiveCatalogIndex,
+    current => ({
+      ...current,
+      yearCounts,
+      total: Object.values(yearCounts).reduce((sum, count) => sum + count, 0),
+    }),
+  );
 }
 
 export async function reconcileArchiveCatalogIndexes(
@@ -482,4 +530,60 @@ export function publicArchiveEdition(payload, { isFree = false } = {}) {
 
 export function archiveReaderLinkDiagnostic(payload) {
   return publicArchiveRecordDiagnostic(payload?.publicRecord);
+}
+
+export async function listArchiveCatalogPage(
+  store,
+  { cursor = null, limit, throughDate },
+) {
+  let index = await store.get(
+    ARCHIVE_CATALOG_INDEX_KEY,
+    { type: "json", consistency: "strong" },
+  );
+  if (!index) return { editions: [], total: 0, hasMore: false };
+  if (!isArchiveCatalogIndex(index)) throw new Error("The archive catalogue index is invalid.");
+  index = await archiveCatalogIndexWithCounts(store, index);
+
+  const throughYear = throughDate.slice(0, 4);
+  const buckets = new Map();
+  const readBucket = async year => {
+    if (buckets.has(year)) return buckets.get(year);
+    const bucket = await store.get(
+      `${ARCHIVE_CATALOG_YEAR_PREFIX}${year}`,
+      { type: "json", consistency: "strong" },
+    );
+    if (!isArchiveCatalogYear(bucket, year)) {
+      throw new Error("The archive catalogue year is invalid.");
+    }
+    buckets.set(year, bucket);
+    return bucket;
+  };
+  let total = index.years.reduce((sum, year) => {
+    if (year < throughYear) return sum + index.yearCounts[year];
+    return sum;
+  }, 0);
+  if (index.years.includes(throughYear)) {
+    const currentBucket = await readBucket(throughYear);
+    total += currentBucket.dates.filter(date => date <= throughDate).length;
+  }
+  const dates = [];
+  for (const year of index.years) {
+    if (year > throughYear || (cursor && year > cursor.slice(0, 4))) continue;
+    if (dates.length > limit && year < dates.at(-1).slice(0, 4)) break;
+    const bucket = await readBucket(year);
+    dates.push(...bucket.dates.filter(date =>
+      date <= throughDate && (!cursor || date < cursor)));
+  }
+  const pageDates = dates.slice(0, limit);
+  const editions = await Promise.all(pageDates.map(async date => {
+    const edition = await store.get(archiveCatalogEditionKey(date), {
+      type: "json",
+      consistency: "strong",
+    });
+    if (!isArchiveCatalogEdition(edition) || edition.date !== date) {
+      throw new Error("The archive catalogue edition is invalid.");
+    }
+    return structuredClone(edition);
+  }));
+  return { editions, total, hasMore: dates.length > pageDates.length };
 }
