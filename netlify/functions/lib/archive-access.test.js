@@ -11,6 +11,7 @@ import {
   freeArchiveDates,
   listArchiveCatalogEditions,
   publicArchiveEdition,
+  reconcileArchiveCatalogIndexes,
   updateArchiveCatalog,
 } from "./archive-access.js";
 import { createStarOfDayHandler } from "../star-of-day.js";
@@ -308,6 +309,200 @@ test("publication refuses to replace invalid per-edition metadata", async () => 
     }),
     /archive catalogue edition is invalid/,
   );
+});
+
+test("reconciliation repairs verified editions missing from bounded indexes", async () => {
+  const hidden = {
+    date: "2026-09-19",
+    actorName: "Hidden Actor",
+    vibeLabel: "氛围",
+    previewThumbnails: [],
+    access: "member",
+  };
+  const store = memoryStore({
+    [`${ARCHIVE_CATALOG_EDITION_PREFIX}${hidden.date}`]: hidden,
+  });
+
+  const first = await reconcileArchiveCatalogIndexes(store, {
+    throughDate: "2026-09-19",
+    limit: 1,
+  });
+  assert.deepEqual(first, {
+    scanned: 1,
+    verified: 1,
+    missingDates: ["2026-09-19"],
+    repaired: 1,
+    nextCursor: "2026-09-18",
+  });
+  assert.deepEqual(
+    (await listArchiveCatalogEditions(store)).map(edition => edition.date),
+    ["2026-09-19"],
+  );
+  const repeated = await reconcileArchiveCatalogIndexes(store, {
+    throughDate: "2026-09-19",
+    limit: 1,
+  });
+  assert.equal(repeated.repaired, 0);
+  assert.deepEqual(repeated.missingDates, []);
+});
+
+test("reconciliation validates the whole bounded batch before indexing any edition", async () => {
+  const store = memoryStore({
+    [`${ARCHIVE_CATALOG_EDITION_PREFIX}2026-09-20`]: {
+      date: "2026-09-20",
+      actorName: "Valid Actor",
+      vibeLabel: "氛围",
+    },
+    [`${ARCHIVE_CATALOG_EDITION_PREFIX}2026-09-19`]: {
+      date: "2026-09-18",
+      actorName: "Wrong Date",
+      vibeLabel: "氛围",
+    },
+  });
+
+  await assert.rejects(
+    reconcileArchiveCatalogIndexes(store, {
+      throughDate: "2026-09-20",
+      limit: 2,
+    }),
+    /archive catalogue edition is invalid/,
+  );
+  assert.deepEqual(await listArchiveCatalogEditions(store), []);
+});
+
+test("concurrent reconciliation and publication preserve newest-first indexes", async () => {
+  const store = memoryStore({
+    [`${ARCHIVE_CATALOG_EDITION_PREFIX}2026-09-20`]: {
+      date: "2026-09-20",
+      actorName: "Existing Actor",
+      vibeLabel: "氛围",
+    },
+  });
+  await Promise.all([
+    reconcileArchiveCatalogIndexes(store, {
+      throughDate: "2026-09-20",
+      limit: 1,
+    }),
+    updateArchiveCatalog(store, {
+      date: "2026-09-21",
+      actorName: "New Actor",
+      vibeLabel: "氛围",
+    }),
+  ]);
+  assert.deepEqual(
+    (await listArchiveCatalogEditions(store)).map(edition => edition.date),
+    ["2026-09-21", "2026-09-20"],
+  );
+});
+
+test("reconciliation resumes across bounded calendar windows and terminates at the schema boundary", async () => {
+  const edition = date => ({
+    date,
+    actorName: `Actor ${date}`,
+    vibeLabel: "氛围",
+  });
+  const store = memoryStore({
+    [`${ARCHIVE_CATALOG_EDITION_PREFIX}2026-01-05`]: edition("2026-01-05"),
+    [`${ARCHIVE_CATALOG_EDITION_PREFIX}2026-01-02`]: edition("2026-01-02"),
+  });
+
+  const first = await reconcileArchiveCatalogIndexes(store, {
+    throughDate: "2026-01-06",
+    limit: 3,
+  });
+  assert.equal(first.scanned, 3);
+  assert.equal(first.nextCursor, "2026-01-03");
+  assert.deepEqual(first.missingDates, ["2026-01-05"]);
+
+  const second = await reconcileArchiveCatalogIndexes(store, {
+    throughDate: "2026-01-06",
+    cursor: first.nextCursor,
+    limit: 3,
+  });
+  assert.equal(second.scanned, 3);
+  assert.equal(second.nextCursor, null);
+  assert.deepEqual(second.missingDates, ["2026-01-02"]);
+  assert.deepEqual(
+    (await listArchiveCatalogEditions(store)).map(item => item.date),
+    ["2026-01-05", "2026-01-02"],
+  );
+  assert.equal(store.stats().listCalls, 0);
+});
+
+test("reconciliation coalesces more than eight same-year repairs into one bucket update", async () => {
+  const dates = Array.from({ length: 20 }, (_, index) =>
+    `2026-01-${String(index + 1).padStart(2, "0")}`);
+  const store = memoryStore(Object.fromEntries(dates.map(date => [
+    `${ARCHIVE_CATALOG_EDITION_PREFIX}${date}`,
+    { date, actorName: `Actor ${date}`, vibeLabel: "氛围" },
+  ])));
+
+  const result = await reconcileArchiveCatalogIndexes(store, {
+    throughDate: "2026-01-20",
+    limit: 20,
+  });
+  assert.equal(result.repaired, 20);
+  assert.equal(result.nextCursor, null);
+  assert.equal(store.stats().writtenKeys.filter(key =>
+    key === "vibeAtlas:archive-catalog:v2:year:2026").length, 1);
+  assert.deepEqual(
+    (await listArchiveCatalogEditions(store)).map(item => item.date),
+    [...dates].reverse(),
+  );
+});
+
+test("the operator repair endpoint requires admin access and reports repaired dates", async () => {
+  const hidden = {
+    date: "2026-09-19",
+    actorName: "Hidden Actor",
+    vibeLabel: "氛围",
+  };
+  const publication = memoryStore({
+    [`${ARCHIVE_CATALOG_EDITION_PREFIX}${hidden.date}`]: hidden,
+  });
+  let adminChecks = 0;
+  const handler = createStarOfDayHandler({
+    auth: {
+      authenticateAdmin: async () => {
+        adminChecks += 1;
+        return { user: { accountId: "admin-1" } };
+      },
+    },
+    getStore: () => publication,
+    today: () => "2026-09-20",
+  });
+
+  const response = await handler(
+    new Request("https://example.test/star-of-day?archiveRepair=1"),
+    {},
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.equal(adminChecks, 1);
+  const reconciliation = (await response.json()).reconciliation;
+  assert.equal(reconciliation.scanned, 100);
+  assert.equal(reconciliation.verified, 1);
+  assert.deepEqual(reconciliation.missingDates, ["2026-09-19"]);
+  assert.equal(reconciliation.repaired, 1);
+  assert.match(reconciliation.nextCursor, /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test("the operator repair endpoint fails closed when admin authentication fails", async () => {
+  const error = new Error("Admin access is required.");
+  error.status = 403;
+  const handler = createStarOfDayHandler({
+    auth: { authenticateAdmin: async () => { throw error; } },
+    getStore: () => memoryStore({}),
+    today: () => "2026-09-20",
+  });
+  const response = await handler(
+    new Request("https://example.test/star-of-day?archiveRepair=1"),
+    {},
+  );
+  assert.equal(response.status, 403);
+  assert.deepEqual(await response.json(), {
+    error: "Admin access is required.",
+  });
 });
 
 test("archive policy distinguishes anonymous, free, active, billing-delay, and inactive access", () => {

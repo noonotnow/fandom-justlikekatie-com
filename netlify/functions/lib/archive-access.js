@@ -14,6 +14,8 @@ export const ARCHIVE_CATALOG_INDEX_KEY =
   `vibeAtlas:archive-catalog:v${ARCHIVE_CATALOG_EDITION_VERSION}:index`;
 export const ARCHIVE_CATALOG_YEAR_PREFIX =
   `vibeAtlas:archive-catalog:v${ARCHIVE_CATALOG_EDITION_VERSION}:year:`;
+export const ARCHIVE_RECONCILIATION_LIMIT = 100;
+export const ARCHIVE_RECONCILIATION_START_DATE = "2026-01-01";
 
 export function archiveGateEnabled(env = process.env) {
   return env.FANDOM_ARCHIVE_GATE_ENABLED !== "false";
@@ -202,20 +204,26 @@ async function ensureArchiveCatalogList(store, key, currentIsValid, createNext) 
   throw new Error("The archive catalogue index could not be updated safely.");
 }
 
-async function ensureArchiveCatalogDate(store, date) {
-  const year = date.slice(0, 4);
-  await ensureArchiveCatalogList(
-    store,
-    `${ARCHIVE_CATALOG_YEAR_PREFIX}${year}`,
-    value => isArchiveCatalogYear(value, year),
-    current => ({
-      schemaVersion: 1,
-      catalogVersion: ARCHIVE_CATALOG_EDITION_VERSION,
-      kind: "vibe-atlas-archive-catalog-year",
-      year,
-      dates: [...new Set([date, ...(current?.dates || [])])].sort().reverse(),
-    }),
-  );
+async function ensureArchiveCatalogDates(store, dates) {
+  const datesByYear = new Map();
+  for (const date of dates) {
+    const year = date.slice(0, 4);
+    datesByYear.set(year, [...(datesByYear.get(year) || []), date]);
+  }
+  for (const [year, yearDates] of datesByYear) {
+    await ensureArchiveCatalogList(
+      store,
+      `${ARCHIVE_CATALOG_YEAR_PREFIX}${year}`,
+      value => isArchiveCatalogYear(value, year),
+      current => ({
+        schemaVersion: 1,
+        catalogVersion: ARCHIVE_CATALOG_EDITION_VERSION,
+        kind: "vibe-atlas-archive-catalog-year",
+        year,
+        dates: [...new Set([...yearDates, ...(current?.dates || [])])].sort().reverse(),
+      }),
+    );
+  }
   await ensureArchiveCatalogList(
     store,
     ARCHIVE_CATALOG_INDEX_KEY,
@@ -224,9 +232,97 @@ async function ensureArchiveCatalogDate(store, date) {
       schemaVersion: 1,
       catalogVersion: ARCHIVE_CATALOG_EDITION_VERSION,
       kind: "vibe-atlas-archive-catalog-index",
-      years: [...new Set([year, ...(current?.years || [])])].sort().reverse(),
+      years: [...new Set([...datesByYear.keys(), ...(current?.years || [])])].sort().reverse(),
     }),
   );
+}
+
+async function ensureArchiveCatalogDate(store, date) {
+  await ensureArchiveCatalogDates(store, [date]);
+}
+
+export async function reconcileArchiveCatalogIndexes(
+  store,
+  {
+    throughDate,
+    cursor = null,
+    limit = ARCHIVE_RECONCILIATION_LIMIT,
+  } = {},
+) {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > ARCHIVE_RECONCILIATION_LIMIT) {
+    throw new Error("The archive catalogue reconciliation limit is invalid.");
+  }
+  const firstDate = cursor || throughDate;
+  if (!isCalendarDate(firstDate) || !isCalendarDate(throughDate) || firstDate > throughDate) {
+    throw new Error("The archive catalogue reconciliation cursor is invalid.");
+  }
+  if (firstDate < ARCHIVE_RECONCILIATION_START_DATE) {
+    return { scanned: 0, verified: 0, missingDates: [], repaired: 0, nextCursor: null };
+  }
+  const dates = [];
+  let date = firstDate;
+  while (dates.length < limit && date >= ARCHIVE_RECONCILIATION_START_DATE) {
+    dates.push(date);
+    date = previousCalendarDate(date);
+  }
+  const records = (await Promise.all(dates.map(async candidateDate => {
+    const key = archiveCatalogEditionKey(candidateDate);
+    const edition = await store.get(key, { type: "json", consistency: "strong" });
+    if (!edition) return null;
+    if (!isArchiveCatalogEdition(edition) || edition.date !== candidateDate) {
+      throw new Error("The archive catalogue edition is invalid.");
+    }
+    return { date: candidateDate, edition };
+  }))).filter(Boolean);
+
+  const index = await store.get(
+    ARCHIVE_CATALOG_INDEX_KEY,
+    { type: "json", consistency: "strong" },
+  );
+  if (index && !isArchiveCatalogIndex(index)) {
+    throw new Error("The archive catalogue index is invalid.");
+  }
+  const years = new Map();
+  await Promise.all([...new Set(records.map(record => record.date.slice(0, 4)))]
+    .map(async year => {
+      const bucket = await store.get(
+        `${ARCHIVE_CATALOG_YEAR_PREFIX}${year}`,
+        { type: "json", consistency: "strong" },
+      );
+      if (bucket && !isArchiveCatalogYear(bucket, year)) {
+        throw new Error("The archive catalogue year is invalid.");
+      }
+      years.set(year, bucket);
+    }));
+  const missingDates = records
+    .map(record => record.date)
+    .filter(date => {
+      const year = date.slice(0, 4);
+      return !index?.years.includes(year) || !years.get(year)?.dates.includes(date);
+    })
+    .sort()
+    .reverse();
+
+  await ensureArchiveCatalogDates(store, records.map(record => record.date));
+  return {
+    scanned: dates.length,
+    verified: records.length,
+    missingDates,
+    repaired: missingDates.length,
+    nextCursor: date >= ARCHIVE_RECONCILIATION_START_DATE ? date : null,
+  };
+}
+
+function isCalendarDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function previousCalendarDate(value) {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
 }
 
 export async function listArchiveCatalogEditions(store) {

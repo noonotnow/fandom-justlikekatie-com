@@ -37,6 +37,7 @@ import {
   ensureArchiveAccessWindow,
   listArchiveCatalogEditions,
   publicArchiveEdition,
+  reconcileArchiveCatalogIndexes,
   updateArchiveCatalog,
 } from "./lib/archive-access.js";
 import { recordArchiveAccessCheck } from "./lib/archive-access-operations.js";
@@ -712,6 +713,34 @@ export function createStarOfDayHandler({
     const eligibilityStore = getStore(ELIGIBILITY_STORE, context);
     const todayStr = today();
     const url = new URL(req.url || "https://fandom.local/.netlify/functions/star-of-day");
+
+    if (url.searchParams.get("archiveRepair") === "1") {
+      try {
+        await auth.authenticateAdmin(req, context);
+      } catch (error) {
+        return jsonResponse(error?.status === 403 ? 403 : 401, {
+          error: error?.message || "Admin access is required.",
+        }, { "Cache-Control": "private, no-store" });
+      }
+      const cursor = url.searchParams.get("repairCursor");
+      if (cursor !== null && (cursor.length < 1 || cursor.length > 512)) {
+        return jsonResponse(400, { error: "Invalid archive repair cursor." });
+      }
+      const reconciliation = await reconcileArchiveCatalogIndexes(store, {
+        throughDate: todayStr,
+        ...(cursor ? { cursor } : {}),
+      });
+      console.info("[archive-catalogue] reconciliation completed", {
+        scanned: reconciliation.scanned,
+        repaired: reconciliation.repaired,
+        dates: reconciliation.missingDates,
+        moreRecordsRemain: Boolean(reconciliation.nextCursor),
+      });
+      return jsonResponse(200, { reconciliation }, {
+        "Cache-Control": "private, no-store",
+        Vary: "Cookie",
+      });
+    }
 
     if (url.searchParams.get("archive") === "1") {
       const archivePage = parseArchivePage(url.searchParams);
