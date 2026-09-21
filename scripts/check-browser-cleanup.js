@@ -291,7 +291,7 @@ function main() {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();
 
 function cleanupPaths(scope, owned) {
-  const initial = [{ closes: [], abrupt: false }];
+  const initial = [{ closes: [], control: 'normal' }];
 
   function appendEvents(states, node) {
     const events = collectCloseEvents(node, owned);
@@ -304,10 +304,75 @@ function cleanupPaths(scope, owned) {
 
   function runStatements(statements, states) {
     return statements.reduce((current, statement) => {
-      const active = current.filter(state => !state.abrupt);
-      const abrupt = current.filter(state => state.abrupt);
-      return [...abrupt, ...runStatement(statement, active)];
+      const active = current.filter(state => state.control === 'normal');
+      const stopped = current.filter(state => state.control !== 'normal');
+      return [...stopped, ...runStatement(statement, active)];
     }, states);
+  }
+
+  function withNormalControl(states, controls) {
+    return states.map(state => (
+      controls.includes(state.control)
+        ? { ...state, control: 'normal' }
+        : state
+    ));
+  }
+
+  function runSwitch(statement, states) {
+    const afterExpression = appendEvents(states, statement.expression);
+    const clauses = statement.caseBlock.clauses;
+    const starts = clauses.map((_, index) => index);
+    if (!clauses.some(ts.isDefaultClause)) starts.push(clauses.length);
+
+    return starts.flatMap(start => {
+      let paths = afterExpression;
+      for (const clause of clauses.slice(start)) {
+        const active = paths.filter(state => state.control === 'normal');
+        const stopped = paths.filter(state => state.control !== 'normal');
+        paths = [...stopped, ...runStatements(clause.statements, active)];
+      }
+      return withNormalControl(paths, ['break']);
+    });
+  }
+
+  function runLoop(statement, states) {
+    const isDo = ts.isDoStatement(statement);
+    const condition = ts.isForStatement(statement)
+      ? statement.condition
+      : ts.isWhileStatement(statement) || isDo
+        ? statement.expression
+        : null;
+    const incrementor = ts.isForStatement(statement) ? statement.incrementor : null;
+    let entries = states;
+    const exits = isDo ? [] : states;
+    const stopped = [];
+
+    for (let iteration = 0; iteration < 2; iteration += 1) {
+      if (entries.length === 0) break;
+      const checked = (!isDo || iteration > 0) && condition
+        ? appendEvents(entries, condition)
+        : entries;
+      const bodyResults = runStatement(statement.statement, checked);
+      exits.push(...withNormalControl(
+        bodyResults.filter(state => state.control === 'break'),
+        ['break'],
+      ));
+      stopped.push(...bodyResults.filter(state => (
+        state.control !== 'normal'
+        && state.control !== 'continue'
+        && state.control !== 'break'
+      )));
+      entries = withNormalControl(
+        bodyResults.filter(state => (
+          state.control === 'normal' || state.control === 'continue'
+        )),
+        ['continue'],
+      );
+      if (incrementor) entries = appendEvents(entries, incrementor);
+      if (condition) exits.push(...appendEvents(entries, condition));
+    }
+
+    return [...exits, ...entries, ...stopped];
   }
 
   function runStatement(statement, states) {
@@ -323,9 +388,32 @@ function cleanupPaths(scope, owned) {
       return [...whenTrue, ...whenFalse];
     }
 
+    if (ts.isSwitchStatement(statement)) return runSwitch(statement, states);
+
+    if (
+      ts.isForStatement(statement)
+      || ts.isForInStatement(statement)
+      || ts.isForOfStatement(statement)
+      || ts.isWhileStatement(statement)
+      || ts.isDoStatement(statement)
+    ) {
+      return runLoop(statement, states);
+    }
+
+    if (ts.isBreakStatement(statement)) {
+      return states.map(state => ({ ...state, control: 'break' }));
+    }
+
+    if (ts.isContinueStatement(statement)) {
+      return states.map(state => ({ ...state, control: 'continue' }));
+    }
+
     if (ts.isReturnStatement(statement) || ts.isThrowStatement(statement)) {
       return appendEvents(states, statement.expression ?? statement)
-        .map(state => ({ ...state, abrupt: true }));
+        .map(state => ({
+          ...state,
+          control: ts.isReturnStatement(statement) ? 'return' : 'throw',
+        }));
     }
 
     if (ts.isTryStatement(statement)) {
@@ -333,7 +421,7 @@ function cleanupPaths(scope, owned) {
       const recovered = statement.catchClause
         ? runStatement(
           statement.catchClause.block,
-          attempted.map(state => ({ ...state, abrupt: false })),
+          attempted.map(state => ({ ...state, control: 'normal' })),
         )
         : [];
       const paths = [...attempted, ...recovered];
@@ -341,11 +429,11 @@ function cleanupPaths(scope, owned) {
       return paths.flatMap(state => {
         const results = runStatement(
           statement.finallyBlock,
-          [{ ...state, abrupt: false }],
+          [{ ...state, control: 'normal' }],
         );
         return results.map(result => ({
           ...result,
-          abrupt: state.abrupt || result.abrupt,
+          control: result.control === 'normal' ? state.control : result.control,
         }));
       });
     }

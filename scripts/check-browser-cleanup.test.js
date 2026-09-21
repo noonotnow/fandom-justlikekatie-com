@@ -298,6 +298,68 @@ test('keeps nested mutually exclusive cleanup paths separate', () => {
   `), []);
 });
 
+test('accepts browser and server cleanup in mutually exclusive switch cases', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    switch (resourceToClose) {
+      case 'browser':
+        await browser.close();
+        break;
+      case 'server':
+        await server.close();
+        break;
+    }
+  `), []);
+});
+
+test('rejects sequential cleanup through switch fallthrough', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    switch (resourceToClose) {
+      case 'browser':
+        await browser.close();
+      case 'server':
+        await server.close();
+        break;
+    }
+  `);
+
+  assert.equal(violations.length, 1);
+});
+
+test('rejects cleanup that can run sequentially across loop iterations', () => {
+  const violations = findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    for (const resource of resources) {
+      if (resource === 'browser') {
+        await browser.close();
+        continue;
+      }
+      await server.close();
+    }
+  `);
+
+  assert.equal(violations.length, 1);
+});
+
+test('accepts loop cleanup paths separated by break', () => {
+  assert.deepEqual(findUnsafeBrowserCleanup(`
+    const { server } = await startViteTestServer();
+    const browser = await launchBrowserForServer(server);
+    while (resourceToClose) {
+      if (resourceToClose === 'browser') {
+        await browser.close();
+        break;
+      }
+      await server.close();
+      break;
+    }
+  `), []);
+});
+
 test('accepts cleanup paths separated by an early return', () => {
   assert.deepEqual(findUnsafeBrowserCleanup(`
     async function stopFixture() {
