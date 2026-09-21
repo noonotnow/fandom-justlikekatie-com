@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { CreatorPostAction } from '../CreatorPostAction/CreatorPostAction';
 import { dbGetVisibleGrids, type GridRecord } from '../../utils/collectionDB';
 import { makeCreatorPostFromGrid } from '../../utils/creatorDraft';
@@ -8,7 +8,10 @@ import {
   classifyGridProvenance,
   type ClassifiedBoardProvenance,
 } from '../../utils/approvedBoardProvenance';
-import { ReceiptIndexHealth } from './ReceiptIndexHealth';
+import {
+  AudienceEvidenceReceiptIndex,
+  loadAudienceEvidence,
+} from './AudienceEvidenceReceiptIndex';
 import styles from './ReleaseDesk.module.css';
 
 type AnyRecord = Record<string, any>;
@@ -172,24 +175,12 @@ function EngagementEvidence() {
 
   useEffect(() => {
     let live = true;
-    void Promise.all([
-      fetch('/.netlify/functions/engagement-export?records=0', { credentials: 'include' }),
-      fetch('/.netlify/functions/archive-access-operations', { credentials: 'include' }),
-      fetch('/.netlify/functions/billing-operations', { credentials: 'include' }),
-    ])
-      .then(async ([engagementResponse, archiveResponse, billingResponse]) => {
-        const [engagementResult, archiveResult, billingResult] = await Promise.all([
-          engagementResponse.json().catch(() => null),
-          archiveResponse.json().catch(() => null),
-          billingResponse.json().catch(() => null),
-        ]);
-        if (!engagementResponse.ok) throw new Error(engagementResult?.error || 'Audience evidence unavailable.');
-        if (!archiveResponse.ok) throw new Error(archiveResult?.error || 'Archive access health unavailable.');
-        if (!billingResponse.ok) throw new Error(billingResult?.error || 'Billing operations unavailable.');
+    void loadAudienceEvidence()
+      .then(result => {
         if (live) {
-          setSummary(engagementResult.summary ?? null);
-          setArchiveHealth(archiveResult);
-          setBillingOperations(billingResult);
+          setSummary(result.summary);
+          setArchiveHealth(result.archiveHealth);
+          setBillingOperations(result.billingOperations);
         }
       })
       .catch(error => {
@@ -257,8 +248,8 @@ function EngagementEvidence() {
       {archiveHealth && <ArchiveAccessHealth health={archiveHealth} />}
       {billingOperations && (
         <>
-          <ReceiptIndexHealth
-            health={billingOperations.receiptIndex}
+          <AudienceEvidenceReceiptIndex
+            billingOperations={billingOperations}
             classes={{
               container: styles.identityConflict,
               header: styles.identityConflictHeader,

@@ -1,9 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
+import { register } from 'node:module';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { act, create } from 'react-test-renderer';
 import { ReceiptIndexHealth } from '../src/components/FandomAdmin/ReceiptIndexHealth';
+
+register('./css-module-loader.mjs', import.meta.url);
 
 const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const adminSource = await readFile(
@@ -20,6 +24,10 @@ const releaseDeskSource = await readFile(
 );
 const receiptIndexHealthSource = await readFile(
   new URL('../src/components/FandomAdmin/ReceiptIndexHealth.tsx', import.meta.url),
+  'utf8',
+);
+const audienceEvidenceReceiptIndexSource = await readFile(
+  new URL('../src/components/FandomAdmin/AudienceEvidenceReceiptIndex.tsx', import.meta.url),
   'utf8',
 );
 const collectionSource = await readFile(
@@ -80,9 +88,9 @@ test('Release Desk is the Admin workspace for private inventory', () => {
   assert.match(releaseDeskSource, />Production<small>Readiness blockers/);
   assert.match(releaseDeskSource, /aria-selected=\{view === 'audience'\}/);
   assert.match(releaseDeskSource, />Audience evidence<small>Actual use \+ data quality/);
-  assert.match(releaseDeskSource, /engagement-export\?records=0/);
-  assert.match(releaseDeskSource, /archive-access-operations/);
-  assert.match(releaseDeskSource, /billing-operations/);
+  assert.match(audienceEvidenceReceiptIndexSource, /engagement-export\?records=0/);
+  assert.match(audienceEvidenceReceiptIndexSource, /archive-access-operations/);
+  assert.match(audienceEvidenceReceiptIndexSource, /billing-operations/);
   assert.match(receiptIndexHealthSource, /Processed receipt retention/);
   assert.match(receiptIndexHealthSource, /Do not consider this release complete/);
   assert.match(releaseDeskSource, />Archive access health</);
@@ -124,6 +132,75 @@ test('receipt-index readiness renders a clearly healthy release-ready state', ()
   assert.match(markup, /data-status="resolved"/);
   assert.match(markup, /The processed-receipt retention index is valid and ready\./);
   assert.doesNotMatch(markup, /role="alert"/);
+});
+
+test('Release Desk Audience evidence renders billing receipt-index warnings and release-ready health', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
+  let receiptIndex = { status: 'missing', releaseReady: false };
+  globalThis.fetch = (async input => {
+    const url = String(input);
+    if (url.includes('actor-audits')) {
+      return Response.json({ releaseInventory: {}, productionReadiness: {} });
+    }
+    if (url.includes('daily-drop-operations')) {
+      return Response.json({ editions: [] });
+    }
+    if (url.includes('engagement-export')) {
+      return Response.json({ summary: { recordCount: 0 } });
+    }
+    if (url.includes('archive-access-operations')) {
+      return Response.json({ status: {} });
+    }
+    if (url.includes('billing-operations')) {
+      return Response.json({ receiptIndex, identityConflict: null });
+    }
+    return Response.json({ error: 'Unexpected request' }, { status: 404 });
+  }) as typeof fetch;
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+  try {
+    const { ReleaseDesk } = await import('../src/components/FandomAdmin/ReleaseDesk');
+    let desk: ReturnType<typeof create>;
+    await act(async () => {
+      desk = create(createElement(ReleaseDesk));
+    });
+    await act(async () => {
+      const audienceTab = desk!.root.findAllByType('button')
+        .find(button => button.props.role === 'tab' && button.props.children[0] === 'Audience evidence');
+      assert.ok(audienceTab, 'Release Desk should render the Audience evidence tab');
+      audienceTab.props.onClick();
+    });
+    const blockedMarkup = JSON.stringify(desk!.toJSON());
+    const blockedAlerts = desk!.root.findAll(node => node.props.role === 'alert');
+    assert.ok(blockedAlerts.some(node => String(node.props.children).includes('Do not consider this release complete')));
+    assert.match(blockedMarkup, /Missing/);
+
+    await act(async () => {
+      desk!.unmount();
+    });
+    receiptIndex = { status: 'release_ready', releaseReady: true };
+    await act(async () => {
+      desk = create(createElement(ReleaseDesk));
+    });
+    await act(async () => {
+      const audienceTab = desk!.root.findAllByType('button')
+        .find(button => button.props.role === 'tab' && button.props.children[0] === 'Audience evidence');
+      assert.ok(audienceTab);
+      audienceTab.props.onClick();
+    });
+    const healthyMarkup = JSON.stringify(desk!.toJSON());
+    assert.match(healthyMarkup, /Release-ready/);
+    assert.match(healthyMarkup, /resolved/);
+    assert.match(healthyMarkup, /retention index is valid and ready/);
+    assert.equal(desk!.root.findAll(node => node.props.role === 'alert').length, 0);
+    await act(async () => {
+      desk!.unmount();
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment;
+  }
 });
 
 for (const state of [
