@@ -164,6 +164,7 @@ export const Collection: React.FC<Props> = ({
   const [failedCardImages, setFailedCardImages] = useState<Record<string, boolean>>({});
   const [failedGridImages, setFailedGridImages] = useState<Record<string, boolean>>({});
   const [misprintDrafts, setMisprintDrafts] = useState<Record<string, MisprintDraft>>({});
+  const [exportHistoryRevisions, setExportHistoryRevisions] = useState<Record<string, number>>({});
   const accountIdRef = useRef<string | undefined>(undefined);
   const pendingRemovalRef = useRef<PendingRemoval | null>(null);
 
@@ -688,7 +689,14 @@ export const Collection: React.FC<Props> = ({
         const tier = classifyEditionTier(buildExportPayload(starData).chosen);
         const persistedExportId = renderedBlob ? crypto.randomUUID() : undefined;
         if (renderedBlob && persistedExportId) {
-          void uploadExportedCard(grid.id, persistedExportId, renderedBlob, variant, tier, manifest);
+          void uploadExportedCard(grid.id, persistedExportId, renderedBlob, variant, tier, manifest)
+            .then((persisted) => {
+              if (!persisted) return;
+              setExportHistoryRevisions(current => ({
+                ...current,
+                [grid.id]: (current[grid.id] || 0) + 1,
+              }));
+            });
         }
         logGridExport(gridExportEventFromRecord(grid, variant, tier, true, persistedExportId));
       } catch (bookkeepingError) {
@@ -1055,7 +1063,11 @@ export const Collection: React.FC<Props> = ({
                     Remove
                   </button>
                 </div>
-                <GridExportHistory gridId={grid.id} signedIn={Boolean(user)} />
+                <GridExportHistory
+                  gridId={grid.id}
+                  signedIn={Boolean(user)}
+                  refreshRevision={exportHistoryRevisions[grid.id] || 0}
+                />
               </article>
             ))}
           </section>
@@ -1337,23 +1349,42 @@ export const Collection: React.FC<Props> = ({
  * History is loaded lazily on first expand — export storage is server-side
  * and account-scoped, so anonymous visitors are pointed at sign-in instead.
  */
-function GridExportHistory({ gridId, signedIn }: { gridId: string; signedIn: boolean }) {
+function GridExportHistory({
+  gridId,
+  signedIn,
+  refreshRevision,
+}: {
+  gridId: string;
+  signedIn: boolean;
+  refreshRevision: number;
+}) {
   const [entries, setEntries] = useState<PersistedExportEntry[] | null>(null);
   const [historyError, setHistoryError] = useState('');
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const historyRequestRef = useRef(0);
 
-  async function loadHistory() {
-    if (entries || loadingHistory) return;
+  async function loadHistory(force = false) {
+    if (!force && (entries || loadingHistory)) return;
+    const requestId = historyRequestRef.current + 1;
+    historyRequestRef.current = requestId;
     setLoadingHistory(true);
     setHistoryError('');
     try {
-      setEntries(await fetchExportHistory(gridId));
+      const nextEntries = await fetchExportHistory(gridId);
+      if (historyRequestRef.current === requestId) setEntries(nextEntries);
     } catch (error) {
-      setHistoryError(messageFrom(error, 'Export history could not be loaded.'));
+      if (historyRequestRef.current === requestId) {
+        setHistoryError(messageFrom(error, 'Export history could not be loaded.'));
+      }
     } finally {
-      setLoadingHistory(false);
+      if (historyRequestRef.current === requestId) setLoadingHistory(false);
     }
   }
+
+  useEffect(() => {
+    if (!signedIn || refreshRevision === 0) return;
+    void loadHistory(true);
+  }, [refreshRevision, signedIn]);
 
   if (!signedIn) return null;
 
@@ -1376,7 +1407,7 @@ function GridExportHistory({ gridId, signedIn }: { gridId: string; signedIn: boo
             <li key={entry.exportId}>
               <span>
                 {formatDate(entry.exportedAt.slice(0, 10))}
-                {' · '}{entry.variant}
+                {' · '}{exportVariantLabel(entry.variant)}
                 {entry.tier && entry.tier !== 'standard' ? ` · ${entry.tier}` : ''}
               </span>
               <a href={exportDownloadUrl(gridId, entry.exportId)} download>
@@ -1388,6 +1419,12 @@ function GridExportHistory({ gridId, signedIn }: { gridId: string; signedIn: boo
       )}
     </details>
   );
+}
+
+function exportVariantLabel(variant: ExportVariant): string {
+  if (variant === 'master') return 'Master';
+  if (variant === 'standard') return 'Standard';
+  return variant;
 }
 
 function GridVisual({
