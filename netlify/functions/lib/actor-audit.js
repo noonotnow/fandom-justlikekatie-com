@@ -2615,7 +2615,22 @@ export function createActorAuditHandler({
           consistency: "strong",
         });
         if (existing) {
-          if (existing.reason !== reason) {
+          const requestedRetirement = {
+            status: "retired",
+            sourceRescueReceiptId: input.receiptId,
+            sourceRunId: validRescueCalibration
+              ? calibration.sourceRunId || null
+              : blindEvidence.sourceRunId || null,
+            actorId: pair.actor.id,
+            vibeKey: pair.vibeKey,
+            signalFamily: CALIBRATION_SIGNAL_LABELS[signalFamily],
+            signalValue,
+            reason,
+            retiredBy: operator.user.accountId,
+          };
+          requestedRetirement.retirementId = calibrationSignalRetirementId(requestedRetirement);
+          if (recordHash(calibrationSignalRetirementIdentity(existing))
+            !== recordHash(calibrationSignalRetirementIdentity(requestedRetirement))) {
             return json(409, { error: "That signal retirement receipt is immutable." });
           }
           const next = await readReport(store, pair, {
@@ -2639,7 +2654,6 @@ export function createActorAuditHandler({
         const retirement = {
           schemaVersion: 1,
           retirementVersion: 1,
-          retirementId: createFeedbackId(),
           status: "retired",
           sourceRescueReceiptId: input.receiptId,
           sourceRunId: validRescueCalibration
@@ -2653,6 +2667,7 @@ export function createActorAuditHandler({
           retiredAt: now().toISOString(),
           retiredBy: operator.user.accountId,
         };
+        retirement.retirementId = calibrationSignalRetirementId(retirement);
         const write = await store.setJSON(retirementKey, retirement, { onlyIfNew: true });
         if (write?.modified === false) {
           return json(409, { error: "Another operator retired this signal first." });
@@ -2816,7 +2831,18 @@ export function createActorAuditHandler({
           consistency: "strong",
         });
         if (existing) {
-          if (existing.reason !== reason) {
+          const requestedRetirement = {
+            status: "retired",
+            sourceRescueReceiptId: input.receiptId,
+            sourceRunId: calibration.sourceRunId || null,
+            actorId: pair.actor.id,
+            vibeKey: pair.vibeKey,
+            reason,
+            retiredBy: operator.user.accountId,
+          };
+          requestedRetirement.retirementId = calibrationRetirementId(requestedRetirement);
+          if (recordHash(calibrationRetirementIdentity(existing))
+            !== recordHash(calibrationRetirementIdentity(requestedRetirement))) {
             return json(409, { error: "That calibration retirement receipt is immutable." });
           }
           const next = await readReport(store, pair);
@@ -2829,7 +2855,6 @@ export function createActorAuditHandler({
         const retirement = {
           schemaVersion: 1,
           retirementVersion: 1,
-          retirementId: createFeedbackId(),
           status: "retired",
           sourceRescueReceiptId: input.receiptId,
           sourceRunId: calibration.sourceRunId || null,
@@ -2839,6 +2864,7 @@ export function createActorAuditHandler({
           retiredAt: now().toISOString(),
           retiredBy: operator.user.accountId,
         };
+        retirement.retirementId = calibrationRetirementId(retirement);
         const write = await store.setJSON(retirementKey, retirement, { onlyIfNew: true });
         if (write?.modified === false) {
           return json(409, { error: "Another operator retired this calibration evidence first." });
@@ -8233,6 +8259,20 @@ function calibrationSignalRetirementIdentity(receipt) {
   };
 }
 
+function calibrationSignalRetirementId(receipt) {
+  return `signal-retirement-${recordHash({
+    status: receipt?.status,
+    sourceRescueReceiptId: receipt?.sourceRescueReceiptId,
+    sourceRunId: receipt?.sourceRunId,
+    actorId: receipt?.actorId,
+    vibeKey: receipt?.vibeKey,
+    signalFamily: receipt?.signalFamily,
+    signalValue: receipt?.signalValue,
+    reason: receipt?.reason,
+    retiredBy: receipt?.retiredBy,
+  }).slice(0, 24)}`;
+}
+
 function blindCalibrationExclusionIdentity(receipt) {
   return {
     status: receipt?.status,
@@ -8273,6 +8313,18 @@ function calibrationRetirementIdentity(receipt) {
     reason: receipt?.reason,
     retiredBy: receipt?.retiredBy,
   };
+}
+
+function calibrationRetirementId(receipt) {
+  return `calibration-retirement-${recordHash({
+    status: receipt?.status,
+    sourceRescueReceiptId: receipt?.sourceRescueReceiptId,
+    sourceRunId: receipt?.sourceRunId,
+    actorId: receipt?.actorId,
+    vibeKey: receipt?.vibeKey,
+    reason: receipt?.reason,
+    retiredBy: receipt?.retiredBy,
+  }).slice(0, 24)}`;
 }
 export async function writeCalibrationAuthority(store, pair, next) {
   const key = auditRescueCalibrationAuthorityKey(pair.actor.id, pair.vibeIdx);

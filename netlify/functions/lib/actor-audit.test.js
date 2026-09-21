@@ -7428,6 +7428,44 @@ test("retiring diagnostic calibration evidence appends a reason receipt and excl
   assert.equal(immutableRetirement.status, 409);
   assert.equal([...store.records.keys()].filter(key =>
     key.startsWith(auditRescueCalibrationRetirementPrefix(pairActor.id, 0))).length, 1);
+
+  const originalRetirementReceipt = structuredClone(retirementReceipt);
+  const protectedRecords = new Map(
+    [...store.records.entries()]
+      .filter(([key]) => key !== retirementKeys[0])
+      .map(([key, value]) => [key, structuredClone(value)]),
+  );
+  const alteredIdentities = {
+    retirementId: "altered-retirement-id",
+    status: "active",
+    sourceRescueReceiptId: "altered-source-receipt",
+    sourceRunId: "altered-source-run",
+    actorId: "altered-actor",
+    vibeKey: "altered-vibe",
+    retiredBy: "altered-operator",
+  };
+  for (const [field, value] of Object.entries(alteredIdentities)) {
+    store.records.set(retirementKeys[0], {
+      ...originalRetirementReceipt,
+      [field]: value,
+    });
+    const retry = await handler(request("POST", {
+      action: "retire_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      receiptId: rescueReceipt.receiptId,
+      reason,
+    }), {});
+    assert.equal(retry.status, 409, field);
+    assert.deepEqual(store.records.get(retirementKeys[0]), {
+      ...originalRetirementReceipt,
+      [field]: value,
+    }, field);
+    for (const [key, record] of protectedRecords) {
+      assert.deepEqual(store.records.get(key), record, `${field}: ${key}`);
+    }
+  }
+  store.records.set(retirementKeys[0], originalRetirementReceipt);
 });
 
 test("diagnostic transfer outcomes are retained per signal and retirement filters future calibration", async () => {
@@ -7540,6 +7578,50 @@ test("diagnostic transfer outcomes are retained per signal and retirement filter
   }), {});
   assert.equal(immutable.status, 409);
   assert.equal(retired.calibrationProfile.retiredSignalCount, 1);
+
+  const retirementKey = [...store.records.keys()].find(key =>
+    key.startsWith(auditRescueCalibrationSignalRetirementPrefix(pairActor.id, 0)));
+  const originalRetirement = structuredClone(store.records.get(retirementKey));
+  const protectedRecords = new Map(
+    [...store.records.entries()]
+      .filter(([key]) => key !== retirementKey)
+      .map(([key, value]) => [key, structuredClone(value)]),
+  );
+  const alteredIdentities = {
+    retirementId: "altered-retirement-id",
+    status: "active",
+    sourceRescueReceiptId: "altered-source-receipt",
+    sourceRunId: "altered-source-run",
+    actorId: "altered-actor",
+    vibeKey: "altered-vibe",
+    signalFamily: "query",
+    signalValue: "altered-signal",
+    retiredBy: "altered-operator",
+  };
+  for (const [field, value] of Object.entries(alteredIdentities)) {
+    store.records.set(retirementKey, {
+      ...originalRetirement,
+      [field]: value,
+    });
+    const retry = await handler(request("POST", {
+      action: "retire_rescue_signal",
+      actorId: pairActor.id,
+      vibeKey,
+      receiptId: rescueReceiptId,
+      signalFamily: "source",
+      signalValue: sourceSignal,
+      reason: "Repeated source results no longer transfer with confirmed identity.",
+    }), {});
+    assert.equal(retry.status, 409, field);
+    assert.deepEqual(store.records.get(retirementKey), {
+      ...originalRetirement,
+      [field]: value,
+    }, field);
+    for (const [key, record] of protectedRecords) {
+      assert.deepEqual(store.records.get(key), record, `${field}: ${key}`);
+    }
+  }
+  store.records.set(retirementKey, originalRetirement);
 });
 
 test("signal retirement fails closed when its post-write strong read cannot verify the receipt", async () => {
