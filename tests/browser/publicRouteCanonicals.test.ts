@@ -14,6 +14,21 @@ type AppRenderedRoute = {
   path: string;
 };
 
+type RouteMetadata = {
+  title: string;
+  robots: string;
+};
+
+const DAILY_METADATA: RouteMetadata = {
+  title: 'Vibe Atlas | Daily C-Drama Collectible Cards | Fandom Vibes',
+  robots: 'index,follow,max-image-preview:large',
+};
+
+const ARCHIVE_METADATA: RouteMetadata = {
+  title: 'Vibe Atlas Archive | Fandom Vibes',
+  robots: 'index,follow,max-image-preview:large',
+};
+
 function assertCanonicalMatchesRoute(hrefs: string[], route: AppRenderedRoute) {
   assert.equal(
     hrefs.length,
@@ -31,6 +46,29 @@ async function canonicalHrefs(page: import('playwright').Page) {
   await page.locator('link[rel~="canonical"]').first().waitFor({ state: 'attached' });
   return page.locator('link[rel~="canonical"]').evaluateAll(
     links => links.map(link => (link as HTMLLinkElement).href),
+  );
+}
+
+async function assertRouteMetadata(
+  page: import('playwright').Page,
+  route: AppRenderedRoute,
+  expected: RouteMetadata,
+) {
+  assertCanonicalMatchesRoute(await canonicalHrefs(page), route);
+  const robots = page.locator('meta[name="robots"]');
+  await robots.waitFor({ state: 'attached' });
+  await page.waitForFunction(
+    ({ title, robotsContent }) => (
+      document.title === title
+      && document.querySelector<HTMLMetaElement>('meta[name="robots"]')?.content === robotsContent
+    ),
+    { title: expected.title, robotsContent: expected.robots },
+  );
+  assert.equal(await page.title(), expected.title, `${route.path} must expose its expected document title`);
+  assert.equal(
+    await robots.getAttribute('content'),
+    expected.robots,
+    `${route.path} must expose its expected robots directive`,
   );
 }
 
@@ -71,19 +109,19 @@ test('Daily and Archive UI and history navigation keeps one registered canonical
     await page.route('https://www.googletagmanager.com/**', route => route.abort());
 
     await page.goto(`${origin}${dailyRoute.path}`, { waitUntil: 'domcontentloaded' });
-    assertCanonicalMatchesRoute(await canonicalHrefs(page), dailyRoute);
+    await assertRouteMetadata(page, dailyRoute, DAILY_METADATA);
 
     await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
     await page.waitForURL(`${origin}${archiveRoute.path}`);
-    assertCanonicalMatchesRoute(await canonicalHrefs(page), archiveRoute);
+    await assertRouteMetadata(page, archiveRoute, ARCHIVE_METADATA);
 
     await page.goBack();
     await page.waitForURL(`${origin}${dailyRoute.path}`);
-    assertCanonicalMatchesRoute(await canonicalHrefs(page), dailyRoute);
+    await assertRouteMetadata(page, dailyRoute, DAILY_METADATA);
 
     await page.goForward();
     await page.waitForURL(`${origin}${archiveRoute.path}`);
-    assertCanonicalMatchesRoute(await canonicalHrefs(page), archiveRoute);
+    await assertRouteMetadata(page, archiveRoute, ARCHIVE_METADATA);
   } finally {
     await closeBrowserAndServer(browser, server);
   }
