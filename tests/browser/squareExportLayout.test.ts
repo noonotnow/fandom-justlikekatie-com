@@ -204,6 +204,7 @@ test('square PNG exports preserve layout, attribution, MEDIA provenance, and Moo
 test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, and attribution', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const { browser, page } = await launchPageForServer(server);
+  let membershipCapabilities: string[] = ['creator_os'];
   const exportStore = new Map<string, ArrayBuffer | string>();
   const store = {
     async set(key: string, value: ArrayBuffer) { exportStore.set(key, value); },
@@ -227,16 +228,18 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
   try {
     await page.addInitScript({ content: `
       globalThis.__name = target => target;
-      globalThis.__collectionExportDimensions = [];
-      globalThis.__collectionExportText = [];
+      globalThis.__collectionExportDimensions = JSON.parse(sessionStorage.getItem('__collectionExportDimensions') || '[]');
+      globalThis.__collectionExportText = JSON.parse(sessionStorage.getItem('__collectionExportText') || '[]');
       const originalToBlob = HTMLCanvasElement.prototype.toBlob;
       HTMLCanvasElement.prototype.toBlob = function (...args) {
         globalThis.__collectionExportDimensions.push([this.width, this.height]);
+        sessionStorage.setItem('__collectionExportDimensions', JSON.stringify(globalThis.__collectionExportDimensions));
         return originalToBlob.apply(this, args);
       };
       const originalFillText = CanvasRenderingContext2D.prototype.fillText;
       CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
         globalThis.__collectionExportText.push({ text: String(text), color: String(this.fillStyle) });
+        sessionStorage.setItem('__collectionExportText', JSON.stringify(globalThis.__collectionExportText));
         return maxWidth === undefined
           ? originalFillText.call(this, text, x, y)
           : originalFillText.call(this, text, x, y, maxWidth);
@@ -251,7 +254,7 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
       body: JSON.stringify({
         state: 'active',
         isMember: true,
-        capabilities: ['fandom_collector'],
+        capabilities: membershipCapabilities,
       }),
     }));
     await page.route(
@@ -349,16 +352,32 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
     const standardButton = page.getByRole('button', { name: 'Export standard PNG' });
     const masterButton = page.getByRole('button', { name: 'Export Master PNG' });
     await standardButton.waitFor();
-    await masterButton.waitFor();
+    assert.equal(
+      await masterButton.count(),
+      0,
+      'an active Creator OS-only member must not be offered Master PNG without a Collector capability',
+    );
 
     await standardButton.click();
     await page.waitForFunction(() => (globalThis as typeof globalThis & {
       __collectionExportDimensions: number[][];
     }).__collectionExportDimensions.length === 1);
+
+    membershipCapabilities = ['fandom_collector'];
+    await page.reload();
+    await masterButton.waitFor();
     await masterButton.click();
     await page.waitForFunction(() => (globalThis as typeof globalThis & {
       __collectionExportDimensions: number[][];
     }).__collectionExportDimensions.length === 2);
+
+    membershipCapabilities = ['ecosystem_bundle'];
+    await page.reload();
+    await masterButton.waitFor();
+    await masterButton.click();
+    await page.waitForFunction(() => (globalThis as typeof globalThis & {
+      __collectionExportDimensions: number[][];
+    }).__collectionExportDimensions.length === 3);
 
     const rendered = await page.evaluate(() => ({
       dimensions: (globalThis as typeof globalThis & {
@@ -369,7 +388,11 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
       }).__collectionExportText,
     }));
 
-    assert.deepEqual(rendered.dimensions, [[1080, 1080], [2160, 2160]]);
+    assert.deepEqual(
+      rendered.dimensions,
+      [[1080, 1080], [2160, 2160], [2160, 2160]],
+      'Standard stays usable without Collector access, while direct Collector and ecosystem bundle access both enable Master',
+    );
     assert.equal(
       rendered.textCalls.find(call => call.text === 'Fixture Actor · Moonlit Ink')?.color,
       '#9f9bea',
@@ -382,15 +405,15 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
       for (let attempt = 0; attempt < 50; attempt += 1) {
         const response = await fetch(`/.netlify/functions/grid-exports?gridId=${encodeURIComponent(gridId)}`);
         const body = await response.json();
-        if (body.exports?.length === 2) return body.exports;
+        if (body.exports?.length === 3) return body.exports;
         await new Promise(resolve => setTimeout(resolve, 20));
       }
       return [];
     }, 'vibe-atlas-2026-09-20-fixture-actor');
     assert.deepEqual(
       exportHistory.map((entry: { variant: string }) => entry.variant).sort(),
-      ['master', 'standard'],
-      'the actual export handler must accept and list both visible choices',
+      ['master', 'master', 'standard'],
+      'export history must record Standard plus the Master exports offered for both equivalent Collector entitlements',
     );
   } finally {
     await closeBrowserAndServer(browser, server);
