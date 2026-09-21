@@ -71,7 +71,11 @@ test('archive retries its first page after an empty-state failure', { timeout: 3
     await page.goto(`${origin}/vibe-atlas/archive`, { waitUntil: 'domcontentloaded' });
 
     await page.getByRole('alert').getByText('Couldn’t load the archive. Try again.').waitFor();
-    const failedAttempts = archiveAttempts;
+    assert.equal(
+      archiveAttempts,
+      1,
+      'development Strict Mode should share the in-flight first-page request',
+    );
 
     allowArchiveSuccess = true;
     await page.getByRole('button', { name: 'Retry loading the archive' }).click();
@@ -79,8 +83,8 @@ test('archive retries its first page after an empty-state failure', { timeout: 3
 
     assert.equal(
       archiveAttempts,
-      failedAttempts + 1,
-      'retry should request the first archive page again',
+      2,
+      'retry should make exactly one new first-page request after the failure settles',
     );
     assert.deepEqual(
       await page.locator('.archive-card time').evaluateAll(

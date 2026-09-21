@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { GridItemData } from '../types';
 import { publicArchiveRecord } from '../contracts/publicArchiveRecord.js';
 
@@ -176,6 +176,7 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [gate, setGate] = useState<ArchiveGate | null>(null);
+  const archiveFirstPageRequest = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -301,10 +302,21 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
     }
   }, []);
 
-  const loadArchive = useCallback(
-    () => fetchArchivePage(null, false),
-    [fetchArchivePage],
-  );
+  const loadArchive = useCallback(async () => {
+    if (archiveFirstPageRequest.current) {
+      return archiveFirstPageRequest.current;
+    }
+
+    const request = fetchArchivePage(null, false);
+    archiveFirstPageRequest.current = request;
+    try {
+      await request;
+    } finally {
+      if (archiveFirstPageRequest.current === request) {
+        archiveFirstPageRequest.current = null;
+      }
+    }
+  }, [fetchArchivePage]);
 
   const loadMoreArchive = useCallback(
     () => archiveNextCursor ? fetchArchivePage(archiveNextCursor, true) : Promise.resolve(),
