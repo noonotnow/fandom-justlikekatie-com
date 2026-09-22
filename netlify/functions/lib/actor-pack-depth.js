@@ -1,6 +1,8 @@
 import { json } from "./public-auth.js";
 import { ACTOR_PACKS, toCollectorActorPack } from "./actor-packs.js";
 import { hasCapability } from "./capabilities.js";
+import { ELIGIBILITY_STORE } from "./actor-eligibility.js";
+import { releasedPackCatalog, protectedReleasedPackIds } from "./released-pack-catalog.js";
 
 const NO_STORE_HEADERS = {
   "Cache-Control": "private, no-store",
@@ -19,6 +21,9 @@ export function createActorPackDepthHandler({
   billing,
   env = process.env,
   actorPacks = ACTOR_PACKS,
+  getStore = null,
+  eligibilityStoreName = ELIGIBILITY_STORE,
+  buildReleaseCatalog = releasedPackCatalog,
 }) {
   return async (req, context) => {
     try {
@@ -38,6 +43,16 @@ export function createActorPackDepthHandler({
       }
 
       const actorId = new URL(req.url).searchParams.get("actorId");
+      const catalog = getStore
+        ? await buildReleaseCatalog(
+          getStore(eligibilityStoreName, context),
+          { publicationStore: getStore("star-of-day", context), actorPacks },
+        )
+        : null;
+      if (catalog && !catalog.complete) {
+        return json(503, { error: "Released pack inventory is temporarily unavailable." }, NO_STORE_HEADERS);
+      }
+      const releasedIds = catalog ? protectedReleasedPackIds(catalog) : null;
       const selected = actorId
         ? actorPacks.find(actor => actor?.id === actorId)
         : null;
@@ -47,6 +62,14 @@ export function createActorPackDepthHandler({
 
       const packs = (selected ? [selected] : actorPacks)
         .map(toCollectorActorPack)
+        .filter(Boolean)
+        .map(actor => ({
+          ...actor,
+          vibes: releasedIds
+            ? actor.vibes.filter(vibe => releasedIds.has(`${actor.id}:${vibe.vibeIdx}`))
+            : actor.vibes,
+        }))
+        .filter(actor => actor.vibes.length)
         .filter(Boolean);
       return json(200, {
         schemaVersion: 1,

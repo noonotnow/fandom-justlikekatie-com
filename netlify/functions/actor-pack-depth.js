@@ -8,4 +8,5 @@ const auth = createPublicAuth({ getStore: getBlobStore });
 export default createActorPackDepthHandler({
   auth,
   billing: getBillingServices(),
+  getStore: getBlobStore,
 });

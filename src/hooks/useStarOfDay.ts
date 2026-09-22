@@ -25,6 +25,7 @@ export interface RankedBatch {
 
 export interface StarOfDayData {
   actorId: string;
+  vibeIdx?: number;
   actorName: string;
   actorShortNameEn: string;
   actorAccentColor: string;

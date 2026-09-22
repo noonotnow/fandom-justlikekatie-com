@@ -1318,6 +1318,33 @@ button:hover {
 .dark .membership__journey article + article { border-color: rgba(236,231,221,.2); }
 .dark .membership__plans article { border-color: rgba(236,231,221,.2); background: rgba(255,255,255,.03); }
 .dark .membership__notice { color: #d8d5cc; }
+.released-library { padding: clamp(2.5rem, 7vw, 5rem) 0; }
+.released-library__hero { max-width: 760px; }
+.released-library__hero h1 { margin: 0; color: #263e40; font: 600 clamp(2.5rem, 6vw, 5rem)/.95 "Fraunces", serif; letter-spacing: -.04em; }
+.released-library__hero > p:last-child { max-width: 64ch; color: #687371; line-height: 1.65; }
+.released-library__locked { display: flex; gap: 1.5rem; max-width: 700px; margin-top: 3rem; padding: 2rem; border: 1px solid rgba(179,95,73,.35); background: rgba(255,255,255,.3); }
+.released-library__lock { color: #b35f49; font-size: 2rem; }
+.released-library__locked h2 { margin-top: 0; color: #263e40; font: 600 1.7rem "Fraunces", serif; }
+.released-library__locked p { color: #687371; line-height: 1.5; }
+.released-library__sign-in { margin: 1.3rem 0; }
+.released-library__sign-in label, .released-library__filters label { display: grid; gap: .45rem; color: #65706d; font-size: .78rem; font-weight: 700; }
+.released-library__sign-in div { display: flex; gap: .5rem; }
+.released-library__sign-in input, .released-library__filters select { min-width: 0; padding: .7rem; border: 1px solid #aab0aa; border-radius: 5px; background: transparent; color: inherit; }
+.released-library__sign-in input { flex: 1; }
+.released-library__locked button { padding: .7rem 1rem; background: #263e40; color: #f8f3eb; }
+.released-library__filters { display: flex; gap: 1rem; margin: 2.5rem 0 1.5rem; }
+.released-library__filters select { min-width: 190px; }
+.released-library__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+.released-pack-card { position: relative; min-height: 190px; padding: 1.5rem; border: 1px solid rgba(36,45,52,.16); background: rgba(255,255,255,.3); }
+.released-pack-card__emoji { position: absolute; top: 1rem; right: 1rem; font-size: 1.6rem; }
+.released-pack-card h2 { margin: .3rem 0 .8rem; color: #263e40; font: 600 1.5rem "Fraunces", serif; }
+.released-pack-card p:not(.membership__label) { color: #687371; line-height: 1.5; }
+.released-pack-card details { margin-top: 1rem; color: #687371; font-size: .8rem; }
+.released-pack-card details li { margin: .3rem 0; }
+.dark .released-library__hero h1, .dark .released-library__locked h2, .dark .released-pack-card h2 { color: #d6e3dd; }
+.dark .released-library__hero > p:last-child, .dark .released-library__locked p, .dark .released-pack-card p:not(.membership__label), .dark .released-pack-card details { color: #b3b7b1; }
+.dark .released-library__locked, .dark .released-pack-card { border-color: rgba(236,231,221,.2); background: rgba(255,255,255,.03); }
+@media (max-width: 600px) { .released-library__filters, .released-library__sign-in div { flex-direction: column; } .released-library__filters select { width: 100%; } }
 @media (max-width: 760px) {
   .membership__journey { grid-template-columns: 1fr; }
   .membership__journey article { padding: 1.4rem 0; }

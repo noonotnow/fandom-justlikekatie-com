@@ -28,6 +28,7 @@ import {
   type MembershipStatus,
 } from './utils/membership';
 import { Membership } from './components/Membership/Membership';
+import { ReleasedPackLibrary } from './components/ReleasedPackLibrary/ReleasedPackLibrary';
 import { useIsAdmin } from './hooks/useIsAdmin';
 import {
   hasMalformedGridBuilderSource,
@@ -188,7 +189,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       : null,
   );
   const [archivePage, setArchivePage] = useState(archiveEntry);
-  const [view, setView] = useState<'daily' | 'collection' | 'admin' | 'membership'>(
+  const [view, setView] = useState<'daily' | 'collection' | 'admin' | 'membership' | 'released'>(
     () => initialVibeAtlasView(window.location.search),
   );
   const [collectionTab, setCollectionTab] = useState<'grids' | 'results' | 'builder'>(
@@ -403,13 +404,16 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       || window.location.search.length > 0
       || view === 'collection'
       || view === 'admin'
-      || view === 'membership';
+      || view === 'membership'
+      || view === 'released';
     const title = archivePage
       ? 'Vibe Atlas Archive | Fandom Vibes'
       : view === 'daily'
         ? 'Vibe Atlas | Daily C-Drama Collectible Cards | Fandom Vibes'
       : view === 'membership'
         ? 'Vibe Atlas Founding Member | Fandom Vibes'
+        : view === 'released'
+          ? 'Released Vibe Packs | Fandom Vibes'
         : view === 'collection'
           ? 'Your Vibe Atlas Studio | Fandom Vibes'
           : 'Operator Console | Fandom Vibes';
@@ -491,14 +495,16 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   };
 
   const navigateAtlas = (
-    destination: 'daily' | 'collection' | 'membership',
+    destination: 'daily' | 'collection' | 'membership' | 'released',
     tab: 'grids' | 'results' | 'builder' = 'grids',
   ) => {
     const search = destination === 'daily'
       ? ''
       : destination === 'membership'
         ? '?view=membership'
-      : `?view=${tab === 'grids' ? 'collection' : tab}`;
+      : destination === 'released'
+        ? '?view=released'
+        : `?view=${tab === 'grids' ? 'collection' : tab}`;
     window.history.pushState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}${search}`);
     setArchivePage(false);
     setCollectionTab(tab);
@@ -691,6 +697,13 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         <div className="fandom-atlas-nav" aria-label="Vibe Atlas workspace">
           <button
             type="button"
+            onClick={() => navigateAtlas('released')}
+            className={view === 'released' ? 'fandom-atlas-nav__active' : ''}
+          >
+            <span>Released packs</span><small>Collector library</small>
+          </button>
+          <button
+            type="button"
             aria-label="今日之星 · Daily"
             onClick={() => navigateAtlas('daily')}
             className={(view === 'daily' || (view === 'collection' && collectionTab === 'builder' && builderSource === 'daily')) && !archivePage
@@ -751,6 +764,11 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
          <div className="atlas-hero__actions" aria-label="Vibe Atlas actions">
            <a href="#daily-evidence">Browse today’s drop</a>
            <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=daily`}>Open the Grid Builder</a>
+           {rawData?.actorId && (
+             <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=released&actorId=${encodeURIComponent(rawData.actorId)}&vibeIdx=${rawData.vibeIdx ?? ''}`}>
+               Explore {rawData.actorShortNameEn || rawData.actorName} released packs
+             </a>
+           )}
          </div>
         {gate && selectedEditionDate ? (
           <ArchiveLockedEdition
@@ -917,6 +935,17 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             setCollectionTab(type);
             if (type === 'builder') setBuilderSource('collection');
           }}
+        />
+      ) : view === 'released' ? (
+        <ReleasedPackLibrary
+          status={membershipStatus}
+          actorId={new URLSearchParams(window.location.search).get('actorId')}
+          vibeIndex={(() => {
+            const value = new URLSearchParams(window.location.search).get('vibeIdx');
+            return value !== null && value !== '' && Number.isInteger(Number(value))
+              ? Number(value)
+              : null;
+          })()}
         />
       ) : view === 'membership' ? (
         <Membership status={membershipStatus} />

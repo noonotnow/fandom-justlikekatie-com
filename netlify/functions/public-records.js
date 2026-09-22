@@ -6,6 +6,15 @@ import {
   publicEditionPreview,
   readPublicationManifests,
 } from "./lib/publication-manifest.js";
+import {
+  releasedPackCatalog,
+  publicReleasedPack,
+  releasedPackActorSlug,
+  releasedPackPath,
+  RELEASED_PACK_PATH,
+} from "./lib/released-pack-catalog.js";
+import { ACTOR_PACKS } from "./lib/actor-packs.js";
+import { ELIGIBILITY_STORE } from "./lib/actor-eligibility.js";
 
 const PUBLIC_CACHE = "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400";
 
@@ -31,7 +40,9 @@ function response(statusCode, body, headers = {}) {
 }
 
 function page({ title, description, canonical, image, robots, body }) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><meta name="description" content="${escapeHtml(description)}"><meta name="robots" content="${robots}"><link rel="canonical" href="${escapeHtml(canonical)}"><meta property="og:type" content="article"><meta property="og:site_name" content="Fandom Vibes"><meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(description)}"><meta property="og:url" content="${escapeHtml(canonical)}">${image ? `<meta property="og:image" content="${escapeHtml(image)}">` : ""}</head><body><main>${body}</main></body></html>`;
+  const jsonLd = JSON.stringify({ "@context": "https://schema.org", "@type": "Article", name: title, description, url: canonical, ...(image ? { image } : {}) })
+    .replaceAll("<", "\\u003c");
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><meta name="description" content="${escapeHtml(description)}"><meta name="robots" content="${robots}"><link rel="canonical" href="${escapeHtml(canonical)}"><meta property="og:type" content="article"><meta property="og:site_name" content="Fandom Vibes"><meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(description)}"><meta property="og:url" content="${escapeHtml(canonical)}">${image ? `<meta property="og:image" content="${escapeHtml(image)}">` : ""}<script type="application/ld+json">${jsonLd}</script></head><body><main>${body}</main></body></html>`;
 }
 
 function notFound() {
@@ -73,14 +84,68 @@ function renderActor(actor, query) {
   }), noindex ? { "Cache-Control": "no-store" } : {});
 }
 
-export function createPublicRecordsHandler({ getStore = getBlobStore } = {}) {
+function renderReleasedPack(pack, query) {
+  const noindex = query !== "";
+  const title = `${pack.actor.nameEn} · ${pack.vibe.labelEn} | Released Vibe Pack`;
+  const description = pack.preview.copy;
+  const cards = pack.preview.cards.map(card =>
+    `<figure><img src="${escapeHtml(card.thumbnailUrl)}" alt="${escapeHtml(card.title)}" loading="lazy"><figcaption>${escapeHtml(card.title)}</figcaption></figure>`).join("");
+  const body = `<a href="${escapeHtml(`${RELEASED_PACK_PATH}/${releasedPackActorSlug(pack.actor)}/`)}">All ${escapeHtml(pack.actor.nameEn)} packs</a><h1>${escapeHtml(title)}</h1><p>${escapeHtml(pack.vibe.subtitleEn)}</p><p>${escapeHtml(description)}</p><section aria-label="Released pack preview">${cards}</section><p>Full source depth is available to Fandom Collectors.</p>`;
+  return response(200, page({
+    title, description, canonical: pack.canonical,
+    image: pack.preview.cards[0]?.deliveryUrl,
+    robots: noindex ? "noindex,follow" : "index,follow,max-image-preview:large",
+    body,
+  }), { "Cache-Control": "no-store" });
+}
+
+function renderReleasedActor(actor, query) {
+  const noindex = query !== "";
+  const title = `${actor.nameEn} · Released Vibe Packs | Vibe Atlas`;
+  const description = `Explore approved released Vibe Atlas packs for ${actor.nameEn}.`;
+  const links = actor.packs.map(pack =>
+    `<li><a href="${escapeHtml(pack.canonical)}">${escapeHtml(pack.vibe.labelEn)}</a> — ${escapeHtml(pack.vibe.subtitleEn)}</li>`).join("");
+  return response(200, page({
+    title, description, canonical: actor.canonical,
+    robots: noindex ? "noindex,follow" : "index,follow",
+    body: `<h1>${escapeHtml(title)}</h1><p>${escapeHtml(description)}</p><ul>${links}</ul>`,
+  }), { "Cache-Control": "no-store" });
+}
+
+export function createPublicRecordsHandler({
+  getStore = getBlobStore,
+  actorPacks = ACTOR_PACKS,
+  eligibilityStoreName = ELIGIBILITY_STORE,
+  buildReleaseCatalog = releasedPackCatalog,
+} = {}) {
   return async (request, context) => {
     if (request.method && request.method !== "GET") return response(405, "<h1>Method not allowed</h1>", { Allow: "GET" });
     const url = new URL(request.url || PUBLIC_VIBE_ATLAS_ORIGIN);
     const parts = url.pathname.split("/").filter(Boolean);
     const { manifests, inventory } = await readPublicationManifests(getStore("star-of-day", context));
     if (!inventory.complete) return response(503, "<h1>Public record inventory is not ready.</h1>");
+    const releaseCatalog = await buildReleaseCatalog(
+      getStore(eligibilityStoreName, context),
+      { publicationStore: getStore("star-of-day", context), actorPacks },
+    );
+    if (!releaseCatalog.complete) return response(503, "<h1>Released pack inventory is not ready.</h1>");
     const directory = publicActorDirectory(manifests);
+    if (parts[1] === "packs" && parts.length === 4) {
+      const pack = releaseCatalog.packs.find(item =>
+        item.canonical.endsWith(`/${parts[2]}/${parts[3]}/`));
+      return pack ? renderReleasedPack(publicReleasedPack(pack), url.search) : notFound();
+    }
+    if (parts[1] === "packs" && parts.length === 3) {
+      const packs = releaseCatalog.packs.filter(item =>
+        releasedPackActorSlug(item.actor) === parts[2]);
+      if (!packs.length) return notFound();
+      const actor = packs[0].actor;
+      return renderReleasedActor({
+        ...actor,
+        canonical: `${new URL(packs[0].canonical).origin}${RELEASED_PACK_PATH}/${parts[2]}/`,
+        packs: packs.map(publicReleasedPack),
+      }, url.search);
+    }
     if (parts[1] === "actors" && parts.length === 3) {
       const actor = directory.find(item => publicActorSlug(item) === parts[2]);
       return actor ? renderActor(actor, url.search) : notFound();

@@ -6,6 +6,7 @@ export const PUBLIC_ROUTE_PATHS = Object.freeze({
   vibeAtlasArchive: "/vibe-atlas/archive",
   vibeAtlasActors: "/vibe-atlas/actors",
   vibeAtlasEditions: "/vibe-atlas/editions",
+  vibeAtlasPacks: "/vibe-atlas/packs",
   vibeAtlasVeteranJournal: "/vibe-atlas/veteran-journal",
 });
 
@@ -17,6 +18,7 @@ export const VIBE_ATLAS_NETLIFY_ROUTES = Object.freeze({
   publicRecords: Object.freeze([
     `${PUBLIC_ROUTE_PATHS.vibeAtlasActors}/*`,
     `${PUBLIC_ROUTE_PATHS.vibeAtlasEditions}/*`,
+    `${PUBLIC_ROUTE_PATHS.vibeAtlasPacks}/*`,
   ]),
 });
 

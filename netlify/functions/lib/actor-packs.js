@@ -680,8 +680,9 @@ export function toCollectorActorPack(actor) {
     },
     vibes: Array.isArray(actor.vibes)
       ? actor.vibes
-        .map(vibe => ({
+        .map((vibe, vibeIdx) => ({
           ...pickFields(vibe, PUBLIC_VIBE_FIELDS),
+          vibeIdx,
           sourceDepth: {
             queries: Array.isArray(vibe.queries) ? [...vibe.queries] : [],
             ...(typeof vibe.mjPrompt === "string" && vibe.mjPrompt
