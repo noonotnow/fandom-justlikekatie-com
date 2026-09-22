@@ -593,47 +593,49 @@ export const GridBuilder: React.FC<Props> = ({
       // blocks the download/share path, and export never saves a grid.
       let renderedBlob: Blob | null = null;
       const exportVariant = hasCollectorAccess ? 'master' : 'standard';
-      if (action === 'rednote') {
+      if (action === 'download_raw' || action === 'full') {
+        let message = '';
+        if (action === 'download_raw') {
+          prepared = await prepareShareCard(starData, 'raw', blob => { renderedBlob = blob; });
+          const anchor = document.createElement('a'); anchor.href = prepared.objectUrl; anchor.download = prepared.fileName; document.body.appendChild(anchor); anchor.click(); anchor.remove();
+          setTimeout(() => URL.revokeObjectURL(prepared!.objectUrl), 4000);
+          message = 'PNG 已下载 ✓';
+        }
+        if (action === 'full') {
+          message = await saveShareCard(starData, exportVariant, (blob) => { renderedBlob = blob; });
+          try {
+            const tier = classifyEditionTier(buildExportPayload(starData).chosen);
+            let persistedExportId: string | undefined;
+            if (wasGridSaved && renderedBlob) {
+              persistedExportId = crypto.randomUUID();
+              void uploadExportedCard(
+                grid.id,
+                persistedExportId,
+                renderedBlob,
+                exportVariant,
+                tier,
+                exportManifest,
+              ).then((persisted) => {
+                if (persisted) notifyGridExportPersisted(grid.id);
+              });
+            }
+            logGridExport(gridExportEventFromRecord(grid, exportVariant, tier, wasGridSaved, persistedExportId));
+          } catch (bookkeepingErr) {
+            console.warn('Post-export logging failed (export succeeded):', bookkeepingErr);
+          }
+        }
+        setNotice(message);
+        if (!wasGridSaved) {
+          setShowSaveNudge(true);
+          setPendingNavAfterSave(true);
+        }
+        if (wasGridSaved) onExported?.();
+      } else {
         const preparedProposal = proposal;
         prepared = await prepareShareCard(starData, 'raw', blob => { renderedBlob = blob; });
         if (!mountedRef.current || proposalRef.current !== preparedProposal) { URL.revokeObjectURL(prepared.objectUrl); return; }
         setHandoffState({ objectUrl: prepared.objectUrl, file: prepared.file, tier: prepared.tier, expiresAt: Date.now() + 120_000 });
         setNotice('Handoff prepared.');
-        return;
-      }
-      if (action === 'download_raw') {
-        prepared = await prepareShareCard(starData, 'raw', blob => { renderedBlob = blob; });
-        const anchor = document.createElement('a'); anchor.href = prepared.objectUrl; anchor.download = prepared.fileName; document.body.appendChild(anchor); anchor.click(); anchor.remove();
-        setTimeout(() => URL.revokeObjectURL(prepared!.objectUrl), 4000);
-        setNotice('PNG 已下载 ✓'); return;
-      }
-      const message = await saveShareCard(starData, exportVariant, (blob) => { renderedBlob = blob; });
-      try {
-        const tier = classifyEditionTier(buildExportPayload(starData).chosen);
-        let persistedExportId: string | undefined;
-        if (wasGridSaved && renderedBlob) {
-          persistedExportId = crypto.randomUUID();
-          void uploadExportedCard(
-            grid.id,
-            persistedExportId,
-            renderedBlob,
-            exportVariant,
-            tier,
-            exportManifest,
-          ).then((persisted) => {
-            if (persisted) notifyGridExportPersisted(grid.id);
-          });
-        }
-        logGridExport(gridExportEventFromRecord(grid, exportVariant, tier, wasGridSaved, persistedExportId));
-      } catch (bookkeepingErr) {
-        console.warn('Post-export logging failed (export succeeded):', bookkeepingErr);
-      }
-      setNotice(message);
-      if (!wasGridSaved) {
-        setShowSaveNudge(true);
-        setPendingNavAfterSave(true);
-      } else {
-        onExported?.();
       }
     } catch (caught) {
       if (prepared?.objectUrl) URL.revokeObjectURL(prepared.objectUrl);
