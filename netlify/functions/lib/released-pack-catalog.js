@@ -91,6 +91,7 @@ export async function releasedPackCatalog(
   }
   const manifests = inventory.manifests.filter(isGridManifest);
   const packs = [];
+  const collectorPackIds = new Set();
   let eligibilityHealthy = true;
   await Promise.all(actorPacks.map(async actor => {
     await Promise.all((actor.vibes || []).map(async (vibe, vibeIdx) => {
@@ -105,6 +106,8 @@ export async function releasedPackCatalog(
       const manifest = manifests
         .filter(item => item.actor?.id === actor.id && item.vibe?.idx === vibeIdx)
         .sort((left, right) => String(right.publicationDate).localeCompare(String(left.publicationDate)))[0];
+      if (!manifest) return;
+      collectorPackIds.add(`${actor.id}:${vibeIdx}`);
       const safe = safeManifest(manifest);
       if (!safe) return;
       const path = releasedPackPath(actor, vibe, vibeIdx);
@@ -140,10 +143,18 @@ export async function releasedPackCatalog(
     };
   }
   packs.sort((a, b) => a.canonical.localeCompare(b.canonical));
-  return { schemaVersion: 1, complete: true, packs };
+  return {
+    schemaVersion: 1,
+    complete: true,
+    collectorPackIds: [...collectorPackIds].sort(),
+    packs,
+  };
 }
 
 export function protectedReleasedPackIds(catalog) {
+  if (Array.isArray(catalog?.collectorPackIds)) {
+    return new Set(catalog.collectorPackIds);
+  }
   return new Set((catalog?.packs || []).map(pack => `${pack.actorId}:${pack.vibeIdx}`));
 }
 
