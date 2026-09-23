@@ -90,7 +90,7 @@ test('Collector capability gates cloud sync and premium creation', async () => {
   assert.match(collectionSource, /activeType === 'builder' \?/);
   assert.doesNotMatch(collectionSource, /Upgrade to use Grid Builder/);
   assert.doesNotMatch(collectionSource, /Cloud sync is available with Founding Member/);
-  assert.match(membershipSource, /Collection sync with Collector access/);
+  assert.match(membershipSource, /Full Collection sync after sign-in/);
   assert.match(collectionSource, /if \(canSyncCloud\) schedulePublicCollectionSync/);
   assert.match(collectionSource, /if \(canSyncCloud\) await persistRemoval/);
   assert.doesNotMatch(membershipSource, /Cloud Collection sync across devices/);

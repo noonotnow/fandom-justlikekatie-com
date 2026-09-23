@@ -125,16 +125,18 @@ test('exportGrid resets showSaveNudge to false at the start of each export attem
   );
 });
 
-test('saved-grid downloads navigate after completion, but prepared handoffs stay open', () => {
-  const downloadBranch = exportGridBody.indexOf("if (action === 'download_raw' || action === 'full')");
-  const handoffBranch = exportGridBody.indexOf('} else {', downloadBranch);
-  const navCall = exportGridBody.indexOf('if (wasGridSaved) onExported?.()', downloadBranch);
-  assert.ok(downloadBranch !== -1, 'exportGrid() must distinguish immediate downloads from prepared handoffs');
-  assert.ok(navCall !== -1 && navCall < handoffBranch,
-    'saved-grid downloads must preserve the existing post-export navigation');
+test('prepared handoffs and raw downloads stay in GridBuilder; only full exports can navigate', () => {
+  const handoffBranch = exportGridBody.indexOf("if (action === 'rednote')");
+  const downloadBranch = exportGridBody.indexOf("if (action === 'download_raw')");
+  const fullExportBranch = exportGridBody.indexOf('const message = await saveShareCard');
+  const navCall = exportGridBody.indexOf('onExported?.()');
+  assert.ok(handoffBranch !== -1 && downloadBranch !== -1 && fullExportBranch !== -1,
+    'exportGrid() must distinguish handoff, raw download, and full export paths');
+  assert.ok(navCall !== -1 && navCall > fullExportBranch,
+    'saved-grid navigation must remain in the full-export path');
   assert.ok(
-    !exportGridBody.slice(handoffBranch).includes('onExported?.()'),
-    'preparing a handoff must not navigate away before the user can share or open the destination',
+    !exportGridBody.slice(handoffBranch, fullExportBranch).includes('onExported?.()'),
+    'handoff and raw download paths must not navigate away before the user can share or open the destination',
   );
 });
 
