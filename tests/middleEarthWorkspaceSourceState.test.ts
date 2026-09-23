@@ -653,8 +653,8 @@ test('Middle-earth saves have a separate collection scope from Vibe Atlas', asyn
   );
   assert.match(
     appSource,
-    /if \(showCollection\) return <Collection scope="middle-earth" \/>/,
-    'MemeForge must route to its own collection instead of the Vibe Atlas collection view',
+    /if \(showCollection\) return <Collection scope="middle-earth" hasCollectorAccess=\{isAdmin\} \/>/,
+    'MemeForge must route admins to its own cloud-enabled collection instead of the Vibe Atlas collection view',
   );
 });
 

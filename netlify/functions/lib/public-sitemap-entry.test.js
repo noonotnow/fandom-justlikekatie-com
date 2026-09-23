@@ -30,6 +30,7 @@ test("dynamic sitemap includes approved actor and edition once and excludes thin
   });
   const result = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
   assert.equal(result.statusCode, 200);
+  assert.equal(result.headers["Cache-Control"], "no-store");
   const actorUrl = "https://fandom.justlikekatie.com/vibe-atlas/actors/liu-xueyi/";
   const editionUrl = "https://fandom.justlikekatie.com/vibe-atlas/editions/2026-09-03/liu-xueyi/";
   assert.equal(result.body.split(actorUrl).length - 1, 1);
@@ -47,4 +48,45 @@ test("dynamic sitemap never shared-caches a partial inventory when catalog cover
     assert.equal(result.headers["Cache-Control"], "no-store");
     assert.doesNotMatch(result.body, /2026-09-03|liu-xueyi/);
   }
+});
+
+test("dynamic sitemap includes only the qualified released-pack catalog", async () => {
+  const canonical = "https://fandom.justlikekatie.com/vibe-atlas/packs/liu-xueyi/cold-jade-immortal-0/";
+  const handler = createPublicSitemapHandler({
+    getStore: () => manifestStore([publicManifest()]),
+    buildReleaseCatalog: async () => ({
+      complete: true,
+      packs: [{
+        canonical,
+        actor: { id: "liu-xueyi", nameEn: "Liu Xueyi" },
+      }],
+    }),
+  });
+  const result = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.split(canonical).length - 1, 1);
+  assert.match(result.body, /\/vibe-atlas\/packs\/liu-xueyi\//);
+  assert.doesNotMatch(result.body, /runId|query|prompt|account/);
+});
+
+test("released pack revocation disappears from a non-cacheable sitemap immediately", async () => {
+  const canonical = "https://fandom.justlikekatie.com/vibe-atlas/packs/liu-xueyi/cold-jade-immortal-0/";
+  let released = true;
+  const handler = createPublicSitemapHandler({
+    getStore: () => manifestStore([publicManifest()]),
+    buildReleaseCatalog: async () => ({
+      complete: true,
+      packs: released ? [{
+        canonical,
+        actor: { id: "liu-xueyi", nameEn: "Liu Xueyi" },
+      }] : [],
+    }),
+  });
+  const before = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
+  assert.equal(before.headers["Cache-Control"], "no-store");
+  assert.match(before.body, new RegExp(canonical.replaceAll("/", "\\/")));
+  released = false;
+  const after = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
+  assert.equal(after.headers["Cache-Control"], "no-store");
+  assert.doesNotMatch(after.body, /cold-jade-immortal-0/);
 });

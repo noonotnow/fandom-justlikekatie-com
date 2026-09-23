@@ -80,3 +80,78 @@ test("public record routes fail closed and no-store when catalog coverage is mis
     assert.doesNotMatch(result.body, /partial|query|prompt|candidate/i);
   }
 });
+
+test("released pack pages expose one stable safe preview with valid structured data", async () => {
+  const manifest = publicManifest();
+  const pack = {
+    actorId: "liu-xueyi",
+    vibeIdx: 0,
+    canonical: "https://fandom.justlikekatie.com/vibe-atlas/packs/liu-xueyi/cold-jade-immortal-0/",
+    actor: { id: "liu-xueyi", name: "刘学义", nameEn: "Liu Xueyi", accentColor: "#fff" },
+    vibe: {
+      key: "liu-xueyi:0",
+      label: "仙门冷玉",
+      labelEn: "Cold Jade Immortal",
+      emoji: "🗡️",
+      subtitleEn: "All in white, like discipline itself caught feelings",
+    },
+    preview: {
+      copy: "An original editorial record with enough substantive public context for this release.",
+      cards: [{
+        position: 0,
+        title: "Approved frame",
+        source: "Publisher",
+        thumbnailUrl: "https://media.example/thumb.jpg",
+        deliveryUrl: "https://media.example/full.jpg",
+        mimeType: "image/jpeg",
+        dimensions: { width: 900, height: 1200 },
+      }],
+    },
+    publishedAt: "2026-09-03T04:00:00.000Z",
+    runId: "PRIVATE-RUN",
+  };
+  const handler = createPublicRecordsHandler({
+    getStore: () => manifestStore([manifest]),
+    buildReleaseCatalog: async () => ({ complete: true, packs: [pack] }),
+  });
+  const result = await handler(new Request(pack.canonical), {});
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.headers["Cache-Control"], "no-store");
+  assert.match(result.body, /index,follow,max-image-preview:large/);
+  assert.match(result.body, /Cold Jade Immortal/);
+  assert.match(result.body, /Become|Fandom Collectors/);
+  const structured = result.body.match(/<script type="application\/ld\+json">(.+?)<\/script>/)?.[1];
+  assert.equal(JSON.parse(structured)["@type"], "Article");
+  assert.doesNotMatch(result.body, /PRIVATE-RUN|query|prompt|audit|diagnostic|score|candidate|account/i);
+
+  const variant = await handler(new Request(`${pack.canonical}?view=private`), {});
+  assert.match(variant.body, /noindex,follow/);
+  assert.equal(variant.headers["Cache-Control"], "no-store");
+});
+
+test("released pack revocation is visible immediately and cannot reuse a shared response", async () => {
+  const manifest = publicManifest();
+  const canonical = "https://fandom.justlikekatie.com/vibe-atlas/packs/liu-xueyi/cold-jade-immortal-0/";
+  let released = true;
+  const pack = {
+    canonical,
+    actor: { id: "liu-xueyi", name: "刘学义", nameEn: "Liu Xueyi" },
+    vibe: { key: "liu-xueyi:0", label: "仙门冷玉", labelEn: "Cold Jade Immortal", subtitleEn: "Approved context" },
+    preview: {
+      copy: "A substantive approved editorial preview that is safe for public readers.",
+      cards: [{ title: "Frame", thumbnailUrl: "https://media.example/t.jpg", deliveryUrl: "https://media.example/d.jpg" }],
+    },
+  };
+  const handler = createPublicRecordsHandler({
+    getStore: () => manifestStore([manifest]),
+    buildReleaseCatalog: async () => ({ complete: true, packs: released ? [pack] : [] }),
+  });
+  const before = await handler(new Request(canonical), {});
+  assert.equal(before.statusCode, 200);
+  assert.equal(before.headers["Cache-Control"], "no-store");
+  released = false;
+  const after = await handler(new Request(canonical), {});
+  assert.equal(after.statusCode, 404);
+  assert.equal(after.headers["Cache-Control"], "no-store");
+  assert.match(after.body, /noindex,follow/);
+});

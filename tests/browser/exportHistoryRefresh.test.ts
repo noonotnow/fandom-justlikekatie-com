@@ -158,7 +158,8 @@ test('persisted exports refresh open history without optimistic or stale entries
     assert.equal(await page.getByText(/Standard/).count(), 1, 'the slower pre-export response must not replace refreshed history');
 
     await page.getByRole('button', { name: 'Export Master PNG' }).click();
-    await page.getByText(/Master/).waitFor();
+    const history = page.locator('details').filter({ hasText: 'Past exports' });
+    await history.locator('li').filter({ hasText: 'Master' }).waitFor();
     assert.equal(entries.length, 2, 'successful Master persistence should trigger a history refresh');
 
     failNextUpload = true;

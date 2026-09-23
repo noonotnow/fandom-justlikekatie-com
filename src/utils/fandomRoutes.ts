@@ -24,11 +24,12 @@ export function isVibeAtlasArchiveLocation(pathname: string): boolean {
   return normalized === PUBLIC_ROUTE_PATHS.vibeAtlasArchive;
 }
 
-export function initialVibeAtlasView(search: string): 'daily' | 'collection' | 'admin' | 'membership' {
+export function initialVibeAtlasView(search: string): 'daily' | 'collection' | 'admin' | 'membership' | 'released' {
   const params = new URLSearchParams(search);
   if (params.get('admin') === 'true') return 'admin';
   const view = params.get('view');
   if (view === 'collection' || view === 'results' || view === 'builder') return 'collection';
+  if (view === 'released') return 'released';
   return view === 'plan' || view === 'admin' ? 'admin' : view === 'membership' ? 'membership' : 'daily';
 }
 

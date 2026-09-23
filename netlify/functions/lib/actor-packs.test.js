@@ -144,6 +144,8 @@ test("Collector actor projection keeps source depth and provenance separate from
   const projected = toCollectorActorPack(source);
   assert.equal(projected.provenance.sourcePackId, "liu-yuning");
   assert.equal(projected.provenance.attribution, "Vibe Atlas Fandom editorial actor pack");
+  assert.equal(projected.vibes[0].vibeIdx, 0);
+  assert.equal(projected.vibes[3].vibeIdx, 3);
   assert.deepEqual(projected.vibes[0].sourceDepth.queries, source.vibes[0].queries);
   assert.equal(projected.vibes[0].sourceDepth.authoringPrompt, source.vibes[0].mjPrompt);
   assert.equal("queries" in projected.vibes[0], false);

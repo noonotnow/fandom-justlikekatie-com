@@ -118,6 +118,12 @@
   force = true
 
 [[redirects]]
+  from = "/vibe-atlas/packs/*"
+  to = "/.netlify/functions/public-records"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/sitemap.xml"
   to = "/.netlify/functions/public-sitemap"
   status = 200

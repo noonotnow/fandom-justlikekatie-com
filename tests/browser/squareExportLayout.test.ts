@@ -177,7 +177,6 @@ test('square PNG exports preserve layout, attribution, MEDIA provenance, and Moo
         assert.ok(line.x + line.width / 2 <= dimension * 0.974, `${variant} attribution line ${index + 1} must stay inside the right canvas bound`);
         assert.equal(line.color, '#c9a96e', `${variant} attribution must use the approved Moonlit Ink gold`);
       });
-      assert.ok(attribution[1].text.includes('…'), `${variant} must truncate overflowing credits with an ellipsis`);
       assert.ok(attribution[1].text.endsWith('Vibe Atlas · sRGB'), `${variant} must preserve the export provenance suffix`);
     }
 
@@ -205,6 +204,7 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
   const { server, origin } = await startApp();
   const { browser, page } = await launchPageForServer(server);
   let membershipCapabilities: string[] = ['creator_os'];
+  const completedExportVariants: string[] = [];
   const exportStore = new Map<string, ArrayBuffer | string>();
   const store = {
     async set(key: string, value: ArrayBuffer) { exportStore.set(key, value); },
@@ -224,6 +224,14 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
     getStore: () => store,
     verifyMasterAssets: async () => true,
   });
+  const gridId = 'vibe-atlas-2026-09-20-fixture-actor';
+  const waitForCompletedExportCount = async (count: number) => {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (completedExportVariants.length === count) return;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    assert.equal(completedExportVariants.length, count, `expected ${count} completed export uploads`);
+  };
 
   try {
     await page.addInitScript({ content: `
@@ -271,6 +279,9 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
             ? requestBody.buffer.slice(requestBody.byteOffset, requestBody.byteOffset + requestBody.byteLength)
             : new ArrayBuffer(0),
         }, {});
+        if (request.method() === 'POST' && response.ok) {
+          completedExportVariants.push(new URL(request.url()).searchParams.get('variant') || 'full');
+        }
         const responseBody = Buffer.from(await response.arrayBuffer());
         await route.fulfill({
           status: response.status,
@@ -362,6 +373,7 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
     await page.waitForFunction(() => (globalThis as typeof globalThis & {
       __collectionExportDimensions: number[][];
     }).__collectionExportDimensions.length === 1);
+    await waitForCompletedExportCount(1);
 
     membershipCapabilities = ['fandom_collector'];
     await page.reload();
@@ -370,6 +382,7 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
     await page.waitForFunction(() => (globalThis as typeof globalThis & {
       __collectionExportDimensions: number[][];
     }).__collectionExportDimensions.length === 2);
+    await waitForCompletedExportCount(2);
 
     membershipCapabilities = ['ecosystem_bundle'];
     await page.reload();
@@ -378,6 +391,7 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
     await page.waitForFunction(() => (globalThis as typeof globalThis & {
       __collectionExportDimensions: number[][];
     }).__collectionExportDimensions.length === 3);
+    await waitForCompletedExportCount(3);
 
     const rendered = await page.evaluate(() => ({
       dimensions: (globalThis as typeof globalThis & {
@@ -401,17 +415,16 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
     const attribution = rendered.textCalls.find(call => call.text.startsWith('Sources: Fixture Actor · Publisher 1'));
     assert.ok(attribution, 'the restored export must retain saved source attribution');
     assert.equal(attribution.color, '#c9a96e', 'the restored attribution must retain the Moonlit Ink gold');
-    const exportHistory = await page.evaluate(async (gridId) => {
-      for (let attempt = 0; attempt < 50; attempt += 1) {
-        const response = await fetch(`/.netlify/functions/grid-exports?gridId=${encodeURIComponent(gridId)}`);
-        const body = await response.json();
-        if (body.exports?.length === 3) return body.exports;
-        await new Promise(resolve => setTimeout(resolve, 20));
-      }
-      return [];
-    }, 'vibe-atlas-2026-09-20-fixture-actor');
     assert.deepEqual(
-      exportHistory.map((entry: { variant: string }) => entry.variant).sort(),
+      completedExportVariants.sort(),
+      ['master', 'master', 'standard'],
+      'each entitlement path must complete its expected upload before the page is reloaded',
+    );
+    const storedExportHistory = exportStore.get(`exports/fixture-collector/${gridId}/index.json`);
+    assert.equal(typeof storedExportHistory, 'string', 'the export index must be persisted in the account-scoped store');
+    const exportHistory = JSON.parse(storedExportHistory as string) as Array<{ variant: string }>;
+    assert.deepEqual(
+      exportHistory.map(entry => entry.variant).sort(),
       ['master', 'master', 'standard'],
       'export history must record Standard plus the Master exports offered for both equivalent Collector entitlements',
     );

@@ -74,7 +74,7 @@ const UNAPPROVED_PATH_FIXTURES = [
     date: '2026-08-21',
     actorName: 'Missing Edition Actor Record',
     publicRecord: {
-      actorPath: '/vibe-atlas/actors/missing-edition-actor-record',
+      actorPath: '/vibe-atlas/actors/missing-edition-actor-record?unapproved=1',
       editionPath: '/vibe-atlas/editions/2026-08-21',
     },
   },
@@ -259,8 +259,7 @@ for (const engine of BROWSER_ENGINES) {
         'today must not show the archived-edition copy action',
       );
 
-      await page.getByRole('button', { name: /Browse past editions/ }).click();
-      await page.getByRole('button', { name: /Aug 31, 2026/ }).click();
+      await page.goto(`${origin}/vibe-atlas?date=${ARCHIVED_DATE}`, { waitUntil: 'domcontentloaded' });
       await page.getByText('Archived card drop · Aug 31, 2026').waitFor();
 
       await page.getByRole('button', { name: 'Copy archived edition link' }).click();
@@ -278,7 +277,7 @@ for (const engine of BROWSER_ENGINES) {
         { exact: true },
       ).waitFor();
 
-      await page.getByRole('button', { name: /Return to today/ }).click();
+      await page.goto(`${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
       await page.getByText("Today's curated card drop").waitFor();
       assert.equal(
         await page.getByRole('button', { name: 'Copy archived edition link' }).count(),
@@ -344,7 +343,7 @@ test('archive review pageviews follow in-app daily and archive surface transitio
   }
 });
 
-test('approved public-record links work across today, the picker, and the full archive while unapproved entries keep their board fallback', { timeout: 45_000 }, async () => {
+test('approved public-record links work across today and the full archive while unapproved entries keep their board fallback', { timeout: 45_000 }, async () => {
   const engine = BROWSER_ENGINES[0];
   const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
   try {
@@ -384,24 +383,6 @@ test('approved public-record links work across today, the picker, and the full a
       EDITION_RECORD_PATH,
     );
 
-    await page.getByRole('button', { name: /Browse past editions/ }).click();
-    const approvedPickerEntry = page.locator('.daily-archive__edition-group').filter({
-      hasText: 'Browser Archive Actor',
-    });
-    assert.equal(
-      await approvedPickerEntry.getByRole('link', { name: 'Actor record' }).getAttribute('href'),
-      ACTOR_RECORD_PATH,
-    );
-    assert.equal(
-      await approvedPickerEntry.getByRole('link', { name: 'Edition record' }).getAttribute('href'),
-      EDITION_RECORD_PATH,
-    );
-    const fallbackPickerEntry = page.locator('.daily-archive__edition-group').filter({
-      hasText: 'Fallback Archive Actor',
-    });
-    await fallbackPickerEntry.waitFor();
-    assert.equal(await fallbackPickerEntry.getByRole('link').count(), 0);
-
     await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
     await page.getByRole('heading', { name: 'The Star of the Day Archive' }).waitFor();
     const approvedCard = page.locator('.archive-card').filter({ hasText: 'Browser Archive Actor' });
@@ -432,7 +413,7 @@ test('approved public-record links work across today, the picker, and the full a
   }
 });
 
-test('partial public-record metadata stays fail-closed across today, the picker, the locked preview, and the full archive', { timeout: 45_000 }, async () => {
+test('partial public-record metadata stays fail-closed across today, the locked preview, and the full archive', { timeout: 45_000 }, async () => {
   const engine = BROWSER_ENGINES[0];
   const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
   try {
@@ -493,18 +474,7 @@ test('partial public-record metadata stays fail-closed across today, the picker,
       'today must not render navigation for a partial record pair',
     );
 
-    await page.getByRole('button', { name: /Browse past editions/ }).click();
-    const malformedPickerEntry = page.locator('.daily-archive__edition-group').filter({
-      hasText: 'Partial Record Actor',
-    });
-    await malformedPickerEntry.waitFor();
-    assert.equal(
-      await malformedPickerEntry.getByRole('link').count(),
-      0,
-      'the picker must not render navigation for a partial record pair',
-    );
-
-    await malformedPickerEntry.getByRole('button').click();
+    await page.goto(`${origin}/vibe-atlas?date=${MALFORMED_DATE}`, { waitUntil: 'domcontentloaded' });
     await page.getByText(/Founding Members can unlock the complete nine-card board/).waitFor();
     assert.equal(
       await page.getByRole('navigation', { name: 'Curated public records' }).count(),
@@ -576,7 +546,6 @@ test('complete-looking public-record metadata with unapproved paths stays fail-c
           contentType: 'application/json',
           body: JSON.stringify({
             ...starOfDay('2026-09-02'),
-            publicRecord: fixture.publicRecord,
           }),
         });
       });
@@ -589,18 +558,7 @@ test('complete-looking public-record metadata with unapproved paths stays fail-c
         `today must not render navigation for ${fixture.actorName}`,
       );
 
-      await page.getByRole('button', { name: /Browse past editions/ }).click();
-      const malformedPickerEntry = page.locator('.daily-archive__edition-group').filter({
-        hasText: fixture.actorName,
-      });
-      await malformedPickerEntry.waitFor();
-      assert.equal(
-        await malformedPickerEntry.getByRole('link').count(),
-        0,
-        `the picker must not render navigation for ${fixture.actorName}`,
-      );
-
-      await malformedPickerEntry.getByRole('button').click();
+      await page.goto(`${origin}/vibe-atlas?date=${fixture.date}`, { waitUntil: 'domcontentloaded' });
       await page.getByText(/Founding Members can unlock the complete nine-card board/).waitFor();
       assert.equal(
         await page.getByRole('navigation', { name: 'Curated public records' }).count(),

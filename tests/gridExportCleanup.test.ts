@@ -207,8 +207,8 @@ test('Collection routes both removal paths through shared persistRemoval', () =>
   assert.notEqual(queueRemovalStart, -1, 'queueRemoval must follow finalizeRemoval');
   assert.match(
     collectionSource.slice(finalizeStart, queueRemovalStart),
-    /await persistRemoval\(pending,\s*accountIdRef\.current\)/,
-    'undo-window expiry must persist the removal through the shared utility',
+    /await persistRemoval\(\s*pending,\s*canSyncCloud \? accountIdRef\.current : undefined,\s*canSyncCloud,\s*\)/,
+    'undo-window expiry must persist locally and pass the cloud-cleanup entitlement to the shared utility',
   );
 
   const unmountStart = collectionSource.indexOf('useEffect(() => () =>');
@@ -217,8 +217,8 @@ test('Collection routes both removal paths through shared persistRemoval', () =>
   assert.notEqual(unmountEnd, -1, 'unmount cleanup effect must have an empty dependency list');
   assert.match(
     collectionSource.slice(unmountStart, unmountEnd),
-    /persistRemoval\(pending,\s*accountIdRef\.current\)/,
-    'unmount cleanup must persist the pending removal through the shared utility',
+    /persistRemoval\(\s*pending,\s*cleanupExports \? accountIdRef\.current : undefined,\s*cleanupExports,\s*\)/,
+    'unmount cleanup must persist locally and pass the cloud-cleanup entitlement to the shared utility',
   );
 });
 
