@@ -11571,15 +11571,13 @@ test('release inventory repair warnings cover repeated and failed repairs, one s
 ).waitFor()
 ;
 
+      const incompleteRepairWarning = incompleteRepairPage.getByText(
+        'Repair health details are incomplete, so recent repair counts are unavailable. Inventory remains fail-closed; check Blob listing and historical manifest health.',
+        { exact: true },
+      );
+      await incompleteRepairWarning.waitFor();
       assert.equal(
-        await incompleteRepairPage.getByText(
-          'Repair health details are incomplete, so recent repair counts are unavailable. Inventory remains fail-closed; check Blob listing and historical manifest health.',
-          
-{
- exact: true 
-}
-,
-        ).isVisible(),
+        await incompleteRepairWarning.isVisible(),
         true,
         'incomplete or invalid repair health must use explicit fallback copy and retain fail-closed guidance',
       )
