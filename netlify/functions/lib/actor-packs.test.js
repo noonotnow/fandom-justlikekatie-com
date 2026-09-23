@@ -9,6 +9,7 @@ import {
 } from "./actor-packs.js";
 import { handler } from "../actor-packs.js";
 import { createActorPackDepthHandler } from "./actor-pack-depth.js";
+import { protectedReleasedPackIds } from "./released-pack-catalog.js";
 
 test("Cold Jade Immortal searches stay grounded in Yuan Zhong's pale celestial character study", () => {
   const actor = ACTOR_PACKS.find(({ id }) => id === "liu-xueyi");
@@ -236,6 +237,16 @@ test("Collector actor depth reports the safe released-catalog failure reason", a
     error: "Released pack inventory is temporarily unavailable.",
     reasonCode: "eligibility_unavailable",
   });
+});
+
+test("Collector release protection is independent from public preview eligibility", () => {
+  const ids = protectedReleasedPackIds({
+    schemaVersion: 1,
+    complete: true,
+    collectorPackIds: ["liu-xueyi:0"],
+    packs: [],
+  });
+  assert.deepEqual([...ids], ["liu-xueyi:0"]);
 });
 
 test("Collector actor depth supports one actor without widening the public endpoint", async () => {
