@@ -25,7 +25,7 @@ export function createPublicSitemapHandler({
       getStore(eligibilityStoreName, context),
       { publicationStore: getStore("star-of-day", context), actorPacks },
     );
-    if (!releaseCatalog.complete || !releaseCatalog.indexingComplete) return { statusCode: 503, headers: { "Content-Type": "application/xml", "Cache-Control": "no-store" }, body: "" };
+    if (!releaseCatalog.complete || releaseCatalog.indexingComplete === false) return { statusCode: 503, headers: { "Content-Type": "application/xml", "Cache-Control": "no-store" }, body: "" };
     const indexablePacks = releaseCatalog.packs.filter(isIndexableReleasedPack);
     const actors = publicActorDirectory(manifests);
     const paths = [...PUBLIC_STATIC_PATHS,

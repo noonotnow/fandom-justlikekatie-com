@@ -132,7 +132,7 @@ export function createPublicRecordsHandler({
         getStore(eligibilityStoreName, context),
         { publicationStore, actorPacks },
       );
-      if (!releaseCatalog.complete || !releaseCatalog.indexingComplete) {
+      if (!releaseCatalog.complete || releaseCatalog.indexingComplete === false) {
         return response(503, "<h1>Released pack inventory is not ready.</h1>");
       }
       const packs = releaseCatalog.packs.filter(isIndexableReleasedPack);
