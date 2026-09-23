@@ -1345,6 +1345,57 @@ button:hover {
 .dark .released-library__hero > p:last-child, .dark .released-library__locked p, .dark .released-pack-card p:not(.membership__label), .dark .released-pack-card details { color: #b3b7b1; }
 .dark .released-library__locked, .dark .released-pack-card { border-color: rgba(236,231,221,.2); background: rgba(255,255,255,.03); }
 @media (max-width: 600px) { .released-library__filters, .released-library__sign-in div { flex-direction: column; } .released-library__filters select { width: 100%; } }
+
+.daily-released-pack {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(250px, .8fr);
+  gap: clamp(1.5rem, 4vw, 4rem);
+  align-items: end;
+  margin: clamp(2.5rem, 6vw, 5rem) 0;
+  padding: clamp(1.5rem, 4vw, 3rem);
+  border: 1px solid rgba(179,95,73,.35);
+  background: linear-gradient(135deg, rgba(179,95,73,.1), rgba(255,255,255,.32));
+}
+.daily-released-pack h2 {
+  max-width: 18ch;
+  margin: .45rem 0 1rem;
+  color: #263e40;
+  font: 600 clamp(2rem, 5vw, 4rem)/1 "Fraunces", serif;
+  letter-spacing: -.035em;
+}
+.daily-released-pack__intro > p:not(.membership__label) {
+  max-width: 62ch;
+  color: #687371;
+  line-height: 1.6;
+}
+.daily-released-pack__access {
+  padding-left: 1.5rem;
+  border-left: 1px solid rgba(179,95,73,.35);
+  color: #687371;
+  line-height: 1.5;
+}
+.daily-released-pack__access strong { color: #263e40; }
+.daily-released-pack__access a {
+  display: inline-block;
+  margin-top: .5rem;
+  color: #8d4939;
+  font-size: .78rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.dark .daily-released-pack {
+  border-color: rgba(227,126,98,.35);
+  background: linear-gradient(135deg, rgba(179,95,73,.14), rgba(255,255,255,.03));
+}
+.dark .daily-released-pack h2,
+.dark .daily-released-pack__access strong { color: #d6e3dd; }
+.dark .daily-released-pack__intro > p:not(.membership__label),
+.dark .daily-released-pack__access { color: #b3b7b1; }
+@media (max-width: 720px) {
+  .daily-released-pack { grid-template-columns: 1fr; align-items: start; }
+  .daily-released-pack__access { padding: 1.25rem 0 0; border-left: 0; border-top: 1px solid rgba(179,95,73,.35); }
+}
 @media (max-width: 760px) {
   .membership__journey { grid-template-columns: 1fr; }
   .membership__journey article { padding: 1.4rem 0; }

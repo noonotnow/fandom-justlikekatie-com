@@ -764,9 +764,9 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
          <div className="atlas-hero__actions" aria-label="Vibe Atlas actions">
            <a href="#daily-evidence">Browse today’s drop</a>
            <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=daily`}>Open the Grid Builder</a>
-           {rawData?.actorId && (
-             <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=released&actorId=${encodeURIComponent(rawData.actorId)}&vibeIdx=${rawData.vibeIdx ?? ''}`}>
-               Explore {rawData.actorShortNameEn || rawData.actorName} released packs
+            {rawData?.actorId && !selectedEditionDate && (
+              <a href="#todays-released-pack">
+                Open today’s free released pack
              </a>
            )}
          </div>
@@ -851,6 +851,26 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           </div>
         )}
       </header>
+
+       {!gate && rawData && !selectedEditionDate && (
+         <section className="daily-released-pack" id="todays-released-pack" aria-labelledby="todays-released-pack-title">
+           <div className="daily-released-pack__intro">
+             <p className="membership__label">Free today · Star of the Day released Vibe Pack</p>
+             <h2 id="todays-released-pack-title">{rawData.vibeEmoji} {rawData.actorShortNameEn || rawData.actorName} · {rawData.vibeLabelEn || rawData.vibeLabel}</h2>
+             <p>{rawData.vibeSubtitleEn || rawData.vibeSubtitle}</p>
+             {(rawData.vibeSupportingCopyEn || rawData.vibeSupportingCopy) && (
+               <p>{rawData.vibeSupportingCopyEn || rawData.vibeSupportingCopy}</p>
+             )}
+           </div>
+           <div className="daily-released-pack__access">
+             <strong>Today’s pack is free on this homepage.</strong>
+             <p>The full released-pack library stays available to Fandom Collectors.</p>
+             <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=released&actorId=${encodeURIComponent(rawData.actorId)}&vibeIdx=${rawData.vibeIdx ?? ''}`}>
+               Open the Collector library
+             </a>
+           </div>
+         </section>
+       )}
 
        {!gate && (
          <div className="daily-grid" id="daily-evidence">

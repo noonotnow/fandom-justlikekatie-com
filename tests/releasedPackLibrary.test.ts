@@ -22,3 +22,12 @@ test('released pack navigation preserves actor and vibe selection from daily dro
   assert.match(app, /<ReleasedPackLibrary/);
   assert.match(routes, /if \(view === 'released'\) return 'released'/);
 });
+
+test('only today’s homepage exposes the current released Vibe Pack for free', async () => {
+  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  assert.match(app, /id="todays-released-pack"/);
+  assert.match(app, /Free today · Star of the Day released Vibe Pack/);
+  assert.match(app, /rawData && !selectedEditionDate/);
+  assert.match(app, /href="#todays-released-pack"/);
+  assert.match(app, /The full released-pack library stays available to Fandom Collectors/);
+});
