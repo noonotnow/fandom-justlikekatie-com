@@ -1,5 +1,5 @@
 import { ACTOR_PACKS } from "./actor-packs.js";
-import { getEligibility, isReleaseReady } from "./actor-eligibility.js";
+import { getEligibility, isApproved } from "./actor-eligibility.js";
 import {
   isGridManifest,
   readPublicationManifests,
@@ -45,8 +45,18 @@ function safeManifest(manifest) {
   return { copy: copy.trim(), cards };
 }
 
+export function isIndexableReleasedPack(pack) {
+  return Boolean(
+    pack?.canonical
+    && pack?.preview
+    && typeof pack.preview.copy === "string"
+    && Array.isArray(pack.preview.cards)
+    && pack.preview.cards.length === 9,
+  );
+}
+
 export function publicReleasedPack(pack) {
-  if (!pack) return null;
+  if (!isIndexableReleasedPack(pack)) return null;
   return {
     kind: "vibe-atlas-released-pack",
     actor: pack.actor,
@@ -58,9 +68,11 @@ export function publicReleasedPack(pack) {
 }
 
 /**
- * Release state is intentionally recomputed from strong eligibility and the
- * complete immutable publication inventory. No cached eligibility projection
- * can keep a revoked pairing public.
+ * The protected released-pack library follows the exact predicate used by the
+ * Star of the Day scheduler. Public indexing is a narrower projection: a pack
+ * is indexable only when an immutable publication manifest supplies verified
+ * MEDIA previews. This keeps an unavailable or not-yet-published preview from
+ * hiding an otherwise eligible pack from Collectors.
  */
 export async function releasedPackCatalog(
   eligibilityStore,
@@ -68,45 +80,42 @@ export async function releasedPackCatalog(
     publicationStore = eligibilityStore,
     actorPacks = ACTOR_PACKS,
     origin = PUBLIC_VIBE_ATLAS_ORIGIN,
+    getEligibilitySnapshot = getEligibility,
+    eligibilityPredicate = isApproved,
+    readPublications = readPublicationManifests,
   } = {},
 ) {
-  let inventory;
+  let manifests = [];
+  let indexingComplete = false;
+  let indexingFailureReason = null;
   try {
-    inventory = await readPublicationManifests(publicationStore);
+    const inventory = await readPublications(publicationStore);
+    if (inventory.inventory.complete) {
+      manifests = inventory.manifests.filter(isGridManifest);
+      indexingComplete = true;
+    } else {
+      indexingFailureReason = "publication_inventory_incomplete";
+    }
   } catch {
-    return {
-      schemaVersion: 1,
-      complete: false,
-      failureReason: "publication_inventory_unavailable",
-      packs: [],
-    };
+    indexingFailureReason = "publication_inventory_unavailable";
   }
-  if (!inventory.inventory.complete) {
-    return {
-      schemaVersion: 1,
-      complete: false,
-      failureReason: "publication_inventory_incomplete",
-      packs: [],
-    };
-  }
-  const manifests = inventory.manifests.filter(isGridManifest);
+
   const packs = [];
   let eligibilityHealthy = true;
   await Promise.all(actorPacks.map(async actor => {
     await Promise.all((actor.vibes || []).map(async (vibe, vibeIdx) => {
       let snapshot;
       try {
-        snapshot = await getEligibility(eligibilityStore, actor, vibeIdx);
+        snapshot = await getEligibilitySnapshot(eligibilityStore, actor, vibeIdx);
       } catch {
         eligibilityHealthy = false;
         return;
       }
-      if (!isReleaseReady(snapshot)) return;
+      if (!eligibilityPredicate(snapshot)) return;
       const manifest = manifests
         .filter(item => item.actor?.id === actor.id && item.vibe?.idx === vibeIdx)
         .sort((left, right) => String(right.publicationDate).localeCompare(String(left.publicationDate)))[0];
-      const safe = safeManifest(manifest);
-      if (!safe) return;
+      const preview = safeManifest(manifest);
       const path = releasedPackPath(actor, vibe, vibeIdx);
       packs.push({
         actorId: actor.id,
@@ -125,8 +134,8 @@ export async function releasedPackCatalog(
           emoji: vibe.emoji || null,
           subtitleEn: vibe.subtitle_en || vibe.subtitle || "",
         },
-        preview: safe,
-        publishedAt: manifest.publishedAt || null,
+        preview,
+        publishedAt: preview ? manifest.publishedAt || null : null,
         runId: snapshot.runId,
       });
     }));
@@ -136,11 +145,19 @@ export async function releasedPackCatalog(
       schemaVersion: 1,
       complete: false,
       failureReason: "eligibility_unavailable",
+      indexingComplete,
+      indexingFailureReason,
       packs: [],
     };
   }
   packs.sort((a, b) => a.canonical.localeCompare(b.canonical));
-  return { schemaVersion: 1, complete: true, packs };
+  return {
+    schemaVersion: 1,
+    complete: true,
+    indexingComplete,
+    indexingFailureReason,
+    packs,
+  };
 }
 
 export function protectedReleasedPackIds(catalog) {
