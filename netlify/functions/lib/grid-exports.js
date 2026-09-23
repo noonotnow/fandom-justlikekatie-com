@@ -133,8 +133,11 @@ async function handleUpload(
   const exportId = url.searchParams.get("exportId") || "";
   if (!EXPORT_ID_RE.test(exportId)) return json(400, { error: "Invalid exportId." });
   const requestedVariant = url.searchParams.get("variant");
-  const variant = ["teaser", "standard", "master", "raw"].includes(requestedVariant)
-    ? requestedVariant : "full";
+  const allowedVariants = ["full", "teaser", "standard", "master", "raw"];
+  if (requestedVariant !== null && !allowedVariants.includes(requestedVariant)) {
+    return json(400, { error: "Invalid export variant." });
+  }
+  const variant = requestedVariant ?? "full";
   const tier = sanitizeTier(url.searchParams.get("tier"));
 
   const declared = Number(req.headers.get("content-length") || 0);
