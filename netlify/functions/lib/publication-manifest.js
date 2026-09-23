@@ -225,7 +225,7 @@ export async function readPublicationManifests(store) {
 
 export async function repairPublicationManifestPublicRecords(
   store,
-  { cursor = null, limit = 100 } = {},
+  { cursor = null, limit = 100, now = () => new Date() } = {},
 ) {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
     throw new Error("The publication reader-link repair limit is invalid.");
@@ -241,6 +241,10 @@ export async function repairPublicationManifestPublicRecords(
   const page = keys.filter(key => !cursor || key < cursor).slice(0, limit);
   const invalid = [];
   let repaired = 0;
+  let cataloged = 0;
+  const catalogedDates = new Set(
+    isPublicationManifestCatalog(catalog) ? catalog.dates : [],
+  );
   for (const key of page) {
     let completed = false;
     for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -261,6 +265,15 @@ export async function repairPublicationManifestPublicRecords(
         invalid.push({ key, status: "invalid_manifest", repaired: false });
         completed = true;
         break;
+      }
+      if (!catalogedDates.has(manifest.publicationDate)) {
+        await ensurePublicationManifestCatalogDate(
+          store,
+          manifest.publicationDate,
+          now,
+        );
+        catalogedDates.add(manifest.publicationDate);
+        cataloged += 1;
       }
       const expectedActorSlug = publicActorSlug(manifest.actor);
       const diagnostic = publicArchiveRecordDiagnostic(manifest.publicRecord, {
@@ -301,6 +314,7 @@ export async function repairPublicationManifestPublicRecords(
     scanned: page.length,
     invalid,
     repaired,
+    cataloged,
     nextCursor: keys.filter(key => !cursor || key < cursor).length > page.length
       ? page.at(-1)
       : null,
