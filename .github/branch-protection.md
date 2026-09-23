@@ -14,10 +14,11 @@ curl -X PUT \
       "strict": false,
       "contexts": ["test"]
     },
-    "enforce_admins": false,
+    "enforce_admins": true,
     "required_pull_request_reviews": {
-      "dismiss_stale_reviews": false,
+      "dismiss_stale_reviews": true,
       "require_code_owner_reviews": false,
+      "require_last_push_approval": true,
       "required_approving_review_count": 1
     },
     "restrictions": null
@@ -30,14 +31,16 @@ curl -X PUT \
 |---|---|---|
 | Required status check | `test` | The `test` job in `.github/workflows/test.yml` must pass |
 | Strict | `false` | Branch doesn't need to be up to date before merging |
-| Enforce admins | `false` | Repo owner can bypass rules via GitHub UI when needed |
+| Enforce admins | `true` | Repository administrators follow the same PR gate |
 | PR reviews required | 1 | All changes must come via PR; direct pushes are blocked |
+| Dismiss stale reviews | `true` | Approval must apply to the current diff |
+| Last push approval | `true` | The person who most recently pushed cannot supply the final approval |
 | Force pushes | disabled | History cannot be rewritten on `main` |
 | Push restrictions | none (personal repo) | GitHub only supports push allowlists on organisation repos |
 
 ### Why `required_pull_request_reviews` blocks direct pushes
 
-GitHub enforces `required_pull_request_reviews` by rejecting non-PR pushes to the protected branch. Setting `required_approving_review_count: 1` is the API minimum; it means any collaborator (other than the repo owner with `enforce_admins: false`) must open a PR and get one approval. The repo owner can still merge via the GitHub UI "Merge without waiting for requirements" bypass when needed.
+GitHub enforces `required_pull_request_reviews` by rejecting non-PR pushes to the protected branch. Setting `required_approving_review_count: 1` requires an approval, and `enforce_admins: true` applies the gate to repository administrators too. Stale approvals are dismissed, and the most recent pusher cannot supply the final approval.
 
 The `restrictions` field (push allowlist) is only available on organisation repositories and cannot be used here.
 
@@ -57,8 +60,12 @@ The required check name `test` matches the **job id** in `.github/workflows/test
 
 ### Re-applying the rule via the Replit GitHub integration
 
-The project's GitHub connector (connection `conn_github_01M01CFGTEP9N3DD9ZHB9X222J`) has `repo` scope and can `PUT /repos/{owner}/{repo}/branches/main/protection` directly — no personal token needed inside the Replit environment.
+The project's GitHub connector has `repo` scope and can `PUT /repos/{owner}/{repo}/branches/main/protection` directly — no personal token is needed inside the Replit environment.
+
+### Editorial publication procedure
+
+Editorial site changes follow [`docs/editorial-publication-runbook.md`](../docs/editorial-publication-runbook.md). The runbook places the authority commit before repository delivery, requires a reviewed PR, and delays Publication Evidence until the merged commit is deployed and the live destination is verified.
 
 ### Last verified
 
-Branch protection settings were last verified on 2026-08-16 as part of the automated CI check workflow smoke test.
+Branch protection settings were last verified on 2026-09-22.
