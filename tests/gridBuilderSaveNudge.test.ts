@@ -128,7 +128,7 @@ test('exportGrid resets showSaveNudge to false at the start of each export attem
 test('prepared handoffs and raw downloads stay in GridBuilder; only full exports can navigate', () => {
   const handoffBranch = exportGridBody.indexOf("if (action === 'rednote')");
   const downloadBranch = exportGridBody.indexOf("if (action === 'download_raw')");
-  const fullExportBranch = exportGridBody.indexOf('const message = await saveShareCard');
+  const fullExportBranch = exportGridBody.indexOf('await saveShareCard(');
   const navCall = exportGridBody.indexOf('onExported?.()');
   assert.ok(handoffBranch !== -1 && downloadBranch !== -1 && fullExportBranch !== -1,
     'exportGrid() must distinguish handoff, raw download, and full export paths');
