@@ -74,9 +74,21 @@ export async function releasedPackCatalog(
   try {
     inventory = await readPublicationManifests(publicationStore);
   } catch {
-    return { schemaVersion: 1, complete: false, packs: [] };
+    return {
+      schemaVersion: 1,
+      complete: false,
+      failureReason: "publication_inventory_unavailable",
+      packs: [],
+    };
   }
-  if (!inventory.inventory.complete) return { schemaVersion: 1, complete: false, packs: [] };
+  if (!inventory.inventory.complete) {
+    return {
+      schemaVersion: 1,
+      complete: false,
+      failureReason: "publication_inventory_incomplete",
+      packs: [],
+    };
+  }
   const manifests = inventory.manifests.filter(isGridManifest);
   const packs = [];
   let eligibilityHealthy = true;
@@ -119,7 +131,14 @@ export async function releasedPackCatalog(
       });
     }));
   }));
-  if (!eligibilityHealthy) return { schemaVersion: 1, complete: false, packs: [] };
+  if (!eligibilityHealthy) {
+    return {
+      schemaVersion: 1,
+      complete: false,
+      failureReason: "eligibility_unavailable",
+      packs: [],
+    };
+  }
   packs.sort((a, b) => a.canonical.localeCompare(b.canonical));
   return { schemaVersion: 1, complete: true, packs };
 }

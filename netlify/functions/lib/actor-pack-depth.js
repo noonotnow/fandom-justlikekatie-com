@@ -50,7 +50,10 @@ export function createActorPackDepthHandler({
         )
         : null;
       if (catalog && !catalog.complete) {
-        return json(503, { error: "Released pack inventory is temporarily unavailable." }, NO_STORE_HEADERS);
+        return json(503, {
+          error: "Released pack inventory is temporarily unavailable.",
+          reasonCode: catalog.failureReason || "catalog_unavailable",
+        }, NO_STORE_HEADERS);
       }
       const releasedIds = catalog ? protectedReleasedPackIds(catalog) : null;
       const selected = actorId

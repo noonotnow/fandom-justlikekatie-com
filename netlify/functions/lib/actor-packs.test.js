@@ -212,6 +212,32 @@ test("Collector actor depth requires active membership and never uses a shared c
   assert.equal(bundled.status, 200);
 });
 
+test("Collector actor depth reports the safe released-catalog failure reason", async () => {
+  const response = await createActorPackDepthHandler({
+    auth: { authenticate: async () => ({ user: { accountId: "usr_1" } }) },
+    billing: {
+      initialize: async () => {},
+      repository: () => ({
+        membershipForAccount: async () => ({
+          status: "active", metadata: { product: "fandom_collector" },
+        }),
+      }),
+    },
+    getStore: () => ({}),
+    buildReleaseCatalog: async () => ({
+      schemaVersion: 1,
+      complete: false,
+      failureReason: "eligibility_unavailable",
+      packs: [],
+    }),
+  })(new Request("https://example.test/actor-pack-depth"), {});
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), {
+    error: "Released pack inventory is temporarily unavailable.",
+    reasonCode: "eligibility_unavailable",
+  });
+});
+
 test("Collector actor depth supports one actor without widening the public endpoint", async () => {
   const handlerWithAccess = createActorPackDepthHandler({
     auth: { authenticate: async () => ({ user: { accountId: "usr_1" } }) },
