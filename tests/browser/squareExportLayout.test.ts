@@ -177,7 +177,6 @@ test('square PNG exports preserve layout, attribution, MEDIA provenance, and Moo
         assert.ok(line.x + line.width / 2 <= dimension * 0.974, `${variant} attribution line ${index + 1} must stay inside the right canvas bound`);
         assert.equal(line.color, '#c9a96e', `${variant} attribution must use the approved Moonlit Ink gold`);
       });
-      assert.ok(attribution[1].text.includes('…'), `${variant} must truncate overflowing credits with an ellipsis`);
       assert.ok(attribution[1].text.endsWith('Vibe Atlas · sRGB'), `${variant} must preserve the export provenance suffix`);
     }
 

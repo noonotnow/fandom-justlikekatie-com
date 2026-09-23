@@ -92,7 +92,10 @@ test('Collector capability gates cloud sync and premium creation', async () => {
   assert.doesNotMatch(collectionSource, /Cloud sync is available with Founding Member/);
   assert.match(membershipSource, /Collection sync with Collector access/);
   assert.match(collectionSource, /if \(canSyncCloud\) schedulePublicCollectionSync/);
-  assert.match(collectionSource, /if \(canSyncCloud\) await persistRemoval/);
+  assert.match(
+    collectionSource,
+    /await persistRemoval\(\s*pending,\s*canSyncCloud \? accountIdRef\.current : undefined,\s*canSyncCloud,\s*\)/,
+  );
   assert.doesNotMatch(membershipSource, /Cloud Collection sync across devices/);
   assert.doesNotMatch(syncFunction, /createEntitlementChecker|requireMembership/);
 });

@@ -87,13 +87,19 @@ export function forgetPendingRemoval(token: string): void {
  *
  * Never throws — callers catch and surface errors to the UI.
  */
-export async function persistRemoval(pending: PendingRemoval, accountId?: string): Promise<void> {
+export async function persistRemoval(
+  pending: PendingRemoval,
+  accountId?: string,
+  cleanupExports = true,
+): Promise<void> {
   if (pending.kind === 'grid') {
     await dbRemoveGrid(pending.record.id);
     // Best-effort server cleanup, awaited so navigation/unload can't cut the
     // request short.  Failure queues the (gridId, accountId) pair for durable
     // retry; it never blocks or fails the local removal.
-    await deleteGridExports(pending.record.id, accountId).catch(() => {});
+    if (cleanupExports) {
+      await deleteGridExports(pending.record.id, accountId).catch(() => {});
+    }
   } else {
     await dbRemoveCard(pending.record.imageUrl);
   }

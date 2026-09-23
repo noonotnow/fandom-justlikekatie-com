@@ -174,7 +174,7 @@ function MiddleEarthApp() {
   const { isAdmin } = useIsAdmin();
   const showCollection = new URLSearchParams(window.location.search).get('view') === 'collection';
 
-  if (showCollection) return <Collection scope="middle-earth" />;
+  if (showCollection) return <Collection scope="middle-earth" hasCollectorAccess={isAdmin} />;
   return <MiddleEarthWorkspace isAdmin={isAdmin} />;
 }
 
@@ -942,6 +942,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           key={collectionTab}
           initialType={collectionTab}
           hasCollectorAccess={canUsePremiumTools}
+          membershipResolved={membershipResolved}
           builderSourceKind={builderSource}
           builderSourcePool={builderSource === 'collection' ? [] : dailyBuilderPool}
           builderSourceEditionDate={builderSource === 'edition' ? activeEditionDate ?? undefined : undefined}

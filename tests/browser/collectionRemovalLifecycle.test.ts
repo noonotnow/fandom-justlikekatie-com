@@ -133,7 +133,11 @@ test('Collection commits pending grid and saved-result removals when navigation 
     }));
     await page.route('**/api/membership/status', route => route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ state: 'active', isMember: true }),
+      body: JSON.stringify({
+        state: 'active',
+        isMember: true,
+        capabilities: ['fandom_collector'],
+      }),
     }));
     await page.route(
       url => new URL(url).pathname === '/.netlify/functions/grid-exports',
@@ -187,7 +191,11 @@ test('Collection shows local records when account sync fails', { timeout: 60_000
     }));
     await page.route('**/api/membership/status', route => route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ state: 'active', isMember: true }),
+      body: JSON.stringify({
+        state: 'active',
+        isMember: true,
+        capabilities: ['fandom_collector'],
+      }),
     }));
     await page.route('**/api/collection/sync', route => route.fulfill({
       status: 503,
@@ -372,6 +380,14 @@ for (const engine of BROWSER_ENGINES) {
         contentType: 'application/json',
         body: JSON.stringify({
           user: { accountId: ACCOUNT_ID, email: 'cleanup@example.test', isAdmin: false },
+        }),
+      }));
+      await page.route('**/api/membership/status', route => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          state: 'active',
+          isMember: true,
+          capabilities: ['fandom_collector'],
         }),
       }));
       await page.route(

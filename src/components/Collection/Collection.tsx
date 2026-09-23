@@ -81,6 +81,7 @@ interface Props {
   scope?: 'vibe-atlas' | 'middle-earth';
   initialType?: 'grids' | 'results' | 'builder';
   hasCollectorAccess?: boolean;
+  membershipResolved?: boolean;
   isMember?: boolean;
   onUpgrade?: () => void;
   onTypeChange?: (type: 'grids' | 'results' | 'builder') => void;
@@ -134,6 +135,7 @@ export const Collection: React.FC<Props> = ({
   scope = 'vibe-atlas',
   initialType = 'grids',
   hasCollectorAccess = false,
+  membershipResolved = true,
   isMember = false,
   onUpgrade,
   onTypeChange,
@@ -190,6 +192,7 @@ export const Collection: React.FC<Props> = ({
   }
 
   useEffect(() => {
+    if (!membershipResolved) return;
     const refreshSession = async () => {
       try {
         const session = await getPublicSession();
@@ -258,7 +261,7 @@ export const Collection: React.FC<Props> = ({
       channel?.close();
       window.removeEventListener('storage', handleStorage);
     };
-  }, [scope, canSyncCloud]);
+  }, [membershipResolved, scope, canSyncCloud]);
 
   useEffect(() => {
     const handleExportPersisted = (event: Event) => {
@@ -277,9 +280,11 @@ export const Collection: React.FC<Props> = ({
     const stored = readPendingRemoval();
     if (!stored) return;
     try {
-      if (canSyncCloud) {
-        await persistRemoval(stored.pending, stored.accountId ?? accountIdRef.current);
-      }
+      await persistRemoval(
+        stored.pending,
+        canSyncCloud ? stored.accountId ?? accountIdRef.current : undefined,
+        canSyncCloud,
+      );
       forgetPendingRemoval(stored.pending.token);
     } catch (error) {
       setAccountNotice(messageFrom(error, 'The item could not be removed.'));
@@ -290,8 +295,12 @@ export const Collection: React.FC<Props> = ({
     const pending = pendingRemovalRef.current;
     if (!pending) return;
     window.clearTimeout(pending.timeoutId);
-    if (!canSyncCloudRef.current) return;
-    void persistRemoval(pending, accountIdRef.current).then(() => {
+    const cleanupExports = canSyncCloudRef.current;
+    void persistRemoval(
+      pending,
+      cleanupExports ? accountIdRef.current : undefined,
+      cleanupExports,
+    ).then(() => {
       forgetPendingRemoval(pending.token);
     }).catch(error => {
       sessionStorage.setItem('fandom_auth_notice', messageFrom(error, 'The item could not be removed.'));
@@ -304,7 +313,11 @@ export const Collection: React.FC<Props> = ({
     pendingRemovalRef.current = null;
     setPendingRemoval(null);
     try {
-      if (canSyncCloud) await persistRemoval(pending, accountIdRef.current);
+      await persistRemoval(
+        pending,
+        canSyncCloud ? accountIdRef.current : undefined,
+        canSyncCloud,
+      );
       forgetPendingRemoval(pending.token);
     } catch (error) {
       if (pending.kind === 'grid') {
