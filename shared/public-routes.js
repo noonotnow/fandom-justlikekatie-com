@@ -53,6 +53,10 @@ export const PUBLIC_STATIC_ROUTES = Object.freeze([
   editorial("/c-drama-fandom/trope-decoder/", "0.9"),
   { ...editorial("/c-drama-fandom/fandom-games/", "0.9"), changefreq: "weekly" },
   {
+    ...editorial("/c-drama-fandom/vibing-now/against-the-current-episode-21/", "0.9"),
+    changefreq: "weekly",
+  },
+  {
     path: "/c-drama-fandom/watch-journal/",
     changefreq: "weekly",
     priority: "0.9",

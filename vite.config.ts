@@ -45,6 +45,7 @@ const editorialRouteFiles = new Map([
   ['/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole', '/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole/index.html'],
   ['/c-drama-fandom/trope-decoder', '/c-drama-fandom/trope-decoder/index.html'],
   ['/c-drama-fandom/fandom-games', '/c-drama-fandom/fandom-games/index.html'],
+  ['/c-drama-fandom/vibing-now/against-the-current-episode-21', '/c-drama-fandom/vibing-now/against-the-current-episode-21/index.html'],
   ['/c-drama-fandom/watch-journal', '/c-drama-fandom/watch-journal/index.html'],
   ...[
     [1, 4], [5, 8], [9, 12], [13, 16], [17, 20], [21, 24], [25, 28],
