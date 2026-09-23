@@ -482,11 +482,20 @@ test("publication reader-link repair fixes malformed paths and actor mismatches 
   }
   const first = await repairPublicationManifestPublicRecords(store);
   assert.equal(first.repaired, 2);
+  assert.equal(first.cataloged, 2);
   assert.deepEqual(first.invalid.map(item => item.status), [
     "malformed_actor_path", "actor_mismatch",
   ]);
+  assert.deepEqual((await readPublicationManifests(store)).inventory, {
+    catalogValid: true,
+    catalogDateCount: 2,
+    listedManifestCount: 2,
+    manifestCount: 2,
+    complete: true,
+  });
   const second = await repairPublicationManifestPublicRecords(store);
   assert.equal(second.repaired, 0);
+  assert.equal(second.cataloged, 0);
   assert.deepEqual(second.invalid, []);
 });
 
@@ -498,6 +507,13 @@ test("publication reader-link repair fails after repeated conflicts without repo
     editionPath: "/vibe-atlas/editions/2026-09-03/liu-xueyi/",
   };
   await store.setJSON(gridManifestKey(manifest.publicationDate), manifest);
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1,
+    catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog",
+    dates: [manifest.publicationDate],
+    updatedAt: "2026-09-03T12:00:00.000Z",
+  });
   store.getWithMetadata = async key => ({
     data: await store.get(key),
     etag: "test-revision",
