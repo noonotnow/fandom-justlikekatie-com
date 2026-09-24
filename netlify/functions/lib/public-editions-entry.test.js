@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createPublicEditionsHandler } from "../public-editions.js";
+import publicEditions, { createPublicEditionsHandler } from "../public-editions.js";
 import { catalogStore, completeCatalog, manifestStore, publicManifest } from "../public-test-fixture.js";
+
+test("deployed public-editions entrypoint returns a Web Response using injected Blobs context", async () => {
+  const store = manifestStore([publicManifest()]);
+  const response = await publicEditions(
+    new Request("https://fandom.justlikekatie.com/.netlify/functions/public-editions?date=2026-09-03&actor=liu-xueyi"),
+    { blobs: { getStore: () => store } },
+  );
+  assert.ok(response instanceof Response);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).actor.id, "liu-xueyi");
+});
 
 test("public editions fail closed while the immutable catalog is incomplete", async () => {
   const handler = createPublicEditionsHandler({

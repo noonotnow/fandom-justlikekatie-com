@@ -34,6 +34,7 @@ import { CURATION_VERSION } from "./grid-curation.js";
 import {
   boardHash,
   gridManifestKey,
+  publicationManifestCatalogKey,
 } from "./publication-manifest.js";
 import {
   ARCHIVE_ACCESS_WINDOW_KEY,
@@ -1034,6 +1035,12 @@ test("historical and archive reads prefer the verified publication manifest over
   const store = makeStore({
     [`starOfDay:v10:${date}`]: transient,
     [gridManifestKey(date)]: publicationManifest(date),
+    [publicationManifestCatalogKey()]: {
+      schemaVersion: 1,
+      catalogVersion: "v1",
+      kind: "vibe-atlas-publication-manifest-catalog",
+      dates: [date],
+    },
     [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(date),
   });
 
@@ -1061,6 +1068,46 @@ test("historical and archive reads prefer the verified publication manifest over
   assert.equal(archived.editions[0].actorName, "刘学义");
   assert.equal(archived.editions[0].vibeLabelEn, "Professionally Devastated");
   assert.deepEqual(archived.editions[0].publicRecord, payload.publicRecord);
+});
+
+test("archive does not advertise a public record for a missing or non-indexable manifest", async () => {
+  const validDate = "2026-08-29";
+  const missingDate = "2026-08-28";
+  const thinDate = "2026-08-27";
+  const valid = publicationManifest(validDate);
+  const thin = publicationManifest(thinDate);
+  thin.vibe.supportingCopyEn = "Too short";
+  const record = date => ({
+    actorPath: "/vibe-atlas/actors/liu-xueyi/",
+    editionPath: `/vibe-atlas/editions/${date}/liu-xueyi/`,
+  });
+  const editions = [validDate, missingDate, thinDate].map(date => ({
+    date,
+    actorName: "刘学义",
+    actorShortNameEn: "Liu Xueyi",
+    vibeLabel: "破碎感美人",
+    vibeLabelEn: "Professionally Devastated",
+    previewThumbnails: [],
+    publicRecord: record(date),
+    access: "member",
+  }));
+  const store = makeStore({
+    ...archiveCatalogEntries(editions),
+    [gridManifestKey(validDate)]: valid,
+    [gridManifestKey(thinDate)]: thin,
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(validDate),
+  });
+  const response = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1" },
+    contextFor(store),
+  );
+  assert.equal(response.status, 200);
+  const page = (await response.json()).editions;
+  assert.deepEqual(page.map(edition => edition.date), [validDate, missingDate, thinDate]);
+  assert.deepEqual(page[0].publicRecord, record(validDate));
+  assert.equal(Object.hasOwn(page[1], "publicRecord"), false);
+  assert.equal(Object.hasOwn(page[2], "publicRecord"), false);
+  assert.equal(store.stats().listCalls, 0);
 });
 
 test("recent Daily Drop history uses the inclusive 30-day calendar window", async () => {

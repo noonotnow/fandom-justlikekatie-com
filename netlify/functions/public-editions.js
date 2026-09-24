@@ -62,5 +62,11 @@ export function createPublicEditionsHandler({
   };
 }
 
-export const handler = createPublicEditionsHandler();
-export default handler;
+// Netlify injects the Blobs context for V2 Web Request/Response functions.
+export default async function publicEditions(request, context) {
+  const result = await createPublicEditionsHandler()(request, context);
+  return new Response(result.body, {
+    status: result.statusCode,
+    headers: result.headers,
+  });
+}
