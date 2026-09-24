@@ -81,6 +81,25 @@ test("Court Menace searches stay grounded in institutional threat rather than ge
   assert.ok(vibe.queries.some(query => query.includes("权谋")));
 });
 
+test("Zhang Linghe jade pack uses the approved bilingual editorial copy", () => {
+  const actor = ACTOR_PACKS.find(({ id }) => id === "zhang-linghe");
+  assert.ok(actor, "Zhang Linghe actor pack must exist");
+
+  const vibe = actor.vibes[3];
+  assert.ok(vibe, "Zhang Linghe jade pack must exist at vibe index 3");
+  assert.deepEqual({
+    label: vibe.label,
+    label_en: vibe.label_en,
+    subtitle: vibe.subtitle,
+    subtitle_en: vibe.subtitle_en,
+  }, {
+    label: "玉色祸水",
+    label_en: "Jade-Faced Calamity",
+    subtitle: "美得像玉，危险得像天灾。",
+    subtitle_en: "Beauty like polished jade. Consequences like a natural disaster.",
+  });
+});
+
 test("the public actor DTO is an explicit editorial allowlist", () => {
   const actor = PUBLIC_ACTOR_PACKS.find(({ id }) => id === "liu-xueyi");
   assert.ok(actor);

@@ -298,9 +298,9 @@ export const ACTOR_PACKS = [
       {
         "emoji": "🪷",
         "label": "玉色祸水",
-        "label_en": "If jade could ruin your life",
-        "subtitle": "不幸的是，他让这件事看起来像遗传",
-        "subtitle_en": "Unfortunately, he made it look hereditary",
+        "label_en": "Jade-Faced Calamity",
+        "subtitle": "美得像玉，危险得像天灾。",
+        "subtitle_en": "Beauty like polished jade. Consequences like a natural disaster.",
         "queries": [
           "张凌赫 古装 玉 宁安如梦 度华年",
           "张凌赫 度华年 古装 帅",

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createMembershipCheckout,
   hasCollectorCapability,
@@ -82,6 +82,20 @@ type PublicReleasedPackPreview = {
     cards: PublicPreviewCard[];
   };
 };
+
+function primaryReleasedCopy(english?: string, chinese?: string, fallback?: string) {
+  return english || chinese || fallback || '';
+}
+
+function secondaryReleasedCopy(english?: string, chinese?: string) {
+  return english && chinese && english !== chinese ? chinese : null;
+}
+
+function selectorReleasedCopy(english?: string, chinese?: string, fallback?: string) {
+  const primary = primaryReleasedCopy(english, chinese, fallback);
+  const secondary = secondaryReleasedCopy(english, chinese);
+  return secondary ? `${primary} · ${secondary}` : primary;
+}
 
 function safeExternalUrl(value?: string) {
   if (!value) return null;
@@ -458,14 +472,23 @@ export function ReleasedPackLibrary({
           {!packs.length && <p className="released-grid-viewer__empty" role="status">No released packs are available yet.</p>}
           <div className="released-library__filters">
             <label>Actor / 演员<select value={actor?.id || ''} onChange={event => chooseActor(event.target.value)}><option value="" disabled>Choose an actor</option>{packs.map(pack => <option key={pack.id} value={pack.id}>{pack.shortName_en || pack.name || pack.id}</option>)}</select></label>
-            <label>Vibe Pack / 氛围包<select value={selectedVibe} onChange={event => chooseVibe(event.target.value)}><option value="">All Vibe Packs</option>{vibes.map(item => <option key={`${item.label_en || item.label}-${item.vibeIdx}`} value={item.vibeIdx}>{item.label_en || item.label || `Vibe ${item.vibeIdx + 1}`}</option>)}</select></label>
+            <label>Vibe Pack / 氛围包<select value={selectedVibe} onChange={event => chooseVibe(event.target.value)}><option value="">All Vibe Packs</option>{vibes.map(item => <option key={`${item.label_en || item.label}-${item.vibeIdx}`} value={item.vibeIdx}>{selectorReleasedCopy(item.label_en, item.label, `Vibe ${item.vibeIdx + 1}`)}</option>)}</select></label>
           </div>
           {vibe && (
-            <section className="released-grid-viewer" aria-label={`${vibe.label_en || vibe.label || 'Vibe'} generated grid`}>
+            <section className="released-grid-viewer" aria-label={`${primaryReleasedCopy(vibe.label_en, vibe.label, 'Vibe')} generated grid`}>
               <div className="released-grid-viewer__heading">
                 <div>
                   <p className="membership__label">Generated from this released Vibe Pack · 来自已发布氛围包</p>
-                  <h2>{vibe.emoji || '✦'} {vibe.label_en || vibe.label || 'Vibe pack'}</h2>
+                  <h2>{vibe.emoji || '✦'} {primaryReleasedCopy(vibe.label_en, vibe.label, 'Vibe pack')}</h2>
+                  {secondaryReleasedCopy(vibe.label_en, vibe.label) && (
+                    <p className="released-library__teaser-label">{secondaryReleasedCopy(vibe.label_en, vibe.label)}</p>
+                  )}
+                  {(vibe.subtitle_en || vibe.subtitle) && (
+                    <p>{primaryReleasedCopy(vibe.subtitle_en, vibe.subtitle)}</p>
+                  )}
+                  {secondaryReleasedCopy(vibe.subtitle_en, vibe.subtitle) && (
+                    <p className="released-library__teaser-label">{secondaryReleasedCopy(vibe.subtitle_en, vibe.subtitle)}</p>
+                  )}
                   <p>Fresh results use this Vibe Pack’s search, safety, and ranking rules. Generated images are not individually hand-reviewed. / 图集为实时生成，未经逐张人工审核。</p>
                 </div>
                 <button type="button" onClick={() => void generateGrid(actor!.id, vibe.vibeIdx)} disabled={runLoading}>
@@ -484,7 +507,7 @@ export function ReleasedPackLibrary({
                   <div className="released-image-grid" aria-label="Nine image generated grid">
                     {selectedRun.images.slice(0, 9).map((image, index) => (
                       <figure className="released-image-grid__item" key={`${selectedRun.id}-${index}`}>
-                        {safeExternalUrl(image.thumbnail) ? <img src={safeExternalUrl(image.thumbnail) || undefined} alt={image.title || `${vibe.label_en || vibe.label || 'Vibe'} result ${index + 1}`} loading="lazy" /> : <div className="released-image-grid__missing" aria-label="Image unavailable">Image unavailable</div>}
+                        {safeExternalUrl(image.thumbnail) ? <img src={safeExternalUrl(image.thumbnail) || undefined} alt={image.title || `${primaryReleasedCopy(vibe.label_en, vibe.label, 'Vibe')} result ${index + 1}`} loading="lazy" /> : <div className="released-image-grid__missing" aria-label="Image unavailable">Image unavailable</div>}
                         <figcaption>
                           <span>{image.title || 'Untitled result'}</span>
                           {safeExternalUrl(image.link || image.source) && <a href={safeExternalUrl(image.link || image.source) || undefined} target="_blank" rel="noreferrer">{image.source || 'View source'} ↗</a>}
@@ -501,8 +524,14 @@ export function ReleasedPackLibrary({
             {vibes.map(item => <article className="released-pack-card" key={`${actor?.id}-${item.vibeIdx}`}>
               <span className="released-pack-card__emoji">{item.emoji || '✦'}</span>
               <p className="membership__label">{actor?.shortName_en || actor?.name}</p>
-              <h2>{item.label_en || item.label || 'Released vibe pack'}</h2>
-              <p>{item.subtitle_en || item.subtitle}</p>
+              <h2>{primaryReleasedCopy(item.label_en, item.label, 'Released vibe pack')}</h2>
+              {secondaryReleasedCopy(item.label_en, item.label) && (
+                <p className="released-library__teaser-label">{secondaryReleasedCopy(item.label_en, item.label)}</p>
+              )}
+              {(item.subtitle_en || item.subtitle) && <p>{primaryReleasedCopy(item.subtitle_en, item.subtitle)}</p>}
+              {secondaryReleasedCopy(item.subtitle_en, item.subtitle) && (
+                <p className="released-library__teaser-label">{secondaryReleasedCopy(item.subtitle_en, item.subtitle)}</p>
+              )}
               <button type="button" onClick={() => chooseVibe(String(item.vibeIdx))}>Open grid</button>
               {item.supportingCopy_en || item.supportingCopy ? <p>{item.supportingCopy_en || item.supportingCopy}</p> : null}
               {item.sourceDepth?.queries?.length ? <details onToggle={event => { if (event.currentTarget.open && actor) trackReleasedPackOpened(source, actor.id, item.vibeIdx); }}><summary>Source depth</summary><ul>{item.sourceDepth.queries.map(query => <li key={query}>{query}</li>)}</ul>{item.sourceDepth.authoringPrompt && <p>{item.sourceDepth.authoringPrompt}</p>}</details> : null}

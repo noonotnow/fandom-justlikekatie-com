@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { createElement } from 'react';
+import { act, create } from 'react-test-renderer';
 import {
   consumeReleasedLibrarySignInReturn,
   trackReleasedLibraryCheckoutStarted,
@@ -11,6 +13,190 @@ import {
   trackReleasedLibrarySignInStarted,
   trackReleasedPackOpened,
 } from '../src/utils/analytics.ts';
+import { ReleasedPackLibrary } from '../src/components/ReleasedPackLibrary/ReleasedPackLibrary.tsx';
+
+function makeGridRun(id: string) {
+  return {
+    id,
+    actorId: 'zhang-linghe',
+    vibeIdx: 2,
+    generatedAt: '2026-09-24T12:00:00.000Z',
+    source: 'search',
+    images: Array.from({ length: 9 }, (_, index) => ({
+      thumbnail: `https://example.com/${id}-${index + 1}.jpg`,
+      title: `Card ${index + 1}`,
+      link: `https://example.com/source-${index + 1}`,
+      source: 'Example Source',
+    })),
+  };
+}
+
+async function flushReleasedLibrary(times = 6) {
+  for (let index = 0; index < times; index += 1) {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+}
+
+function installReleasedLibraryEnvironment(fetchImpl: typeof fetch) {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const originalActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
+  const storage = new Map<string, string>();
+
+  globalThis.fetch = fetchImpl;
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      location: { origin: 'https://example.com', assign() {} },
+      __initialAnalyticsLocation: 'https://example.com/',
+      dataLayer: [],
+      fetch: async () => Response.json({ ok: true }),
+      localStorage: {
+        getItem(key: string) { return storage.get(key) ?? null; },
+        setItem(key: string, value: string) { storage.set(key, value); },
+        removeItem(key: string) { storage.delete(key); },
+      },
+    },
+  });
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+  return () => {
+    globalThis.fetch = originalFetch;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment;
+    if (originalWindow === undefined) {
+      Reflect.deleteProperty(globalThis, 'window');
+    } else {
+      Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow });
+    }
+  };
+}
+
+test('entitled Released Pack Library keeps English primary while rendering Chinese labels and subtitles', async () => {
+  const cleanup = installReleasedLibraryEnvironment((async (input, init) => {
+    const url = String(input);
+    if (url.endsWith('/.netlify/functions/actor-pack-depth')) {
+      return Response.json({
+        packs: [{
+          id: 'zhang-linghe',
+          name: '张凌赫',
+          shortName_en: 'Zhang Linghe',
+          title_en: 'Zhang Linghe Vibe Atlas',
+          vibes: [{
+            vibeIdx: 2,
+            emoji: '🪷',
+            label: '玉色祸水',
+            label_en: 'Jade-Faced Calamity',
+            subtitle: '美得像玉，危险得像天灾。',
+            subtitle_en: 'Beauty like polished jade. Consequences like a natural disaster.',
+          }],
+        }],
+      });
+    }
+    if (url.includes('/.netlify/functions/collector-grid?actorId=zhang-linghe&vibeIdx=2')) {
+      return Response.json({ runs: [makeGridRun('saved-run')] });
+    }
+    if (url.endsWith('/.netlify/functions/collector-grid') && init?.method === 'POST') {
+      return Response.json({ run: makeGridRun('fresh-run') });
+    }
+    return Response.json({ error: `Unexpected request: ${url}` }, { status: 404 });
+  }) as typeof fetch);
+
+  try {
+    let library: ReturnType<typeof create>;
+    await act(async () => {
+      library = create(createElement(ReleasedPackLibrary, {
+        status: { state: 'active', isMember: true, capabilities: ['fandom_collector'] },
+        membershipResolved: true,
+        actorId: 'zhang-linghe',
+        vibeIndex: 2,
+        source: 'library_navigation',
+      }));
+    });
+    await flushReleasedLibrary();
+
+    const optionText = library!.root.findAllByType('option').map(option => String(option.props.children));
+    assert.ok(optionText.includes('Jade-Faced Calamity · 玉色祸水'));
+
+    const openedMarkup = JSON.stringify(library!.toJSON());
+    assert.match(openedMarkup, /Jade-Faced Calamity/);
+    assert.match(openedMarkup, /玉色祸水/);
+    assert.match(openedMarkup, /Beauty like polished jade\. Consequences like a natural disaster\./);
+    assert.match(openedMarkup, /美得像玉，危险得像天灾。/);
+
+    const vibeSelect = library!.root.findAllByType('select')[1];
+    await act(async () => {
+      vibeSelect.props.onChange({ target: { value: '' } });
+    });
+    await flushReleasedLibrary(2);
+
+    const cardMarkup = JSON.stringify(library!.toJSON());
+    assert.match(cardMarkup, /Open grid/);
+    assert.match(cardMarkup, /Jade-Faced Calamity/);
+    assert.match(cardMarkup, /玉色祸水/);
+    assert.match(cardMarkup, /Beauty like polished jade\. Consequences like a natural disaster\./);
+    assert.match(cardMarkup, /美得像玉，危险得像天灾。/);
+
+    await act(async () => {
+      library!.unmount();
+    });
+  } finally {
+    cleanup();
+  }
+});
+
+test('signed-out Released Pack teaser keeps its existing bilingual copy without duplicating Chinese', async () => {
+  const cleanup = installReleasedLibraryEnvironment((async input => {
+    const url = String(input);
+    if (url.includes('/.netlify/functions/released-pack-preview?actorId=zhang-linghe&vibeIdx=2')) {
+      return Response.json({
+        pack: {
+          actor: { id: 'zhang-linghe', name: '张凌赫', nameEn: 'Zhang Linghe' },
+          vibeIdx: 2,
+          vibe: {
+            emoji: '🪷',
+            label: '玉色祸水',
+            labelEn: 'Jade-Faced Calamity',
+            subtitle: '美得像玉，危险得像天灾。',
+            subtitleEn: 'Beauty like polished jade. Consequences like a natural disaster.',
+          },
+          preview: {
+            copy: 'Preview copy',
+            cards: [],
+          },
+        },
+      });
+    }
+    return Response.json({ error: `Unexpected request: ${url}` }, { status: 404 });
+  }) as typeof fetch);
+
+  try {
+    let library: ReturnType<typeof create>;
+    await act(async () => {
+      library = create(createElement(ReleasedPackLibrary, {
+        status: null,
+        membershipResolved: true,
+        actorId: 'zhang-linghe',
+        vibeIndex: 2,
+        currentRelease: { actorId: 'zhang-linghe', vibeIdx: 2 },
+        source: 'daily_star',
+      }));
+    });
+    await flushReleasedLibrary();
+
+    const markup = JSON.stringify(library!.toJSON());
+    assert.equal(markup.split('玉色祸水').length - 1, 1);
+    assert.equal(markup.split('美得像玉，危险得像天灾。').length - 1, 1);
+    assert.match(markup, /Beauty like polished jade\. Consequences like a natural disaster\..*美得像玉，危险得像天灾。/);
+
+    await act(async () => {
+      library!.unmount();
+    });
+  } finally {
+    cleanup();
+  }
+});
 
 test('released pack library keeps source-depth protected while showing signed-out preview access', async () => {
   const source = await readFile(new URL('../src/components/ReleasedPackLibrary/ReleasedPackLibrary.tsx', import.meta.url), 'utf8');
