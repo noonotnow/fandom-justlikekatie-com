@@ -8,6 +8,18 @@ const emptyStore = () => ({
   async list() { return { blobs: [] }; },
 });
 
+function releasedPackPreviewCards(manifest) {
+  return manifest.cards.map(card => ({
+    position: card.position,
+    title: card.title,
+    source: card.source,
+    thumbnailUrl: card.media.thumbnailUrl,
+    deliveryUrl: card.media.deliveryUrl,
+    mimeType: card.media.mimeType,
+    dimensions: card.media.dimensions,
+  }));
+}
+
 test("public record pages fail closed without a complete approved inventory", async () => {
   const handler = createPublicRecordsHandler({ getStore: emptyStore });
   const result = await handler(new Request(
@@ -97,15 +109,7 @@ test("released pack pages expose one stable safe preview with valid structured d
     },
     preview: {
       copy: "An original editorial record with enough substantive public context for this release.",
-      cards: [{
-        position: 0,
-        title: "Approved frame",
-        source: "Publisher",
-        thumbnailUrl: "https://media.example/thumb.jpg",
-        deliveryUrl: "https://media.example/full.jpg",
-        mimeType: "image/jpeg",
-        dimensions: { width: 900, height: 1200 },
-      }],
+      cards: releasedPackPreviewCards(manifest),
     },
     publishedAt: "2026-09-03T04:00:00.000Z",
     runId: "PRIVATE-RUN",
@@ -139,7 +143,7 @@ test("released pack revocation is visible immediately and cannot reuse a shared 
     vibe: { key: "liu-xueyi:0", label: "仙门冷玉", labelEn: "Cold Jade Immortal", subtitleEn: "Approved context" },
     preview: {
       copy: "A substantive approved editorial preview that is safe for public readers.",
-      cards: [{ title: "Frame", thumbnailUrl: "https://media.example/t.jpg", deliveryUrl: "https://media.example/d.jpg" }],
+      cards: releasedPackPreviewCards(manifest),
     },
   };
   const handler = createPublicRecordsHandler({

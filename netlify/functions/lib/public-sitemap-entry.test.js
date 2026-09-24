@@ -3,6 +3,18 @@ import test from "node:test";
 import { createPublicSitemapHandler, sitemapXml } from "../public-sitemap.js";
 import { catalogStore, completeCatalog, manifestStore, publicManifest } from "../public-test-fixture.js";
 
+function releasedPackPreviewCards(manifest) {
+  return manifest.cards.map(card => ({
+    position: card.position,
+    title: card.title,
+    source: card.source,
+    thumbnailUrl: card.media.thumbnailUrl,
+    deliveryUrl: card.media.deliveryUrl,
+    mimeType: card.media.mimeType,
+    dimensions: card.media.dimensions,
+  }));
+}
+
 test("sitemap preserves static public routes and never emits query-bearing URLs", () => {
   const xml = sitemapXml(["/", "/vibe-atlas", "/vibe-atlas/actors/liu-xueyi/"]);
   assert.match(xml, /<loc>https:\/\/fandom\.justlikekatie\.com\/vibe-atlas<\/loc>/);
@@ -52,13 +64,18 @@ test("dynamic sitemap never shared-caches a partial inventory when catalog cover
 
 test("dynamic sitemap includes only the qualified released-pack catalog", async () => {
   const canonical = "https://fandom.justlikekatie.com/vibe-atlas/packs/liu-xueyi/cold-jade-immortal-0/";
+  const manifest = publicManifest();
   const handler = createPublicSitemapHandler({
-    getStore: () => manifestStore([publicManifest()]),
+    getStore: () => manifestStore([manifest]),
     buildReleaseCatalog: async () => ({
       complete: true,
       packs: [{
         canonical,
         actor: { id: "liu-xueyi", nameEn: "Liu Xueyi" },
+        preview: {
+          copy: manifest.vibe.supportingCopyEn,
+          cards: releasedPackPreviewCards(manifest),
+        },
       }],
     }),
   });
@@ -71,14 +88,19 @@ test("dynamic sitemap includes only the qualified released-pack catalog", async 
 
 test("released pack revocation disappears from a non-cacheable sitemap immediately", async () => {
   const canonical = "https://fandom.justlikekatie.com/vibe-atlas/packs/liu-xueyi/cold-jade-immortal-0/";
+  const manifest = publicManifest();
   let released = true;
   const handler = createPublicSitemapHandler({
-    getStore: () => manifestStore([publicManifest()]),
+    getStore: () => manifestStore([manifest]),
     buildReleaseCatalog: async () => ({
       complete: true,
       packs: released ? [{
         canonical,
         actor: { id: "liu-xueyi", nameEn: "Liu Xueyi" },
+        preview: {
+          copy: manifest.vibe.supportingCopyEn,
+          cards: releasedPackPreviewCards(manifest),
+        },
       }] : [],
     }),
   });
