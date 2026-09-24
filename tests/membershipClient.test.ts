@@ -5,6 +5,7 @@ import {
   canUseCollectorFeatures,
   canUseCreatorOsHandoff,
   createMembershipCheckout,
+  createMembershipPortal,
   getMembershipStatus,
   parseMembershipCapabilities,
   refreshMembershipAfterBilling,
@@ -25,16 +26,16 @@ test('membership client exposes only a safe active entitlement', async () => {
   }
 });
 
-test('portal return refreshes cached capability state until the webhook is visible', async () => {
+test('billing portal returns the management URL', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
-    assert.equal(url, '/api/membership/checkout');
+    assert.equal(url, '/api/membership/portal');
     assert.equal(init?.method, 'POST');
     assert.equal(init?.credentials, 'same-origin');
-    return new Response(JSON.stringify({ url: 'https://checkout.stripe.com/c/pay_test' }));
+    return new Response(JSON.stringify({ url: 'https://billing.stripe.com/p/session_test' }));
   }) as typeof fetch;
   try {
-    assert.equal(await createMembershipCheckout(), 'https://checkout.stripe.com/c/pay_test');
+    assert.equal(await createMembershipPortal(), 'https://billing.stripe.com/p/session_test');
   } finally {
     globalThis.fetch = originalFetch;
   }
