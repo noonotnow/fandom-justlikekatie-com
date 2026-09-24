@@ -14,6 +14,7 @@ import {
   trackReleasedPackOpened,
   type ReleasedLibrarySource,
 } from '../../utils/analytics';
+import { PUBLIC_ROUTE_PATHS } from '../../../shared/public-routes.js';
 
 type VibePack = {
   vibeIdx: number;
@@ -53,6 +54,35 @@ type GridRun = {
   images: GridImage[];
 };
 
+type PublicPreviewCard = {
+  position?: number;
+  title?: string;
+  source?: string;
+  link?: string | null;
+  thumbnailUrl?: string | null;
+  deliveryUrl?: string | null;
+};
+
+type PublicReleasedPackPreview = {
+  actor: {
+    id: string;
+    name?: string;
+    nameEn?: string;
+  };
+  vibe: {
+    emoji?: string | null;
+    label?: string;
+    labelEn?: string;
+    subtitle?: string;
+    subtitleEn?: string;
+  };
+  vibeIdx: number;
+  preview: {
+    copy: string;
+    cards: PublicPreviewCard[];
+  };
+};
+
 function safeExternalUrl(value?: string) {
   if (!value) return null;
   try {
@@ -68,12 +98,23 @@ interface Props {
   membershipResolved: boolean;
   actorId?: string | null;
   vibeIndex?: number | null;
+  currentRelease?: { actorId: string; vibeIdx: number } | null;
   source: ReleasedLibrarySource;
 }
 
-export function ReleasedPackLibrary({ status, membershipResolved, actorId, vibeIndex, source }: Props) {
+export function ReleasedPackLibrary({
+  status,
+  membershipResolved,
+  actorId,
+  vibeIndex,
+  currentRelease = null,
+  source,
+}: Props) {
   const entitled = hasCollectorCapability(status);
   const [packs, setPacks] = useState<ActorPack[]>([]);
+  const [publicPreview, setPublicPreview] = useState<PublicReleasedPackPreview | null>(null);
+  const [publicPreviewLoading, setPublicPreviewLoading] = useState(false);
+  const [publicPreviewError, setPublicPreviewError] = useState('');
   const [selectedActor, setSelectedActor] = useState(actorId || '');
   const [selectedVibe, setSelectedVibe] = useState(vibeIndex == null ? '' : String(vibeIndex));
   const [loading, setLoading] = useState(false);
@@ -128,6 +169,46 @@ export function ReleasedPackLibrary({ status, membershipResolved, actorId, vibeI
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [entitled]);
+
+  useEffect(() => {
+    if (entitled || !actorId || vibeIndex == null) {
+      setPublicPreview(null);
+      setPublicPreviewError('');
+      setPublicPreviewLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const controller = new AbortController();
+    setPublicPreviewLoading(true);
+    setPublicPreview(null);
+    setPublicPreviewError('');
+    fetch(`/.netlify/functions/released-pack-preview?actorId=${encodeURIComponent(actorId)}&vibeIdx=${encodeURIComponent(vibeIndex)}`, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    })
+      .then(async response => {
+        const body = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(body?.error || 'Public preview is temporarily unavailable.');
+        if (!body?.pack || body.pack.actor?.id !== actorId || body.pack.vibeIdx !== vibeIndex) {
+          throw new Error('Public preview is temporarily unavailable.');
+        }
+        if (!cancelled) setPublicPreview(body.pack);
+      })
+      .catch(err => {
+        if (controller.signal.aborted) return;
+        if (!cancelled) {
+          setPublicPreview(null);
+          setPublicPreviewError(err instanceof Error ? err.message : 'Public preview is temporarily unavailable.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPublicPreviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [actorId, entitled, vibeIndex]);
 
   const actor = useMemo(
     () => packs.find(pack => pack.id === selectedActor) || packs[0],
@@ -283,18 +364,73 @@ export function ReleasedPackLibrary({ status, membershipResolved, actorId, vibeI
     }
   }
 
+  const publicPreviewFreeToday = publicPreview
+    && currentRelease?.actorId === publicPreview.actor.id
+    && currentRelease?.vibeIdx === publicPreview.vibeIdx;
+
+  const selectedRunSourceLabel = selectedRun?.source === 'fallback'
+    ? 'Image source: backup search · 备用搜索源'
+    : selectedRun?.source
+      ? `Source: ${selectedRun.source}`
+      : null;
+
   if (!entitled) {
     return (
       <main className="released-library">
         <header className="released-library__hero">
-          <p className="membership__label">Vibe Atlas Collector library</p>
-          <h1>Released packs, ready when you are.</h1>
-          <p>Every approved actor × vibe pairing gets a useful editorial preview. The full source-depth pack is reserved for Fandom Collectors.</p>
+          <p className="membership__label">Fandom Collector · 已发布 Vibe Packs</p>
+          <h1>The Vibe Atlas library.</h1>
+          <p>Explore released actor × vibe packs—and generate a fresh 图集 from each one. Every grid is saved to your account.</p>
         </header>
+        {publicPreviewLoading && <p role="status">Loading public teaser…</p>}
+        {publicPreview && (
+          <section className="released-library__teaser" aria-labelledby="released-pack-preview-title">
+            <div className="released-library__teaser-copy">
+              <p className="membership__label">Public teaser · 公开预览</p>
+              <h2 id="released-pack-preview-title">{publicPreview.vibe.emoji || '✦'} {publicPreview.vibe.labelEn || publicPreview.vibe.label}</h2>
+              {publicPreview.vibe.label && publicPreview.vibe.labelEn && publicPreview.vibe.label !== publicPreview.vibe.labelEn && (
+                <p className="released-library__teaser-label">{publicPreview.vibe.label}</p>
+              )}
+              <p><strong>Actor / 演员:</strong> {publicPreview.actor.nameEn || publicPreview.actor.name || publicPreview.actor.id}{publicPreview.actor.name && publicPreview.actor.nameEn && publicPreview.actor.name !== publicPreview.actor.nameEn ? ` · ${publicPreview.actor.name}` : ''}</p>
+              {(publicPreview.vibe.subtitleEn || publicPreview.vibe.subtitle) && (
+                <p>{publicPreview.vibe.subtitleEn || publicPreview.vibe.subtitle}{publicPreview.vibe.subtitle && publicPreview.vibe.subtitleEn && publicPreview.vibe.subtitle !== publicPreview.vibe.subtitleEn ? ` · ${publicPreview.vibe.subtitle}` : ''}</p>
+              )}
+              <p>{publicPreview.preview.copy}</p>
+              <p className="released-grid-viewer__empty">This Vibe Pack / 氛围包 is the reusable editorial sourceboard. Each grid / 图集 is freshly generated from its search, safety, and ranking rules.</p>
+            </div>
+            <div className="released-image-grid released-image-grid--preview" aria-label="Released Vibe Pack public teaser">
+              {publicPreview.preview.cards.map((image, index) => {
+                const previewImageUrl = safeExternalUrl(image.thumbnailUrl || image.deliveryUrl || undefined);
+                const previewLinkUrl = safeExternalUrl(image.link || undefined);
+                return (
+                  <figure className="released-image-grid__item" key={`${publicPreview.actor.id}-${publicPreview.vibeIdx}-${image.link || image.thumbnailUrl || index}`}>
+                    {previewImageUrl
+                      ? <img src={previewImageUrl} alt={image.title || `${publicPreview.vibe.labelEn || publicPreview.vibe.label || 'Vibe Pack'} preview ${index + 1}`} loading="lazy" />
+                      : <div className="released-image-grid__missing" aria-label="Preview image unavailable">Preview unavailable</div>}
+                    <figcaption>
+                      <span>{image.title || 'Preview card'}</span>
+                      {previewLinkUrl && <a href={previewLinkUrl} target="_blank" rel="noreferrer">{image.source || 'View source'} ↗</a>}
+                    </figcaption>
+                  </figure>
+                );
+              })}
+            </div>
+            <div className="released-library__teaser-access">
+              <h3>Access / 访问</h3>
+              <p>The full Vibe Pack is included with Collector membership.</p>
+              <p>{publicPreviewFreeToday ? 'Free today: this release is the current Star of the Day Vibe Pack on the Vibe Atlas homepage.' : 'This release unlocks publicly when it is the Star of the Day, using the existing daily unlock flow.'}</p>
+              <div className="released-library__teaser-actions">
+                {publicPreviewFreeToday && <a href="/vibe-atlas#todays-released-pack">Open today’s free pack</a>}
+                <a href={PUBLIC_ROUTE_PATHS.vibeAtlas}>Browse today’s Vibe Atlas homepage</a>
+              </div>
+            </div>
+          </section>
+        )}
+        {publicPreviewError && <p className="membership__notice" role="alert">{publicPreviewError}</p>}
         <section className="released-library__locked" aria-label="Collector library access">
           <span className="released-library__lock" aria-hidden="true">✦</span>
           <div>
-            <h2>Unlock the full released-pack library</h2>
+            <h2>{publicPreview ? 'Unlock the full released Vibe Pack' : 'Unlock the full released-pack library'}</h2>
             <p>Sign in to continue with your account, or become a Collector to browse every released actor and vibe.</p>
             <form onSubmit={signIn} className="released-library__sign-in">
               <label htmlFor="released-library-email">Already have an account?</label>
@@ -311,9 +447,9 @@ export function ReleasedPackLibrary({ status, membershipResolved, actorId, vibeI
   return (
     <main className="released-library">
       <header className="released-library__hero">
-        <p className="membership__label">Fandom Collector · Released packs</p>
+        <p className="membership__label">Fandom Collector · 已发布 Vibe Packs</p>
         <h1>The Vibe Atlas library.</h1>
-        <p>Explore fresh image grids from approved actor × vibe packs. Each generated grid is saved to your account.</p>
+        <p>Explore released actor × vibe packs—and generate a fresh 图集 from each one. Every grid is saved to your account.</p>
       </header>
       {loading && <p role="status">Loading released packs…</p>}
       {error && <p className="membership__notice" role="alert">{error}</p>}
@@ -321,19 +457,19 @@ export function ReleasedPackLibrary({ status, membershipResolved, actorId, vibeI
         <>
           {!packs.length && <p className="released-grid-viewer__empty" role="status">No released packs are available yet.</p>}
           <div className="released-library__filters">
-            <label>Actor<select value={actor?.id || ''} onChange={event => chooseActor(event.target.value)}><option value="" disabled>Choose an actor</option>{packs.map(pack => <option key={pack.id} value={pack.id}>{pack.shortName_en || pack.name || pack.id}</option>)}</select></label>
-            <label>Vibe<select value={selectedVibe} onChange={event => chooseVibe(event.target.value)}><option value="">All vibes</option>{vibes.map(item => <option key={`${item.label_en || item.label}-${item.vibeIdx}`} value={item.vibeIdx}>{item.label_en || item.label || `Vibe ${item.vibeIdx + 1}`}</option>)}</select></label>
+            <label>Actor / 演员<select value={actor?.id || ''} onChange={event => chooseActor(event.target.value)}><option value="" disabled>Choose an actor</option>{packs.map(pack => <option key={pack.id} value={pack.id}>{pack.shortName_en || pack.name || pack.id}</option>)}</select></label>
+            <label>Vibe Pack / 氛围包<select value={selectedVibe} onChange={event => chooseVibe(event.target.value)}><option value="">All Vibe Packs</option>{vibes.map(item => <option key={`${item.label_en || item.label}-${item.vibeIdx}`} value={item.vibeIdx}>{item.label_en || item.label || `Vibe ${item.vibeIdx + 1}`}</option>)}</select></label>
           </div>
           {vibe && (
             <section className="released-grid-viewer" aria-label={`${vibe.label_en || vibe.label || 'Vibe'} generated grid`}>
               <div className="released-grid-viewer__heading">
                 <div>
-                  <p className="membership__label">Generated from the approved pack</p>
+                  <p className="membership__label">Generated from this released Vibe Pack · 来自已发布氛围包</p>
                   <h2>{vibe.emoji || '✦'} {vibe.label_en || vibe.label || 'Vibe pack'}</h2>
-                  <p>Fresh results use this pack’s approved search, safety, and ranking rules. Generated images are not individually hand-reviewed.</p>
+                  <p>Fresh results use this Vibe Pack’s search, safety, and ranking rules. Generated images are not individually hand-reviewed. / 图集为实时生成，未经逐张人工审核。</p>
                 </div>
                 <button type="button" onClick={() => void generateGrid(actor!.id, vibe.vibeIdx)} disabled={runLoading}>
-                  {runLoading ? 'Generating…' : selectedRun ? 'Refresh grid' : 'Open fresh grid'}
+                  {runLoading ? 'Generating…' : selectedRun ? 'Refresh grid · 换一组' : 'Open fresh grid · 打开图集'}
                 </button>
               </div>
               {runError && <p className="membership__notice" role="alert">{runError}</p>}
@@ -342,7 +478,7 @@ export function ReleasedPackLibrary({ status, membershipResolved, actorId, vibeI
                 <>
                   <div className="released-grid-viewer__meta">
                     <span>{new Date(selectedRun.generatedAt).toLocaleString()}</span>
-                    {selectedRun.source && <span>Source: {selectedRun.source}</span>}
+                    {selectedRunSourceLabel && <span>{selectedRunSourceLabel}</span>}
                     {runs.length > 1 && <label>Saved run<select value={selectedRun.id} onChange={event => setSelectedRun(runs.find(run => run.id === event.target.value) || selectedRun)}>{runs.map(run => <option key={run.id} value={run.id}>{new Date(run.generatedAt).toLocaleString()}</option>)}</select></label>}
                   </div>
                   <div className="released-image-grid" aria-label="Nine image generated grid">

@@ -14,6 +14,7 @@
     "archetypes-cold-vs-tsundere",
     "archetypes-black-bellied-white-cut-black",
     "archetypes-white-moonlight-cinnabar-mole",
+    "vibing-now-index",
     "drama-against-the-current-episode-21",
     "drama-lbfad",
     "drama-lbfad-relationships",

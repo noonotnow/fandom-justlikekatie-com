@@ -4,6 +4,15 @@ export type FandomProductRoute = 'launchpad' | 'vibe-atlas' | 'middle-earth' | '
 
 const EDITION_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+export function vibeAtlasPath(params?: Record<string, string | number | null | undefined>): string {
+  const query = new URLSearchParams(
+    Object.entries(params ?? {})
+      .filter(([, value]) => value !== null && value !== undefined && value !== '')
+      .map(([key, value]) => [key, String(value)]),
+  ).toString();
+  return `${PUBLIC_ROUTE_PATHS.vibeAtlas}${query ? `?${query}` : ''}`;
+}
+
 export function isAdminEntryLocation(pathname: string, search = '', hash = ''): boolean {
   if (new URLSearchParams(search).get('admin') === 'true') return true;
   return pathname === '/auth/verify'

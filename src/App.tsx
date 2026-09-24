@@ -42,6 +42,7 @@ import {
   isVibeAtlasArchiveLocation,
   isPublishingHandoffPreview,
   resolveFandomProductRoute,
+  vibeAtlasPath,
 } from './utils/fandomRoutes';
 import { buildDailyDropPool } from './utils/gridBuilder';
 import './App.css';
@@ -528,14 +529,14 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     destination: 'daily' | 'collection' | 'membership' | 'released',
     tab: 'grids' | 'results' | 'builder' = 'grids',
   ) => {
-    const search = destination === 'daily'
-      ? ''
+    const nextPath = destination === 'daily'
+      ? vibeAtlasPath()
       : destination === 'membership'
-        ? '?view=membership'
+        ? vibeAtlasPath({ view: 'membership' })
       : destination === 'released'
-        ? '?view=released'
-        : `?view=${tab === 'grids' ? 'collection' : tab}`;
-    window.history.pushState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}${search}`);
+        ? vibeAtlasPath({ view: 'released' })
+        : vibeAtlasPath({ view: tab === 'grids' ? 'collection' : tab });
+    window.history.pushState({}, '', nextPath);
     setArchivePage(false);
     setCollectionTab(tab);
     setBuilderSource('collection');
@@ -895,7 +896,12 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
            <div className="daily-released-pack__access">
              <strong>Today’s pack is free on this homepage.</strong>
              <p>The full released-pack library stays available to Fandom Collectors.</p>
-             <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=released&source=daily_star&actorId=${encodeURIComponent(rawData.actorId)}&vibeIdx=${rawData.vibeIdx ?? ''}`}>
+             <a href={vibeAtlasPath({
+               view: 'released',
+               source: 'daily_star',
+               actorId: rawData.actorId,
+               vibeIdx: rawData.vibeIdx,
+             })}>
                Open the Collector library
              </a>
            </div>
@@ -991,6 +997,12 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         <ReleasedPackLibrary
           status={membershipStatus}
           membershipResolved={membershipResolved}
+          currentRelease={rawData?.actorId && Number.isInteger(rawData?.vibeIdx)
+            ? {
+              actorId: rawData.actorId,
+              vibeIdx: rawData.vibeIdx as number,
+            }
+            : null}
           source={(() => {
             const value = new URLSearchParams(window.location.search).get('source');
             return value === 'daily_star' || value === 'public_record'

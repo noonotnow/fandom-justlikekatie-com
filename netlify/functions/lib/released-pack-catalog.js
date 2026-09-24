@@ -136,6 +136,7 @@ export async function releasedPackCatalog(
           label: vibe.label || vibe.label_en || "",
           labelEn: vibe.label_en || vibe.label || "",
           emoji: vibe.emoji || null,
+          subtitle: vibe.subtitle || vibe.subtitle_en || "",
           subtitleEn: vibe.subtitle_en || vibe.subtitle || "",
         },
         preview,

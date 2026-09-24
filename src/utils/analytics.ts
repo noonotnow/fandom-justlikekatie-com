@@ -1,4 +1,5 @@
 import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
+import { vibeAtlasPath } from './fandomRoutes';
 import type { CreatorPlatform } from './creatorDraft';
 
 type AnalyticsData = Record<string, string | number | boolean>;
@@ -164,7 +165,7 @@ function recordReleasedPackEvent(event: string, data: AnalyticsData): void {
 
 export function trackReleasedLibraryPageView(source: ReleasedLibrarySource, actorId?: string | null, vibeIndex?: number | null): void {
   recordReleasedPackEvent('released_library_page_view', releasedPackData(source, actorId, vibeIndex));
-  const location = `${window.location?.origin ?? ''}${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=released`;
+  const location = `${window.location?.origin ?? ''}${vibeAtlasPath({ view: 'released' })}`;
   if (window.__initialAnalyticsLocation !== location) {
     try { window.gtag?.('event', 'page_view', { page_location: location }); } catch { /* Optional analytics. */ }
   }

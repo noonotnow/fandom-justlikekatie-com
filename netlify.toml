@@ -250,6 +250,11 @@ to = "/c-drama-fandom/fandom-games/index.html"
 status = 200
 
 [[redirects]]
+from = "/c-drama-fandom/vibing-now"
+to = "/c-drama-fandom/vibing-now/index.html"
+status = 200
+
+[[redirects]]
 from = "/c-drama-fandom/vibing-now/against-the-current-episode-21"
 to = "/c-drama-fandom/vibing-now/against-the-current-episode-21/index.html"
 status = 200
