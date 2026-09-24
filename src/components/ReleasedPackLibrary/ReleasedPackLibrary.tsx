@@ -186,7 +186,10 @@ export function ReleasedPackLibrary({
       .then(async response => {
         const body = await response.json().catch(() => null);
         if (!response.ok) throw new Error(body?.error || 'Public preview is temporarily unavailable.');
-        if (!cancelled) setPublicPreview(body?.pack ?? null);
+        if (!body?.pack || body.pack.actor?.id !== actorId || body.pack.vibeIdx !== vibeIndex) {
+          throw new Error('Public preview is temporarily unavailable.');
+        }
+        if (!cancelled) setPublicPreview(body.pack);
       })
       .catch(err => {
         if (!cancelled) {
@@ -387,17 +390,21 @@ export function ReleasedPackLibrary({
               <p className="released-grid-viewer__empty">This Vibe Pack / 氛围包 is the reusable editorial sourceboard. Each grid / 图集 is freshly generated from its search, safety, and ranking rules.</p>
             </div>
             <div className="released-image-grid released-image-grid--preview" aria-label="Released Vibe Pack public teaser">
-              {publicPreview.preview.cards.map((image, index) => (
-                <figure className="released-image-grid__item" key={`${publicPreview.actor.id}-${publicPreview.vibeIdx}-${image.link || image.thumbnailUrl || index}`}>
-                  {safeExternalUrl(image.thumbnailUrl || image.deliveryUrl || undefined)
-                    ? <img src={safeExternalUrl(image.thumbnailUrl || image.deliveryUrl || undefined) || undefined} alt={image.title || `${publicPreview.vibe.labelEn || publicPreview.vibe.label || 'Vibe Pack'} preview ${index + 1}`} loading="lazy" />
-                    : <div className="released-image-grid__missing" aria-label="Preview image unavailable">Preview unavailable</div>}
-                  <figcaption>
-                    <span>{image.title || 'Preview card'}</span>
-                    {safeExternalUrl(image.link || undefined) && <a href={safeExternalUrl(image.link || undefined) || undefined} target="_blank" rel="noreferrer">{image.source || 'View source'} ↗</a>}
-                  </figcaption>
-                </figure>
-              ))}
+              {publicPreview.preview.cards.map((image, index) => {
+                const previewImageUrl = safeExternalUrl(image.thumbnailUrl || image.deliveryUrl || undefined);
+                const previewLinkUrl = safeExternalUrl(image.link || undefined);
+                return (
+                  <figure className="released-image-grid__item" key={`${publicPreview.actor.id}-${publicPreview.vibeIdx}-${image.link || image.thumbnailUrl || index}`}>
+                    {previewImageUrl
+                      ? <img src={previewImageUrl} alt={image.title || `${publicPreview.vibe.labelEn || publicPreview.vibe.label || 'Vibe Pack'} preview ${index + 1}`} loading="lazy" />
+                      : <div className="released-image-grid__missing" aria-label="Preview image unavailable">Preview unavailable</div>}
+                    <figcaption>
+                      <span>{image.title || 'Preview card'}</span>
+                      {previewLinkUrl && <a href={previewLinkUrl} target="_blank" rel="noreferrer">{image.source || 'View source'} ↗</a>}
+                    </figcaption>
+                  </figure>
+                );
+              })}
             </div>
             <div className="released-library__teaser-access">
               <h3>Access / 访问</h3>
