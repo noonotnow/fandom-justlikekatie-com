@@ -483,7 +483,7 @@ export function ReleasedPackLibrary({
                   </div>
                   <div className="released-image-grid" aria-label="Nine image generated grid">
                     {selectedRun.images.slice(0, 9).map((image, index) => (
-                      <figure className="released-image-grid__item" key={`${selectedRun.id}-${image.link || image.thumbnail || index}`}>
+                      <figure className="released-image-grid__item" key={`${selectedRun.id}-${index}`}>
                         {safeExternalUrl(image.thumbnail) ? <img src={safeExternalUrl(image.thumbnail) || undefined} alt={image.title || `${vibe.label_en || vibe.label || 'Vibe'} result ${index + 1}`} loading="lazy" /> : <div className="released-image-grid__missing" aria-label="Image unavailable">Image unavailable</div>}
                         <figcaption>
                           <span>{image.title || 'Untitled result'}</span>

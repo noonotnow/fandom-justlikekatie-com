@@ -1287,6 +1287,42 @@ test("selectedPair runs the approved pair fresh and never publishes", async () =
   }), null);
 });
 
+test("Collector refresh bypasses cache and prefers new candidates, filling from earlier images if needed", async () => {
+  const actor = {
+    id: "collector", name: "Collector", shortName_en: "Collector",
+    vibes: [{ label: "Vibe", label_en: "Vibe", queries: ["collector-query"] }],
+  };
+  const previous = Array.from({ length: 9 }, (_, index) => ({
+    thumbnail: `https://images.test/previous-${index}.jpg`,
+  }));
+  const novel = { thumbnail: "https://images.test/new.jpg" };
+  const modes = [];
+  const attempts = [];
+  const payload = await buildPayloadForDate("2026-09-03", makeStore(approvedEligibility(actor, 0)), {
+    packs: [actor],
+    selectedPair: { actorId: actor.id, vibeIdx: 0 },
+    excludedCollectorThumbnails: previous.map(image => image.thumbnail),
+    refreshCollectorSearch: true,
+    search: async (_query, options) => {
+      modes.push(options?.cacheMode);
+      return { results: [...previous, novel] };
+    },
+    evaluate: async (_queries, search) => [{
+      query: "collector-query", results: (await search("collector-query")).results,
+    }],
+    rank: batches => batches,
+    curate: async batches => {
+      const results = batches.flatMap(batch => batch.results);
+      attempts.push(results.length);
+      return { displayResults: results.length >= 9 ? results.slice(0, 9) : [], curation: { mode: "compiled" } };
+    },
+  });
+  assert.deepEqual(modes, ["refresh"]);
+  assert.deepEqual(attempts, [1, 10]);
+  assert.equal(payload.displayResults.length, 9);
+  assert.ok(payload.displayResults.some(image => image.thumbnail === novel.thumbnail));
+});
+
 test("a repeated pairing refreshes search and rearranges the same nine when refresh cannot improve them", async () => {
   const actor = {
     id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",

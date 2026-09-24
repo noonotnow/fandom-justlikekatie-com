@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
 import { json } from "./public-auth.js";
@@ -173,6 +173,18 @@ export function createCollectorGridHandler({
         }
       }
       const searchAttempts = [];
+      const key = indexKey(session.user.accountId, pair.actorId, pair.vibeIdx);
+      const previousIndex = await store.get(key, { type: "json", consistency: "strong" });
+      const previousId = Array.isArray(previousIndex?.ids) ? previousIndex.ids[0] : null;
+      const previousRun = typeof previousId === "string"
+        ? await store.get(runKey(session.user.accountId, previousId), { type: "json", consistency: "strong" })
+        : null;
+      if (previousId && !previousRun) {
+        return json(503, { error: "The previous saved grid could not be checked. Please try again later." }, NO_STORE);
+      }
+      if (previousRun && (!Array.isArray(previousRun.images) || previousRun.images.length !== 9)) {
+        return json(503, { error: "The previous saved grid could not be checked. Please try again later." }, NO_STORE);
+      }
       const search = async (query, options = {}) => {
         const attempt = { query: boundedText(query), provider: null, providerFetchOrder: [], resultCount: null };
         try {
@@ -191,24 +203,57 @@ export function createCollectorGridHandler({
         packs: actorPacks,
         selectedPair: pair,
         search,
+        refreshCollectorSearch: Boolean(previousRun),
+        excludedCollectorThumbnails: (previousRun?.images || []).map(image => image.sourceThumbnail).filter(Boolean),
       });
       if (!payload?.displayResults || payload.displayResults.length < 9) {
-        return json(503, { error: "Fresh grid generation was unavailable." }, NO_STORE);
+        return json(503, { error: previousRun
+          ? "No different safe nine-image board is available for this pairing yet. Your saved grid is unchanged."
+          : "Fresh grid generation was unavailable." }, NO_STORE);
       }
       const generatedAt = typeof payload.generatedAt === "string" ? payload.generatedAt : now().toISOString();
       const images = payload.displayResults.slice(0, 9).map(safeImage);
       if (images.length !== 9 || images.some(image => !image)) {
         return json(502, { error: "Generated grid contained invalid public image URLs." }, NO_STORE);
       }
+      // Legacy runs predate source thumbnails and checksums. Read their durable
+      // MEDIA copies so a URL change or rearrangement cannot masquerade as new art.
+      let priorChecksums = [];
+      try {
+        priorChecksums = await Promise.all((previousRun?.images || []).map(async image => {
+          if (image.imageChecksum) return image.imageChecksum;
+          const prior = await fetchImage(image.thumbnail, fetchImpl);
+          return createHash("sha256").update(prior.bytes).digest("hex");
+        }));
+      } catch {
+        return json(503, { error: "The previous saved images could not be checked. Your saved grid is unchanged." }, NO_STORE);
+      }
       const runId = randomUUID();
       const durableImages = [];
       try {
         for (let index = 0; index < images.length; index += 1) {
-          const candidate = payload.displayResults[index];
           const fetched = await fetchImage(images[index].thumbnail, fetchImpl);
-          const media = await registerMedia({
+          const imageChecksum = createHash("sha256").update(fetched.bytes).digest("hex");
+          // Fetch and validate the full board before writing any new MEDIA copies.
+          durableImages.push({
+            ...images[index],
+            sourceThumbnail: images[index].thumbnail,
+            imageChecksum,
             bytes: fetched.bytes,
             contentType: fetched.contentType,
+          });
+        }
+        if (previousRun && priorChecksums.length === 9
+          && durableImages.length === 9
+          && durableImages.every(image => priorChecksums.includes(image.imageChecksum))
+          && priorChecksums.every(checksum => durableImages.some(image => image.imageChecksum === checksum))) {
+          return json(409, { error: "No different safe nine-image board is available for this pairing yet. Your saved grid is unchanged." }, NO_STORE);
+        }
+        for (let index = 0; index < durableImages.length; index += 1) {
+          const image = durableImages[index];
+          const media = await registerMedia({
+            bytes: image.bytes,
+            contentType: image.contentType,
             association: { type: "collection", id: runId, itemId: `card-${index + 1}` },
             filename: `fandom-collector-${pair.actorId}-${pair.vibeIdx}-${index + 1}`,
             idempotencyKey: `collector-grid/${runId}/card-${index + 1}`,
@@ -229,11 +274,13 @@ export function createCollectorGridHandler({
           if (!publicHttpsUrl(media?.thumbnailUrl)) {
             throw Object.assign(new Error("MEDIA returned an invalid thumbnail URL."), { status: 502 });
           }
-          durableImages.push({
+          durableImages[index] = {
             ...images[index],
+            sourceThumbnail: image.sourceThumbnail,
+            imageChecksum: image.imageChecksum,
             thumbnail: media.thumbnailUrl,
             mediaAssetId: boundedText(media.assetId, 128),
-          });
+          };
         }
       } catch (error) {
         return json(error?.status || 502, {
@@ -280,7 +327,6 @@ export function createCollectorGridHandler({
         },
       };
       await store.setJSON(runKey(session.user.accountId, run.id), run);
-      const key = indexKey(session.user.accountId, pair.actorId, pair.vibeIdx);
       let appended = false;
       for (let attempt = 0; attempt < 3 && !appended; attempt += 1) {
         const prior = typeof store.getWithMetadata === "function"
