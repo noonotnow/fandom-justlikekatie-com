@@ -7,10 +7,10 @@ import {
   readPublicationManifests,
 } from "./lib/publication-manifest.js";
 import {
+  isIndexableReleasedPack,
   releasedPackCatalog,
   publicReleasedPack,
   releasedPackActorSlug,
-  releasedPackPath,
   RELEASED_PACK_PATH,
 } from "./lib/released-pack-catalog.js";
 import { ACTOR_PACKS } from "./lib/actor-packs.js";
@@ -122,30 +122,39 @@ export function createPublicRecordsHandler({
     if (request.method && request.method !== "GET") return response(405, "<h1>Method not allowed</h1>", { Allow: "GET" });
     const url = new URL(request.url || PUBLIC_VIBE_ATLAS_ORIGIN);
     const parts = url.pathname.split("/").filter(Boolean);
-    const { manifests, inventory } = await readPublicationManifests(getStore("star-of-day", context));
+    const publicationStore = getStore("star-of-day", context);
+    const { manifests, inventory } = await readPublicationManifests(publicationStore);
     if (!inventory.complete) return response(503, "<h1>Public record inventory is not ready.</h1>");
-    const releaseCatalog = await buildReleaseCatalog(
-      getStore(eligibilityStoreName, context),
-      { publicationStore: getStore("star-of-day", context), actorPacks },
-    );
-    if (!releaseCatalog.complete) return response(503, "<h1>Released pack inventory is not ready.</h1>");
     const directory = publicActorDirectory(manifests);
-    if (parts[1] === "packs" && parts.length === 4) {
-      const pack = releaseCatalog.packs.find(item =>
-        item.canonical.endsWith(`/${parts[2]}/${parts[3]}/`));
-      return pack ? renderReleasedPack(publicReleasedPack(pack), url.search) : notFound();
+
+    if (parts[1] === "packs") {
+      const releaseCatalog = await buildReleaseCatalog(
+        getStore(eligibilityStoreName, context),
+        { publicationStore, actorPacks },
+      );
+      if (!releaseCatalog.complete || releaseCatalog.indexingComplete === false) {
+        return response(503, "<h1>Released pack inventory is not ready.</h1>");
+      }
+      const packs = releaseCatalog.packs.filter(isIndexableReleasedPack);
+      if (parts.length === 4) {
+        const pack = packs.find(item =>
+          item.canonical.endsWith(`/${parts[2]}/${parts[3]}/`));
+        return pack ? renderReleasedPack(publicReleasedPack(pack), url.search) : notFound();
+      }
+      if (parts.length === 3) {
+        const actorPacksForRoute = packs.filter(item =>
+          releasedPackActorSlug(item.actor) === parts[2]);
+        if (!actorPacksForRoute.length) return notFound();
+        const actor = actorPacksForRoute[0].actor;
+        return renderReleasedActor({
+          ...actor,
+          canonical: `${new URL(actorPacksForRoute[0].canonical).origin}${RELEASED_PACK_PATH}/${parts[2]}/`,
+          packs: actorPacksForRoute.map(publicReleasedPack),
+        }, url.search);
+      }
+      return notFound();
     }
-    if (parts[1] === "packs" && parts.length === 3) {
-      const packs = releaseCatalog.packs.filter(item =>
-        releasedPackActorSlug(item.actor) === parts[2]);
-      if (!packs.length) return notFound();
-      const actor = packs[0].actor;
-      return renderReleasedActor({
-        ...actor,
-        canonical: `${new URL(packs[0].canonical).origin}${RELEASED_PACK_PATH}/${parts[2]}/`,
-        packs: packs.map(publicReleasedPack),
-      }, url.search);
-    }
+
     if (parts[1] === "actors" && parts.length === 3) {
       const actor = directory.find(item => publicActorSlug(item) === parts[2]);
       return actor ? renderActor(actor, url.search) : notFound();
