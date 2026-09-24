@@ -130,6 +130,8 @@ export async function buildPayloadForDate(
     mediaEnv = process.env,
     fetchImpl = fetch,
     selectedPair = null,
+    excludedCollectorThumbnails = [],
+    refreshCollectorSearch = false,
   } = {},
 ) {
   if (!selectedPair && !await hasReleaseReadyCohort(packs, eligibilityStore, MIN_RELEASE_READY_PAIRS)) return null;
@@ -179,7 +181,10 @@ export async function buildPayloadForDate(
       generatedAt,
     });
     const searchQueries = searchQueriesFor(actor, seed.vIdx, approval.calibrationProfile);
-    const candidates = await evaluate(searchQueries, search);
+    const candidates = await evaluate(
+      searchQueries,
+      refreshCollectorSearch ? query => search(query, { cacheMode: "refresh" }) : search,
+    );
     let ranked = rank(candidates).slice(0, RANKED_BATCH_LIMIT);
 
     if (!ranked.length) {
@@ -190,7 +195,7 @@ export async function buildPayloadForDate(
       continue;
     }
 
-    let { displayResults, curation } = await curate(ranked, {
+    const curationOptions = {
       promise: vibePromiseFor(actor, seed.vIdx),
       calibrationProfile: approval.calibrationProfile || null,
       preferredCandidateIds: approval.calibrationProfile?.positiveCandidateIds || [],
@@ -199,7 +204,29 @@ export async function buildPayloadForDate(
         aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
         promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
       },
-    });
+    };
+    // Collector refreshes prefer new images without weakening image-safety gates.
+    const excludedThumbnails = new Set(excludedCollectorThumbnails);
+    const freshRanked = selectedPair && excludedThumbnails.size
+      ? ranked.map(batch => ({
+        ...batch,
+        results: (batch.results || []).filter(result => !excludedThumbnails.has(result.thumbnail)),
+      }))
+      : ranked;
+    let { displayResults, curation } = await curate(freshRanked, curationOptions);
+    if (selectedPair && excludedThumbnails.size && displayResults.length < 9) {
+      const mixedRanked = [
+        ...freshRanked,
+        ...ranked.map(batch => ({
+          ...batch,
+          results: (batch.results || []).filter(result => excludedThumbnails.has(result.thumbnail)),
+        })),
+      ];
+      ({ displayResults, curation } = await curate(mixedRanked, curationOptions));
+      if (displayResults.length < 9) {
+        ({ displayResults, curation } = await curate(ranked, curationOptions));
+      }
+    }
     if (displayResults.length >= 9 && pairHistory.length) {
       const initialOverlap = greatestBoardOverlap(displayResults, pairHistory);
       if (initialOverlap >= 7) {

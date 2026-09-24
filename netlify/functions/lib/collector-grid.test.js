@@ -126,6 +126,47 @@ test("Collector grid uses selected pair and writes only private run storage", as
   assert.equal((await listed.json()).runs.length, 1);
 });
 
+test("refresh searches again but never saves an unchanged nine-image board", async () => {
+  let builds = 0;
+  let copies = 0;
+  const { handler, storage } = handlerFor({
+    build: async (_date, _store, options) => {
+      builds += 1;
+      assert.equal(options.refreshCollectorSearch, builds > 1);
+      if (builds > 1) assert.equal(options.excludedCollectorThumbnails.length, 9);
+      return {
+        displayResults: Array.from({ length: 9 }, (_, index) => ({
+          thumbnail: `https://img.test/${builds === 3 && index === 0 ? "new" : index}`,
+          link: "https://source.test/shared",
+        })),
+      };
+    },
+    fetchImage: async url => ({ bytes: new TextEncoder().encode(url), contentType: "image/jpeg" }),
+    registerMedia: async ({ association }) => ({
+      thumbnailUrl: `https://media.test/${++copies}/${association.itemId}`,
+    }),
+  });
+  const post = () => handler(request("POST", { actorId: "actor-1", vibeIdx: 0 }), {});
+  const first = await post();
+  assert.equal(first.status, 200);
+  const firstId = (await first.json()).run.id;
+  const clearCooldown = () => {
+    for (const key of storage.records.keys()) if (key.endsWith("/cooldown")) storage.records.delete(key);
+  };
+  clearCooldown();
+  const repeated = await post();
+  assert.equal(repeated.status, 409);
+  assert.match((await repeated.json()).error, /No different safe nine-image board/);
+  assert.equal(copies, 9);
+  clearCooldown();
+  assert.equal((await post()).status, 200);
+  const { runs } = await (await handler(request("GET", null, "?actorId=actor-1&vibeIdx=0"), {})).json();
+  assert.equal(runs.length, 2);
+  assert.equal(runs[1].id, firstId);
+  assert.equal(runs[0].images.length, 9);
+  assert.equal(copies, 18);
+});
+
 test("Collector grid rejects unsafe image URLs and applies pair cooldown", async () => {
   let builds = 0;
   const { handler } = handlerFor({
