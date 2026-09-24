@@ -3574,11 +3574,13 @@ test('historical cache proof keeps its frozen evidence and starts a new current-
 
 
     assert.deepEqual(
-      providerSearchRequests.map(request => (
+      providerSearchRequests
+        .map(request => (
 {
  queryIndex: request.queryIndex, cacheMode: request.cacheMode 
 }
-)),
+))
+        .sort((left, right) => left.cacheMode.localeCompare(right.cacheMode) || left.queryIndex - right.queryIndex),
       [
         
 {
@@ -3611,7 +3613,7 @@ test('historical cache proof keeps its frozen evidence and starts a new current-
 }
 ,
       ],
-      'the historical action must start both cache paths for the new manifest',
+      'the historical action must start both cache paths for every query in the new manifest',
     )
 ;
 
