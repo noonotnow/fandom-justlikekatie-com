@@ -23,6 +23,7 @@ import {
   gridManifestKey,
   manifestPayload,
   materializePublicationManifest,
+  publicEditionPreview,
   repairPublicationManifestPublicRecords,
 } from "./lib/publication-manifest.js";
 import { createPublicAuth } from "./lib/public-auth.js";
@@ -1378,12 +1379,34 @@ async function listArchivedEditions(
   const freeDates = archiveAccessWindowDates(accessWindow);
   const page = catalogPage.editions;
   const hasMore = catalogPage.hasMore;
+  // Catalog links are historical metadata, not proof that the public record
+  // still passes the publication manifest's editorial and media checks.
+  const verifiedRecords = await Promise.all(page.map(async edition => {
+    if (!edition.publicRecord) return null;
+    try {
+      const manifest = await store.get(gridManifestKey(edition.date), {
+        type: "json",
+        consistency: "strong",
+      });
+      const publicEdition = publicEditionPreview(manifest);
+      return publicEdition?.path === edition.publicRecord.editionPath
+        && publicEdition.actor.path === edition.publicRecord.actorPath
+        ? edition.publicRecord
+        : null;
+    } catch {
+      return null;
+    }
+  }));
   return {
     version: VERSION,
-    editions: page.map(edition => ({
-      ...enrichCanonicalLegendaryMisprint(edition),
-      access: freeDates.has(edition.date) ? "free" : "member",
-    })),
+    editions: page.map((edition, index) => {
+      const { publicRecord: _unverified, ...visible } = enrichCanonicalLegendaryMisprint(edition);
+      return {
+        ...visible,
+        ...(verifiedRecords[index] ? { publicRecord: verifiedRecords[index] } : {}),
+        access: freeDates.has(edition.date) ? "free" : "member",
+      };
+    }),
     page: {
       limit,
       nextCursor: hasMore ? page.at(-1)?.date || null : null,
