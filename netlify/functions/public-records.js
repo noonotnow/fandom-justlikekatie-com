@@ -171,5 +171,12 @@ export function createPublicRecordsHandler({
   };
 }
 
-export const handler = createPublicRecordsHandler();
-export default handler;
+// Netlify only injects context.blobs for the V2 entrypoint. A named `handler`
+// switches this function to the classic runtime without Blobs credentials.
+export default async function publicRecords(request, context) {
+  const result = await createPublicRecordsHandler()(request, context);
+  return new Response(result.body, {
+    status: result.statusCode,
+    headers: result.headers,
+  });
+}

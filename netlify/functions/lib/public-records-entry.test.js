@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createPublicRecordsHandler } from "../public-records.js";
+import publicRecords, { createPublicRecordsHandler } from "../public-records.js";
+import { createPublicSitemapHandler } from "../public-sitemap.js";
 import { catalogStore, completeCatalog, manifestStore, publicManifest } from "../public-test-fixture.js";
 
 const emptyStore = () => ({
@@ -19,6 +20,43 @@ function releasedPackPreviewCards(manifest) {
     dimensions: card.media.dimensions,
   }));
 }
+
+test("deployed record entrypoint uses V2 Blobs context for sitemap-listed actor and edition pages", async () => {
+  const store = manifestStore([publicManifest()]);
+  const calls = [];
+  const context = { blobs: { getStore(name) {
+    calls.push(name);
+    return store;
+  } } };
+  const sitemap = await createPublicSitemapHandler()(
+    new Request("https://fandom.justlikekatie.com/sitemap.xml"),
+    context,
+  );
+  assert.equal(sitemap.statusCode, 200);
+  for (const [path, expected] of [
+    ["/vibe-atlas/actors/liu-xueyi/", "Curated Vibe Atlas records"],
+    ["/vibe-atlas/editions/2026-09-03/liu-xueyi/", "An original editorial record"],
+  ]) {
+    assert.match(sitemap.body, new RegExp(`https://fandom.justlikekatie.com${path}`));
+    const result = await publicRecords(new Request(`https://fandom.justlikekatie.com${path}`), context);
+    assert.equal(result.status, 200);
+    assert.equal(result.headers.get("content-type"), "text/html; charset=UTF-8");
+    assert.equal(result.headers.get("cache-control"), "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400");
+    const body = await result.text();
+    assert.match(body, new RegExp(expected));
+    assert.match(body, new RegExp(`rel="canonical" href="https://fandom.justlikekatie.com${path}"`));
+  }
+  assert.deepEqual(calls, ["star-of-day", "actor-audit", "star-of-day", "star-of-day", "star-of-day"]);
+});
+
+test("deployed record entrypoint keeps incomplete inventories unavailable", async () => {
+  const result = await publicRecords(
+    new Request("https://fandom.justlikekatie.com/vibe-atlas/actors/liu-xueyi/"),
+    { blobs: { getStore: emptyStore } },
+  );
+  assert.equal(result.status, 503);
+  assert.equal(result.headers.get("cache-control"), "no-store");
+});
 
 test("public record pages fail closed without a complete approved inventory", async () => {
   const handler = createPublicRecordsHandler({ getStore: emptyStore });
