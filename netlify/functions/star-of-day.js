@@ -51,6 +51,7 @@ import {
   recordArchiveRepairAttempt,
 } from "./lib/archive-access-operations.js";
 import { capabilitiesForMembership } from "./lib/capabilities.js";
+import { candidateFingerprint } from "./lib/search-candidate-fingerprint.js";
 
 // Server-side daily cache for "Star of the Day".
 //
@@ -77,6 +78,12 @@ const LEGACY_READ_VERSIONS = ["v10", "v9", "v8", "v7", "v6", "v5"];
 // One excellent, human-approved board is enough to release. A second approved
 // pairing remains useful inventory and range, but it is not a publication gate.
 export const MIN_RELEASE_READY_PAIRS = 1;
+const COLLECTOR_REFRESH_RESULTS_PER_QUERY = 30;
+const COLLECTOR_REFRESH_RANKED_BATCH_LIMIT = 5;
+const COLLECTOR_REFRESH_CANDIDATE_LIMIT = 60;
+const COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT = 4;
+const COLLECTOR_REFRESH_MIN_UNSEEN_CANDIDATES = 18;
+const COLLECTOR_REFRESH_TELEMETRY_QUERY_LIMIT = 120;
 const STORE_NAME = "star-of-day";
 const LOCK_TTL_MS = 25000; // a stale/abandoned lock is ignored after this long
 const POLL_INTERVAL_MS = 700;
@@ -112,6 +119,80 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function normalizedCollectorFingerprint(result) {
+  return candidateFingerprint(result);
+}
+
+function partitionCollectorResults(results, excludedThumbnails, excludedChecksums) {
+  const seen = new Set();
+  const unseen = [];
+  const seenSafe = [];
+  for (const result of results || []) {
+    const key = normalizedCollectorFingerprint(result);
+    if (!result?.thumbnail || seen.has(key)) continue;
+    seen.add(key);
+    const previouslySeen = excludedThumbnails.has(result.thumbnail)
+      || (result.imageChecksum && excludedChecksums.has(result.imageChecksum));
+    if (previouslySeen) seenSafe.push(result);
+    else unseen.push(result);
+  }
+  return { unseen, seenSafe };
+}
+
+function countUniqueUnseenCandidates(rankedBatches, excludedThumbnails, excludedChecksums) {
+  const seen = new Set();
+  for (const batch of rankedBatches || []) {
+    for (const result of batch?.results || []) {
+      if (!result?.thumbnail) continue;
+      if (excludedThumbnails.has(result.thumbnail)
+        || (result.imageChecksum && excludedChecksums.has(result.imageChecksum))) continue;
+      seen.add(normalizedCollectorFingerprint(result));
+    }
+  }
+  return seen.size;
+}
+
+function targetedCollectorQueries({
+  actor,
+  vibe,
+  promise,
+  calibrationProfile,
+  firstPassQueries = [],
+}) {
+  const terms = [
+    actor?.name,
+    actor?.shortName,
+    actor?.shortName_en,
+    ...(actor?.canonicalNames || []),
+    ...(calibrationProfile?.positiveQueries || []),
+    ...(vibe?.queries || []),
+  ].filter(Boolean);
+  const clusters = promise?.aestheticClusters || [];
+  const seen = new Set(firstPassQueries.map(query => String(query).toLowerCase()));
+  const queries = [];
+  const pushQuery = (parts) => {
+    const value = [...new Set(parts.map(part => String(part || "").trim()).filter(Boolean))]
+      .join(" ")
+      .slice(0, 500);
+    const key = value.toLowerCase();
+    if (!value || seen.has(key)) return;
+    seen.add(key);
+    queries.push(value);
+  };
+  for (const cluster of clusters) {
+    if (queries.length >= COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT) break;
+    pushQuery([actor?.name, cluster.work, cluster.character, ...(cluster.sceneAnchors || []).slice(0, 1)]);
+    if (queries.length >= COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT) break;
+    pushQuery([actor?.name, cluster.character, ...(cluster.emotionalStates || cluster.mood || []).slice(0, 2)]);
+    if (queries.length >= COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT) break;
+    pushQuery([actor?.name, cluster.character, ...(cluster.look || cluster.wardrobeAnchors || []).slice(0, 2)]);
+  }
+  if (queries.length < COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT) {
+    pushQuery([actor?.name, vibe?.label, ...terms.slice(0, 2)]);
+  }
+  return queries.slice(0, COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT);
+}
+
 // Builds the full resolved display payload for a given Shanghai date string by
 // running the actual search+rank flow. Only called by whichever request wins
 // the lock for that date.
@@ -131,6 +212,7 @@ export async function buildPayloadForDate(
     fetchImpl = fetch,
     selectedPair = null,
     excludedCollectorThumbnails = [],
+    excludedCollectorChecksums = [],
     refreshCollectorSearch = false,
   } = {},
 ) {
@@ -181,11 +263,41 @@ export async function buildPayloadForDate(
       generatedAt,
     });
     const searchQueries = searchQueriesFor(actor, seed.vIdx, approval.calibrationProfile);
-    const candidates = await evaluate(
-      searchQueries,
-      refreshCollectorSearch ? query => search(query, { cacheMode: "refresh" }) : search,
+    const promise = vibePromiseFor(actor, seed.vIdx);
+    const excludedThumbnails = new Set(excludedCollectorThumbnails);
+    const excludedChecksums = new Set(excludedCollectorChecksums);
+    const refreshSearch = query => search(query, {
+      cacheMode: "refresh",
+      providerPolicy: "collector-refresh-pool",
+      resultLimit: COLLECTOR_REFRESH_RESULTS_PER_QUERY,
+    });
+    const firstPassQueries = searchQueries;
+    const firstPassCandidates = await evaluate(
+      firstPassQueries,
+      refreshCollectorSearch ? refreshSearch : search,
     );
-    let ranked = rank(candidates).slice(0, RANKED_BATCH_LIMIT);
+    const secondPassQueries = refreshCollectorSearch
+      && countUniqueUnseenCandidates(
+        rank(firstPassCandidates).slice(0, COLLECTOR_REFRESH_RANKED_BATCH_LIMIT),
+        excludedThumbnails,
+        excludedChecksums,
+      ) < COLLECTOR_REFRESH_MIN_UNSEEN_CANDIDATES
+      ? targetedCollectorQueries({
+          actor,
+          vibe,
+          promise,
+          calibrationProfile: approval.calibrationProfile,
+          firstPassQueries,
+        })
+      : [];
+    const secondPassCandidates = secondPassQueries.length
+      ? await evaluate(secondPassQueries, refreshSearch)
+      : [];
+    const candidates = [...firstPassCandidates, ...secondPassCandidates];
+    let ranked = rank(candidates).slice(
+      0,
+      refreshCollectorSearch ? COLLECTOR_REFRESH_RANKED_BATCH_LIMIT : RANKED_BATCH_LIMIT,
+    );
 
     if (!ranked.length) {
       const backup = await tryEditorialBackup();
@@ -196,7 +308,7 @@ export async function buildPayloadForDate(
     }
 
     const curationOptions = {
-      promise: vibePromiseFor(actor, seed.vIdx),
+      promise,
       calibrationProfile: approval.calibrationProfile || null,
       preferredCandidateIds: approval.calibrationProfile?.positiveCandidateIds || [],
       profileVersions: {
@@ -204,29 +316,103 @@ export async function buildPayloadForDate(
         aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
         promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
       },
+      candidateLimit: refreshCollectorSearch
+        ? COLLECTOR_REFRESH_CANDIDATE_LIMIT
+        : undefined,
+      diagnostics: refreshCollectorSearch,
     };
     // Collector refreshes prefer new images without weakening image-safety gates.
-    const excludedThumbnails = new Set(excludedCollectorThumbnails);
-    const freshRanked = selectedPair && excludedThumbnails.size
+    const freshRanked = selectedPair && (excludedThumbnails.size || excludedChecksums.size)
       ? ranked.map(batch => ({
         ...batch,
-        results: (batch.results || []).filter(result => !excludedThumbnails.has(result.thumbnail)),
+        results: partitionCollectorResults(
+          batch.results,
+          excludedThumbnails,
+          excludedChecksums,
+        ).unseen,
       }))
       : ranked;
     let { displayResults, curation } = await curate(freshRanked, curationOptions);
-    if (selectedPair && excludedThumbnails.size && displayResults.length < 9) {
-      const mixedRanked = [
-        ...freshRanked,
-        ...ranked.map(batch => ({
+    if (selectedPair && (excludedThumbnails.size || excludedChecksums.size) && displayResults.length < 9) {
+      const mixedRanked = ranked.map(batch => {
+        const partitioned = partitionCollectorResults(
+          batch.results,
+          excludedThumbnails,
+          excludedChecksums,
+        );
+        return {
           ...batch,
-          results: (batch.results || []).filter(result => excludedThumbnails.has(result.thumbnail)),
-        })),
-      ];
+          results: [...partitioned.unseen, ...partitioned.seenSafe],
+        };
+      });
       ({ displayResults, curation } = await curate(mixedRanked, curationOptions));
       if (displayResults.length < 9) {
         ({ displayResults, curation } = await curate(ranked, curationOptions));
       }
     }
+    if (refreshCollectorSearch) {
+      curation = {
+        ...curation,
+        firstPassQueries: firstPassQueries.slice(0, COLLECTOR_REFRESH_TELEMETRY_QUERY_LIMIT),
+        secondPassQueries: secondPassQueries.slice(0, COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT),
+      };
+    }
+    const collectorRefreshTelemetry = refreshCollectorSearch
+      ? (() => {
+        const providerContributionCounts = {};
+        const pooledUniqueFingerprints = new Set();
+        const pooledPostFilterFingerprints = new Set();
+        for (const batch of ranked) {
+          for (const result of batch?.results || []) {
+            const fingerprint = normalizedCollectorFingerprint(result);
+            pooledUniqueFingerprints.add(fingerprint);
+            pooledPostFilterFingerprints.add(fingerprint);
+          }
+        }
+        for (const batch of ranked) {
+          const contributions = batch?.providerContributionCounts || {};
+          for (const [provider, counts] of Object.entries(contributions)) {
+            const existing = providerContributionCounts[provider] || { rawCount: 0, normalizedCount: 0, acceptedCount: 0 };
+            providerContributionCounts[provider] = {
+              rawCount: Math.max(existing.rawCount, Number(counts?.rawCount) || 0),
+              normalizedCount: Math.max(existing.normalizedCount, Number(counts?.normalizedCount) || 0),
+              acceptedCount: existing.acceptedCount,
+            };
+          }
+        }
+        for (const batch of ranked) {
+          for (const result of batch?.results || []) {
+            const provider = String(result?.provider || "");
+            if (!provider) continue;
+            const entry = providerContributionCounts[provider]
+              || { rawCount: 0, normalizedCount: 0, acceptedCount: 0, _fingerprints: new Set() };
+            if (!entry._fingerprints) entry._fingerprints = new Set();
+            entry._fingerprints.add(normalizedCollectorFingerprint(result));
+            providerContributionCounts[provider] = entry;
+          }
+        }
+        for (const entry of Object.values(providerContributionCounts)) {
+          entry.acceptedCount = entry._fingerprints?.size || entry.acceptedCount || 0;
+          delete entry._fingerprints;
+        }
+        const historyExcludedCount = ranked.reduce((total, batch) =>
+          total + (batch?.results || []).filter(result =>
+            excludedThumbnails.has(result.thumbnail)
+            || (result.imageChecksum && excludedChecksums.has(result.imageChecksum))).length, 0);
+        return {
+          rawProviderCount: Object.keys(providerContributionCounts).length,
+          postFilterCount: pooledPostFilterFingerprints.size,
+          pooledUniqueCount: pooledUniqueFingerprints.size,
+          historyExcludedCount,
+          unseenCount: countUniqueUnseenCandidates(ranked, excludedThumbnails, excludedChecksums),
+          analyzedCount: Number(curation?.diagnostics?.sourceEvidenceCandidates?.length || 0),
+          selectedCount: displayResults.length,
+          providerContributionCounts,
+          firstPassQueries: firstPassQueries.slice(0, COLLECTOR_REFRESH_TELEMETRY_QUERY_LIMIT),
+          secondPassQueries: secondPassQueries.slice(0, COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT),
+        };
+      })()
+      : null;
     if (displayResults.length >= 9 && pairHistory.length) {
       const initialOverlap = greatestBoardOverlap(displayResults, pairHistory);
       if (initialOverlap >= 7) {
@@ -375,6 +561,7 @@ export async function buildPayloadForDate(
       rankedBatches: ranked,
       displayResults,
       curation,
+      collectorRefresh: collectorRefreshTelemetry,
       generatedAt: generatedAt(),
     };
   }
