@@ -129,26 +129,36 @@ export async function buildPayloadForDate(
     materializePublication = null,
     mediaEnv = process.env,
     fetchImpl = fetch,
+    selectedPair = null,
   } = {},
 ) {
-  if (!await hasReleaseReadyCohort(packs, eligibilityStore, MIN_RELEASE_READY_PAIRS)) return null;
+  if (!selectedPair && !await hasReleaseReadyCohort(packs, eligibilityStore, MIN_RELEASE_READY_PAIRS)) return null;
   const recentHistory = publicationStore
     ? await readRecentDailyDropHistory(publicationStore, dateString)
     : [];
   const excluded = new Set();
   while (true) {
-    const seed = await selectRotatingReleasePair(
-      packs,
-      dateString,
-      eligibilityStore,
-      excluded,
-      recentHistory,
-    );
+    const seed = selectedPair
+      ? (() => {
+        const aIdx = packs.findIndex(actor => actor?.id === selectedPair.actorId);
+        const vIdx = Number(selectedPair.vibeIdx);
+        return aIdx >= 0 && Number.isInteger(vIdx) && packs[aIdx]?.vibes?.[vIdx]
+          ? { aIdx, vIdx }
+          : null;
+      })()
+      : await selectRotatingReleasePair(
+        packs,
+        dateString,
+        eligibilityStore,
+        excluded,
+        recentHistory,
+      );
     if (!seed) return null;
     const actor = packs[seed.aIdx];
     const vibe = actor.vibes[seed.vIdx];
     const approval = await getEligibility(eligibilityStore, actor, seed.vIdx);
-    if (approval?.verdict !== "approved") {
+    if (!isReleaseReady(approval)) {
+      if (selectedPair) return null;
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
     }
@@ -175,6 +185,7 @@ export async function buildPayloadForDate(
     if (!ranked.length) {
       const backup = await tryEditorialBackup();
       if (backup) return backup;
+      if (selectedPair) return null;
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
     }
@@ -234,10 +245,12 @@ export async function buildPayloadForDate(
     if (displayResults.length < 9) {
       const backup = await tryEditorialBackup();
       if (backup) return backup;
+      if (selectedPair) return null;
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
     }
     if (!await selectedEligibilityIsCurrent(actor, seed.vIdx, eligibilityStore, approval)) {
+      if (selectedPair) return null;
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
     }

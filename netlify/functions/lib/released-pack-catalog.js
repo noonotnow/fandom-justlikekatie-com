@@ -1,5 +1,5 @@
 import { ACTOR_PACKS } from "./actor-packs.js";
-import { getEligibility, isApproved } from "./actor-eligibility.js";
+import { getEligibility, isReleaseReady } from "./actor-eligibility.js";
 import {
   isGridManifest,
   readPublicationManifests,
@@ -82,7 +82,7 @@ export async function releasedPackCatalog(
     actorPacks = ACTOR_PACKS,
     origin = PUBLIC_VIBE_ATLAS_ORIGIN,
     getEligibilitySnapshot = getEligibility,
-    eligibilityPredicate = isApproved,
+    eligibilityPredicate = isReleaseReady,
     readPublications = readPublicationManifests,
   } = {},
 ) {

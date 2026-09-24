@@ -1793,7 +1793,7 @@ function isValidPublicationAsset(asset, position, associationId) {
   );
 }
 
-async function fetchPublicationImage(sourceUrl, fetchImpl, resolveHost) {
+export async function fetchPublicationImage(sourceUrl, fetchImpl = fetch, resolveHost = lookup) {
   let currentUrl = sourceUrl;
   let response;
   for (let redirectCount = 0; redirectCount <= 3; redirectCount += 1) {

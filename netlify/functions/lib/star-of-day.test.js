@@ -1243,6 +1243,50 @@ test("the builder prefers fresh curation over an approved retained-evidence boar
   assert.ok(searchedQueries.includes("unused-a") || searchedQueries.includes("unused-b"));
 });
 
+test("selectedPair runs the approved pair fresh and never publishes", async () => {
+  const actorA = {
+    id: "selected-a", name: "A", shortName_en: "A", accentColor: "#111",
+    vibes: [{ label: "A", label_en: "A", queries: ["a-query"] }],
+  };
+  const actorB = {
+    id: "selected-b", name: "B", shortName_en: "B", accentColor: "#222",
+    vibes: [{ label: "B", label_en: "B", queries: ["b-query"] }],
+  };
+  const entries = {
+    ...approvedEligibility(actorA, 0),
+    ...approvedEligibility(actorB, 0, "approved_override"),
+  };
+  const store = makeStore(entries);
+  const images = Array.from({ length: 9 }, (_, i) => ({
+    candidateId: `selected-${i}`, thumbnail: `https://images.test/${i}.jpg`,
+    title: `Selected ${i}`, source: `images.test`,
+  }));
+  let queries;
+  const payload = await buildPayloadForDate("2026-09-03", store, {
+    packs: [actorA, actorB],
+    selectedPair: { actorId: "selected-b", vibeIdx: 0 },
+    evaluate: async searchQueries => {
+      queries = searchQueries;
+      return [{ query: "selected-fresh", results: images }];
+    },
+    rank: candidates => candidates,
+    curate: async () => ({ displayResults: images, curation: { mode: "compiled" } }),
+  });
+  assert.equal(payload.actorId, "selected-b");
+  assert.equal(queries.includes("b-query"), true);
+  assert.equal(store.stats().setCalls, 0);
+
+  const rejected = makeStore({
+    ...approvedEligibility(actorA, 0),
+    ...approvedEligibility(actorB, 0, "rejected"),
+  });
+  assert.equal(await buildPayloadForDate("2026-09-03", rejected, {
+    packs: [actorA, actorB],
+    selectedPair: { actorId: "selected-b", vibeIdx: 0 },
+    evaluate: async () => { throw new Error("ineligible pair searched"); },
+  }), null);
+});
+
 test("a repeated pairing refreshes search and rearranges the same nine when refresh cannot improve them", async () => {
   const actor = {
     id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
@@ -1655,7 +1699,7 @@ test("the builder does not search when no pairing has a current approval", async
   assert.equal(searches, 0);
 });
 
-test("Star of the Day accepts one plain operator approval", async () => {
+test("Star of the Day accepts ordinary approval and approved overrides", async () => {
   const packs = [
     { id: "actor-a", name: "Actor A", shortName_en: "A", vibes: [{ label: "A0", label_en: "A0", queries: ["a"] }] },
     { id: "actor-b", name: "Actor B", shortName_en: "B", vibes: [{ label: "B0", label_en: "B0", queries: ["b"] }] },
@@ -1675,7 +1719,7 @@ test("Star of the Day accepts one plain operator approval", async () => {
 
   assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore), true);
   assert.equal(payload, null);
-  assert.equal(searches, 1);
+  assert.equal(searches, 2);
 });
 
 test("release rotation uses all approved actors and avoids yesterday's actor when possible", async () => {

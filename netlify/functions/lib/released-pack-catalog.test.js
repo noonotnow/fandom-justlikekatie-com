@@ -32,7 +32,7 @@ const rejected = {
   publishableConfirmed: false,
 };
 
-test("released pack catalog uses the same approved predicate as Star of the Day", async () => {
+test("released pack catalog includes approved overrides as release-ready", async () => {
   const catalog = await releasedPackCatalog({}, {
     actorPacks,
     getEligibilitySnapshot: async (_store, _actor, vibeIdx) =>

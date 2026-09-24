@@ -36,6 +36,33 @@ type ActorPack = {
   vibes?: VibePack[];
 };
 
+type GridImage = {
+  thumbnail?: string;
+  title?: string;
+  source?: string;
+  link?: string;
+  query?: string;
+};
+
+type GridRun = {
+  id: string;
+  actorId: string;
+  vibeIdx: number;
+  generatedAt: string;
+  source?: string;
+  images: GridImage[];
+};
+
+function safeExternalUrl(value?: string) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 interface Props {
   status: MembershipStatus | null;
   membershipResolved: boolean;
@@ -54,9 +81,15 @@ export function ReleasedPackLibrary({ status, membershipResolved, actorId, vibeI
   const [email, setEmail] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState('');
+  const [runs, setRuns] = useState<GridRun[]>([]);
+  const [selectedRun, setSelectedRun] = useState<GridRun | null>(null);
+  const [runLoading, setRunLoading] = useState(false);
+  const [runError, setRunError] = useState('');
+  const runRequest = useRef<{ id: number; controller: AbortController | null }>({ id: 0, controller: null });
+  const autoOpenedPair = useRef('');
   const lastTrackedOpen = useRef('');
-
   const pageViewTracked = useRef(false);
+
   useEffect(() => {
     if (pageViewTracked.current) return;
     pageViewTracked.current = true;
@@ -107,7 +140,126 @@ export function ReleasedPackLibrary({ status, membershipResolved, actorId, vibeI
 
   useEffect(() => {
     if (actor && actor.id !== selectedActor) setSelectedActor(actor.id);
+    if (actor && selectedVibe === '' && actor.vibes?.length) {
+      setSelectedVibe(String(actor.vibes[0].vibeIdx));
+    }
   }, [actor, selectedActor]);
+
+  useEffect(() => {
+    if (!actor || selectedVibe === '' || !vibe) return;
+    const pairKey = `${actor.id}:${vibe.vibeIdx}`;
+    if (autoOpenedPair.current === pairKey) return;
+    autoOpenedPair.current = pairKey;
+    void openPair(actor.id, vibe.vibeIdx);
+  }, [actor?.id, selectedVibe, vibe?.vibeIdx]);
+
+  function cancelRunRequest() {
+    runRequest.current.controller?.abort();
+    runRequest.current = { id: runRequest.current.id + 1, controller: null };
+  }
+
+  async function openPair(actorValue: string, vibeValue: number) {
+    const requestId = runRequest.current.id + 1;
+    runRequest.current.controller?.abort();
+    const controller = new AbortController();
+    runRequest.current = { id: requestId, controller };
+    setRunLoading(true);
+    setRunError('');
+    try {
+      let savedRuns: GridRun[] = [];
+      const savedResponse = await fetch(
+        `/.netlify/functions/collector-grid?actorId=${encodeURIComponent(actorValue)}&vibeIdx=${vibeValue}`,
+        { credentials: 'include', headers: { Accept: 'application/json' }, signal: controller.signal },
+      );
+      const savedBody = await savedResponse.json().catch(() => null);
+      if (!savedResponse.ok) throw new Error(savedBody?.error || 'Saved grids are temporarily unavailable.');
+      savedRuns = Array.isArray(savedBody?.runs) ? savedBody.runs : [];
+      if (runRequest.current.id !== requestId) return;
+      setRuns(savedRuns);
+      setSelectedRun(savedRuns[0] || null);
+      setRunError('');
+    } catch (err) {
+      if (controller.signal.aborted || runRequest.current.id !== requestId) return;
+      setRunError(err instanceof Error ? err.message : 'Saved grids are temporarily unavailable.');
+    }
+
+    try {
+      const freshResponse = await fetch('/.netlify/functions/collector-grid', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorId: actorValue, vibeIdx: vibeValue }),
+        signal: controller.signal,
+      });
+      const freshBody = await freshResponse.json().catch(() => null);
+      if (!freshResponse.ok) throw new Error(freshBody?.error || 'This grid could not be generated.');
+      if (!freshBody?.run) throw new Error('The generated grid was empty.');
+      if (runRequest.current.id !== requestId) return;
+      const nextRun = freshBody.run as GridRun;
+      setRunError('');
+      setSelectedRun(nextRun);
+      setRuns(previous => [nextRun, ...previous.filter(run => run.id !== nextRun.id)]);
+      trackReleasedPackOpened(source, actorValue, vibeValue);
+    } catch (err) {
+      if (controller.signal.aborted || runRequest.current.id !== requestId) return;
+      setRunError(err instanceof Error ? err.message : 'This grid could not be generated.');
+    } finally {
+      if (runRequest.current.id === requestId) setRunLoading(false);
+    }
+  }
+
+  async function generateGrid(actorValue: string, vibeValue: number) {
+    const requestId = runRequest.current.id + 1;
+    runRequest.current.controller?.abort();
+    const controller = new AbortController();
+    runRequest.current = { id: requestId, controller };
+    setRunLoading(true);
+    setRunError('');
+    try {
+      const response = await fetch('/.netlify/functions/collector-grid', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorId: actorValue, vibeIdx: vibeValue }),
+        signal: controller.signal,
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error || 'This grid could not be generated.');
+      if (!body?.run) throw new Error('The generated grid was empty.');
+      if (runRequest.current.id !== requestId) return;
+      const nextRun = body.run as GridRun;
+      setSelectedRun(nextRun);
+      setRuns(previous => [nextRun, ...previous.filter(run => run.id !== nextRun.id)]);
+    } catch (err) {
+      if (controller.signal.aborted || runRequest.current.id !== requestId) return;
+      setRunError(err instanceof Error ? err.message : 'This grid could not be generated.');
+    } finally {
+      if (runRequest.current.id === requestId) setRunLoading(false);
+    }
+  }
+
+  function chooseActor(value: string) {
+    trackReleasedLibraryFilterUsed('actor', source, value);
+    setSelectedActor(value);
+    setSelectedVibe('');
+    cancelRunRequest();
+    setRunLoading(false);
+    setRuns([]);
+    setSelectedRun(null);
+    setRunError('');
+    autoOpenedPair.current = '';
+  }
+
+  function chooseVibe(value: string) {
+    trackReleasedLibraryFilterUsed('vibe', source, actor?.id, value === '' ? null : Number(value));
+    setSelectedVibe(value);
+    cancelRunRequest();
+    setRunLoading(false);
+    setRuns([]);
+    setSelectedRun(null);
+    setRunError('');
+    autoOpenedPair.current = '';
+  }
 
   async function signIn(event: React.FormEvent) {
     event.preventDefault();
@@ -161,26 +313,65 @@ export function ReleasedPackLibrary({ status, membershipResolved, actorId, vibeI
       <header className="released-library__hero">
         <p className="membership__label">Fandom Collector · Released packs</p>
         <h1>The Vibe Atlas library.</h1>
-        <p>Browse the approved actor × vibe packs and open the source depth behind each release.</p>
+        <p>Explore fresh image grids from approved actor × vibe packs. Each generated grid is saved to your account.</p>
       </header>
       {loading && <p role="status">Loading released packs…</p>}
       {error && <p className="membership__notice" role="alert">{error}</p>}
       {!loading && !error && (
         <>
+          {!packs.length && <p className="released-grid-viewer__empty" role="status">No released packs are available yet.</p>}
           <div className="released-library__filters">
-            <label>Actor<select value={actor?.id || ''} onChange={event => { const nextActor = event.target.value; setSelectedActor(nextActor); setSelectedVibe(''); trackReleasedLibraryFilterUsed('actor', source, nextActor); }}><option value="" disabled>Choose an actor</option>{packs.map(pack => <option key={pack.id} value={pack.id}>{pack.shortName_en || pack.name || pack.id}</option>)}</select></label>
-            <label>Vibe<select value={selectedVibe} onChange={event => { const nextVibe = event.target.value; setSelectedVibe(nextVibe); trackReleasedLibraryFilterUsed('vibe', source, actor?.id, nextVibe === '' ? null : Number(nextVibe)); }}><option value="">All vibes</option>{vibes.map(item => <option key={`${item.label_en || item.label}-${item.vibeIdx}`} value={item.vibeIdx}>{item.label_en || item.label || `Vibe ${item.vibeIdx + 1}`}</option>)}</select></label>
+            <label>Actor<select value={actor?.id || ''} onChange={event => chooseActor(event.target.value)}><option value="" disabled>Choose an actor</option>{packs.map(pack => <option key={pack.id} value={pack.id}>{pack.shortName_en || pack.name || pack.id}</option>)}</select></label>
+            <label>Vibe<select value={selectedVibe} onChange={event => chooseVibe(event.target.value)}><option value="">All vibes</option>{vibes.map(item => <option key={`${item.label_en || item.label}-${item.vibeIdx}`} value={item.vibeIdx}>{item.label_en || item.label || `Vibe ${item.vibeIdx + 1}`}</option>)}</select></label>
           </div>
-          <section className="released-library__grid" aria-label="Released vibe packs">
-            {(vibe ? [vibe] : vibes).map(item => <article className="released-pack-card" key={`${actor?.id}-${item.vibeIdx}`}>
+          {vibe && (
+            <section className="released-grid-viewer" aria-label={`${vibe.label_en || vibe.label || 'Vibe'} generated grid`}>
+              <div className="released-grid-viewer__heading">
+                <div>
+                  <p className="membership__label">Generated from the approved pack</p>
+                  <h2>{vibe.emoji || '✦'} {vibe.label_en || vibe.label || 'Vibe pack'}</h2>
+                  <p>Fresh results use this pack’s approved search, safety, and ranking rules. Generated images are not individually hand-reviewed.</p>
+                </div>
+                <button type="button" onClick={() => void generateGrid(actor!.id, vibe.vibeIdx)} disabled={runLoading}>
+                  {runLoading ? 'Generating…' : selectedRun ? 'Refresh grid' : 'Open fresh grid'}
+                </button>
+              </div>
+              {runError && <p className="membership__notice" role="alert">{runError}</p>}
+              {runLoading && !selectedRun && <p role="status">Searching and curating nine images…</p>}
+              {selectedRun && (
+                <>
+                  <div className="released-grid-viewer__meta">
+                    <span>{new Date(selectedRun.generatedAt).toLocaleString()}</span>
+                    {selectedRun.source && <span>Source: {selectedRun.source}</span>}
+                    {runs.length > 1 && <label>Saved run<select value={selectedRun.id} onChange={event => setSelectedRun(runs.find(run => run.id === event.target.value) || selectedRun)}>{runs.map(run => <option key={run.id} value={run.id}>{new Date(run.generatedAt).toLocaleString()}</option>)}</select></label>}
+                  </div>
+                  <div className="released-image-grid" aria-label="Nine image generated grid">
+                    {selectedRun.images.slice(0, 9).map((image, index) => (
+                      <figure className="released-image-grid__item" key={`${selectedRun.id}-${image.link || image.thumbnail || index}`}>
+                        {safeExternalUrl(image.thumbnail) ? <img src={safeExternalUrl(image.thumbnail) || undefined} alt={image.title || `${vibe.label_en || vibe.label || 'Vibe'} result ${index + 1}`} loading="lazy" /> : <div className="released-image-grid__missing" aria-label="Image unavailable">Image unavailable</div>}
+                        <figcaption>
+                          <span>{image.title || 'Untitled result'}</span>
+                          {safeExternalUrl(image.link || image.source) && <a href={safeExternalUrl(image.link || image.source) || undefined} target="_blank" rel="noreferrer">{image.source || 'View source'} ↗</a>}
+                        </figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                </>
+              )}
+              {!runLoading && !selectedRun && !runError && runs.length === 0 && <p className="released-grid-viewer__empty">Open this pack to generate its first saved grid.</p>}
+            </section>
+          )}
+          {!vibe && <section className="released-library__grid" aria-label="Released vibe packs">
+            {vibes.map(item => <article className="released-pack-card" key={`${actor?.id}-${item.vibeIdx}`}>
               <span className="released-pack-card__emoji">{item.emoji || '✦'}</span>
               <p className="membership__label">{actor?.shortName_en || actor?.name}</p>
               <h2>{item.label_en || item.label || 'Released vibe pack'}</h2>
               <p>{item.subtitle_en || item.subtitle}</p>
+              <button type="button" onClick={() => chooseVibe(String(item.vibeIdx))}>Open grid</button>
               {item.supportingCopy_en || item.supportingCopy ? <p>{item.supportingCopy_en || item.supportingCopy}</p> : null}
               {item.sourceDepth?.queries?.length ? <details onToggle={event => { if (event.currentTarget.open && actor) trackReleasedPackOpened(source, actor.id, item.vibeIdx); }}><summary>Source depth</summary><ul>{item.sourceDepth.queries.map(query => <li key={query}>{query}</li>)}</ul>{item.sourceDepth.authoringPrompt && <p>{item.sourceDepth.authoringPrompt}</p>}</details> : null}
             </article>)}
-          </section>
+          </section>}
         </>
       )}
     </main>
