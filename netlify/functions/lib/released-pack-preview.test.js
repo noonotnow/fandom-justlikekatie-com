@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createReleasedPackPreviewHandler } from "./released-pack-preview.js";
-import { manifestStore, publicManifest } from "./public-test-fixture.js";
+import { manifestStore, publicManifest } from "../public-test-fixture.js";
 
 function releasedPackPreviewCards(manifest) {
   return manifest.cards.map(card => ({
@@ -42,13 +42,14 @@ test("released pack preview exposes a compact public teaser without private fiel
     }),
   });
   const result = await handler(new Request("https://fandom.justlikekatie.com/.netlify/functions/released-pack-preview?actorId=liu-xueyi&vibeIdx=2"), {});
-  assert.equal(result.statusCode, 200);
-  assert.equal(result.headers["Cache-Control"], "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400");
-  assert.equal(result.body.pack.preview.cards.length, 3);
-  assert.equal(result.body.pack.vibe.labelEn, "Polished Danger");
-  assert.equal(result.body.pack.vibe.label, "斯文败类");
-  assert.equal(result.body.pack.vibe.subtitle, "眼镜一戴，危险变得很有礼貌");
-  assert.doesNotMatch(JSON.stringify(result.body), /PRIVATE-RUN|query|prompt|diagnostic|account/i);
+  const body = await result.json();
+  assert.equal(result.status, 200);
+  assert.equal(result.headers.get("cache-control"), "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400");
+  assert.equal(body.pack.preview.cards.length, 3);
+  assert.equal(body.pack.vibe.labelEn, "Polished Danger");
+  assert.equal(body.pack.vibe.label, "斯文败类");
+  assert.equal(body.pack.vibe.subtitle, "眼镜一戴，危险变得很有礼貌");
+  assert.doesNotMatch(JSON.stringify(body), /PRIVATE-RUN|query|prompt|diagnostic|account/i);
 });
 
 test("released pack preview validates required pair inputs", async () => {
@@ -57,6 +58,6 @@ test("released pack preview validates required pair inputs", async () => {
     buildReleaseCatalog: async () => ({ complete: true, packs: [] }),
   });
   const result = await handler(new Request("https://fandom.justlikekatie.com/.netlify/functions/released-pack-preview?actorId=liu-xueyi&vibeIdx=oops"), {});
-  assert.equal(result.statusCode, 400);
-  assert.equal(result.headers["Cache-Control"], "no-store");
+  assert.equal(result.status, 400);
+  assert.equal(result.headers.get("cache-control"), "no-store");
 });
