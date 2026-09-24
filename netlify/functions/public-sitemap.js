@@ -37,5 +37,12 @@ export function createPublicSitemapHandler({
   };
 }
 
-export const handler = createPublicSitemapHandler();
-export default handler;
+// Use the V2 entrypoint so Netlify injects context.blobs. A named `handler`
+// selects the classic runtime, which has no automatic Blobs credentials.
+export default async function publicSitemap(request, context) {
+  const result = await createPublicSitemapHandler()(request, context);
+  return new Response(result.body, {
+    status: result.statusCode,
+    headers: result.headers,
+  });
+}

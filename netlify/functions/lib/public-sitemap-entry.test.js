@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createPublicSitemapHandler, sitemapXml } from "../public-sitemap.js";
+import publicSitemap, { createPublicSitemapHandler, sitemapXml } from "../public-sitemap.js";
 import { catalogStore, completeCatalog, manifestStore, publicManifest } from "../public-test-fixture.js";
 
 function releasedPackPreviewCards(manifest) {
@@ -20,6 +20,18 @@ test("sitemap preserves static public routes and never emits query-bearing URLs"
   assert.match(xml, /<loc>https:\/\/fandom\.justlikekatie\.com\/vibe-atlas<\/loc>/);
   assert.match(xml, /\/vibe-atlas\/actors\/liu-xueyi\//);
   assert.doesNotMatch(xml, /[?&](?:query|account|view)=/);
+});
+
+test("deployed sitemap uses the V2 Blobs context and serves the registered static routes", async () => {
+  const store = manifestStore([publicManifest()]);
+  const response = await publicSitemap(
+    new Request("https://fandom.justlikekatie.com/sitemap.xml"),
+    { blobs: { getStore: () => store } },
+  );
+  assert.equal(response.status, 200);
+  const xml = await response.text();
+  assert.equal(xml.split("<loc>https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episode-21/</loc>").length - 1, 1);
+  assert.match(xml, /<loc>https:\/\/fandom\.justlikekatie\.com\/vibe-atlas\/actors\/liu-xueyi\/<\/loc>/);
 });
 
 test("dynamic sitemap fails closed while the catalog is incomplete", async () => {
