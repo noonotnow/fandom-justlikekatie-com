@@ -1,10 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createMembershipCheckout,
   hasCollectorCapability,
   type MembershipStatus,
 } from '../../utils/membership';
 import { requestMagicLink } from '../../utils/publicAccount';
+import {
+  trackReleasedLibraryCheckoutStarted,
+  trackReleasedLibraryFilterUsed,
+  trackReleasedLibraryOpened,
+  trackReleasedLibraryPageView,
+  trackReleasedLibrarySignInStarted,
+  trackReleasedPackOpened,
+  type ReleasedLibrarySource,
+} from '../../utils/analytics';
 
 type VibePack = {
   vibeIdx: number;
@@ -29,11 +38,13 @@ type ActorPack = {
 
 interface Props {
   status: MembershipStatus | null;
+  membershipResolved: boolean;
   actorId?: string | null;
   vibeIndex?: number | null;
+  source: ReleasedLibrarySource;
 }
 
-export function ReleasedPackLibrary({ status, actorId, vibeIndex }: Props) {
+export function ReleasedPackLibrary({ status, membershipResolved, actorId, vibeIndex, source }: Props) {
   const entitled = hasCollectorCapability(status);
   const [packs, setPacks] = useState<ActorPack[]>([]);
   const [selectedActor, setSelectedActor] = useState(actorId || '');
@@ -43,6 +54,22 @@ export function ReleasedPackLibrary({ status, actorId, vibeIndex }: Props) {
   const [email, setEmail] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState('');
+  const lastTrackedOpen = useRef('');
+
+  const pageViewTracked = useRef(false);
+  useEffect(() => {
+    if (pageViewTracked.current) return;
+    pageViewTracked.current = true;
+    trackReleasedLibraryPageView(source, actorId, vibeIndex);
+  }, [source, actorId, vibeIndex]);
+
+  useEffect(() => {
+    if (!membershipResolved || status === null) return;
+    const signature = `${source}:${actorId || ''}:${vibeIndex ?? ''}:${entitled}`;
+    if (lastTrackedOpen.current === signature) return;
+    lastTrackedOpen.current = signature;
+    trackReleasedLibraryOpened(source, entitled, actorId, vibeIndex);
+  }, [actorId, entitled, membershipResolved, source, status, vibeIndex]);
 
   useEffect(() => {
     if (!entitled) {
@@ -84,6 +111,7 @@ export function ReleasedPackLibrary({ status, actorId, vibeIndex }: Props) {
 
   async function signIn(event: React.FormEvent) {
     event.preventDefault();
+    trackReleasedLibrarySignInStarted(source, actorId, vibeIndex);
     setBusy('sign-in');
     try {
       setNotice(await requestMagicLink(email, `released:${actorId || ''}`));
@@ -93,6 +121,7 @@ export function ReleasedPackLibrary({ status, actorId, vibeIndex }: Props) {
   }
 
   async function upgrade() {
+    trackReleasedLibraryCheckoutStarted(source, actorId, vibeIndex);
     setBusy('checkout');
     try {
       window.location.assign(await createMembershipCheckout());
@@ -139,8 +168,8 @@ export function ReleasedPackLibrary({ status, actorId, vibeIndex }: Props) {
       {!loading && !error && (
         <>
           <div className="released-library__filters">
-            <label>Actor<select value={actor?.id || ''} onChange={event => { setSelectedActor(event.target.value); setSelectedVibe(''); }}><option value="" disabled>Choose an actor</option>{packs.map(pack => <option key={pack.id} value={pack.id}>{pack.shortName_en || pack.name || pack.id}</option>)}</select></label>
-            <label>Vibe<select value={selectedVibe} onChange={event => setSelectedVibe(event.target.value)}><option value="">All vibes</option>{vibes.map(item => <option key={`${item.label_en || item.label}-${item.vibeIdx}`} value={item.vibeIdx}>{item.label_en || item.label || `Vibe ${item.vibeIdx + 1}`}</option>)}</select></label>
+            <label>Actor<select value={actor?.id || ''} onChange={event => { const nextActor = event.target.value; setSelectedActor(nextActor); setSelectedVibe(''); trackReleasedLibraryFilterUsed('actor', source, nextActor); }}><option value="" disabled>Choose an actor</option>{packs.map(pack => <option key={pack.id} value={pack.id}>{pack.shortName_en || pack.name || pack.id}</option>)}</select></label>
+            <label>Vibe<select value={selectedVibe} onChange={event => { const nextVibe = event.target.value; setSelectedVibe(nextVibe); trackReleasedLibraryFilterUsed('vibe', source, actor?.id, nextVibe === '' ? null : Number(nextVibe)); }}><option value="">All vibes</option>{vibes.map(item => <option key={`${item.label_en || item.label}-${item.vibeIdx}`} value={item.vibeIdx}>{item.label_en || item.label || `Vibe ${item.vibeIdx + 1}`}</option>)}</select></label>
           </div>
           <section className="released-library__grid" aria-label="Released vibe packs">
             {(vibe ? [vibe] : vibes).map(item => <article className="released-pack-card" key={`${actor?.id}-${item.vibeIdx}`}>
@@ -149,7 +178,7 @@ export function ReleasedPackLibrary({ status, actorId, vibeIndex }: Props) {
               <h2>{item.label_en || item.label || 'Released vibe pack'}</h2>
               <p>{item.subtitle_en || item.subtitle}</p>
               {item.supportingCopy_en || item.supportingCopy ? <p>{item.supportingCopy_en || item.supportingCopy}</p> : null}
-              {item.sourceDepth?.queries?.length ? <details><summary>Source depth</summary><ul>{item.sourceDepth.queries.map(query => <li key={query}>{query}</li>)}</ul>{item.sourceDepth.authoringPrompt && <p>{item.sourceDepth.authoringPrompt}</p>}</details> : null}
+              {item.sourceDepth?.queries?.length ? <details onToggle={event => { if (event.currentTarget.open && actor) trackReleasedPackOpened(source, actor.id, item.vibeIdx); }}><summary>Source depth</summary><ul>{item.sourceDepth.queries.map(query => <li key={query}>{query}</li>)}</ul>{item.sourceDepth.authoringPrompt && <p>{item.sourceDepth.authoringPrompt}</p>}</details> : null}
             </article>)}
           </section>
         </>

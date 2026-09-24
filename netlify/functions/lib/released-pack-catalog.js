@@ -61,6 +61,7 @@ export function publicReleasedPack(pack) {
     kind: "vibe-atlas-released-pack",
     actor: pack.actor,
     vibe: pack.vibe,
+    vibeIdx: pack.vibeIdx,
     canonical: pack.canonical,
     preview: pack.preview,
     publishedAt: pack.publishedAt,

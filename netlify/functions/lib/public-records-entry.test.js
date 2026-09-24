@@ -124,6 +124,7 @@ test("released pack pages expose one stable safe preview with valid structured d
   assert.match(result.body, /index,follow,max-image-preview:large/);
   assert.match(result.body, /Cold Jade Immortal/);
   assert.match(result.body, /Become|Fandom Collectors/);
+  assert.match(result.body, /view=released&amp;source=public_record&amp;actorId=liu-xueyi&amp;vibeIdx=0/);
   const structured = result.body.match(/<script type="application\/ld\+json">(.+?)<\/script>/)?.[1];
   assert.equal(JSON.parse(structured)["@type"], "Article");
   assert.doesNotMatch(result.body, /PRIVATE-RUN|query|prompt|audit|diagnostic|score|candidate|account/i);
