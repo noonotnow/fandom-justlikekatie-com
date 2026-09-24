@@ -47,6 +47,7 @@ import { buildDailyDropPool } from './utils/gridBuilder';
 import './App.css';
 import { VeteranSubmissionForm } from './components/VeteranSubmissionForm/VeteranSubmissionForm';
 import {
+  consumeReleasedLibrarySignInReturn,
   trackCollectionOpened,
   trackDailyArchiveEditionSelected,
   trackArchiveAccess,
@@ -60,6 +61,7 @@ import {
   trackDailyDropShared,
   trackDailyDropViewed,
   trackGridBuilderPreviewOpened,
+  trackReleasedLibraryCollectorActivated,
   trackUpgradeStarted,
 } from './utils/analytics';
 import type {
@@ -298,7 +300,25 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             setView('daily');
             trackArchiveAccess('restored', archiveReturnDate, 'sign_in');
           } else {
-            if (
+            const releasedReturn = destination === 'collection'
+              ? consumeReleasedLibrarySignInReturn()
+              : null;
+            if (releasedReturn) {
+              const params = new URLSearchParams({
+                view: 'released',
+                source: releasedReturn.source,
+              });
+              if (releasedReturn.actorId) params.set('actorId', releasedReturn.actorId);
+              if (releasedReturn.vibeIndex !== undefined) {
+                params.set('vibeIdx', String(releasedReturn.vibeIndex));
+              }
+              window.history.replaceState(
+                {},
+                '',
+                `${PUBLIC_ROUTE_PATHS.vibeAtlas}?${params.toString()}`,
+              );
+              setView('released');
+            } else if (
               destination === 'admin'
               || destination === 'membership'
               || destination === 'collection'
@@ -316,6 +336,16 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         setView('collection');
       });
   }, [refreshMembership]);
+
+  useEffect(() => {
+    if (
+      membershipResolved
+      && hasCollectorCapability(membershipStatus)
+      && new URLSearchParams(window.location.search).get('membership') === 'success'
+    ) {
+      trackReleasedLibraryCollectorActivated();
+    }
+  }, [membershipResolved, membershipStatus]);
 
   useEffect(() => {
     // Keep old PLAN URLs usable, but do not leave the retired product name in
@@ -865,7 +895,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
            <div className="daily-released-pack__access">
              <strong>Today’s pack is free on this homepage.</strong>
              <p>The full released-pack library stays available to Fandom Collectors.</p>
-             <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=released&actorId=${encodeURIComponent(rawData.actorId)}&vibeIdx=${rawData.vibeIdx ?? ''}`}>
+             <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=released&source=daily_star&actorId=${encodeURIComponent(rawData.actorId)}&vibeIdx=${rawData.vibeIdx ?? ''}`}>
                Open the Collector library
              </a>
            </div>
@@ -960,6 +990,13 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       ) : view === 'released' ? (
         <ReleasedPackLibrary
           status={membershipStatus}
+          membershipResolved={membershipResolved}
+          source={(() => {
+            const value = new URLSearchParams(window.location.search).get('source');
+            return value === 'daily_star' || value === 'public_record'
+              ? value
+              : 'library_navigation';
+          })()}
           actorId={new URLSearchParams(window.location.search).get('actorId')}
           vibeIndex={(() => {
             const value = new URLSearchParams(window.location.search).get('vibeIdx');

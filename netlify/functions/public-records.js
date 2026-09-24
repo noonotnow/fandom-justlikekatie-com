@@ -90,7 +90,8 @@ function renderReleasedPack(pack, query) {
   const description = pack.preview.copy;
   const cards = pack.preview.cards.map(card =>
     `<figure><img src="${escapeHtml(card.thumbnailUrl)}" alt="${escapeHtml(card.title)}" loading="lazy"><figcaption>${escapeHtml(card.title)}</figcaption></figure>`).join("");
-  const body = `<a href="${escapeHtml(`${RELEASED_PACK_PATH}/${releasedPackActorSlug(pack.actor)}/`)}">All ${escapeHtml(pack.actor.nameEn)} packs</a><h1>${escapeHtml(title)}</h1><p>${escapeHtml(pack.vibe.subtitleEn)}</p><p>${escapeHtml(description)}</p><section aria-label="Released pack preview">${cards}</section><p>Full source depth is available to Fandom Collectors.</p>`;
+  const collectorLibrary = `/vibe-atlas/?view=released&source=public_record&actorId=${encodeURIComponent(pack.actor.id)}&vibeIdx=${encodeURIComponent(pack.vibeIdx)}`;
+  const body = `<a href="${escapeHtml(`${RELEASED_PACK_PATH}/${releasedPackActorSlug(pack.actor)}/`)}">All ${escapeHtml(pack.actor.nameEn)} packs</a><h1>${escapeHtml(title)}</h1><p>${escapeHtml(pack.vibe.subtitleEn)}</p><p>${escapeHtml(description)}</p><section aria-label="Released pack preview">${cards}</section><p>Full source depth is available to Fandom Collectors. <a href="${escapeHtml(collectorLibrary)}">Open in the Collector library</a></p>`;
   return response(200, page({
     title, description, canonical: pack.canonical,
     image: pack.preview.cards[0]?.deliveryUrl,

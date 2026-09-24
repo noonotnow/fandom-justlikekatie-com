@@ -29,7 +29,10 @@
       var analyticsPath = window.location.pathname.replace(/\/+$/, '') || '/';
       var analyticsLocation = analyticsPath === '/vibe-atlas/veteran-journal'
         ? window.location.origin + '/vibe-atlas/veteran-journal'
+        : analyticsPath === '/vibe-atlas' && new URLSearchParams(window.location.search).get('view') === 'released'
+          ? window.location.origin + '/vibe-atlas?view=released'
         : window.location.href;
+      window.__initialAnalyticsLocation = analyticsLocation;
       gtag('config', 'G-FHZJ1T74TG', {
         page_location: analyticsLocation
       });
