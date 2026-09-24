@@ -45,10 +45,8 @@ test("released pack catalog uses the same approved predicate as Star of the Day"
 
   assert.equal(catalog.complete, true);
   assert.equal(catalog.indexingComplete, true);
-  assert.equal(catalog.packs.length, 1);
-  assert.equal(catalog.packs[0].actorId, "fixture-actor");
-  assert.equal(catalog.packs[0].vibeIdx, 0);
-  assert.equal(catalog.packs[0].preview, null);
+  assert.deepEqual(catalog.collectorPackIds, ["fixture-actor:0"]);
+  assert.equal(catalog.packs.length, 0);
   assert.deepEqual([...protectedReleasedPackIds(catalog)], ["fixture-actor:0"]);
 });
 
@@ -65,6 +63,6 @@ test("publication inventory failure does not hide eligible Collector packs", asy
   assert.equal(catalog.complete, true);
   assert.equal(catalog.indexingComplete, false);
   assert.equal(catalog.indexingFailureReason, "publication_inventory_unavailable");
-  assert.equal(catalog.packs.length, 1);
-  assert.equal(catalog.packs[0].preview, null);
+  assert.deepEqual(catalog.collectorPackIds, ["fixture-actor:0"]);
+  assert.equal(catalog.packs.length, 0);
 });

@@ -101,6 +101,7 @@ export async function releasedPackCatalog(
   }
 
   const packs = [];
+  const collectorPackIds = new Set();
   let eligibilityHealthy = true;
   await Promise.all(actorPacks.map(async actor => {
     await Promise.all((actor.vibes || []).map(async (vibe, vibeIdx) => {
@@ -112,10 +113,12 @@ export async function releasedPackCatalog(
         return;
       }
       if (!eligibilityPredicate(snapshot)) return;
+      collectorPackIds.add(`${actor.id}:${vibeIdx}`);
       const manifest = manifests
         .filter(item => item.actor?.id === actor.id && item.vibe?.idx === vibeIdx)
         .sort((left, right) => String(right.publicationDate).localeCompare(String(left.publicationDate)))[0];
       const preview = safeManifest(manifest);
+      if (!preview) return;
       const path = releasedPackPath(actor, vibe, vibeIdx);
       packs.push({
         actorId: actor.id,
@@ -135,7 +138,7 @@ export async function releasedPackCatalog(
           subtitleEn: vibe.subtitle_en || vibe.subtitle || "",
         },
         preview,
-        publishedAt: preview ? manifest.publishedAt || null : null,
+        publishedAt: manifest.publishedAt || null,
         runId: snapshot.runId,
       });
     }));
@@ -156,11 +159,15 @@ export async function releasedPackCatalog(
     complete: true,
     indexingComplete,
     indexingFailureReason,
+    collectorPackIds: [...collectorPackIds].sort(),
     packs,
   };
 }
 
 export function protectedReleasedPackIds(catalog) {
+  if (Array.isArray(catalog?.collectorPackIds)) {
+    return new Set(catalog.collectorPackIds);
+  }
   return new Set((catalog?.packs || []).map(pack => `${pack.actorId}:${pack.vibeIdx}`));
 }
 
