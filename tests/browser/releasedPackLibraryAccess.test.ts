@@ -6,7 +6,7 @@ import {
   startViteTestServer,
 } from './browserEngines.ts';
 
-test('signed-out released-pack visitors see the lock without fetching protected depth', {
+test('signed-out released-pack visitors see a public teaser without fetching protected depth', {
   timeout: 30_000,
 }, async () => {
   const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer());
@@ -14,6 +14,24 @@ test('signed-out released-pack visitors see the lock without fetching protected 
     const page = await browser.newPage();
     page.setDefaultTimeout(5_000);
     let protectedRequests = 0;
+    await page.route('**/.netlify/functions/star-of-day*', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        actorId: 'liu-xueyi',
+        vibeIdx: 2,
+        actorName: '刘学义',
+        actorShortNameEn: 'Liu Xueyi',
+        actorAccentColor: '#a8bde0',
+        vibeEmoji: '🤓',
+        vibeLabel: '斯文败类',
+        vibeLabelEn: 'Polished Danger',
+        vibeSubtitle: '眼镜一戴，危险变得很有礼貌',
+        vibeSubtitleEn: 'Put the glasses on. The danger got extremely polite.',
+        rankedBatches: [{ query: 'today', results: [{ title: 'One', thumbnail: 'https://media.example/1.jpg', link: 'https://example.com/1', source: 'Example' }] }],
+        displayResults: [{ title: 'One', thumbnail: 'https://media.example/1.jpg', link: 'https://example.com/1', source: 'Example' }],
+        date: '2026-09-24',
+      }),
+    }));
     await page.route('**/api/membership/status', route => route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({ state: 'signed_out', capabilities: [] }),
@@ -26,16 +44,47 @@ test('signed-out released-pack visitors see the lock without fetching protected 
         body: JSON.stringify({ error: 'Protected endpoint must not be called.' }),
       });
     });
+    await page.route('**/.netlify/functions/released-pack-preview*', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schemaVersion: 1,
+        kind: 'vibe-atlas-released-pack-preview',
+        pack: {
+          actor: { id: 'liu-xueyi', name: '刘学义', nameEn: 'Liu Xueyi' },
+          vibe: {
+            emoji: '🤓',
+            label: '斯文败类',
+            labelEn: 'Polished Danger',
+            subtitle: '眼镜一戴，危险变得很有礼貌',
+            subtitleEn: 'Put the glasses on. The danger got extremely polite.',
+          },
+          vibeIdx: 2,
+          preview: {
+            copy: 'A public editorial teaser that keeps the pack understandable without opening gated collector tools.',
+            cards: [
+              { title: 'Preview One', thumbnailUrl: 'https://media.example/1.jpg', link: 'https://example.com/1', source: 'Example' },
+              { title: 'Preview Two', thumbnailUrl: 'https://media.example/2.jpg', link: 'https://example.com/2', source: 'Example' },
+              { title: 'Preview Three', thumbnailUrl: 'https://media.example/3.jpg', link: 'https://example.com/3', source: 'Example' },
+            ],
+          },
+        },
+      }),
+    }));
 
-    await page.goto(`${origin}/vibe-atlas?view=released&actorId=liu-xueyi&vibeIdx=3`, {
+    await page.goto(`${origin}/vibe-atlas?view=released&actorId=liu-xueyi&vibeIdx=2`, {
       waitUntil: 'domcontentloaded',
       timeout: 15_000,
     });
-    await page.getByRole('heading', { name: 'Released packs, ready when you are.' }).waitFor();
+    await page.getByRole('heading', { name: 'The Vibe Atlas library.' }).waitFor();
     assert.equal(protectedRequests, 0);
+    await page.getByRole('heading', { name: /Polished Danger/ }).waitFor();
+    await page.getByText('Public teaser · 公开预览').waitFor();
+    await page.getByText('This Vibe Pack / 氛围包 is the reusable editorial sourceboard.').waitFor();
+    await page.getByText('Free today: this release is the current Star of the Day Vibe Pack on the Vibe Atlas homepage.').waitFor();
+    assert.equal(await page.locator('img').count() >= 3, true);
     await page.getByRole('button', { name: 'Email sign-in link' }).waitFor();
     await page.getByRole('button', { name: 'Become a Fandom Collector' }).waitFor();
-    assert.match(page.url(), /view=released&actorId=liu-xueyi&vibeIdx=3/);
+    assert.match(page.url(), /view=released&actorId=liu-xueyi&vibeIdx=2/);
   } finally {
     await closeBrowserAndServer(browser, server);
   }

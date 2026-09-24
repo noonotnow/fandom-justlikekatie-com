@@ -138,6 +138,7 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole/",
     "https://fandom.justlikekatie.com/c-drama-fandom/trope-decoder/",
     "https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episode-21/",
   ];
   const journalUrls = WATCH_JOURNAL_PUBLIC_PAGES.map((path) => (
@@ -401,13 +402,38 @@ test("Against the Current stays within Episode 21 and uses registered static edi
     ["vibing-now-intro", "survival-cost", "domestic-statecraft", "ethical-competence",
       "damage-control", "romance-imbalance", "defining-current", "emerging-vibe", "pack-verdict"],
   );
+  assert.match(html, /<p class="breadcrumb"><a href="\/c-drama-fandom\/">C-drama fandom<\/a> \/ <a href="\/c-drama-fandom\/vibing-now\/">Vibing Now<\/a><\/p>/);
+  assert.match(html, /view=released&amp;source=library_navigation&amp;actorId=liu-xueyi&amp;vibeIdx=2/);
+  assert.match(html, /view=released&amp;source=library_navigation&amp;actorId=liu-xueyi&amp;vibeIdx=1/);
+  assert.match(html, /Explore Liu Xueyi’s Vibe Packs/);
+  assert.match(html, /Silk-Robed Damage Control<\/strong> <em>\(Pack candidate · unreleased\)<\/em>/);
   assert.match(html, /Spoiler boundary: Episode 21 · No preview, later-episode, novel, or endgame material included/);
   assert.doesNotMatch(html, /Research boundary|Rendition map|Episode 2[2-9]\b|HK01|CPOP HOME/i);
+  assert.match(read("netlify.toml"), /from = "\/c-drama-fandom\/vibing-now"\s+to = "\/c-drama-fandom\/vibing-now\/index\.html"/);
+  assert.match(read("public/c-drama-fandom/index.html"), /Currently Vibing/);
+  assert.match(read("public/c-drama-fandom/index.html"), /href="\/c-drama-fandom\/vibing-now\/"/);
   assert.match(read("netlify.toml"), /from = "\/c-drama-fandom\/vibing-now\/against-the-current-episode-21"\s+to = "\/c-drama-fandom\/vibing-now\/against-the-current-episode-21\/index\.html"/);
+  assert.match(
+    read("vite.config.ts"),
+    /'\/c-drama-fandom\/vibing-now', '\/c-drama-fandom\/vibing-now\/index\.html'/,
+  );
   assert.match(
     read("vite.config.ts"),
     /'\/c-drama-fandom\/vibing-now\/against-the-current-episode-21', '\/c-drama-fandom\/vibing-now\/against-the-current-episode-21\/index\.html'/,
   );
+});
+
+test("Vibing Now landing page is crawlable and advertises the live spoiler boundary", () => {
+  const path = "/c-drama-fandom/vibing-now/";
+  const html = read(`public${path}index.html`);
+  const route = PUBLIC_STATIC_ROUTES.find((entry) => entry.path === path);
+  assert.ok(route);
+  assert.equal(route.changefreq, "weekly");
+  assertCanonicalMatchesRoute(html, route);
+  assert.match(html, /<body data-source-page="vibing-now-index" data-content-mode="drama-authority">/);
+  assert.match(html, /Against the Current, through Episode 21/);
+  assert.match(html, /No preview material, later episodes, novel material, or endgame commentary/);
+  assert.match(read("public/c-drama-fandom/editorial.js"), /"vibing-now-index"/);
 });
 
 test("the public field journal has crawlable direct routes with spoiler-safe metadata", () => {

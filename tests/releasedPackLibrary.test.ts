@@ -12,11 +12,14 @@ import {
   trackReleasedPackOpened,
 } from '../src/utils/analytics.ts';
 
-test('released pack library has a protected entitlement boundary and locked visitor path', async () => {
+test('released pack library keeps source-depth protected while showing signed-out preview access', async () => {
   const source = await readFile(new URL('../src/components/ReleasedPackLibrary/ReleasedPackLibrary.tsx', import.meta.url), 'utf8');
   assert.match(source, /hasCollectorCapability\(status\)/);
   assert.ok(source.includes("fetch('/.netlify/functions/actor-pack-depth'"));
+  assert.ok(source.includes("fetch(`/.netlify/functions/released-pack-preview?actorId="));
   assert.match(source, /if \(!entitled\)/);
+  assert.match(source, /Public teaser · 公开预览/);
+  assert.match(source, /This Vibe Pack \/ 氛围包 is the reusable editorial sourceboard/);
   assert.match(source, /Email sign-in link/);
   assert.match(source, /Become a Fandom Collector/);
   assert.match(source, /trackReleasedLibraryOpened/);
@@ -37,7 +40,19 @@ test('released pack navigation preserves actor and vibe selection from daily dro
   assert.match(app, /vibeIdx=/);
   assert.match(app, /value !== null && value !== ''/);
   assert.match(app, /<ReleasedPackLibrary/);
+  assert.match(app, /currentRelease=\{rawData\?\.actorId/);
   assert.match(routes, /if \(view === 'released'\) return 'released'/);
+});
+
+test('released pack library uses bilingual collector copy and fallback source labeling', async () => {
+  const source = await readFile(new URL('../src/components/ReleasedPackLibrary/ReleasedPackLibrary.tsx', import.meta.url), 'utf8');
+  assert.match(source, /Fandom Collector · 已发布 Vibe Packs/);
+  assert.match(source, /Explore released actor × vibe packs—and generate a fresh 图集 from each one/);
+  assert.match(source, /Actor \/ 演员/);
+  assert.match(source, /Vibe Pack \/ 氛围包/);
+  assert.match(source, /Generated from this released Vibe Pack · 来自已发布氛围包/);
+  assert.match(source, /Refresh grid · 换一组/);
+  assert.match(source, /Image source: backup search · 备用搜索源/);
 });
 
 test('released pack analytics is bounded and checkout attribution is consumed once', () => {

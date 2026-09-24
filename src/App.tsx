@@ -991,6 +991,12 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         <ReleasedPackLibrary
           status={membershipStatus}
           membershipResolved={membershipResolved}
+          currentRelease={rawData?.actorId && Number.isInteger(rawData?.vibeIdx)
+            ? {
+              actorId: rawData.actorId,
+              vibeIdx: rawData.vibeIdx as number,
+            }
+            : null}
           source={(() => {
             const value = new URLSearchParams(window.location.search).get('source');
             return value === 'daily_star' || value === 'public_record'
