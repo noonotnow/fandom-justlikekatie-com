@@ -177,11 +177,13 @@ export function ReleasedPackLibrary({
       return;
     }
     let cancelled = false;
+    const controller = new AbortController();
     setPublicPreviewLoading(true);
     setPublicPreview(null);
     setPublicPreviewError('');
     fetch(`/.netlify/functions/released-pack-preview?actorId=${encodeURIComponent(actorId)}&vibeIdx=${encodeURIComponent(vibeIndex)}`, {
       headers: { Accept: 'application/json' },
+      signal: controller.signal,
     })
       .then(async response => {
         const body = await response.json().catch(() => null);
@@ -192,6 +194,7 @@ export function ReleasedPackLibrary({
         if (!cancelled) setPublicPreview(body.pack);
       })
       .catch(err => {
+        if (controller.signal.aborted) return;
         if (!cancelled) {
           setPublicPreview(null);
           setPublicPreviewError(err instanceof Error ? err.message : 'Public preview is temporarily unavailable.');
@@ -200,7 +203,10 @@ export function ReleasedPackLibrary({
       .finally(() => {
         if (!cancelled) setPublicPreviewLoading(false);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [actorId, entitled, vibeIndex]);
 
   const actor = useMemo(
@@ -363,7 +369,9 @@ export function ReleasedPackLibrary({
 
   const selectedRunSourceLabel = selectedRun?.source === 'fallback'
     ? 'Image source: backup search · 备用搜索源'
-    : null;
+    : selectedRun?.source
+      ? `Source: ${selectedRun.source}`
+      : null;
 
   if (!entitled) {
     return (
