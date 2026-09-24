@@ -745,7 +745,7 @@ export const GridBuilder: React.FC<Props> = ({
           >
             <span>Event</span>
             <strong>No, look closer.</strong>
-            <small>Stay inside one detected appearance. Repetition becomes sequence, and a strong family can grow to 12 frames.</small>
+            <small>Stay inside one detected appearance. Nine frames turn repetition into sequence.</small>
           </button>
           <button
             type="button"
@@ -908,7 +908,7 @@ export const GridBuilder: React.FC<Props> = ({
         <div className={styles.workspace}>
           <div>
             <div
-              className={`${styles.grid} ${proposalTargetSize === 12 ? styles.eventGrid : ''}`}
+              className={styles.grid}
               role="group"
               aria-label={builderMode === 'manual'
                 ? 'Custom 3×3 grid'

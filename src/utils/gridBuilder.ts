@@ -359,7 +359,6 @@ export function applyLens(pool: BuilderCard[], lens: CollectionLens): BuilderCar
 
 const MAX_PER_FAMILY = 3;
 const MAX_PER_PUBLISHER = 4;
-export const EVENT_COMPOSITION_MAX = 12;
 export const STANDARD_COMPOSITION_SIZE = 9;
 
 function rankPool(pool: BuilderCard[]): BuilderCard[] {
@@ -393,7 +392,7 @@ function proposeEventGrid(pool: BuilderCard[], lens: CollectionLens): GridPropos
     return recency || (a[0]?.familyId || '').localeCompare(b[0]?.familyId || '');
   });
   const chosenFamily = familyList[0] || [];
-  const compositionSize: CompositionSize = chosenFamily.length >= EVENT_COMPOSITION_MAX ? 12 : 9;
+  const compositionSize: CompositionSize = STANDARD_COMPOSITION_SIZE;
   const slots = chosenFamily.slice(0, compositionSize);
   const selected = new Set(slots.map(card => card.key));
   const alternates = chosenFamily.filter(card => !selected.has(card.key));
@@ -583,7 +582,7 @@ function stableHash(value: string): string {
 }
 
 /**
- * Build a GridRecord from a complete 9- or 12-frame composition. The rationale brief is stored
+ * Build a GridRecord from a complete nine-frame composition. The rationale brief is stored
  * in `generationPrompt` so it survives into packets and the CREATE handoff
  * without touching the rendered card.
  */
@@ -594,8 +593,8 @@ export function gridRecordFromProposal(
   presentation?: GridRecord['presentation'],
   sourceProvenance?: GridRecord['sourceProvenance'],
 ): GridRecord {
-  if (slots.length !== 9 && slots.length !== 12) {
-    throw new Error(`A composition needs exactly 9 or 12 slots (got ${slots.length}).`);
+  if (slots.length !== STANDARD_COMPOSITION_SIZE) {
+    throw new Error(`A composition needs exactly 9 slots (got ${slots.length}).`);
   }
   const date = now.toISOString().slice(0, 10);
   const anchor = slots[0];
