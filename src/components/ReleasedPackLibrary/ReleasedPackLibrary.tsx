@@ -14,6 +14,7 @@ import {
   trackReleasedPackOpened,
   type ReleasedLibrarySource,
 } from '../../utils/analytics';
+import { PUBLIC_ROUTE_PATHS } from '../../../shared/public-routes.js';
 
 type VibePack = {
   vibeIdx: number;
@@ -420,7 +421,7 @@ export function ReleasedPackLibrary({
               <p>{publicPreviewFreeToday ? 'Free today: this release is the current Star of the Day Vibe Pack on the Vibe Atlas homepage.' : 'This release unlocks publicly when it is the Star of the Day, using the existing daily unlock flow.'}</p>
               <div className="released-library__teaser-actions">
                 {publicPreviewFreeToday && <a href="/vibe-atlas#todays-released-pack">Open today’s free pack</a>}
-                <a href="/vibe-atlas">Browse today’s Vibe Atlas homepage</a>
+                <a href={PUBLIC_ROUTE_PATHS.vibeAtlas}>Browse today’s Vibe Atlas homepage</a>
               </div>
             </div>
           </section>

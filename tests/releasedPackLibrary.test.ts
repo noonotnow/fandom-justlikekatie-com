@@ -36,11 +36,14 @@ test('released pack navigation preserves actor and vibe selection from daily dro
     readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/utils/fandomRoutes.ts', import.meta.url), 'utf8'),
   ]);
-  assert.match(app, /view=released&source=daily_star&actorId=/);
-  assert.match(app, /vibeIdx=/);
+  assert.match(app, /vibeAtlasPath\(\{/);
+  assert.match(app, /view: 'released'/);
+  assert.match(app, /source: 'daily_star'/);
+  assert.match(app, /vibeIdx: rawData\.vibeIdx/);
   assert.match(app, /value !== null && value !== ''/);
   assert.match(app, /<ReleasedPackLibrary/);
   assert.match(app, /currentRelease=\{rawData\?\.actorId/);
+  assert.match(routes, /export function vibeAtlasPath/);
   assert.match(routes, /if \(view === 'released'\) return 'released'/);
 });
 
