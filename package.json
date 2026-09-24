@@ -19,7 +19,8 @@
     "check:scheduled-functions-package:compat": "FANDOM_STRIPE_MEMBERSHIP_PRICE_ID=price_ci_collector FANDOM_CREATOR_OS_PRICE_ID=price_ci_creator FANDOM_CREATOR_BRIDGE_PRICE_ID=price_ci_bridge FANDOM_ECOSYSTEM_BUNDLE_PRICE_ID=price_ci_bundle npx --yes netlify-cli@${NETLIFY_CLI_VERSION:-latest} build --offline && node scripts/check-scheduled-functions-package.js",
     "check:types": "tsc -b",
     "test": "npm run test:app && npm run test:functions && npm run test:scripts && npm run test:browser",
-    "test:app": "node --import tsx/esm --test tests/*.test.ts",
+    "test:app": "node --import tsx/esm --test tests/*.test.ts && npm run test:components",
+    "test:components": "vitest run --config vitest.components.config.ts",
     "test:functions": "node --test netlify/functions/lib/*.test.js",
     "test:scripts": "node --test scripts/*.test.js",
     "audit:subscription-products": "node scripts/audit-subscription-products.js",
@@ -53,7 +54,9 @@
     "@types/react-test-renderer": "^19.1.0",
     "@vitejs/plugin-react": "^6.0.3",
     "autoprefixer": "^10.5.2",
+    "@testing-library/react": "16.3.2",
     "fake-indexeddb": "^6.2.5",
+    "jsdom": "25.0.1",
     "fast-xml-parser": "^5.11.1",
     "oxlint": "^1.71.0",
     "postcss": "^8.5.16",
@@ -61,6 +64,7 @@
     "tailwindcss": "^4.3.2",
     "tsx": "^4.23.12",
     "typescript": "~6.0.2",
-    "vite": "^8.1.1"
+    "vite": "^8.1.1",
+    "vitest": "4.1.11"
   }
 }
