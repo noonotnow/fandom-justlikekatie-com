@@ -1,8 +1,10 @@
+import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { GridBuilder } from '../src/components/GridBuilder/GridBuilder';
 
 const mocks = vi.hoisted(() => ({
+  getCards: vi.fn(),
   getGrids: vi.fn(),
   saveGrid: vi.fn(),
   prepare: vi.fn(),
@@ -10,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   onExported: vi.fn(),
 }));
 
-const cards = Array.from({ length: 9 }, (_, index) => ({
+const cards = Array.from({ length: 10 }, (_, index) => ({
   key: `card-${index}`,
   title: `Image ${index}`,
   imageUrl: `https://example.test/${index}.png`,
@@ -22,19 +24,24 @@ const rationale = {
   compositionSize: 9,
   editorialMode: 'compiled',
   manualSwaps: [],
-  slotReasons: cards.map(() => 'Selected'),
+  slotReasons: cards.slice(0, 9).map(() => 'Selected'),
 };
 
 vi.mock('../src/utils/collectionDB', () => ({
-  dbGetVisibleCardsByScope: vi.fn(async () => []),
+  dbGetVisibleCardsByScope: mocks.getCards,
   dbGetVisibleGrids: mocks.getGrids,
   dbSaveGrid: mocks.saveGrid,
 }));
 vi.mock('../src/utils/gridBuilder', () => ({
   buildVibeAtlasPool: vi.fn(() => cards),
-  lensOptions: vi.fn(() => ({ actors: [], vibes: [], families: [] })),
+  lensOptions: vi.fn(() => ({
+    actors: [{ value: 'Fixture actor', label: 'Fixture actor', count: 10 }],
+    vibes: [],
+    families: [],
+  })),
   applyLens: vi.fn((pool) => pool),
-  proposeGrid: vi.fn(() => ({ slots: cards, alternates: [], rationale })),
+  proposeGrid: vi.fn(() => ({ slots: cards.slice(0, 9), alternates: [], rationale })),
+  manualGridRationale: vi.fn(() => rationale),
   gridRecordFromProposal: vi.fn(() => ({ id: 'grid-1', images: [] })),
   rationaleBrief: vi.fn(() => 'Fixture rationale'),
   actorPackIdForLens: vi.fn(() => ''),
@@ -77,6 +84,30 @@ async function openBuilder(saved: boolean) {
   }
 }
 
+async function openManualBuilder() {
+  mocks.getGrids.mockResolvedValue([]);
+  render(<GridBuilder onExported={mocks.onExported} sourceKind="daily" sourcePool={cards as never} />);
+  await screen.findByRole('tab', { name: 'Build Your Own' });
+  fireEvent.click(screen.getByRole('tab', { name: 'Build Your Own' }));
+  fireEvent.click(screen.getByRole('button', { name: /Fixture actor 10/ }));
+  for (let index = 0; index < 9; index++) {
+    fireEvent.click(screen.getByRole('button', { name: `Select Image ${index}` }));
+  }
+  expect(screen.getByRole('button', { name: /Export square PNG/ }).hasAttribute('disabled')).toBe(false);
+}
+
+async function saveWithoutOldNavigation() {
+  expect(screen.queryByRole('button', { name: /Save to collection/ })).toBeNull();
+  const saving = deferred<void>();
+  mocks.saveGrid.mockReturnValueOnce(saving.promise);
+  fireEvent.click(screen.getByRole('button', { name: /Save grid/ }));
+  expect(mocks.onExported).not.toHaveBeenCalled();
+  saving.resolve();
+  await screen.findByRole('button', { name: /Saved/ });
+  expect(mocks.saveGrid).toHaveBeenCalledTimes(1);
+  expect(mocks.onExported).not.toHaveBeenCalled();
+}
+
 function rawButton() {
   fireEvent.click(screen.getByRole('button', { name: 'Handoff Publishing Grid' }));
   return screen.getByRole('button', { name: 'Download PNG' });
@@ -84,6 +115,7 @@ function rawButton() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.getCards.mockResolvedValue(cards);
   mocks.saveGrid.mockResolvedValue(undefined);
   mocks.prepare.mockImplementation(async () => ({
     objectUrl: 'blob:fixture',
@@ -162,5 +194,52 @@ describe('GridBuilder export navigation', () => {
     await screen.findByText(/Cannot save/);
     expect(mocks.onExported).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: /Save to collection/ })).toBeTruthy();
+  });
+
+  it.each([
+    ['picker selection', () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Remove position 1 Image 0' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Select Image 0' }));
+    }],
+    ['slot movement', () => {
+      const grid = screen.getByRole('group', { name: 'Custom 3×3 grid' });
+      fireEvent.click(grid.querySelectorAll('button')[0]);
+      fireEvent.click(screen.getByRole('button', { name: 'Move later' }));
+      expect(grid.querySelector('button img')?.getAttribute('alt')).toBe('Image 1');
+    }],
+    ['slot swap', () => {
+      const grid = screen.getByRole('group', { name: 'Custom 3×3 grid' });
+      fireEvent.click(grid.querySelectorAll('button')[0]);
+      fireEvent.click(grid.querySelectorAll('button')[1]);
+      expect(grid.querySelector('button img')?.getAttribute('alt')).toBe('Image 1');
+    }],
+    ['slot removal and duplication', () => {
+      const grid = screen.getByRole('group', { name: 'Custom 3×3 grid' });
+      fireEvent.click(grid.querySelectorAll('button')[0]);
+      fireEvent.click(screen.getByRole('button', { name: 'Remove selected' }));
+      fireEvent.click(grid.querySelectorAll('button')[0]);
+      fireEvent.click(screen.getByRole('button', { name: 'Duplicate selected' }));
+      expect(grid.querySelectorAll('button')).toHaveLength(9);
+    }],
+  ])('does not navigate from an old manual export after %s', async (_change, mutate) => {
+    await openManualBuilder();
+    fireEvent.click(screen.getByRole('button', { name: /Export square PNG/ }));
+    await screen.findByRole('button', { name: /Save to collection/ });
+    expect(mocks.onExported).not.toHaveBeenCalled();
+    mutate();
+    await saveWithoutOldNavigation();
+  });
+
+  it('does not navigate from an old export after switching collection modes', async () => {
+    mocks.getGrids.mockResolvedValue([]);
+    render(<GridBuilder onExported={mocks.onExported} />);
+    await screen.findByRole('button', { name: /Propose Compiled 3×3/ });
+    fireEvent.click(screen.getByRole('button', { name: /Propose Compiled 3×3/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Export square PNG/ }));
+    await screen.findByRole('button', { name: /Save to collection/ });
+    fireEvent.click(screen.getByRole('button', { name: /Legendary Misprints/ }));
+    expect(screen.queryByRole('button', { name: /Save to collection/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Propose Compiled 3×3/ }));
+    await saveWithoutOldNavigation();
   });
 });
