@@ -14,6 +14,7 @@
     "archetypes-cold-vs-tsundere",
     "archetypes-black-bellied-white-cut-black",
     "archetypes-white-moonlight-cinnabar-mole",
+    "drama-against-the-current-episode-21",
     "drama-lbfad",
     "drama-lbfad-relationships",
     "drama-lbfad-themes",
@@ -43,6 +44,15 @@
     "archetype-signals",
     "fandom-usage",
     "symbolic-role",
+    "vibing-now-intro",
+    "survival-cost",
+    "domestic-statecraft",
+    "ethical-competence",
+    "damage-control",
+    "romance-imbalance",
+    "defining-current",
+    "emerging-vibe",
+    "pack-verdict",
   ]);
   const topicIds = new Set([
     "wuxia",

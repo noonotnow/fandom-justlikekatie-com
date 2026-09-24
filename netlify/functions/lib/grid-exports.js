@@ -134,10 +134,10 @@ async function handleUpload(
   if (!EXPORT_ID_RE.test(exportId)) return json(400, { error: "Invalid exportId." });
   const requestedVariant = url.searchParams.get("variant");
   const supportedVariants = ["full", "teaser", "standard", "master", "raw"];
-  if (requestedVariant && !supportedVariants.includes(requestedVariant)) {
+  if (requestedVariant !== null && !supportedVariants.includes(requestedVariant)) {
     return json(400, { error: "Invalid export variant." });
   }
-  const variant = requestedVariant || "full";
+  const variant = requestedVariant ?? "full";
   const tier = sanitizeTier(url.searchParams.get("tier"));
 
   const declared = Number(req.headers.get("content-length") || 0);

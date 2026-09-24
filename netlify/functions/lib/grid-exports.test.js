@@ -193,9 +193,11 @@ test("raw-grid uploads retain their distinct export identity", async () => {
 
 test("unsupported export variants are rejected instead of becoming treated cards", async () => {
   const { handlers } = makeHandlers();
-  const res = await handlers.handler(uploadReq({ variant: "unknown" }), {});
-  assert.equal(res.status, 400);
-  assert.deepEqual(await res.json(), { error: "Invalid export variant." });
+  for (const variant of ["unknown", ""]) {
+    const res = await handlers.handler(uploadReq({ variant }), {});
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { error: "Invalid export variant." });
+  }
 });
 
 test("re-uploading the same exportId does not duplicate the index entry", async () => {

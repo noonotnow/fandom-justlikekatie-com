@@ -138,6 +138,7 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole/",
     "https://fandom.justlikekatie.com/c-drama-fandom/trope-decoder/",
     "https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episode-21/",
   ];
   const journalUrls = WATCH_JOURNAL_PUBLIC_PAGES.map((path) => (
     `https://fandom.justlikekatie.com/${path
@@ -383,6 +384,30 @@ test("editorial analytics use bounded identifiers and never collect reader text"
   assert.match(script, /const toolActions = new Set\(/);
   assert.match(script, /sectionObserver\.unobserve\(entry\.target\)/);
   assert.doesNotMatch(script, /innerText|textContent|location\.href|location\.search|URLSearchParams|input\.value|formData/i);
+});
+
+test("Against the Current stays within Episode 21 and uses registered static editorial analytics", () => {
+  const path = "/c-drama-fandom/vibing-now/against-the-current-episode-21/";
+  const html = read(`public${path}index.html`);
+  const route = PUBLIC_STATIC_ROUTES.find((entry) => entry.path === path);
+  assert.ok(route);
+  assert.equal(route.changefreq, "weekly");
+  assertCanonicalMatchesRoute(html, route);
+  assert.match(html, /<body data-source-page="drama-against-the-current-episode-21" data-content-mode="drama-authority">/);
+  assert.match(html, /<script async src="https:\/\/www\.googletagmanager\.com\/gtag\/js\?id=G-FHZJ1T74TG"><\/script>/);
+  assert.match(html, /<script defer src="\/c-drama-fandom\/editorial\.js"><\/script>/);
+  assert.deepEqual(
+    [...html.matchAll(/data-section-id="([^"]+)"/g)].map(([, id]) => id),
+    ["vibing-now-intro", "survival-cost", "domestic-statecraft", "ethical-competence",
+      "damage-control", "romance-imbalance", "defining-current", "emerging-vibe", "pack-verdict"],
+  );
+  assert.match(html, /Spoiler boundary: Episode 21 · No preview, later-episode, novel, or endgame material included/);
+  assert.doesNotMatch(html, /Research boundary|Rendition map|Episode 2[2-9]\b|HK01|CPOP HOME/i);
+  assert.match(read("netlify.toml"), /from = "\/c-drama-fandom\/vibing-now\/against-the-current-episode-21"\s+to = "\/c-drama-fandom\/vibing-now\/against-the-current-episode-21\/index\.html"/);
+  assert.match(
+    read("vite.config.ts"),
+    /'\/c-drama-fandom\/vibing-now\/against-the-current-episode-21', '\/c-drama-fandom\/vibing-now\/against-the-current-episode-21\/index\.html'/,
+  );
 });
 
 test("the public field journal has crawlable direct routes with spoiler-safe metadata", () => {
