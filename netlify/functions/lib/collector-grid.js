@@ -10,6 +10,7 @@ import { createBillingServices } from "./billing.js";
 import { createPublicAuth } from "./public-auth.js";
 import { registerMediaBytes } from "./media-asset.js";
 import { fetchPublicationImage } from "./publication-manifest.js";
+import { searchOneQuery } from "../preview-search.js";
 import { buildPayloadForDate } from "../star-of-day.js";
 import { getShanghaiDateString } from "../lib/date-seed.js";
 
@@ -18,6 +19,27 @@ const MAX_RUNS = 20;
 const MAX_BODY_BYTES = 2048;
 const COOLDOWN_MS = 15_000;
 const NO_STORE = { "Cache-Control": "private, no-store", Vary: "Cookie" };
+const SEARCH_PROVIDERS = new Set(["baidu", "brave", "brave_baseline", "google_images", "bing_images", "yandex_images"]);
+
+function boundedText(value, limit = 512) {
+  return typeof value === "string" ? value.slice(0, limit) : null;
+}
+function providerName(value) {
+  return SEARCH_PROVIDERS.has(value) ? value : null;
+}
+function boundedCount(value) {
+  return Number.isInteger(value) && value >= 0 ? Math.min(value, 10000) : null;
+}
+function approvalIdentity(approval) {
+  return [
+    approval?.runId,
+    approval?.pairingFingerprint,
+    approval?.verdict,
+    approval?.rescueCalibrationApprovalId || null,
+    approval?.rescueCalibrationApprovalEvidenceHash || null,
+    approval?.rescueCalibrationRetirementHash || null,
+  ];
+}
 
 function indexKey(accountId, actorId, vibeIdx) {
   return `accounts/${encodeURIComponent(accountId)}/pairs/${encodeURIComponent(actorId)}/${vibeIdx}/index`;
@@ -80,6 +102,7 @@ export function createCollectorGridHandler({
   eligibilityStoreName = ELIGIBILITY_STORE,
   getPairEligibility = getEligibility,
   build = buildPayloadForDate,
+  searchQuery = searchOneQuery,
   fetchImage = (url, fetchImpl) => fetchPublicationImage(url, fetchImpl, lookup),
   registerMedia = registerMediaBytes,
   fetchImpl = fetch,
@@ -149,9 +172,25 @@ export function createCollectorGridHandler({
           return json(429, { error: "Please wait before refreshing this pairing." }, NO_STORE);
         }
       }
+      const searchAttempts = [];
+      const search = async (query, options = {}) => {
+        const attempt = { query: boundedText(query), provider: null, providerFetchOrder: [], resultCount: null };
+        try {
+          const result = await searchQuery(query, { ...options, debug: true });
+          attempt.provider = providerName(result?.provider);
+          attempt.providerFetchOrder = Array.isArray(result?.providerFetchOrder)
+            ? result.providerFetchOrder.slice(0, 8).map(providerName).filter(Boolean)
+            : [];
+          attempt.resultCount = boundedCount(result?.results?.length);
+          return result;
+        } finally {
+          if (searchAttempts.length < 32) searchAttempts.push(attempt);
+        }
+      };
       const payload = await build(today(), eligibilityStore, {
         packs: actorPacks,
         selectedPair: pair,
+        search,
       });
       if (!payload?.displayResults || payload.displayResults.length < 9) {
         return json(503, { error: "Fresh grid generation was unavailable." }, NO_STORE);
@@ -193,6 +232,7 @@ export function createCollectorGridHandler({
           durableImages.push({
             ...images[index],
             thumbnail: media.thumbnailUrl,
+            mediaAssetId: boundedText(media.assetId, 128),
           });
         }
       } catch (error) {
@@ -200,13 +240,44 @@ export function createCollectorGridHandler({
           error: "Could not save all grid images to durable media.",
         }, NO_STORE);
       }
+      const currentApproval = await getPairEligibility(eligibilityStore, actor, pair.vibeIdx);
+      if (!isReleaseReady(currentApproval)
+        || JSON.stringify(approvalIdentity(currentApproval)) !== JSON.stringify(approvalIdentity(approval))) {
+        return json(409, { error: "This pack's release approval changed during generation." }, NO_STORE);
+      }
       const run = {
+        schemaVersion: 2,
         id: runId,
         actorId: pair.actorId,
         vibeIdx: pair.vibeIdx,
         generatedAt,
         source: payload.curation?.mode === "operator_rescue_backup" ? "fallback" : "fresh",
         images: durableImages,
+        provenance: {
+          pack: {
+            id: `${pair.actorId}:${pair.vibeIdx}`,
+            pairingFingerprint: boundedText(approval.pairingFingerprint, 128),
+            approvalRunId: boundedText(approval.runId, 128),
+            approvalVerdict: approval.verdict,
+          },
+          search: {
+            attemptedQueries: searchAttempts,
+            rankedBatches: (Array.isArray(payload.rankedBatches) ? payload.rankedBatches : [])
+              .slice(0, 3).map(batch => ({
+                query: boundedText(batch.query),
+                provider: providerName(batch.provider),
+                usableCount: boundedCount(batch.count),
+                distinctSourceCount: boundedCount(batch.distinctSources),
+              })),
+          },
+          curation: {
+            mode: boundedText(payload.curation?.mode, 40),
+            version: payload.curation?.curationVersion ?? payload.curation?.version ?? null,
+            calibrationProfileVersion: payload.curation?.calibrationProfileVersion ?? null,
+            calibrationEvidenceCount: boundedCount(payload.curation?.calibrationEvidenceCount),
+            selectedScore: Number.isFinite(payload.curation?.score) ? payload.curation.score : null,
+          },
+        },
       };
       await store.setJSON(runKey(session.user.accountId, run.id), run);
       const key = indexKey(session.user.accountId, pair.actorId, pair.vibeIdx);

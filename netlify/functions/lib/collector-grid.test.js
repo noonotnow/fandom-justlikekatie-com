@@ -174,6 +174,67 @@ test("saved runs remain isolated by account", async () => {
   assert.deepEqual((await response.json()).runs, []);
 });
 
+test("a saved run records bounded pack, search, and curation provenance", async () => {
+  const { handler, storage } = handlerFor({
+    getPairEligibility: async () => ({
+      ...approval, pairingFingerprint: "pair-version-1",
+    }),
+    searchQuery: async () => ({
+      provider: "bing_images",
+      providerFetchOrder: ["baidu", "brave", "google_images", "bing_images"],
+      results: [{ title: "private provider result" }],
+    }),
+    registerMedia: async ({ association }) => ({
+      assetId: `media-${association.itemId}`,
+      thumbnailUrl: `https://media.test/${association.itemId}`,
+    }),
+    build: async (_date, _store, options) => {
+      await options.search("approved query");
+      return {
+        generatedAt: "2026-01-01T00:00:00.000Z",
+        rankedBatches: [{
+          query: "approved query", provider: "bing_images",
+          count: 9, distinctSources: 4, results: [{ title: "do not save batch results" }],
+        }],
+        curation: { mode: "compiled", version: 4, calibrationEvidenceCount: 2 },
+        displayResults: Array.from({ length: 9 }, (_, index) => ({
+          thumbnail: `https://img.test/${index}`,
+          link: `https://source.test/${index}`,
+          query: "approved query",
+        })),
+      };
+    },
+  });
+  const response = await handler(request("POST", { actorId: "actor-1", vibeIdx: 0 }), {});
+  assert.equal(response.status, 200);
+  const { run } = await response.json();
+  assert.equal(run.schemaVersion, 2);
+  assert.equal(run.provenance.pack.pairingFingerprint, "pair-version-1");
+  assert.equal(run.provenance.pack.approvalRunId, "run-1");
+  assert.deepEqual(run.provenance.search.attemptedQueries[0], {
+    query: "approved query", provider: "bing_images",
+    providerFetchOrder: ["baidu", "brave", "google_images", "bing_images"],
+    resultCount: 1,
+  });
+  assert.equal(run.provenance.search.rankedBatches[0].usableCount, 9);
+  assert.equal(run.provenance.curation.version, 4);
+  assert.equal(run.images[0].mediaAssetId, "media-card-1");
+  assert.equal(JSON.stringify(run.provenance).includes("private provider result"), false);
+  assert.equal(JSON.stringify(run.provenance).includes("do not save batch results"), false);
+  assert.equal([...storage.records.keys()].some(key => key.includes("/runs/")), true);
+});
+
+test("a changed approval cannot be saved as the previous pack version", async () => {
+  let reads = 0;
+  const { handler, storage } = handlerFor({
+    getPairEligibility: async () => ++reads === 1
+      ? approval : { ...approval, runId: "superseding-run" },
+  });
+  const response = await handler(request("POST", { actorId: "actor-1", vibeIdx: 0 }), {});
+  assert.equal(response.status, 409);
+  assert.equal([...storage.records.keys()].some(key => key.includes("/runs/")), false);
+});
+
 test("saved history remains readable after approval is revoked", async () => {
   let eligible = true;
   const { handler } = handlerFor({
