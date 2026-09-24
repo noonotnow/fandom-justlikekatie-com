@@ -8,9 +8,10 @@ const mocks = vi.hoisted(() => ({
   prepare: vi.fn(),
   download: vi.fn(),
   onExported: vi.fn(),
+  propose: vi.fn(),
 }));
 
-const cards = Array.from({ length: 9 }, (_, index) => ({
+const cards = Array.from({ length: 10 }, (_, index) => ({
   key: `card-${index}`,
   title: `Image ${index}`,
   imageUrl: `https://example.test/${index}.png`,
@@ -22,7 +23,7 @@ const rationale = {
   compositionSize: 9,
   editorialMode: 'compiled',
   manualSwaps: [],
-  slotReasons: cards.map(() => 'Selected'),
+  slotReasons: cards.slice(0, 9).map(() => 'Selected'),
 };
 
 vi.mock('../src/utils/collectionDB', () => ({
@@ -32,9 +33,14 @@ vi.mock('../src/utils/collectionDB', () => ({
 }));
 vi.mock('../src/utils/gridBuilder', () => ({
   buildVibeAtlasPool: vi.fn(() => cards),
-  lensOptions: vi.fn(() => ({ actors: [], vibes: [], families: [] })),
+  lensOptions: vi.fn(() => ({
+    actors: [{ value: 'Fixture actor', label: 'Fixture actor', count: 10 }],
+    vibes: [],
+    families: [],
+  })),
   applyLens: vi.fn((pool) => pool),
-  proposeGrid: vi.fn(() => ({ slots: cards, alternates: [], rationale })),
+  proposeGrid: mocks.propose,
+  rebuildRationale: vi.fn(() => ({ ...rationale, manualSwaps: ['Family'] })),
   gridRecordFromProposal: vi.fn(() => ({ id: 'grid-1', images: [] })),
   rationaleBrief: vi.fn(() => 'Fixture rationale'),
   actorPackIdForLens: vi.fn(() => ''),
@@ -84,6 +90,7 @@ function rawButton() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.propose.mockImplementation(() => ({ slots: cards.slice(0, 9), alternates: [cards[9]], rationale }));
   mocks.saveGrid.mockResolvedValue(undefined);
   mocks.prepare.mockImplementation(async () => ({
     objectUrl: 'blob:fixture',
@@ -95,6 +102,7 @@ beforeEach(() => {
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
   URL.revokeObjectURL = vi.fn();
 });
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -162,5 +170,41 @@ describe('GridBuilder export navigation', () => {
     await screen.findByText(/Cannot save/);
     expect(mocks.onExported).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: /Save to collection/ })).toBeTruthy();
+  });
+
+  it.each([
+    ['lens toggle', () => {
+      fireEvent.click(screen.getByRole('button', { name: /Fixture actor 10/ }));
+      expect(screen.getByRole('button', { name: /Fixture actor 10/ }).getAttribute('aria-pressed')).toBe('true');
+      fireEvent.click(screen.getByRole('button', { name: /Propose Compiled 3×3/ }));
+      expect(mocks.propose).toHaveBeenCalledTimes(2);
+    }],
+    ['re-proposal', () => {
+      fireEvent.click(screen.getByRole('button', { name: /Re-propose 9-frame Compiled set/ }));
+      expect(mocks.propose).toHaveBeenCalledTimes(2);
+    }],
+    ['slot swap', () => {
+      const grid = screen.getByRole('group', { name: /Proposed Compiled 9-frame set/ });
+      fireEvent.click(grid.querySelectorAll('button')[0]);
+      fireEvent.click(screen.getByRole('button', { name: 'Image 9' }));
+      expect(grid.querySelector('button img')?.getAttribute('alt')).toBe('Image 9');
+    }],
+  ])('dismisses the old export nudge after %s and does not navigate on a later save', async (_change, mutate) => {
+    await openBuilder(false);
+    fireEvent.click(screen.getByRole('button', { name: /Export square PNG/ }));
+    await screen.findByRole('button', { name: /Save to collection/ });
+    expect(mocks.onExported).not.toHaveBeenCalled();
+
+    mutate();
+    expect(screen.queryByRole('button', { name: /Save to collection/ })).toBeNull();
+    const saving = deferred<void>();
+    mocks.saveGrid.mockReturnValueOnce(saving.promise);
+    fireEvent.click(screen.getByRole('button', { name: /Save grid/ }));
+    expect(mocks.onExported).not.toHaveBeenCalled();
+    saving.resolve();
+    await screen.findByRole('button', { name: /Saved/ });
+    expect(mocks.saveGrid).toHaveBeenCalledTimes(1);
+    expect(mocks.onExported).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /Save to collection/ })).toBeNull();
   });
 });
