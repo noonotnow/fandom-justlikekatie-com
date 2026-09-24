@@ -178,6 +178,7 @@ export function ReleasedPackLibrary({
     }
     let cancelled = false;
     setPublicPreviewLoading(true);
+    setPublicPreview(null);
     setPublicPreviewError('');
     fetch(`/.netlify/functions/released-pack-preview?actorId=${encodeURIComponent(actorId)}&vibeIdx=${encodeURIComponent(vibeIndex)}`, {
       headers: { Accept: 'application/json' },
