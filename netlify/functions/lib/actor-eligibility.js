@@ -860,9 +860,14 @@ export function isReleaseReady(snapshot) {
     snapshot
     && snapshot.eligible === true
     && snapshot.runId
-    && snapshot.verdict === "approved"
-    && snapshot.vibeConfirmed === true
-    && snapshot.publishableConfirmed === true,
+    && (
+      snapshot.verdict === "approved_override"
+      || (
+        snapshot.verdict === "approved"
+        && snapshot.vibeConfirmed === true
+        && snapshot.publishableConfirmed === true
+      )
+    ),
   );
 }
 
@@ -892,7 +897,9 @@ export async function selectEligiblePair(
     if (allowedActorId && actor.id !== allowedActorId) continue;
     const key = `${actor.id}:${pair.vIdx}`;
     if (excluded.has(key)) continue;
-    if (isApproved(await getEligibility(store, actor, pair.vIdx))) {
+    // Ordinary approval needs both confirmations; an explicit approved
+    // override is itself release authority for this pairing.
+    if (isReleaseReady(await getEligibility(store, actor, pair.vIdx))) {
       return {
         ...pair,
         legacy: pair.aIdx === legacy.aIdx && pair.vIdx === legacy.vIdx,
