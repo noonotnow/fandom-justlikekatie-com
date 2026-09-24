@@ -7,16 +7,9 @@
  *   - Nudge does NOT appear when the grid was already saved before export
  *   - Proposal changes (re-propose, swap, lens toggle) reset showSaveNudge
  *
- * All assertions are scoped to the relevant function body or JSX region —
- * not the entire file — so a search cannot pass on an unrelated occurrence.
- *
- * GridBuilder is a browser-only React component (canvas, IndexedDB, navigator
- * share) that cannot be rendered in the Node test environment without a DOM
- * harness + module stubs; the project currently uses the Node built-in test
- * runner without jsdom and Node 20 does not expose mock.module.  The existing
- * gridBuilderRemove.test.ts and planLifecycleComponent.test.ts use the same
- * source-scoping approach, and the gridBuilderRemove tests additionally
- * exercise the real IDB layer through fake-indexeddb.
+ * Source-level checks for proposal mutations are retained here; actual export
+ * completion, navigation and save-nudge behavior are tested by the component
+ * harness in gridBuilderExport.component.test.tsx.
  */
 
 import test from 'node:test';
@@ -87,10 +80,6 @@ const proposeBody     = extractFunctionBody(source, 'function propose(');
 const swapIntoBody    = extractFunctionBody(source, 'function swapInto(');
 const saveNudgeJsx    = extractJsxBlock(source, '{showSaveNudge &&');
 
-// Brace-extract the if (pendingNavAfterSave) { ... } guard block from saveGrid.
-// This uses the same brace-matching helper so containment is structural, not positional.
-const pendingNavBlock = extractFunctionBody(saveGridBody, 'if (pendingNavAfterSave) {');
-
 // ---------------------------------------------------------------------------
 // exportGrid — nudge appears after export-without-save
 // ---------------------------------------------------------------------------
@@ -125,18 +114,8 @@ test('exportGrid resets showSaveNudge to false at the start of each export attem
   );
 });
 
-test('saved-grid downloads navigate after completion, but prepared handoffs stay open', () => {
-  const downloadBranch = exportGridBody.indexOf("if (action === 'download_raw' || action === 'full')");
-  const handoffBranch = exportGridBody.indexOf('} else {', downloadBranch);
-  const navCall = exportGridBody.indexOf('if (wasGridSaved) onExported?.()', downloadBranch);
-  assert.ok(downloadBranch !== -1, 'exportGrid() must distinguish immediate downloads from prepared handoffs');
-  assert.ok(navCall !== -1 && navCall < handoffBranch,
-    'saved-grid downloads must preserve the existing post-export navigation');
-  assert.ok(
-    !exportGridBody.slice(handoffBranch).includes('onExported?.()'),
-    'preparing a handoff must not navigate away before the user can share or open the destination',
-  );
-});
+// Navigation and its async completion boundary are exercised by
+// gridBuilderExport.component.test.tsx rather than by searching branch text.
 
 // ---------------------------------------------------------------------------
 // saveGrid — nudge is cleared and navigation is triggered after save
@@ -158,23 +137,6 @@ test('saveGrid sets isGridSaved(true) after a successful save', () => {
   const tryIdx = saveGridBody.indexOf('try {');
   const saved  = saveGridBody.indexOf('setIsGridSaved(true)', tryIdx);
   assert.ok(saved !== -1, 'saveGrid() must call setIsGridSaved(true) inside its try block');
-});
-
-test('saveGrid triggers deferred navigation when pendingNavAfterSave is true', () => {
-  assert.ok(
-    saveGridBody.includes('if (pendingNavAfterSave) {'),
-    'saveGrid() must check pendingNavAfterSave before calling onExported()',
-  );
-  const pendingIdx = saveGridBody.indexOf('if (pendingNavAfterSave) {');
-  const navCall    = saveGridBody.indexOf('onExported?.()', pendingIdx);
-  assert.ok(navCall !== -1, 'saveGrid() must call onExported?.() when pendingNavAfterSave is true');
-});
-
-test('saveGrid clears pendingNavAfterSave after triggering navigation', () => {
-  assert.ok(
-    saveGridBody.includes('setPendingNavAfterSave(false)'),
-    'saveGrid() must call setPendingNavAfterSave(false) after triggering navigation',
-  );
 });
 
 // ---------------------------------------------------------------------------
@@ -277,50 +239,6 @@ test('removeGrid() does not touch showSaveNudge state', () => {
     !removeGridBody.includes('setShowSaveNudge'),
     'removeGrid() must not reference setShowSaveNudge — nudge is not related to removal',
   );
-});
-
-// ---------------------------------------------------------------------------
-// Deferred navigation: onExported is called after save when pendingNavAfterSave
-// is true, and is NOT called when the nudge is dismissed before saving.
-//
-// Both tests use pendingNavBlock — the brace-extracted body of the
-// if (pendingNavAfterSave) { … } guard — so containment is proved
-// structurally rather than inferred from text order.
-// ---------------------------------------------------------------------------
-
-test('saveGrid() calls onExported inside the brace-bounded if (pendingNavAfterSave) block', () => {
-  // pendingNavBlock is the brace-matched content of if (pendingNavAfterSave) { … }
-  // extracted from saveGridBody.  If onExported?.() is in there, it is gated.
-  assert.ok(
-    pendingNavBlock.includes('onExported?.()'),
-    'onExported?.() must be inside the brace-bounded if (pendingNavAfterSave) block in saveGrid()',
-  );
-});
-
-test('saveGrid() does not call onExported outside the pendingNavAfterSave guard', () => {
-  // Remove the entire guard block from saveGrid; onExported must not survive.
-  const remainder = saveGridBody.replace(pendingNavBlock, '');
-  assert.ok(
-    !remainder.includes('onExported?.()'),
-    'onExported?.() must not appear anywhere in saveGrid() outside the pendingNavAfterSave guard',
-  );
-});
-
-test('dismissing the nudge via any proposal mutation resets pendingNavAfterSave so saveGrid skips onExported', () => {
-  // Each mutation that can dismiss the nudge must call setPendingNavAfterSave(false).
-  // Combined with the guard test above, this proves the full negative path:
-  //   mutation → pendingNavAfterSave=false → guard skipped → onExported not called.
-  const mutators: Array<[string, string]> = [
-    ['toggle', toggleBody],
-    ['propose', proposeBody],
-    ['swapInto', swapIntoBody],
-  ];
-  for (const [name, body] of mutators) {
-    assert.ok(
-      body.includes('setPendingNavAfterSave(false)'),
-      `${name}() must call setPendingNavAfterSave(false) so dismissed nudge cannot trigger navigation`,
-    );
-  }
 });
 
 // ---------------------------------------------------------------------------
