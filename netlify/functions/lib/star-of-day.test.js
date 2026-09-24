@@ -1368,11 +1368,11 @@ test("Collector refresh applies 30/5/60 limits and bounded second-pass queries",
     },
   });
 
-  assert.equal(evaluateQueries[0].length, 30);
+  assert.equal(evaluateQueries[0].length, 80);
   assert.equal(evaluateQueries[1].length <= 4, true);
   assert.equal(payload.rankedBatches.length, 5);
   assert.equal(curateOptions[0].candidateLimit, 60);
-  assert.deepEqual(payload.collectorRefresh.firstPassQueries.length, 30);
+  assert.deepEqual(payload.collectorRefresh.firstPassQueries.length, 80);
   assert.equal(payload.collectorRefresh.secondPassQueries.length <= 4, true);
 });
 

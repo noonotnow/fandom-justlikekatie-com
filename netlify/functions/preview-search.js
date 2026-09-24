@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { ACTOR_PACKS } from "./lib/actor-packs.js";
 import { searchBaiduImages } from "./lib/baidu-images.js";
+import { candidateFingerprint } from "./lib/search-candidate-fingerprint.js";
 
 export const SEARCH_CACHE_PROVENANCE_VERSION = "provider-fetch-v1";
 
@@ -184,30 +185,10 @@ function dedupeResults(items) {
   });
 }
 
-function canonicalSource(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function canonicalLink(value) {
-  if (!value) return "";
-  try {
-    const url = new URL(value);
-    const hostname = url.hostname.toLowerCase().replace(/\.+$/, "");
-    const path = url.pathname.replace(/\/+$/, "");
-    return `${url.protocol}//${hostname}${path}${url.search}`;
-  } catch {
-    return String(value).trim();
-  }
-}
-
 function dedupePooledResults(items) {
   const seen = new Set();
   return items.filter((item) => {
-    const key = [
-      String(item.thumbnail || ""),
-      canonicalSource(item.source),
-      canonicalLink(item.link),
-    ].join("\u0000");
+    const key = candidateFingerprint(item);
     if (!item.thumbnail || seen.has(key)) return false;
     seen.add(key);
     return true;

@@ -51,6 +51,7 @@ import {
   recordArchiveRepairAttempt,
 } from "./lib/archive-access-operations.js";
 import { capabilitiesForMembership } from "./lib/capabilities.js";
+import { candidateFingerprint } from "./lib/search-candidate-fingerprint.js";
 
 // Server-side daily cache for "Star of the Day".
 //
@@ -82,6 +83,7 @@ const COLLECTOR_REFRESH_RANKED_BATCH_LIMIT = 5;
 const COLLECTOR_REFRESH_CANDIDATE_LIMIT = 60;
 const COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT = 4;
 const COLLECTOR_REFRESH_MIN_UNSEEN_CANDIDATES = 18;
+const COLLECTOR_REFRESH_TELEMETRY_QUERY_LIMIT = 120;
 const STORE_NAME = "star-of-day";
 const LOCK_TTL_MS = 25000; // a stale/abandoned lock is ignored after this long
 const POLL_INTERVAL_MS = 700;
@@ -118,11 +120,7 @@ function sleep(ms) {
 }
 
 function normalizedCollectorFingerprint(result) {
-  return [
-    String(result?.thumbnail || ""),
-    String(result?.source || "").trim().toLowerCase(),
-    String(result?.link || ""),
-  ].join("\u0000");
+  return candidateFingerprint(result);
 }
 
 function partitionCollectorResults(results, excludedThumbnails, excludedChecksums) {
@@ -273,9 +271,7 @@ export async function buildPayloadForDate(
       providerPolicy: "collector-refresh-pool",
       resultLimit: COLLECTOR_REFRESH_RESULTS_PER_QUERY,
     });
-    const firstPassQueries = searchQueries.slice(0, refreshCollectorSearch
-      ? COLLECTOR_REFRESH_RESULTS_PER_QUERY
-      : searchQueries.length);
+    const firstPassQueries = searchQueries;
     const firstPassCandidates = await evaluate(
       firstPassQueries,
       refreshCollectorSearch ? refreshSearch : search,
@@ -357,38 +353,62 @@ export async function buildPayloadForDate(
     if (refreshCollectorSearch) {
       curation = {
         ...curation,
-        firstPassQueries: firstPassQueries.slice(0, COLLECTOR_REFRESH_RESULTS_PER_QUERY),
+        firstPassQueries: firstPassQueries.slice(0, COLLECTOR_REFRESH_TELEMETRY_QUERY_LIMIT),
         secondPassQueries: secondPassQueries.slice(0, COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT),
       };
     }
     const collectorRefreshTelemetry = refreshCollectorSearch
       ? (() => {
         const providerContributionCounts = {};
+        const pooledUniqueFingerprints = new Set();
+        const pooledPostFilterFingerprints = new Set();
+        for (const batch of ranked) {
+          for (const result of batch?.results || []) {
+            const fingerprint = normalizedCollectorFingerprint(result);
+            pooledUniqueFingerprints.add(fingerprint);
+            pooledPostFilterFingerprints.add(fingerprint);
+          }
+        }
         for (const batch of ranked) {
           const contributions = batch?.providerContributionCounts || {};
           for (const [provider, counts] of Object.entries(contributions)) {
             const existing = providerContributionCounts[provider] || { rawCount: 0, normalizedCount: 0, acceptedCount: 0 };
             providerContributionCounts[provider] = {
-              rawCount: existing.rawCount + (Number(counts?.rawCount) || 0),
-              normalizedCount: existing.normalizedCount + (Number(counts?.normalizedCount) || 0),
-              acceptedCount: existing.acceptedCount + (Number(counts?.acceptedCount) || 0),
+              rawCount: Math.max(existing.rawCount, Number(counts?.rawCount) || 0),
+              normalizedCount: Math.max(existing.normalizedCount, Number(counts?.normalizedCount) || 0),
+              acceptedCount: existing.acceptedCount,
             };
           }
+        }
+        for (const batch of ranked) {
+          for (const result of batch?.results || []) {
+            const provider = String(result?.provider || "");
+            if (!provider) continue;
+            const entry = providerContributionCounts[provider]
+              || { rawCount: 0, normalizedCount: 0, acceptedCount: 0, _fingerprints: new Set() };
+            if (!entry._fingerprints) entry._fingerprints = new Set();
+            entry._fingerprints.add(normalizedCollectorFingerprint(result));
+            providerContributionCounts[provider] = entry;
+          }
+        }
+        for (const entry of Object.values(providerContributionCounts)) {
+          entry.acceptedCount = entry._fingerprints?.size || entry.acceptedCount || 0;
+          delete entry._fingerprints;
         }
         const historyExcludedCount = ranked.reduce((total, batch) =>
           total + (batch?.results || []).filter(result =>
             excludedThumbnails.has(result.thumbnail)
             || (result.imageChecksum && excludedChecksums.has(result.imageChecksum))).length, 0);
         return {
-          rawProviderCount: ranked.reduce((total, batch) => total + (Number(batch?.rawProviderCount) || 0), 0),
-          postFilterCount: ranked.reduce((total, batch) => total + (Number(batch?.postFilterCount) || 0), 0),
-          pooledUniqueCount: ranked.reduce((total, batch) => total + (Number(batch?.pooledUniqueCount) || 0), 0),
+          rawProviderCount: Object.keys(providerContributionCounts).length,
+          postFilterCount: pooledPostFilterFingerprints.size,
+          pooledUniqueCount: pooledUniqueFingerprints.size,
           historyExcludedCount,
           unseenCount: countUniqueUnseenCandidates(ranked, excludedThumbnails, excludedChecksums),
           analyzedCount: Number(curation?.diagnostics?.sourceEvidenceCandidates?.length || 0),
           selectedCount: displayResults.length,
           providerContributionCounts,
-          firstPassQueries: firstPassQueries.slice(0, COLLECTOR_REFRESH_RESULTS_PER_QUERY),
+          firstPassQueries: firstPassQueries.slice(0, COLLECTOR_REFRESH_TELEMETRY_QUERY_LIMIT),
           secondPassQueries: secondPassQueries.slice(0, COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT),
         };
       })()

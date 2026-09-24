@@ -794,7 +794,8 @@ test("collector refresh pools multi-provider candidates with deterministic dedup
       resultLimit: 30,
       baiduOptions: { cache: false, retries: 0 },
       fetchImpl: async (url) => {
-        if (url.includes("image.baidu.com")) {
+        const requestUrl = new URL(url);
+        if (requestUrl.hostname === "image.baidu.com") {
           return mockResponse(JSON.stringify({
             data: [
               {
@@ -821,7 +822,7 @@ test("collector refresh pools multi-provider candidates with deterministic dedup
             ],
           }), { contentType: "application/json" });
         }
-        if (url.includes("api.search.brave.com")) {
+        if (requestUrl.hostname === "api.search.brave.com") {
           return mockResponse(JSON.stringify({
             results: Array.from({ length: 8 }, (_, index) => ({
               title: `刘学义 Brave pool ${index}`,
@@ -831,7 +832,7 @@ test("collector refresh pools multi-provider candidates with deterministic dedup
             })),
           }), { contentType: "application/json" });
         }
-        if (url.includes("engine=google_images")) {
+        if (requestUrl.searchParams.get("engine") === "google_images") {
           return mockResponse(JSON.stringify({
             images_results: [
               {
@@ -851,7 +852,7 @@ test("collector refresh pools multi-provider candidates with deterministic dedup
             ],
           }), { contentType: "application/json" });
         }
-        if (url.includes("engine=bing_images")) {
+        if (requestUrl.searchParams.get("engine") === "bing_images") {
           return mockResponse(JSON.stringify({
             images_results: [{
               title: "刘学义 bing unique",
@@ -862,7 +863,7 @@ test("collector refresh pools multi-provider candidates with deterministic dedup
             }],
           }), { contentType: "application/json" });
         }
-        if (url.includes("engine=yandex_images")) {
+        if (requestUrl.searchParams.get("engine") === "yandex_images") {
           return mockResponse(JSON.stringify({
             images_results: [{
               title: "刘学义 yandex unique",
@@ -905,19 +906,20 @@ test("collector refresh retains pooled candidates when one provider fails", asyn
       providerPolicy: "collector-refresh-pool",
       baiduOptions: { cache: false, retries: 0 },
       fetchImpl: async (url) => {
-        if (url.includes("image.baidu.com")) {
+        const requestUrl = new URL(url);
+        if (requestUrl.hostname === "image.baidu.com") {
           return mockResponse(baiduPayload(), { contentType: "application/json" });
         }
-        if (url.includes("api.search.brave.com")) {
+        if (requestUrl.hostname === "api.search.brave.com") {
           return mockResponse(JSON.stringify(bravePayload(8)), { contentType: "application/json" });
         }
-        if (url.includes("engine=google_images")) {
+        if (requestUrl.searchParams.get("engine") === "google_images") {
           throw new Error("google unavailable");
         }
-        if (url.includes("engine=bing_images")) {
+        if (requestUrl.searchParams.get("engine") === "bing_images") {
           return mockResponse(JSON.stringify(serpPayload()), { contentType: "application/json" });
         }
-        if (url.includes("engine=yandex_images")) {
+        if (requestUrl.searchParams.get("engine") === "yandex_images") {
           return mockResponse(JSON.stringify({ images_results: [] }), { contentType: "application/json" });
         }
         throw new Error(`Unexpected request: ${url}`);
