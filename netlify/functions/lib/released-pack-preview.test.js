@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createReleasedPackPreviewHandler } from "./released-pack-preview.js";
+import releasedPackPreview from "../released-pack-preview.js";
 import { manifestStore, publicManifest } from "../public-test-fixture.js";
+
+test("deployed preview entrypoint uses the Web Request/Response contract", async () => {
+  assert.equal(typeof releasedPackPreview, "function");
+  const result = await releasedPackPreview(
+    new Request("https://fandom.justlikekatie.com/.netlify/functions/released-pack-preview"),
+    {},
+  );
+  assert.equal(result.status, 400);
+  assert.deepEqual(await result.json(), {
+    error: "Valid actorId and vibeIdx are required.",
+  });
+});
 
 function releasedPackPreviewCards(manifest) {
   return manifest.cards.map(card => ({
