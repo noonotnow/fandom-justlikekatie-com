@@ -78,6 +78,11 @@ const removeGridBody  = extractFunctionBody(source, 'async function removeGrid('
 const toggleBody      = extractFunctionBody(source, 'function toggle(');
 const proposeBody     = extractFunctionBody(source, 'function propose(');
 const swapIntoBody    = extractFunctionBody(source, 'function swapInto(');
+const setModeBody     = extractFunctionBody(source, 'function setMode(');
+const toggleManualCardBody = extractFunctionBody(source, 'function toggleManualCard(');
+const swapManualSlotsBody = extractFunctionBody(source, 'function swapManualSlots(');
+const duplicateManualSlotBody = extractFunctionBody(source, 'function duplicateManualSlot(');
+const removeManualSlotBody = extractFunctionBody(source, 'function removeManualSlot(');
 const saveNudgeJsx    = extractJsxBlock(source, '{showSaveNudge &&');
 
 // ---------------------------------------------------------------------------
@@ -228,6 +233,19 @@ test('swapInto() also resets pendingNavAfterSave on slot swap', () => {
     'swapInto() must call setPendingNavAfterSave(false)',
   );
 });
+
+for (const [action, body] of [
+  ['collection mode switch', setModeBody],
+  ['manual picker selection', toggleManualCardBody],
+  ['manual slot movement or swap', swapManualSlotsBody],
+  ['manual slot duplication', duplicateManualSlotBody],
+  ['manual slot removal', removeManualSlotBody],
+] as const) {
+  test(`${action} clears the old export nudge and deferred navigation`, () => {
+    assert.ok(body.includes('setShowSaveNudge(false)'), `${action} must clear the save nudge`);
+    assert.ok(body.includes('setPendingNavAfterSave(false)'), `${action} must clear pending navigation`);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // removeGrid does not interact with showSaveNudge (out of scope, but verify

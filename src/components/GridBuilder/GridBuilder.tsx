@@ -297,6 +297,7 @@ export const GridBuilder: React.FC<Props> = ({
     setSavedGridId(null);
     setPriorSavedGridId(null);
     setShowSaveNudge(false);
+    setPendingNavAfterSave(false);
   }
 
   function toggle(key: keyof CollectionLens, value: string) {
@@ -363,6 +364,7 @@ export const GridBuilder: React.FC<Props> = ({
     setIsGridSaved(false);
     setSavedGridId(null);
     setShowSaveNudge(false);
+    setPendingNavAfterSave(false);
   }
 
   function swapManualSlots(first: number, second: number) {
@@ -381,6 +383,7 @@ export const GridBuilder: React.FC<Props> = ({
     setIsGridSaved(false);
     setSavedGridId(null);
     setShowSaveNudge(false);
+    setPendingNavAfterSave(false);
   }
 
   function moveManualSlot(index: number, direction: -1 | 1) {
@@ -400,6 +403,7 @@ export const GridBuilder: React.FC<Props> = ({
     setIsGridSaved(false);
     setSavedGridId(null);
     setShowSaveNudge(false);
+    setPendingNavAfterSave(false);
   }
 
   function removeManualSlot(index: number) {
@@ -412,6 +416,7 @@ export const GridBuilder: React.FC<Props> = ({
     setIsGridSaved(false);
     setSavedGridId(null);
     setShowSaveNudge(false);
+    setPendingNavAfterSave(false);
   }
 
   function propose() {
