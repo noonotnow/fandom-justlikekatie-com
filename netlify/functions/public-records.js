@@ -88,10 +88,16 @@ function renderReleasedPack(pack, query) {
   const noindex = query !== "";
   const title = `${pack.actor.nameEn} · ${pack.vibe.labelEn} | Released Vibe Pack`;
   const description = pack.preview.copy;
-  const cards = pack.preview.cards.map(card =>
+  const cards = pack.preview.cards.slice(0, 6).map(card =>
     `<figure><img src="${escapeHtml(card.thumbnailUrl)}" alt="${escapeHtml(card.title)}" loading="lazy"><figcaption>${escapeHtml(card.title)}</figcaption></figure>`).join("");
   const collectorLibrary = `/vibe-atlas/?view=released&source=public_record&actorId=${encodeURIComponent(pack.actor.id)}&vibeIdx=${encodeURIComponent(pack.vibeIdx)}`;
-  const body = `<a href="${escapeHtml(`${RELEASED_PACK_PATH}/${releasedPackActorSlug(pack.actor)}/`)}">All ${escapeHtml(pack.actor.nameEn)} packs</a><h1>${escapeHtml(title)}</h1><p>${escapeHtml(pack.vibe.subtitleEn)}</p><p>${escapeHtml(description)}</p><section aria-label="Released pack preview">${cards}</section><p>Full source depth is available to Fandom Collectors. <a href="${escapeHtml(collectorLibrary)}">Open in the Collector library</a></p>`;
+  const teaserStyle = `<style>
+    .released-pack-teaser{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem;max-width:960px}
+    .released-pack-teaser figure{min-width:0;margin:0}
+    .released-pack-teaser img{display:block;width:100%;aspect-ratio:1;object-fit:cover}
+    @media(max-width:600px){.released-pack-teaser{grid-template-columns:repeat(2,minmax(0,1fr))}.released-pack-teaser figure:nth-child(n+5){display:none}}
+  </style>`;
+  const body = `${teaserStyle}<a href="${escapeHtml(`${RELEASED_PACK_PATH}/${releasedPackActorSlug(pack.actor)}/`)}">All ${escapeHtml(pack.actor.nameEn)} packs</a><h1>${escapeHtml(title)}</h1><p>${escapeHtml(pack.vibe.subtitleEn)}</p><p>${escapeHtml(description)}</p><section class="released-pack-teaser" aria-label="Released pack preview">${cards}</section><p>Full source depth is available to Fandom Collectors. <a href="${escapeHtml(collectorLibrary)}">Open in the Collector library</a></p>`;
   return response(200, page({
     title, description, canonical: pack.canonical,
     image: pack.preview.cards[0]?.deliveryUrl,
