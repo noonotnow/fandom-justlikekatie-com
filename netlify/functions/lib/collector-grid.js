@@ -18,6 +18,12 @@ const STORE_NAME = "collector-grid-runs";
 const MAX_RUNS = 20;
 const MAX_BODY_BYTES = 2048;
 const COOLDOWN_MS = 15_000;
+const OWNER_LEASE_MS = 120_000;
+const OWNER_LEASE_STALE_MS = 180_000;
+const RECENT_EXCLUSION_RUNS = 5;
+const REFRESH_RESULTS_PER_QUERY = 30;
+const REFRESH_RANKED_BATCH_LIMIT = 5;
+const REFRESH_CANDIDATE_LIMIT = 60;
 const NO_STORE = { "Cache-Control": "private, no-store", Vary: "Cookie" };
 const SEARCH_PROVIDERS = new Set(["baidu", "brave", "brave_baseline", "google_images", "bing_images", "yandex_images"]);
 
@@ -39,6 +45,54 @@ function approvalIdentity(approval) {
     approval?.rescueCalibrationApprovalEvidenceHash || null,
     approval?.rescueCalibrationRetirementHash || null,
   ];
+}
+
+function checksumsMatch(left = [], right = []) {
+  if (left.length !== right.length || left.length === 0) return false;
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
+}
+
+async function acquireOwnerLease(store, key, ownerToken, nowMs = Date.now()) {
+  const existing = typeof store.getWithMetadata === "function"
+    ? await store.getWithMetadata(key, { type: "json", consistency: "strong" })
+    : { data: await store.get(key, { type: "json", consistency: "strong" }) };
+  const lease = existing?.data;
+  const leaseStartedAt = Date.parse(lease?.startedAt || "");
+  const leaseExpiresAt = Date.parse(lease?.expiresAt || "");
+  const stale = Number.isFinite(leaseStartedAt) && nowMs - leaseStartedAt > OWNER_LEASE_STALE_MS;
+  const expired = Number.isFinite(leaseExpiresAt) && leaseExpiresAt <= nowMs;
+  if (lease?.ownerToken && !stale && !expired) return null;
+  const nextLease = {
+    ownerToken,
+    startedAt: new Date(nowMs).toISOString(),
+    expiresAt: new Date(nowMs + OWNER_LEASE_MS).toISOString(),
+  };
+  const write = await store.setJSON(
+    key,
+    nextLease,
+    existing?.etag ? { onlyIfMatch: existing.etag } : { onlyIfNew: true },
+  );
+  if (write?.modified === false) return null;
+  const confirmed = await store.get(key, { type: "json", consistency: "strong" });
+  return confirmed?.ownerToken === ownerToken ? nextLease : null;
+}
+
+async function releaseOwnerLease(store, key, ownerToken) {
+  try {
+    const current = typeof store.getWithMetadata === "function"
+      ? await store.getWithMetadata(key, { type: "json", consistency: "strong" })
+      : { data: await store.get(key, { type: "json", consistency: "strong" }), etag: null };
+    if (!current?.data || current.data.ownerToken !== ownerToken) return;
+    await store.setJSON(
+      key,
+      { ...current.data, expiresAt: new Date(0).toISOString(), releasedAt: new Date().toISOString() },
+      current?.etag ? { onlyIfMatch: current.etag } : undefined,
+    );
+  } catch {
+    // Non-fatal: stale leases expire automatically.
+  }
 }
 
 function indexKey(accountId, actorId, vibeIdx) {
@@ -172,179 +226,252 @@ export function createCollectorGridHandler({
           return json(429, { error: "Please wait before refreshing this pairing." }, NO_STORE);
         }
       }
-      const searchAttempts = [];
-      const key = indexKey(session.user.accountId, pair.actorId, pair.vibeIdx);
-      const previousIndex = await store.get(key, { type: "json", consistency: "strong" });
-      const previousId = Array.isArray(previousIndex?.ids) ? previousIndex.ids[0] : null;
-      const previousRun = typeof previousId === "string"
-        ? await store.get(runKey(session.user.accountId, previousId), { type: "json", consistency: "strong" })
-        : null;
-      if (previousId && !previousRun) {
-        return json(503, { error: "The previous saved grid could not be checked. Please try again later." }, NO_STORE);
+      const leaseKey = `accounts/${encodeURIComponent(session.user.accountId)}/pairs/${encodeURIComponent(pair.actorId)}/${pair.vibeIdx}/owner-lease`;
+      const ownerToken = randomUUID();
+      const lease = await acquireOwnerLease(store, leaseKey, ownerToken);
+      if (!lease) {
+        return json(429, { error: "Another refresh is already generating this pairing." }, NO_STORE);
       }
-      if (previousRun && (!Array.isArray(previousRun.images) || previousRun.images.length !== 9)) {
-        return json(503, { error: "The previous saved grid could not be checked. Please try again later." }, NO_STORE);
-      }
-      const search = async (query, options = {}) => {
-        const attempt = { query: boundedText(query), provider: null, providerFetchOrder: [], resultCount: null };
-        try {
-          const result = await searchQuery(query, { ...options, debug: true });
-          attempt.provider = providerName(result?.provider);
-          attempt.providerFetchOrder = Array.isArray(result?.providerFetchOrder)
-            ? result.providerFetchOrder.slice(0, 8).map(providerName).filter(Boolean)
-            : [];
-          attempt.resultCount = boundedCount(result?.results?.length);
-          return result;
-        } finally {
-          if (searchAttempts.length < 32) searchAttempts.push(attempt);
-        }
-      };
-      const payload = await build(today(), eligibilityStore, {
-        packs: actorPacks,
-        selectedPair: pair,
-        search,
-        refreshCollectorSearch: Boolean(previousRun),
-        excludedCollectorThumbnails: (previousRun?.images || []).map(image => image.sourceThumbnail).filter(Boolean),
-      });
-      if (!payload?.displayResults || payload.displayResults.length < 9) {
-        return json(503, { error: previousRun
-          ? "No different safe nine-image board is available for this pairing yet. Your saved grid is unchanged."
-          : "Fresh grid generation was unavailable." }, NO_STORE);
-      }
-      const generatedAt = typeof payload.generatedAt === "string" ? payload.generatedAt : now().toISOString();
-      const images = payload.displayResults.slice(0, 9).map(safeImage);
-      if (images.length !== 9 || images.some(image => !image)) {
-        return json(502, { error: "Generated grid contained invalid public image URLs." }, NO_STORE);
-      }
-      // Legacy runs predate source thumbnails and checksums. Read their durable
-      // MEDIA copies so a URL change or rearrangement cannot masquerade as new art.
-      let priorChecksums = [];
       try {
-        priorChecksums = await Promise.all((previousRun?.images || []).map(async image => {
-          if (image.imageChecksum) return image.imageChecksum;
-          const prior = await fetchImage(image.thumbnail, fetchImpl);
-          return createHash("sha256").update(prior.bytes).digest("hex");
-        }));
-      } catch {
-        return json(503, { error: "The previous saved images could not be checked. Your saved grid is unchanged." }, NO_STORE);
-      }
-      const runId = randomUUID();
-      const durableImages = [];
-      try {
-        for (let index = 0; index < images.length; index += 1) {
-          const fetched = await fetchImage(images[index].thumbnail, fetchImpl);
-          const imageChecksum = createHash("sha256").update(fetched.bytes).digest("hex");
-          // Fetch and validate the full board before writing any new MEDIA copies.
-          durableImages.push({
-            ...images[index],
-            sourceThumbnail: images[index].thumbnail,
-            imageChecksum,
-            bytes: fetched.bytes,
-            contentType: fetched.contentType,
-          });
+        const searchAttempts = [];
+        const key = indexKey(session.user.accountId, pair.actorId, pair.vibeIdx);
+        const previousIndex = await store.get(key, { type: "json", consistency: "strong" });
+        const recentRunIds = Array.isArray(previousIndex?.ids) ? previousIndex.ids.slice(0, RECENT_EXCLUSION_RUNS) : [];
+        const recentRuns = await Promise.all(recentRunIds.map(id =>
+          typeof id === "string"
+            ? store.get(runKey(session.user.accountId, id), { type: "json", consistency: "strong" })
+            : null));
+        const previousRun = recentRuns[0] || null;
+        if (recentRunIds[0] && !previousRun) {
+          return json(503, { error: "The previous saved grid could not be checked. Please try again later." }, NO_STORE);
         }
-        if (previousRun && priorChecksums.length === 9
-          && durableImages.length === 9
-          && durableImages.every(image => priorChecksums.includes(image.imageChecksum))
-          && priorChecksums.every(checksum => durableImages.some(image => image.imageChecksum === checksum))) {
-          return json(409, { error: "No different safe nine-image board is available for this pairing yet. Your saved grid is unchanged." }, NO_STORE);
+        if (previousRun && (!Array.isArray(previousRun.images) || previousRun.images.length !== 9)) {
+          return json(503, { error: "The previous saved grid could not be checked. Please try again later." }, NO_STORE);
         }
-        for (let index = 0; index < durableImages.length; index += 1) {
-          const image = durableImages[index];
-          const media = await registerMedia({
-            bytes: image.bytes,
-            contentType: image.contentType,
-            association: { type: "collection", id: runId, itemId: `card-${index + 1}` },
-            filename: `fandom-collector-${pair.actorId}-${pair.vibeIdx}-${index + 1}`,
-            idempotencyKey: `collector-grid/${runId}/card-${index + 1}`,
-            metadata: {
-              sourceType: "fandom-collector-live-grid",
-              seriesTags: ["Fandom", "Vibe Atlas", "Collector"],
-              provenance: {
-                actorId: pair.actorId,
-                vibeIdx: pair.vibeIdx,
-                link: images[index].link,
-                query: images[index].query,
-                source: images[index].source,
-              },
-            },
-            env,
-            fetchImpl,
-          });
-          if (!publicHttpsUrl(media?.thumbnailUrl)) {
-            throw Object.assign(new Error("MEDIA returned an invalid thumbnail URL."), { status: 502 });
-          }
-          durableImages[index] = {
-            ...images[index],
-            sourceThumbnail: image.sourceThumbnail,
-            imageChecksum: image.imageChecksum,
-            thumbnail: media.thumbnailUrl,
-            mediaAssetId: boundedText(media.assetId, 128),
+        const validRecentRuns = recentRuns
+          .map((run, index) => ({ run, id: recentRunIds[index] }))
+          .filter(item => Array.isArray(item.run?.images) && item.run.images.length === 9);
+        const excludedThumbnails = new Set(validRecentRuns
+          .flatMap(item => item.run.images || [])
+          .map(image => image?.sourceThumbnail)
+          .filter(Boolean));
+        const excludedChecksums = new Set(validRecentRuns
+          .flatMap(item => item.run.images || [])
+          .map(image => image?.imageChecksum)
+          .filter(Boolean));
+        const search = async (query, options = {}) => {
+          const attempt = {
+            query: boundedText(query),
+            provider: null,
+            providerFetchOrder: [],
+            resultCount: null,
           };
+          try {
+            const result = await searchQuery(query, {
+              ...options,
+              providerPolicy: options.providerPolicy || "collector-refresh-pool",
+              resultLimit: options.resultLimit || REFRESH_RESULTS_PER_QUERY,
+              debug: true,
+            });
+            attempt.provider = providerName(result?.provider);
+            attempt.providerFetchOrder = Array.isArray(result?.providerFetchOrder)
+              ? result.providerFetchOrder.slice(0, 8).map(providerName).filter(Boolean)
+              : [];
+            attempt.resultCount = boundedCount(result?.results?.length);
+            const rawProviderCount = boundedCount(result?.rawProviderCount);
+            const postFilterCount = boundedCount(result?.postFilterCount);
+            const pooledUniqueCount = boundedCount(result?.pooledUniqueCount);
+            if (rawProviderCount !== null) attempt.rawProviderCount = rawProviderCount;
+            if (postFilterCount !== null) attempt.postFilterCount = postFilterCount;
+            if (pooledUniqueCount !== null) attempt.pooledUniqueCount = pooledUniqueCount;
+            return result;
+          } finally {
+            if (searchAttempts.length < 64) searchAttempts.push(attempt);
+          }
+        };
+        const payload = await build(today(), eligibilityStore, {
+          packs: actorPacks,
+          selectedPair: pair,
+          search,
+          refreshCollectorSearch: Boolean(previousRun),
+          excludedCollectorThumbnails: [...excludedThumbnails].slice(0, 500),
+          excludedCollectorChecksums: [...excludedChecksums].slice(0, 500),
+        });
+        if (!payload?.displayResults || payload.displayResults.length < 9) {
+          return json(503, { error: previousRun
+            ? "No different safe nine-image board is available for this pairing yet. Your saved grid is unchanged."
+            : "Fresh grid generation was unavailable." }, NO_STORE);
         }
-      } catch (error) {
-        return json(error?.status || 502, {
-          error: "Could not save all grid images to durable media.",
-        }, NO_STORE);
-      }
-      const currentApproval = await getPairEligibility(eligibilityStore, actor, pair.vibeIdx);
-      if (!isReleaseReady(currentApproval)
-        || JSON.stringify(approvalIdentity(currentApproval)) !== JSON.stringify(approvalIdentity(approval))) {
-        return json(409, { error: "This pack's release approval changed during generation." }, NO_STORE);
-      }
-      const run = {
-        schemaVersion: 2,
-        id: runId,
-        actorId: pair.actorId,
-        vibeIdx: pair.vibeIdx,
-        generatedAt,
-        source: payload.curation?.mode === "operator_rescue_backup" ? "fallback" : "fresh",
-        images: durableImages,
-        provenance: {
-          pack: {
-            id: `${pair.actorId}:${pair.vibeIdx}`,
-            pairingFingerprint: boundedText(approval.pairingFingerprint, 128),
-            approvalRunId: boundedText(approval.runId, 128),
-            approvalVerdict: approval.verdict,
+        const generatedAt = typeof payload.generatedAt === "string" ? payload.generatedAt : now().toISOString();
+        const images = payload.displayResults.slice(0, 9).map(safeImage);
+        if (images.length !== 9 || images.some(image => !image)) {
+          return json(502, { error: "Generated grid contained invalid public image URLs." }, NO_STORE);
+        }
+        const recentRunChecksums = [];
+        for (const [index, item] of validRecentRuns.entries()) {
+          try {
+            const checksums = await Promise.all((item.run.images || []).map(async image => {
+              if (image.imageChecksum) return image.imageChecksum;
+              const prior = await fetchImage(image.thumbnail, fetchImpl);
+              return createHash("sha256").update(prior.bytes).digest("hex");
+            }));
+            if (checksums.length === 9) {
+              recentRunChecksums.push({ id: item.id, checksums });
+            }
+          } catch {
+            if (index === 0) {
+              return json(503, { error: "The previous saved images could not be checked. Your saved grid is unchanged." }, NO_STORE);
+            }
+          }
+        }
+        const runId = randomUUID();
+        const durableImages = [];
+        try {
+          for (let index = 0; index < images.length; index += 1) {
+            const fetched = await fetchImage(images[index].thumbnail, fetchImpl);
+            const imageChecksum = createHash("sha256").update(fetched.bytes).digest("hex");
+            durableImages.push({
+              ...images[index],
+              sourceThumbnail: images[index].thumbnail,
+              imageChecksum,
+              bytes: fetched.bytes,
+              contentType: fetched.contentType,
+            });
+          }
+          const finalChecksums = durableImages.map(image => image.imageChecksum);
+          const unchanged = recentRunChecksums.some(run => checksumsMatch(finalChecksums, run.checksums));
+          if (unchanged) {
+            return json(409, { error: "No different safe nine-image board is available for this pairing yet. Your saved grid is unchanged." }, NO_STORE);
+          }
+          for (let index = 0; index < durableImages.length; index += 1) {
+            const image = durableImages[index];
+            const media = await registerMedia({
+              bytes: image.bytes,
+              contentType: image.contentType,
+              association: { type: "collection", id: runId, itemId: `card-${index + 1}` },
+              filename: `fandom-collector-${pair.actorId}-${pair.vibeIdx}-${index + 1}`,
+              idempotencyKey: `collector-grid/${runId}/card-${index + 1}`,
+              metadata: {
+                sourceType: "fandom-collector-live-grid",
+                seriesTags: ["Fandom", "Vibe Atlas", "Collector"],
+                provenance: {
+                  actorId: pair.actorId,
+                  vibeIdx: pair.vibeIdx,
+                  link: images[index].link,
+                  query: images[index].query,
+                  source: images[index].source,
+                },
+              },
+              env,
+              fetchImpl,
+            });
+            if (!publicHttpsUrl(media?.thumbnailUrl)) {
+              throw Object.assign(new Error("MEDIA returned an invalid thumbnail URL."), { status: 502 });
+            }
+            durableImages[index] = {
+              ...images[index],
+              sourceThumbnail: image.sourceThumbnail,
+              imageChecksum: image.imageChecksum,
+              thumbnail: media.thumbnailUrl,
+              mediaAssetId: boundedText(media.assetId, 128),
+            };
+          }
+        } catch (error) {
+          return json(error?.status || 502, {
+            error: "Could not save all grid images to durable media.",
+          }, NO_STORE);
+        }
+        const currentApproval = await getPairEligibility(eligibilityStore, actor, pair.vibeIdx);
+        if (!isReleaseReady(currentApproval)
+          || JSON.stringify(approvalIdentity(currentApproval)) !== JSON.stringify(approvalIdentity(approval))) {
+          return json(409, { error: "This pack's release approval changed during generation." }, NO_STORE);
+        }
+        const selectedChecksums = durableImages.map(image => image.imageChecksum);
+        const overlapWithRecentRuns = recentRunChecksums.slice(0, RECENT_EXCLUSION_RUNS).map(run => ({
+          runId: boundedText(run.id, 128),
+          overlapCount: boundedCount(run.checksums.filter(checksum =>
+            selectedChecksums.includes(checksum)).length),
+        }));
+        const run = {
+          schemaVersion: 2,
+          id: runId,
+          actorId: pair.actorId,
+          vibeIdx: pair.vibeIdx,
+          generatedAt,
+          source: payload.curation?.mode === "operator_rescue_backup" ? "fallback" : "fresh",
+          images: durableImages,
+          provenance: {
+            pack: {
+              id: `${pair.actorId}:${pair.vibeIdx}`,
+              pairingFingerprint: boundedText(approval.pairingFingerprint, 128),
+              approvalRunId: boundedText(approval.runId, 128),
+              approvalVerdict: approval.verdict,
+            },
+            search: {
+              attemptedQueries: searchAttempts,
+              rankedBatches: (Array.isArray(payload.rankedBatches) ? payload.rankedBatches : [])
+                .slice(0, previousRun ? REFRESH_RANKED_BATCH_LIMIT : 3).map(batch => ({
+                  query: boundedText(batch.query),
+                  provider: providerName(batch.provider),
+                  usableCount: boundedCount(batch.count),
+                  distinctSourceCount: boundedCount(batch.distinctSources),
+                })),
+              freshness: previousRun ? {
+                rawProviderCount: boundedCount(payload.collectorRefresh?.rawProviderCount),
+                postFilterCount: boundedCount(payload.collectorRefresh?.postFilterCount),
+                pooledUniqueCount: boundedCount(payload.collectorRefresh?.pooledUniqueCount),
+                historyExcludedCount: boundedCount(payload.collectorRefresh?.historyExcludedCount),
+                unseenCount: boundedCount(payload.collectorRefresh?.unseenCount),
+                analyzedCount: boundedCount(payload.collectorRefresh?.analyzedCount),
+                selectedCount: boundedCount(payload.collectorRefresh?.selectedCount),
+                providerContributionCounts: Object.fromEntries(
+                  Object.entries(payload.collectorRefresh?.providerContributionCounts || {})
+                    .slice(0, 8)
+                    .map(([provider, counts]) => [providerName(provider), {
+                      rawCount: boundedCount(counts?.rawCount),
+                      normalizedCount: boundedCount(counts?.normalizedCount),
+                      acceptedCount: boundedCount(counts?.acceptedCount),
+                    }])
+                    .filter(([provider]) => provider),
+                ),
+                firstPassQueries: (payload.collectorRefresh?.firstPassQueries || [])
+                  .slice(0, REFRESH_RESULTS_PER_QUERY).map(query => boundedText(query)),
+                secondPassQueries: (payload.collectorRefresh?.secondPassQueries || [])
+                  .slice(0, 4).map(query => boundedText(query)),
+                overlapWithRecentRuns: overlapWithRecentRuns.slice(0, RECENT_EXCLUSION_RUNS),
+              } : null,
+            },
+            curation: {
+              mode: boundedText(payload.curation?.mode, 40),
+              version: payload.curation?.curationVersion ?? payload.curation?.version ?? null,
+              calibrationProfileVersion: payload.curation?.calibrationProfileVersion ?? null,
+              calibrationEvidenceCount: boundedCount(payload.curation?.calibrationEvidenceCount),
+              selectedScore: Number.isFinite(payload.curation?.score) ? payload.curation.score : null,
+            },
           },
-          search: {
-            attemptedQueries: searchAttempts,
-            rankedBatches: (Array.isArray(payload.rankedBatches) ? payload.rankedBatches : [])
-              .slice(0, 3).map(batch => ({
-                query: boundedText(batch.query),
-                provider: providerName(batch.provider),
-                usableCount: boundedCount(batch.count),
-                distinctSourceCount: boundedCount(batch.distinctSources),
-              })),
-          },
-          curation: {
-            mode: boundedText(payload.curation?.mode, 40),
-            version: payload.curation?.curationVersion ?? payload.curation?.version ?? null,
-            calibrationProfileVersion: payload.curation?.calibrationProfileVersion ?? null,
-            calibrationEvidenceCount: boundedCount(payload.curation?.calibrationEvidenceCount),
-            selectedScore: Number.isFinite(payload.curation?.score) ? payload.curation.score : null,
-          },
-        },
-      };
-      await store.setJSON(runKey(session.user.accountId, run.id), run);
-      let appended = false;
-      for (let attempt = 0; attempt < 3 && !appended; attempt += 1) {
-        const prior = typeof store.getWithMetadata === "function"
-          ? await store.getWithMetadata(key, { type: "json", consistency: "strong" })
-          : { data: await store.get(key, { type: "json" }), etag: null };
-        const ids = [run.id, ...(Array.isArray(prior?.data?.ids) ? prior.data.ids : [])]
-          .filter((id, index, list) => typeof id === "string" && list.indexOf(id) === index)
-          .slice(0, MAX_RUNS);
-        const result = await store.setJSON(key, { ids },
-          prior?.etag ? { onlyIfMatch: prior.etag } : { onlyIfNew: true });
-        if (result?.modified === false) continue;
-        const confirmed = typeof store.getWithMetadata === "function"
-          ? await store.getWithMetadata(key, { type: "json", consistency: "strong" })
-          : { data: await store.get(key, { type: "json", consistency: "strong" }) };
-        appended = Array.isArray(confirmed?.data?.ids) && confirmed.data.ids.includes(run.id);
+        };
+        await store.setJSON(runKey(session.user.accountId, run.id), run);
+        let appended = false;
+        for (let attempt = 0; attempt < 3 && !appended; attempt += 1) {
+          const prior = typeof store.getWithMetadata === "function"
+            ? await store.getWithMetadata(key, { type: "json", consistency: "strong" })
+            : { data: await store.get(key, { type: "json" }), etag: null };
+          const ids = [run.id, ...(Array.isArray(prior?.data?.ids) ? prior.data.ids : [])]
+            .filter((id, index, list) => typeof id === "string" && list.indexOf(id) === index)
+            .slice(0, MAX_RUNS);
+          const result = await store.setJSON(key, { ids },
+            prior?.etag ? { onlyIfMatch: prior.etag } : { onlyIfNew: true });
+          if (result?.modified === false) continue;
+          const confirmed = typeof store.getWithMetadata === "function"
+            ? await store.getWithMetadata(key, { type: "json", consistency: "strong" })
+            : { data: await store.get(key, { type: "json", consistency: "strong" }) };
+          appended = Array.isArray(confirmed?.data?.ids) && confirmed.data.ids.includes(run.id);
+        }
+        if (!appended) return json(503, { error: "Could not safely save the grid index." }, NO_STORE);
+        return json(200, { run }, NO_STORE);
+      } finally {
+        await releaseOwnerLease(store, leaseKey, ownerToken);
       }
-      if (!appended) return json(503, { error: "Could not safely save the grid index." }, NO_STORE);
-      return json(200, { run }, NO_STORE);
     } catch (error) {
       const status = error?.status || 503;
       if (status >= 500) console.error("[collector-grid] request failed", error);

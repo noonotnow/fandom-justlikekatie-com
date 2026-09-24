@@ -1317,10 +1317,111 @@ test("Collector refresh bypasses cache and prefers new candidates, filling from 
       return { displayResults: results.length >= 9 ? results.slice(0, 9) : [], curation: { mode: "compiled" } };
     },
   });
-  assert.deepEqual(modes, ["refresh"]);
-  assert.deepEqual(attempts, [1, 10]);
+  assert.deepEqual(modes, ["refresh", "refresh"]);
+  assert.deepEqual(attempts, [2, 20]);
   assert.equal(payload.displayResults.length, 9);
   assert.ok(payload.displayResults.some(image => image.thumbnail === novel.thumbnail));
+});
+
+test("Collector refresh applies 30/5/60 limits and bounded second-pass queries", async () => {
+  const actor = {
+    id: "collector-depth",
+    name: "Collector Depth",
+    shortName_en: "Collector Depth",
+    vibes: [{
+      label: "Vibe",
+      label_en: "Vibe",
+      queries: Array.from({ length: 80 }, (_, index) => `collector-query-${index}`),
+    }],
+  };
+  const evaluateQueries = [];
+  const curateOptions = [];
+  let evaluatePass = 0;
+  const payload = await buildPayloadForDate("2026-09-03", makeStore(approvedEligibility(actor, 0)), {
+    packs: [actor],
+    selectedPair: { actorId: actor.id, vibeIdx: 0 },
+    refreshCollectorSearch: true,
+    evaluate: async (queries) => {
+      evaluatePass += 1;
+      evaluateQueries.push(queries);
+      return queries.map((query, index) => ({
+        query,
+        results: Array.from({ length: 3 }, (_, offset) => ({
+          thumbnail: evaluatePass === 1
+            ? "https://images.test/same.jpg"
+            : `https://images.test/second-pass-${index}-${offset}.jpg`,
+          link: `https://source.test/${evaluatePass}/${index}/${offset}`,
+          source: `source-${evaluatePass}-${index}-${offset}.test`,
+        })),
+        count: 1,
+        distinctSources: 1,
+      }));
+    },
+    rank: candidates => candidates,
+    curate: async (ranked, options) => {
+      curateOptions.push(options);
+      const all = ranked.flatMap(batch => batch.results || []);
+      return {
+        displayResults: all.slice(0, 9),
+        curation: { mode: "compiled" },
+      };
+    },
+  });
+
+  assert.equal(evaluateQueries[0].length, 30);
+  assert.equal(evaluateQueries[1].length <= 4, true);
+  assert.equal(payload.rankedBatches.length, 5);
+  assert.equal(curateOptions[0].candidateLimit, 60);
+  assert.deepEqual(payload.collectorRefresh.firstPassQueries.length, 30);
+  assert.equal(payload.collectorRefresh.secondPassQueries.length <= 4, true);
+});
+
+test("Collector refresh fallback keeps unseen-first order within each batch without duplicating batches", async () => {
+  const actor = {
+    id: "collector-order",
+    name: "Collector Order",
+    shortName_en: "Collector Order",
+    vibes: [{ label: "Vibe", label_en: "Vibe", queries: ["collector-order-query"] }],
+  };
+  const seen = "https://images.test/seen.jpg";
+  const unseen = "https://images.test/unseen.jpg";
+  let curateCalls = 0;
+  let fallbackRanked = null;
+  const payload = await buildPayloadForDate("2026-09-03", makeStore(approvedEligibility(actor, 0)), {
+    packs: [actor],
+    selectedPair: { actorId: actor.id, vibeIdx: 0 },
+    refreshCollectorSearch: true,
+    excludedCollectorThumbnails: [seen],
+    evaluate: async () => [
+      {
+        query: "batch-a",
+        results: [
+          { thumbnail: seen, link: "https://source.test/seen", source: "source.test" },
+          { thumbnail: unseen, link: "https://source.test/unseen", source: "source.test" },
+        ],
+        count: 2,
+        distinctSources: 1,
+      },
+    ],
+    rank: candidates => candidates,
+    curate: async (ranked) => {
+      curateCalls += 1;
+      if (curateCalls === 1) return { displayResults: [], curation: { mode: "compiled" } };
+      fallbackRanked = ranked;
+      return { displayResults: Array.from({ length: 9 }, (_, index) => ({
+        thumbnail: `https://images.test/final-${index}.jpg`,
+        link: `https://source.test/final-${index}`,
+        source: "source.test",
+      })), curation: { mode: "compiled" } };
+    },
+  });
+
+  assert.equal(fallbackRanked.length >= 1, true);
+  assert.deepEqual(
+    fallbackRanked[0].results.map(result => result.thumbnail),
+    [unseen, seen],
+  );
+  assert.equal(payload.displayResults.length, 9);
 });
 
 test("a repeated pairing refreshes search and rearranges the same nine when refresh cannot improve them", async () => {

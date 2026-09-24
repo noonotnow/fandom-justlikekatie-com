@@ -301,3 +301,118 @@ test("media registration must complete all nine cards before saving a run", asyn
   assert.equal(registered, 5);
   assert.equal([...storage.records.keys()].some(key => key.includes("/runs/")), false);
 });
+
+test("Collector refresh uses up to five recent runs for exclusions and records bounded freshness telemetry", async () => {
+  const storage = stores();
+  const key = "collector-grid-runs:accounts/acct-1/pairs/actor-1/0/index";
+  const runIds = ["run-1", "run-2", "run-3", "run-4", "run-5", "run-6"];
+  storage.records.set(key, { ids: runIds });
+  for (const [index, runId] of runIds.entries()) {
+    storage.records.set(`collector-grid-runs:accounts/acct-1/runs/${runId}`, {
+      id: runId,
+      images: Array.from({ length: 9 }, (_, card) => ({
+        sourceThumbnail: `https://images.test/${index}-${card}.jpg`,
+        imageChecksum: `checksum-${index}-${card}`,
+        thumbnail: `https://media.test/${index}-${card}.jpg`,
+      })),
+    });
+  }
+  const { handler } = handlerFor({
+    getStore: name => name === "actor-audit"
+      ? { get: async () => approval, list: async () => ({ blobs: [] }) }
+      : storage.factory(name),
+    build: async (_date, _store, options) => {
+      assert.equal(options.refreshCollectorSearch, true);
+      assert.equal(options.excludedCollectorThumbnails.length, 45);
+      assert.equal(options.excludedCollectorChecksums.length, 45);
+      return {
+        generatedAt: "2026-01-01T00:00:00.000Z",
+        rankedBatches: [{ query: "q1", provider: "bing_images", count: 12, distinctSources: 5 }],
+        displayResults: Array.from({ length: 9 }, (_, i) => ({
+          thumbnail: `https://img.test/new-${i}`,
+          link: `https://source.test/new-${i}`,
+          source: "source.test",
+          query: "q1",
+        })),
+        collectorRefresh: {
+          rawProviderCount: 5,
+          postFilterCount: 80,
+          pooledUniqueCount: 70,
+          historyExcludedCount: 12,
+          unseenCount: 22,
+          analyzedCount: 60,
+          selectedCount: 9,
+          providerContributionCounts: {
+            baidu: { rawCount: 20, normalizedCount: 15, acceptedCount: 12 },
+          },
+          firstPassQueries: ["q1"],
+          secondPassQueries: ["q2"],
+        },
+        curation: { mode: "compiled", version: 9, calibrationEvidenceCount: 2 },
+      };
+    },
+    fetchImage: async url => ({ bytes: new TextEncoder().encode(url), contentType: "image/jpeg" }),
+  });
+  const response = await handler(request("POST", { actorId: "actor-1", vibeIdx: 0 }), {});
+  assert.equal(response.status, 200);
+  const { run } = await response.json();
+  assert.equal(run.provenance.search.freshness.rawProviderCount, 5);
+  assert.equal(run.provenance.search.freshness.selectedCount, 9);
+  assert.deepEqual(run.provenance.search.freshness.firstPassQueries, ["q1"]);
+});
+
+test("concurrent Collector refresh enforces owner lease during generation", async () => {
+  const records = new Map();
+  const etags = new Map();
+  let etagSeq = 0;
+  const nextEtag = () => `e${++etagSeq}`;
+  const store = {
+    async get(key) {
+      if (key.endsWith("/cooldown")) return null;
+      return records.get(key) || null;
+    },
+    async getWithMetadata(key) {
+      if (key.endsWith("/cooldown")) return { data: null, etag: null };
+      return { data: records.get(key) || null, etag: etags.get(key) || null };
+    },
+    async setJSON(key, value, condition = {}) {
+      if (!key.endsWith("/cooldown")) {
+        if (condition.onlyIfNew && records.has(key)) return { modified: false };
+        if (condition.onlyIfMatch && etags.get(key) !== condition.onlyIfMatch) return { modified: false };
+      }
+      records.set(key, structuredClone(value));
+      etags.set(key, nextEtag());
+      return { modified: true };
+    },
+    async delete(key) {
+      records.delete(key);
+      etags.delete(key);
+    },
+  };
+  let releaseBuild;
+  const buildGate = new Promise(resolve => {
+    releaseBuild = resolve;
+  });
+  const { handler } = handlerFor({
+    getStore: name => name === "actor-audit"
+      ? { get: async () => approval, list: async () => ({ blobs: [] }) }
+      : store,
+    build: async () => {
+      await buildGate;
+      return {
+        displayResults: Array.from({ length: 9 }, (_, i) => ({
+          thumbnail: `https://img.test/${i}`,
+          link: `https://source.test/${i}`,
+        })),
+        curation: { mode: "compiled" },
+      };
+    },
+  });
+  const first = handler(request("POST", { actorId: "actor-1", vibeIdx: 0 }), {});
+  await new Promise(resolve => setTimeout(resolve, 10));
+  const second = await handler(request("POST", { actorId: "actor-1", vibeIdx: 0 }), {});
+  assert.equal(second.status, 429);
+  assert.match((await second.json()).error, /Another refresh is already generating/);
+  releaseBuild();
+  assert.equal((await first).status, 200);
+});
