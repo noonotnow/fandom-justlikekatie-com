@@ -73,6 +73,45 @@ function installReleasedLibraryEnvironment(fetchImpl: typeof fetch) {
   };
 }
 
+test('signed-out visitors browse public pack previews without requesting Collector depth', async () => {
+  const requests: string[] = [];
+  const cleanup = installReleasedLibraryEnvironment((async input => {
+    const url = String(input);
+    requests.push(url);
+    if (url.endsWith('/.netlify/functions/released-pack-directory')) {
+      return Response.json({
+        kind: 'vibe-atlas-public-pack-directory',
+        packs: [{
+          actor: { id: 'liu-xueyi', nameEn: 'Liu Xueyi' },
+          vibeIdx: 2,
+          vibe: { labelEn: 'Polished Danger' },
+          canonical: 'https://example.com/vibe-atlas/packs/liu-xueyi/polished-danger-2/',
+          preview: { copy: 'A public editorial preview.', cards: [{ title: 'Card one', thumbnailUrl: 'https://example.com/card.jpg' }] },
+        }],
+      });
+    }
+    return Response.json({ error: 'Unexpected request' }, { status: 404 });
+  }) as typeof fetch);
+  try {
+    let library: ReturnType<typeof create>;
+    await act(async () => {
+      library = create(createElement(ReleasedPackLibrary, {
+        status: null,
+        membershipResolved: true,
+        source: 'library_navigation',
+      }));
+    });
+    await flushReleasedLibrary();
+    const markup = JSON.stringify(library!.toJSON());
+    assert.match(markup, /Liu Xueyi.*Polished Danger/);
+    assert.match(markup, /vibe-atlas\/packs\/liu-xueyi\/polished-danger-2/);
+    assert.deepEqual(requests, ['/.netlify/functions/released-pack-directory']);
+    await act(async () => { library!.unmount(); });
+  } finally {
+    cleanup();
+  }
+});
+
 test('entitled Released Pack Library keeps English primary while rendering Chinese labels and subtitles', async () => {
   const cleanup = installReleasedLibraryEnvironment((async (input, init) => {
     const url = String(input);

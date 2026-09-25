@@ -83,6 +83,8 @@ type PublicReleasedPackPreview = {
   };
 };
 
+type PublicDirectoryPack = PublicReleasedPackPreview & { canonical: string };
+
 function primaryReleasedCopy(english?: string, chinese?: string, fallback?: string) {
   return english || chinese || fallback || '';
 }
@@ -127,6 +129,9 @@ export function ReleasedPackLibrary({
   const entitled = hasCollectorCapability(status);
   const [packs, setPacks] = useState<ActorPack[]>([]);
   const [publicPreview, setPublicPreview] = useState<PublicReleasedPackPreview | null>(null);
+  const [publicPacks, setPublicPacks] = useState<PublicDirectoryPack[]>([]);
+  const [publicPacksLoading, setPublicPacksLoading] = useState(false);
+  const [publicPacksError, setPublicPacksError] = useState('');
   const [publicPreviewLoading, setPublicPreviewLoading] = useState(false);
   const [publicPreviewError, setPublicPreviewError] = useState('');
   const [selectedActor, setSelectedActor] = useState(actorId || '');
@@ -182,6 +187,35 @@ export function ReleasedPackLibrary({
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
+  }, [entitled]);
+
+  useEffect(() => {
+    if (entitled) {
+      setPublicPacks([]);
+      setPublicPacksError('');
+      return;
+    }
+    const controller = new AbortController();
+    setPublicPacksLoading(true);
+    setPublicPacksError('');
+    fetch('/.netlify/functions/released-pack-directory', {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    })
+      .then(async response => {
+        const body = await response.json().catch(() => null);
+        if (!response.ok || body?.kind !== 'vibe-atlas-public-pack-directory' || !Array.isArray(body.packs)) {
+          throw new Error('Public pack previews are temporarily unavailable.');
+        }
+        if (!controller.signal.aborted) setPublicPacks(body.packs);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setPublicPacksError('Public pack previews are temporarily unavailable.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPublicPacksLoading(false);
+      });
+    return () => controller.abort();
   }, [entitled]);
 
   useEffect(() => {
@@ -401,6 +435,38 @@ export function ReleasedPackLibrary({
           <h1>The Vibe Atlas library.</h1>
           <p>Explore released actor × vibe packs—and generate a fresh 图集 from each one. Every grid is saved to your account.</p>
         </header>
+        <section className="released-library__directory" aria-label="Public released-pack previews">
+          <h2>Browse public pack previews</h2>
+          {publicPacksLoading && <p role="status">Loading public previews…</p>}
+          {publicPacksError && <p role="alert">{publicPacksError}</p>}
+          {!publicPacksLoading && !publicPacksError && publicPacks.length === 0 && (
+            <p role="status">No public pack previews are published yet. Today’s free grid is on the <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}#daily-evidence`}>Vibe Atlas homepage</a>.</p>
+          )}
+          {publicPacks.map(pack => {
+            const url = safeExternalUrl(pack.canonical);
+            const path = url ? new URL(url).pathname : null;
+            return (
+              <article className="released-library__teaser" key={`${pack.actor.id}:${pack.vibeIdx}`}>
+                <div className="released-library__teaser-copy">
+                  <p className="membership__label">Public teaser · 公开预览</p>
+                  <h3>{pack.vibe.emoji || '✦'} {pack.actor.nameEn || pack.actor.name} × {pack.vibe.labelEn || pack.vibe.label}</h3>
+                  <p>{pack.preview.copy}</p>
+                  {path && <a href={path}>View public pack preview</a>}
+                </div>
+                <div className="released-image-grid released-image-grid--preview" aria-label={`${pack.actor.nameEn || pack.actor.name} preview images`}>
+                  {pack.preview.cards.map((card, index) => {
+                    const imageUrl = safeExternalUrl(card.thumbnailUrl || card.deliveryUrl || undefined);
+                    return imageUrl ? (
+                      <figure className="released-image-grid__item" key={index}>
+                        <img src={imageUrl} alt={card.title || `Preview card ${index + 1}`} loading="lazy" />
+                      </figure>
+                    ) : null;
+                  })}
+                </div>
+              </article>
+            );
+          })}
+        </section>
         {publicPreviewLoading && <p role="status">Loading public teaser…</p>}
         {publicPreview && (
           <section className="released-library__teaser" aria-labelledby="released-pack-preview-title">
