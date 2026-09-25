@@ -198,6 +198,58 @@ test('signed-out Released Pack teaser keeps its existing bilingual copy without 
   }
 });
 
+test('signed-out Released Pack page shows graceful fallback when public teaser images are unavailable', async () => {
+  const cleanup = installReleasedLibraryEnvironment((async input => {
+    const url = String(input);
+    if (url.includes('/.netlify/functions/released-pack-preview?actorId=liu-xueyi&vibeIdx=2')) {
+      return Response.json({
+        pack: {
+          actor: { id: 'liu-xueyi', name: '刘学义', nameEn: 'Liu Xueyi' },
+          vibeIdx: 2,
+          vibe: {
+            emoji: '🤓',
+            label: '斯文败类',
+            labelEn: 'Polished Danger',
+            subtitle: '眼镜一戴，危险变得很有礼貌',
+            subtitleEn: 'Put the glasses on. The danger got extremely polite.',
+          },
+          preview: {
+            copy: 'This released Vibe Pack is available to Collectors now. Public teaser images are being prepared.',
+            cards: [],
+          },
+        },
+      });
+    }
+    return Response.json({ error: `Unexpected request: ${url}` }, { status: 404 });
+  }) as typeof fetch);
+
+  try {
+    let library: ReturnType<typeof create>;
+    await act(async () => {
+      library = create(createElement(ReleasedPackLibrary, {
+        status: null,
+        membershipResolved: true,
+        actorId: 'liu-xueyi',
+        vibeIndex: 2,
+        source: 'public_record',
+      }));
+    });
+    await flushReleasedLibrary();
+
+    const markup = JSON.stringify(library!.toJSON());
+    assert.doesNotMatch(markup, /Released pack preview not found/i);
+    assert.match(markup, /Public teaser images are unavailable right now/);
+    assert.match(markup, /available to Collectors now/);
+    assert.match(markup, /Become a Fandom Collector/);
+
+    await act(async () => {
+      library!.unmount();
+    });
+  } finally {
+    cleanup();
+  }
+});
+
 test('released pack library keeps source-depth protected while showing signed-out preview access', async () => {
   const source = await readFile(new URL('../src/components/ReleasedPackLibrary/ReleasedPackLibrary.tsx', import.meta.url), 'utf8');
   assert.match(source, /hasCollectorCapability\(status\)/);

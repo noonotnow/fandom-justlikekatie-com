@@ -74,3 +74,60 @@ test("released pack preview validates required pair inputs", async () => {
   assert.equal(result.status, 400);
   assert.equal(result.headers.get("cache-control"), "no-store");
 });
+
+test("released pack preview returns a graceful fallback for released pairs without indexable previews", async () => {
+  const handler = createReleasedPackPreviewHandler({
+    getStore: () => manifestStore([publicManifest()]),
+    actorPacks: [{
+      id: "liu-xueyi",
+      name: "刘学义",
+      shortName_en: "Liu Xueyi",
+      vibes: [{
+        vibeIdx: 2,
+        emoji: "🤓",
+        label: "斯文败类",
+        label_en: "Polished Danger",
+        subtitle: "眼镜一戴，危险变得很有礼貌",
+        subtitle_en: "Put the glasses on. The danger got extremely polite.",
+      }],
+    }],
+    buildReleaseCatalog: async () => ({
+      complete: true,
+      collectorPackIds: ["liu-xueyi:2"],
+      packs: [],
+    }),
+    getEligibilitySnapshot: async () => ({ status: "released" }),
+    releaseEligibilityPredicate: () => true,
+  });
+  const result = await handler(new Request("https://fandom.justlikekatie.com/.netlify/functions/released-pack-preview?actorId=liu-xueyi&vibeIdx=2"), {});
+  const body = await result.json();
+  assert.equal(result.status, 200);
+  assert.equal(body.pack.actor.id, "liu-xueyi");
+  assert.equal(body.pack.vibeIdx, 2);
+  assert.equal(body.pack.preview.cards.length, 0);
+  assert.match(body.pack.preview.copy, /available to Collectors now/i);
+});
+
+test("released pack preview remains fail-closed for invalid or unreleased pairs", async () => {
+  const handler = createReleasedPackPreviewHandler({
+    getStore: () => manifestStore([publicManifest()]),
+    actorPacks: [{
+      id: "liu-xueyi",
+      name: "刘学义",
+      shortName_en: "Liu Xueyi",
+      vibes: [{ vibeIdx: 2, label: "斯文败类", label_en: "Polished Danger" }],
+    }],
+    buildReleaseCatalog: async () => ({
+      complete: true,
+      collectorPackIds: ["liu-xueyi:2"],
+      packs: [],
+    }),
+    getEligibilitySnapshot: async () => ({ status: "not_released" }),
+    releaseEligibilityPredicate: () => false,
+  });
+  const result = await handler(new Request("https://fandom.justlikekatie.com/.netlify/functions/released-pack-preview?actorId=liu-xueyi&vibeIdx=1"), {});
+  assert.equal(result.status, 404);
+  assert.deepEqual(await result.json(), {
+    error: "Released pack preview not found.",
+  });
+});

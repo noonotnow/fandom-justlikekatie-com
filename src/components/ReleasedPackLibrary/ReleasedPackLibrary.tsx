@@ -429,6 +429,9 @@ export function ReleasedPackLibrary({
                 );
               })}
             </div>
+            {publicPreview.preview.cards.length === 0 && (
+              <p className="released-grid-viewer__empty" role="status" aria-live="polite">Public teaser images are unavailable right now. Sign in to open the full released Vibe Pack.</p>
+            )}
             <div className="released-library__teaser-access">
               <h3>Access / 访问</h3>
               <p>The full Vibe Pack is included with Collector membership.</p>
