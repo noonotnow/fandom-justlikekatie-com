@@ -19,6 +19,32 @@ permissions:
   contents: read
 
 jobs:
+  operator-alert-configuration:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: Verify operator alert delivery configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check Resend credentials and verified sender without emailing
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_DOMAIN_READ_API_KEY: ${{ secrets.RESEND_DOMAIN_READ_API_KEY }}
+          FANDOM_AUTH_FROM_EMAIL: ${{ secrets.FANDOM_AUTH_FROM_EMAIL }}
+          FANDOM_ADMIN_EMAILS: ${{ secrets.FANDOM_ADMIN_EMAILS }}
+        run: npm run check:launchpad-preview -- --check-alert-configuration
+
   test:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -79,7 +105,7 @@ jobs:
         run: npm run test:browser
 
   netlify-package-compatibility:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
