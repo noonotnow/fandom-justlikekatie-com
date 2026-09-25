@@ -119,3 +119,18 @@ test("Netlify compatibility workflow preserves the reviewed proposal contract", 
   assert.match(proposalStep, /It does not merge automatically/);
   assert.doesNotMatch(job, /\b(?:auto-merge|merge-pull-request)\b/i);
 });
+
+test("sender verification runs only on main with a restricted environment", async () => {
+  const workflow = await readFile(workflowPath, "utf8");
+  const job = indentedBlock(
+    workflow,
+    /^  operator-alert-configuration:$/m,
+    /^  [a-zA-Z0-9_-]+:$/m,
+  );
+  assert.match(job, /^    if: \(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'\) && github\.ref == 'refs\/heads\/main'$/m);
+  assert.match(job, /^    environment: operator-sender-verification$/m);
+  const check = workflowStep(job, "Check Resend credentials and verified sender without emailing");
+  assert.match(check, /^          RESEND_DOMAIN_READ_API_KEY: \$\{\{ secrets\.RESEND_DOMAIN_READ_API_KEY \}\}$/m);
+  assert.match(check, /^        run: npm run check:launchpad-preview -- --check-alert-configuration$/m);
+  assert.doesNotMatch(job, /--notify-failure/);
+});

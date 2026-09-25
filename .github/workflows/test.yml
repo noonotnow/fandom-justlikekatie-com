@@ -20,8 +20,9 @@ permissions:
 
 jobs:
   operator-alert-configuration:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     name: Verify operator alert delivery configuration
+    environment: operator-sender-verification
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
