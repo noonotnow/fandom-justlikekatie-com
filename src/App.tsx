@@ -1006,6 +1006,9 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
               vibeIdx: rawData.vibeIdx as number,
             }
             : null}
+          actorName={rawData?.actorId === new URLSearchParams(window.location.search).get('actorId')
+            ? rawData.actorShortNameEn || rawData.actorName
+            : undefined}
           source={(() => {
             const value = new URLSearchParams(window.location.search).get('source');
             return value === 'daily_star' || value === 'public_record' || value === 'article'
@@ -1013,7 +1016,6 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
               : 'library_navigation';
           })()}
           actorId={new URLSearchParams(window.location.search).get('actorId')}
-          actorName={rawData?.actorShortNameEn || rawData?.actorName}
           vibeIndex={(() => {
             const value = new URLSearchParams(window.location.search).get('vibeIdx');
             return value !== null && value !== '' && Number.isInteger(Number(value))

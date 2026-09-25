@@ -332,7 +332,7 @@ test('signed-out Released Pack teaser keeps its existing bilingual copy without 
         actorId: 'zhang-linghe',
         vibeIndex: 2,
         currentRelease: { actorId: 'zhang-linghe', vibeIdx: 2 },
-        source: 'daily_star',
+        source: 'public_record',
       }));
     });
     await flushReleasedLibrary();
@@ -402,10 +402,30 @@ test('signed-out Released Pack page shows graceful fallback when public teaser i
   }
 });
 
-test('an unpublished daily pairing links back to the free drop instead of exposing a raw preview 404', async () => {
+test('daily-star navigation shows only the other verified packs for that actor', async () => {
+  const requests: string[] = [];
   const cleanup = installReleasedLibraryEnvironment((async input => {
-    assert.match(String(input), /released-pack-preview\?actorId=liu-yuning&vibeIdx=2/);
-    return Response.json({ error: 'Released pack preview not found.' }, { status: 404 });
+    const url = String(input);
+    requests.push(url);
+    if (url === '/.netlify/functions/released-pack-directory') {
+      const pack = (actorId: string, name: string, vibeIdx: number, label: string) => ({
+        actor: { id: actorId, nameEn: name },
+        vibeIdx,
+        vibe: { labelEn: label },
+        canonical: `https://example.com/vibe-atlas/packs/${actorId}/${vibeIdx}/`,
+        preview: { copy: `${label} preview`, cards: [{ title: label, thumbnailUrl: 'https://example.com/card.jpg' }] },
+      });
+      return Response.json({
+        kind: 'vibe-atlas-public-pack-directory',
+        packs: [
+          pack('liu-xueyi', 'Liu Xueyi', 2, 'Polished Danger'),
+          pack('dylan-wang', 'Dylan Wang', 0, 'Today’s free vibe'),
+          pack('dylan-wang', 'Dylan Wang', 1, 'Courtly Chaos'),
+          pack('dylan-wang', 'Dylan Wang', 2, 'Moonlit Defiance'),
+        ],
+      });
+    }
+    return Response.json({ error: 'Unexpected request' }, { status: 404 });
   }) as typeof fetch);
 
   try {
@@ -414,22 +434,121 @@ test('an unpublished daily pairing links back to the free drop instead of exposi
       library = create(createElement(ReleasedPackLibrary, {
         status: null,
         membershipResolved: true,
-        actorId: 'liu-yuning',
-        vibeIndex: 2,
-        currentRelease: { actorId: 'liu-yuning', vibeIdx: 2 },
+        actorId: 'dylan-wang',
+        actorName: 'Dylan Wang',
+        vibeIndex: 0,
+        currentRelease: { actorId: 'dylan-wang', vibeIdx: 0 },
         source: 'daily_star',
       }));
     });
     await flushReleasedLibrary();
     const markup = JSON.stringify(library!.toJSON());
-    assert.match(markup, /no published public teaser yet/);
-    assert.match(markup, /View today's free nine-card drop/);
-    assert.match(markup, /#daily-evidence/);
-    assert.doesNotMatch(markup, /Released pack preview not found/);
+    assert.match(markup, /Dylan Wang’s other Vibe Packs/);
+    assert.match(markup, /Courtly Chaos/);
+    assert.match(markup, /Moonlit Defiance/);
+    assert.doesNotMatch(markup, /Liu Xueyi|Polished Danger|Today’s free vibe|no published public teaser yet/);
+    assert.deepEqual(requests.filter(url => url.startsWith('/.netlify/functions/')), [
+      '/.netlify/functions/released-pack-directory',
+      '/.netlify/functions/released-pack-preview?actorId=dylan-wang&vibeIdx=0',
+      '/.netlify/functions/public-preflight-preview-directory?actorId=dylan-wang',
+    ]);
     await act(async () => { library!.unmount(); });
   } finally {
     cleanup();
   }
+});
+
+test('daily-star navigation never fills an empty Dylan view with another actor’s teaser', async () => {
+  const cleanup = installReleasedLibraryEnvironment((async input => {
+    if (String(input) === '/.netlify/functions/released-pack-directory') {
+      return Response.json({
+        kind: 'vibe-atlas-public-pack-directory',
+        packs: [{
+          actor: { id: 'liu-xueyi', nameEn: 'Liu Xueyi' },
+          vibeIdx: 3,
+          vibe: { labelEn: 'Professionally Devastated' },
+          canonical: 'https://example.com/vibe-atlas/packs/liu-xueyi/devastated-3/',
+          preview: { copy: 'Liu preview', cards: [] },
+        }],
+      });
+    }
+    return Response.json({ user: null });
+  }) as typeof fetch);
+  try {
+    let library: ReturnType<typeof create>;
+    await act(async () => {
+      library = create(createElement(ReleasedPackLibrary, {
+        status: null,
+        membershipResolved: true,
+        actorId: 'dylan-wang',
+        actorName: 'Dylan Wang',
+        vibeIndex: 0,
+        currentRelease: { actorId: 'dylan-wang', vibeIdx: 0 },
+        source: 'daily_star',
+      }));
+    });
+    await flushReleasedLibrary();
+    const markup = JSON.stringify(library!.toJSON());
+    assert.match(markup, /Dylan Wang’s other packs do not have verified public previews ready yet/);
+    assert.doesNotMatch(markup, /Liu Xueyi|Professionally Devastated|no published public teaser yet/);
+    await act(async () => { library!.unmount(); });
+  } finally {
+    cleanup();
+  }
+});
+
+test('article-linked Liu Xueyi teaser opens its exact pack, not the public actor directory', async () => {
+  const requests: string[] = [];
+  const cleanup = installReleasedLibraryEnvironment((async input => {
+    const url = String(input);
+    requests.push(url);
+    if (url.includes('/.netlify/functions/released-pack-preview?actorId=liu-xueyi&vibeIdx=2')) {
+      return Response.json({
+        pack: {
+          actor: { id: 'liu-xueyi', nameEn: 'Liu Xueyi' },
+          vibeIdx: 2,
+          vibe: { labelEn: 'Polished Danger' },
+          preview: { copy: 'Article-linked preview', cards: [
+            { title: 'Preview 1', thumbnailUrl: 'https://example.com/one.jpg' },
+          ] },
+        },
+      });
+    }
+    return Response.json({ error: 'Unexpected request' }, { status: 404 });
+  }) as typeof fetch);
+  try {
+    let library: ReturnType<typeof create>;
+    await act(async () => {
+      library = create(createElement(ReleasedPackLibrary, {
+        status: null,
+        membershipResolved: true,
+        actorId: 'liu-xueyi',
+        vibeIndex: 2,
+        source: 'article',
+      }));
+    });
+    await flushReleasedLibrary();
+    const markup = JSON.stringify(library!.toJSON());
+    assert.match(markup, /Polished Danger/);
+    assert.match(markup, /Article-linked preview/);
+    assert.doesNotMatch(markup, /Browse public pack previews|Dylan Wang/);
+    assert.deepEqual(requests.filter(url => url.startsWith('/.netlify/functions/')), [
+      '/.netlify/functions/released-pack-preview?actorId=liu-xueyi&vibeIdx=2',
+      '/.netlify/functions/public-preflight-preview?actorId=liu-xueyi&vibeIdx=2',
+    ]);
+    await act(async () => { library!.unmount(); });
+  } finally {
+    cleanup();
+  }
+});
+
+test('Against the Current links only its two named packs, not the actor directory', async () => {
+  const article = await readFile(new URL('../public/c-drama-fandom/vibing-now/against-the-current-episode-21/index.html', import.meta.url), 'utf8');
+  for (const vibeIdx of [1, 2]) {
+    assert.match(article, new RegExp(`source=article&amp;actorId=liu-xueyi&amp;vibeIdx=${vibeIdx}`));
+  }
+  assert.doesNotMatch(article, /source=library_navigation&amp;actorId=liu-xueyi/);
+  assert.match(article, /Silk-Robed Damage Control.*Pack candidate · unreleased/);
 });
 
 test('released pack library keeps source-depth protected while showing signed-out preview access', async () => {
@@ -581,7 +700,7 @@ test('public released-pack views use bounded three-card previews and article-onl
   assert.match(app, /value === 'article'/);
   assert.match(article, /source=article&amp;actorId=liu-xueyi&amp;vibeIdx=2/);
   assert.match(article, /source=article&amp;actorId=liu-xueyi&amp;vibeIdx=1/);
-  assert.match(analytics, /'library_navigation' \| 'article'/);
+  assert.match(analytics, /'article' \| 'library_navigation'/);
   assert.match(admin, /publish-preflight-preview/);
   assert.match(admin, /vibeIdx: pairing\.vibeIdx/);
   assert.match(admin, /editorialCopy: customCopy/);
