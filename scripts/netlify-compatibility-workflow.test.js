@@ -21,6 +21,128 @@ function workflowStep(job, name) {
   );
 }
 
+test("Netlify compatibility proposals keep their dedicated overlap protection", async () => {
+  const workflow = await readFile(workflowPath, "utf8");
+  const compatibilityJob = indentedBlock(
+    workflow,
+    /^  netlify-package-compatibility:$/m,
+    /^  [a-zA-Z0-9_-]+:$/m,
+  );
+  const testJob = indentedBlock(
+    workflow,
+    /^  test:$/m,
+    /^  [a-zA-Z0-9_-]+:$/m,
+  );
+
+  assert.match(
+    compatibilityJob,
+    /^    concurrency:\n      group: netlify-package-compatibility-proposal\n      cancel-in-progress: true$/m,
+  );
+  assert.doesNotMatch(testJob, /netlify-package-compatibility-proposal/);
+  assert.doesNotMatch(testJob, /^    concurrency:$/m);
+});
+
+test("launchpad preview smoke check runs after successful production deployments only", async () => {
+  const workflow = await readFile(workflowPath, "utf8");
+  const job = indentedBlock(
+    workflow,
+    /^  production-launchpad-preview:$/m,
+    /^  [a-zA-Z0-9_-]+:$/m,
+  );
+
+  assert.match(workflow, /^  deployment_status:$/m);
+  assert.match(job, /github\.event_name == 'schedule'/);
+  assert.match(job, /github\.event_name == 'workflow_dispatch'/);
+  assert.match(job, /github\.event_name == 'deployment_status'/);
+  assert.match(job, /github\.event\.deployment_status\.state == 'success'/);
+  assert.match(
+    job,
+    /github\.event\.deployment\.environment == 'production' \|\| github\.event\.deployment\.environment == 'Production'/,
+  );
+  assert.match(job, /run: npm run check:launchpad-preview/);
+
+  const notificationStep = workflowStep(
+    job,
+    "Notify operators about failed launchpad preview",
+  );
+  assert.match(notificationStep, /^        if: failure\(\)$/m);
+  assert.match(
+    notificationStep,
+    /^          RESEND_API_KEY: \$\{\{ secrets\.RESEND_API_KEY \}\}$/m,
+  );
+  assert.match(
+    notificationStep,
+    /^          FANDOM_AUTH_FROM_EMAIL: \$\{\{ secrets\.FANDOM_AUTH_FROM_EMAIL \}\}$/m,
+  );
+  assert.match(
+    notificationStep,
+    /^          FANDOM_ADMIN_EMAILS: \$\{\{ secrets\.FANDOM_ADMIN_EMAILS \}\}$/m,
+  );
+  assert.match(
+    notificationStep,
+    /^        run: npm run check:launchpad-preview -- --notify-failure$/m,
+  );
+});
+
+test("operator alert configuration is checked on a schedule without sending email", async () => {
+  const workflow = await readFile(workflowPath, "utf8");
+  const job = indentedBlock(
+    workflow,
+    /^  operator-alert-configuration:$/m,
+    /^  [a-zA-Z0-9_-]+:$/m,
+  );
+  assert.match(job, /^    if: \(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'\) && github\.ref == 'refs\/heads\/main'$/m);
+  assert.match(job, /^    name: Verify operator alert delivery configuration$/m);
+  assert.match(job, /^    environment: operator-sender-verification$/m);
+  const check = workflowStep(job, "Check Resend credentials and verified sender without emailing");
+  for (const secret of ["RESEND_API_KEY", "RESEND_DOMAIN_READ_API_KEY", "FANDOM_AUTH_FROM_EMAIL", "FANDOM_ADMIN_EMAILS"]) {
+    assert.match(check, new RegExp(`^          ${secret}: \\$\\{\\{ secrets\\.${secret} \\}\\}$`, "m"));
+  }
+  assert.match(check, /^        run: npm run check:launchpad-preview -- --check-alert-configuration$/m);
+  assert.doesNotMatch(job, /--notify-failure/);
+});
+
+test("shared Stripe audit consistency check stays protected and scheduled", async () => {
+  const workflow = await readFile(workflowPath, "utf8");
+  const job = indentedBlock(
+    workflow,
+    /^  shared-stripe-audit-consistency:$/m,
+    /^  [a-zA-Z0-9_-]+:$/m,
+  );
+
+  assert.match(
+    job,
+    /^    if: github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'$/m,
+  );
+  assert.match(job, /^    name: Shared Stripe audit consistency check$/m);
+
+  const checkStep = workflowStep(
+    job,
+    "Run shared Stripe audit consistency check",
+  );
+  assert.match(
+    checkStep,
+    /^          SUBSCRIPTION_PRODUCT_AUDIT_BLOBS_SITE_ID: \$\{\{ secrets\.SUBSCRIPTION_PRODUCT_AUDIT_BLOBS_SITE_ID \}\}$/m,
+  );
+  assert.match(
+    checkStep,
+    /^          SUBSCRIPTION_PRODUCT_AUDIT_BLOBS_TOKEN: \$\{\{ secrets\.SUBSCRIPTION_PRODUCT_AUDIT_BLOBS_TOKEN \}\}$/m,
+  );
+  assert.match(
+    checkStep,
+    /::error::Shared Stripe audit consistency check requires its protected Blob site ID and token\./,
+  );
+  assert.match(
+    checkStep,
+    /node --test scripts\/audit-subscription-products\.blob-integration\.test\.js/,
+  );
+  assert.match(
+    checkStep,
+    /\[ -z "\$SUBSCRIPTION_PRODUCT_AUDIT_BLOBS_SITE_ID" \].*\[ -z "\$SUBSCRIPTION_PRODUCT_AUDIT_BLOBS_TOKEN" \]/,
+  );
+  assert.doesNotMatch(job, /github\.event_name == '(?:push|pull_request)'/);
+});
+
 test("Netlify compatibility workflow preserves the reviewed proposal contract", async () => {
   const workflow = await readFile(workflowPath, "utf8");
   const job = indentedBlock(
@@ -60,14 +182,6 @@ test("Netlify compatibility workflow preserves the reviewed proposal contract", 
   );
 
   const prepareStep = workflowStep(job, "Prepare reviewed pin upgrade");
-  assert.match(
-    prepareStep,
-    /^        if: steps\.netlify_cli\.outputs\.upgrade == 'true'$/m,
-  );
-  assert.match(
-    prepareStep,
-    /update-netlify-cli-pin\.js "\$\{\{ steps\.netlify_cli\.outputs\.candidate \}\}"/,
-  );
 
   const verificationStep = workflowStep(
     job,

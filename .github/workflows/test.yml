@@ -5,6 +5,7 @@ on:
     branches: ["**"]
   pull_request:
     branches: ["**"]
+  deployment_status:
   schedule:
     - cron: "17 9 * * 1"
   workflow_dispatch:
@@ -20,8 +21,9 @@ permissions:
 
 jobs:
   operator-alert-configuration:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     name: Verify operator alert delivery configuration
+    environment: operator-sender-verification
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -44,6 +46,108 @@ jobs:
           FANDOM_AUTH_FROM_EMAIL: ${{ secrets.FANDOM_AUTH_FROM_EMAIL }}
           FANDOM_ADMIN_EMAILS: ${{ secrets.FANDOM_ADMIN_EMAILS }}
         run: npm run check:launchpad-preview -- --check-alert-configuration
+
+  production-launchpad-preview:
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'deployment_status' &&
+        github.event.deployment_status.state == 'success' &&
+        (github.event.deployment.environment == 'production' || github.event.deployment.environment == 'Production')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Confirm deployed launchpad preview image is reachable
+        run: npm run check:launchpad-preview
+
+      - name: Notify operators about failed launchpad preview
+        if: failure()
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          FANDOM_AUTH_FROM_EMAIL: ${{ secrets.FANDOM_AUTH_FROM_EMAIL }}
+          FANDOM_ADMIN_EMAILS: ${{ secrets.FANDOM_ADMIN_EMAILS }}
+        run: npm run check:launchpad-preview -- --notify-failure
+
+  production-public-records:
+    if: >-
+      github.event_name == 'deployment_status' &&
+      github.event.deployment_status.state == 'success' &&
+      (github.event.deployment.environment == 'production' || github.event.deployment.environment == 'Production')
+    name: Verify sitemap-linked public records
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check live actor, edition, and released-pack records
+        run: npm run check:public-records
+
+  production-archive-records:
+    if: >-
+      github.event_name == 'deployment_status' &&
+      github.event.deployment_status.state == 'success' &&
+      (github.event.deployment.environment == 'production' || github.event.deployment.environment == 'Production')
+    name: Verify all Archive-advertised records
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check every Archive page and advertised record after propagation
+        run: |
+          for attempt in 1 2 3; do
+            if npm run check:archive-records; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Archive check attempt $attempt failed; retrying after 20 seconds."
+              sleep 20
+            fi
+          done
+          echo "::error::Production Archive record verification failed after 3 attempts."
+          exit 1
+
+      - name: Notify operators about failed Archive record verification
+        if: failure()
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          FANDOM_AUTH_FROM_EMAIL: ${{ secrets.FANDOM_AUTH_FROM_EMAIL }}
+          FANDOM_ADMIN_EMAILS: ${{ secrets.FANDOM_ADMIN_EMAILS }}
+        run: node scripts/notify-archive-records-failure.js
 
   test:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
@@ -103,6 +207,127 @@ jobs:
 
       - name: Run browser tests
         run: npm run test:browser
+
+  migration-retry:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    name: Migration retry (PostgreSQL ${{ matrix.postgres }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ["16", "17"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply every migration twice
+        env:
+          MIGRATION_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: node --test --test-name-pattern="applies every committed migration twice" scripts/check-migrations.test.js
+
+  migration-next-major:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: Migration candidate (PostgreSQL ${{ matrix.postgres }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        postgres: ["18"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply every migration twice
+        env:
+          MIGRATION_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: node --test --test-name-pattern="applies every committed migration twice" scripts/check-migrations.test.js
+
+      - name: Notify operators about failed PostgreSQL candidate migration
+        if: failure()
+        env:
+          POSTGRES_CANDIDATE: ${{ matrix.postgres }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          FANDOM_AUTH_FROM_EMAIL: ${{ secrets.FANDOM_AUTH_FROM_EMAIL }}
+          FANDOM_ADMIN_EMAILS: ${{ secrets.FANDOM_ADMIN_EMAILS }}
+        run: node scripts/notify-migration-failure.js
+
+  shared-stripe-audit-consistency:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: Shared Stripe audit consistency check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run shared Stripe audit consistency check
+        env:
+          SUBSCRIPTION_PRODUCT_AUDIT_BLOBS_SITE_ID: ${{ secrets.SUBSCRIPTION_PRODUCT_AUDIT_BLOBS_SITE_ID }}
+          SUBSCRIPTION_PRODUCT_AUDIT_BLOBS_TOKEN: ${{ secrets.SUBSCRIPTION_PRODUCT_AUDIT_BLOBS_TOKEN }}
+        run: |
+          if [ -z "$SUBSCRIPTION_PRODUCT_AUDIT_BLOBS_SITE_ID" ] || [ -z "$SUBSCRIPTION_PRODUCT_AUDIT_BLOBS_TOKEN" ]; then
+            echo "::error::Shared Stripe audit consistency check requires its protected Blob site ID and token."
+            exit 1
+          fi
+          node --test scripts/audit-subscription-products.blob-integration.test.js
+
+      - name: Notify operators about failed shared Stripe audit consistency check
+        if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          FANDOM_AUTH_FROM_EMAIL: ${{ secrets.FANDOM_AUTH_FROM_EMAIL }}
+          FANDOM_ADMIN_EMAILS: ${{ secrets.FANDOM_ADMIN_EMAILS }}
+        run: node scripts/notify-shared-stripe-audit-failure.js
 
   netlify-package-compatibility:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
