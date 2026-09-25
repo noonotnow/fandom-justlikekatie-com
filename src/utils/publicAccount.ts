@@ -1,6 +1,7 @@
 import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
 import {
   dbApplySyncResponse,
+  dbBuildCardSyncRequest,
   dbBuildGridSyncRequest,
   dbBuildSyncRequest,
   collectionScopeForCard,
@@ -124,6 +125,25 @@ export async function syncPublicGrid(user: PublicUser, gridId: string): Promise<
     const response = await postJson('/api/collection/sync', payload);
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || 'Selected grid sync failed.');
+    await dbApplySyncResponse(user.accountId, body, payload.operations);
+    notifyCollection('synced');
+  };
+  if (navigator.locks) {
+    await navigator.locks.request('fandom-collection-sync', run);
+  } else {
+    await run();
+  }
+}
+
+/** Sync one deliberately saved card without opting the device into bulk merge. */
+export async function syncPublicCard(user: PublicUser, imageUrl: string): Promise<void> {
+  const run = async () => {
+    const session = await getPublicSession();
+    if (session?.accountId !== user.accountId) throw new Error('The active account changed. Refresh before syncing.');
+    const payload = await dbBuildCardSyncRequest(user.accountId, imageUrl);
+    const response = await postJson('/api/collection/sync', payload);
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || 'Selected image sync failed.');
     await dbApplySyncResponse(user.accountId, body, payload.operations);
     notifyCollection('synced');
   };

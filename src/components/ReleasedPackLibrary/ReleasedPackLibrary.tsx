@@ -4,7 +4,9 @@ import {
   hasCollectorCapability,
   type MembershipStatus,
 } from '../../utils/membership';
-import { requestMagicLink } from '../../utils/publicAccount';
+import { getPublicSession, requestMagicLink, syncPublicCard, syncPublicGrid } from '../../utils/publicAccount';
+import { dbGetAllCards, dbGetAllGrids, dbSaveCard, dbSaveGrid } from '../../utils/collectionDB';
+import { collectorCardRecord, collectorGridCollectionId, collectorGridRecord } from '../../utils/releasedPackCollection';
 import {
   trackReleasedLibraryCheckoutStarted,
   trackReleasedLibraryFilterUsed,
@@ -32,6 +34,7 @@ type ActorPack = {
   id: string;
   name?: string;
   shortName_en?: string;
+  accentColor?: string;
   title_en?: string;
   icon?: string;
   vibes?: VibePack[];
@@ -127,6 +130,13 @@ export function ReleasedPackLibrary({
   source,
 }: Props) {
   const entitled = hasCollectorCapability(status);
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [savedImages, setSavedImages] = useState<string[]>([]);
+  const [syncedImages, setSyncedImages] = useState<string[]>([]);
+  const [savedGridId, setSavedGridId] = useState('');
+  const [syncedGridId, setSyncedGridId] = useState('');
+  const [saveBusy, setSaveBusy] = useState('');
+  const [saveNotice, setSaveNotice] = useState('');
   const [packs, setPacks] = useState<ActorPack[]>([]);
   const [publicPreview, setPublicPreview] = useState<PublicReleasedPackPreview | null>(null);
   const [publicPacks, setPublicPacks] = useState<PublicDirectoryPack[]>([]);
@@ -149,6 +159,89 @@ export function ReleasedPackLibrary({
   const autoOpenedPair = useRef('');
   const lastTrackedOpen = useRef('');
   const pageViewTracked = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getPublicSession().then(session => {
+      if (!cancelled) setSignedIn(Boolean(session));
+    }).catch(() => {
+      if (!cancelled) setSignedIn(null);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSavedImages([]);
+    setSyncedImages([]);
+    setSavedGridId('');
+    setSyncedGridId('');
+    setSaveNotice('');
+    if (selectedRun) {
+      void Promise.all([
+        dbGetAllGrids(),
+        dbGetAllCards(),
+      ]).then(([grids, cards]) => {
+        if (cancelled) return;
+        const matchingGrid = grids.find(grid => grid.id === collectorGridCollectionId(selectedRun));
+        setSavedGridId(matchingGrid?.id || '');
+        setSyncedGridId(matchingGrid?.serverId ? matchingGrid.id : '');
+        const runUrls = new Set(selectedRun.images.map(image => image.thumbnail));
+        setSavedImages(cards.filter(card => runUrls.has(card.imageUrl)).map(card => card.imageUrl));
+        setSyncedImages(cards.filter(card => runUrls.has(card.imageUrl) && card.serverId)
+          .map(card => card.imageUrl));
+      }).catch(() => { if (!cancelled) setSaveNotice('Could not check saved items on this device.'); });
+    }
+    return () => { cancelled = true; };
+  }, [selectedRun]);
+
+  async function saveCollectorImage(index: number) {
+    if (!selectedRun || !actor || !vibe || saveBusy) return;
+    setSaveBusy(`image-${index}`);
+    setSaveNotice('');
+    try {
+      const card = collectorCardRecord(selectedRun, index, actor, vibe);
+      if (!savedImages.includes(card.imageUrl)) {
+        await dbSaveCard(card);
+        setSavedImages(current => [...new Set([...current, card.imageUrl])]);
+      }
+      try {
+        const session = await getPublicSession();
+        if (!session) throw new Error('Sign in to sync this save.');
+        await syncPublicCard(session, card.imageUrl);
+        setSyncedImages(current => [...new Set([...current, card.imageUrl])]);
+        setSaveNotice('Image saved and synced to My Collection.');
+      } catch (error) {
+        setSaveNotice(`Image saved on this device, but account sync failed: ${error instanceof Error ? error.message : 'try again in My Collection.'}`);
+      }
+    } catch (error) {
+      setSaveNotice(error instanceof Error ? error.message : 'Could not save this image.');
+    } finally { setSaveBusy(''); }
+  }
+
+  async function saveCollectorGrid() {
+    if (!selectedRun || !actor || !vibe || saveBusy) return;
+    setSaveBusy('grid');
+    setSaveNotice('');
+    try {
+      const grid = collectorGridRecord(selectedRun, actor, vibe);
+      if (savedGridId !== grid.id) {
+        await dbSaveGrid(grid);
+        setSavedGridId(grid.id);
+      }
+      try {
+        const session = await getPublicSession();
+        if (!session) throw new Error('Sign in to sync this save.');
+        await syncPublicGrid(session, grid.id);
+        setSyncedGridId(grid.id);
+        setSaveNotice('Grid saved and synced to My Collection.');
+      } catch (error) {
+        setSaveNotice(`Grid saved on this device, but account sync failed: ${error instanceof Error ? error.message : 'try again in My Collection.'}`);
+      }
+    } catch (error) {
+      setSaveNotice(error instanceof Error ? error.message : 'Could not save this grid.');
+    } finally { setSaveBusy(''); }
+  }
 
   useEffect(() => {
     if (pageViewTracked.current) return;
@@ -271,6 +364,36 @@ export function ReleasedPackLibrary({
   const vibe = selectedVibe === ''
     ? null
     : vibes.find(item => item.vibeIdx === Number(selectedVibe)) || null;
+
+  useEffect(() => {
+    const retryPendingSaves = () => {
+      if (!selectedRun || saveBusy) return;
+      const pendingImages = selectedRun.images
+        .map(image => image.thumbnail)
+        .filter((url): url is string => Boolean(url && savedImages.includes(url) && !syncedImages.includes(url)));
+      const pendingGrid = savedGridId === collectorGridCollectionId(selectedRun)
+        && savedGridId !== syncedGridId;
+      if (!pendingImages.length && !pendingGrid) return;
+      setSaveBusy('retry');
+      void (async () => {
+        const session = await getPublicSession();
+        if (!session) throw new Error('Sign in to sync your saved items.');
+        for (const url of pendingImages) {
+          await syncPublicCard(session, url);
+          setSyncedImages(current => [...new Set([...current, url])]);
+        }
+        if (pendingGrid) {
+          await syncPublicGrid(session, savedGridId);
+          setSyncedGridId(savedGridId);
+        }
+        setSaveNotice('Saved items synced to My Collection.');
+      })().catch(error => {
+        setSaveNotice(`Account sync still needs a connection: ${error instanceof Error ? error.message : 'try again.'}`);
+      }).finally(() => setSaveBusy(''));
+    };
+    window.addEventListener('online', retryPendingSaves);
+    return () => window.removeEventListener('online', retryPendingSaves);
+  }, [selectedRun, saveBusy, savedImages, syncedImages, savedGridId, syncedGridId]);
 
   useEffect(() => {
     if (actor && actor.id !== selectedActor) setSelectedActor(actor.id);
@@ -526,11 +649,11 @@ export function ReleasedPackLibrary({
           <span className="released-library__lock" aria-hidden="true">✦</span>
           <div>
             <h2>{publicPreview ? 'Unlock the full released Vibe Pack' : 'Unlock the full released-pack library'}</h2>
-            <p>Sign in to continue with your account, or become a Collector to browse every released actor and vibe.</p>
-            <form onSubmit={signIn} className="released-library__sign-in">
+            <p>{signedIn ? 'You’re signed in. Become a Collector to browse every released actor and vibe.' : 'Sign in to continue with your account, or become a Collector to browse every released actor and vibe.'}</p>
+            {signedIn === false && <form onSubmit={signIn} className="released-library__sign-in">
               <label htmlFor="released-library-email">Already have an account?</label>
               <div><input id="released-library-email" type="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" /><button disabled={busy === 'sign-in'}>{busy === 'sign-in' ? 'Sending…' : 'Email sign-in link'}</button></div>
-            </form>
+            </form>}
             <button type="button" onClick={() => void upgrade()} disabled={busy === 'checkout'}>{busy === 'checkout' ? 'Opening checkout…' : 'Become a Fandom Collector'}</button>
             {notice && <p role="status">{notice}</p>}
           </div>
@@ -585,6 +708,10 @@ export function ReleasedPackLibrary({
                     {selectedRunSourceLabel && <span>{selectedRunSourceLabel}</span>}
                     {runs.length > 1 && <label>Saved run<select value={selectedRun.id} onChange={event => setSelectedRun(runs.find(run => run.id === event.target.value) || selectedRun)}>{runs.map(run => <option key={run.id} value={run.id}>{new Date(run.generatedAt).toLocaleString()}</option>)}</select></label>}
                   </div>
+                  <button type="button" onClick={() => void saveCollectorGrid()} disabled={Boolean(saveBusy) || Boolean(savedGridId && savedGridId === syncedGridId)}>
+                    {savedGridId && savedGridId === syncedGridId ? '✓ Grid synced to My Collection' : savedGridId ? 'Retry grid sync' : saveBusy === 'grid' ? 'Saving grid…' : 'Save grid to My Collection'}
+                  </button>
+                  {saveNotice && <p role="status">{saveNotice}</p>}
                   <div className="released-image-grid" aria-label="Nine image generated grid">
                     {selectedRun.images.slice(0, 9).map((image, index) => (
                       <figure className="released-image-grid__item" key={`${selectedRun.id}-${index}`}>
@@ -592,6 +719,9 @@ export function ReleasedPackLibrary({
                         <figcaption>
                           <span>{image.title || 'Untitled result'}</span>
                           {safeExternalUrl(image.link || image.source) && <a href={safeExternalUrl(image.link || image.source) || undefined} target="_blank" rel="noreferrer">{image.source || 'View source'} ↗</a>}
+                          {safeExternalUrl(image.thumbnail) && <button type="button" onClick={() => void saveCollectorImage(index)} disabled={Boolean(saveBusy) || syncedImages.includes(image.thumbnail!)}>
+                            {syncedImages.includes(image.thumbnail!) ? '✓ Synced to My Collection' : savedImages.includes(image.thumbnail!) ? 'Retry image sync' : saveBusy === `image-${index}` ? 'Saving…' : 'Save image'}
+                          </button>}
                         </figcaption>
                       </figure>
                     ))}

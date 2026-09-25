@@ -14,6 +14,8 @@ import {
   trackReleasedPackOpened,
 } from '../src/utils/analytics.ts';
 import { ReleasedPackLibrary } from '../src/components/ReleasedPackLibrary/ReleasedPackLibrary.tsx';
+import { IDBFactory } from 'fake-indexeddb';
+import { dbGetAllCards, dbGetAllGrids } from '../src/utils/collectionDB.ts';
 
 function makeGridRun(id: string) {
   return {
@@ -42,14 +44,29 @@ async function flushReleasedLibrary(times = 6) {
 function installReleasedLibraryEnvironment(fetchImpl: typeof fetch) {
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
+  const originalIndexedDB = globalThis.indexedDB;
+  const originalLocalStorage = globalThis.localStorage;
+  const originalNavigator = globalThis.navigator;
   const originalActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
   const storage = new Map<string, string>();
+  const listeners = new Map<string, Set<() => void>>();
 
   globalThis.fetch = fetchImpl;
+  globalThis.indexedDB = new IDBFactory();
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { onLine: true } });
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
       location: { origin: 'https://example.com', assign() {} },
+      addEventListener(type: string, listener: () => void) {
+        if (!listeners.has(type)) listeners.set(type, new Set());
+        listeners.get(type)!.add(listener);
+      },
+      removeEventListener(type: string, listener: () => void) { listeners.get(type)?.delete(listener); },
+      dispatchEvent(event: Event) {
+        for (const listener of listeners.get(event.type) || []) listener();
+        return true;
+      },
       __initialAnalyticsLocation: 'https://example.com/',
       dataLayer: [],
       fetch: async () => Response.json({ ok: true }),
@@ -60,10 +77,14 @@ function installReleasedLibraryEnvironment(fetchImpl: typeof fetch) {
       },
     },
   });
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: window.localStorage });
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
   return () => {
     globalThis.fetch = originalFetch;
+    globalThis.indexedDB = originalIndexedDB;
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: originalLocalStorage });
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: originalNavigator });
     globalThis.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment;
     if (originalWindow === undefined) {
       Reflect.deleteProperty(globalThis, 'window');
@@ -105,16 +126,73 @@ test('signed-out visitors browse public pack previews without requesting Collect
     const markup = JSON.stringify(library!.toJSON());
     assert.match(markup, /Liu Xueyi.*Polished Danger/);
     assert.match(markup, /vibe-atlas\/packs\/liu-xueyi\/polished-danger-2/);
-    assert.deepEqual(requests, ['/.netlify/functions/released-pack-directory']);
+    assert.deepEqual(requests, ['/api/auth/session', '/.netlify/functions/released-pack-directory']);
     await act(async () => { library!.unmount(); });
   } finally {
     cleanup();
   }
 });
 
+test('a signed-in free account sees an upgrade, not another sign-in form or Collector depth', async () => {
+  const requests: string[] = [];
+  const cleanup = installReleasedLibraryEnvironment((async input => {
+    const url = String(input);
+    requests.push(url);
+    if (url === '/api/auth/session') {
+      return Response.json({ user: { accountId: 'usr_free', email: 'free@example.com' } });
+    }
+    if (url === '/.netlify/functions/released-pack-directory') {
+      return Response.json({ packs: [] });
+    }
+    return Response.json({ error: 'Unexpected request' }, { status: 404 });
+  }) as typeof fetch);
+  try {
+    let library: ReturnType<typeof create>;
+    await act(async () => {
+      library = create(createElement(ReleasedPackLibrary, {
+        status: { state: 'inactive', isMember: false, capabilities: [] },
+        membershipResolved: true,
+        source: 'library_navigation',
+      }));
+    });
+    await flushReleasedLibrary();
+    const markup = JSON.stringify(library!.toJSON());
+    assert.match(markup, /You’re signed in/);
+    assert.match(markup, /Become a Fandom Collector/);
+    assert.doesNotMatch(markup, /Already have an account\\?/);
+    assert.equal(requests.some(url => url.includes('actor-pack-depth') || url.includes('collector-grid')), false);
+    await act(async () => library!.unmount());
+  } finally {
+    cleanup();
+  }
+});
+
 test('entitled Released Pack Library keeps English primary while rendering Chinese labels and subtitles', async () => {
+  const syncedOperations: Array<{ type: string; item?: { kind?: string } }> = [];
+  const failedKinds = new Set<string>();
   const cleanup = installReleasedLibraryEnvironment((async (input, init) => {
     const url = String(input);
+    if (url === '/api/auth/session') {
+      return Response.json({ user: { accountId: 'usr_collector', email: 'collector@example.com' } });
+    }
+    if (url === '/api/collection/sync') {
+      const payload = JSON.parse(String(init?.body)) as {
+        operations: Array<{ type: string; localId: string; mutationId: string; item?: { kind?: string } }>;
+      };
+      const kind = payload.operations[0]?.item?.kind || '';
+      if (!failedKinds.has(kind)) {
+        failedKinds.add(kind);
+        return Response.json({ error: 'Connection interrupted' }, { status: 503 });
+      }
+      syncedOperations.push(...payload.operations);
+      return Response.json({
+        cursor: syncedOperations.length,
+        items: [],
+        tombstones: [],
+        mappings: Object.fromEntries(payload.operations.map(operation => [operation.localId, `server-${operation.localId}`])),
+        acknowledgedMutationIds: payload.operations.map(operation => operation.mutationId),
+      });
+    }
     if (url.endsWith('/.netlify/functions/actor-pack-depth')) {
       return Response.json({
         packs: [{
@@ -163,6 +241,41 @@ test('entitled Released Pack Library keeps English primary while rendering Chine
     assert.match(openedMarkup, /玉色祸水/);
     assert.match(openedMarkup, /Beauty like polished jade\. Consequences like a natural disaster\./);
     assert.match(openedMarkup, /美得像玉，危险得像天灾。/);
+
+    const saveButton = (text: string) => library!.root.findAllByType('button')
+      .find(button => JSON.stringify(button.props.children).includes(text));
+    assert.ok(saveButton('Save image'));
+    assert.ok(saveButton('Save grid to My Collection'));
+    await act(async () => { saveButton('Save image')!.props.onClick(); });
+    await flushReleasedLibrary();
+    assert.equal((await dbGetAllCards()).length, 1);
+    assert.equal((await dbGetAllCards())[0].resultId, 'fresh-run:card-1');
+    for (let attempt = 0; attempt < 30 && !failedKinds.has('card'); attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    await flushReleasedLibrary();
+    assert.ok(saveButton('Retry image sync'), 'a failed explicit image save remains retryable');
+    await act(async () => { saveButton('Retry image sync')!.props.onClick(); });
+    for (let attempt = 0; attempt < 30 && syncedOperations.length < 1; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    await flushReleasedLibrary();
+    await act(async () => { saveButton('Save grid to My Collection')!.props.onClick(); });
+    await flushReleasedLibrary();
+    assert.equal((await dbGetAllGrids()).length, 1);
+    assert.equal((await dbGetAllGrids())[0].images.length, 9);
+    for (let attempt = 0; attempt < 30 && !failedKinds.has('grid'); attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    await flushReleasedLibrary();
+    assert.ok(saveButton('Retry grid sync'), 'a failed explicit grid save remains retryable');
+    await act(async () => { window.dispatchEvent(new Event('online')); });
+    for (let attempt = 0; attempt < 30 && syncedOperations.length < 2; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    await flushReleasedLibrary();
+    assert.deepEqual(syncedOperations.map(operation => operation.item?.kind), ['card', 'grid']);
+    assert.match(JSON.stringify(library!.toJSON()), /Grid synced to My Collection/);
 
     const vibeSelect = library!.root.findAllByType('select')[1];
     await act(async () => {

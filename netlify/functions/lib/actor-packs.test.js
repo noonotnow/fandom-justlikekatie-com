@@ -205,6 +205,17 @@ test("Collector actor depth requires active membership and never uses a shared c
   assert.equal(locked.status, 403);
   assert.equal(locked.headers.get("cache-control"), "private, no-store");
 
+  const free = await createActorPackDepthHandler({
+    auth,
+    billing: {
+      initialize: async () => {},
+      repository: () => ({ membershipForAccount: async () => ({
+        state: "inactive", isMember: false, capabilities: [],
+      }) }),
+    },
+  })(makeRequest(), {});
+  assert.equal(free.status, 403, "a signed-in free account cannot browse Collector pack depth");
+
   for (const product of ["creator_os", "fandom_creator_bridge"]) {
     const denied = await createActorPackDepthHandler({
       auth,

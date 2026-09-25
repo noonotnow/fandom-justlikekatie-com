@@ -10,8 +10,13 @@ import {
   createMisprint,
   createLegendaryMisprint,
   dbApplySyncResponse,
+  dbBuildCardSyncRequest,
+  dbBuildSyncRequest,
   dbGetAllCards,
   dbGetAllGrids,
+  dbRemoveCard,
+  dbRemoveGrid,
+  dbSetMergeDecision,
   dbSaveCard,
   dbSaveGrid,
   normalizeCardForCollection,
@@ -111,6 +116,7 @@ function state(): CollectionSyncState {
       'account-b': [{ mutationId: 'delete-b', localId: 'removed-b', serverId: 'server-b' }],
     },
     acknowledgedUpsertsByAccount: {},
+    remoteUpsertFingerprintsByAccount: {},
   };
 }
 
@@ -215,6 +221,193 @@ test('sync response updates the matching saved record when legacy mappings share
   assert.equal(persisted.find(saved => saved.localId === song.localId)?.imageUrl, song.imageUrl);
   assert.equal(persisted.find(saved => saved.localId === liu.localId)?.actor, 'Liu Xueyi');
   assert.equal(persisted.find(saved => saved.localId === liu.localId)?.serverId, 'liu-server-v2');
+});
+
+test('downloaded cards and grids stay deleted after another device tombstones them', async () => {
+  const deviceBDatabase = new IDBFactory();
+  const downloadedCard = card(301);
+  const downloadedGrid = grid();
+  downloadedGrid.id = 'downloaded-grid';
+  downloadedGrid.localId = 'downloaded-grid-local';
+  const initialRemoteSnapshot = {
+    cursor: 1,
+    items: [
+      {
+        kind: 'card',
+        id: 'server-card-301',
+        localId: downloadedCard.localId,
+        imageUrl: downloadedCard.imageUrl,
+        thumbnailUrl: downloadedCard.thumbnailUrl,
+        resultId: downloadedCard.resultId,
+        actor: downloadedCard.actor,
+        actorEn: downloadedCard.actorEn,
+        vibe: downloadedCard.vibe,
+        vibeEn: downloadedCard.vibeEn,
+        vibeEmoji: downloadedCard.vibeEmoji,
+        capturedDate: downloadedCard.capturedDate,
+        savedAt: downloadedCard.savedAt,
+        collectionScope: 'vibe-atlas',
+      },
+      {
+        ...downloadedGrid,
+        kind: 'grid',
+        id: 'server-grid-301',
+        artifactId: downloadedGrid.id,
+        localId: downloadedGrid.localId,
+      },
+    ],
+    tombstones: [],
+    mappings: {},
+    acknowledgedMutationIds: [],
+  };
+  Object.assign(globalThis, { indexedDB: deviceBDatabase });
+  await dbSetMergeDecision('account-a', true);
+  await dbApplySyncResponse('account-a', initialRemoteSnapshot, []);
+
+  const requestBeforeDelete = await dbBuildSyncRequest('account-a');
+  assert.deepEqual(requestBeforeDelete.operations, [], 'remote downloads must not be sent as fresh upserts');
+
+  // Device A starts with the same remote snapshot and deletes both items.
+  Object.assign(globalThis, { indexedDB: new IDBFactory() });
+  await dbSetMergeDecision('account-a', true);
+  await dbApplySyncResponse('account-a', initialRemoteSnapshot, []);
+  await dbRemoveCard(downloadedCard.imageUrl);
+  await dbRemoveGrid(downloadedGrid.id);
+  const deleteRequest = await dbBuildSyncRequest('account-a');
+  assert.equal(deleteRequest.operations.filter(operation => operation.type === 'delete').length, 2);
+  const deletionResponse = {
+    cursor: 2,
+    items: [],
+    tombstones: [{ id: 'server-card-301' }, { id: 'server-grid-301' }],
+    mappings: {},
+    acknowledgedMutationIds: deleteRequest.operations.map(operation => String(operation.mutationId)),
+  };
+  await dbApplySyncResponse('account-a', deletionResponse, deleteRequest.operations);
+
+  // The same server tombstones then reach the still-stale device B.
+  Object.assign(globalThis, { indexedDB: deviceBDatabase });
+  await dbApplySyncResponse('account-a', deletionResponse, []);
+  assert.deepEqual(await dbGetAllCards(), []);
+  assert.deepEqual(await dbGetAllGrids(), []);
+  assert.deepEqual((await dbBuildSyncRequest('account-a')).operations, []);
+});
+
+test('download baselines do not suppress genuine offline card or grid edits', async () => {
+  Object.assign(globalThis, { indexedDB: new IDBFactory() });
+  await dbSetMergeDecision('account-a', true);
+  const downloadedCard = card(302);
+  const downloadedGrid = grid();
+  downloadedGrid.id = 'editable-grid';
+  downloadedGrid.localId = 'editable-grid-local';
+  await dbApplySyncResponse('account-a', {
+    cursor: 1,
+    items: [
+      {
+        kind: 'card',
+        id: 'server-card-302',
+        localId: downloadedCard.localId,
+        imageUrl: downloadedCard.imageUrl,
+        thumbnailUrl: downloadedCard.thumbnailUrl,
+        resultId: downloadedCard.resultId,
+        actor: downloadedCard.actor,
+        actorEn: downloadedCard.actorEn,
+        vibe: downloadedCard.vibe,
+        vibeEn: downloadedCard.vibeEn,
+        vibeEmoji: downloadedCard.vibeEmoji,
+        capturedDate: downloadedCard.capturedDate,
+        savedAt: downloadedCard.savedAt,
+        collectionScope: 'vibe-atlas',
+      },
+      {
+        ...downloadedGrid,
+        kind: 'grid',
+        id: 'server-grid-302',
+        artifactId: downloadedGrid.id,
+        localId: downloadedGrid.localId,
+      },
+    ],
+    tombstones: [],
+    mappings: {},
+    acknowledgedMutationIds: [],
+  }, []);
+
+  const savedCard = (await dbGetAllCards())[0];
+  const savedGrid = (await dbGetAllGrids())[0];
+  await dbSaveCard({ ...savedCard, actor: 'Offline card edit' });
+  await dbSaveGrid({ ...savedGrid, vibe: 'Offline grid edit' });
+
+  const operations = (await dbBuildSyncRequest('account-a')).operations;
+  assert.equal(operations.filter(operation => operation.type === 'upsert').length, 2);
+  assert.ok(operations.some(operation => operation.localId === downloadedCard.localId));
+  assert.ok(operations.some(operation => operation.localId === downloadedGrid.localId));
+});
+
+test('downloaded records with empty response mappings can be deleted using their server ids', async () => {
+  Object.assign(globalThis, { indexedDB: new IDBFactory() });
+  await dbSetMergeDecision('account-a', true);
+  const downloadedCard = card(303);
+  const downloadedGrid = grid();
+  downloadedGrid.id = 'deletable-grid';
+  downloadedGrid.localId = 'deletable-grid-local';
+  await dbApplySyncResponse('account-a', {
+    cursor: 1,
+    items: [
+      {
+        kind: 'card',
+        id: 'server-card-303',
+        localId: downloadedCard.localId,
+        imageUrl: downloadedCard.imageUrl,
+        thumbnailUrl: downloadedCard.thumbnailUrl,
+        resultId: downloadedCard.resultId,
+        actor: downloadedCard.actor,
+        actorEn: downloadedCard.actorEn,
+        vibe: downloadedCard.vibe,
+        vibeEn: downloadedCard.vibeEn,
+        vibeEmoji: downloadedCard.vibeEmoji,
+        capturedDate: downloadedCard.capturedDate,
+        savedAt: downloadedCard.savedAt,
+        collectionScope: 'vibe-atlas',
+      },
+      {
+        ...downloadedGrid,
+        kind: 'grid',
+        id: 'server-grid-303',
+        artifactId: downloadedGrid.id,
+        localId: downloadedGrid.localId,
+      },
+    ],
+    tombstones: [],
+    mappings: {},
+    acknowledgedMutationIds: [],
+  }, []);
+
+  // Pull baselines suppress normal re-upload without removing delete identity.
+  assert.deepEqual((await dbBuildSyncRequest('account-a')).operations, []);
+  await dbRemoveCard(downloadedCard.imageUrl);
+  await dbRemoveGrid(downloadedGrid.id);
+  const deleteRequest = await dbBuildSyncRequest('account-a');
+  assert.deepEqual(
+    deleteRequest.operations.map(operation => ({
+      type: operation.type,
+      localId: operation.localId,
+      serverId: operation.serverId,
+    })),
+    [
+      { type: 'delete', localId: downloadedCard.localId, serverId: 'server-card-303' },
+      { type: 'delete', localId: downloadedGrid.localId, serverId: 'server-grid-303' },
+    ],
+  );
+
+  await dbApplySyncResponse('account-a', {
+    cursor: 2,
+    items: [],
+    tombstones: [{ id: 'server-card-303' }, { id: 'server-grid-303' }],
+    mappings: {},
+    acknowledgedMutationIds: deleteRequest.operations.map(operation => String(operation.mutationId)),
+  }, deleteRequest.operations);
+  assert.deepEqual(await dbGetAllCards(), []);
+  assert.deepEqual(await dbGetAllGrids(), []);
+  assert.deepEqual((await dbBuildSyncRequest('account-a')).operations, []);
 });
 
 test('sync removes stale Middle-earth metadata from explicitly scoped Vibe Atlas cards', async () => {
@@ -446,6 +639,65 @@ test('an explicitly selected grid builds one upsert even when device merging is 
   declined.mergeDecisions['account-a'] = false;
   const fullSync = buildSyncOperations([card(1)], declined, 'account-a', [grid()]);
   assert.equal(fullSync.some(operation => operation.localId === 'grid-local-1'), false);
+});
+
+test('an explicit card request sends only its card without whole-device merge', async () => {
+  Object.assign(globalThis, { indexedDB: new IDBFactory() });
+  const selected = { ...card(401), imageUrl: 'https://images.example/selected.jpg' };
+  const other = { ...card(402), imageUrl: 'https://images.example/other.jpg' };
+  await dbSaveCard(selected);
+  await dbSaveCard(other);
+  await dbSaveGrid({ ...grid(), id: 'unselected-local-grid' });
+
+  const pendingDelete = { ...card(403), imageUrl: 'https://images.example/pending-delete.jpg' };
+  await dbApplySyncResponse('account-a', {
+    cursor: 1,
+    items: [{
+      kind: 'card',
+      id: 'server-pending-delete',
+      localId: pendingDelete.localId,
+      imageUrl: pendingDelete.imageUrl,
+      thumbnailUrl: pendingDelete.thumbnailUrl,
+      actor: pendingDelete.actor,
+      actorEn: pendingDelete.actorEn,
+      vibe: pendingDelete.vibe,
+      vibeEn: pendingDelete.vibeEn,
+      vibeEmoji: pendingDelete.vibeEmoji,
+      capturedDate: pendingDelete.capturedDate,
+      savedAt: pendingDelete.savedAt,
+    }],
+    tombstones: [],
+    mappings: {},
+    acknowledgedMutationIds: [],
+  }, []);
+  await dbRemoveCard(pendingDelete.imageUrl);
+
+  const request = await dbBuildCardSyncRequest('account-a', selected.imageUrl);
+  assert.equal(request.operations.length, 1);
+  assert.equal(request.operations[0].type, 'upsert');
+  assert.equal(request.operations[0].localId, selected.localId);
+  const storedSelected = (await dbGetAllCards()).find(item => item.imageUrl === selected.imageUrl);
+  assert.ok(storedSelected);
+  const productionProjection = buildSyncOperations(
+    [storedSelected],
+    {
+      ...state(),
+      clientId: request.clientId,
+      mergeDecisions: { 'account-a': true },
+      pendingDeletesByAccount: { 'account-a': [] },
+    },
+    'account-a',
+  )[0];
+  assert.deepEqual(request.operations[0], productionProjection);
+  assert.equal(request.operations.some(operation => operation.localId === other.localId), false);
+  assert.equal(request.operations.some(operation => operation.localId === 'unselected-local-grid'), false);
+  assert.equal(request.operations.some(operation => operation.type === 'delete'), false);
+
+  await dbSaveCard({ ...card(404), imageUrl: 'https://images.example/owned-by-another.jpg', ownerAccountId: 'account-b' });
+  await assert.rejects(
+    dbBuildCardSyncRequest('account-a', 'https://images.example/owned-by-another.jpg'),
+    /belongs to a different account/,
+  );
 });
 
 test('saved Middle-earth memes keep attribution and treatment metadata through card sync', () => {

@@ -629,6 +629,7 @@ export interface CollectionSyncState {
   mappingsByAccount: Record<string, Record<string, string>>;
   pendingDeletesByAccount: Record<string, Array<{ mutationId: string; localId: string; serverId: string }>>;
   acknowledgedUpsertsByAccount: Record<string, Record<string, string>>;
+  remoteUpsertFingerprintsByAccount: Record<string, Record<string, string>>;
   legacyUnscoped?: {
     mappings?: Record<string, string>;
     pendingDeletes?: Array<{ mutationId: string; localId: string; serverId: string }>;
@@ -714,6 +715,27 @@ export async function dbBuildSyncRequest(accountId: string): Promise<CollectionS
   };
 }
 
+/** Builds an explicit, single-card upsert without opting into device merging. */
+export async function dbBuildCardSyncRequest(
+  accountId: string,
+  imageUrl: string,
+): Promise<CollectionSyncRequest> {
+  const localId = await dbEnsureCardLocalId(imageUrl);
+  if (!localId) throw new Error('The selected card is no longer saved on this device.');
+  const [card, state] = await Promise.all([dbGetCard(imageUrl), dbGetSyncState()]);
+  if (!card) throw new Error('The selected card is no longer saved on this device.');
+  if (card.ownerAccountId && card.ownerAccountId !== accountId) {
+    throw new Error('The selected card belongs to a different account.');
+  }
+  return {
+    schemaVersion: 1,
+    clientId: state.clientId,
+    expectedAccountId: accountId,
+    cursor: state.cursors[accountId] || 0,
+    operations: [cardUpsertOperation({ ...card, localId }, state)],
+  };
+}
+
 /**
  * Builds an explicit, single-grid upsert. This intentionally bypasses the
  * device merge preference: a creator has selected this one artifact to hand
@@ -752,100 +774,114 @@ export function buildSyncOperations(
   }));
   if (state.mergeDecisions[accountId] !== true) return deletes;
   const acknowledged = state.acknowledgedUpsertsByAccount[accountId] || {};
+  const remoteFingerprints = state.remoteUpsertFingerprintsByAccount[accountId] || {};
   const upserts = cards
     .filter(card => !card.ownerAccountId || card.ownerAccountId === accountId)
-    .map(rawCard => {
-      const card = normalizeCardForCollection(rawCard);
-      const localId = card.localId!;
-      const collectionScope = collectionScopeForCard(card);
-      const scopeKey = collectionScope === 'middle-earth' ? 'm' : 'v';
-      const mutationId = `upsert:v3:${state.clientId}:${localId}:${card.savedAt || card.capturedDate}:${scopeKey}`;
-      const compactUrl = (value: string | undefined): string | undefined =>
-        value?.startsWith('data:image/') ? undefined : value;
-      const compactRecovery = (() => {
-        if (!card.mediaRecovery) return undefined;
-        const { sourceUrl, ...recovery } = card.mediaRecovery;
-        const compactSourceUrl = compactUrl(sourceUrl);
-        return { ...recovery, ...(compactSourceUrl ? { sourceUrl: compactSourceUrl } : {}) };
-      })();
-      const compactMisprint = (() => {
-        if (!card.misprint) return undefined;
-        const { sourceUrl, ...provenance } = card.misprint.provenance;
-        const compactSourceUrl = compactUrl(sourceUrl);
-        return {
-          ...card.misprint,
-          provenance: {
-            ...provenance,
-            imageUrl: compactUrl(provenance.imageUrl) || card.imageUrl,
-            ...(compactSourceUrl ? { sourceUrl: compactSourceUrl } : {}),
-          },
-        };
-      })();
-      const compactLegendaryMisprint = (() => {
-        if (!card.legendaryMisprint) return undefined;
-        const { sourceUrl, ...provenance } = card.legendaryMisprint.provenance;
-        const compactSourceUrl = compactUrl(sourceUrl);
-        return {
-          ...card.legendaryMisprint,
-          provenance: {
-            ...provenance,
-            imageUrl: compactUrl(provenance.imageUrl) || card.imageUrl,
-            ...(compactSourceUrl ? { sourceUrl: compactSourceUrl } : {}),
-          },
-        };
-      })();
-      const compactMemeRework = (() => {
-        if (!card.memeRework) return undefined;
-        const { sourceUrl, ...original } = card.memeRework.original;
-        const compactSourceUrl = compactUrl(sourceUrl);
-        return {
-          ...card.memeRework,
-          original: {
-            ...original,
-            ...(compactSourceUrl ? { sourceUrl: compactSourceUrl } : {}),
-          },
-        };
-      })();
-      return {
-        type: 'upsert',
-        mutationId,
-        localId,
-        item: {
-          kind: 'card',
-          imageUrl: card.imageUrl,
-          thumbnailUrl: compactUrl(card.thumbnailUrl) || card.imageUrl,
-          resultId: card.resultId,
-          actorId: card.actorId,
-          vibeKey: card.vibeKey,
-          sourceUrl: compactUrl(card.sourceUrl),
-          actor: card.actor,
-          actorEn: card.actorEn,
-          vibe: card.vibe,
-          vibeEn: card.vibeEn,
-          vibeEmoji: card.vibeEmoji,
-          capturedDate: card.capturedDate,
-          savedAt: card.savedAt,
-          gridContext: card.gridContext,
-          contentKind: card.contentKind,
-          title: card.title,
-          publisher: card.publisher,
-          searchQuery: card.searchQuery,
-          sourceRoute: card.sourceRoute,
-          media: card.media,
-          mediaRecovery: compactRecovery,
-          collectionScope,
-          misprint: compactMisprint,
-          legendaryMisprint: compactLegendaryMisprint,
-          memeRework: compactMemeRework,
-        },
-      };
-    })
-    .filter(operation => acknowledged[operation.localId] !== operation.mutationId);
+    .map(rawCard => cardUpsertOperation(normalizeCardForCollection(rawCard), state))
+    .filter(operation =>
+      acknowledged[operation.localId] !== operation.mutationId
+      && remoteFingerprints[remoteFingerprintKey('card', operation.localId)]
+        !== syncOperationFingerprint(operation),
+    );
   const gridUpserts = grids
     .filter(grid => !grid.ownerAccountId || grid.ownerAccountId === accountId)
     .map(grid => gridUpsertOperation(grid, state))
-    .filter(operation => acknowledged[operation.localId] !== operation.mutationId);
+    .filter(operation =>
+      acknowledged[operation.localId] !== operation.mutationId
+      && remoteFingerprints[remoteFingerprintKey('grid', operation.localId)]
+        !== syncOperationFingerprint(operation),
+    );
   return [...deletes, ...upserts, ...gridUpserts];
+}
+
+function cardUpsertOperation(
+  card: CardRecord,
+  state: CollectionSyncState,
+): Record<string, unknown> & { localId: string; mutationId: string } {
+  const localId = card.localId;
+  if (!localId) throw new Error('A card must have a local identity before syncing.');
+  const collectionScope = collectionScopeForCard(card);
+  const scopeKey = collectionScope === 'middle-earth' ? 'm' : 'v';
+  const mutationId = `upsert:v3:${state.clientId}:${localId}:${card.savedAt || card.capturedDate}:${scopeKey}`;
+  const compactUrl = (value: string | undefined): string | undefined =>
+    value?.startsWith('data:image/') ? undefined : value;
+  const compactRecovery = (() => {
+    if (!card.mediaRecovery) return undefined;
+    const { sourceUrl, ...recovery } = card.mediaRecovery;
+    const compactSourceUrl = compactUrl(sourceUrl);
+    return { ...recovery, ...(compactSourceUrl ? { sourceUrl: compactSourceUrl } : {}) };
+  })();
+  const compactMisprint = (() => {
+    if (!card.misprint) return undefined;
+    const { sourceUrl, ...provenance } = card.misprint.provenance;
+    const compactSourceUrl = compactUrl(sourceUrl);
+    return {
+      ...card.misprint,
+      provenance: {
+        ...provenance,
+        imageUrl: compactUrl(provenance.imageUrl) || card.imageUrl,
+        ...(compactSourceUrl ? { sourceUrl: compactSourceUrl } : {}),
+      },
+    };
+  })();
+  const compactLegendaryMisprint = (() => {
+    if (!card.legendaryMisprint) return undefined;
+    const { sourceUrl, ...provenance } = card.legendaryMisprint.provenance;
+    const compactSourceUrl = compactUrl(sourceUrl);
+    return {
+      ...card.legendaryMisprint,
+      provenance: {
+        ...provenance,
+        imageUrl: compactUrl(provenance.imageUrl) || card.imageUrl,
+        ...(compactSourceUrl ? { sourceUrl: compactSourceUrl } : {}),
+      },
+    };
+  })();
+  const compactMemeRework = (() => {
+    if (!card.memeRework) return undefined;
+    const { sourceUrl, ...original } = card.memeRework.original;
+    const compactSourceUrl = compactUrl(sourceUrl);
+    return {
+      ...card.memeRework,
+      original: {
+        ...original,
+        ...(compactSourceUrl ? { sourceUrl: compactSourceUrl } : {}),
+      },
+    };
+  })();
+  return {
+    type: 'upsert',
+    mutationId,
+    localId,
+    item: {
+      kind: 'card',
+      imageUrl: card.imageUrl,
+      thumbnailUrl: compactUrl(card.thumbnailUrl) || card.imageUrl,
+      resultId: card.resultId,
+      actorId: card.actorId,
+      vibeKey: card.vibeKey,
+      sourceUrl: compactUrl(card.sourceUrl),
+      actor: card.actor,
+      actorEn: card.actorEn,
+      vibe: card.vibe,
+      vibeEn: card.vibeEn,
+      vibeEmoji: card.vibeEmoji,
+      capturedDate: card.capturedDate,
+      savedAt: card.savedAt,
+      gridContext: card.gridContext,
+      contentKind: card.contentKind,
+      title: card.title,
+      publisher: card.publisher,
+      searchQuery: card.searchQuery,
+      sourceRoute: card.sourceRoute,
+      media: card.media,
+      mediaRecovery: compactRecovery,
+      collectionScope,
+      misprint: compactMisprint,
+      legendaryMisprint: compactLegendaryMisprint,
+      memeRework: compactMemeRework,
+    },
+  };
 }
 
 export async function dbApplySyncResponse(
@@ -888,6 +924,20 @@ export async function dbApplySyncResponse(
     ) acknowledgedUpserts[operation.localId] = operation.mutationId;
   }
   state.acknowledgedUpsertsByAccount[accountId] = acknowledgedUpserts;
+  const remoteFingerprints = state.remoteUpsertFingerprintsByAccount[accountId] || {};
+  state.remoteUpsertFingerprintsByAccount[accountId] = remoteFingerprints;
+  const projectionState: CollectionSyncState = {
+    ...state,
+    mergeDecisions: { ...state.mergeDecisions, [accountId]: true },
+    acknowledgedUpsertsByAccount: {
+      ...state.acknowledgedUpsertsByAccount,
+      [accountId]: {},
+    },
+    remoteUpsertFingerprintsByAccount: {
+      ...state.remoteUpsertFingerprintsByAccount,
+      [accountId]: {},
+    },
+  };
   for (const item of response.items) {
     const serverId = String(item.id);
     const localId = String(item.localId || '');
@@ -900,6 +950,28 @@ export async function dbApplySyncResponse(
         serverId,
         ownerAccountId: existing?.ownerAccountId || (existing ? undefined : accountId),
       };
+      if (record.localId && item.id !== undefined && item.id !== null) {
+        mappings[record.localId] = serverId;
+      }
+      const remoteOperation = gridUpsertOperation(normalizeGridRecord({
+        ...item,
+        id: record.id,
+        localId: record.localId,
+      } as Partial<GridRecord>), state);
+      const existingFingerprint = existing
+        ? syncOperationFingerprint(gridUpsertOperation({
+          ...existing,
+          localId: existing.localId || record.localId,
+        }, state))
+        : undefined;
+      const fingerprintKey = remoteFingerprintKey('grid', record.localId);
+      const baseline = remoteFingerprints[fingerprintKey];
+      if (existing && baseline && existingFingerprint !== baseline) {
+        continue;
+      }
+      if (!existingFingerprint || existingFingerprint === syncOperationFingerprint(remoteOperation)) {
+        remoteFingerprints[fingerprintKey] = syncOperationFingerprint(remoteOperation);
+      }
       if (existing && existing.id !== record.id) gridStore.delete(existing.id);
       gridStore.put({ ...existing, ...record });
       continue;
@@ -920,16 +992,72 @@ export async function dbApplySyncResponse(
       // downloads are account-scoped and removed from the local cache on logout.
       ownerAccountId: existing?.ownerAccountId || (existing ? undefined : accountId),
     };
+    if (record.localId && item.id !== undefined && item.id !== null) {
+      mappings[record.localId] = serverId;
+    }
     const mergedRecord = normalizeCardForCollection({ ...existing, ...record });
+    const remoteOperation = buildSyncOperations(
+      [normalizeCardForCollection({ ...record })],
+      projectionState,
+      accountId,
+    ).find(operation => operation.type === 'upsert');
+    const existingFingerprint = existing
+      ? buildSyncOperations(
+        [existing],
+        projectionState,
+        accountId,
+      ).find(operation => operation.type === 'upsert')
+      : undefined;
+    const fingerprintKey = remoteFingerprintKey('card', record.localId);
+    const baseline = remoteFingerprints[fingerprintKey];
+    if (existing && baseline && existingFingerprint
+      && syncOperationFingerprint(existingFingerprint) !== baseline) {
+      continue;
+    }
+    if (
+      remoteOperation
+      && (!existingFingerprint
+        || syncOperationFingerprint(existingFingerprint) === syncOperationFingerprint(remoteOperation))
+    ) remoteFingerprints[fingerprintKey] = syncOperationFingerprint(remoteOperation);
     if (existing && existing.imageUrl !== mergedRecord.imageUrl) cardStore.delete(existing.imageUrl);
     cardStore.put(mergedRecord);
   }
   for (const tombstone of response.tombstones) {
     const mappedLocalId = Object.entries(mappings).find(([, serverId]) => serverId === tombstone.id)?.[0];
     const existing = byServerId.get(tombstone.id) || byLocalId.get(mappedLocalId);
-    if (existing) cardStore.delete(existing.imageUrl);
+    if (existing) {
+      const operation = buildSyncOperations([existing], projectionState, accountId)
+        .find(candidate => candidate.type === 'upsert');
+      const fingerprintKey = remoteFingerprintKey('card', existing.localId || mappedLocalId || '');
+      const baseline = remoteFingerprints[fingerprintKey];
+      if (baseline && operation && syncOperationFingerprint(operation) !== baseline) {
+        delete remoteFingerprints[fingerprintKey];
+      } else {
+        cardStore.delete(existing.imageUrl);
+        delete remoteFingerprints[fingerprintKey];
+      }
+    }
     const existingGrid = gridsByServerId.get(tombstone.id) || gridsByLocalId.get(mappedLocalId);
-    if (existingGrid) gridStore.delete(existingGrid.id);
+    if (existingGrid) {
+      const fingerprintKey = remoteFingerprintKey('grid', existingGrid.localId || mappedLocalId || '');
+      const operation = existingGrid.localId || mappedLocalId
+        ? gridUpsertOperation({
+          ...existingGrid,
+          localId: existingGrid.localId || mappedLocalId,
+        }, state)
+        : undefined;
+      const baseline = remoteFingerprints[fingerprintKey];
+      if (baseline && operation && syncOperationFingerprint(operation) !== baseline) {
+        delete remoteFingerprints[fingerprintKey];
+      } else {
+        gridStore.delete(existingGrid.id);
+        delete remoteFingerprints[fingerprintKey];
+      }
+    }
+    if (mappedLocalId) {
+      delete remoteFingerprints[remoteFingerprintKey('card', mappedLocalId)];
+      delete remoteFingerprints[remoteFingerprintKey('grid', mappedLocalId)];
+    }
   }
   tx.objectStore(SYNC_STORE).put(state);
   await transactionDone(tx);
@@ -1136,6 +1264,14 @@ function gridUpsertOperation(
   };
 }
 
+function syncOperationFingerprint(operation: Record<string, unknown>): string {
+  return JSON.stringify(operation.item) ?? 'undefined';
+}
+
+function remoteFingerprintKey(kind: 'card' | 'grid', localId: string): string {
+  return `${kind}:${localId}`;
+}
+
 type LegacyCollectionSyncState = Partial<CollectionSyncState> & {
   mappings?: Record<string, string>;
   pendingDeletes?: Array<{ mutationId: string; localId: string; serverId: string }>;
@@ -1187,6 +1323,7 @@ function normalizeSyncState(value: LegacyCollectionSyncState | undefined): Colle
     mappingsByAccount: value?.mappingsByAccount || {},
     pendingDeletesByAccount: value?.pendingDeletesByAccount || {},
     acknowledgedUpsertsByAccount: value?.acknowledgedUpsertsByAccount || {},
+    remoteUpsertFingerprintsByAccount: value?.remoteUpsertFingerprintsByAccount || {},
     legacyUnscoped,
   };
 }

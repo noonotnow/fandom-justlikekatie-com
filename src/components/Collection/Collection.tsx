@@ -144,9 +144,9 @@ export const Collection: React.FC<Props> = ({
   builderSourcePool = [],
 }) => {
   const isMiddleEarth = scope === 'middle-earth';
-  // Local IndexedDB saves remain available to every account. Only the explicit
-  // Collector entitlement may touch the cloud collection APIs.
-  const canSyncCloud = hasCollectorAccess;
+  // Vibe Atlas account sync is a sign-in benefit, not a paid capability.
+  // Middle-earth sync remains limited to its separate admin workspace.
+  const canSyncCloud = !isMiddleEarth || hasCollectorAccess;
   const canSyncCloudRef = useRef(canSyncCloud);
   canSyncCloudRef.current = canSyncCloud;
   const [cards, setCards] = useState<CardRecord[]>([]);
@@ -166,6 +166,7 @@ export const Collection: React.FC<Props> = ({
     return notice;
   });
   const [needsMergeChoice, setNeedsMergeChoice] = useState(false);
+  const [syncEnabled, setSyncEnabled] = useState(false);
   const [busyKey, setBusyKey] = useState('');
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
   const [expandedArtifact, setExpandedArtifact] = useState<ExpandedArtifact | null>(null);
@@ -203,8 +204,10 @@ export const Collection: React.FC<Props> = ({
           const decided = await hasMergeDecision(session.accountId);
           setNeedsMergeChoice(!decided);
           shouldSync = canSyncCloud && decided && await shouldSyncCollection(session.accountId);
+          setSyncEnabled(shouldSync);
         } else {
           setNeedsMergeChoice(false);
+          setSyncEnabled(false);
         }
 
         await recoverPendingRemoval();
@@ -237,6 +240,7 @@ export const Collection: React.FC<Props> = ({
         accountIdRef.current = undefined;
         setUser(null);
         setNeedsMergeChoice(false);
+        setSyncEnabled(false);
         await loadCollection();
         setAccountNotice(
           `Saved items on this browser are still shown, but account status could not be checked: ${messageFrom(error, 'try again after reconnecting')}`,
@@ -371,12 +375,13 @@ export const Collection: React.FC<Props> = ({
     if (!user) return;
     if (!canSyncCloud) {
       setNeedsMergeChoice(false);
-      setAccountNotice('Your local saves remain on this device. Collector access is required for cloud sync.');
+      setAccountNotice('Your local saves remain on this device. Cloud sync is unavailable here.');
       return;
     }
     try {
       await setDeviceMerge(user.accountId, merge);
       setNeedsMergeChoice(false);
+      setSyncEnabled(merge);
       if (merge && canSyncCloud) await syncPublicCollection(user);
       await loadCollection(user.accountId);
       setAccountNotice(merge ? 'This device is now synced.' : 'This device’s local saves will stay separate.');
@@ -391,6 +396,7 @@ export const Collection: React.FC<Props> = ({
       await logoutPublicAccount(user);
       accountIdRef.current = undefined;
       setUser(null);
+      setSyncEnabled(false);
       await loadCollection();
       setAccountNotice('Signed out. Local saves still work on this device.');
     } catch (error) {
@@ -846,7 +852,7 @@ export const Collection: React.FC<Props> = ({
       {!isExternalBuilder && <section className={styles.account}>
         {user ? (
           <div className={styles.signedIn}>
-            <p>{isMiddleEarth ? 'Middle-earth memes synced as' : 'Synced as'} <strong>{user.email}</strong></p>
+            <p>{syncEnabled ? (isMiddleEarth ? 'Middle-earth sync enabled for' : 'Cloud sync enabled for') : 'Signed in as'} <strong>{user.email}</strong></p>
             <button type="button" onClick={() => void handleLogout()}>Sign out</button>
           </div>
         ) : (
