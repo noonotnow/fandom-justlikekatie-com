@@ -293,7 +293,9 @@ test('Actor Preflight keeps hero-only failures complete and reviewable', () => {
 
 test('public launchpad copy does not expose internal admin or CREATE architecture', () => {
   assert.match(launchpadSource, /daily C-drama card drop/);
-  assert.match(launchpadSource, /One star[.,] one vibe[.,] nine pieces of evidence/i);
+  assert.match(launchpadSource, /Collect the evidence\. Confirm your type\./);
+  assert.match(launchpadSource, /lang="zh-CN">九张证据，一眼心动/);
+  assert.doesNotMatch(launchpadSource, /Like Pokémon, but thirsty/i);
   assert.match(launchpadSource, /Browse today’s drop, save the cards (?:that understand your type|that hit)/);
   assert.doesNotMatch(launchpadSource, /\badmin\b/i);
   assert.doesNotMatch(launchpadSource, /\bCREATE\b/);

@@ -790,7 +790,10 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           </div>
           <p className="atlas-hero__thesis">One star. One vibe. Nine pieces of evidence.</p>
         </div>
-         <p className="atlas-hero__hook"><em>Like Pokémon, but thirsty. You wanna catch all these.</em></p>
+         <p className="atlas-hero__hook">
+           <em>Collect the evidence. Confirm your type.</em><br />
+           <span lang="zh-CN">九张证据，一眼心动</span>
+         </p>
          <p className="atlas-hero__intro">Every day, Vibe Atlas pairs one C-drama star with one very specific kind of heartthrob energy. Browse nine collectible pieces of evidence, save the ones that understand your type, and build your own 3×3.</p>
          <div className="atlas-hero__actions" aria-label="Vibe Atlas actions">
            <a href="#daily-evidence">Browse today’s drop</a>
