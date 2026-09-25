@@ -202,6 +202,11 @@ export function ReleasedPackLibrary({
     })
       .then(async response => {
         const body = await response.json().catch(() => null);
+        if (response.status === 404) {
+          throw new Error(source === 'daily_star'
+            ? "This pairing has no published public teaser yet. Today's nine-card drop is free on the Vibe Atlas homepage."
+            : 'This pairing does not have a published public preview yet.');
+        }
         if (!response.ok) throw new Error(body?.error || 'Public preview is temporarily unavailable.');
         if (!body?.pack || body.pack.actor?.id !== actorId || body.pack.vibeIdx !== vibeIndex) {
           throw new Error('Public preview is temporarily unavailable.');
@@ -222,7 +227,7 @@ export function ReleasedPackLibrary({
       cancelled = true;
       controller.abort();
     };
-  }, [actorId, entitled, vibeIndex]);
+  }, [actorId, entitled, source, vibeIndex]);
 
   const actor = useMemo(
     () => packs.find(pack => pack.id === selectedActor) || packs[0],
@@ -443,7 +448,14 @@ export function ReleasedPackLibrary({
             </div>
           </section>
         )}
-        {publicPreviewError && <p className="membership__notice" role="alert">{publicPreviewError}</p>}
+        {publicPreviewError && (
+          <div className="membership__notice" role="alert">
+            <p>{publicPreviewError}</p>
+            {source === 'daily_star' && (
+              <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}#daily-evidence`}>View today's free nine-card drop</a>
+            )}
+          </div>
+        )}
         <section className="released-library__locked" aria-label="Collector library access">
           <span className="released-library__lock" aria-hidden="true">✦</span>
           <div>

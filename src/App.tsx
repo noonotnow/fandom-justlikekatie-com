@@ -902,8 +902,10 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
              <a href={vibeAtlasPath({
                view: 'released',
                source: 'daily_star',
-               actorId: rawData.actorId,
-               vibeIdx: rawData.vibeIdx,
+               ...(hasCollectorCapability(membershipStatus) ? {
+                 actorId: rawData.actorId,
+                 vibeIdx: rawData.vibeIdx,
+               } : {}),
              })}>
                Open the Collector library
              </a>

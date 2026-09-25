@@ -250,6 +250,36 @@ test('signed-out Released Pack page shows graceful fallback when public teaser i
   }
 });
 
+test('an unpublished daily pairing links back to the free drop instead of exposing a raw preview 404', async () => {
+  const cleanup = installReleasedLibraryEnvironment((async input => {
+    assert.match(String(input), /released-pack-preview\?actorId=liu-yuning&vibeIdx=2/);
+    return Response.json({ error: 'Released pack preview not found.' }, { status: 404 });
+  }) as typeof fetch);
+
+  try {
+    let library: ReturnType<typeof create>;
+    await act(async () => {
+      library = create(createElement(ReleasedPackLibrary, {
+        status: null,
+        membershipResolved: true,
+        actorId: 'liu-yuning',
+        vibeIndex: 2,
+        currentRelease: { actorId: 'liu-yuning', vibeIdx: 2 },
+        source: 'daily_star',
+      }));
+    });
+    await flushReleasedLibrary();
+    const markup = JSON.stringify(library!.toJSON());
+    assert.match(markup, /no published public teaser yet/);
+    assert.match(markup, /View today's free nine-card drop/);
+    assert.match(markup, /#daily-evidence/);
+    assert.doesNotMatch(markup, /Released pack preview not found/);
+    await act(async () => { library!.unmount(); });
+  } finally {
+    cleanup();
+  }
+});
+
 test('released pack library keeps source-depth protected while showing signed-out preview access', async () => {
   const source = await readFile(new URL('../src/components/ReleasedPackLibrary/ReleasedPackLibrary.tsx', import.meta.url), 'utf8');
   assert.match(source, /hasCollectorCapability\(status\)/);
@@ -277,6 +307,7 @@ test('released pack navigation preserves actor and vibe selection from daily dro
   assert.match(app, /vibeAtlasPath\(\{/);
   assert.match(app, /view: 'released'/);
   assert.match(app, /source: 'daily_star'/);
+  assert.match(app, /source: 'daily_star',\s*\.\.\.\(hasCollectorCapability\(membershipStatus\) \? \{/);
   assert.match(app, /vibeIdx: rawData\.vibeIdx/);
   assert.match(app, /value !== null && value !== ''/);
   assert.match(app, /<ReleasedPackLibrary/);
