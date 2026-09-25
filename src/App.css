@@ -1363,6 +1363,10 @@ button:hover {
 .released-grid-viewer__meta select { padding: .35rem; border: 1px solid #aab0aa; border-radius: 4px; background: transparent; color: inherit; }
 .released-image-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
 .released-image-grid--preview { align-self: start; }
+.released-library__directory { margin: 2rem 0; max-width: 980px; }
+.released-library__directory > h2 { font: 600 1.7rem "Fraunces", serif; margin: 0 0 1rem; }
+.released-library__directory .released-library__teaser { margin: 0 0 1rem; }
+.released-library__directory a { color: #b35f49; font-weight: 700; }
 .released-image-grid__item { min-width: 0; margin: 0; overflow: hidden; border: 1px solid rgba(36,45,52,.14); background: rgba(255,255,255,.5); }
 .released-image-grid__item img, .released-image-grid__missing { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover; }
 .released-image-grid__missing { display: grid; place-items: center; padding: 1rem; color: #687371; font-size: .8rem; text-align: center; }
