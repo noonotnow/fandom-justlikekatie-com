@@ -80,7 +80,7 @@ test('explicit capability matrix never derives paid access from billing state', 
   assert.equal(canUseCreatorOsHandoff({ capabilities: ['fandom_collector'] }), false);
 });
 
-test('Collector capability gates cloud sync and premium creation', async () => {
+test('free sign-in permits Collection sync while Collector gates premium creation', async () => {
   const [collectionSource, membershipSource, syncFunction] = await Promise.all([
     readFile(new URL('../src/components/Collection/Collection.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/Membership/Membership.tsx', import.meta.url), 'utf8'),
@@ -88,10 +88,13 @@ test('Collector capability gates cloud sync and premium creation', async () => {
   ]);
 
   assert.match(collectionSource, /shouldSync = canSyncCloud && decided && await shouldSyncCollection/);
+  assert.match(collectionSource, /const canSyncCloud = !isMiddleEarth \|\| hasCollectorAccess/);
+  assert.match(collectionSource, /syncEnabled \? .*'Cloud sync enabled for'.* : 'Signed in as'/);
   assert.match(collectionSource, /activeType === 'builder' \?/);
   assert.doesNotMatch(collectionSource, /Upgrade to use Grid Builder/);
   assert.doesNotMatch(collectionSource, /Cloud sync is available with Founding Member/);
-  assert.match(membershipSource, /Collection sync with Collector access/);
+  assert.match(membershipSource, /Full Collection sync after sign-in/);
+  assert.doesNotMatch(membershipSource, /Collection sync with Collector access/);
   assert.match(collectionSource, /if \(canSyncCloud\) schedulePublicCollectionSync/);
   assert.match(
     collectionSource,
@@ -99,4 +102,5 @@ test('Collector capability gates cloud sync and premium creation', async () => {
   );
   assert.doesNotMatch(membershipSource, /Cloud Collection sync across devices/);
   assert.doesNotMatch(syncFunction, /createEntitlementChecker|requireMembership/);
+  assert.doesNotMatch(syncFunction, /createCapabilityChecker|fandom_collector/);
 });

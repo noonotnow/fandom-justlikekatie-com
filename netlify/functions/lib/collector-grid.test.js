@@ -93,6 +93,20 @@ test("Collector grid rejects non-Collector memberships", async () => {
   assert.equal((await handler(request("POST", { actorId: "actor-1", vibeIdx: 0 }), {})).status, 403);
 });
 
+test("a signed-in free account cannot read or generate Collector grid runs", async () => {
+  const { handler, storage } = handlerFor({
+    billing: {
+      initialize: async () => {},
+      repository: () => ({ membershipForAccount: async () => ({
+        state: "inactive", isMember: false, capabilities: [],
+      }) }),
+    },
+  });
+  assert.equal((await handler(request("GET", null, "?actorId=actor-1&vibeIdx=0"), {})).status, 403);
+  assert.equal((await handler(request("POST", { actorId: "actor-1", vibeIdx: 0 }), {})).status, 403);
+  assert.equal(storage.names.includes("collector-grid-runs"), false);
+});
+
 test("Collector grid fails closed for an ineligible pairing", async () => {
   const { handler } = handlerFor({
     getPairEligibility: async () => ({ eligible: false }),
