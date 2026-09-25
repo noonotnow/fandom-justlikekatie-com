@@ -34,7 +34,7 @@ test("deployed sitemap uses the V2 Blobs context and serves the registered stati
   assert.match(xml, /<loc>https:\/\/fandom\.justlikekatie\.com\/vibe-atlas\/actors\/liu-xueyi\/<\/loc>/);
 });
 
-test("dynamic sitemap fails closed while the catalog is incomplete", async () => {
+test("dynamic sitemap falls back to static routes while the catalog is incomplete", async () => {
   const handler = createPublicSitemapHandler({
     getStore: () => ({
       async get() { return null; },
@@ -42,8 +42,24 @@ test("dynamic sitemap fails closed while the catalog is incomplete", async () =>
     }),
   });
   const result = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
-  assert.equal(result.statusCode, 503);
+  assert.equal(result.statusCode, 200);
   assert.equal(result.headers["Cache-Control"], "no-store");
+  assert.match(result.body, /c-drama-fandom\/glossary/);
+  assert.match(result.body, /against-the-current-episode-21/);
+  assert.doesNotMatch(result.body, /vibe-atlas\/actors\/liu-xueyi/);
+});
+
+test("dynamic sitemap falls back to static routes when dynamic inventory throws", async () => {
+  const handler = createPublicSitemapHandler({
+    getStore: () => {
+      throw new Error("inventory unavailable");
+    },
+    logError: () => {},
+  });
+  const result = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
+  assert.equal(result.statusCode, 200);
+  assert.match(result.body, /c-drama-fandom\/glossary/);
+  assert.match(result.body, /against-the-current-episode-21/);
 });
 
 test("dynamic sitemap includes approved actor and edition once and excludes thin records", async () => {
@@ -62,14 +78,15 @@ test("dynamic sitemap includes approved actor and edition once and excludes thin
   assert.doesNotMatch(result.body, /2026-09-04/);
 });
 
-test("dynamic sitemap never shared-caches a partial inventory when catalog coverage is missing or malformed", async () => {
+test("dynamic sitemap never emits partial inventory when catalog coverage is missing or malformed", async () => {
   for (const manifest of [null, { publicationDate: "2026-09-03", actor: { id: "broken" } }]) {
     const handler = createPublicSitemapHandler({
       getStore: () => catalogStore(completeCatalog(), manifest ? [manifest] : []),
     });
     const result = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
-    assert.equal(result.statusCode, 503);
+    assert.equal(result.statusCode, 200);
     assert.equal(result.headers["Cache-Control"], "no-store");
+    assert.match(result.body, /c-drama-fandom\/glossary/);
     assert.doesNotMatch(result.body, /2026-09-03|liu-xueyi/);
   }
 });
