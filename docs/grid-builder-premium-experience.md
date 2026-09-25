@@ -1,97 +1,94 @@
 # Grid Builder premium experience
 
-Status: proposed companion to the archive and actor-pack monetization plans
+Status: living companion to the archive and actor-pack access plans, reconciled 2026-09-25
 
 ## Principle
 
 Elevate the artifact, not the pitch.
 
-The Grid Builder should feel complete and satisfying before a visitor pays. Fandom Collector should improve the source catalogue, persistence, visual treatment, and export capability rather than unlock a deliberately crippled canvas.
-
-The standalone Fandom loop remains:
+The Grid Builder should feel complete before payment. Collector improves catalogue depth, generation, visual treatment, saved-work utility, and eligible export quality; it does not unlock a deliberately crippled canvas.
 
 ```text
 Discover -> Collect -> Build -> Export -> Share
 ```
 
-Creator OS remains a separate production and publishing product. The Grid Builder must not acquire partial scheduling, captioning, or publication-management functions merely to create an upsell.
+Creator OS remains a separate production and publishing product. The Grid Builder must not acquire partial scheduling, captioning, or publication-management features merely to create an upsell.
 
 ## Product language
 
-Prefer specific creative-work language over generic SaaS language.
+Preferred public names:
 
-Recommended public names:
+- `Vibe Atlas Canvas` — public grid-building surface;
+- `Master Export` — genuinely higher-resolution eligible composite;
+- `Atmosphere` or `Palette` — whole-grid visual treatments;
+- `Collector Archive` — historical source depth;
+- `Send to Creator OS` — real neutral handoff only when the destination entitlement exists.
 
-- `Vibe Atlas Canvas` for the public grid-building surface;
-- `Master Export` for a higher-resolution eligible composite;
-- `Atmosphere` or `Palette` for whole-grid visual treatments;
-- `Collector Archive` for historical source access;
-- `Send to Creator OS` for the neutral handoff when the account has the relevant entitlement.
-
-Avoid vague or inflated language such as `Pro Feature`, `VIP Tool`, or `4K Master Render` unless the output is actually rendered at the advertised dimensions and quality.
-
-Keep the product namespaces distinct:
-
-- Vibe Atlas Canvas = Fandom creation surface;
-- Creator OS Workstation = production and publishing surface.
-
-Do not rename a Fandom control `Creator Handoff` when it merely unlocks a Fandom feature. The handoff label is reserved for a real transfer into Creator OS.
+Avoid inflated labels such as `Pro Feature`, `VIP Tool`, `4K`, `print-ready`, or `Display P3` unless the renderer and artifact actually satisfy the claim.
 
 ## Tier model
 
-### Fandom Free
+### Signed-out public
 
-Free visitors can experience the complete basic making loop:
+Can:
 
-- build and rearrange a standard 3x3 grid;
+- build and rearrange a standard 3x3 grid using public/free inputs;
 - use keyboard, pointer, and touch controls;
 - export a web-ready standard-resolution composite;
 - share the result;
-- use current/free-window and otherwise publicly available inputs;
-- keep local-only drafts or saves within an intentionally defined device limit.
+- experiment locally without creating an account-owned sync surface.
 
-Unlimited local experimentation is acceptable when it does not create unbounded server storage or processing cost. Cross-device persistence, historical source access, and expensive rendering can remain membership benefits.
+Public teaser packs remain view-only unless the visitor signs in and explicitly saves an eligible artifact under the Collection contract.
+
+### Authenticated free
+
+Keeps the complete basic making loop and may:
+
+- sync My Collection after explicit device-merge consent;
+- explicitly save eligible public items;
+- retry failed sync;
+- delete downloaded items from another device;
+- keep local experimentation within defined device limits.
+
+Free sync is no longer a Collector-only benefit. It persists artifacts the account may already access; it does not unlock complete Released Packs, historical depth, refreshes, premium Atmospheres, or Master Export.
 
 ### Fandom Collector
 
-Collector can add Fandom-native depth and finish:
+Adds Fandom-native depth and finish:
 
 - complete eligible historical archive access;
-- complete eligible actor-pack access;
-- cross-device collection persistence;
-- additional saved canvases and reusable layouts;
+- complete eligible Released Pack access;
+- Collector refreshes and saved runs;
+- explicit per-image and whole-grid pack saves;
 - premium Atmosphere/Palette treatments;
-- additional layout treatments when they remain Fandom-native;
+- additional saved canvases and reusable layouts according to policy;
 - eligible higher-resolution Katie-created composite exports;
 - custom curator signature where safe and appropriate;
 - future original Collector packs.
 
 Collector does not receive Creator OS scheduling, platform renditions, publication states, or analytics.
 
-### Creator OS
+### Creator OS and ecosystem bundle
 
-Creator OS works independently with assets from any source. It owns:
+Creator OS works independently with assets from any source. A Creator OS subscription alone does not grant protected Fandom catalogue depth.
 
-- project development;
-- platform-specific renditions and copy;
-- production workflows;
-- planning and scheduling;
-- publishing and reconciliation;
-- performance analysis.
+The ecosystem bundle may include Collector, Creator OS, and the neutral selected-artifact handoff. The handoff transfers one selected permitted artifact and approved metadata, never the complete actor-pack database, engine inventory, retrieval configuration, or unrestricted source files.
 
-A Creator OS subscription alone does not imply access to the protected Fandom archive or actor-pack catalogue unless the commercial offer explicitly includes the Fandom entitlement.
+## Persistence versus access
 
-### Ecosystem bundle
+Persistence and source entitlement are separate decisions.
 
-The bundle includes Fandom Collector, Creator OS, and the neutral selected-artifact handoff.
-
-The handoff transfers the selected permitted artifact and approved metadata. It does not export the entire actor-pack database, raw engine inventory, hidden retrieval configuration, or unrestricted third-party source files.
+- A free account may sync an eligible public image or completed free grid.
+- Saving a public teaser does not make the complete pack public or free.
+- A downloaded item should not be re-uploaded when unchanged.
+- Deletion must propagate without the item reappearing from another device.
+- Device-merge consent must precede combining unrelated local and account collections.
+- Explicit pack/card/grid saves should sync individually rather than silently merging unrelated device data.
+- Collector-only generated runs remain protected even if their resulting permitted composite is saved.
 
 ## Export branding
 
-The free export should use the intentional Vibe Atlas / Vibe Guide editorial footer as a design element, not an apologetic watermark.
-
-Example structure:
+The free export should retain the intentional Vibe Atlas / Vibe Guide editorial footer as a gallery-credit treatment rather than an apologetic watermark.
 
 ```text
 [3x3 composition]
@@ -100,22 +97,11 @@ VIBE ATLAS · DROP 116 · 刘学义
 fandom.justlikekatie.com · source attribution
 ```
 
-The footer may use a gallery-caption or magazine-credit treatment. It should remain legible, compact, and visually integrated.
+Collector may offer alternate approved footer treatments, typography/palette options, a custom curator signature, or a more minimal branded treatment. Paid access never erases source attribution or rights obligations.
 
-Collector options can include:
+## Truthful instrumentation
 
-- a custom curator signature;
-- alternate approved footer treatments;
-- additional typography and palette options;
-- a minimal branded treatment.
-
-Do not promise a completely attribution-free export where source licensing, provenance, or the intentional brand standard requires attribution. Paid access changes presentation and utility; it does not erase source obligations.
-
-## Canvas instrumentation
-
-Technical labels must report truth rather than perform premium theatre.
-
-Good examples when accurate:
+Good labels, when accurate:
 
 ```text
 ASPECT  1:1
@@ -123,70 +109,60 @@ OUTPUT  1080 x 1080 PX
 COLOR   sRGB
 ```
 
-Only display `4000 x 4000`, `Display P3`, `print-ready`, or `4K` when the renderer, embedded color profile, source material, and download artifact actually satisfy those claims.
-
-`sRGB Display P3` is not a valid combined color-space label. Choose and accurately encode one supported output profile.
+Only advertise larger dimensions, Display P3, print readiness, or 4K when the renderer, embedded profile, source material, and downloaded artifact satisfy the claim. `sRGB Display P3` is not a valid combined color-space label.
 
 ## Interaction quality
 
-Premium feel should come from precision:
+Premium feel comes from precision:
 
-- clear snap targets;
-- subtle placement feedback;
+- clear snap targets and placement feedback;
 - stable drag previews;
-- predictable crop and reorder behavior;
+- predictable crop, reorder, duplication, and removal;
 - undo/redo where feasible;
 - consistent export previews;
 - responsive touch behavior;
-- keyboard-operable alternatives;
-- visible focus states;
-- `prefers-reduced-motion` support.
+- keyboard-operable alternatives and visible focus;
+- `prefers-reduced-motion` support;
+- stale post-save/export navigation cleared after manual grid edits or mode changes.
 
-A small scale or spring transition can reinforce placement, but it must not cause layout shift, obscure target state, or become the only feedback. Browser vibration support is inconsistent, particularly on iOS, so haptics must remain optional enhancement rather than required interaction feedback.
+Haptics and animation remain optional enhancements, never the only interaction feedback.
 
 ## Premium boundaries
 
-Place boundaries at genuine increases in cost, catalogue depth, persistence, or finish:
+Place paid boundaries at genuine increases in catalogue depth, generation cost, saved-work scale, or finish:
 
-- historical archive access;
-- complete actor-pack access;
-- cross-device persistence;
+- historical archive depth;
+- complete Released Packs;
+- Collector refreshes;
 - premium Atmosphere treatments;
-- additional saved canvases;
-- higher-resolution eligible composite rendering;
-- bundle-only Creator OS handoff.
+- additional saved canvases or layouts;
+- eligible higher-resolution rendering;
+- destination-entitled Creator OS handoff.
 
-Do not block the first completed grid. A visitor should understand the value because they successfully made an artifact, not because a modal interrupted the ninth placement.
+Do not block the first completed grid. A visitor should understand the value after successfully making an artifact, not because a modal interrupted the ninth placement.
 
 ## Rights and source handling
 
-Do not market unrestricted high-resolution third-party source downloads as a normal membership benefit.
-
-Safer export value includes:
-
-- Katie-created composites;
-- original templates and treatments;
-- permitted personal-use renditions;
-- preserved source attribution;
-- collection and layout utility;
-- selected-artifact handoff where the receiving workflow respects the same provenance and rights constraints.
+Do not market unrestricted high-resolution third-party source downloads as a membership benefit. Safer value includes Katie-created composites, original templates/treatments, permitted personal-use renditions, preserved attribution, collection/layout utility, and a rights-aware selected-artifact handoff.
 
 ## Conversion moments
 
-Use contextual, quiet prompts after meaningful intent:
+Use quiet prompts after meaningful intent:
 
 - after a free grid is completed;
-- when a visitor selects an archived or Collector-only source;
-- when a visitor previews an Atmosphere treatment;
-- when cross-device saving is requested;
+- when an archived or Collector-only source is selected;
+- when an Atmosphere is previewed;
+- when complete pack depth or a refresh is requested;
 - when a higher-resolution eligible export is requested;
-- when a user explicitly wants to turn the artifact into a publishing project.
+- when the person explicitly wants to continue into a publishing project.
+
+Do not use cross-device saving itself as a Collector upsell now that authenticated free Collection sync exists. Paid persistence messaging should refer to genuinely premium scale, protected generated runs, reusable layouts, or other defined Collector utility.
 
 Suggested copy:
 
 ```text
 Finish this edition in Collector
-Use the complete archive, premium Atmospheres, and Master Export.
+Use the complete archive, full Released Packs, premium Atmospheres, and Master Export.
 ```
 
 For genuine publishing intent:
@@ -196,75 +172,72 @@ Continue in Creator OS
 Carry this selected grid into a production project for platform versions, planning, and publishing.
 ```
 
-Do not place Creator OS advertising on every canvas interaction.
-
 ## Social proof
 
-Promote finished artifacts rather than generic tool claims.
+Promote finished artifacts rather than generic tool claims. Public examples should show the completed grid, actor/vibe identity, editorial footer, canonical public record when one exists, and a restrained invitation to build.
 
-Public examples should show:
-
-- the completed grid;
-- actor and vibe identity;
-- the Vibe Atlas editorial footer;
-- a canonical link to the relevant public actor, edition, or Canvas page;
-- a restrained invitation to build a layout.
-
-For Rednote, final published copy should follow the Chinese-only house preference. English can remain internal drafting or translation scaffolding.
+For Rednote, final published copy follows the Chinese-only house preference. English may remain internal drafting or translation scaffolding.
 
 ## Analytics
 
-Useful privacy-safe events:
+Useful privacy-safe events include:
 
 - `canvas_opened`
 - `canvas_first_item_placed`
 - `canvas_completed`
 - `canvas_export_previewed`
 - `canvas_export_completed`
+- `collection_merge_consent`
+- `collection_sync_completed`
 - `collector_atmosphere_previewed`
 - `collector_boundary_viewed`
 - `collector_upgrade_started`
 - `creator_os_handoff_intent`
 - `creator_os_handoff_completed`
 
-Properties may include public edition date, public actor slug, layout type, export class, entitlement category, and CTA location. Do not transmit source-image URLs, auth tokens, private search queries, or Creator OS project content.
+Use bounded public identifiers, layout/export classes, account tier, and CTA location. Never transmit source-image URLs, auth tokens, private queries, or Creator OS project content.
 
-## Implementation sequence
+## Remaining implementation sequence
 
-### Canvas PR A - Free canvas quality
+### Canvas A — Free quality and sync hardening
 
-- preserve the complete basic 3x3 building loop;
-- improve snapping, placement feedback, keyboard behavior, focus, and reduced motion;
-- make export dimensions and color-space labels truthful;
+- preserve the complete basic 3x3 loop;
+- finish snapping, focus, keyboard, touch, and reduced-motion behavior;
+- verify edit-after-export/save navigation cannot use stale state;
+- make output dimensions and color labels truthful;
 - retain the editorial footer;
-- measure canvas completion and export success.
+- continue multi-device consent, retry, deletion, and unchanged-download tests.
 
-### Canvas PR B - Collector treatments
+### Canvas B — Collector depth and treatments
 
-- add the entitlement-aware Atmosphere/Palette catalogue;
-- add cross-device persistence and saved-canvas limits according to the product contract;
+- add entitlement-aware Atmosphere/Palette options;
+- define additional saved-canvas and reusable-layout policy without removing free sync;
+- integrate eligible historical and Released Pack depth;
 - add higher-resolution eligible composite rendering;
-- add custom-signature and alternate approved footer treatments;
+- add approved signature/footer treatments;
 - add conversion analytics without interrupting basic creation.
 
-### Canvas PR C - Creator OS bridge
+### Canvas C — Creator OS bridge
 
 - add `Send to Creator OS` only after the neutral handoff contract exists;
-- require Creator OS or bundle entitlement at the destination boundary;
-- transfer one selected, permitted artifact and approved metadata;
+- require Creator OS or bundle entitlement at the destination;
+- transfer one selected permitted artifact and approved metadata;
 - keep manual Creator OS import fully functional;
-- never transfer the complete actor-pack or engine-results inventory.
+- never transfer complete pack or engine-results inventory.
 
 ## Acceptance tests
 
-The finished implementation should prove:
+The system must prove:
 
 - a signed-out visitor can complete and export a basic grid;
+- an authenticated free account can sync eligible explicit saves after consent;
+- free sync does not unlock protected catalogue depth, refreshes, or premium exports;
+- unchanged downloads are not re-uploaded and deletions propagate correctly;
 - the free export looks intentionally branded rather than punished;
 - advertised dimensions and color profile match the generated file;
 - keyboard and reduced-motion users can complete the workflow;
-- Collector adds catalogue depth, persistence, finish, and eligible export quality;
+- Collector adds catalogue depth, generation, scale, finish, and eligible export quality;
 - Creator OS functionality remains outside Fandom;
-- Creator OS-only accounts do not accidentally inherit Collector source access;
-- bundle users can hand off only a selected permitted artifact;
-- no tier exposes raw protected actor-pack or engine-result payloads.
+- Creator OS-only accounts do not inherit Collector source access;
+- bundle users hand off only a selected permitted artifact;
+- no tier exposes raw protected pack or engine-result payloads.

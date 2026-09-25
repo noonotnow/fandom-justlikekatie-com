@@ -1,315 +1,220 @@
-# Vibe Atlas archive monetization and SEO plan
+# Vibe Atlas archive monetization, access, and SEO plan
 
-Status: proposed implementation sequence
+Status: living product and implementation contract, reconciled 2026-09-25
 
 ## Decision
 
-Vibe Atlas should monetize the historical archive without making past editions disappear.
+Vibe Atlas uses a **visible catalogue / tiered utility** model. Public discovery, authenticated free participation, and paid Collector depth are distinct capabilities rather than one binary paywall.
 
-The archive is both:
+- Published, publicly indexable records remain useful discovery surfaces.
+- Today's Daily Drop and the rolling free archive window remain complete free experiences.
+- Signed-out visitors may browse only deliberately published teaser projections.
+- Authenticated free accounts may sync explicitly saved Collection items after device-merge consent.
+- Collector unlocks eligible historical depth, complete Released Packs, refreshes, premium treatments, and premium exports.
+- Creator OS remains a separate production and publishing product.
+- Paid access never implies unrestricted raw or uncompressed third-party source files.
 
-- a public discovery surface that earns search and social traffic; and
-- a high-intent product surface where collectors demonstrate willingness to pay.
-
-The product therefore uses a **visible archive / gated utility** model:
-
-- every published edition remains represented by an indexable public preview;
-- today's edition and the previous three published editions remain fully available to free visitors;
-- older editions remain visible with date, actor, vibe, editorial metadata, and a standard preview;
-- opening the complete nine-card board, saving its cards, or exporting premium assets from an older edition requires the Fandom Collector entitlement;
-- paid access must not include raw or uncompressed third-party source files unless the rights are explicitly cleared.
-
-This avoids a dead-end paywall and turns the archive itself into the product catalogue.
+Client state is never an authorization boundary. Publication manifests, account capability, and server-side data projections determine what is returned.
 
 ## Product boundaries
 
-Fandom and Creator OS are independent products. Neither is a crippled onboarding funnel for the other.
-
 ### Fandom
-
-Standalone loop:
 
 ```text
 Discover -> Collect -> Build -> Export -> Share
 ```
 
-Fandom owns:
-
-- daily drops;
-- actor and vibe discovery;
-- the visible historical archive;
-- Saved Collection;
-- Legendary Grid Builder;
-- Fandom-native themes and exports;
-- collector membership.
+Fandom owns Daily Drops, actor and vibe discovery, public editorial records, the visible archive, My Collection, Released Packs, the Grid Builder, Fandom-native exports, and Collector membership.
 
 ### Creator OS
-
-Standalone loop:
 
 ```text
 Capture -> Develop -> Compose -> Plan -> Publish -> Analyze
 ```
 
-Creator OS must work with assets imported from anywhere. It owns:
-
-- project and idea development;
-- platform-specific renditions and copy;
-- production status;
-- scheduling and publishing;
-- publication lineage;
-- performance analysis.
+Creator OS owns idea and project development, platform renditions, production status, scheduling, publication lineage, and performance analysis. It must work with assets imported from any source and must not depend on Fandom internals.
 
 ### Bridge and bundle
 
-The integration is a narrow handoff, not shared product creep:
-
 ```text
-Finished Fandom artifact -> neutral export package -> Creator OS project
+Selected Fandom artifact -> neutral export package -> Creator OS project
 ```
 
-The bridge can upsell Creator OS when a user demonstrates publishing intent. Fandom must not acquire partial posting, scheduling, or analytics features merely to create the upsell. Creator OS must not depend on Fandom discovery or collections.
+The bridge transfers one selected, permitted artifact and approved metadata. It does not expose the actor-pack catalogue, engine inventory, retrieval configuration, or raw source archive.
 
-Candidate entitlements:
+Candidate capabilities remain:
 
 - `fandom_free`
 - `fandom_collector`
 - `creator_os`
 - `fandom_creator_bridge`
 - `ecosystem_bundle`
+- explicit admin/operator authorization
 
-The bridge should be included with Creator OS and the ecosystem bundle. A Fandom Collector subscription remains useful without it.
+Creator OS alone does not grant Fandom Collector depth unless the commercial offer explicitly includes that entitlement.
 
-## Archive experience
+## Access matrix
 
-### Free visitor
+| Capability | Signed-out public | Authenticated free | Fandom Collector | Bundle / authorized admin |
+| --- | --- | --- | --- | --- |
+| Current Daily Drop | Complete free grid | Complete free grid | Complete free grid | Complete free grid |
+| Rolling free archive window | Complete eligible editions | Complete eligible editions | Complete eligible editions | Complete eligible editions |
+| Archive index | Public metadata and safe previews | Same public catalogue | Full eligible historical depth | Full eligible depth |
+| Released Pack directory | Published manifest-backed teasers | Same teasers | Full eligible catalogue | Full eligible catalogue |
+| Released Pack preview | Read-only approved teaser | Read-only approved teaser | Full eligible pack | Full eligible pack |
+| My Collection sync | No account sync | Yes, after device-merge consent | Yes | Yes |
+| Explicit pack/card/grid saves | Public items only when supported after sign-in | Explicit eligible saves | Complete eligible Collector saves | Authorized saves |
+| Collector refresh | No | No | Yes, subject to policy | Yes |
+| Premium treatments / Master Export | No | No | Yes, where eligible | Yes, where eligible |
+| Creator OS handoff | Public/manual export only | Public/manual export only | Only with destination entitlement | Yes when entitled |
 
-A free visitor can:
+Free sync is persistence for items the account is already permitted to save. It is not a back door into protected historical data, complete Released Packs, Collector refreshes, or premium exports.
 
-- browse the complete archive index;
-- see the date, actor, Chinese and English vibe labels, issue number, and preview mosaic for every edition;
-- open today's drop and the previous three published editions;
-- share canonical public edition URLs;
-- see clear Collector messaging on older editions.
+## Publication and access vocabulary
 
-Older editions should display an attractive locked state rather than disappearing. Suggested language:
+These states are related but not interchangeable:
 
-> Collector archive preview
->
-> This edition is preserved in the complete Vibe Atlas archive. Join Collector to open the full nine-card board, save its cards, and use it in the Grid Builder.
+- **Internal:** exists in application or editorial inventory but is not approved for public delivery.
+- **Release-ready:** meets internal completeness rules; it may still lack a public record or teaser manifest.
+- **Published:** deliberately released as a Fandom edition, pack, or editorial object.
+- **Publicly indexable:** has the required immutable publication manifest and passes current editorial/media checks.
+- **Public teaser available:** has an approved projection suitable for anonymous delivery.
+- **Collector-entitled:** complete protected payload may be returned after capability verification.
+
+A Daily Drop pairing does not automatically create a Released Pack teaser. A missing or non-indexable manifest must not be replaced by invented public content.
+
+## Public, free, and Collector experience
+
+### Signed-out public
+
+A signed-out visitor can:
+
+- use the current free Daily Drop and rolling free archive window;
+- browse safe manifest-backed Released Pack teasers;
+- view published actor and edition records that pass indexability checks;
+- share canonical public URLs;
+- encounter clear fallbacks instead of raw authentication or API errors.
+
+Public teaser responses expose only approved editorial metadata and a bounded card sample. They never expose complete pack depth, private source inventory, premium asset URLs, admin fields, capability links, or Creator OS metadata.
+
+### Authenticated free
+
+An authenticated free account keeps the public creative loop and may sync My Collection after explicit device-merge consent. Explicit saves sync without silently merging unrelated device data, and retry/delete behavior must remain understandable and reversible.
+
+Free-account persistence does not widen source access. The server must still verify that each saved or downloaded item was eligible for that account.
 
 ### Fandom Collector
 
-A Collector can:
+Collector adds catalogue depth, generation utility, and finish:
 
-- open all historical nine-card boards;
-- save historical cards and grids;
-- use premium Legendary Grid Builder themes;
-- receive cross-device collection sync;
-- export eligible Katie-created composites at higher quality;
-- access future original Collector packs.
+- full eligible historical editions and Released Packs;
+- Collector refreshes and saved runs;
+- explicit per-image and whole-grid pack saves;
+- premium Grid Builder treatments;
+- eligible higher-resolution composite exports;
+- future original Collector packs.
 
-### Search and social crawler
+Collector does not grant Creator OS scheduling, publishing, or analytics.
 
-A crawler should receive meaningful initial HTML for each public edition URL, including:
+## Public records, fallbacks, and URLs
 
-- a stable path-based canonical URL;
-- bilingual title and description;
-- date, actor, vibe, and edition metadata;
-- a standard preview image when available;
-- conservative JSON-LD;
-- a visible membership CTA without a thin or empty page.
-
-The crawler page is a product preview, not an entitlement bypass. Protected full-board data and member-only actions must still be enforced server-side.
-
-## URL model
-
-Preferred canonical paths:
+Preferred canonical surfaces include:
 
 ```text
 /vibe-atlas/archive
 /vibe-atlas/archive/YYYY-MM-DD
-/actor/:slug                 # later actor landing-page PR
+/actor/:slug
 ```
 
-Legacy links remain supported:
+Legacy `?date=YYYY-MM-DD` links should resolve to the same edition and canonicalize or redirect to the stable path.
 
-```text
-/vibe-atlas?date=YYYY-MM-DD
-```
+Only records that satisfy current publication and indexability checks should be advertised as public records or emitted in the sitemap. When a saved public-record link is missing or non-indexable, the interface should fall back to the dated Archive view. When a Daily Drop has no qualifying Released Pack teaser, visitors should return to the free Daily Drop rather than receive a fabricated teaser.
 
-A valid legacy date link should resolve to the same edition and canonicalize or redirect to the stable path. Invalid dates must not generate indexable duplicate or error pages.
+Unknown, invalid, internal, and unpublished identifiers must fail closed and must not generate indexable thin pages.
 
-## Entitlement enforcement
+## Response contracts
 
-Client-side locked cards are presentation, not security.
+Maintain separate contracts for separate audiences:
 
-Real archive enforcement must occur where historical board data and premium assets are returned. The server should compute an archive-access decision from:
+1. **Public archive/edition projection** — approved metadata, canonical URL, standard preview, related public records.
+2. **Public Released Pack directory** — published manifest-backed actor/vibe teaser metadata.
+3. **Public Released Pack preview** — bounded read-only sample, currently up to three approved cards.
+4. **Public actor/edition HTML** — useful initial HTML with the same public fields shown to people.
+5. **Authenticated Collection sync** — account-owned explicit saves, merge consent, deletion, and retry semantics.
+6. **Collector full-pack/run payload** — complete eligible protected data after capability verification.
 
-- requested published edition date;
-- the rolling free-window policy;
-- authenticated Fandom entitlement;
-- admin/operator authorization where applicable.
+Do not return one large payload and ask the browser to discard fields by tier.
 
-Unauthenticated archive-preview responses may include only explicitly public fields. They must not include hidden high-resolution URLs, raw source payloads, capability links, session state, or private Creator OS metadata.
+## Entitlement and cache enforcement
 
-Stripe remains the billing source of truth. A cached account record may accelerate checks, but reconciliation must be possible from Stripe state.
+The server computes access from the requested object, publication state, rolling free-window policy, authenticated capability, and explicit admin authorization.
+
+- Public projections may use shared caching only when the response is identical for everyone.
+- Authenticated Collection responses must be account-scoped.
+- Collector payloads must use private/no-store semantics or a rigorously tested entitlement-aware cache key.
+- A publicly cached response must never vary only by cookie unless the CDN cache behavior is proven safe.
+- Downloads and sync must not re-upload unchanged artifacts or resurrect deleted items across devices.
+
+Stripe remains the billing source of truth for paid capability. Cached account state may accelerate checks, but reconciliation must remain possible.
 
 ## Legal and product guardrails
 
-Do not sell access to uncompressed search results or third-party source-image bundles merely because the files are technically available.
+Safer paid value includes Katie-created composites, original editorial framing, persistence, grid-building utility, premium treatments, eligible personal-use exports, and original packs whose rights are clear.
 
-Safer paid value includes:
+Do not sell unrestricted search results, raw source-image archives, or uncompressed third-party files merely because they are technically available. Preserve intentional Vibe Atlas / Vibe Guide branding and source attribution unless a specific rights-aware product decision changes the treatment.
 
-- Katie-created composite layouts;
-- original editorial framing and metadata;
-- collection persistence;
-- grid-building tools;
-- premium themes;
-- eligible personal-use exports;
-- original template or wallpaper packs whose rights are clear.
+## Current implementation state
 
-The standard Fandom / Vibe Guide branding and source attribution should remain unless a specific product decision says otherwise.
+Implemented or substantially implemented by 2026-09-25:
+
+- manifest-backed public actor and edition records with fail-closed indexability;
+- public Released Pack previews separated from Collector-only depth;
+- a signed-out Released Pack directory using approved teaser projections;
+- graceful fallbacks for missing/non-indexable records and Daily Drops without teasers;
+- authenticated free My Collection sync after device-merge consent;
+- explicit Collector per-image and whole-grid pack saves;
+- Collector refresh depth, novelty protection, and private provenance telemetry.
+
+Remaining work should be tracked as focused PRs:
+
+1. Reconcile and test the rolling archive free-window policy end to end.
+2. Complete crawlable actor/edition initial HTML, bilingual metadata, and sitemap coverage for every qualifying manifest.
+3. Audit all anonymous actor-pack and historical endpoints for field leakage and cache separation.
+4. Finish free Canvas interaction and truthful export-quality instrumentation.
+5. Add Collector Atmospheres, saved-canvas policy, and eligible Master Export.
+6. Complete billing reconciliation and conversion measurement.
+7. Specify and implement the neutral Fandom -> Creator OS selected-artifact handoff.
 
 ## Analytics
 
-Use privacy-safe events that describe product behavior rather than source assets:
+Useful privacy-safe events include:
 
 - `archive_page_view`
 - `archive_edition_preview_view`
 - `archive_paywall_view`
 - `archive_upgrade_click`
+- `released_pack_directory_view`
+- `released_pack_teaser_opened`
+- `collection_merge_consent`
+- `collection_sync_completed`
+- `collector_archive_opened`
 - `checkout_started`
 - `checkout_completed`
-- `collector_archive_opened`
 - `premium_export_attempted`
-- `collection_limit_reached`
 
-Useful properties include edition date, free/member state, CTA location, and entitlement name. Do not send image URLs, email addresses, auth tokens, or raw query payloads.
+Properties may include public edition date, actor/vibe slug, account tier, CTA location, and bounded result state. Never send source URLs, email addresses, tokens, private queries, or internal diagnostics.
 
-## Small PR sequence
+## Acceptance contract
 
-### PR 1 - Product contract and teaser state
+The completed system must prove:
 
-Purpose: make the planned product legible before enforcing payment.
-
-Scope:
-
-- add this product contract;
-- centralize and test the rolling free-window policy;
-- keep all archive cards visible;
-- give older cards a Collector preview treatment for nonmembers;
-- route upgrade actions to the existing Membership view;
-- add paywall-impression and upgrade-click analytics;
-- explicitly document that this is not yet a security boundary.
-
-Acceptance criteria:
-
-- today plus the previous three published editions are free;
-- older editions remain visible and informative;
-- members retain normal archive navigation;
-- keyboard and screen-reader behavior remains usable;
-- no Creator OS posting features are added to Fandom;
-- tests cover dates, members, nonmembers, locked visibility, and analytics.
-
-### PR 2 - Crawlable edition pages and sitemap
-
-Purpose: let the visible archive earn search and social traffic before hard gating.
-
-Scope:
-
-- add stable path-based edition URLs;
-- preserve legacy `?date=` links;
-- serve route-specific metadata in initial HTML;
-- add bilingual titles/descriptions and preview images;
-- add conservative JSON-LD;
-- add edition URLs to the sitemap;
-- keep auth, admin, membership, and capability URLs out of the index;
-- document Search Console, Bing, and Baidu submission steps.
-
-Acceptance criteria:
-
-- social crawlers receive edition-specific OG metadata without React hydration;
-- old editions have meaningful preview HTML rather than empty shells;
-- metadata is escaped and tested;
-- invalid dates do not create indexable junk;
-- member-only payload fields never appear in public HTML.
-
-### PR 3 - Server-side archive entitlement enforcement
-
-Purpose: convert the teaser into a real paywall.
-
-Scope:
-
-- enforce the rolling free window in the historical edition data layer;
-- return a public preview DTO for locked editions;
-- return full eligible board data only for free-window, member, or admin access;
-- prevent shared-cache leakage between public and entitled responses;
-- add integration and authorization tests;
-- preserve public metadata and canonical pages.
-
-Acceptance criteria:
-
-- changing client state cannot unlock historical payloads;
-- locked responses contain no premium asset URLs or raw source payloads;
-- entitled users can open the full archive;
-- CDN headers cannot cache a member response for a public visitor;
-- crawler previews remain useful.
-
-### PR 4 - Billing resilience and conversion measurement
-
-Purpose: make the existing membership path operationally trustworthy.
-
-Scope:
-
-- audit checkout, portal, webhook, and membership-status behavior;
-- enable promotion codes if compatible with the current checkout model;
-- make webhook processing idempotent with durable event records;
-- reconcile created, updated, cancelled, trial, and failed-payment subscription states;
-- preserve Stripe as billing source of truth;
-- forward privacy-safe UTM attribution;
-- add checkout-started/completed events and funnel reporting notes.
-
-Acceptance criteria:
-
-- duplicate webhook delivery does not duplicate mutations;
-- cancellation and payment-state changes update entitlement correctly;
-- account entitlement can be reconciled from Stripe;
-- referral metadata is bounded and sanitized;
-- no secrets or customer identifiers enter analytics.
-
-### PR 5 - Fandom to Creator OS handoff contract
-
-Purpose: support the stack without contaminating either standalone product.
-
-Scope:
-
-- specify a versioned neutral Fandom Export Package;
-- include only selected/exported media references, permitted metadata, theme/layout, attribution, artifact ID, and timestamp;
-- let Creator OS import the package into its own native project model;
-- expose the upsell only at genuine publishing-intent moments;
-- keep manual import into Creator OS fully supported.
-
-This PR should be developed jointly with the Creator OS repository and should not precede the archive/SEO work.
-
-## Release strategy
-
-1. Merge the product contract and teaser treatment.
-2. Ship crawlable edition pages and submit the sitemap.
-3. Observe archive preview views and upgrade intent before enabling hard enforcement.
-4. Merge server-side enforcement behind a controlled configuration flag.
-5. Verify public previews, member access, cache separation, and checkout recovery.
-6. Enable the archive paywall.
-7. Evaluate Creator OS bridge demand separately from Fandom Collector conversion.
-
-## Explicit non-goals
-
-This series does not:
-
-- turn Fandom into a posting dashboard;
-- require Creator OS to use Fandom;
-- hide old editions from search;
-- sell raw third-party image archives;
-- use a client-side lock as the final authorization boundary;
-- create multiple overlapping membership implementations;
-- remove the intentional Fandom branding and attribution footer.
+- signed-out visitors receive useful approved public discovery surfaces;
+- authenticated free accounts can sync eligible explicit saves without gaining protected source access;
+- Collector and bundle accounts receive complete eligible depth;
+- Daily Drops, Released Pack teasers, public records, and Collector packs remain distinct objects;
+- invalid, unpublished, or non-indexable records fail closed;
+- public responses contain no premium, private, admin, or capability-bearing fields;
+- member payloads never enter shared public caches;
+- Creator OS-only accounts do not inherit Fandom Collector access;
+- no tier receives unrestricted raw protected source archives;
+- the first free creative loop remains complete and satisfying.
