@@ -1344,6 +1344,15 @@ button:hover {
 .released-library__locked button { padding: .7rem 1rem; background: #263e40; color: #f8f3eb; }
 .released-library__filters { display: flex; gap: 1rem; margin: 2.5rem 0 1.5rem; }
 .released-library__filters select { min-width: 190px; }
+.released-library__directory { display: grid; gap: 1.25rem; margin: 2rem 0; }
+.released-library__directory > h2 { margin: 0; color: #263e40; font: 600 1.8rem "Fraunces", serif; }
+.released-library__teaser { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(0, 1.4fr); gap: 1.25rem; padding: 1.25rem; border: 1px solid rgba(36,45,52,.16); background: rgba(255,255,255,.3); }
+.released-library__teaser-copy h2, .released-library__teaser-copy h3 { margin: .2rem 0 .6rem; color: #263e40; font: 600 1.5rem "Fraunces", serif; }
+.released-library__teaser-copy p:not(.membership__label) { color: #687371; line-height: 1.5; }
+.released-image-grid--preview { align-content: start; }
+.dark .released-library__directory > h2, .dark .released-library__teaser-copy h2, .dark .released-library__teaser-copy h3 { color: #d6e3dd; }
+.dark .released-library__teaser { border-color: rgba(236,231,221,.2); background: rgba(255,255,255,.03); }
+.dark .released-library__teaser-copy p:not(.membership__label) { color: #b3b7b1; }
 .released-library__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
 .released-pack-card { position: relative; min-height: 190px; padding: 1.5rem; border: 1px solid rgba(36,45,52,.16); background: rgba(255,255,255,.3); }
 .released-pack-card__emoji { position: absolute; top: 1rem; right: 1rem; font-size: 1.6rem; }

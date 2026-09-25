@@ -88,6 +88,19 @@ type PublicReleasedPackPreview = {
 
 type PublicDirectoryPack = PublicReleasedPackPreview & { canonical: string };
 
+type PreflightPreviewCard = {
+  thumbnailUrl: string;
+  title: string;
+};
+
+type PreflightReleasedPackPreview = {
+  kind: 'vibe-atlas-preflight-three-card-preview';
+  actor: { id: string; name: string; nameEn: string };
+  vibe: { labelEn: string; copy?: string };
+  vibeIdx: number;
+  cards: PreflightPreviewCard[];
+};
+
 function primaryReleasedCopy(english?: string, chinese?: string, fallback?: string) {
   return english || chinese || fallback || '';
 }
@@ -112,10 +125,48 @@ function safeExternalUrl(value?: string) {
   }
 }
 
+function isSecurePreviewUrl(value: string) {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function isPreflightPreview(value: unknown, actorId?: string | null, vibeIdx?: number | null): value is PreflightReleasedPackPreview {
+  if (!value || typeof value !== 'object') return false;
+  const pack = value as PreflightReleasedPackPreview;
+  return pack.kind === 'vibe-atlas-preflight-three-card-preview'
+    && typeof pack.actor?.id === 'string'
+    && (!actorId || pack.actor.id === actorId)
+    && typeof pack.actor.name === 'string'
+    && typeof pack.actor.nameEn === 'string'
+    && typeof pack.vibe?.labelEn === 'string'
+    && (pack.vibe.copy === undefined || typeof pack.vibe.copy === 'string')
+    && Number.isInteger(pack.vibeIdx)
+    && (vibeIdx == null || pack.vibeIdx === vibeIdx)
+    && Array.isArray(pack.cards)
+    && pack.cards.length === 3
+    && pack.cards.every(card => (
+      typeof card?.title === 'string'
+      && typeof card.thumbnailUrl === 'string'
+      && isSecurePreviewUrl(card.thumbnailUrl)
+    ));
+}
+
+function isPreflightDirectory(value: unknown): value is { previews: PreflightReleasedPackPreview[] } {
+  if (!value || typeof value !== 'object') return false;
+  const directory = value as { kind?: string; previews?: unknown[] };
+  return directory.kind === 'vibe-atlas-preflight-preview-directory'
+    && Array.isArray(directory.previews)
+    && directory.previews.every(pack => isPreflightPreview(pack));
+}
+
 interface Props {
   status: MembershipStatus | null;
   membershipResolved: boolean;
   actorId?: string | null;
+  actorName?: string;
   vibeIndex?: number | null;
   currentRelease?: { actorId: string; vibeIdx: number } | null;
   source: ReleasedLibrarySource;
@@ -125,6 +176,7 @@ export function ReleasedPackLibrary({
   status,
   membershipResolved,
   actorId,
+  actorName,
   vibeIndex,
   currentRelease = null,
   source,
@@ -142,6 +194,12 @@ export function ReleasedPackLibrary({
   const [publicPacks, setPublicPacks] = useState<PublicDirectoryPack[]>([]);
   const [publicPacksLoading, setPublicPacksLoading] = useState(false);
   const [publicPacksError, setPublicPacksError] = useState('');
+  const [preflightPacks, setPreflightPacks] = useState<PreflightReleasedPackPreview[]>([]);
+  const [preflightPacksLoading, setPreflightPacksLoading] = useState(false);
+  const [preflightPacksError, setPreflightPacksError] = useState('');
+  const [preflightPreview, setPreflightPreview] = useState<PreflightReleasedPackPreview | null>(null);
+  const [preflightPreviewLoading, setPreflightPreviewLoading] = useState(false);
+  const [preflightPreviewError, setPreflightPreviewError] = useState('');
   const [publicPreviewLoading, setPublicPreviewLoading] = useState(false);
   const [publicPreviewError, setPublicPreviewError] = useState('');
   const [selectedActor, setSelectedActor] = useState(actorId || '');
@@ -283,9 +341,10 @@ export function ReleasedPackLibrary({
   }, [entitled]);
 
   useEffect(() => {
-    if (entitled) {
+    if (entitled || source === 'daily_star' || source === 'article') {
       setPublicPacks([]);
       setPublicPacksError('');
+      setPublicPacksLoading(false);
       return;
     }
     const controller = new AbortController();
@@ -309,10 +368,10 @@ export function ReleasedPackLibrary({
         if (!controller.signal.aborted) setPublicPacksLoading(false);
       });
     return () => controller.abort();
-  }, [entitled]);
+  }, [entitled, source]);
 
   useEffect(() => {
-    if (entitled || !actorId || vibeIndex == null) {
+    if (entitled || source === 'daily_star' || source === 'article' || !actorId || vibeIndex == null) {
       setPublicPreview(null);
       setPublicPreviewError('');
       setPublicPreviewLoading(false);
@@ -330,9 +389,7 @@ export function ReleasedPackLibrary({
       .then(async response => {
         const body = await response.json().catch(() => null);
         if (response.status === 404) {
-          throw new Error(source === 'daily_star'
-            ? "This pairing has no published public teaser yet. Today's nine-card drop is free on the Vibe Atlas homepage."
-            : 'This pairing does not have a published public preview yet.');
+          throw new Error('This pairing does not have a published public preview yet.');
         }
         if (!response.ok) throw new Error(body?.error || 'Public preview is temporarily unavailable.');
         if (!body?.pack || body.pack.actor?.id !== actorId || body.pack.vibeIdx !== vibeIndex) {
@@ -356,6 +413,97 @@ export function ReleasedPackLibrary({
     };
   }, [actorId, entitled, source, vibeIndex]);
 
+  useEffect(() => {
+    if (entitled || source !== 'daily_star') {
+      setPreflightPacks([]);
+      setPreflightPacksError('');
+      setPreflightPacksLoading(false);
+      return;
+    }
+    if (!actorId) {
+      setPreflightPacks([]);
+      setPreflightPacksError('Today’s actor is unavailable, so its other pack previews cannot be loaded.');
+      setPreflightPacksLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setPreflightPacksLoading(true);
+    setPreflightPacksError('');
+    const params = new URLSearchParams({ actorId });
+    fetch(`/.netlify/functions/public-preflight-preview-directory?${params}`, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    })
+      .then(async response => {
+        const body: unknown = await response.json().catch(() => null);
+        if (!response.ok || !isPreflightDirectory(body)) {
+          throw new Error('Public pack previews are temporarily unavailable.');
+        }
+        const previews = body.previews.filter(preview => preview.actor.id === actorId);
+        if (!controller.signal.aborted) setPreflightPacks(previews);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setPreflightPacksError('Public pack previews are temporarily unavailable.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPreflightPacksLoading(false);
+      });
+    return () => controller.abort();
+  }, [actorId, entitled, source]);
+
+  useEffect(() => {
+    if (entitled || source !== 'article') {
+      setPreflightPreview(null);
+      setPreflightPreviewError('');
+      setPreflightPreviewLoading(false);
+      return;
+    }
+    if (actorId !== 'liu-xueyi' || (vibeIndex !== 1 && vibeIndex !== 2)) {
+      setPreflightPreview(null);
+      setPreflightPreviewError('This article links only to its two approved Liu Xueyi pack previews.');
+      setPreflightPreviewLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setPreflightPreview(null);
+    setPreflightPreviewError('');
+    setPreflightPreviewLoading(true);
+    const params = new URLSearchParams({ actorId, vibeIdx: String(vibeIndex) });
+    fetch(`/.netlify/functions/public-preflight-preview?${params}`, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    })
+      .then(async response => {
+        const body: unknown = await response.json().catch(() => null);
+        if (!response.ok || !isPreflightPreview(body, actorId, vibeIndex)) {
+          throw new Error(response.status === 404
+            ? 'This pairing does not have an approved public preview yet.'
+            : 'Public pack preview is temporarily unavailable.');
+        }
+        if (!controller.signal.aborted) setPreflightPreview(body);
+      })
+      .catch(error => {
+        if (!controller.signal.aborted) {
+          setPreflightPreviewError(error instanceof Error ? error.message : 'Public pack preview is temporarily unavailable.');
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPreflightPreviewLoading(false);
+      });
+    return () => controller.abort();
+  }, [actorId, entitled, source, vibeIndex]);
+
+  const currentDailyPair = currentRelease || (source === 'daily_star' && actorId && vibeIndex != null
+    ? { actorId, vibeIdx: vibeIndex }
+    : null);
+  const dailyActorPacks = source === 'daily_star' && actorId
+    ? preflightPacks.filter(pack => (
+      pack.actor.id === actorId
+      && !(currentDailyPair
+        && pack.actor.id === currentDailyPair.actorId
+        && pack.vibeIdx === currentDailyPair.vibeIdx)
+    ))
+    : [];
   const actor = useMemo(
     () => packs.find(pack => pack.id === selectedActor) || packs[0],
     [packs, selectedActor],
@@ -558,7 +706,7 @@ export function ReleasedPackLibrary({
           <h1>The Vibe Atlas library.</h1>
           <p>Explore released actor × vibe packs—and generate a fresh 图集 from each one. Every grid is saved to your account.</p>
         </header>
-        <section className="released-library__directory" aria-label="Public released-pack previews">
+        {source !== 'daily_star' && source !== 'article' && <section className="released-library__directory" aria-label="Public released-pack previews">
           <h2>Browse public pack previews</h2>
           {publicPacksLoading && <p role="status">Loading public previews…</p>}
           {publicPacksError && <p role="alert">{publicPacksError}</p>}
@@ -589,9 +737,9 @@ export function ReleasedPackLibrary({
               </article>
             );
           })}
-        </section>
-        {publicPreviewLoading && <p role="status">Loading public teaser…</p>}
-        {publicPreview && (
+        </section>}
+        {source !== 'daily_star' && source !== 'article' && publicPreviewLoading && <p role="status">Loading public teaser…</p>}
+        {source !== 'daily_star' && source !== 'article' && publicPreview && (
           <section className="released-library__teaser" aria-labelledby="released-pack-preview-title">
             <div className="released-library__teaser-copy">
               <p className="membership__label">Public teaser · 公开预览</p>
@@ -637,13 +785,60 @@ export function ReleasedPackLibrary({
             </div>
           </section>
         )}
-        {publicPreviewError && (
+        {source !== 'daily_star' && source !== 'article' && publicPreviewError && (
           <div className="membership__notice" role="alert">
             <p>{publicPreviewError}</p>
-            {source === 'daily_star' && (
-              <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}#daily-evidence`}>View today's free nine-card drop</a>
-            )}
           </div>
+        )}
+        {source === 'daily_star' && (
+          <section className="released-library__directory" aria-label="Daily actor preflight previews">
+            <h2>{`${preflightPacks[0]?.actor.nameEn || (currentRelease?.actorId === actorId ? actorName : '') || actorName || 'Today’s star'}’s other Vibe Packs`}</h2>
+            {preflightPacksLoading && <p role="status">Loading approved three-card previews…</p>}
+            {preflightPacksError && <p role="alert">{preflightPacksError}</p>}
+            {!preflightPacksLoading && !preflightPacksError && dailyActorPacks.length === 0 && (
+              <p role="status">{`${actorName || 'This star'}’s other packs do not have approved public previews yet.`}</p>
+            )}
+            {dailyActorPacks.map(pack => (
+              <article className="released-library__teaser" key={`${pack.actor.id}:${pack.vibeIdx}`}>
+                <div className="released-library__teaser-copy">
+                  <p className="membership__label">Approved three-card preview</p>
+                  <h3>{pack.actor.nameEn} × {pack.vibe.labelEn}</h3>
+                  {pack.vibe.copy && <p>{pack.vibe.copy}</p>}
+                </div>
+                <div className="released-image-grid released-image-grid--preview" aria-label={`${pack.actor.nameEn} ${pack.vibe.labelEn} three-card preview`}>
+                  {pack.cards.map((card, index) => (
+                    <figure className="released-image-grid__item" key={`${pack.vibeIdx}-${index}`}>
+                      <img src={safeExternalUrl(card.thumbnailUrl) || undefined} alt={card.title || `Preview card ${index + 1}`} loading="lazy" />
+                      <figcaption><span>{card.title}</span></figcaption>
+                    </figure>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </section>
+        )}
+        {source === 'article' && (
+          <section className="released-library__directory" aria-label="Article-linked public pack preview">
+            {preflightPreviewLoading && <p role="status">Loading approved three-card preview…</p>}
+            {preflightPreviewError && <p role="alert">{preflightPreviewError}</p>}
+            {preflightPreview && (
+              <article className="released-library__teaser">
+                <div className="released-library__teaser-copy">
+                  <p className="membership__label">Approved three-card preview · Liu Xueyi</p>
+                  <h2>{preflightPreview.vibe.labelEn}</h2>
+                  {preflightPreview.vibe.copy && <p>{preflightPreview.vibe.copy}</p>}
+                </div>
+                <div className="released-image-grid released-image-grid--preview" aria-label={`${preflightPreview.actor.nameEn} ${preflightPreview.vibe.labelEn} three-card preview`}>
+                  {preflightPreview.cards.map((card, index) => (
+                    <figure className="released-image-grid__item" key={`${preflightPreview.vibeIdx}-${index}`}>
+                      <img src={safeExternalUrl(card.thumbnailUrl) || undefined} alt={card.title || `Preview card ${index + 1}`} loading="lazy" />
+                      <figcaption><span>{card.title}</span></figcaption>
+                    </figure>
+                  ))}
+                </div>
+              </article>
+            )}
+          </section>
         )}
         <section className="released-library__locked" aria-label="Collector library access">
           <span className="released-library__lock" aria-hidden="true">✦</span>

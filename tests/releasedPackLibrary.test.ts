@@ -459,7 +459,7 @@ test('released pack navigation preserves actor and vibe selection from daily dro
   assert.match(app, /vibeAtlasPath\(\{/);
   assert.match(app, /view: 'released'/);
   assert.match(app, /source: 'daily_star'/);
-  assert.match(app, /source: 'daily_star',\s*\.\.\.\(hasCollectorCapability\(membershipStatus\) \? \{/);
+  assert.match(app, /source: 'daily_star',\s*actorId: rawData\.actorId/);
   assert.match(app, /vibeIdx: rawData\.vibeIdx/);
   assert.match(app, /value !== null && value !== ''/);
   assert.match(app, /<ReleasedPackLibrary/);
@@ -544,4 +544,49 @@ test('only today’s homepage exposes the current released Vibe Pack for free', 
   assert.match(app, /rawData && !selectedEditionDate/);
   assert.match(app, /href="#todays-released-pack"/);
   assert.match(app, /The full released-pack library stays available to Fandom Collectors/);
+});
+
+test('released pack navigation preserves actor and vibe selection from daily drop', async () => {
+  const [app, routes] = await Promise.all([
+    readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/utils/fandomRoutes.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(app, /source: 'daily_star',\s+actorId: rawData\.actorId,\s+vibeIdx: rawData\.vibeIdx/);
+  assert.match(app, /value !== null && value !== ''/);
+  assert.match(app, /<ReleasedPackLibrary/);
+  assert.match(routes, /if \(view === 'released'\) return 'released'/);
+});
+
+test('public released-pack views use bounded three-card previews and article-only pair routing', async () => {
+  const [library, app, article, analytics, admin] = await Promise.all([
+    readFile(new URL('../src/components/ReleasedPackLibrary/ReleasedPackLibrary.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../public/c-drama-fandom/vibing-now/against-the-current-episode-21/index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../src/utils/analytics.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/FandomAdmin/ActorPreflightLab.tsx', import.meta.url), 'utf8'),
+  ]);
+  assert.match(library, /public-preflight-preview-directory/);
+  assert.match(library, /public-preflight-preview\?/);
+  assert.match(library, /vibe-atlas-preflight-preview-directory/);
+  assert.match(library, /vibe-atlas-preflight-three-card-preview/);
+  assert.match(library, /cards\.length === 3/);
+  assert.match(library, /public-preflight-preview-directory\?\$\{params\}/);
+  assert.match(library, /new URLSearchParams\(\{ actorId \}\)/);
+  assert.match(library, /pack\.vibe\.copy/);
+  assert.match(library, /preflightPreview\.vibe\.copy/);
+  assert.match(library, /pack\.actor\.id === actorId/);
+  assert.match(library, /pack\.vibeIdx === currentDailyPair\.vibeIdx/);
+  assert.match(library, /source !== 'article'/);
+  assert.match(library, /actorId !== 'liu-xueyi' \|\| \(vibeIndex !== 1 && vibeIndex !== 2\)/);
+  assert.match(app, /value === 'article'/);
+  assert.match(article, /source=article&amp;actorId=liu-xueyi&amp;vibeIdx=2/);
+  assert.match(article, /source=article&amp;actorId=liu-xueyi&amp;vibeIdx=1/);
+  assert.match(analytics, /'library_navigation' \| 'article'/);
+  assert.match(admin, /publish-preflight-preview/);
+  assert.match(admin, /vibeIdx: pairing\.vibeIdx/);
+  assert.match(admin, /editorialCopy: customCopy/);
+  assert.match(admin, /customCopy\.length < 40/);
+  assert.match(admin, /pairing\?\.verdict === 'approved_override'/);
+  assert.match(admin, /pairing\?\.eligible===true/);
+  assert.match(admin, /mode: 'same-origin'/);
 });

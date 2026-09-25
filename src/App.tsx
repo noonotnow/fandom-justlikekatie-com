@@ -902,10 +902,8 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
              <a href={vibeAtlasPath({
                view: 'released',
                source: 'daily_star',
-               ...(hasCollectorCapability(membershipStatus) ? {
-                 actorId: rawData.actorId,
-                 vibeIdx: rawData.vibeIdx,
-               } : {}),
+               actorId: rawData.actorId,
+               vibeIdx: rawData.vibeIdx,
              })}>
                Open the Collector library
              </a>
@@ -1010,11 +1008,12 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             : null}
           source={(() => {
             const value = new URLSearchParams(window.location.search).get('source');
-            return value === 'daily_star' || value === 'public_record'
+            return value === 'daily_star' || value === 'public_record' || value === 'article'
               ? value
               : 'library_navigation';
           })()}
           actorId={new URLSearchParams(window.location.search).get('actorId')}
+          actorName={rawData?.actorShortNameEn || rawData?.actorName}
           vibeIndex={(() => {
             const value = new URLSearchParams(window.location.search).get('vibeIdx');
             return value !== null && value !== '' && Number.isInteger(Number(value))
