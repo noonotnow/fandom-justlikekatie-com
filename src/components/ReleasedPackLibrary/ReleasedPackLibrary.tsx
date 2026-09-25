@@ -116,6 +116,7 @@ interface Props {
   status: MembershipStatus | null;
   membershipResolved: boolean;
   actorId?: string | null;
+  actorName?: string;
   vibeIndex?: number | null;
   currentRelease?: { actorId: string; vibeIdx: number } | null;
   source: ReleasedLibrarySource;
@@ -125,6 +126,7 @@ export function ReleasedPackLibrary({
   status,
   membershipResolved,
   actorId,
+  actorName,
   vibeIndex,
   currentRelease = null,
   source,
@@ -283,9 +285,10 @@ export function ReleasedPackLibrary({
   }, [entitled]);
 
   useEffect(() => {
-    if (entitled) {
+    if (entitled || source === 'article') {
       setPublicPacks([]);
       setPublicPacksError('');
+      setPublicPacksLoading(false);
       return;
     }
     const controller = new AbortController();
@@ -309,10 +312,10 @@ export function ReleasedPackLibrary({
         if (!controller.signal.aborted) setPublicPacksLoading(false);
       });
     return () => controller.abort();
-  }, [entitled]);
+  }, [entitled, source]);
 
   useEffect(() => {
-    if (entitled || !actorId || vibeIndex == null) {
+    if (entitled || source === 'daily_star' || !actorId || vibeIndex == null) {
       setPublicPreview(null);
       setPublicPreviewError('');
       setPublicPreviewLoading(false);
@@ -330,9 +333,7 @@ export function ReleasedPackLibrary({
       .then(async response => {
         const body = await response.json().catch(() => null);
         if (response.status === 404) {
-          throw new Error(source === 'daily_star'
-            ? "This pairing has no published public teaser yet. Today's nine-card drop is free on the Vibe Atlas homepage."
-            : 'This pairing does not have a published public preview yet.');
+          throw new Error('This pairing does not have a published public preview yet.');
         }
         if (!response.ok) throw new Error(body?.error || 'Public preview is temporarily unavailable.');
         if (!body?.pack || body.pack.actor?.id !== actorId || body.pack.vibeIdx !== vibeIndex) {
@@ -355,6 +356,19 @@ export function ReleasedPackLibrary({
       controller.abort();
     };
   }, [actorId, entitled, source, vibeIndex]);
+
+  const isDailyActorView = source === 'daily_star' && Boolean(actorId);
+  const scopedPublicPacks = actorId
+    ? publicPacks.filter(pack => pack.actor.id === actorId)
+    : publicPacks;
+  const visiblePublicPacks = isDailyActorView
+    ? scopedPublicPacks.filter(pack => (
+      pack.actor.id !== currentRelease?.actorId || pack.vibeIdx !== currentRelease.vibeIdx
+    ))
+    : scopedPublicPacks;
+  const displayedActorName = actorName
+    || scopedPublicPacks[0]?.actor.nameEn
+    || actorId?.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
 
   const actor = useMemo(
     () => packs.find(pack => pack.id === selectedActor) || packs[0],
@@ -558,14 +572,16 @@ export function ReleasedPackLibrary({
           <h1>The Vibe Atlas library.</h1>
           <p>Explore released actor × vibe packs—and generate a fresh 图集 from each one. Every grid is saved to your account.</p>
         </header>
-        <section className="released-library__directory" aria-label="Public released-pack previews">
-          <h2>Browse public pack previews</h2>
+        {source !== 'article' && <section className="released-library__directory" aria-label="Public released-pack previews">
+          <h2>{isDailyActorView ? `${displayedActorName || 'Today’s star'}’s other Vibe Packs` : 'Browse public pack previews'}</h2>
           {publicPacksLoading && <p role="status">Loading public previews…</p>}
           {publicPacksError && <p role="alert">{publicPacksError}</p>}
-          {!publicPacksLoading && !publicPacksError && publicPacks.length === 0 && (
-            <p role="status">No public pack previews are published yet. Today’s free grid is on the <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}#daily-evidence`}>Vibe Atlas homepage</a>.</p>
+          {!publicPacksLoading && !publicPacksError && visiblePublicPacks.length === 0 && (
+            <p role="status">{isDailyActorView
+              ? `${displayedActorName || 'This star'}’s other packs do not have verified public previews ready yet.`
+              : 'No public pack previews are published yet.'} Today’s free nine-card drop is on the <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}#daily-evidence`}>Vibe Atlas homepage</a>.</p>
           )}
-          {publicPacks.map(pack => {
+          {visiblePublicPacks.map(pack => {
             const url = safeExternalUrl(pack.canonical);
             const path = url ? new URL(url).pathname : null;
             return (
@@ -589,7 +605,7 @@ export function ReleasedPackLibrary({
               </article>
             );
           })}
-        </section>
+        </section>}
         {publicPreviewLoading && <p role="status">Loading public teaser…</p>}
         {publicPreview && (
           <section className="released-library__teaser" aria-labelledby="released-pack-preview-title">

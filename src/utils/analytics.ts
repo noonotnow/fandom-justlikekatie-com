@@ -32,7 +32,7 @@ export interface ArchiveLinkReviewNotificationState {
 }
 export type GridBuilderMode = 'smart' | 'manual';
 export type ArchiveRebuildPlacement = 'edition_detail' | 'archive_card';
-export type ReleasedLibrarySource = 'daily_star' | 'public_record' | 'library_navigation';
+export type ReleasedLibrarySource = 'daily_star' | 'public_record' | 'article' | 'library_navigation';
 type ReleasedLibraryFilter = 'actor' | 'vibe';
 
 const RELEASED_ACTOR_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+){0,7}$/;
