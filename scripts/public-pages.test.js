@@ -403,9 +403,10 @@ test("Against the Current stays within Episode 21 and uses registered static edi
       "damage-control", "romance-imbalance", "defining-current", "emerging-vibe", "pack-verdict"],
   );
   assert.match(html, /<p class="breadcrumb"><a href="\/c-drama-fandom\/">C-drama fandom<\/a> \/ <a href="\/c-drama-fandom\/vibing-now\/">Vibing Now<\/a><\/p>/);
-  assert.match(html, /view=released&amp;source=library_navigation&amp;actorId=liu-xueyi&amp;vibeIdx=2/);
-  assert.match(html, /view=released&amp;source=library_navigation&amp;actorId=liu-xueyi&amp;vibeIdx=1/);
-  assert.match(html, /Explore Liu Xueyi’s Vibe Packs/);
+  assert.match(html, /view=released&amp;source=article&amp;actorId=liu-xueyi&amp;vibeIdx=2/);
+  assert.match(html, /view=released&amp;source=article&amp;actorId=liu-xueyi&amp;vibeIdx=1/);
+  assert.doesNotMatch(html, /source=library_navigation&amp;actorId=liu-xueyi/);
+  assert.match(html, /Explore the two Vibe Packs linked above/);
   assert.match(html, /Silk-Robed Damage Control<\/strong> <em>\(Pack candidate · unreleased\)<\/em>/);
   assert.match(html, /Spoiler boundary: Episode 21 · No preview, later-episode, novel, or endgame material included/);
   assert.doesNotMatch(html, /Research boundary|Rendition map|Episode 2[2-9]\b|HK01|CPOP HOME/i);
