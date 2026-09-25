@@ -96,6 +96,8 @@ test("released pack preview returns a graceful fallback for released pairs witho
       collectorPackIds: ["liu-xueyi:2"],
       packs: [],
     }),
+    getEligibilitySnapshot: async () => ({ status: "released" }),
+    releaseEligibilityPredicate: () => true,
   });
   const result = await handler(new Request("https://fandom.justlikekatie.com/.netlify/functions/released-pack-preview?actorId=liu-xueyi&vibeIdx=2"), {});
   const body = await result.json();
@@ -120,6 +122,8 @@ test("released pack preview remains fail-closed for invalid or unreleased pairs"
       collectorPackIds: ["liu-xueyi:2"],
       packs: [],
     }),
+    getEligibilitySnapshot: async () => ({ status: "not_released" }),
+    releaseEligibilityPredicate: () => false,
   });
   const result = await handler(new Request("https://fandom.justlikekatie.com/.netlify/functions/released-pack-preview?actorId=liu-xueyi&vibeIdx=1"), {});
   assert.equal(result.status, 404);
